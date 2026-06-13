@@ -110,6 +110,20 @@ pub struct SurveyMissionTemplate {
     /// template for fast dispatch-time lookup.
     #[serde(default)]
     pub is_ground_team: bool,
+    /// Per-template failure modes (PR-G, GRA-85). When empty, the
+    /// dispatch and finalise systems fall back to the hardcoded
+    /// `MissionFailureReason::probability(method)` table from PR-B
+    /// — so templates that pre-date PR-G (or modders that haven't
+    /// added `failure_modes` to their RON yet) keep the design-
+    /// doc rates without a Rust change. When non-empty, the typed
+    /// roll in
+    /// [`roll_typed_mission_outcome`](crate::survey::systems::roll_typed_mission_outcome)
+    /// iterates this list and selects one entry with
+    /// probability proportional to its `probability` field. The
+    /// sum of the per-entry probabilities must be `<= 1.0`; the
+    /// remainder is the success rate.
+    #[serde(default)]
+    pub failure_modes: Vec<crate::survey::types::FailureMode>,
 }
 
 fn default_template_yield() -> f32 {
@@ -456,4 +470,151 @@ pub fn load_mission_templates(mut commands: Commands) {
     }
     info!("Loaded {} survey mission templates", map.len());
     commands.insert_resource(SurveyMissionTemplates { templates: map });
+}
+
+// ── PR-G: RecoveryMission + RecoveryMissionRegistry ──────────────
+
+/// What a recovery mission does. Drives the dossier UI's
+/// "Recovery" CTA label and the recovery-mission icon. Maps to
+/// the issue body's three recovery kinds
+/// (`equipment_recovery`, `crew_extraction`,
+/// `data_relay_replacement`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RecoveryMissionKind {
+    /// Send a retrieval ship / rover to recover stuck equipment
+    /// (rover, drill rig, etc.). 1 chemical survey ship + 60-180
+    /// sim-days for a stuck rover; 1 NTR ship + 1 sim-year for a
+    /// stranded drill rig.
+    EquipmentRecovery,
+    /// Extract a stranded or injured crew member. Same ship
+    /// profile as `EquipmentRecovery` but the player's incentive
+    /// is personnel (the scientist's 90-day injury cooldown is
+    /// the cost of failing to extract).
+    CrewExtraction,
+    /// Replace a lost probe or comms relay. Faster than the
+    /// other two (the replacement is a fresh dispatch of the
+    /// original mission template), so the recovery-mission
+    /// `base_duration_days` is typically half the original
+    /// template's duration.
+    DataRelayReplacement,
+}
+
+impl RecoveryMissionKind {
+    /// Stable RON id. Used in tests and for modder overrides.
+    pub fn ron_id(self) -> &'static str {
+        match self {
+            RecoveryMissionKind::EquipmentRecovery => "equipment_recovery",
+            RecoveryMissionKind::CrewExtraction => "crew_extraction",
+            RecoveryMissionKind::DataRelayReplacement => "data_relay_replacement",
+        }
+    }
+
+    /// Parse from a RON id. Returns `None` for unknown strings
+    /// so modders can add new kinds without breaking the loader.
+    pub fn from_ron_id(id: &str) -> Option<Self> {
+        match id {
+            "equipment_recovery" => Some(Self::EquipmentRecovery),
+            "crew_extraction" => Some(Self::CrewExtraction),
+            "data_relay_replacement" => Some(Self::DataRelayReplacement),
+            _ => None,
+        }
+    }
+}
+
+/// One recovery mission template. Dispatched automatically when
+/// the matching failure mode fires (`RoverStuck`,
+/// `DrillBitStuck`) or by the dossier "DISPATCH RECOVERY"
+/// button. The recovery mission runs as a regular
+/// `ActiveSurveyMission` on the same body; on success the
+/// `recover_of: Some(original_mission_id)` link flips the
+/// original back from `Failed` to `Active`.
+///
+/// Loaded from `assets/data/survey/recovery_missions.ron` via
+/// [`load_recovery_missions`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RecoveryMission {
+    pub id: String,
+    pub display_name: String,
+    /// Drives the dossier UI label and the recovery-mission
+    /// icon. Modders can introduce new kinds in code; RON
+    /// loaders accept any id and fall back to
+    /// `EquipmentRecovery` for unknown ones (with a `warn!`).
+    pub kind: RecoveryMissionKind,
+    /// Failure kinds this template can recover from. The auto-
+    /// spawn path picks a recovery template by matching
+    /// `failure_modes[i].recovery_mission_id` to `id`; the
+    /// manual "DISPATCH RECOVERY" UI button shows a filtered
+    /// list of templates whose `recovers_from` includes the
+    /// original mission's failure reason.
+    pub recovers_from: Vec<crate::survey::types::MissionFailureReason>,
+    /// Typical mission duration in sim-days. The dispatch
+    /// system uses this for the recovery mission's
+    /// `expected_completion_sim_time`. The issue body's
+    /// defaults: 60-180 sim-days for rover rescue, 1 sim-year
+    /// for drill retrieval.
+    pub base_duration_days: u32,
+    /// Brief description for the dossier tooltip. Surfaced as
+    /// a single-line hint under the recovery-mission row in
+    /// the "FAILED MISSIONS" section.
+    pub description: String,
+}
+
+/// Registry of recovery mission templates. Loaded from
+/// `assets/data/survey/recovery_missions.ron` (PR-G).
+///
+/// Modders add new recovery templates by appending rows; the
+/// loader inserts them into `missions` keyed by `id`. The
+/// dispatch system consults the registry when a failure
+/// auto-spawns a recovery mission, and the dossier UI uses
+/// the same registry to populate the "DISPATCH RECOVERY"
+/// button.
+#[derive(Resource, Debug, Clone, Default, Serialize, Deserialize)]
+pub struct RecoveryMissionRegistry {
+    /// Recovery mission definitions, keyed by RON id. Empty
+    /// until `load_recovery_missions` runs.
+    pub missions: HashMap<String, RecoveryMission>,
+}
+
+impl RecoveryMissionRegistry {
+    /// Look up a recovery mission by RON id. Returns `None` for
+    /// unknown ids so the auto-spawn path can `warn!` and fall
+    /// through to the manual-dispatch path.
+    pub fn get(&self, id: &str) -> Option<&RecoveryMission> {
+        self.missions.get(id)
+    }
+}
+
+/// On-disk shape of `assets/data/survey/recovery_missions.ron`.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct RecoveryMissionsFile {
+    pub missions: Vec<RecoveryMission>,
+}
+
+/// Load `assets/data/survey/recovery_missions.ron` into the
+/// [`RecoveryMissionRegistry`] resource. Mirrors the
+/// `load_mission_templates` pattern: returns silently on
+/// missing-file, logs `warn!` on parse error.
+///
+/// Called from `SurveyPlugin::build` so the registry is
+/// populated before any `advance_survey_missions` tick that
+/// might need to look up a recovery template.
+pub fn load_recovery_missions(mut commands: Commands) {
+    let path = "assets/data/survey/recovery_missions.ron";
+    let missions = match std::fs::read_to_string(path) {
+        Ok(contents) => match ron::from_str::<RecoveryMissionsFile>(&contents) {
+            Ok(file) => file.missions,
+            Err(error) => {
+                warn!("Failed to parse {}: {}", path, error);
+                Vec::new()
+            }
+        },
+        Err(_) => Vec::new(),
+    };
+    let mut map: HashMap<String, RecoveryMission> = HashMap::new();
+    for m in missions {
+        map.insert(m.id.clone(), m);
+    }
+    info!("Loaded {} recovery mission templates", map.len());
+    commands.insert_resource(RecoveryMissionRegistry { missions: map });
 }

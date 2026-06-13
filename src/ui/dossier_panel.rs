@@ -30,11 +30,12 @@ use crate::economy::components::{SpectralClass, StarSystem};
 use crate::economy::mining::MiningOperation;
 use crate::plugins::solar_system_data::{AsteroidClass, BodyType};
 use crate::survey::components::{
-    ActiveSurveyMission, ContinuousStationBonus, ContinuousSurveyStation, SurveyState,
+    ActiveSurveyMission, ContinuousStationBonus, ContinuousSurveyStation, FailedMissionRecord,
+    SurveyState,
 };
 use crate::survey::data::SurveyMissionTemplates;
-use crate::survey::events::{AbortSurveyMission, DispatchSurveyMission};
-use crate::survey::types::MissionStatus;
+use crate::survey::events::{AbortSurveyMission, DismissFailedMission, DispatchSurveyMission};
+use crate::survey::types::{MissionFailureReason, MissionStatus};
 use bevy::ecs::system::SystemParam;
 use std::borrow::Cow;
 use std::f32::consts::TAU;
@@ -1534,6 +1535,26 @@ fn draw_resource_section(
         draw_active_missions_list(ui, entity, &state.active_missions, commands);
     }
 
+    // PR-G (GRA-85) — Failed-mission notifications live on `SurveyState`
+    // too. The dossier renders them under ACTIVE MISSIONS so the
+    // player's eye reads [IN FLIGHT] → [FAILED] → [DEPOSITS]. Only
+    // shown when the list is non-empty; the "FAILED MISSIONS" section
+    // is hidden on bodies with no recent failures to keep the dossier
+    // uncluttered.
+    if let Some(state) = survey_state {
+        if !state.failed_mission_notifications.is_empty() {
+            ui.add_space(theme::Spacing::xs);
+            theme::section_h3(ui, "FAILED MISSIONS");
+            draw_failed_missions_list(
+                ui,
+                entity,
+                &state.failed_mission_notifications,
+                &state.active_missions,
+                commands,
+            );
+        }
+    }
+
     ui.add_space(theme::Spacing::xs);
 
     // PR-B (GRA-67) — `theme::section_h3` introduces each sub-section.
@@ -1647,6 +1668,148 @@ fn draw_active_missions_list(
         });
 
         ui.add_space(4.0);
+    }
+}
+
+/// Render the failed-mission notification cards (PR-G, GRA-85).
+///
+/// Each card shows:
+/// - The mission's name + method (small dim text)
+/// - The failure reason as a red badge (e.g. "ROVER STUCK")
+/// - The sim-day timestamp the mission failed
+/// - One or more action buttons on the right:
+///   - **ACCEPT LOSS** — always present. Fires
+///     `DismissFailedMission` to remove the card.
+///   - **DISPATCH RECOVERY** — only when the failure mode
+///     named a `recovery_mission_id` AND the record's
+///     `recovery_mission_active_id` is `None` (i.e. the
+///     auto-spawn path didn't fire, or the player wants to
+///     re-dispatch after a recovery was aborted). Fires a
+///     `DispatchSurveyMission` event for the recovery
+///     template id.
+///   - **RECOVERED** — read-only badge shown when the linked
+///     recovery mission's id resolves to a `Succeeded`
+///     mission in the body's `active_missions` (the recovery
+///     succeeded; the original was flipped to `Succeeded`
+///     too).
+fn draw_failed_missions_list(
+    ui: &mut egui::Ui,
+    body: Entity,
+    records: &[FailedMissionRecord],
+    active_missions: &[ActiveSurveyMission],
+    commands: &mut Commands,
+) {
+    for rec in records {
+        ui.horizontal(|ui| {
+            ui.label(
+                egui::RichText::new(&rec.display_name)
+                    .font(mono_font(11.0))
+                    .color(TEXT_VALUE),
+            );
+            ui.label(
+                egui::RichText::new(rec.method.ron_id())
+                    .font(mono_font(9.0))
+                    .color(TEXT_DIM),
+            );
+        });
+        ui.horizontal(|ui| {
+            ui.label(
+                egui::RichText::new(format_failure_reason(rec.reason))
+                    .font(mono_font(9.0))
+                    .color(RED_ACCENT),
+            );
+            ui.label(
+                egui::RichText::new(format!("on sim-day {:.0}", rec.failed_sim_time / 86_400.0))
+                    .font(mono_font(9.0))
+                    .color(TEXT_DIM),
+            );
+        });
+        // Recovery description (if the failure mode names one).
+        if let Some(desc) = &rec.recovery_mission_display_name {
+            ui.label(
+                egui::RichText::new(format!("Recovery: {desc}"))
+                    .font(mono_font(9.0))
+                    .color(TEXT_DIM),
+            );
+        }
+
+        ui.horizontal(|ui| {
+            // Action buttons sit on the right.
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                // ACCEPT LOSS — always present.
+                if ui
+                    .small_button(
+                        egui::RichText::new("ACCEPT LOSS")
+                            .font(mono_font(9.0))
+                            .color(RED_ACCENT),
+                    )
+                    .clicked()
+                {
+                    commands.write_message(DismissFailedMission {
+                        body,
+                        mission_id: rec.mission_id,
+                    });
+                }
+                // DISPATCH RECOVERY — only when the record names a
+                // recovery template and no recovery is currently
+                // active. If the recovery has already succeeded,
+                // show a "RECOVERED" badge instead.
+                if let Some(recovery_id) = rec.recovery_mission_active_id {
+                    if let Some(rmission) = active_missions.iter().find(|m| m.id == recovery_id) {
+                        if rmission.status == MissionStatus::Succeeded {
+                            ui.small_button(
+                                egui::RichText::new("\u{2713} RECOVERED")
+                                    .font(mono_font(9.0))
+                                    .color(GREEN_ACCENT),
+                            )
+                            .on_disabled_hover_text(
+                                "Recovery mission succeeded; original flipped to Succeeded.",
+                            );
+                        } else {
+                            // Recovery still in flight — no button
+                            // (the player can ABORT the active
+                            // recovery from the ACTIVE MISSIONS
+                            // list above).
+                            ui.label(
+                                egui::RichText::new("RECOVERY IN FLIGHT")
+                                    .font(mono_font(9.0))
+                                    .color(AMBER),
+                            );
+                        }
+                    }
+                } else if let Some(recovery_template_id) = &rec.recovery_mission_id {
+                    if ui
+                        .small_button(
+                            egui::RichText::new("\u{25B6} DISPATCH RECOVERY")
+                                .font(mono_font(9.0))
+                                .color(ACCENT),
+                        )
+                        .clicked()
+                    {
+                        let name = format!("{} Recovery", rec.display_name);
+                        commands.write_message(DispatchSurveyMission {
+                            body,
+                            template_id: recovery_template_id.clone(),
+                            name,
+                            scientist_ids: vec![],
+                        });
+                    }
+                }
+            });
+        });
+
+        ui.add_space(4.0);
+    }
+}
+
+/// Short upper-case badge label for a failure reason.
+fn format_failure_reason(reason: MissionFailureReason) -> &'static str {
+    match reason {
+        MissionFailureReason::ProbeLoss => "PROBE LOST",
+        MissionFailureReason::RoverStuck => "ROVER STUCK",
+        MissionFailureReason::DrillBitStuck => "DRILL BIT STUCK",
+        MissionFailureReason::SolarStorm => "SOLAR STORM",
+        MissionFailureReason::CrewInjury => "CREW INJURED",
     }
 }
 

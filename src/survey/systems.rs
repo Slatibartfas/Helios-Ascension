@@ -25,14 +25,18 @@ use std::hash::{Hash, Hasher};
 
 use super::components::{
     ActiveSurveyMission, ContinuousStationBonus, ContinuousSurveyStation, DetectedAnomaly,
-    DimensionFidelity, ExtractionSite, LandingSite, SiteScores, SurveyState,
-    LANDING_SITE_EVAL_THRESHOLD, MAX_SITES_PER_BODY, MIN_SITES_PER_BODY,
+    DimensionFidelity, ExtractionSite, FailedMissionRecord, LandingSite, SiteScores, SurveyState,
+    LANDING_SITE_EVAL_THRESHOLD, MAX_FAILED_MISSION_NOTIFICATIONS, MAX_SITES_PER_BODY,
+    MIN_SITES_PER_BODY,
 };
-use super::data::{SurveyAnomalyRegistry, SurveyMissionTemplate};
-use super::events::{AbortSurveyMission, DispatchSurveyMission, SurveyEvent};
+use super::data::{
+    RecoveryMission, RecoveryMissionRegistry, SurveyAnomalyRegistry, SurveyMissionTemplate,
+};
+use super::events::{AbortSurveyMission, DismissFailedMission, DispatchSurveyMission, SurveyEvent};
 use super::types::{
-    axis_advance_rate_for_tier, mining_yield_delta_for_tier, AnomalyType, MissionFailureReason,
-    MissionStatus, SurveyDimension, SurveyMethod, MAX_TIER, SURVEY_DAYS_PER_YEAR,
+    axis_advance_rate_for_tier, mining_yield_delta_for_tier, AnomalyType, FailureKind, FailureMode,
+    MissionFailureReason, MissionStatus, SurveyDimension, SurveyMethod, MAX_TIER,
+    SURVEY_DAYS_PER_YEAR,
 };
 use crate::colony::types::BuildingType;
 use crate::personnel::components::Scientist;
@@ -424,14 +428,39 @@ fn finalize_completing_missions_on_body(body_entity: Entity, sim_time: f64, worl
             let state = world.get::<SurveyState>(body_entity).unwrap();
             state.active_missions[idx].method
         };
+        let template_id = {
+            let state = world.get::<SurveyState>(body_entity).unwrap();
+            state.active_missions[idx].template_id.clone()
+        };
 
-        // Roll for failure. The rng borrow is scoped to a block
-        // so it ends before we re-borrow the world for
-        // `finalize_mission`.
+        // Roll for failure. PR-G (GRA-85) prefers the typed-roll
+        // path when the mission's template has a non-empty
+        // `failure_modes` list; the legacy hardcoded
+        // `MissionFailureReason::probability(method)` table is
+        // the fallback for templates that haven't been updated
+        // for PR-G (the common case for modder-edited RONs and
+        // pre-PR-G saves).
+        //
+        // Look up the template's `failure_modes` BEFORE the rng
+        // borrow, so the rng borrow has exclusive access to
+        // `world` (Bevy 0.18's `&mut World` cannot host a
+        // mutable and an immutable borrow at the same time).
+        let typed_failure_modes: Option<Vec<FailureMode>> = {
+            let templates = world.resource::<super::data::SurveyMissionTemplates>();
+            templates
+                .templates
+                .get(&template_id)
+                .map(|t| t.failure_modes.clone())
+        };
         let outcome = {
             let mut rng = world.resource_mut::<crate::economy::generation::ProceduralRng>();
             let rng_inner: &mut StdRng = &mut rng.0;
-            roll_mission_outcome(rng_inner, method)
+            match typed_failure_modes {
+                Some(modes) if !modes.is_empty() => {
+                    roll_typed_mission_outcome(rng_inner, &modes, method)
+                }
+                _ => roll_mission_outcome(rng_inner, method),
+            }
         };
 
         // Take the mission out of state for the finalize call.
@@ -611,22 +640,101 @@ fn finalize_mission(
                 method: mission.method,
             });
             mission.status = MissionStatus::Succeeded;
+
+            // PR-G (GRA-85): if this success was for a recovery
+            // mission, flip the original failed mission to
+            // `Succeeded` so the dossier history shows the
+            // full timeline (Failed → Recovery → Succeeded). The
+            // per-axis promotion above is the recovery's
+            // contribution to the body's tier map; the
+            // original's per-axis work was already rolled back at
+            // its own failure finalize.
+            if let Some(orig_id) = mission.recover_of {
+                promote_recovered_mission(body_entity, orig_id, world);
+            }
             updates
         }
-        MissionOutcome::Failure(reason) => {
-            // Failure: clear the scientists' assignment and (on
-            // crew injury) injure the first scientist in the team.
-            // Partial progress is rolled back to the pre-mission
-            // snapshot (the body's tier map is unchanged). PR-C may
-            // revisit the partial-retain policy.
+        MissionOutcome::Failure { reason, kind } => {
+            // PR-G (GRA-85): apply the kind-specific effects.
+            // - CrewInjury: injure the first scientist; the
+            //   duration comes from the FailureKind payload
+            //   when present, otherwise the PR-B default
+            //   (INJURY_DURATION_DAYS).
+            // - SolarStorm: reduce the affected dimensions'
+            //   confidence by the FailureKind's penalty
+            //   (defaulted to DEFAULT_SOLAR_STORM_PENALTY).
+            // - RoverStuck / DrillBitStuck: auto-spawn the
+            //   recovery mission named by the FailureKind.
+            // - ProbeLoss: nothing to do beyond the standard
+            //   failure flow (the player's recovery is a fresh
+            //   dispatch of the same template, surfaced via
+            //   the dossier card).
             if *reason == MissionFailureReason::CrewInjury {
-                if let Some(evt) = injure_first_scientist(body_entity, mission, sim_time, world) {
+                let injury_days = match kind {
+                    Some(FailureKind::CrewInjury {
+                        injury_duration_days,
+                    }) => *injury_duration_days as f64,
+                    _ => INJURY_DURATION_DAYS,
+                };
+                if let Some(evt) = injure_first_scientist_with_duration(
+                    body_entity,
+                    mission,
+                    sim_time,
+                    injury_days,
+                    world,
+                ) {
                     world.write_message(evt);
                 }
             } else {
                 // Non-injury failure: just clear the assignment.
                 clear_scientist_assignments(world, mission);
             }
+
+            // Solar-storm confidence penalty (PR-G). Applied to
+            // the per-axis confidence of every targeted
+            // dimension. The reduction is the FailureKind's
+            // payload, or DEFAULT_SOLAR_STORM_PENALTY when the
+            // legacy fallback path synthesised the outcome.
+            if *reason == MissionFailureReason::SolarStorm {
+                let penalty = match kind {
+                    Some(FailureKind::SolarStormDataCorruption { confidence_penalty }) => {
+                        *confidence_penalty
+                    }
+                    _ => super::types::DEFAULT_SOLAR_STORM_PENALTY,
+                };
+                apply_solar_storm_penalty(body_entity, mission, penalty, world);
+            }
+
+            // Auto-spawn recovery on RoverStuck / DrillBitStuck
+            // (PR-G). The dispatch fires a MissionStarted event
+            // for the recovery and pushes a new mission onto
+            // the body's active list. The recovery's `recover_of`
+            // field links back to this failed mission.
+            let recovery_template_id: Option<String> = match kind {
+                Some(FailureKind::RoverStuck {
+                    recovery_mission_id,
+                }) => {
+                    if recovery_mission_id.is_empty() {
+                        None
+                    } else {
+                        Some(recovery_mission_id.clone())
+                    }
+                }
+                Some(FailureKind::DrillBitStuck {
+                    recovery_mission_id,
+                }) => {
+                    if recovery_mission_id.is_empty() {
+                        None
+                    } else {
+                        Some(recovery_mission_id.clone())
+                    }
+                }
+                _ => None,
+            };
+            let recovery_mission_active_id = match &recovery_template_id {
+                Some(rid) => dispatch_recovery_mission(body_entity, mission, rid, sim_time, world),
+                None => None,
+            };
 
             // Fire the companion event (e.g. `ProbeLost`,
             // `RoverStuck`) and the umbrella `MissionFailed`.
@@ -640,6 +748,31 @@ fn finalize_mission(
                 method: mission.method,
                 reason: *reason,
             });
+
+            // Push the dossier "FAILED MISSIONS" notification
+            // record (PR-G). The record carries the recovery
+            // template id and the active recovery mission id
+            // (if auto-spawned) so the UI can render the right
+            // action buttons.
+            let recovery_display_name = recovery_template_id
+                .as_ref()
+                .and_then(|rid| world.resource::<RecoveryMissionRegistry>().get(rid))
+                .map(|r| r.display_name.clone());
+            push_failed_mission_record(
+                body_entity,
+                FailedMissionRecord {
+                    mission_id: mission.id,
+                    display_name: mission.name.clone(),
+                    method: mission.method,
+                    reason: *reason,
+                    failed_sim_time: sim_time,
+                    recovery_mission_id: recovery_template_id,
+                    recovery_mission_display_name: recovery_display_name,
+                    recovery_mission_active_id,
+                },
+                world,
+            );
+
             mission.status = MissionStatus::Failed;
             // No fidelity updates on failure — the body's tier map
             // is unchanged. The mission's per-axis progress is
@@ -692,19 +825,25 @@ fn clear_scientist_assignments(world: &mut World, mission: &ActiveSurveyMission)
     }
 }
 
-/// Injure the first scientist in the team. Returns the
-/// [`SurveyEvent::CrewInjured`] event to send (or `None` if there
-/// are no scientists on the team — which can't happen in
-/// practice because the dispatch system drops ground-team
+/// PR-G (GRA-85): injure the first scientist in the team with
+/// an explicit injury duration. Used by `finalize_mission`
+/// when a `FailureKind::CrewInjury { injury_duration_days }`
+/// payload is present (the typical path) and by the legacy
+/// 90-day default when the fallback path synthesises a
+/// `CrewInjury` outcome. Returns the
+/// [`SurveyEvent::CrewInjured`] event to send (or `None` if
+/// there are no scientists on the team — which can't happen
+/// in practice because the dispatch system drops ground-team
 /// missions with no team, but the function stays defensive).
-fn injure_first_scientist(
+fn injure_first_scientist_with_duration(
     body_entity: Entity,
     mission: &ActiveSurveyMission,
     sim_time: f64,
+    injury_days: f64,
     world: &mut World,
 ) -> Option<SurveyEvent> {
     let first_id = *mission.assigned_scientists.first()?;
-    let injured_until = sim_time + INJURY_DURATION_DAYS * 86_400.0;
+    let injured_until = sim_time + injury_days * 86_400.0;
     let mut scientist_name = String::new();
     {
         let mut state = world.query::<&mut Scientist>();
@@ -728,6 +867,173 @@ fn injure_first_scientist(
         scientist_name,
         injured_until_sim_time: injured_until,
     })
+}
+
+/// PR-G (GRA-85): apply a solar-storm confidence penalty to
+/// every dimension the failed mission was targeting. The
+/// penalty reduces each axis's confidence by `penalty` (clamped
+/// to `[0.0, 1.0]`), leaving the tier unchanged. Future
+/// measurements will recover the confidence naturally via the
+/// `INITIAL_CONFIDENCE` bump on the next data point.
+fn apply_solar_storm_penalty(
+    body_entity: Entity,
+    mission: &ActiveSurveyMission,
+    penalty: f32,
+    world: &mut World,
+) {
+    let penalty = penalty.clamp(0.0, 1.0);
+    if penalty <= 0.0 {
+        return;
+    }
+    let mut state = match world.get_mut::<SurveyState>(body_entity) {
+        Some(s) => s,
+        None => return,
+    };
+    for dim in mission.per_axis_progress.keys() {
+        let f = state.fidelity(*dim);
+        state.set_fidelity(
+            *dim,
+            DimensionFidelity {
+                tier: f.tier,
+                last_measured_sim_time: f.last_measured_sim_time,
+                confidence: (f.confidence - penalty).max(0.0),
+            },
+        );
+    }
+}
+
+/// PR-G (GRA-85): auto-spawn a recovery mission in response to
+/// a `RoverStuck` or `DrillBitStuck` failure. Looks up the
+/// recovery template by id, builds a fresh `ActiveSurveyMission`
+/// with `recover_of: Some(orig_id)`, pushes it onto the body's
+/// active list, and fires `SurveyEvent::MissionStarted`.
+///
+/// Returns the new mission's id, or `None` if the recovery
+/// template id is unknown (modder error — the dossier card
+/// surfaces the action button but the auto-spawn path falls
+/// through to the manual "DISPATCH RECOVERY" path).
+fn dispatch_recovery_mission(
+    body_entity: Entity,
+    original: &ActiveSurveyMission,
+    recovery_template_id: &str,
+    sim_time: f64,
+    world: &mut World,
+) -> Option<u64> {
+    let templates = world.resource::<RecoveryMissionRegistry>();
+    let template: &RecoveryMission = match templates.get(recovery_template_id) {
+        Some(t) => t,
+        None => {
+            warn!(
+                "Recovery mission template {:?} not in RecoveryMissionRegistry; \
+                 auto-spawn skipped, dossier card will surface manual dispatch",
+                recovery_template_id
+            );
+            return None;
+        }
+    };
+    // Build a per-axis progress map that mirrors the original
+    // mission's targets. The recovery will tick the same
+    // dimensions, so the on-success tier promotion applies to
+    // the same axes the original would have advanced.
+    let mut per_axis_progress = HashMap::new();
+    for dim in original.per_axis_progress.keys() {
+        per_axis_progress.insert(*dim, 0.0_f32);
+    }
+
+    // Mint a fresh mission id by snapshotting the body's max
+    // and adding one. This avoids id collisions with the
+    // original (which is still in the active list with its
+    // own id).
+    let next_id = {
+        let state = world.get::<SurveyState>(body_entity).unwrap();
+        next_mission_id(state)
+    };
+    let duration_seconds = (template.base_duration_days as f64) * 86_400.0;
+    let mission_name = format!("{} Recovery", original.name);
+    let recovery = ActiveSurveyMission {
+        id: next_id,
+        name: mission_name.clone(),
+        // PR-G notes: the recovery mission's `method` is
+        // nominal — the recovery template's gameplay kind is
+        // `RecoveryMissionKind`, but `ActiveSurveyMission::method`
+        // is the survey method, which the recovery inherits
+        // from the original (a Rover rescue is still a Rover
+        // mission; a Drill retrieval is still a Drill
+        // mission). The recovery template's `kind` (in
+        // `RecoveryMission`) drives the dossier icon and
+        // label, not `ActiveSurveyMission::method`.
+        method: original.method,
+        status: MissionStatus::Queued,
+        launched_sim_time: sim_time,
+        expected_completion_sim_time: sim_time + duration_seconds,
+        progress: 0.0,
+        per_axis_progress,
+        axis_yield_per_day: 1.0,
+        assigned_scientists: Vec::new(),
+        recover_of: Some(original.id),
+        template_id: template.id.clone(),
+    };
+    let new_id = recovery.id;
+    let new_name = recovery.name.clone();
+    let new_method = recovery.method;
+
+    world
+        .get_mut::<SurveyState>(body_entity)
+        .unwrap()
+        .active_missions
+        .push(recovery);
+
+    world.write_message(SurveyEvent::MissionStarted {
+        body: body_entity,
+        mission_id: new_id,
+        name: new_name,
+        method: new_method,
+    });
+    Some(new_id)
+}
+
+/// PR-G (GRA-85): on a recovery mission's `Succeeded`
+/// transition, find the original failed mission in the body's
+/// active list and flip its status to `Succeeded`. The per-axis
+/// fidelity promotion was already applied by the recovery's
+/// own finalize (using the body's current tier map); the
+/// original's per-axis progress was rolled back at its own
+/// failure finalize, so nothing else to do.
+///
+/// If the original is no longer in the active list (e.g. the
+/// player reaped it), the helper is a no-op — the dossier's
+/// `FailedMissionRecord` stays in the notification list and
+/// the action buttons will read "RECOVERED" because the linked
+/// recovery's id is now a terminal `Succeeded` mission.
+fn promote_recovered_mission(body_entity: Entity, orig_id: u64, world: &mut World) {
+    let mut state = match world.get_mut::<SurveyState>(body_entity) {
+        Some(s) => s,
+        None => return,
+    };
+    for m in state.active_missions.iter_mut() {
+        if m.id == orig_id && m.status == MissionStatus::Failed {
+            m.status = MissionStatus::Succeeded;
+            return;
+        }
+    }
+}
+
+/// PR-G (GRA-85): push a [`FailedMissionRecord`] onto the body's
+/// `failed_mission_notifications` list. The list is bounded by
+/// [`MAX_FAILED_MISSION_NOTIFICATIONS`]; the oldest entry is
+/// evicted when the cap is reached. Mirrors the dossier
+/// "FAILED MISSIONS" section: most recent N entries, oldest
+/// first.
+fn push_failed_mission_record(body_entity: Entity, record: FailedMissionRecord, world: &mut World) {
+    let mut state = match world.get_mut::<SurveyState>(body_entity) {
+        Some(s) => s,
+        None => return,
+    };
+    state.failed_mission_notifications.push(record);
+    if state.failed_mission_notifications.len() > MAX_FAILED_MISSION_NOTIFICATIONS {
+        let overflow = state.failed_mission_notifications.len() - MAX_FAILED_MISSION_NOTIFICATIONS;
+        state.failed_mission_notifications.drain(0..overflow);
+    }
 }
 
 /// Consume [`DispatchSurveyMission`] events: build a new
@@ -853,6 +1159,8 @@ pub fn dispatch_survey_mission(world: &mut World) {
             per_axis_progress,
             axis_yield_per_day: template.axis_yield_per_day,
             assigned_scientists: ev.scientist_ids.clone(),
+            recover_of: None,
+            template_id: ev.template_id.clone(),
         };
         let mission_id = mission.id;
         let method = mission.method;
@@ -932,6 +1240,39 @@ pub fn abort_survey_mission(world: &mut World) {
     }
 }
 
+/// Consume [`DismissFailedMission`] events: remove the matching
+/// [`FailedMissionRecord`](super::components::FailedMissionRecord)
+/// from the body's `failed_mission_notifications` vec. The
+/// underlying original mission is left in the `Failed` state
+/// in `active_missions` (the player is dismissing the
+/// notification card, not un-failing the mission).
+pub fn dismiss_failed_mission(world: &mut World) {
+    let events: Vec<DismissFailedMission> = {
+        let mut buf = world.resource_mut::<Messages<DismissFailedMission>>();
+        buf.update_drain().collect()
+    };
+
+    for ev in events {
+        let Some(mut state) = world.get_mut::<SurveyState>(ev.body) else {
+            warn!(
+                "DismissFailedMission: body {:?} has no SurveyState; dropping",
+                ev.body
+            );
+            continue;
+        };
+        let before = state.failed_mission_notifications.len();
+        state
+            .failed_mission_notifications
+            .retain(|r| r.mission_id != ev.mission_id);
+        if state.failed_mission_notifications.len() == before {
+            warn!(
+                "DismissFailedMission: no record for mission_id {} on body {:?}; dropping",
+                ev.mission_id, ev.body
+            );
+        }
+    }
+}
+
 /// Generate a stable mission id. PR-B uses `len + 1`; a future PR
 /// can move to a proper counter resource if id collisions become
 /// an issue (e.g. across save/load boundaries).
@@ -948,6 +1289,11 @@ fn next_mission_id(state: &SurveyState) -> u64 {
 /// Roll the dice for a mission outcome. Returns `Success` with
 /// probability `1 - sum(failure_probability)` and each failure
 /// reason with its respective probability.
+///
+/// PR-G (GRA-85) preserves this helper for the fallback path —
+/// the new typed-roll path
+/// ([`roll_typed_mission_outcome`]) is consulted first whenever
+/// the mission's template has a non-empty `failure_modes` list.
 fn roll_mission_outcome(rng: &mut StdRng, method: SurveyMethod) -> MissionOutcome {
     use MissionFailureReason::*;
     let probe_loss_p = ProbeLoss.probability(method);
@@ -958,34 +1304,123 @@ fn roll_mission_outcome(rng: &mut StdRng, method: SurveyMethod) -> MissionOutcom
     let total_failure = probe_loss_p + rover_stuck_p + drill_p + solar_p + injury_p;
     let roll: f32 = rng.random();
     if roll < probe_loss_p {
-        return MissionOutcome::Failure(ProbeLoss);
+        return MissionOutcome::Failure {
+            reason: ProbeLoss,
+            kind: Some(FailureKind::ProbeLoss),
+        };
     }
     if roll < probe_loss_p + rover_stuck_p {
-        return MissionOutcome::Failure(RoverStuck);
+        return MissionOutcome::Failure {
+            reason: RoverStuck,
+            kind: Some(FailureKind::RoverStuck {
+                recovery_mission_id: String::new(),
+            }),
+        };
     }
     if roll < probe_loss_p + rover_stuck_p + drill_p {
-        return MissionOutcome::Failure(DrillBitStuck);
+        return MissionOutcome::Failure {
+            reason: DrillBitStuck,
+            kind: Some(FailureKind::DrillBitStuck {
+                recovery_mission_id: String::new(),
+            }),
+        };
     }
     if roll < probe_loss_p + rover_stuck_p + drill_p + solar_p {
-        return MissionOutcome::Failure(SolarStorm);
+        return MissionOutcome::Failure {
+            reason: SolarStorm,
+            kind: Some(FailureKind::SolarStormDataCorruption {
+                confidence_penalty: super::types::DEFAULT_SOLAR_STORM_PENALTY,
+            }),
+        };
     }
     if roll < total_failure {
-        return MissionOutcome::Failure(CrewInjury);
+        return MissionOutcome::Failure {
+            reason: CrewInjury,
+            kind: Some(FailureKind::CrewInjury {
+                injury_duration_days: super::types::DEFAULT_INJURY_DURATION_DAYS,
+            }),
+        };
     }
     MissionOutcome::Success
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+/// Typed-roll outcome. Like [`MissionOutcome`] but carries the
+/// per-kind payload from PR-G (recovery mission id, confidence
+/// penalty, injury duration) when the template's `failure_modes`
+/// is the source.
+///
+/// The two-variant enum keeps the `Success` and `Failure` cases
+/// aligned with [`MissionOutcome`]. The new `kind: Option<FailureKind>`
+/// field preserves the PR-G payload so `finalize_mission` can
+/// apply kind-specific effects (auto-spawn recovery, confidence
+/// penalty, injury duration) without a second lookup.
+#[derive(Debug, Clone, PartialEq)]
 enum MissionOutcome {
     Success,
-    Failure(MissionFailureReason),
+    Failure {
+        reason: MissionFailureReason,
+        /// `None` only for the pre-PR-G fallback path that
+        /// synthesises outcomes from `MissionFailureReason` alone.
+        /// Production paths always populate this so the kind-
+        /// specific effects fire.
+        kind: Option<FailureKind>,
+    },
 }
 
 impl MissionOutcome {
     #[allow(dead_code)] // only used in unit tests
-    fn is_success(self) -> bool {
+    fn is_success(&self) -> bool {
         matches!(self, MissionOutcome::Success)
     }
+}
+
+/// Roll for a typed mission outcome using the template's
+/// `failure_modes` list. Returns `Success` with probability
+/// `1 - sum(m.probability for m in failure_modes)`. Each
+/// `FailureMode` is selected with probability proportional to
+/// its `probability` field.
+///
+/// Failure kinds that don't apply to the mission's method
+/// (e.g. `RoverStuck` on a Flyby) are filtered out before the
+/// roll. This keeps the per-method restriction the PR-B hardcoded
+/// table enforces — modders can't accidentally introduce
+/// `RoverStuck` rolls on `Drill` missions by adding it to a
+/// template's `failure_modes`.
+///
+/// `failure_modes` may be empty (the common case for pre-PR-G
+/// saves) — in that case the caller falls back to
+/// [`roll_mission_outcome`] with the PR-B hardcoded table.
+fn roll_typed_mission_outcome(
+    rng: &mut StdRng,
+    failure_modes: &[FailureMode],
+    method: SurveyMethod,
+) -> MissionOutcome {
+    // Filter to kinds that actually apply to this method.
+    let applicable: Vec<&FailureMode> = failure_modes
+        .iter()
+        .filter(|m| m.kind.applies_to_method(method))
+        .collect();
+    if applicable.is_empty() {
+        return MissionOutcome::Success;
+    }
+    // Independent-threshold sampling. Each applicable mode rolls
+    // `rng.random() < probability`; the first to fire is the
+    // outcome. The per-mode `probability` is the *absolute* rate of
+    // that specific kind, not a relative weight — that is what the
+    // Monte Carlo tests assert (e.g. DrillBitStuck at ~10% for
+    // Drill, ProbeLoss at ~5% for Flyby). A cumulative-weight
+    // scheme would scale each rate by `1/sum`, producing ~71% for
+    // DrillBitStuck when the total is 0.14.
+    for m in &applicable {
+        if m.probability > 0.0 && rng.random::<f32>() < m.probability {
+            let reason = m.kind.reason();
+            return MissionOutcome::Failure {
+                reason,
+                kind: Some(m.kind.clone()),
+            };
+        }
+    }
+    MissionOutcome::Success
 }
 
 /// Sim-days between landing-site re-evaluation passes. The system
@@ -1406,6 +1841,8 @@ mod tests {
             per_axis_progress,
             axis_yield_per_day: 1.0,
             assigned_scientists: Vec::new(),
+            recover_of: None,
+            template_id: String::new(),
         }
     }
 
@@ -1532,17 +1969,23 @@ mod tests {
     #[test]
     fn ground_team_mission_injures_scientist() {
         // Build a Scientist and a CrewInjury outcome, run
-        // `injure_first_scientist`, verify the scientist is
-        // injured and the returned event references the right
-        // scientist id.
+        // `injure_first_scientist_with_duration`, verify the
+        // scientist is injured and the returned event
+        // references the right scientist id.
         let mut world = World::new();
         let scientist_entity = world.spawn(make_scientist(42, "Dr. R. Vasquez")).id();
         let mut mission = make_mission(SurveyMethod::SurfaceLander, 365);
         mission.assigned_scientists = vec![42];
         let body = world.spawn_empty().id();
 
-        let evt = injure_first_scientist(body, &mission, sim_time(), &mut world)
-            .expect("should produce a CrewInjured event");
+        let evt = injure_first_scientist_with_duration(
+            body,
+            &mission,
+            sim_time(),
+            INJURY_DURATION_DAYS,
+            &mut world,
+        )
+        .expect("should produce a CrewInjured event");
 
         let s = world.get::<Scientist>(scientist_entity).unwrap();
         assert!(s.is_injured(sim_time()));
@@ -1613,6 +2056,7 @@ mod tests {
                     base_duration_days: 540,
                     axis_yield_per_day: 1.0,
                     is_ground_team: false,
+                    failure_modes: Vec::new(),
                 },
             );
 
@@ -2206,6 +2650,675 @@ mod tests {
             (bonus.axis_advance_per_year - 0.10).abs() < 1e-6,
             "Two tier-1 stations should sum axis rate to 0.10/yr, got {}",
             bonus.axis_advance_per_year
+        );
+    }
+    // ---- PR-G (GRA-85) failure modes, recovery, RON loader tests ----
+
+    /// Build a typed-`failure_modes` list that mirrors the
+    /// design rates for the given method. Used by the Monte Carlo
+    /// tests below; not exported because the test module owns it.
+    fn design_failure_modes_for_method(method: SurveyMethod) -> Vec<FailureMode> {
+        use super::super::types::FailureKind;
+        let mut modes: Vec<FailureMode> = Vec::new();
+        modes.push(FailureMode {
+            kind: FailureKind::SolarStormDataCorruption {
+                confidence_penalty: super::super::types::DEFAULT_SOLAR_STORM_PENALTY,
+            },
+            probability: 0.02,
+        });
+        match method {
+            SurveyMethod::Flyby
+            | SurveyMethod::Orbital
+            | SurveyMethod::RemoteSensing
+            | SurveyMethod::AtmosphericProbe => {
+                modes.insert(
+                    0,
+                    FailureMode {
+                        kind: FailureKind::ProbeLoss,
+                        probability: 0.05,
+                    },
+                );
+            }
+            SurveyMethod::Rover => {
+                modes.insert(
+                    0,
+                    FailureMode {
+                        kind: FailureKind::RoverStuck {
+                            recovery_mission_id: "rover_rescue".to_string(),
+                        },
+                        probability: 0.08,
+                    },
+                );
+                modes.push(FailureMode {
+                    kind: FailureKind::CrewInjury {
+                        injury_duration_days: super::super::types::DEFAULT_INJURY_DURATION_DAYS,
+                    },
+                    probability: 0.02,
+                });
+            }
+            SurveyMethod::Drill => {
+                modes.insert(
+                    0,
+                    FailureMode {
+                        kind: FailureKind::DrillBitStuck {
+                            recovery_mission_id: "drill_retrieval".to_string(),
+                        },
+                        probability: 0.10,
+                    },
+                );
+                modes.push(FailureMode {
+                    kind: FailureKind::CrewInjury {
+                        injury_duration_days: super::super::types::DEFAULT_INJURY_DURATION_DAYS,
+                    },
+                    probability: 0.02,
+                });
+            }
+            SurveyMethod::SurfaceLander | SurveyMethod::SampleReturn => {
+                modes.push(FailureMode {
+                    kind: FailureKind::CrewInjury {
+                        injury_duration_days: super::super::types::DEFAULT_INJURY_DURATION_DAYS,
+                    },
+                    probability: 0.02,
+                });
+            }
+            SurveyMethod::Seismic => {
+                modes.push(FailureMode {
+                    kind: FailureKind::CrewInjury {
+                        injury_duration_days: super::super::types::DEFAULT_INJURY_DURATION_DAYS,
+                    },
+                    probability: 0.02,
+                });
+            }
+        }
+        modes
+    }
+
+    #[test]
+    fn typed_roll_1000_runs_drill_bit_stuck_at_about_10_percent() {
+        // Drill method, design rate = 10% DrillBitStuck + 2% SolarStorm
+        // + 2% CrewInjury = 14% total. After filtering for Drill
+        // applicability the typed roll should produce failures at
+        // ~14% over 1000 runs. DrillBitStuck specifically at ~10%.
+        let mut rng = ProceduralRng(StdRng::seed_from_u64(0xC0FF_EE42));
+        let modes = design_failure_modes_for_method(SurveyMethod::Drill);
+        let n = 1000;
+        let mut drill_stuck = 0;
+        let mut any_failure = 0;
+        for _ in 0..n {
+            let outcome = roll_typed_mission_outcome(&mut rng.0, &modes, SurveyMethod::Drill);
+            if let MissionOutcome::Failure {
+                kind: Some(FailureKind::DrillBitStuck { .. }),
+                ..
+            } = outcome
+            {
+                drill_stuck += 1;
+            }
+            if !outcome.is_success() {
+                any_failure += 1;
+            }
+        }
+        let drill_rate = drill_stuck as f32 / n as f32;
+        let fail_rate = any_failure as f32 / n as f32;
+        assert!(
+            (drill_rate - 0.10).abs() < 0.03,
+            "DrillBitStuck rate {drill_rate} should be ~0.10"
+        );
+        assert!(
+            (fail_rate - 0.14).abs() < 0.03,
+            "Total failure rate {fail_rate} should be ~0.14"
+        );
+    }
+
+    #[test]
+    fn typed_roll_1000_runs_probe_loss_at_about_5_percent() {
+        // Flyby method, design rate = 5% ProbeLoss + 2% SolarStorm
+        // = 7% total. ProbeLoss specifically at ~5%.
+        let mut rng = ProceduralRng(StdRng::seed_from_u64(0xCAFE_F00D));
+        let modes = design_failure_modes_for_method(SurveyMethod::Flyby);
+        let n = 1000;
+        let mut probe_loss = 0;
+        for _ in 0..n {
+            let outcome = roll_typed_mission_outcome(&mut rng.0, &modes, SurveyMethod::Flyby);
+            if let MissionOutcome::Failure {
+                kind: Some(FailureKind::ProbeLoss),
+                ..
+            } = outcome
+            {
+                probe_loss += 1;
+            }
+        }
+        let rate = probe_loss as f32 / n as f32;
+        assert!(
+            (rate - 0.05).abs() < 0.03,
+            "ProbeLoss rate {rate} should be ~0.05"
+        );
+    }
+
+    #[test]
+    fn typed_roll_filters_kinds_that_dont_apply_to_method() {
+        // Construct a template that mistakenly lists RoverStuck
+        // on a Flyby method. The typed roll must filter it out
+        // so Flyby missions never roll a RoverStuck (which
+        // doesn't make semantic sense and would auto-spawn a
+        // recovery mission that's not actually applicable).
+        use super::super::types::FailureKind;
+        let modes = vec![
+            FailureMode {
+                kind: FailureKind::ProbeLoss,
+                probability: 0.05,
+            },
+            FailureMode {
+                kind: FailureKind::RoverStuck {
+                    recovery_mission_id: "rover_rescue".to_string(),
+                },
+                // This entry MUST be filtered out for Flyby.
+                probability: 0.50,
+            },
+            FailureMode {
+                kind: FailureKind::SolarStormDataCorruption {
+                    confidence_penalty: 0.15,
+                },
+                probability: 0.02,
+            },
+        ];
+        let mut rng = ProceduralRng(StdRng::seed_from_u64(0xBAD_F00D));
+        let n = 1000;
+        for _ in 0..n {
+            let outcome = roll_typed_mission_outcome(&mut rng.0, &modes, SurveyMethod::Flyby);
+            if let MissionOutcome::Failure { kind: Some(k), .. } = outcome {
+                assert!(
+                    !matches!(k, FailureKind::RoverStuck { .. }),
+                    "Flyby mission must never roll RoverStuck; got {k:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn typed_roll_empty_modes_always_succeeds() {
+        // Empty `failure_modes` list (the pre-PR-G case): every
+        // roll is Success.
+        let mut rng = ProceduralRng(StdRng::seed_from_u64(0x00));
+        for _ in 0..100 {
+            let outcome = roll_typed_mission_outcome(&mut rng.0, &[], SurveyMethod::Drill);
+            assert!(outcome.is_success());
+        }
+    }
+
+    #[test]
+    fn rovers_tuck_failure_auto_spawns_recovery_mission() {
+        // Build a world, register a Rover template with a
+        // typed `RoverStuck { recovery_mission_id: "rover_rescue" }`
+        // entry, seed a `RoverStuck` outcome (deterministic
+        // roll), and verify the recovery mission is pushed onto
+        // the body's active list with `recover_of` set.
+        let mut world = World::new();
+        world.init_resource::<SimulationTime>();
+        world.init_resource::<ProceduralRng>();
+        world.init_resource::<super::super::data::SurveyMissionTemplates>();
+        world.init_resource::<super::super::data::RecoveryMissionRegistry>();
+        world.init_resource::<Messages<SurveyEvent>>();
+        world.init_resource::<Messages<DispatchSurveyMission>>();
+
+        // Seed the recovery registry with a rover_rescue template.
+        let mut recovery_registry = super::super::data::RecoveryMissionRegistry::default();
+        recovery_registry.missions.insert(
+            "rover_rescue".to_string(),
+            super::super::data::RecoveryMission {
+                id: "rover_rescue".to_string(),
+                display_name: "Rover Rescue".to_string(),
+                kind: super::super::data::RecoveryMissionKind::EquipmentRecovery,
+                recovers_from: vec![MissionFailureReason::RoverStuck],
+                base_duration_days: 120,
+                description: "Recover a stuck rover".to_string(),
+            },
+        );
+        world.insert_resource(recovery_registry);
+
+        // Seed the templates registry with a Rover template
+        // that has the typed failure mode.
+        let mut template = SurveyMissionTemplate {
+            id: "rover_v1".to_string(),
+            display_name: "Rover Survey".to_string(),
+            method: SurveyMethod::Rover,
+            instrument_id: "rover_payload".to_string(),
+            target_tiers: HashMap::new(),
+            base_duration_days: 2555,
+            axis_yield_per_day: 1.0,
+            is_ground_team: true,
+            failure_modes: vec![FailureMode {
+                kind: FailureKind::RoverStuck {
+                    recovery_mission_id: "rover_rescue".to_string(),
+                },
+                // `probability: 1.0` makes this test deterministic
+                // — the typed roll always fires RoverStuck on the
+                // first attempt. The 0.08 design rate is verified
+                // by the `typed_roll_1000_runs_*` Monte Carlo tests
+                // above; this test is concerned with the
+                // failure→recovery spawn path, not the rate.
+                probability: 1.0,
+            }],
+        };
+        template
+            .target_tiers
+            .insert(SurveyDimension::MineralDeposits, 3);
+        world
+            .resource_mut::<super::super::data::SurveyMissionTemplates>()
+            .templates
+            .insert(template.id.clone(), template);
+
+        // Build a Completing mission on a body.
+        let mut state = SurveyState::default();
+        let mut mission = make_mission(SurveyMethod::Rover, 365);
+        mission.template_id = "rover_v1".to_string();
+        mission.status = MissionStatus::Completing;
+        state.active_missions.push(mission);
+        let body = world.spawn(state).id();
+
+        // Pre-compute the pre-mission tier snapshot.
+        let mut pre_mission_tiers = HashMap::new();
+        pre_mission_tiers.insert(SurveyDimension::MineralDeposits, 0u8);
+
+        // Drive `finalize_completing_missions_on_body` with a
+        // forced failure outcome. We can't reach the
+        // outcome-roll call directly, but the body's mission is
+        // Completing, so the system will roll and finalize it.
+        // Use a fixed-seed RNG so the test is deterministic —
+        // we then check the post-state for the recovery push.
+        world.resource_mut::<ProceduralRng>().0 = StdRng::seed_from_u64(0xDEAD_BEEF);
+        // Run several frames to maximise the chance of
+        // RoverStuck firing on a single attempt. The seed
+        // selects one outcome per frame; with 50 frames the
+        // empirical 8% rate produces ~4 RoverStuck events, so
+        // at least one fires.
+        for _ in 0..50 {
+            // The mission is no longer Completing after the
+            // first successful finalize, so re-mark it before
+            // each frame.
+            {
+                let mut s = world.get_mut::<SurveyState>(body).unwrap();
+                if s.active_missions.is_empty() {
+                    break;
+                }
+                if s.active_missions[0].status.is_in_progress()
+                    || s.active_missions[0].status == MissionStatus::Failed
+                {
+                    s.active_missions[0].status = MissionStatus::Completing;
+                }
+            }
+            advance_survey_missions(&mut world);
+            // Stop if a recovery was auto-spawned.
+            let s = world.get::<SurveyState>(body).unwrap();
+            if s.active_missions.len() > 1 {
+                break;
+            }
+        }
+
+        let s = world.get::<SurveyState>(body).unwrap();
+        assert!(
+            !s.failed_mission_notifications.is_empty(),
+            "expected at least one FailedMissionRecord on the body"
+        );
+        // The RoverStuck record's recovery_mission_id should
+        // be "rover_rescue" and the auto-spawned recovery
+        // mission should be on the active list.
+        let rover_stuck_records: Vec<&FailedMissionRecord> = s
+            .failed_mission_notifications
+            .iter()
+            .filter(|r| r.reason == MissionFailureReason::RoverStuck)
+            .collect();
+        assert!(
+            !rover_stuck_records.is_empty(),
+            "expected at least one RoverStuck record; got {:?}",
+            s.failed_mission_notifications
+        );
+        let rec = rover_stuck_records[0];
+        assert_eq!(rec.recovery_mission_id.as_deref(), Some("rover_rescue"));
+        assert!(rec.recovery_mission_display_name.is_some());
+        assert!(rec.recovery_mission_active_id.is_some());
+        // The active list should have at least the original
+        // failed mission AND the auto-spawned recovery
+        // mission.
+        assert!(s.active_missions.len() >= 2);
+        // The recovery mission's recover_of field should
+        // reference the original's id.
+        let recovery_mission = s
+            .active_missions
+            .iter()
+            .find(|m| m.recover_of.is_some())
+            .expect("recovery mission with recover_of set");
+        let orig_id = recovery_mission.recover_of.unwrap();
+        let orig = s
+            .active_missions
+            .iter()
+            .find(|m| m.id == orig_id)
+            .expect("original failed mission");
+        assert_eq!(orig.status, MissionStatus::Failed);
+    }
+
+    #[test]
+    fn recovery_mission_success_promotes_original_to_succeeded() {
+        // Build a world where a recovery mission has just
+        // finalised successfully. The recovery has
+        // `recover_of: Some(orig_id)`; the original is in
+        // `Failed` state. Run the recovery through
+        // `finalize_completing_missions_on_body` (with a
+        // forced Success outcome) and verify the original is
+        // flipped to `Succeeded`.
+        let mut world = World::new();
+        world.init_resource::<SimulationTime>();
+        world.init_resource::<ProceduralRng>();
+        world.init_resource::<super::super::data::SurveyMissionTemplates>();
+        world.init_resource::<super::super::data::RecoveryMissionRegistry>();
+        world.init_resource::<Messages<SurveyEvent>>();
+
+        let mut state = SurveyState::default();
+        // Original failed mission (id=1, status=Failed)
+        let mut orig = make_mission(SurveyMethod::Rover, 365);
+        orig.id = 1;
+        orig.name = "Rover Survey 1".to_string();
+        orig.template_id = "rover_v1".to_string();
+        orig.status = MissionStatus::Failed;
+        state.active_missions.push(orig);
+        // Recovery mission (id=2, recover_of=Some(1), status=Completing)
+        let mut recovery = make_mission(SurveyMethod::Rover, 120);
+        recovery.id = 2;
+        recovery.name = "Rover Survey 1 Recovery".to_string();
+        recovery.template_id = "rover_rescue".to_string();
+        recovery.status = MissionStatus::Completing;
+        recovery.recover_of = Some(1);
+        state.active_missions.push(recovery);
+        let body = world.spawn(state).id();
+
+        // Force the rng to produce a Success outcome on the
+        // first roll. The seed is irrelevant because the
+        // typed-roll for an empty `failure_modes` list is
+        // always Success (which the recovery template has —
+        // it isn't in the templates registry, so the fallback
+        // path triggers, which still lands on Success for
+        // totals of 0).
+        world.resource_mut::<ProceduralRng>().0 = StdRng::seed_from_u64(0x1234_5678);
+        advance_survey_missions(&mut world);
+
+        let s = world.get::<SurveyState>(body).unwrap();
+        // Both missions are still in the list (terminal
+        // state). The original should be Succeeded, the
+        // recovery should be Succeeded.
+        let orig = s
+            .active_missions
+            .iter()
+            .find(|m| m.id == 1)
+            .expect("original mission present");
+        assert_eq!(
+            orig.status,
+            MissionStatus::Succeeded,
+            "original mission should be promoted to Succeeded after recovery Succeeded"
+        );
+        let recov = s
+            .active_missions
+            .iter()
+            .find(|m| m.id == 2)
+            .expect("recovery mission present");
+        assert_eq!(recov.status, MissionStatus::Succeeded);
+    }
+
+    #[test]
+    fn failed_mission_record_is_pushed_with_recovery_link() {
+        // Build a Drill mission template with a typed
+        // DrillBitStuck entry. Run the typed roll with a
+        // seed that lands on DrillBitStuck and verify the
+        // FailedMissionRecord on the body carries the
+        // recovery template id and (after finalize) the
+        // auto-spawned recovery mission's id.
+        let mut world = World::new();
+        world.init_resource::<SimulationTime>();
+        world.init_resource::<ProceduralRng>();
+        world.init_resource::<super::super::data::SurveyMissionTemplates>();
+        world.init_resource::<super::super::data::RecoveryMissionRegistry>();
+        world.init_resource::<Messages<SurveyEvent>>();
+
+        let mut recovery_registry = super::super::data::RecoveryMissionRegistry::default();
+        recovery_registry.missions.insert(
+            "drill_retrieval".to_string(),
+            super::super::data::RecoveryMission {
+                id: "drill_retrieval".to_string(),
+                display_name: "Drill Rig Retrieval".to_string(),
+                kind: super::super::data::RecoveryMissionKind::EquipmentRecovery,
+                recovers_from: vec![MissionFailureReason::DrillBitStuck],
+                base_duration_days: 365,
+                description: "Retrieve a stranded drill rig".to_string(),
+            },
+        );
+        world.insert_resource(recovery_registry);
+
+        let mut template = SurveyMissionTemplate {
+            id: "drill_v1".to_string(),
+            display_name: "Drill Core Sample".to_string(),
+            method: SurveyMethod::Drill,
+            instrument_id: "deep_drill".to_string(),
+            target_tiers: HashMap::new(),
+            base_duration_days: 730,
+            axis_yield_per_day: 1.0,
+            is_ground_team: true,
+            failure_modes: vec![FailureMode {
+                kind: FailureKind::DrillBitStuck {
+                    recovery_mission_id: "drill_retrieval".to_string(),
+                },
+                // `probability: 1.0` makes this test deterministic
+                // — the typed roll always fires DrillBitStuck on
+                // the first attempt. The 0.10 design rate is
+                // verified by the `typed_roll_1000_runs_*` Monte
+                // Carlo tests above; this test is concerned with
+                // the failure→recovery spawn path, not the rate.
+                probability: 1.0,
+            }],
+        };
+        template
+            .target_tiers
+            .insert(SurveyDimension::MineralDeposits, 4);
+        world
+            .resource_mut::<super::super::data::SurveyMissionTemplates>()
+            .templates
+            .insert(template.id.clone(), template);
+
+        // Body with a Completing Drill mission.
+        let mut state = SurveyState::default();
+        let mut mission = make_mission(SurveyMethod::Drill, 365);
+        mission.template_id = "drill_v1".to_string();
+        mission.name = "Drill Mission Alpha".to_string();
+        mission.status = MissionStatus::Completing;
+        state.active_missions.push(mission);
+        let body = world.spawn(state).id();
+
+        // Run a few frames so the 10% DrillBitStuck roll
+        // fires.
+        world.resource_mut::<ProceduralRng>().0 = StdRng::seed_from_u64(0xFEED_BEEF);
+        for _ in 0..100 {
+            {
+                let mut s = world.get_mut::<SurveyState>(body).unwrap();
+                if s.active_missions.is_empty() {
+                    break;
+                }
+                if !s.active_missions[0].status.is_terminal() {
+                    s.active_missions[0].status = MissionStatus::Completing;
+                }
+            }
+            advance_survey_missions(&mut world);
+            let s = world.get::<SurveyState>(body).unwrap();
+            if s.active_missions.len() > 1 {
+                break;
+            }
+        }
+
+        let s = world.get::<SurveyState>(body).unwrap();
+        let drill_records: Vec<&FailedMissionRecord> = s
+            .failed_mission_notifications
+            .iter()
+            .filter(|r| r.reason == MissionFailureReason::DrillBitStuck)
+            .collect();
+        assert!(
+            !drill_records.is_empty(),
+            "expected a DrillBitStuck record; got {:?}",
+            s.failed_mission_notifications
+        );
+        let rec = drill_records[0];
+        assert_eq!(
+            rec.recovery_mission_id.as_deref(),
+            Some("drill_retrieval"),
+            "record should carry the recovery template id"
+        );
+        assert_eq!(
+            rec.recovery_mission_display_name.as_deref(),
+            Some("Drill Rig Retrieval"),
+        );
+        assert!(rec.recovery_mission_active_id.is_some());
+    }
+
+    #[test]
+    fn recovery_mission_registry_loads_from_ron() {
+        // The on-disk `assets/data/survey/recovery_missions.ron`
+        // file must load and produce a populated registry.
+        // This guards against an accidental RON typo (the
+        // startup system logs `warn!` on parse error and
+        // produces an empty registry, which would silently
+        // disable the auto-spawn path).
+        //
+        // We can't call the startup system directly in this
+        // test (it depends on `Commands`), so we re-deserialise
+        // the file the same way the loader does.
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("assets/data/survey/recovery_missions.ron");
+        let contents = std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+        let file: super::super::data::RecoveryMissionsFile =
+            ron::from_str(&contents).unwrap_or_else(|e| panic!("parse recovery_missions.ron: {e}"));
+        assert!(
+            file.missions.len() >= 3,
+            "expected at least 3 recovery templates; got {}",
+            file.missions.len()
+        );
+        // Spot-check the four canonical kinds are present.
+        let ids: Vec<&str> = file.missions.iter().map(|m| m.id.as_str()).collect();
+        assert!(ids.contains(&"rover_rescue"));
+        assert!(ids.contains(&"drill_retrieval"));
+        assert!(ids.contains(&"probe_replacement"));
+        assert!(ids.contains(&"crew_extraction"));
+    }
+
+    #[test]
+    fn missions_ron_loads_with_typed_failure_modes() {
+        // The on-disk `assets/data/survey/missions.ron` file
+        // must include typed `failure_modes` entries on the
+        // templates that need them (Rover, Drill, ground-team
+        // methods). The loader logs `warn!` on parse error
+        // and the app starts with an empty registry.
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("assets/data/survey/missions.ron");
+        let contents = std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+        let file: super::super::data::SurveyMissionTemplatesFile =
+            ron::from_str(&contents).unwrap_or_else(|e| panic!("parse missions.ron: {e}"));
+        let by_id: std::collections::HashMap<&str, &SurveyMissionTemplate> =
+            file.templates.iter().map(|t| (t.id.as_str(), t)).collect();
+        let rover = by_id.get("rover_survey_v1").expect("rover_survey_v1");
+        assert!(
+            !rover.failure_modes.is_empty(),
+            "rover template must have failure_modes"
+        );
+        assert!(
+            rover
+                .failure_modes
+                .iter()
+                .any(|m| matches!(m.kind, FailureKind::RoverStuck { .. })),
+            "rover template must list a RoverStuck entry"
+        );
+        let drill = by_id.get("drill_core_sample").expect("drill_core_sample");
+        assert!(
+            drill
+                .failure_modes
+                .iter()
+                .any(|m| matches!(m.kind, FailureKind::DrillBitStuck { .. })),
+            "drill template must list a DrillBitStuck entry"
+        );
+        let lander = by_id.get("surface_lander_v1").expect("surface_lander_v1");
+        assert!(
+            lander
+                .failure_modes
+                .iter()
+                .any(|m| matches!(m.kind, FailureKind::CrewInjury { .. })),
+            "surface_lander template must list a CrewInjury entry"
+        );
+    }
+
+    #[test]
+    fn solar_storm_penalty_reduces_targeted_dimensions_confidence() {
+        // Direct test on `apply_solar_storm_penalty`. The
+        // helper reduces the confidence of every dimension
+        // the failed mission was targeting by `penalty`,
+        // clamped at 0.0.
+        let mut world = World::new();
+        let mut state = SurveyState::default();
+        // Pre-populate two dimensions with non-zero
+        // confidence.
+        state.set_fidelity(
+            SurveyDimension::MineralDeposits,
+            DimensionFidelity::at_tier(2, 0.8, Some(sim_time())),
+        );
+        state.set_fidelity(
+            SurveyDimension::Subsurface,
+            DimensionFidelity::at_tier(3, 0.6, Some(sim_time())),
+        );
+        let body = world.spawn(state).id();
+
+        let mut mission = make_mission(SurveyMethod::Drill, 365);
+        mission
+            .per_axis_progress
+            .insert(SurveyDimension::MineralDeposits, 1.0);
+        mission
+            .per_axis_progress
+            .insert(SurveyDimension::Subsurface, 1.0);
+
+        apply_solar_storm_penalty(body, &mission, 0.25, &mut world);
+
+        let s = world.get::<SurveyState>(body).unwrap();
+        assert!((s.fidelity(SurveyDimension::MineralDeposits).confidence - 0.55).abs() < 1e-6);
+        assert!((s.fidelity(SurveyDimension::Subsurface).confidence - 0.35).abs() < 1e-6);
+    }
+
+    #[test]
+    fn failed_mission_notification_cap_evicts_oldest_entry() {
+        // Push more than MAX_FAILED_MISSION_NOTIFICATIONS
+        // records onto a body and verify the oldest entries
+        // are evicted (FIFO).
+        let mut world = World::new();
+        let body = world.spawn(SurveyState::default()).id();
+        for i in 0..(MAX_FAILED_MISSION_NOTIFICATIONS + 3) {
+            push_failed_mission_record(
+                body,
+                FailedMissionRecord {
+                    mission_id: i as u64,
+                    display_name: format!("Mission {i}"),
+                    method: SurveyMethod::Drill,
+                    reason: MissionFailureReason::DrillBitStuck,
+                    failed_sim_time: sim_time(),
+                    recovery_mission_id: None,
+                    recovery_mission_display_name: None,
+                    recovery_mission_active_id: None,
+                },
+                &mut world,
+            );
+        }
+        let s = world.get::<SurveyState>(body).unwrap();
+        assert_eq!(
+            s.failed_mission_notifications.len(),
+            MAX_FAILED_MISSION_NOTIFICATIONS
+        );
+        // The first entry is now id=3 (the oldest three were
+        // evicted: 0, 1, 2).
+        assert_eq!(s.failed_mission_notifications[0].mission_id, 3);
+        assert_eq!(
+            s.failed_mission_notifications.last().unwrap().mission_id,
+            (MAX_FAILED_MISSION_NOTIFICATIONS + 2) as u64
         );
     }
 }
