@@ -187,6 +187,76 @@ When creating a mod:
 - Report issues: GitHub Issues
 - Share mods: Community Discord
 
+## v0.5.0 Additions: Survey / Personnel / Geology Techs
+
+> **v0.5.0 status (2026-06-12)** — pre-draft ahead of the v0.5.0 engineering chain (PR-A through PR-G). The 9 new tech names, tiers, prerequisites, and effects below are the design contract per `docs/design/SURVEY_REWORK.md` §[Tech Tree Integration]. The RON entries land in `assets/data/technologies.ron` with the v0.5.0 chain (PR-A's RON files were pre-staged in [PR #140](https://github.com/Slatibartfas/Helios-Ascension/pull/140) / GRA-98; the tech entries themselves land with PR-A and PR-B). If the Coder renames, drops, or reorders entries, this section mirrors the Coder's final tree at PR-H open.
+
+The v0.5.0 survey rework adds **9 new techs** distributed across tiers 1–5, in the survey / personnel / geology area. None of these are Sensors — Sensors is the **reused existing family** that now acts as method gates for survey instruments (see sidebar below). All 9 entries follow the standard schema above (`id`, `name`, `category`, `prerequisites`, etc.).
+
+### The 9 new techs
+
+| # | Tier | Tech id | Display name | Prerequisites | What it unlocks |
+|---|------|---------|--------------|---------------|-----------------|
+| 1 | 1 | `survey_methodology` | Survey Methodology | `basic_sensors` | The analysis queue. +20% analysis throughput. |
+| 2 | 2 | `planetary_geology` | Planetary Geology | `survey_methodology`, `basic_physics` | Geology scientists +25% throughput. |
+| 3 | 2 | `geophysics` | Geophysics | `survey_methodology`, `basic_physics` | Seismic survey method. Seismic accuracy tier 2. |
+| 4 | 2 | `field_science_operations` | Field Science Operations | `planetary_geology`, `closed_loop_ecology` | Surface lander with extended life support (≥ 1 sim-year surface ops). |
+| 5 | 3 | `cryogenic_sampling` | Cryogenic Sampling | `cryogenics`, `field_science_operations` | Sample return from icy bodies (Europa, Titan, Enceladus, comet nuclei). |
+| 6 | 3 | `deep_seismic_array` | Deep Seismic Array | `geophysics`, `deep_drilling` | Seismic accuracy tier 4. Deep mantle probes. |
+| 7 | 3 | `roving_autonomy` | Roving Autonomy | `field_science_operations`, `basic_automation` | Rover survey. Rover range +50%. |
+| 8 | 4 | `sample_return_architecture` | Sample Return Architecture | `cryogenic_sampling`, `orbital_mechanics` | Sample return from any body < 5 AU. |
+| 9 | 5 | `interstellar_probe` | Interstellar Probe | `sample_return_architecture`, `fusion_propulsion` | Flyby of bodies in other star systems (v0.6+). |
+
+Suggested RON entry — survey_methodology:
+
+```ron
+(
+    id: "survey_methodology",
+    name: "Survey Methodology",
+    category: SpaceTechnology,
+    description: "Formal methodology for processing and analysing survey data. Unlocks the analysis queue.",
+    research_cost: 5000.0,
+    prerequisites: ["basic_sensors"],
+    unlocks_components: [],
+    unlocks_engineering: [],
+    modifiers: [
+        (modifier_type: CategoryResearchBonus(SpaceTechnology), value: 5.0),
+    ],
+    tier: 1,
+)
+```
+
+The exact `research_cost` and `modifiers` are balance decisions for the Coder / playtest. The 9 ids, tiers, and prerequisites above are the **design contract** — they should not change without an LGD re-sign.
+
+### Existing techs reused as survey method gates (the "Sensors" family)
+
+The v0.5.0 rework **does not add 9 new Sensors techs**. The 8 existing Sensors-family entries are reused as method gates — they already exist in the tree and now drive which survey instruments the player can build. Cross-reference for modders; do not re-author.
+
+| Tech id | What it now also gates (as a method gate) |
+|---------|--------------------------------------------|
+| `basic_sensors` | Flyby probe (basic), remote sensing (basic) |
+| `satellite_networks` | Orbital satellite, comms relay for data downlink |
+| `remote_sensing` | Multispectral scan, IR telescope, hyperspectral imager |
+| `radio_astronomy` | Radio dish array (deep-space data downlink) |
+| `advanced_radar` | Phased-array radar (surface imaging through dust) |
+| `deep_drilling` | Drill core sample (shallow) |
+| `laser_drilling` | Drill core sample (deep) |
+| `asteroid_prospecting` | Spectral analyzer, prospecting probe (small-body specialist) |
+| `closed_loop_ecology` | Biological assay payload (habitability tier 4+) — *LifeSupport category, not Sensors* |
+
+The instrument side that each gate unlocks is in `assets/data/survey/instruments.ron` (see `required_tech` field). The player manual for the new system is in `docs/SURVEY.md` §[Tech Tree].
+
+### Adding a 10th survey tech (modder example)
+
+A modder can add a 10th survey / personnel / geology tech — e.g. a "magnetometry" specialty for scientists — by:
+
+1. Adding a new entry to `assets/data/technologies.ron` with one of the 15 standard categories, a unique `id` (snake_case), and a `tier` between 1 and 10.
+2. Setting the `prerequisites` to whatever upstream techs make sense (typically one of the 9 listed above, or an existing sensor).
+3. Adding 1–2 corresponding instruments to `assets/data/survey/instruments.ron` with `required_tech: Some("your_new_tech_id")` and the relevant `method` (e.g. `RemoteSensing`).
+4. (Optionally) tier semantics to `assets/data/survey/tiers.ron` and an anomaly type to `assets/data/survey/anomalies.ron` that the new method can surface.
+
+No Rust recompile. No new components. The RON modding surface is the player-influence path — see `docs/MODDING.md` and `docs/SURVEY.md` §[See Also] for the canonical modder references.
+
 ## Future Expansion
 
 The system supports:

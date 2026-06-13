@@ -275,7 +275,7 @@ The panel opens with a `theme::tab_strip<ConstructionTab>` (Pattern 4 in
 that exposes the panel's top-level sub-tabs (Overview, Buildings, Build,
 Stockpiles). The Build tab nests a second
 `theme::tab_strip<BuildingCategory>` strip with eight `BuildingCategory`
-rows indented by `theme::Spacing::md` — see §8 for the primitive
+rows indented by `theme::Spacing::md` — see §9 for the primitive
 contract. Bespoke `ConstructionTab` + `BuildFilter` state is gone; the
 two strips are the single source of truth for "which sub-view is
 active".
@@ -337,7 +337,7 @@ Each building card shows (top to bottom):
 #### Construction Overview
 
 The Overview sub-tab renders its top-level summary as a
-`theme::ledger_panel` (see §8.2) so the section structure matches the
+`theme::ledger_panel` (see §9.2) so the section structure matches the
 planet dossier's right-side ledger.
 
 ### 3.4 Research Panel
@@ -353,7 +353,7 @@ The Archive tab groups technologies by `TechCategory` using a
 snake_case variant name, `label()` reuses `TechCategory::display_name`,
 `icon()` reuses `TechCategory::icon` so the strip and the inline labels
 stay in sync. The strip replaces the bespoke loop that used to live at
-`src/ui/research_panel.rs:1568-1574`. See §8.2 for the primitive
+`src/ui/research_panel.rs:1568-1574`. See §9.2 for the primitive
 contract.
 
 #### Technology tree
@@ -396,7 +396,7 @@ Track resources, production, and budget.
 The panel opens with a 7-way `theme::tab_strip<EconomyTab>` (Pattern 4
 in [`UI_LAYOUT_PATTERNS.md` §5](UI_LAYOUT_PATTERNS.md#5-pattern-4--in-panel-sub-tab-strip-egui))
 that exposes the panel's sub-tabs. The Colonies tab is a
-`theme::ledger_panel<ColonyRow>` (Pattern 2 ledger) — see §8.2 for the
+`theme::ledger_panel<ColonyRow>` (Pattern 2 ledger) — see §9.2 for the
 primitive contract and
 [`UI_LAYOUT_PATTERNS.md` §3](UI_LAYOUT_PATTERNS.md#3-pattern-2--right-side-ledger-egui)
 for the full Pattern 2 layout contract.
@@ -440,7 +440,7 @@ for the full Pattern 2 layout contract.
 
 Native Bevy UI workspace. There is no egui fallback — it is the only path
 for designing hull layouts, picking modules into slots, queueing ships, and
-inspecting live engineering metrics. See §8.3 for the Bevy UI
+inspecting live engineering metrics. See §9.3 for the Bevy UI
 `theme::Color` mirror and the two Bevy primitives; the full Pattern 3
 contract lives in
 [`UI_LAYOUT_PATTERNS.md` §4](UI_LAYOUT_PATTERNS.md#4-pattern-3--tabbed-workspace-bevy-ui-018).
@@ -646,7 +646,159 @@ Beyond the lint:
 - Re-run `python3 scripts/audit_color32_literals.py --strict --baseline
   scripts/audit_color32_literals_baseline.txt` before pushing.
 
-## 8. Layout Patterns
+## 8. Survey & Personnel Panels (v0.5.0)
+
+> **v0.5.0 status** — the dossier SURVEY tab is **shipped** (PR #135 / GRA-82 PR-D, 2026-06-08). The PersonnelRoster tab is **Preview**: the data layer is in `src/personnel/` (scientists, specialties, seniority) and `GameMenu::Personnel` is wired in `src/ui/dashboard.rs:1249`, but the panel UI is not yet implemented. The layout below is the design contract; reconcile the row order, column headers, and any chip types against the eventual `src/ui/personnel_panel.rs` once it lands.
+
+### 8.1 Dossier — SURVEY tab
+
+The dossier is the right-side body inspector (see `src/ui/dossier_panel.rs`). The SURVEY tab is the seventh and rightmost tab, sitting to the right of PRODUCTION and to the left of LOGISTICS. The tab is visible whenever the selected entity has survey data (a body with the `SurveyLevel` component, or a star with a survey report).
+
+#### Layout (top → bottom)
+
+```
+┌────────────────────────────────────────────────────────────────┐
+│ ◀ SURVEY                                  [Export] [Close] ✕   │  ← tab header
+├────────────────────────────────────────────────────────────────┤
+│ COVERAGE SUMMARY                                                │
+│ ┌──────────────────────────────────────────────────────────┐   │
+│ │ OrbitalMech      ███████████░░░░░  T3 → T4   218 d left  │   │
+│ │ Atmosphere       ██████░░░░░░░░░░  T2 → T3   410 d left  │   │
+│ │ SurfaceFeatures  ████░░░░░░░░░░░░  T1 → T2  1.8 yr left  │   │
+│ │ MineralClasses   ░░░░░░░░░░░░░░░░  T0 → T1   92 d left   │   │
+│ │ MineralDeposits  ░░░░░░░░░░░░░░░░  T0       UNDISCOVERED  │   │
+│ │ Subsurface       ░░░░░░░░░░░░░░░░  T0       UNDISCOVERED  │   │
+│ │ Habitability     ░░░░░░░░░░░░░░░░  T0       UNDISCOVERED  │   │
+│ │ Anomalies        2 candidates  •  1 verified              │   │
+│ └──────────────────────────────────────────────────────────┘   │
+├────────────────────────────────────────────────────────────────┤
+│ ACTIVE MISSIONS                                  [+ DISPATCH]   │
+│ ┌──────────────────────────────────────────────────────────┐   │
+│ │ ▸ Orbital Imaging            Sol / Earth  62%   1.2 yr    │   │
+│ │ ▸ Drill Core Sample          Luna         31%   2.0 yr    │   │
+│ │ ▸ Flyby Recon                Mars          8%   540 d     │   │
+│ └──────────────────────────────────────────────────────────┘   │
+├────────────────────────────────────────────────────────────────┤
+│ ANOMALY LOG                                       [3 events]    │
+│ ┌──────────────────────────────────────────────────────────┐   │
+│ │ ⚠ Methane Plume (Atmosphere, T2)  confidence 0.42         │   │
+│ │   Trigger: Atmospheric Probe drop, 2026-04-11            │   │
+│ │ ✓ Hydrated Silicates (MineralClasses, T2)  confidence 0.91 │   │
+│ │   Verified: Sample Return, 2026-05-30                    │   │
+│ │ ✗ Tholin Signature — REFUTED (0.18, retry pressure −0.05) │   │
+│ └──────────────────────────────────────────────────────────┘   │
+└────────────────────────────────────────────────────────────────┘
+```
+
+**Coverage summary** is the heart of the tab. Each of the eight survey dimensions gets one row; the row shows:
+
+- The dimension's `display_name` (left-aligned).
+- A progress bar with one segment per tier (six segments, 0..5). Filled segments use `theme::SURVEY_TIER_FILLED`; the in-progress tier is animated at 0.6 alpha.
+- The current tier and the next tier to reach (e.g. `T3 → T4`).
+- The ETA in sim-days (right-aligned; `UNDISCOVERED` for tier-0 dimensions, `—` for tier-5 dimensions that have hit the cap).
+
+Tiers are read from `assets/data/survey/tiers.ron` (six rows per dimension). The bar segments render with `theme::Frame::subtle` borders; the in-progress segment uses `theme::SURVEY_TIER_ACTIVE` (a deliberate theme token, not a `Color32` literal — see the lint).
+
+**Active missions** is the dispatch list. Each row shows the mission `display_name` (from `missions.ron`), the body it targets, the progress fraction, and the remaining time. Clicking a row opens the mission detail (a `Frame::subtle` overlay with the mission's `target_tiers` map, the chosen `instrument_id`, and a `[ABORT]` button if the mission is cancellable). The `[+ DISPATCH]` button opens the mission picker (see §8.2).
+
+**Anomaly log** is the r2 anomaly confidence model's UI surface. Each entry shows:
+
+- A status glyph: `⚠` for candidates, `✓` for verified, `✗` for refuted.
+- The anomaly's `display_name`, the dimension it was detected under, and the current confidence (0.0..1.0).
+- A one-line provenance: which mission triggered it and when.
+
+The log is paginated to the three most-recent events with a `[N events]` button in the corner that opens the full log. The full log is a sorted list of all candidates, with the confidence curve and a retry-pressure indicator on hover.
+
+#### Tokens and lint
+
+The dossier SURVEY tab uses the following theme tokens (all defined in `src/ui/theme.rs`):
+
+- `theme::SURVEY_TIER_FILLED` — filled progress segments.
+- `theme::SURVEY_TIER_ACTIVE` — in-progress segment (the one being filled by an active mission).
+- `theme::SURVEY_TIER_UNDISCOVERED` — tier-0 segments (uses the "no data" tint).
+- `theme::ANOMALY_CANDIDATE` / `ANOMALY_VERIFIED` / `ANOMALY_REFUTED` — the status glyph colors.
+
+> **Preview / design contract.** As of v0.5.0 these tokens are the *forward-looking* contract for the dossier SURVEY branch. The current `src/ui/dossier_panel.rs` ships with hardcoded `Color32::from_rgba_premultiplied(...)` literals (8 entries in `scripts/audit_color32_literals_baseline.txt` for `dossier_panel.rs`) — the audit tolerates them via the baseline file, not because they have been promoted to theme tokens. A future PR should (a) add the six `theme::SURVEY_*` / `theme::ANOMALY_*` constants to `src/ui/theme.rs` and (b) replace the baseline-allowed literals in `dossier_panel.rs`'s SURVEY branch with the named tokens. The lint rule below remains in force: no *new* `Color32` literals may be added to the SURVEY branch.
+
+No `Color32` literals are allowed in `dossier_panel.rs`'s SURVEY branch; the audit (`scripts/audit_color32_literals.py`) is run in CI and any new literal must be lifted to a theme token first.
+
+### 8.2 Mission picker
+
+The `[+ DISPATCH]` button opens a modal that lists the nine `missions.ron` templates. The modal is a single-column `Frame` panel anchored to the dossier's right edge. Each row shows:
+
+- The mission `display_name` and `method` (as a chip, e.g. `Drill`, `Rover`).
+- The `target_tiers` map as small tier-pip chips (one chip per dimension, with the target tier number).
+- The `base_duration_days` and an ETA derived from the colony's scientist roster (matched-specialty scientists apply the 1.5× throughput multiplier, mismatched apply 0.7× — see `src/personnel/types.rs`).
+- A `required_tech` chip if the mission's chosen `instrument_id` is gated on a tech the player has not yet researched. Disabled in that case.
+
+Clicking a row enqueues the mission and closes the modal. The `ActiveSurveyMission` component is instantiated at the dispatch system (see `src/survey/systems.rs`); the dossier's `Active missions` list updates on the next tick.
+
+### 8.3 PersonnelRoster — Preview
+
+> The PersonnelRoster tab is the top-level panel reached from the dashboard's `Personnel` menu (currently a no-op stub in `src/ui/dashboard.rs:1249`). The data layer is live; the UI is the design contract below and is not yet implemented.
+
+#### Layout (top → bottom)
+
+```
+┌────────────────────────────────────────────────────────────────┐
+│ PERSONNEL                              [Hire] [Auto-Assign] ⚙  │  ← panel header
+├────────────────────────────────────────────────────────────────┤
+│ ROSTER SUMMARY                                                  │
+│  Total: 14 scientists   •  8 active   •  3 idle   •  3 injur.  │
+│  Avg. seniority: 2.3    •  Est. payroll: 4.2 M cr / yr        │
+├────────────────────────────────────────────────────────────────┤
+│ ROSTER (sortable: seniority ↓ | name ↑ | specialty | status)  │
+│ ┌──────────────────────────────────────────────────────────┐   │
+│ │ NAME           SPECIALTY         SENIORITY  STATUS  ASSIGN│   │
+│ │ ─────────────────────────────────────────────────────────  │   │
+│ │ dr-okafor      Geology              ★★★     Active  ────  │   │
+│ │ dr-tanaka      Geophysics           ★★☆     Idle    ────  │   │
+│ │ dr-rivera      Spectroscopy         ★☆☆     Active  ────  │   │
+│ │ dr-volkova     Astrobiology         ★☆☆     Injured ────  │   │
+│ │ …  (paginated, 10 rows per page)                          │   │
+│ └──────────────────────────────────────────────────────────┘   │
+├────────────────────────────────────────────────────────────────┤
+│ ASSIGNMENTS                                                     │
+│ ┌──────────────────────────────────────────────────────────┐   │
+│ │ Active missions staffed:  3                                │   │
+│ │   Orbital Imaging     dr-rivera (mismatch, 0.7×)            │   │
+│ │   Rover Survey        dr-okafor  (match, 1.5×)             │   │
+│ │   Seismic Pass        dr-tanaka  (match, 1.5×)             │   │
+│ └──────────────────────────────────────────────────────────┘   │
+└────────────────────────────────────────────────────────────────┘
+```
+
+#### Columns
+
+- **NAME** — scientist identifier. The data layer (`src/personnel/components.rs`) uses `ScientistId`, an opaque newtype. UI displays the prefixed form (e.g. `dr-okafor`) for compactness; full names live in a tooltip on hover.
+- **SPECIALTY** — one of the eight `ScientistSpecialty` variants: `Geology`, `Atmospherics`, `Biology`, `Geophysics`, `Spectroscopy`, `Chemistry`, `PlanetaryScience`, `Astrobiology`. Color-coded chips (theme tokens `theme::SPECIALTY_*`).
+- **SENIORITY** — `SeniorityTier` enum: `Junior` (★☆☆), `Senior` (★★☆), `Principal` (★★★). Drives the per-scientist success-rate bonus on CrewInjury rolls.
+- **STATUS** — `Active` (assigned to a mission), `Idle` (hired, no assignment), `Injured` (recently failed a CrewInjury roll, recovering), `Retired` (hidden by default; a filter toggle brings them back).
+- **ASSIGN** — click to open the assignment popover. Lists unstaffed missions on colonies the scientist could reach; selecting one fires the assignment event.
+
+#### Header actions
+
+- `[Hire]` — opens the hire dialog. Lists available candidates from the `hire_scientists` system (currently triggered by a research milestone; the dialog is the explicit player-driven path). New hires come in at `Junior` seniority.
+- `[Auto-Assign]` — toggles the auto-assign AI. When on, idle scientists are routed to the unstaffed mission whose `SurveyMethod` matches their `ScientistSpecialty` (per `ScientistSpecialty::matches_method`), preferring higher-seniority scientists for higher-tier targets.
+- `[⚙]` — opens the roster settings. Filter toggles for status, specialty, seniority; a "show retired" toggle; a "warn on mismatch" toggle for the assignment popover.
+
+#### Roster summary
+
+- **Total** / **Active** / **Idle** / **Injured** — counts derived from the live `Scientist` components.
+- **Avg. seniority** — mean across the live roster; rounded to one decimal.
+- **Est. payroll** — sum of per-scientist salaries (`Junior` = 0.2 M cr/yr, `Senior` = 0.5 M cr/yr, `Principal` = 0.8 M cr/yr; modder-tunable in `assets/data/personnel_specialties.ron` per SURVEY_REWORK.md §8). Negative numbers render in `theme::NEGATIVE_RESOURCE`.
+
+#### Reconciliation notes (Preview → Shipped)
+
+When `src/ui/personnel_panel.rs` lands, the doc above should be reconciled against the Coder's actual implementation. The likely deltas are:
+
+- **Row order** in the assignment popover (the design contract orders by ascending `base_duration_days`; the Coder may order by tier or by `required_tech`).
+- **Auto-assign toggle placement** (header vs. an `Auto-Assign` gear in the assignments footer).
+- **Hire dialog source** (the design contract assumes `hire_scientists` can be called explicitly; if the Coder keeps it milestone-only, the `[Hire]` button is gated and disabled with a tooltip explaining the trigger).
+
+A 1-row or 3-row table edit is the worst case. The modder surface (`assets/data/personnel_specialties.ron`, the eight specialty variants, the seniority enum) is stable on `main` and should not drift.
+
+## 9. Layout Patterns
 
 §2 covers *components* (frames, tokens, builders) and §3 covers *panels*
 (per-domain anatomy). This section covers the *layout primitives* the
@@ -657,7 +809,7 @@ contribution rules) lives in
 [`docs/UI_LAYOUT_PATTERNS.md`](UI_LAYOUT_PATTERNS.md); this section is
 the at-a-glance index for which primitive a panel calls where.
 
-### 8.1 The `Tab` trait
+### 9.1 The `Tab` trait
 
 `src/ui/tab.rs` defines the `Tab` trait (`id()`, `label()`,
 `icon() -> Option<&'static str>`, `Default` is the canonical first tab).
@@ -666,7 +818,7 @@ it once; both the egui and the Bevy UI sub-tab primitives are generic
 over `T: Tab`. The trait is the contract — see the doc comment for
 extension points (dynamic `Cow::Owned` labels, per-tab icons).
 
-### 8.2 egui primitives (Pattern 2 + Pattern 4)
+### 9.2 egui primitives (Pattern 2 + Pattern 4)
 
 | Primitive | Purpose | Used by |
 | --------- | ------- | ------- |
@@ -676,7 +828,7 @@ extension points (dynamic `Cow::Owned` labels, per-tab icons).
 | `theme::tab_strip<T: Tab>(ui, tabs, active, on_select) -> T` | Horizontal sub-tab strip. Active tab in `ACCENT` + 2px bottom underline; inactive in `TEXT`. Returns `active` so callers that want the click to take effect within the same frame can re-assign their state. | Construction (top-level + 8-way `BuildingCategory` second-level), Research (Archive tab categories), Economy (7-way `EconomyTab`). |
 | `theme::ledger_panel<T>(ui, id, title, _token, contents)` | Collapsible ledger section: `section_h2` title + `CollapsingHeader` (default-open). Generic `T` is reserved for future typed tokens; pass `&()` if you don't need a filter. | Economy Colonies tab, Construction Overview. |
 
-### 8.3 Bevy UI 0.18 primitives (Pattern 3 mirror)
+### 9.3 Bevy UI 0.18 primitives (Pattern 3 mirror)
 
 The Shipbuilding workspace is the only native Bevy UI panel
 (`docs/UI.md` §1). PR-B added a `theme::Color` mirror of the egui
@@ -690,7 +842,7 @@ PR-E consolidated the 3-pane shell.
 | `theme::section_h1_bevy(commands, parent_entity, label)` | Spawn a `Text` child of `parent_entity` styled as the canonical pane title (15pt body font, `Color::PANEL_TITLE`). |
 | `theme::tab_strip_bevy<T: Tab>(commands, tabs_root, tabs, active)` | Spawn one `Button` per tab as a child of `tabs_root`, with the standard `Color::TAB_*` palette. |
 
-### 8.4 Per-panel use
+### 9.4 Per-panel use
 
 The §3 anatomy subsections reference these primitives inline at the
 call site they appear in:
