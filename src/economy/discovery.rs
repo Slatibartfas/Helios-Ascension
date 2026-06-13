@@ -28,7 +28,7 @@
 
 use crate::economy::components::{MineralDeposit, ResourceReserve, SurveyLevel};
 use crate::economy::types::ResourceType;
-use crate::survey::components::{DimensionFidelity, SurveyState};
+use crate::survey::components::SurveyState;
 use crate::survey::types::SurveyDimension;
 
 /// Per-tier label used by the dossier's `draw_reveal_matrix` render
@@ -257,7 +257,6 @@ pub fn tier_breakdown_for_reserve(
     // is `u8` so the copies are cheap.
     let mineral_tier = state.fidelity(SurveyDimension::MineralDeposits).tier;
     let subsurface_tier = state.fidelity(SurveyDimension::Subsurface).tier;
-    let drill_done = state.drill_missions_completed >= 1;
 
     let t1_present = reserve.proven_crustal > RESERVE_PRESENT_THRESHOLD;
     let t2_present = reserve.deep_deposits > RESERVE_PRESENT_THRESHOLD;
@@ -421,6 +420,7 @@ mod tests {
     use super::*;
     use crate::economy::components::{MineralDeposit, ResourceReserve};
     use crate::economy::types::ResourcePhase;
+    use crate::survey::components::DimensionFidelity;
 
     fn make_state(mineral_tier: u8, subsurface_tier: u8, drill_done: u32) -> SurveyState {
         let mut s = SurveyState::default();
