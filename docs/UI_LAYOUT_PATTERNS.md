@@ -273,7 +273,7 @@ collapse bespoke implementations onto the patterns above.
 | Shipbuilding       | `src/ui/shipbuilding_workspace.rs:1241-1296` (`populate_tab_strip`, Bevy UI) | P3 + P4 (mirror) | D + E (GRA-69 + GRA-70) | PR #127 replaced the `Color::srgb(...)` literals with `theme::Color`; PR #128 (GRA-70) consolidated the 3-pane shell |
 | Economy            | `src/ui/economy_panel.rs:6` (`EconomyTab` enum, 7 variants) | P4 (7-way) + P2 (Colonies tab) | F (GRA-71) | bespoke `EconomyTab` with 7 variants |
 | Personnel, Intel, Diplomacy | (panels not yet implemented) | P1 + TBD | future chain | not in scope for v2 |
-| (modal)            | `src/ui/dossier_panel.rs:103` (`ui_planet_dossier`) | P2 | ref only | the reference P2 implementation |
+| (modal)            | `src/ui/dossier_panel.rs:204` (`ui_planet_dossier`) — top-level system; `draw_survey_section` (SURVEY ledger, PR-F/GRA-108) and `draw_resource_section` (RESOURCES ledger, PR-B/GRA-67) are the two Pattern 2 instances | P2 | ref only | the reference P2 implementation |
 | (modal)            | `src/ui/resources_bar.rs:1154` (`ui_resources_bar`) | (none) | — | persistent HUD strip, not a panel |
 
 **Composition rules:**
