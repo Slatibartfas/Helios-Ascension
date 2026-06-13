@@ -3563,8 +3563,21 @@ mod tests {
     //! Pure-data tests on [`OrbitalStationSummary`] — no egui
     //! context. The render function is verified manually in-game
     //! (the smallest in-game check from the issue body).
+    //!
+    //! GRA-112 (2026-06-13) extends the suite with the 5-test
+    //! acceptance contract from the LGD design brief for the
+    //! sophisticated `recommended_survey_action` heuristic, plus
+    //! 3 bonus tests (roster-flip, empty-templates, no-template-
+    //! covers-primary). The test imports below pull in
+    //! `SurveyMethod`, `DimensionFidelity`, `ScientistSpecialty`,
+    //! and `SeniorityTier` from the production modules — those
+    //! aren't used by the production code in this file, so the
+    //! `use super::*;` doesn't transitively re-export them.
 
     use super::*;
+    use crate::personnel::{ScientistSpecialty, SeniorityTier};
+    use crate::survey::components::DimensionFidelity;
+    use crate::survey::types::SurveyMethod;
 
     fn mars_cache_tier_1() -> ContinuousStationBonus {
         // A tier-1 station's combined cache: 0.05 axes/yr and a
