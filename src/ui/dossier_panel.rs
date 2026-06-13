@@ -339,19 +339,29 @@ pub(super) fn ui_planet_dossier(mut params: DossierUiParams) {
                     // and the dispatch picker as a top-level section
                     // above Resources. The Resources section keeps
                     // the deposit grid + reveal matrix + summary.
-                    if survey_state.is_some() {
-                        section_divider(ui);
-                        theme::ledger_panel(ui, "dossier_survey", "SURVEY", &(), |ui| {
-                            draw_survey_section(
-                                ui,
-                                entity,
-                                &body.name,
-                                survey_state,
-                                &params.mission_templates,
-                                &mut params.commands,
-                            );
-                        });
-                    }
+                    //
+                    // Always render — `draw_survey_section` handles
+                    // the legacy-only / no-state case (e.g. Earth
+                    // boots at `CoreSample` without a `SurveyState`)
+                    // by showing a single "Survey not active" hint.
+                    // Bodies with neither legacy level nor a v0.5.0
+                    // state get a dispatch prompt; bodies with a
+                    // legacy level still need the SURVEY badge visible
+                    // (the legacy click-to-upgrade button was removed
+                    // in GRA-107, so the badge is the only status
+                    // affordance left).
+                    section_divider(ui);
+                    theme::ledger_panel(ui, "dossier_survey", "SURVEY", &(), |ui| {
+                        draw_survey_section(
+                            ui,
+                            entity,
+                            &body.name,
+                            survey_state,
+                            survey_level_opt,
+                            &params.mission_templates,
+                            &mut params.commands,
+                        );
+                    });
 
                     // ── Resource Grid ───────────────────────────────
                     if let Some(res) = resources {
@@ -1542,6 +1552,7 @@ fn draw_survey_section(
     entity: Entity,
     body_name: &str,
     survey_state: Option<&SurveyState>,
+    survey_level: Option<&SurveyLevel>,
     mission_templates: &SurveyMissionTemplates,
     commands: &mut Commands,
 ) {
@@ -1554,6 +1565,12 @@ fn draw_survey_section(
     match survey_state {
         Some(state) => {
             let progress_pct = (state.average_tier() * 100.0).round() as u32;
+            // The active-mission list below renders every entry
+            // in `state.active_missions` (Succeeded / Failed /
+            // Aborted included — the player can still see what ran
+            // and abort an in-flight recovery). Match the list's
+            // effective count so the header number and the list
+            // stay in sync.
             let active_count = state.active_missions.len();
             let scientists: HashSet<u64> = state
                 .active_missions
@@ -1627,18 +1644,53 @@ fn draw_survey_section(
             draw_dispatch_mission_picker(ui, entity, body_name, mission_templates, commands);
         }
         None => {
-            // Legacy / no-state path. The body is either unsuveyed
-            // (e.g. a star) or hasn't been migrated to the v0.5.0
-            // system. Render a single dim status line so the
-            // section isn't a dead empty box.
-            ui.colored_label(
-                TEXT_DIM,
-                "Survey not active on this body. Dispatch a mission to begin.",
-            );
-            ui.colored_label(
-                TEXT_DIM,
-                "Note: stars and other non-surveyable body types do not support survey.",
-            );
+            // Legacy / no-state path. The body has no v0.5.0
+            // `SurveyState` — either because it's a star, a body
+            // that hasn't been touched by the new system, or it
+            // boots with a legacy `SurveyLevel` (Earth at
+            // `CoreSample` via `src/plugins/solar_system.rs:922`).
+            // Show the legacy badge so the SURVEY section has
+            // visible status (the click-to-upgrade button was
+            // removed in GRA-107, so the badge is the only status
+            // affordance left for these bodies). When the body has
+            // no legacy level either, render a dim dispatch prompt
+            // so the section is never a dead empty box.
+            match survey_level {
+                Some(level) => {
+                    let (level_color, level_text) = match level {
+                        SurveyLevel::Unsurveyed => (TEXT_DIM, "UNSURVEYED"),
+                        SurveyLevel::OrbitalScan => (egui::Color32::LIGHT_BLUE, "ORBITAL"),
+                        SurveyLevel::SeismicSurvey => (egui::Color32::YELLOW, "SEISMIC"),
+                        SurveyLevel::CoreSample => (GREEN_ACCENT, "CORE SAMPLE"),
+                    };
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            egui::RichText::new("STATUS")
+                                .font(mono_font(10.0))
+                                .color(TEXT_DIM),
+                        );
+                        ui.label(
+                            egui::RichText::new(level_text)
+                                .font(mono_font(11.0))
+                                .color(level_color),
+                        );
+                    });
+                    ui.colored_label(
+                        TEXT_DIM,
+                        "Legacy survey level — no v0.5.0 mission data attached. Dispatch a mission to migrate.",
+                    );
+                }
+                None => {
+                    ui.colored_label(
+                        TEXT_DIM,
+                        "Survey not active on this body. Dispatch a mission to begin.",
+                    );
+                    ui.colored_label(
+                        TEXT_DIM,
+                        "Note: stars and other non-surveyable body types do not support survey.",
+                    );
+                }
+            }
         }
     }
 }
