@@ -4453,7 +4453,7 @@ mod tests {
             .expect("non-empty templates + non-fully-characterized body must recommend");
         // B wins on the cross-dim bonus (+0.25) over A.
         assert_eq!(dim, SurveyDimension::OrbitalMech);
-        assert_eq!(recommended.id, "b");
+        assert_eq!(recommended.id, "b_multi");
         // B's tier_gap is 1+1=2 and A's tier_gap is 2 — both
         // would satisfy TierGap. But B is a multi-dim template
         // so CrossDim (priority 3) wins over TierGap (priority 4).
