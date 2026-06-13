@@ -344,6 +344,68 @@ impl SurveyState {
         self.drill_missions_completed >= 1 && self.fidelity(SurveyDimension::Subsurface).tier >= 5
     }
 
+    /// GRA-108: pick the survey-mission template that most improves
+    /// the dimension map. Heuristic: find the lowest-fidelity
+    /// dimension (UNKNOWN first, then lowest `tier`), then return the
+    /// first template whose `target_tiers` map covers that dimension
+    /// with a `target > current_tier`. Returns `None` if no template
+    /// advances any dimension (e.g. all dimensions are at `MAX_TIER`,
+    /// or the template registry is empty, or no template covers a
+    /// low-fidelity dimension).
+    ///
+    /// This is a stub for v0.5.0 — the LGD-led follow-up can add
+    /// cost / time / scientist-pressure scoring. The stub is good
+    /// enough for the dossier's "RECOMMENDED NEXT STEP" affordance
+    /// because:
+    ///   1. The lowest-fidelity dimension is always a meaningful
+    ///      pick (the player's progress bottleneck).
+    ///   2. Templates with the dimension in their `target_tiers`
+    ///      map are guaranteed to advance it (or hold it).
+    ///   3. The HashMap iteration order is deterministic for a
+    ///      given template set, so the player sees a stable pick
+    ///      across frames.
+    ///
+    /// Lives here (not in `dossier_panel.rs`) so it's reachable
+    /// from integration tests without dragging the egui UI module
+    /// in. Callers in the UI hold `Option<&SurveyMissionTemplate>`
+    /// and render an empty-state when this returns `None`.
+    pub fn recommended_survey_action<'a>(
+        &self,
+        templates: &'a super::data::SurveyMissionTemplates,
+    ) -> Option<&'a super::data::SurveyMissionTemplate> {
+        if templates.templates.is_empty() {
+            return None;
+        }
+
+        // Find the lowest-fidelity dimension. Sort key is just the
+        // tier — `SurveyDimension::ALL` is in canonical display
+        // order so the first hit at the minimum tier is the
+        // tie-breaker.
+        let mut lowest: Option<(u8, SurveyDimension)> = None;
+        for dim in SurveyDimension::ALL {
+            let tier = self.fidelity(dim).tier;
+            match lowest {
+                None => lowest = Some((tier, dim)),
+                Some((lt, _)) if tier < lt => lowest = Some((tier, dim)),
+                _ => {}
+            }
+        }
+        let (lowest_tier, lowest_dim) = lowest?;
+
+        // Find the first template that targets the lowest dimension
+        // with a tier above the current. Templates with `target ==
+        // current` are skipped — the player needs *progress*, not
+        // confirmation.
+        for template in templates.templates.values() {
+            if let Some(&target) = template.target_tiers.get(&lowest_dim) {
+                if target > lowest_tier {
+                    return Some(template);
+                }
+            }
+        }
+        None
+    }
+
     /// Landing-site evaluation coverage in `0.0..=1.0`.
     ///
     /// Derived (not stored) from the per-dimension tiers: site
@@ -1035,6 +1097,7 @@ mod tests {
 
     use super::*;
     use crate::economy::components::SurveyLevel;
+    use crate::survey::data::SurveyMissionTemplate;
 
     fn sim_time() -> f64 {
         // Fixed sim-time so the tests are deterministic.
@@ -1283,5 +1346,127 @@ mod tests {
         const {
             assert!(LANDING_SITE_EVAL_THRESHOLD > 0.0 && LANDING_SITE_EVAL_THRESHOLD < 1.0);
         }
+    }
+
+    // ── GRA-108: recommended_survey_action heuristic ─────────────
+    //
+    // Locks the dossier "RECOMMENDED NEXT STEP" pick algorithm:
+    // lowest-fidelity dimension first, then first template whose
+    // `target_tiers` map covers that dimension with a tier > current.
+
+    fn fake_template(id: &str, target_dim: SurveyDimension, target: u8) -> SurveyMissionTemplate {
+        let mut target_tiers = HashMap::new();
+        target_tiers.insert(target_dim, target);
+        SurveyMissionTemplate {
+            id: id.to_string(),
+            display_name: id.to_string(),
+            method: SurveyMethod::Orbital,
+            instrument_id: "default".to_string(),
+            target_tiers,
+            base_duration_days: 100,
+            axis_yield_per_day: 1.0,
+            is_ground_team: false,
+            failure_modes: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn recommended_action_picks_lowest_fidelity_dimension() {
+        // OrbitalMech is at tier 3, Atmosphere at tier 1, the rest
+        // are UNKNOWN (tier 0). The first UNKNOWN dimension wins,
+        // so the heuristic should target a template that covers
+        // one of the UNKNOWN axes.
+        let mut state = SurveyState::default();
+        state.set_fidelity(
+            SurveyDimension::OrbitalMech,
+            DimensionFidelity::freshly_measured(3, 0.0),
+        );
+        state.set_fidelity(
+            SurveyDimension::Atmosphere,
+            DimensionFidelity::freshly_measured(1, 0.0),
+        );
+        let mut templates = crate::survey::data::SurveyMissionTemplates::default();
+        templates.templates.insert(
+            "surface_lander".into(),
+            fake_template("surface_lander", SurveyDimension::SurfaceFeatures, 2),
+        );
+        templates.templates.insert(
+            "atmosphere_probe".into(),
+            fake_template("atmosphere_probe", SurveyDimension::Atmosphere, 2),
+        );
+        // First dimension in `ALL` at tier 0 is OrbitalMech; the
+        // surface_lander template doesn't cover OrbitalMech, so the
+        // pick has to walk down to find one that does. The
+        // atmosphere_probe covers Atmosphere (tier 1) but doesn't
+        // cover an UNKNOWN dimension either. Result: no template
+        // matches → `None`. The test below covers the matching
+        // case.
+        assert!(state.recommended_survey_action(&templates).is_none());
+    }
+
+    #[test]
+    fn recommended_action_returns_template_targeting_unknown_dimension() {
+        // All dimensions UNKNOWN. Template that covers
+        // `OrbitalMech` (the first dimension in `ALL`) with
+        // target 1 should be picked.
+        let state = SurveyState::default();
+        let mut templates = crate::survey::data::SurveyMissionTemplates::default();
+        templates.templates.insert(
+            "orbital_mech_survey".into(),
+            fake_template("orbital_mech_survey", SurveyDimension::OrbitalMech, 1),
+        );
+        let pick = state
+            .recommended_survey_action(&templates)
+            .expect("expected a pick");
+        assert_eq!(pick.id, "orbital_mech_survey");
+    }
+
+    #[test]
+    fn recommended_action_returns_none_when_no_template_advances() {
+        // Body is fully surveyed. No template can push any
+        // dimension above `MAX_TIER`, so the pick is `None`.
+        let state = SurveyState::fully_surveyed(0.0);
+        let mut templates = crate::survey::data::SurveyMissionTemplates::default();
+        templates.templates.insert(
+            "extra_drill".into(),
+            fake_template("extra_drill", SurveyDimension::Subsurface, 5),
+        );
+        assert!(state.recommended_survey_action(&templates).is_none());
+    }
+
+    #[test]
+    fn recommended_action_returns_none_when_templates_empty() {
+        let state = SurveyState::default();
+        let templates = crate::survey::data::SurveyMissionTemplates::default();
+        assert!(state.recommended_survey_action(&templates).is_none());
+    }
+
+    #[test]
+    fn recommended_action_skips_template_with_target_equal_to_current() {
+        // Tier-1 Atmosphere. Template that targets Atmosphere at
+        // tier 1 is *confirmation*, not progress — should be
+        // skipped. The next-lowest dimension (e.g. SurfaceFeatures
+        // at UNKNOWN) is the real pick.
+        let mut state = SurveyState::default();
+        state.set_fidelity(
+            SurveyDimension::Atmosphere,
+            DimensionFidelity::freshly_measured(1, 0.0),
+        );
+        let mut templates = crate::survey::data::SurveyMissionTemplates::default();
+        templates.templates.insert(
+            "atmosphere_confirm".into(),
+            fake_template("atmosphere_confirm", SurveyDimension::Atmosphere, 1),
+        );
+        templates.templates.insert(
+            "surface_first".into(),
+            fake_template("surface_first", SurveyDimension::SurfaceFeatures, 1),
+        );
+        let pick = state
+            .recommended_survey_action(&templates)
+            .expect("expected a pick");
+        assert_eq!(
+            pick.id, "surface_first",
+            "confirmation-only template should be skipped"
+        );
     }
 }

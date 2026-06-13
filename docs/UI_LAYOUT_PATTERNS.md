@@ -299,6 +299,7 @@ collapse bespoke implementations onto the patterns above.
 | E   | GRA-70 (Coder) | parameterise the 3-pane shell as `WorkspaceShell { tabs_root, library_root, canvas_root, analytics_root }`; apply `theme::section_h1` headers | `src/ui/shipbuilding_workspace.rs` (largest PR, ~1.5 d) |
 | F   | GRA-71 (Coder) | 7-way `theme::tab_strip<EconomyTab>`; `theme::ledger_panel<T>` for the Colonies tab + (demonstration) Construction Overview | `src/ui/economy_panel.rs` (~1 d) |
 | G   | GRA-72 (operator) | `docs/UI.md` §8 (new "Layout patterns" cross-reference) + visual sign-off | `docs/UI.md` (+~20 lines) |
+| H   | GRA-108 (Coder) | lift survey UI out of `draw_resource_section` into a new peer `theme::ledger_panel` "SURVEY" section above "RESOURCES" (SURVEY_REWORK.md §10); add `recommended_survey_action` heuristic (lowest-fidelity dimension → first template that targets it); dimensions table with 8 axes (tier + confidence + bar) | `src/ui/dossier_panel.rs` (+~280 lines, -~70), `docs/UI_LAYOUT_PATTERNS.md` (this row) |
 
 ## 8. Contribution rules for new panels
 
@@ -319,6 +320,15 @@ When a new `GameMenu` variant lands (e.g. Personnel, Intel, Diplomacy):
 4. If a layout need does not fit the four patterns, propose a *fifth*
    pattern in this doc first; do not introduce a one-off shell.
 5. Map the new panel into the table in §6 before opening the PR.
+6. **Peer-ledger composition (GRA-108).** When a panel's body
+   naturally splits into two read-only sections (e.g. SURVEY
+   metadata + RESOURCE deposits), prefer two peer `theme::ledger_panel`
+   shells in vertical sequence over nesting one inside the other.
+   The dossier's [SURVEY] → [RESOURCES] sequence is the canonical
+   example: each ledger keeps its own `id_salt`, can collapse
+   independently, and reads as a flat scroll rather than a deep
+   tree. Reserve nesting for sub-views of the *same* data (e.g.
+   ByCategory/Compact inside Resources).
 
 ## 9. Open questions for the next chain
 
@@ -352,6 +362,9 @@ LGD `8b113021-…` on branch `lgd/gra-95-96-97-ui-layout-anchor-bundle`.
 Covers issues GRA-95 (wrong-context + 4 off-by-ones), GRA-96
 (`construction_panel.rs:697-719` wrong-context), and GRA-97 (3
 additional wrong-contexts + 2 off-by-ones).
+*GRA-108 refresh (2026-06-13):* §7 PR-H row added (peer-ledger
+composition for SURVEY/RESOURCES). §8.6 added as the "peer-ledger
+composition" rule.
 *Supersedes:* the v1 plan's deferred layout-level work (per
 `issue_comments.id=2ed30e26-…` and `df13b1ae-…` operator answer
 `four-named` 2026-06-10T22:43:15Z)
