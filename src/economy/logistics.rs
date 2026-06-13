@@ -606,68 +606,104 @@ pub fn process_fleet_logistics_assignments(
     let now = sim_time.elapsed_seconds();
 
     for action in actions.assign_logistics_requests.drain(..) {
-        // Look up the request.
-        let Some(req) = requests.find_by_id_mut(action.request_id) else {
-            warn!(
-                "process_fleet_logistics_assignments: request id {} not found (fleet {:?})",
-                action.request_id, action.fleet
-            );
+        // GRA-119: snapshot everything the dispatch needs before grabbing
+        // the mutable borrow on `requests`, because we also need to
+        // enqueue a remainder request later and that requires
+        // `&mut PendingResourceRequests`.  We collect: request identity
+        // (id, dest, resource, amount, source, linked_project, name),
+        // fleet capacity, and the fleet's own body.  The pre-cap data
+        // shape is computed up-front, the actual source deduction +
+        // request mutation happens under the `find_by_id_mut` borrow,
+        // and the remainder enqueue happens after that borrow drops.
+        let pre_cap = {
+            let Some(req) = requests.find_by_id(action.request_id) else {
+                warn!(
+                    "process_fleet_logistics_assignments: request id {} not found (fleet {:?})",
+                    action.request_id, action.fleet
+                );
+                continue;
+            };
+
+            if !matches!(req.state, RequestState::Pending) {
+                warn!(
+                    "process_fleet_logistics_assignments: request id {} no longer Pending (state {:?}); ignoring assign from fleet {:?}",
+                    action.request_id, req.state, action.fleet
+                );
+                continue;
+            }
+
+            // Look up the fleet.
+            let Ok((orbit, maybe_fleet)) = fleet_query.get(action.fleet) else {
+                warn!(
+                    "process_fleet_logistics_assignments: fleet {:?} not found for request id {}",
+                    action.fleet, action.request_id
+                );
+                continue;
+            };
+
+            if orbit.body != req.destination_body {
+                warn!(
+                    "process_fleet_logistics_assignments: fleet {:?} is at body {:?} but request id {} targets {:?}",
+                    action.fleet, orbit.body, action.request_id, req.destination_body
+                );
+                continue;
+            }
+
+            // The fleet must contain at least one Freighter-class ship.
+            let has_freighter = maybe_fleet
+                .map(|f| f.ships.iter().any(|s| s.class == ShipClass::Freighter))
+                .unwrap_or(false);
+            if !has_freighter {
+                warn!(
+                    "process_fleet_logistics_assignments: fleet {:?} has no Freighter-class ship; cannot assign request id {}",
+                    action.fleet, action.request_id
+                );
+                continue;
+            }
+
+            // GRA-119: the cap is the fleet's total cargo capacity.  If
+            // the fleet has 0 capacity (e.g. pre-migration freighters
+            // without `ShipTemplateRef` + `FreighterSlots`), the request
+            // is dispatched at 0 → falls through the existing
+            // stays-Pending path below.
+            let fleet_capacity = maybe_fleet
+                .map(|f| f.total_cargo_capacity_t())
+                .unwrap_or(0.0);
+
+            Some(PreCap {
+                resource: req.resource,
+                amount_mt: req.amount_mt,
+                destination_body: req.destination_body,
+                destination_name: req.destination_name.clone(),
+                source_body: req.source_body,
+                linked_project: req.linked_project,
+                fleet_capacity,
+            })
+        };
+        let Some(pre) = pre_cap else {
             continue;
         };
-
-        if !matches!(req.state, RequestState::Pending) {
-            warn!(
-                "process_fleet_logistics_assignments: request id {} no longer Pending (state {:?}); ignoring assign from fleet {:?}",
-                action.request_id, req.state, action.fleet
-            );
-            continue;
-        }
-
-        // Look up the fleet.
-        let Ok((orbit, maybe_fleet)) = fleet_query.get(action.fleet) else {
-            warn!(
-                "process_fleet_logistics_assignments: fleet {:?} not found for request id {}",
-                action.fleet, action.request_id
-            );
-            continue;
-        };
-
-        if orbit.body != req.destination_body {
-            warn!(
-                "process_fleet_logistics_assignments: fleet {:?} is at body {:?} but request id {} targets {:?}",
-                action.fleet, orbit.body, action.request_id, req.destination_body
-            );
-            continue;
-        }
-
-        // The fleet must contain at least one Freighter-class ship.
-        let has_freighter = maybe_fleet
-            .map(|f| f.ships.iter().any(|s| s.class == ShipClass::Freighter))
-            .unwrap_or(false);
-        if !has_freighter {
-            warn!(
-                "process_fleet_logistics_assignments: fleet {:?} has no Freighter-class ship; cannot assign request id {}",
-                action.fleet, action.request_id
-            );
-            continue;
-        }
 
         // Pick a source body (first-fit-largest, same as company AI).
+        // Cap the deduction at `min(req.amount_mt, fleet_capacity)`
+        // (GRA-119).  Anything the fleet can't carry this trip becomes
+        // a new Maintenance request below.
+        let target = pre.amount_mt.min(pre.fleet_capacity);
         let mut sources: Vec<(Entity, f64)> = stockpiles
             .iter()
-            .map(|(e, ls)| (e, ls.get(&req.resource)))
+            .map(|(e, ls)| (e, ls.get(&pre.resource)))
             .filter(|(_, amt)| *amt > 0.0)
             .collect();
         sources.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
-        let mut remaining = req.amount_mt;
+        let mut remaining = target;
         let mut actual_source: Option<Entity> = None;
         for (src_entity, _) in &sources {
             if remaining <= 0.0 {
                 break;
             }
             if let Ok((_, mut ls)) = stockpiles.get_mut(*src_entity) {
-                let taken = ls.consume(req.resource, remaining);
+                let taken = ls.consume(pre.resource, remaining);
                 if taken > 0.0 && actual_source.is_none() {
                     actual_source = Some(*src_entity);
                 }
@@ -675,43 +711,117 @@ pub fn process_fleet_logistics_assignments(
             }
         }
 
-        let actual_dispatched = req.amount_mt - remaining;
+        let actual_dispatched = target - remaining;
         if actual_dispatched <= 0.0 {
-            // No body had any of the resource — refund nothing and leave the
-            // request Pending.  The player can re-attempt once stockpiles
-            // recover, or the company AI / maintenance checks will pick it up.
+            // No body had any of the resource (or fleet capacity is 0).
+            // Refund nothing and leave the request Pending.  The player
+            // can re-attempt once stockpiles recover, or the company AI /
+            // maintenance checks will pick it up.
             warn!(
                 "process_fleet_logistics_assignments: no source body has {:?} for request id {}; request stays Pending",
-                req.resource, action.request_id
+                pre.resource, action.request_id
             );
             continue;
         }
 
-        // Round-trip ETA from fleet's current body to the actual source body.
-        let source_for_eta = actual_source.unwrap_or(req.destination_body);
-        let transit_s =
-            hohmann_round_trip_seconds(req.destination_body, source_for_eta, &coords_query);
+        let shortfall_mt = pre.amount_mt - actual_dispatched;
 
-        req.in_transit_mt = actual_dispatched;
-        req.eta_seconds = Some(now + transit_s);
-        req.state = RequestState::InTransit;
-        req.assignee_fleet_id = Some(action.fleet);
-        if req.source_body.is_none() {
-            req.source_body = actual_source;
+        // Mutate the original request under the borrow.
+        let original_request_id = action.request_id;
+        let dest_body = pre.destination_body;
+        let dest_name = pre.destination_name.clone();
+        let req_resource = pre.resource;
+        let req_source_body = pre.source_body;
+        let req_linked_project = pre.linked_project;
+        let source_for_log = actual_source;
+        let shortfall_for_log = shortfall_mt;
+
+        {
+            let Some(req) = requests.find_by_id_mut(action.request_id) else {
+                // Was deleted between the snapshot and the mutation — bail.
+                continue;
+            };
+
+            // Round-trip ETA from fleet's current body to the actual source body.
+            let source_for_eta = actual_source.unwrap_or(req.destination_body);
+            let transit_s =
+                hohmann_round_trip_seconds(req.destination_body, source_for_eta, &coords_query);
+
+            req.in_transit_mt = actual_dispatched;
+            req.amount_mt = actual_dispatched;
+            req.eta_seconds = Some(now + transit_s);
+            req.state = RequestState::InTransit;
+            req.assignee_fleet_id = Some(action.fleet);
+            if req.source_body.is_none() {
+                req.source_body = actual_source;
+            }
+
+            let transit_days = transit_s / 86_400.0;
+            info!(
+                "Fleet {:?}: assigned request id {} — {:?} {:.1} Mt → {} (source {:?}, ETA {:.0} days)",
+                action.fleet,
+                action.request_id,
+                req.resource,
+                actual_dispatched,
+                req.destination_name,
+                source_for_log,
+                transit_days,
+            );
         }
 
-        let transit_days = transit_s / 86_400.0;
-        info!(
-            "Fleet {:?}: assigned request id {} — {:?} {:.1} Mt → {} (source {:?}, ETA {:.0} days)",
-            action.fleet,
-            action.request_id,
-            req.resource,
-            actual_dispatched,
-            req.destination_name,
-            actual_source,
-            transit_days,
-        );
+        // GRA-119: if the cap forced a split, enqueue the shortfall as a
+        // new Pending Maintenance request at the same destination.  The
+        // `&mut requests` borrow above has already dropped, so this is
+        // safe.
+        if shortfall_for_log > 0.0 {
+            requests.add(ResourceRequest {
+                id: 0, // overwritten by `add`
+                destination_body: dest_body,
+                destination_name: dest_name.clone(),
+                resource: req_resource,
+                amount_mt: shortfall_for_log,
+                priority: RequestPriority::Maintenance,
+                state: RequestState::Pending,
+                in_transit_mt: 0.0,
+                eta_seconds: None,
+                assigned_company_idx: None,
+                created_at_seconds: now,
+                source_body: req_source_body,
+                linked_project: req_linked_project,
+                payment_made: false,
+                completed_at_seconds: None,
+                assignee_fleet_id: None,
+            });
+            info!(
+                "Fleet {:?}: request {} capped at {:.1}/{:.1} Mt — enqueued \
+                 {:.1} Mt Maintenance remainder at {}",
+                action.fleet,
+                original_request_id,
+                actual_dispatched,
+                pre.amount_mt,
+                shortfall_for_log,
+                dest_name,
+            );
+        }
     }
+}
+
+/// Snapshot of a `ResourceRequest` + the dispatching fleet's cargo
+/// capacity, captured before the per-trip deduction + state flip in
+/// `process_fleet_logistics_assignments`.  GRA-119 needs the snapshot
+/// because the deduction + remainder-enqueue paths require multiple
+/// overlapping mutable borrows on `requests` and `stockpiles`; the
+/// pre-cap data is read once, then the dispatch mutates the original
+/// request and (if there's a shortfall) enqueues a new remainder
+/// request after that borrow drops.
+struct PreCap {
+    resource: ResourceType,
+    amount_mt: f64,
+    destination_body: Entity,
+    destination_name: String,
+    source_body: Option<Entity>,
+    linked_project: Option<Entity>,
+    fleet_capacity: f64,
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────

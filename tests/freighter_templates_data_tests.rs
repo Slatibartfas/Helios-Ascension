@@ -383,6 +383,7 @@ fn legacy_freighter_gets_template_ref_at_migration() {
         thrust_kn: 0.0,
         isp_s: 0.0,
         propulsion: PropulsionType::Chemical,
+        cargo_capacity_t: 0.0,
     };
     let entity = app
         .world_mut()
@@ -438,6 +439,7 @@ fn migration_skips_non_freighter_ships() {
         thrust_kn: 0.0,
         isp_s: 0.0,
         propulsion: PropulsionType::Chemical,
+        cargo_capacity_t: 0.0,
     };
     let entity = app
         .world_mut()

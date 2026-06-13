@@ -23,6 +23,13 @@ pub struct ShipInfo {
     pub isp_s: f32,
     /// Propulsion type.
     pub propulsion: PropulsionType,
+    /// Maximum cargo payload (tonnes) this ship can carry in a single
+    /// freight trip.  Zero for non-freighter classes.  Populated by
+    /// `sync_fleet_cache_from_ship_entities` for entities that carry a
+    /// `ShipTemplateRef` + `FreighterSlots` (the legacy freighter
+    /// migration in `src/ships/migration.rs` adds those components).
+    /// GRA-119.
+    pub cargo_capacity_t: f64,
 }
 
 impl ShipInfo {
@@ -41,6 +48,7 @@ impl ShipInfo {
             thrust_kn: propulsion.thrust_kn(dry_mass),
             isp_s: propulsion.isp_s(),
             propulsion,
+            cargo_capacity_t: 0.0,
         }
     }
 
@@ -147,6 +155,16 @@ impl Fleet {
     /// Total wet mass of all ships (tonnes).
     pub fn total_wet_mass_t(&self) -> f32 {
         self.ships.iter().map(|s| s.wet_mass_t()).sum()
+    }
+
+    /// Total cargo capacity (tonnes) summed over every ship in the fleet
+    /// (GRA-119).  Zero for fleets with no freighters or for ships whose
+    /// `ShipTemplateRef` / `FreighterSlots` haven't been resolved yet by
+    /// `sync_fleet_cache_from_ship_entities`.  The auto-freight loop and
+    /// the manual-assign path in `economy::logistics` cap a single
+    /// delivery's `in_transit_mt` at this value.
+    pub fn total_cargo_capacity_t(&self) -> f64 {
+        self.ships.iter().map(|s| s.cargo_capacity_t).sum()
     }
 
     /// Thrust-weighted average specific impulse of the fleet's engines (seconds).

@@ -28,10 +28,11 @@ use crate::astronomy::components::SpaceCoordinates;
 use crate::economy::company::{ShippingCompanies, ShippingCompany};
 use crate::economy::components::LocalStockpile;
 use crate::economy::logistics::{
-    hohmann_round_trip_seconds, PendingResourceRequests, RequestState, ResourceRequest,
+    hohmann_round_trip_seconds, PendingResourceRequests, RequestPriority, RequestState,
+    ResourceRequest,
 };
 use crate::economy::types::ResourceType;
-use crate::fleets::{Fleet, FleetOrbit, ShipClass};
+use crate::fleets::{Fleet, FleetOrbit};
 use crate::ui::SimulationTime;
 
 // ── CompanyAIPolicy ───────────────────────────────────────────────────────────
@@ -205,29 +206,28 @@ pub fn auto_freight_loop(
         let req_idx = pending_indices[0];
         let dest = requests.requests[req_idx].destination_body;
 
-        // Pick the best idle freighter at the request's destination body.
-        // "Best" = the fleet with the most freighter-class ships (proxy for
-        // cargo capacity until `ShipInfo::cargo_capacity_t` lands in a
-        // future PR — see GRA-37.b / GRA-40 for the full template model).
-        let mut best: Option<(Entity, usize)> = None; // (fleet_entity, freighter_count)
+        // Pick the best idle freighter at the request's destination body
+        // (GRA-119).  "Best" is the fleet with the highest total cargo
+        // capacity — a fleet of 3 light_freighters (3 × 70 t = 210 t)
+        // beats a fleet of 4 light_freighters only if those freighters
+        // are at a lower module tier.  The per-ship `cargo_capacity_t`
+        // field is populated by `sync_fleet_cache_from_ship_entities`
+        // from each ship's `ShipTemplateRef` + `FreighterSlots`.
+        let mut best: Option<(Entity, f64)> = None; // (fleet_entity, total_cargo_capacity_t)
         for (fleet_entity, fleet, orbit) in idle_freight_fleets.iter() {
             if orbit.body != dest {
                 continue;
             }
-            let freighter_count = fleet
-                .ships
-                .iter()
-                .filter(|s| s.class == ShipClass::Freighter)
-                .count();
-            if freighter_count == 0 {
+            let capacity = fleet.total_cargo_capacity_t();
+            if capacity <= 0.0 {
                 continue;
             }
-            if best.is_none_or(|(_, c)| freighter_count > c) {
-                best = Some((fleet_entity, freighter_count));
+            if best.is_none_or(|(_, c)| capacity > c) {
+                best = Some((fleet_entity, capacity));
             }
         }
 
-        let Some((fleet_entity, _freighter_count)) = best else {
+        let Some((fleet_entity, fleet_capacity_t)) = best else {
             // No idle player freighter at this body.  Throttled no-design
             // notification so the player sees the unmet demand, then drop
             // the request from this tick's queue.
@@ -241,15 +241,25 @@ pub fn auto_freight_loop(
             continue;
         };
 
-        // Deduct from source LocalStockpile (first-fit-largest), mirroring
-        // the manual-assign path.  `requests.requests[req_idx]` borrow
-        // dropped before the mutable call.
+        // GRA-119: cap the dispatched amount at the fleet's cargo capacity.
+        // `actual_dispatched` is the amount the fleet can carry in this
+        // single trip; any shortfall becomes a new `Maintenance`-priority
+        // request below.
         let req_snapshot = requests.requests[req_idx].clone();
-        if !deduct_from_source(
+        let target = req_snapshot.amount_mt.min(fleet_capacity_t);
+
+        // Deduct `target` from source LocalStockpile (first-fit-largest),
+        // mirroring the manual-assign path.  The helper returns the
+        // amount actually consumed (which may be < target if the source
+        // pool runs short between the snapshot and the consume pass).
+        // `requests.requests[req_idx]` borrow dropped before the
+        // mutable call.
+        let actual_dispatched = deduct_from_source(
             &req_snapshot.resource,
-            req_snapshot.amount_mt,
+            target,
             &mut stockpiles,
-        ) {
+        );
+        if actual_dispatched <= 0.0 {
             // No body has the resource.  Don't emit a no-design event here
             // — that's a *production* problem, not a *freight* problem.
             pending_indices.remove(0);
@@ -265,14 +275,60 @@ pub fn auto_freight_loop(
             hohmann_round_trip_seconds(req_snapshot.destination_body, eta_source, &coords_query);
 
         // Mutate the request: deduct already applied above, now flip state
-        // and stamp the freighter + ETA.
-        let req = &mut requests.requests[req_idx];
-        req.in_transit_mt = req.amount_mt;
-        req.eta_seconds = Some(now + transit_s);
-        req.state = RequestState::InTransit;
-        req.assignee_fleet_id = Some(fleet_entity);
-        if req.source_body.is_none() {
-            req.source_body = req_snapshot.source_body;
+        // and stamp the freighter + ETA.  When the cap forces a split,
+        // reduce the original request's `amount_mt` to the dispatched
+        // amount and enqueue a new `Maintenance` request for the
+        // shortfall (GRA-119).  Scope the `&mut requests.requests[]` borrow
+        // so it drops before we call `requests.add(...)` below — NLL does
+        // not see the inner `req.source_body = ...` mutation as a barrier
+        // for the outer borrow.
+        let shortfall_mt = req_snapshot.amount_mt - actual_dispatched;
+        let (original_request_id, original_resource, original_dest_name) = {
+            let req = &mut requests.requests[req_idx];
+            req.in_transit_mt = actual_dispatched;
+            req.amount_mt = actual_dispatched;
+            req.eta_seconds = Some(now + transit_s);
+            req.state = RequestState::InTransit;
+            req.assignee_fleet_id = Some(fleet_entity);
+            if req.source_body.is_none() {
+                req.source_body = req_snapshot.source_body;
+            }
+            (req.id, req.resource, req.destination_name.clone())
+        };
+
+        if shortfall_mt > 0.0 {
+            // GRA-119: enqueue a new Pending request for the shortfall
+            // at the same destination, Maintenance priority, so the
+            // remaining mass is serviced by the next available freighter
+            // trip (either by the same fleet on its next orbit, another
+            // idle fleet, or the abstract company AI).
+            requests.add(ResourceRequest {
+                id: 0, // overwritten by `add`
+                destination_body: req_snapshot.destination_body,
+                destination_name: req_snapshot.destination_name.clone(),
+                resource: req_snapshot.resource,
+                amount_mt: shortfall_mt,
+                priority: RequestPriority::Maintenance,
+                state: RequestState::Pending,
+                in_transit_mt: 0.0,
+                eta_seconds: None,
+                assigned_company_idx: None,
+                created_at_seconds: now,
+                source_body: req_snapshot.source_body,
+                linked_project: req_snapshot.linked_project,
+                payment_made: false,
+                completed_at_seconds: None,
+                assignee_fleet_id: None,
+            });
+            info!(
+                "AutoFreight: request {} capped at {:.1}/{:.1} Mt — enqueued \
+                 {:.1} Mt Maintenance remainder at {}",
+                original_request_id,
+                actual_dispatched,
+                req_snapshot.amount_mt,
+                shortfall_mt,
+                original_dest_name,
+            );
         }
 
         // Charge the company for using a freighter slot.  This treats the
@@ -287,10 +343,10 @@ pub fn auto_freight_loop(
             "AutoFreight: company {} assigned fleet {:?} → request {} ({:?} {:.1} Mt → {}, ETA {:.0} d)",
             company.name,
             fleet_entity,
-            req.id,
-            req.resource,
-            req.amount_mt,
-            req.destination_name,
+            original_request_id,
+            original_resource,
+            actual_dispatched,
+            original_dest_name,
             transit_days,
         );
 
@@ -322,10 +378,14 @@ fn maybe_emit_no_design(
     });
 }
 
-/// First-fit-largest deduction across all `LocalStockpile`s.  Returns true
-/// only if the full amount was satisfied.  Mirrors the logic in
+/// First-fit-largest deduction across all `LocalStockpile`s.  Returns the
+/// amount actually consumed — capped at `amount`, and zero if the source
+/// pool is empty.  Mirrors the logic in
 /// `logistics::process_fleet_logistics_assignments` and
-/// `company::process_company_ai`.
+/// `company::process_company_ai`.  GRA-119 changes the signature from
+/// `bool` to `f64` so the auto-freight loop can size the in-transit
+/// amount to whatever was actually deducted (rather than assuming a
+/// full-or-nothing outcome).
 ///
 /// We use a single `Query<(Entity, &mut LocalStockpile)>` rather than a
 /// read+mut pair because Bevy 0.18 rejects that combination as B0001.
@@ -335,7 +395,10 @@ fn deduct_from_source(
     resource: &ResourceType,
     amount: f64,
     stockpiles: &mut Query<(Entity, &mut LocalStockpile)>,
-) -> bool {
+) -> f64 {
+    if amount <= 0.0 {
+        return 0.0;
+    }
     let mut sources: Vec<(Entity, f64)> = stockpiles
         .iter()
         .map(|(e, ls)| (e, ls.get(resource)))
@@ -344,8 +407,8 @@ fn deduct_from_source(
     sources.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
     let total: f64 = sources.iter().map(|(_, a)| a).sum();
-    if total < amount {
-        return false;
+    if total <= 0.0 {
+        return 0.0;
     }
 
     let mut remaining = amount;
@@ -358,7 +421,7 @@ fn deduct_from_source(
             remaining -= taken;
         }
     }
-    remaining <= 0.0
+    amount - remaining
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -369,7 +432,7 @@ mod tests {
     use crate::astronomy::components::SpaceCoordinates;
     use crate::colony::components::Colony;
     use crate::fleets::components::ShipInfo;
-    use crate::fleets::types::PropulsionType;
+    use crate::fleets::types::{PropulsionType, ShipClass};
 
     /// Build a body entity with a `LocalStockpile` containing a given amount
     /// of `ResourceType::Iron`.  Returns the body entity.
@@ -389,15 +452,29 @@ mod tests {
     }
 
     /// Spawn a fleet with a single `Freighter` ship, in orbit at `body`.
-    fn spawn_idle_freighter_fleet(world: &mut World, body: Entity) -> Entity {
-        let ship = ShipInfo::new(
+    /// `cargo_capacity_t` is 0.0 by default — most tests don't care, and
+    /// `sync_fleet_cache_from_ship_entities` is bypassed (no
+    /// `ShipInstance` entity here).  GRA-119 tests pass an explicit
+    /// capacity to exercise the cap-and-split logic without spinning up
+    /// the full template registry.
+    fn spawn_idle_freighter_fleet_with_capacity(
+        world: &mut World,
+        body: Entity,
+        cargo_capacity_t: f64,
+    ) -> Entity {
+        let mut ship = ShipInfo::new(
             "Test Freighter".into(),
             ShipClass::Freighter,
             PropulsionType::Chemical,
         );
+        ship.cargo_capacity_t = cargo_capacity_t;
         let mut fleet = Fleet::new("Test Fleet".into());
         fleet.ships.push(ship);
         world.spawn((fleet, FleetOrbit::new(body, 0.001))).id()
+    }
+
+    fn spawn_idle_freighter_fleet(world: &mut World, body: Entity) -> Entity {
+        spawn_idle_freighter_fleet_with_capacity(world, body, 0.0)
     }
 
     /// Init the resources the auto-freight system reads / mutates.
@@ -415,12 +492,22 @@ mod tests {
 
     /// Build a `Pending` `ResourceRequest` at the given body for `Iron`.
     fn push_pending_iron_request(requests: &mut PendingResourceRequests, dest: Entity) -> u64 {
+        push_pending_iron_request_amount(requests, dest, 50.0)
+    }
+
+    /// GRA-119 variant: a `Pending` `ResourceRequest` of an arbitrary
+    /// amount (used by the cap-and-split test, which needs 5,000 Mt).
+    fn push_pending_iron_request_amount(
+        requests: &mut PendingResourceRequests,
+        dest: Entity,
+        amount_mt: f64,
+    ) -> u64 {
         requests.add(ResourceRequest {
             id: 0,
             destination_body: dest,
             destination_name: "Test Colony".into(),
             resource: ResourceType::Iron,
-            amount_mt: 50.0,
+            amount_mt,
             priority: crate::economy::logistics::RequestPriority::Construction,
             state: RequestState::Pending,
             in_transit_mt: 0.0,
@@ -453,7 +540,12 @@ mod tests {
 
         // World setup.
         let body = spawn_body_with_stockpile(app.world_mut(), 500.0);
-        let fleet_entity = spawn_idle_freighter_fleet(app.world_mut(), body);
+        // GRA-119: explicit 100 t cargo capacity so the picker (which
+        // now selects by `total_cargo_capacity_t`) can claim the 50 Mt
+        // request.  Default-0-capacity freighters are filtered out of
+        // the picker.
+        let fleet_entity =
+            spawn_idle_freighter_fleet_with_capacity(app.world_mut(), body, 100.0);
 
         // AutoFreight company (DW2 default; explicit here for clarity).
         let mut company = ShippingCompany::new("Test Co.", 0, 0.0);
@@ -631,6 +723,130 @@ mod tests {
             1,
             "throttle must suppress duplicate events: got {}",
             drained.len()
+        );
+    }
+
+    /// GRA-119: a 5,000 Mt Iron request at a body whose only idle
+    /// freighter fleet has 70 t cargo capacity must dispatch a single
+    /// 70 t trip and enqueue a new `Maintenance`-priority `Pending`
+    /// request for the remaining 4,930 Mt.  Mirrors the LGD's "in-game
+    /// check" test plan in the GRA-118 design comment.
+    #[test]
+    fn test_caps_per_freighter_capacity_and_splits_remainder() {
+        let mut app = App::new();
+        let mut schedule = Schedule::default();
+        init_econ_resources(app.world_mut());
+
+        // 5,000 Mt Iron on hand (more than the cap can move in one trip).
+        let body = spawn_body_with_stockpile(app.world_mut(), 5_000.0);
+        // Single light_freighter = 70 t cargo (2× cargo_pod_medium).
+        let fleet_entity =
+            spawn_idle_freighter_fleet_with_capacity(app.world_mut(), body, 70.0);
+
+        // AutoFreight company.
+        let mut company = ShippingCompany::new("Test Co.", 0, 0.0);
+        company.policy = CompanyAIPolicy::AutoFreight;
+        app.world_mut()
+            .resource_mut::<ShippingCompanies>()
+            .companies = vec![company];
+
+        // One Pending 5,000 Mt Construction Iron request at the same body.
+        let request_id = {
+            let mut requests = app.world_mut().resource_mut::<PendingResourceRequests>();
+            push_pending_iron_request_amount(&mut requests, body, 5_000.0)
+        };
+
+        schedule.add_systems(auto_freight_loop);
+        schedule.run(app.world_mut());
+
+        // Original request: reduced to 70 t, InTransit, freighter as assignee.
+        let reqs = app.world().resource::<PendingResourceRequests>();
+        let original = reqs
+            .find_by_id(request_id)
+            .expect("original request must still exist after split");
+        assert_eq!(
+            original.state,
+            RequestState::InTransit,
+            "original request must be InTransit after the cap"
+        );
+        assert_eq!(
+            original.assignee_fleet_id,
+            Some(fleet_entity),
+            "freighter fleet should be the assignee"
+        );
+        assert!(
+            (original.in_transit_mt - 70.0).abs() < 1e-6,
+            "in_transit_mt must be capped at fleet capacity: got {:.3}",
+            original.in_transit_mt
+        );
+        assert!(
+            (original.amount_mt - 70.0).abs() < 1e-6,
+            "original amount_mt must be reduced to the dispatched amount: \
+             got {:.3}",
+            original.amount_mt
+        );
+        assert!(
+            original.eta_seconds.is_some(),
+            "eta_seconds must be stamped after assignment"
+        );
+
+        // Remainder request: 4,930 Mt Pending Maintenance at the same destination.
+        // The remainder's id is assigned by `PendingResourceRequests::add`;
+        // filter by shape.
+        let remainders: Vec<&ResourceRequest> = reqs
+            .requests
+            .iter()
+            .filter(|r| r.id != request_id && r.state == RequestState::Pending)
+            .collect();
+        assert_eq!(
+            remainders.len(),
+            1,
+            "expected exactly one remainder request, got {}",
+            remainders.len()
+        );
+        let remainder = remainders[0];
+        assert!(
+            (remainder.amount_mt - 4_930.0).abs() < 1e-6,
+            "remainder amount must be the shortfall: got {:.3}",
+            remainder.amount_mt
+        );
+        assert_eq!(
+            remainder.priority,
+            RequestPriority::Maintenance,
+            "remainder must be Maintenance priority (not the original's \
+             Construction) so the next dispatch cycle is steady-state, not \
+             building-priority"
+        );
+        assert_eq!(
+            remainder.destination_body, body,
+            "remainder must target the same destination"
+        );
+        assert_eq!(
+            remainder.resource,
+            ResourceType::Iron,
+            "remainder must carry the same resource"
+        );
+        assert!(
+            remainder.assignee_fleet_id.is_none(),
+            "remainder must be unassigned so the next dispatch cycle \
+             (manual, auto, or company AI) can claim it"
+        );
+        assert!(
+            remainder.linked_project == original.linked_project,
+            "remainder must inherit the linked_project so building queues \
+             stay in sync with their demand"
+        );
+
+        // Source stockpile: only 70 t should be deducted (4,930 t
+        // remains on hand for the next trip).
+        let ls = app
+            .world()
+            .entity(body)
+            .get::<LocalStockpile>()
+            .expect("body still has LocalStockpile");
+        assert!(
+            (ls.get(&ResourceType::Iron) - 4_930.0).abs() < 1e-6,
+            "source stockpile must be 5,000 - 70 = 4,930 Mt after the cap"
         );
     }
 }
