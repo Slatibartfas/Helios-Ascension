@@ -254,11 +254,7 @@ pub fn auto_freight_loop(
         // pool runs short between the snapshot and the consume pass).
         // `requests.requests[req_idx]` borrow dropped before the
         // mutable call.
-        let actual_dispatched = deduct_from_source(
-            &req_snapshot.resource,
-            target,
-            &mut stockpiles,
-        );
+        let actual_dispatched = deduct_from_source(&req_snapshot.resource, target, &mut stockpiles);
         if actual_dispatched <= 0.0 {
             // No body has the resource.  Don't emit a no-design event here
             // — that's a *production* problem, not a *freight* problem.
@@ -544,8 +540,7 @@ mod tests {
         // now selects by `total_cargo_capacity_t`) can claim the 50 Mt
         // request.  Default-0-capacity freighters are filtered out of
         // the picker.
-        let fleet_entity =
-            spawn_idle_freighter_fleet_with_capacity(app.world_mut(), body, 100.0);
+        let fleet_entity = spawn_idle_freighter_fleet_with_capacity(app.world_mut(), body, 100.0);
 
         // AutoFreight company (DW2 default; explicit here for clarity).
         let mut company = ShippingCompany::new("Test Co.", 0, 0.0);
@@ -740,8 +735,7 @@ mod tests {
         // 5,000 Mt Iron on hand (more than the cap can move in one trip).
         let body = spawn_body_with_stockpile(app.world_mut(), 5_000.0);
         // Single light_freighter = 70 t cargo (2× cargo_pod_medium).
-        let fleet_entity =
-            spawn_idle_freighter_fleet_with_capacity(app.world_mut(), body, 70.0);
+        let fleet_entity = spawn_idle_freighter_fleet_with_capacity(app.world_mut(), body, 70.0);
 
         // AutoFreight company.
         let mut company = ShippingCompany::new("Test Co.", 0, 0.0);
