@@ -377,29 +377,45 @@ impl SurveyState {
             return None;
         }
 
-        // Find the lowest-fidelity dimension. Sort key is just the
-        // tier — `SurveyDimension::ALL` is in canonical display
-        // order so the first hit at the minimum tier is the
-        // tie-breaker.
-        let mut lowest: Option<(u8, SurveyDimension)> = None;
+        // Find every dimension tied at the minimum tier. We
+        // walk all 8 axes (in canonical `ALL` order) instead of
+        // stopping at the first minimum, because the lowest-tier
+        // dimension often has no template that covers it — and
+        // the *second*-lowest (or third) does. Without walking
+        // the tied set, the dossier would show "NO MATCHING
+        // TEMPLATE" on bodies that genuinely have a useful next
+        // mission available.
+        let mut min_tier: u8 = u8::MAX;
         for dim in SurveyDimension::ALL {
             let tier = self.fidelity(dim).tier;
-            match lowest {
-                None => lowest = Some((tier, dim)),
-                Some((lt, _)) if tier < lt => lowest = Some((tier, dim)),
-                _ => {}
+            if tier < min_tier {
+                min_tier = tier;
             }
         }
-        let (lowest_tier, lowest_dim) = lowest?;
+        let mut lowest_dims: [Option<SurveyDimension>; 8] = [None; 8];
+        let mut lowest_count = 0usize;
+        for dim in SurveyDimension::ALL {
+            if self.fidelity(dim).tier == min_tier {
+                lowest_dims[lowest_count] = Some(dim);
+                lowest_count += 1;
+            }
+        }
 
-        // Find the first template that targets the lowest dimension
-        // with a tier above the current. Templates with `target ==
-        // current` are skipped — the player needs *progress*, not
-        // confirmation.
-        for template in templates.templates.values() {
-            if let Some(&target) = template.target_tiers.get(&lowest_dim) {
-                if target > lowest_tier {
-                    return Some(template);
+        // For each tied dimension (in canonical order), look for
+        // the first template that covers it with a target above
+        // the current tier. Templates with `target == current`
+        // are skipped — the player needs *progress*, not
+        // confirmation. The HashMap iteration order is
+        // deterministic for a given template set, so the pick is
+        // stable across frames.
+        for slot in lowest_dims.iter().take(lowest_count) {
+            let dim = slot.expect("filled in the loop above");
+            let current = self.fidelity(dim).tier;
+            for template in templates.templates.values() {
+                if let Some(&target) = template.target_tiers.get(&dim) {
+                    if target > current {
+                        return Some(template);
+                    }
                 }
             }
         }
@@ -1373,9 +1389,14 @@ mod tests {
     #[test]
     fn recommended_action_picks_lowest_fidelity_dimension() {
         // OrbitalMech is at tier 3, Atmosphere at tier 1, the rest
-        // are UNKNOWN (tier 0). The first UNKNOWN dimension wins,
-        // so the heuristic should target a template that covers
-        // one of the UNKNOWN axes.
+        // are UNKNOWN (tier 0). Six dimensions tie for the lowest
+        // tier; the heuristic walks them in canonical order and
+        // returns the first template that covers any of them with
+        // a target above the current tier. `surface_lander` covers
+        // SurfaceFeatures (tier 0) at target 2 — that should win
+        // because the other template (`atmosphere_probe`) only
+        // covers Atmosphere, which is already at tier 1 and not
+        // part of the tied set.
         let mut state = SurveyState::default();
         state.set_fidelity(
             SurveyDimension::OrbitalMech,
@@ -1394,14 +1415,13 @@ mod tests {
             "atmosphere_probe".into(),
             fake_template("atmosphere_probe", SurveyDimension::Atmosphere, 2),
         );
-        // First dimension in `ALL` at tier 0 is OrbitalMech; the
-        // surface_lander template doesn't cover OrbitalMech, so the
-        // pick has to walk down to find one that does. The
-        // atmosphere_probe covers Atmosphere (tier 1) but doesn't
-        // cover an UNKNOWN dimension either. Result: no template
-        // matches → `None`. The test below covers the matching
-        // case.
-        assert!(state.recommended_survey_action(&templates).is_none());
+        let pick = state
+            .recommended_survey_action(&templates)
+            .expect("expected a pick from a tied lowest-tier set");
+        assert_eq!(
+            pick.id, "surface_lander",
+            "should walk the tied lowest-tier set to find a covering template"
+        );
     }
 
     #[test]
