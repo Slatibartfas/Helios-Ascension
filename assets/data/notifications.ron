@@ -1,0 +1,205 @@
+// Notification categories manifest (Helios Ascension)
+//
+// Lists every category the player can opt into. PR-A (GRA-135)
+// registers the schema; PR-B starts producing events; PR-D adds
+// grouping/dedup; later PRs add per-event severity, sound, icons.
+//
+// Modding guide:
+// - Add a row to opt a new category in (or out via `enabled: false`).
+// - `id` must be unique. Duplicate ids panic in debug builds.
+// - `default_dismiss_s` is overridden per-event if the bridge sets it.
+// - Personnel / diplomacy / encounters categories are placeholders
+//   for upcoming systems and ship with `enabled: false`.
+
+(
+    categories: [
+        // ── Survey ─────────────────────────────────────────────
+        (
+            id: "survey.mission_dispatched",
+            display_name: "Survey mission dispatched",
+            default_dismiss_s: 4.0,
+            enabled: true,
+        ),
+        (
+            id: "survey.mission_complete",
+            display_name: "Survey complete",
+            default_dismiss_s: 6.0,
+            enabled: true,
+        ),
+        (
+            id: "survey.dimension_unlocked",
+            display_name: "New survey dimension unlocked",
+            default_dismiss_s: 8.0,
+            enabled: true,
+        ),
+        (
+            id: "survey.anomaly_detected",
+            display_name: "Anomaly detected",
+            default_dismiss_s: 8.0,
+            enabled: true,
+        ),
+        (
+            id: "survey.mission_blocked",
+            display_name: "Survey mission blocked",
+            default_dismiss_s: 6.0,
+            enabled: true,
+        ),
+        (
+            id: "survey.tier_revealed",
+            display_name: "New resource tier revealed",
+            default_dismiss_s: 6.0,
+            enabled: true,
+        ),
+        // ── Construction ──────────────────────────────────────
+        (
+            id: "construction.queued",
+            display_name: "Build queued",
+            default_dismiss_s: 3.0,
+            enabled: true,
+        ),
+        (
+            id: "construction.complete",
+            display_name: "Build complete",
+            default_dismiss_s: 5.0,
+            enabled: true,
+        ),
+        (
+            id: "construction.cancelled",
+            display_name: "Build cancelled",
+            default_dismiss_s: 3.0,
+            enabled: true,
+        ),
+        (
+            id: "construction.shortage",
+            display_name: "Build paused — resource shortage",
+            default_dismiss_s: 6.0,
+            enabled: true,
+        ),
+        // ── Shipbuilding ──────────────────────────────────────
+        (
+            id: "shipbuilding.order_accepted",
+            display_name: "Ship order accepted",
+            default_dismiss_s: 4.0,
+            enabled: true,
+        ),
+        (
+            id: "shipbuilding.keel_laid",
+            display_name: "Keel laid",
+            default_dismiss_s: 4.0,
+            enabled: true,
+        ),
+        (
+            id: "shipbuilding.hull_complete",
+            display_name: "Hull complete",
+            default_dismiss_s: 5.0,
+            enabled: true,
+        ),
+        (
+            id: "shipbuilding.outfit_complete",
+            display_name: "Outfitting complete",
+            default_dismiss_s: 5.0,
+            enabled: true,
+        ),
+        (
+            id: "shipbuilding.shakedown_complete",
+            display_name: "Shakedown complete",
+            default_dismiss_s: 6.0,
+            enabled: true,
+        ),
+        (
+            id: "shipbuilding.order_blocked",
+            display_name: "Ship order blocked",
+            default_dismiss_s: 6.0,
+            enabled: true,
+        ),
+        // ── Research ──────────────────────────────────────────
+        (
+            id: "research.project_started",
+            display_name: "Research project started",
+            default_dismiss_s: 4.0,
+            enabled: true,
+        ),
+        (
+            id: "research.tech_unlocked",
+            display_name: "Technology unlocked",
+            default_dismiss_s: 6.0,
+            enabled: true,
+        ),
+        (
+            id: "research.stalled",
+            display_name: "Research stalled",
+            default_dismiss_s: 5.0,
+            enabled: true,
+        ),
+        // ── Economy / logistics ──────────────────────────────
+        (
+            id: "economy.stockpile_critical",
+            display_name: "Stockpile critical",
+            default_dismiss_s: 0.0, // sticky
+            enabled: true,
+        ),
+        (
+            id: "economy.freight_dispatched",
+            display_name: "Freight dispatched",
+            default_dismiss_s: 3.0,
+            enabled: true,
+        ),
+        (
+            id: "economy.freight_arrived",
+            display_name: "Freight arrived",
+            default_dismiss_s: 3.0,
+            enabled: true,
+        ),
+        // ── Personnel (placeholders, future system) ───────────
+        (
+            id: "personnel.scientist_arrived",
+            display_name: "Scientist arrived on station",
+            default_dismiss_s: 5.0,
+            enabled: false,
+        ),
+        (
+            id: "personnel.scientist_departed",
+            display_name: "Scientist departed station",
+            default_dismiss_s: 4.0,
+            enabled: false,
+        ),
+        (
+            id: "personnel.seniority_promoted",
+            display_name: "Scientist promoted",
+            default_dismiss_s: 5.0,
+            enabled: false,
+        ),
+        // ── Diplomacy (placeholders, future system) ───────────
+        (
+            id: "diplomacy.first_contact",
+            display_name: "First contact",
+            default_dismiss_s: 8.0,
+            enabled: false,
+        ),
+        (
+            id: "diplomacy.treaty_offered",
+            display_name: "Treaty offered",
+            default_dismiss_s: 6.0,
+            enabled: false,
+        ),
+        (
+            id: "diplomacy.treaty_broken",
+            display_name: "Treaty broken",
+            default_dismiss_s: 6.0,
+            enabled: false,
+        ),
+        // ── Encounters (placeholders, future system) ───────────
+        (
+            id: "encounters.anomaly_signal",
+            display_name: "Anomaly signal received",
+            default_dismiss_s: 6.0,
+            enabled: false,
+        ),
+        (
+            id: "encounters.hostile_contact",
+            display_name: "Hostile contact",
+            default_dismiss_s: 0.0, // sticky
+            enabled: false,
+        ),
+    ],
+)

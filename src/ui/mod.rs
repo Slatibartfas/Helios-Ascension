@@ -29,6 +29,7 @@ mod dossier_panel;
 mod economy_panel;
 mod fleets_panel;
 pub mod icons;
+pub mod notifications;
 mod research_panel;
 mod resources_bar;
 mod settings;
@@ -529,7 +530,11 @@ impl Plugin for UIPlugin {
             // `bevy::render::view::screenshot` import is gated under
             // `#[cfg(not(test))]` so the test target's incremental compile
             // stays within the GHA 5:00 cliff.
-            .add_plugins(screenshot::ScreenshotPlugin);
+            .add_plugins(screenshot::ScreenshotPlugin)
+            // Notifications foundation (GRA-135 PR-A). Types,
+            // settings resource, and RON loader only — systems
+            // land in PR-B (GRA-136).
+            .add_plugins(notifications::NotificationsPlugin);
     }
 }
 
