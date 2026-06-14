@@ -172,6 +172,9 @@ impl Plugin for ResearchPlugin {
             .init_resource::<TechTreeEditState>()
             .init_resource::<PendingResearchActions>()
             .init_resource::<ResearchTeamCapacity>()
+            // PR-C (GRA-137): tech-completion event the
+            // notification bridge consumes.
+            .add_message::<ResearchEvent>()
             // Startup systems
             .add_systems(Startup, load_technologies)
             .add_systems(
