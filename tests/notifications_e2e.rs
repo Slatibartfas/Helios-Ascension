@@ -42,6 +42,7 @@
 
 use bevy::prelude::*;
 use helios_ascension::game_state::{ActiveMenu, GameMenu};
+use helios_ascension::survey::events::SurveyEvent;
 use helios_ascension::ui::notifications::components::{
     ActiveNotification, PendingNotificationDismissal,
 };
@@ -64,6 +65,15 @@ use helios_ascension::ui::time::{SimulationTime, TimeScale};
 /// `App::new()` (not `World::new()` + `Schedule`) is required for
 /// the Bevy 0.18 message double-buffer to flush — see the module
 /// header for the trap.
+///
+/// All resources / message buses the schedule's systems touch are
+/// registered up front so a per-test `app.update()` is enough —
+/// the schedule runs every system every tick, and Bevy 0.18
+/// panics on a missing `ResMut<T>` or uninitialised `Messages<T>`.
+/// The bridge system (`bridge_survey_events`) reads
+/// `Messages<SurveyEvent>` even when no SurveyEvent is being
+/// tested (Bevy validates system params before the schedule body
+/// runs), so we register the source bus unconditionally.
 fn build_app() -> App {
     let mut app = App::new();
     app.init_resource::<SimulationTime>();
@@ -71,12 +81,14 @@ fn build_app() -> App {
     app.init_resource::<NotificationCategoriesData>();
     app.init_resource::<PendingNotificationDismissal>();
     app.init_resource::<ActiveMenu>();
+    app.init_resource::<TimeScale>();
     // The owning plugin does not call `app.add_message::<NotificationEvent>()`
     // today (a known production-side gap — see PR-H body); the test
     // harness registers it explicitly so the coalesce system doesn't
     // panic with "Message not initialized" when the bridge writes
     // one. Also register the source-event buses the bridges need.
     app.add_message::<NotificationEvent>();
+    app.add_message::<SurveyEvent>();
     app.add_systems(
         Update,
         (
@@ -110,13 +122,13 @@ fn count_active(app: &mut App) -> usize {
 // dismiss-tick system despawns it when SimulationTime advances.
 #[test]
 fn test_full_event_to_dismissed_toast_lifecycle() {
-    use helios_ascension::survey::events::SurveyEvent;
     use helios_ascension::survey::types::SurveyMethod;
 
     let mut app = build_app();
-    // The bridge reads `Messages<SurveyEvent>` — register it. The
-    // bridge uses `Query<&Name>` for body-name text.
-    app.add_message::<SurveyEvent>();
+    // The bridge uses `Query<&Name>` for body-name text. The
+    // `Messages<SurveyEvent>` bus is registered in `build_app` so
+    // the schedule can run for every test (Bevy validates system
+    // params before the schedule body).
     let body_entity = app.world_mut().spawn(Name::new("Mars Test Body")).id();
 
     // Override the spawned toast's auto-dismiss to 0.1 s so the
@@ -360,7 +372,6 @@ fn test_group_window_default_then_overridden() {
 #[test]
 fn test_pause_on_event_chain() {
     let mut app = build_app();
-    app.init_resource::<TimeScale>();
     // Populate the categories manifest with a row that requests
     // pause_on_event. The startup loader is not invoked here (we
     // use a minimal App); we set the manifest directly.
