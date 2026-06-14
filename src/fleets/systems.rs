@@ -934,21 +934,90 @@ pub fn process_fleet_actions(
 
 // ── Startup ───────────────────────────────────────────────────────────────────
 
-/// Spawn demonstration fleets at game start covering all four propulsion archetypes.
+/// Marker resource recording that the Day-1 constellation has been spawned.
 ///
-/// | Fleet                     | Location | Propulsion         |
-/// |---------------------------|----------|--------------------|
-/// | Earth Defense Squadron    | Earth    | Nuclear Thermal    |
-/// | Chemical Strike Force     | Venus    | Chemical           |
-/// | Ion Research Fleet        | Mars     | Ion Drive          |
-/// | Fusion Expeditionary Corps| Jupiter  | Fusion Torch       |
-/// | Antimatter Vanguard       | Saturn   | Antimatter Drive   |
-/// | Alpha Centauri Test Fleet | Alpha Centauri A | Antimatter Drive |
+/// `spawn_initial_fleet` short-circuits when this resource is present so a
+/// save/load that re-uses the same `World` (e.g. a future save-restore path
+/// that rehydrates `World` and re-runs `PostStartup`) does not duplicate
+/// the constellation.  When a future "fresh save" / "new game" path lands it
+/// must remove this resource (and the existing Day-1 fleet entities) before
+/// the next `PostStartup` tick.  GRA-128.
+#[derive(Resource, Debug, Clone, Copy, Default)]
+pub struct DayOneFleetSpawned;
+
+/// Resolve a `ShipHullDefinition`'s dry mass from the `ShipbuildingData`
+/// registry, logging a warning and falling back to the class default when
+/// the hull id is missing.  Used by `spawn_initial_fleet` so the Day-1
+/// ships honour the RON `base_dry_mass_t` instead of the class default
+/// (which is calibrated for tier-2/3/4 ships and is wildly off for
+/// 0.08-9.5 t probes).  GRA-128.
+fn resolve_hull_dry_mass_t(
+    hull_id: &str,
+    class: ShipClass,
+    shipbuilding_data: &ShipbuildingData,
+) -> f32 {
+    match shipbuilding_data.get_hull(hull_id) {
+        Some(hull) => hull.base_dry_mass_t as f32,
+        None => {
+            bevy::log::warn!(
+                "spawn_initial_fleet: hull '{}' not found in ShipbuildingData; \
+                 falling back to class default for {:?}",
+                hull_id,
+                class
+            );
+            class.default_dry_mass_t()
+        }
+    }
+}
+
+/// Spawn the Day-1 Earth-orbit constellation described by the LGD design
+/// contract (GRA-127 comment 6d35dea0-4c8d-4d2a-bb58-129ad00d06ae).
+///
+/// Replaces the previous 6-fleet demo (Earth Defense Squadron, Chemical
+/// Strike Force at Venus, Ion Research Fleet at Mars, Fusion Expeditionary
+/// Corps at Jupiter, Antimatter Vanguard at Saturn, Alpha Centauri Test
+/// Fleet).  Those fleets have been removed because they skipped 4 tiers of
+/// research — pre-spawning a fusion-torch cruiser at Jupiter makes the
+/// chemical-spaceframes hull gate meaningless.  Each of those fleets is
+/// now an **unlock target** the player must earn via research + slipway
+/// construction, not a pre-spawned starting asset.
+///
+/// The new constellation is a single 5 (or 6, with the optional Mars flyby
+/// probe) ship Earth-orbit fleet, all `tier: 1` hulls unlocked by
+/// `chemical_spaceframes`.  Roster:
+///
+/// | # | Hull id             | Class           | Propulsion | Role                                        |
+/// |---:|---------------------|-----------------|------------|---------------------------------------------|
+/// | 1 | `micro_probe_frame` | `ResearchVessel` | `Chemical` | Cislunar hosted-payload bus, comms anchor   |
+/// | 2 | `small_probe_frame` | `ResearchVessel` | `Chemical` | Inner-system survey probe (Venus transfer)  |
+/// | 3 | `courier_frame`     | `ResearchVessel` | `Chemical` | Lunar-surface resupply courier              |
+/// | 4 | `lander_frame`      | `ResearchVessel` | `Chemical` | Lunar / Mars lander bus (parked)            |
+/// | 5 | `freighter_frame`   | `Freighter`     | `Chemical` | Cislunar logistics tug                      |
+/// | 6 (opt.) | `small_probe_frame` | `ResearchVessel` | `IonDrive` | Mars flyby probe (MarCO-class)          |
+///
+/// All 5 (or 6) ships are parked in a 400 km altitude Earth orbit
+/// (radius_au = `(6_371 km + 400 km) / AU_IN_METERS`); the optional 6th
+/// is parked in a circular Mars parking orbit as a stand-in for the
+/// planned Hohmann transfer (see the CTO review note in the PR for why
+/// we do not wire a `KeplerOrbit` transfer here yet).
+///
+/// Idempotency: gated on `DayOneFleetSpawned`.  Future save/load
+/// implementations must remove the resource (and the existing fleet
+/// entities) before re-running `PostStartup` to re-spawn.
 pub fn spawn_initial_fleet(
     mut commands: Commands,
     body_query: Query<(Entity, &crate::plugins::solar_system::CelestialBody)>,
+    shipbuilding_data: Res<ShipbuildingData>,
+    day_one_marker: Option<Res<DayOneFleetSpawned>>,
 ) {
-    // Helper: find a body by name, log a warning if missing.
+    if day_one_marker.is_some() {
+        // Idempotency: do not re-spawn.  The marker must be removed by a
+        // future "new game" / "fresh save load" path before this branch
+        // is taken.
+        return;
+    }
+
+    // Helper: find a body by name.
     let find_body = |name: &str| -> Option<Entity> {
         body_query
             .iter()
@@ -956,171 +1025,118 @@ pub fn spawn_initial_fleet(
             .map(|(e, _)| e)
     };
 
-    // ── Earth Defense Squadron (Nuclear Thermal, Earth orbit) ─────────────────
-    if let Some(earth) = find_body("Earth") {
-        let radius_au = 6_771.0_f64 * 1_000.0 / AU_IN_METERS;
-        spawn_fleet_with_ship_entities(
-            &mut commands,
-            "Earth Defense Squadron".to_string(),
-            vec![
-                ShipInfo::new(
-                    "EDS Helios".to_string(),
-                    ShipClass::Frigate,
-                    PropulsionType::NuclearThermal,
-                ),
-                ShipInfo::new(
-                    "EDS Aurora".to_string(),
-                    ShipClass::Destroyer,
-                    PropulsionType::NuclearThermal,
-                ),
-            ],
-            earth,
-            radius_au,
-            false,
-        );
-    } else {
-        bevy::log::warn!("spawn_initial_fleet: Earth not found");
-    }
+    // ── Roster ─────────────────────────────────────────────────────────────
+    // (name, hull_id, class, propulsion) for each Day-1 ship.  Ship
+    // `name` is human-readable; `hull_id` is the RON `ShipHullDefinition`
+    // key used to resolve `base_dry_mass_t`.  Class and propulsion are the
+    // ECS `ShipClass` / `PropulsionType` used for fuel / thrust / Isp math.
+    const DAY_ONE_ROSTER: &[(&str, &str, ShipClass, PropulsionType)] = &[
+        (
+            "DOC-1 Cislunar Relay",
+            "micro_probe_frame",
+            ShipClass::ResearchVessel,
+            PropulsionType::Chemical,
+        ),
+        (
+            "DOC-2 Inner Surveyor",
+            "small_probe_frame",
+            ShipClass::ResearchVessel,
+            PropulsionType::Chemical,
+        ),
+        (
+            "DOC-3 Lunar Courier",
+            "courier_frame",
+            ShipClass::ResearchVessel,
+            PropulsionType::Chemical,
+        ),
+        (
+            "DOC-4 Lander Bus",
+            "lander_frame",
+            ShipClass::ResearchVessel,
+            PropulsionType::Chemical,
+        ),
+        (
+            "DOC-5 Cislunar Tug",
+            "freighter_frame",
+            ShipClass::Freighter,
+            PropulsionType::Chemical,
+        ),
+    ];
 
-    // ── Chemical Strike Force (Chemical, Venus orbit) ─────────────────────────
-    if let Some(venus) = find_body("Venus") {
-        // Venus radius ≈ 6052 km; 400 km altitude orbit
-        let radius_au = 6_452.0_f64 * 1_000.0 / AU_IN_METERS;
-        spawn_fleet_with_ship_entities(
-            &mut commands,
-            "Chemical Strike Force".to_string(),
-            vec![
-                ShipInfo::new(
-                    "CSV Pyrrhus".to_string(),
-                    ShipClass::Frigate,
-                    PropulsionType::Chemical,
-                ),
-                ShipInfo::new(
-                    "CSV Ares".to_string(),
-                    ShipClass::Frigate,
-                    PropulsionType::Chemical,
-                ),
-                ShipInfo::new(
-                    "CSV Hammer".to_string(),
-                    ShipClass::Destroyer,
-                    PropulsionType::Chemical,
-                ),
-            ],
-            venus,
-            radius_au,
-            false,
+    // ── Day-One Constellation (Earth 400 km orbit) ──────────────────────────
+    let Some(earth) = find_body("Earth") else {
+        bevy::log::warn!(
+            "spawn_initial_fleet: Earth not found; skipping Day-One \
+             Constellation spawn (this leaves the game with zero fleets \
+             on Day 1 — investigate the solar system seed)"
         );
-    } else {
-        bevy::log::warn!("spawn_initial_fleet: Venus not found");
-    }
+        // Mark spawned so we don't retry every tick if Earth is missing.
+        commands.init_resource::<DayOneFleetSpawned>();
+        return;
+    };
+    let earth_orbit_radius_au = (6_371.0_f64 + 400.0) * 1_000.0 / AU_IN_METERS;
 
-    // ── Ion Research Fleet (Ion Drive, Mars orbit) ────────────────────────────
-    if let Some(mars) = find_body("Mars") {
-        // Mars radius ≈ 3390 km; 400 km altitude orbit
-        let radius_au = 3_790.0_f64 * 1_000.0 / AU_IN_METERS;
-        spawn_fleet_with_ship_entities(
-            &mut commands,
-            "Ion Research Fleet".to_string(),
-            vec![
-                ShipInfo::new(
-                    "IRS Odyssey".to_string(),
-                    ShipClass::ResearchVessel,
-                    PropulsionType::IonDrive,
-                ),
-                ShipInfo::new(
-                    "IRS Pathfinder".to_string(),
-                    ShipClass::Freighter,
-                    PropulsionType::IonDrive,
-                ),
-            ],
-            mars,
-            radius_au,
-            false,
-        );
-    } else {
-        bevy::log::warn!("spawn_initial_fleet: Mars not found");
-    }
-
-    // ── Fusion Expeditionary Corps (Fusion Torch, Jupiter orbit) ─────────────
-    if let Some(jupiter) = find_body("Jupiter") {
-        // Jupiter radius ≈ 71 492 km; 5 000 km altitude orbit
-        let radius_au = 76_492.0_f64 * 1_000.0 / AU_IN_METERS;
-        spawn_fleet_with_ship_entities(
-            &mut commands,
-            "Fusion Expeditionary Corps".to_string(),
-            vec![
-                ShipInfo::new(
-                    "FEC Prometheus".to_string(),
-                    ShipClass::Frigate,
-                    PropulsionType::FusionTorch,
-                ),
-                ShipInfo::new(
-                    "FEC Titan".to_string(),
-                    ShipClass::Cruiser,
-                    PropulsionType::FusionTorch,
-                ),
-            ],
-            jupiter,
-            radius_au,
-            false,
-        );
-    } else {
-        bevy::log::warn!("spawn_initial_fleet: Jupiter not found");
-    }
-
-    // ── Antimatter Vanguard (Antimatter Drive, Saturn orbit) ──────────────────
-    if let Some(saturn) = find_body("Saturn") {
-        // Saturn radius ≈ 60 268 km; 5 000 km altitude orbit
-        let radius_au = 65_268.0_f64 * 1_000.0 / AU_IN_METERS;
-        spawn_fleet_with_ship_entities(
-            &mut commands,
-            "Antimatter Vanguard".to_string(),
-            vec![
-                ShipInfo::new(
-                    "AMV Singularity".to_string(),
-                    ShipClass::Destroyer,
-                    PropulsionType::AntimatterDrive,
-                ),
-                ShipInfo::new(
-                    "AMV Horizon".to_string(),
-                    ShipClass::Frigate,
-                    PropulsionType::AntimatterDrive,
-                ),
-            ],
-            saturn,
-            radius_au,
-            false,
-        );
-    } else {
-        bevy::log::warn!("spawn_initial_fleet: Saturn not found");
-    }
-
-    // ── Alpha Centauri Test Fleet (Antimatter Drive, Alpha Centauri A orbit) ─
-    if let Some((alpha_centauri_a, alpha_centauri_a_body)) = body_query
+    let ships: Vec<ShipInfo> = DAY_ONE_ROSTER
         .iter()
-        .find(|(_, body)| body.name == "Alpha Centauri A")
-    {
-        // Park the test fleet in a tight stellar orbit so transfers can be
-        // planned immediately in procedural multi-star systems.
-        let radius_au = (alpha_centauri_a_body.radius as f64 * 3.0) * 1_000.0 / AU_IN_METERS;
+        .map(|(name, hull_id, class, propulsion)| {
+            let dry_mass_t = resolve_hull_dry_mass_t(hull_id, *class, &shipbuilding_data);
+            ShipInfo::new_with_dry_mass(
+                (*name).to_string(),
+                Some(*hull_id),
+                *class,
+                *propulsion,
+                dry_mass_t,
+            )
+        })
+        .collect();
+
+    spawn_fleet_with_ship_entities(
+        &mut commands,
+        "Day-One Constellation".to_string(),
+        ships,
+        earth,
+        earth_orbit_radius_au,
+        false,
+    );
+
+    // ── Optional Mars Flyby Probe (parked in Mars orbit) ────────────────────
+    // The LGD contract recommends YES for an early-game science probe
+    // (MarCO-class).  For Day-1 we park the probe in a circular Mars
+    // parking orbit at 400 km altitude; a follow-up can wire it to a real
+    // `KeplerOrbit` transfer arc if/when the LGD wants the on-screen
+    // trajectory to be a Hohmann ellipse from Day 1.  Skipped entirely if
+    // Mars is missing from the seed (the 5-ship constellation still ships).
+    if let Some(mars) = find_body("Mars") {
+        let mars_orbit_radius_au = (3_390.0_f64 + 400.0) * 1_000.0 / AU_IN_METERS;
+        let dry_mass_t = resolve_hull_dry_mass_t(
+            "small_probe_frame",
+            ShipClass::ResearchVessel,
+            &shipbuilding_data,
+        );
+        let probe = ShipInfo::new_with_dry_mass(
+            "DOC-6 Mars Flyby".to_string(),
+            Some("small_probe_frame"),
+            ShipClass::ResearchVessel,
+            PropulsionType::IonDrive,
+            dry_mass_t,
+        );
         spawn_fleet_with_ship_entities(
             &mut commands,
-            "Alpha Centauri Test Fleet".to_string(),
-            vec![
-                ShipInfo::new(
-                    "ACTF Daedalus".to_string(),
-                    ShipClass::Destroyer,
-                    PropulsionType::AntimatterDrive,
-                ),
-                ShipInfo::new(
-                    "ACTF Icarus".to_string(),
-                    ShipClass::Frigate,
-                    PropulsionType::AntimatterDrive,
-                ),
-            ],
-            alpha_centauri_a,
-            radius_au,
-            false,
+            "Mars Flyby Probe".to_string(),
+            vec![probe],
+            mars,
+            mars_orbit_radius_au,
+            true,
+        );
+    } else {
+        bevy::log::info!(
+            "spawn_initial_fleet: Mars not found; skipping optional \
+             Mars flyby probe (5-ship Day-One Constellation still spawned)"
         );
     }
+
+    // Mark spawned so re-runs of `PostStartup` (e.g. after a future
+    // save-load that rehydrates the `World`) do not duplicate the
+    // constellation.
+    commands.init_resource::<DayOneFleetSpawned>();
 }
