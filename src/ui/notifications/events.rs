@@ -35,7 +35,15 @@ pub enum NotificationSeverity {
 /// (the in-game mission-id resolution path does not exist yet);
 /// the PR-G minimal version treats it as a no-op and only dispatches
 /// the body and menu cases.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+///
+/// Intentionally NOT `#[derive(Reflect)]` — the `OpenMenu(GameMenu)`
+/// variant would force `GameMenu` to also implement `Reflect` /
+/// `TypePath`, which is a separate, larger design question. The
+/// field is part of `ActiveNotification` with
+/// `#[reflect(ignore)]`, so the inspector surface never walks it
+/// and `NotificationContextLink` only needs `Default` (provided
+/// below) for the `#[reflect(ignore)]` derive on the field.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum NotificationContextLink {
     /// Open the dossier focused on the given body entity. Implies
     /// `active_menu.current = GameMenu::Survey` and inserts the
@@ -49,7 +57,9 @@ pub enum NotificationContextLink {
     /// router yet.
     SelectMission(u64),
     /// No jump. `click_handler` drops the click without touching
-    /// any state.
+    /// any state. `Default` — informational toasts default to no
+    /// context link.
+    #[default]
     None,
 }
 

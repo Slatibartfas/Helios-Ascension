@@ -364,6 +364,7 @@ mod tests {
             sticky: false,
             dedup_key: None,
             count: 1,
+            context_link: NotificationContextLink::None,
         });
 
         let mut schedule = bevy::prelude::Schedule::default();
@@ -414,6 +415,7 @@ mod tests {
             sticky: false,
             dedup_key: None,
             count: 1,
+            context_link: NotificationContextLink::None,
         });
 
         let mut schedule = bevy::prelude::Schedule::default();

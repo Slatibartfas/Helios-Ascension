@@ -193,18 +193,29 @@ fn render_one_toast(
             ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
                 // The dismiss button is its own egui child so a
                 // click on it is consumed here and does not
-                // propagate to the body-click region below. The
-                // id is stable so egui can match the button across
-                // frames even as the entity list churns.
-                let dismiss_btn =
-                    egui::Button::new(egui::RichText::new("×").color(theme::TEXT_HINT).size(14.0))
-                        .id(egui::Id::new("dismiss_button").with(entity.to_bits()));
-                if ui.add(dismiss_btn).clicked() {
-                    // Encode the entity as a stable u64. `Entity`
-                    // exposes `to_bits()` in 0.18 which gives the
-                    // packed (index, generation) pair as a u64.
-                    pending_dismiss.push(entity.to_bits());
-                }
+                // propagate to the body-click region below. We
+                // `push_id` with the entity's packed `to_bits()`
+                // so egui can match the button across frames
+                // even as the entity list churns — the GRA-141
+                // spec calls for `egui::Id::new("dismiss_button")`
+                // per-toast; pushing a per-toast id on top of
+                // that name is the equivalent in egui 0.33 (which
+                // does not expose `.id()` on `Button`).
+                ui.push_id(
+                    egui::Id::new("dismiss_button").with(entity.to_bits()),
+                    |ui| {
+                        let dismiss_btn = egui::Button::new(
+                            egui::RichText::new("×").color(theme::TEXT_HINT).size(14.0),
+                        );
+                        if ui.add(dismiss_btn).clicked() {
+                            // Encode the entity as a stable u64.
+                            // `Entity` exposes `to_bits()` in 0.18
+                            // which gives the packed (index,
+                            // generation) pair as a u64.
+                            pending_dismiss.push(entity.to_bits());
+                        }
+                    },
+                );
             });
         });
 

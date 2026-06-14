@@ -238,6 +238,7 @@ fn spawn_new(
 mod tests {
     use super::*;
     use crate::ui::notifications::components::PendingNotificationDismissal;
+    use crate::ui::notifications::events::NotificationContextLink;
 
     /// Build a `NotificationSettings` resource with the given
     /// `default_group_window_s` override (or `None` to keep the
@@ -274,6 +275,7 @@ mod tests {
             dedup_key: key.map(|s| s.to_string()),
             auto_dismiss_s: None,
             sticky: false,
+            context_link: NotificationContextLink::None,
         }
     }
 

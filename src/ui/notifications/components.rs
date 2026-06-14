@@ -48,6 +48,13 @@ pub struct ActiveNotification {
     /// The render system reads this when it sees a click on the
     /// toast body (not the dismiss button). `None` is the
     /// common case for informational toasts.
+    ///
+    /// `#[reflect(ignore)]` because `NotificationContextLink`
+    /// intentionally does not implement `Reflect` (the `OpenMenu`
+    /// variant would force `GameMenu` to also implement
+    /// `Reflect`/`TypePath` — a separate, larger design change).
+    /// The field is consumed at click time, never inspected.
+    #[reflect(ignore)]
     pub context_link: NotificationContextLink,
 }
 
