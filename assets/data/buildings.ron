@@ -54,7 +54,7 @@
         (
             id: "HabitatDome",
             display_name: "Habitat Dome",
-            description: "Pressurised arcology housing ~4B residents (half-world scale)",
+            description: "Pressurised arcology housing ~50M residents",
             icon: "🏠",
             category: "Infrastructure",
             build_points: 800.0,
@@ -74,8 +74,10 @@
                 ("Nitrogen", 0.5),
             ],
             modifiers: [
-                // 2026 reference: 1 dome = half of world population (8.1B ÷ 2).
-                // Operator bar: 1 colony building ≈ world total.
+                // Authoritative value lives in `Colony::housing_capacity` at
+                // src/colony/components.rs:264 (50,000,000 per HabitatDome).
+                // This RON entry is human-readable documentation; the helper
+                // does not read it.  See GRA-127 / Phase B-1.
                 (modifier_type: "HousingCapacity", value: 4000000000.0),
             ],
             power_demand_mw: 150.0,
@@ -83,7 +85,7 @@
         (
             id: "Housing",
             display_name: "Housing Complex",
-            description: "City-block-scale residential complex, housing ~800M residents (1/10 world scale)",
+            description: "City-block-scale residential complex, housing ~25M residents",
             icon: "🏙",
             category: "Infrastructure",
             build_points: 200.0,
@@ -101,12 +103,13 @@
                 ("Sulfur", 0.0005),
             ],
             modifiers: [
-                // 2026 reference: 1 complex = 1/10 world population (8.1B ÷ 10).
-                // Operator bar: 1 colony building ≈ 1/10 world total — matches
-                // the ~10-builds-for-Earth design target from GRA-22a (issue
-                // description: "player reaches Earth's calibrated totals with
-                // ~10 Farms instead of ~780"). 1-Housing-covers-all-of-Earth
-                // was too large per operator PR review.
+                // Authoritative value lives in `Colony::housing_capacity` at
+                // src/colony/components.rs:264 (25,000,000 per Housing).  At
+                // this scale Earth needs ~335 Housing Complexes to reach its
+                // 8.2B seed, matching the calibration target from GRA-22a
+                // (one colony building ≈ 1/300 of world population).  This
+                // RON entry is human-readable documentation; the helper does
+                // not read it.  See GRA-127 / Phase B-1.
                 (modifier_type: "HousingCapacity", value: 800000000.0),
             ],
             power_demand_mw: 50.0,
@@ -114,7 +117,7 @@
         (
             id: "UndergroundHabitat",
             display_name: "Underground Habitat",
-            description: "Buried habitat for airless or hostile bodies, housing ~2B residents (lunar scale)",
+            description: "Buried habitat for airless or hostile bodies, housing ~30M residents",
             icon: "⛏",
             category: "Infrastructure",
             build_points: 1200.0,
@@ -134,7 +137,10 @@
                 ("Nitrogen", 0.2),
             ],
             modifiers: [
-                // 2026 reference: 1 habitat = quarter of world population.
+                // Authoritative value lives in `Colony::housing_capacity` at
+                // src/colony/components.rs:264 (30,000,000 per UndergroundHabitat).
+                // This RON entry is human-readable documentation; the helper
+                // does not read it.  See GRA-127 / Phase B-1.
                 (modifier_type: "HousingCapacity", value: 2000000000.0),
             ],
             available_atmospheres: [None],
