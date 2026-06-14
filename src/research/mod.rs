@@ -12,6 +12,7 @@ use bevy::prelude::*;
 
 pub mod components;
 pub mod data;
+pub mod events;
 pub mod systems;
 pub mod types;
 
@@ -20,6 +21,7 @@ pub use components::{
     ResearchTeam, ResearchTeamCapacity,
 };
 pub use data::{load_technologies, TechnologiesData};
+pub use events::ResearchEvent;
 pub use systems::{
     advance_engineering_projects, advance_research_projects, apply_debug_modifiers,
     check_unlocked_technologies, initialize_baseline_engineering, initialize_baseline_technology,

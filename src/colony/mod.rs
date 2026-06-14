@@ -13,6 +13,7 @@ use bevy::prelude::*;
 
 pub mod components;
 pub mod data;
+pub mod events;
 pub mod systems;
 pub mod types;
 
@@ -25,6 +26,7 @@ pub use data::{
     building_is_available_on, AtmosphereKind, BuildingDefinition, BuildingModifierDef,
     BuildingsData, SynergyRule,
 };
+pub use events::ConstructionEvent;
 pub use systems::DepletionTimeline;
 pub use systems::{
     advance_construction, compute_depletion_timeline, deduct_environment_costs,

@@ -185,6 +185,7 @@ pub fn advance_research_projects(
     tech_data: Res<TechnologiesData>,
     mut projects: Query<(Entity, &mut ResearchProject, &ResearchTeam)>,
     mut last_time: Local<f64>,
+    mut research_events: MessageWriter<ResearchEvent>,
 ) {
     let current_time = sim_time.elapsed_seconds();
     let delta_time = current_time - *last_time;
@@ -268,6 +269,20 @@ pub fn advance_research_projects(
                 research_state.add_modifier(modifier_def.modifier_type.clone(), modifier_def.value);
             }
         }
+
+        // Fire the research event for the notifications bridge
+        // (PR-C, GRA-137) and any future sim listeners. The
+        // `tech_display_name` is resolved from the loaded tech
+        // data; missing data falls back to the id so the toast
+        // still surfaces something readable.
+        let tech_display_name = tech_data
+            .get_tech(&tech_id)
+            .map(|t| t.name.clone())
+            .unwrap_or_else(|| tech_id.clone());
+        research_events.write(ResearchEvent::TechCompleted {
+            tech_id: tech_id.clone(),
+            tech_display_name,
+        });
 
         // Remove the project entity
         commands.entity(entity).despawn();
