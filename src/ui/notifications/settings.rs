@@ -31,10 +31,25 @@ impl From<String> for NotificationCategoryId {
 }
 
 /// Per-category override. PR-A only models the on/off toggle; PR-D
-/// adds severity floor, sound, etc.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// adds severity floor, sound, etc. PR-E (GRA-139) extends with the
+/// fields the settings panel renders (pause_on_event, sound_on,
+/// auto_dismiss_s, sticky).
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PerCategorySetting {
     pub enabled: bool,
+    /// Pause the simulation when an event in this category fires.
+    /// Visually exposed in the settings panel from PR-E; PR-F
+    /// (GRA-140) wires the actual `TimeScale::pause()` call.
+    pub pause_on_event: bool,
+    /// Play a sound for this category. Always rendered-on in the
+    /// settings panel; the audio backend is a deferred feature.
+    pub sound_on: bool,
+    /// Override the manifest's `default_dismiss_s`. The spawn system
+    /// prefers this over the manifest default.
+    pub auto_dismiss_s: f32,
+    /// If true, the toast ignores the auto-dismiss timer and stays
+    /// until the player dismisses it.
+    pub sticky: bool,
 }
 
 /// Global player preferences for notifications.
@@ -95,13 +110,43 @@ impl NotificationSettings {
         &mut self,
         category: &NotificationCategoryId,
         manifest_default_enabled: bool,
+        manifest_default_dismiss_s: f32,
     ) -> PerCategorySetting {
         *self
             .per_category
             .entry(category.clone())
             .or_insert(PerCategorySetting {
                 enabled: manifest_default_enabled,
+                pause_on_event: false,
+                sound_on: true,
+                auto_dismiss_s: manifest_default_dismiss_s,
+                sticky: false,
             })
+    }
+
+    /// Reset every field back to the same defaults
+    /// `get_or_default` would write on first read. Per-category
+    /// overrides that already have explicit entries are also reset
+    /// to the same values, since the only "default" the player
+    /// sees is the manifest's row.
+    pub fn reset_all(&mut self, manifest: &super::data::NotificationCategoriesData) {
+        self.global_enabled = true;
+        self.show_only_in_survey = true;
+        self.max_visible_toasts = 5;
+        self.default_group_window_s = 2.0;
+        self.per_category.clear();
+        for (id, cat) in manifest.iter() {
+            self.per_category.insert(
+                id.clone(),
+                PerCategorySetting {
+                    enabled: cat.enabled,
+                    pause_on_event: false,
+                    sound_on: true,
+                    auto_dismiss_s: cat.default_dismiss_s,
+                    sticky: cat.default_dismiss_s <= 0.0,
+                },
+            );
+        }
     }
 }
 
@@ -133,8 +178,16 @@ mod tests {
     fn test_per_category_override_wins_over_manifest() {
         let mut s = NotificationSettings::default();
         let id = NotificationCategoryId::from("survey.test");
-        s.per_category
-            .insert(id.clone(), PerCategorySetting { enabled: false });
+        s.per_category.insert(
+            id.clone(),
+            PerCategorySetting {
+                enabled: false,
+                pause_on_event: false,
+                sound_on: true,
+                auto_dismiss_s: 5.0,
+                sticky: false,
+            },
+        );
         // Manifest says on, override says off → off.
         assert!(!s.is_category_enabled(&id, true));
         // Manifest says off, no override → off.
@@ -146,5 +199,64 @@ mod tests {
     fn test_category_id_from_str() {
         let id: NotificationCategoryId = "foo".into();
         assert_eq!(id.as_str(), "foo");
+    }
+
+    #[test]
+    fn test_reset_to_defaults_restores_initial_values() {
+        // GRA-139 acceptance: set every field to a non-default value,
+        // call `reset_all`, assert the resource matches the freshly
+        // constructed `NotificationSettings::default()` (modulo the
+        // per_category map, which is populated from the manifest on
+        // reset).
+        use super::super::data::NotificationCategoriesData;
+
+        let mut s = NotificationSettings {
+            global_enabled: false,
+            show_only_in_survey: false,
+            max_visible_toasts: 1,
+            default_group_window_s: 0.0,
+            per_category: std::iter::once((
+                NotificationCategoryId::from("survey.test"),
+                PerCategorySetting {
+                    enabled: false,
+                    pause_on_event: true,
+                    sound_on: false,
+                    auto_dismiss_s: 99.0,
+                    sticky: true,
+                },
+            ))
+            .collect(),
+        };
+
+        // Build a tiny manifest to feed the reset.
+        let mut data = NotificationCategoriesData::default();
+        data.categories.insert(
+            NotificationCategoryId::from("survey.test"),
+            super::super::data::NotificationCategory {
+                id: "survey.test".to_string(),
+                display_name: "Test".to_string(),
+                default_dismiss_s: 6.0,
+                enabled: true,
+            },
+        );
+        s.reset_all(&data);
+
+        let fresh = NotificationSettings::default();
+        assert_eq!(s.global_enabled, fresh.global_enabled);
+        assert_eq!(s.show_only_in_survey, fresh.show_only_in_survey);
+        assert_eq!(s.max_visible_toasts, fresh.max_visible_toasts);
+        assert!((s.default_group_window_s - fresh.default_group_window_s).abs() < f32::EPSILON);
+
+        // Per-category map is now populated from the manifest and
+        // matches the manifest row for "survey.test".
+        let row = s
+            .per_category
+            .get(&NotificationCategoryId::from("survey.test"))
+            .expect("reset must populate the manifest rows");
+        assert!(row.enabled, "manifest default enabled = true");
+        assert!(!row.pause_on_event);
+        assert!(row.sound_on);
+        assert!((row.auto_dismiss_s - 6.0).abs() < f32::EPSILON);
+        assert!(!row.sticky, "default_dismiss_s=6.0 → not sticky");
     }
 }

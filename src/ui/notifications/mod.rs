@@ -16,6 +16,7 @@
 //!   `PendingNotificationDismissal` action-queue resource.
 //! - [`systems`]   — `tick` (auto-dismiss + click-dismiss drain)
 //!   and `render` (egui top-right panel).
+//! - [`ui_settings`] — the settings panel modal (PR-E / GRA-139).
 
 use bevy::prelude::*;
 
@@ -24,18 +25,23 @@ pub mod data;
 pub mod events;
 pub mod settings;
 pub mod systems;
+pub mod ui_settings;
 
 pub use components::{ActiveNotification, PendingNotificationDismissal};
 pub use data::{load_notification_categories, NotificationCategoriesData, NotificationCategory};
 pub use events::{NotificationEvent, NotificationSeverity};
 pub use settings::{NotificationCategoryId, NotificationSettings};
 pub use systems::NotificationsSystemSet;
+pub use ui_settings::{
+    ui_notifications_settings_panel, NotificationsSettingsOpen, NotificationsSettingsPanelPlugin,
+};
 
 /// Sub-plugin that owns the notifications feature surface.
 ///
 /// PR-A registers the resources + the dev-introspection `Reflect`
 /// handle for `ActiveNotification`. PR-B wires the `Tick` and
-/// `Render` system sets.
+/// `Render` system sets. PR-E (GRA-139) registers the settings
+/// panel modal.
 pub struct NotificationsPlugin;
 
 impl Plugin for NotificationsPlugin {
@@ -44,6 +50,10 @@ impl Plugin for NotificationsPlugin {
             .init_resource::<NotificationCategoriesData>()
             .init_resource::<PendingNotificationDismissal>()
             .add_systems(Startup, load_notification_categories)
+            // Settings panel (PR-E / GRA-139) — modal renderer, the
+            // "Notifications" button in the top menu bar toggles its
+            // visibility via `NotificationsSettingsOpen`.
+            .add_plugins(NotificationsSettingsPanelPlugin)
             // Dev introspection hook for bevy_inspector_egui. The
             // inspector plugin is not currently attached in `main.rs`,
             // but registering the type means a future inspector wiring

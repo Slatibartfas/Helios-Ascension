@@ -645,6 +645,7 @@ fn ui_top_menu_bar(
     system_metadata: Res<SystemMetadata>,
     mut camera_query: Query<(&mut OrbitCamera, &mut CameraAnchor), With<GameCamera>>,
     star_icon_query: Query<(Entity, Option<&SelectedStarSystem>), With<StarSystemIcon>>,
+    mut notifications_open: ResMut<notifications::NotificationsSettingsOpen>,
 ) {
     // Convert loaded handles to egui TextureIds before creating the UI context.
     // We cache the TextureIds in a Local<HashMap> so that `add_image` is called
@@ -836,6 +837,40 @@ fn ui_top_menu_bar(
 
                 ui.add_space(5.0);
             }
+
+            // ── Notifications settings toggle (PR-E / GRA-139) ───────
+            // Pushed to the right of the menu buttons so the player
+            // can reach it without crowding the existing icons. The
+            // panel itself is rendered by
+            // `notifications::ui_notifications_settings_panel` in
+            // `UiSystemSet::Overlays` so it paints on top of every
+            // other panel.
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.add_space(theme::md);
+                let mut settings_open = notifications_open.0;
+                let button_text = if settings_open {
+                    "🔔 Notifications ✓"
+                } else {
+                    "🔔 Notifications"
+                };
+                let button = if settings_open {
+                    egui::Button::new(
+                        egui::RichText::new(button_text)
+                            .size(14.0)
+                            .color(theme::ACCENT),
+                    )
+                    .fill(theme::SURFACE_RAISED)
+                } else {
+                    egui::Button::new(egui::RichText::new(button_text).size(14.0))
+                        .fill(theme::SURFACE)
+                };
+                let resp = ui.add(button);
+                theme::paint_focus_ring(ui.painter(), resp.rect, resp.has_focus());
+                if resp.clicked() {
+                    settings_open = !settings_open;
+                }
+                notifications_open.0 = settings_open;
+            });
         });
     });
 
