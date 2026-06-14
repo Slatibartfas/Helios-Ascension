@@ -41,7 +41,7 @@ use crate::ui::notifications::components::{
     ActiveNotification, PendingNotificationClick, PendingNotificationClicks,
     PendingNotificationDismissal,
 };
-use crate::ui::notifications::events::NotificationSeverity;
+use crate::ui::notifications::events::{NotificationContextLink, NotificationSeverity};
 use crate::ui::notifications::settings::NotificationSettings;
 use crate::ui::theme;
 use crate::ui::time::SimulationTime;
@@ -219,10 +219,28 @@ fn render_one_toast(
             });
         });
 
-        // Body row, dimmer. Wrapped in a click-sense label so a
-        // body-click triggers the context link. The "rest of the
-        // frame" contract from the GRA-141 spec: any click that
-        // was NOT on the dismiss button above lands here.
+        // Body region. The "rest of the frame" contract from
+        // the GRA-141 spec: any click that was NOT on the
+        // dismiss button above lands here and triggers the
+        // context link.
+        //
+        // Two render branches so the click target is always
+        // present when the toast has a non-`None` context_link:
+        //
+        // 1. `body` non-empty → click-sense label on the body
+        //    text (the natural target).
+        // 2. `body` empty but `context_link` is `Some`-ish →
+        //    a small dim "Click to view →" hint, also
+        //    click-sense. This covers toasts like
+        //    `SurveyEvent::MissionCompleted` whose body field
+        //    is empty in the bridge output but the bridge
+        //    still wires `context_link = SelectBody(body)`
+        //    (see `event_bridge.rs:107`). Without this branch
+        //    the player has no way to click such toasts.
+        // 3. `body` empty and `context_link == None` → render
+        //    nothing. No click target is needed (informational
+        //    toasts).
+        let has_context_link = !matches!(n.context_link, NotificationContextLink::None);
         if !n.body.is_empty() {
             let body_response = ui.add(
                 egui::Label::new(
@@ -234,6 +252,27 @@ fn render_one_toast(
                 .wrap(),
             );
             if body_response.clicked() {
+                pending_focus.push(PendingNotificationClick {
+                    entity_bits: entity.to_bits(),
+                    context_link: n.context_link,
+                });
+            }
+        } else if has_context_link {
+            // Empty body, but the bridge set a context_link
+            // (e.g. `SurveyEvent::MissionCompleted`). Render a
+            // dim "Click to view →" hint as the click target
+            // so the player has something to click.
+            let hint_response = ui.add(
+                egui::Label::new(
+                    egui::RichText::new("Click to view →")
+                        .color(theme::TEXT_DIM)
+                        .italics()
+                        .size(12.0),
+                )
+                .sense(egui::Sense::click())
+                .wrap(),
+            );
+            if hint_response.clicked() {
                 pending_focus.push(PendingNotificationClick {
                     entity_bits: entity.to_bits(),
                     context_link: n.context_link,

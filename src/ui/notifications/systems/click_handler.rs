@@ -49,16 +49,40 @@ pub fn click_to_focus(
     mut commands: Commands,
     mut queue: ResMut<PendingNotificationClicks>,
     mut active_menu: ResMut<ActiveMenu>,
+    active: Query<Entity, With<crate::ui::notifications::components::ActiveNotification>>,
 ) {
     if queue.to_focus.is_empty() {
         return;
     }
+
+    // Build a HashSet<Entity> from the current live toast set so
+    // we can cheaply drop stale clicks (the player clicked a toast
+    // that was despawned earlier this frame by the auto-dismiss
+    // timer or a same-frame dismiss click).
+    let active_set: std::collections::HashSet<Entity> = active.iter().collect();
 
     // Move the queue out, walk the entries, dispatch. We do not
     // push back anything — the queue is a one-shot, frame-scoped
     // buffer (mirrors `apply_pending_dismissals`).
     let to_process: Vec<PendingNotificationClick> = queue.to_focus.drain(..).collect();
     for click in to_process {
+        // Reconstruct the toast entity from the packed `to_bits()`
+        // and drop the entry if the toast is no longer alive.
+        // Kilo review CRITICAL: stored-but-unused `entity_bits`
+        // was a code-smell; we now use it for the staleness guard
+        // so the dispatch is silently dropped for clicks against
+        // despawned toasts. `NotificationContextLink::SelectBody`
+        // carries its own `body: Entity` — we *don't* use that for
+        // the staleness check, only the toast entity, so an
+        // OpenMenu/SelectMission/None click that survives a toast
+        // despawn still applies (you might be menu-redirected even
+        // though the toast is gone).
+        let toast_entity = Entity::from_bits(click.entity_bits);
+        let toast_alive = active_set.contains(&toast_entity);
+        if !toast_alive {
+            continue;
+        }
+
         match click.context_link {
             NotificationContextLink::SelectBody(body) => {
                 // Insert `Selected` on the body. Bevy 0.18's
@@ -104,11 +128,36 @@ mod tests {
         world
     }
 
+    /// Helper: spawn a placeholder `ActiveNotification` toast in
+    /// the world. The handler's staleness guard consults
+    /// `Query<Entity, With<ActiveNotification>>` and drops clicks
+    /// against despawned toasts, so every test fixture must
+    /// spawn a real toast for the dispatch to fire.
+    fn spawn_toast(world: &mut World) -> Entity {
+        world
+            .spawn(crate::ui::notifications::components::ActiveNotification {
+                category: NotificationCategoryId::from("test.toast"),
+                severity: NotificationSeverity::Info,
+                title: "T".to_string(),
+                body: "B".to_string(),
+                created_at: 0.0,
+                auto_dismiss_s: 100.0,
+                sticky: false,
+                dedup_key: None,
+                count: 1,
+                context_link: NotificationContextLink::None,
+            })
+            .id()
+    }
+
     /// Issue acceptance test 1: clicking a body-bearing toast
     /// selects the body and opens the survey menu.
     #[test]
     fn test_click_selects_body_and_opens_survey() {
         let mut world = fresh_world();
+        // Spawn a real toast so the staleness guard lets the
+        // dispatch through.
+        let toast = spawn_toast(&mut world);
 
         // Spawn a body entity and pre-tag a `Selected` is not
         // there. The handler must insert one.
@@ -119,7 +168,7 @@ mod tests {
         world
             .resource_mut::<PendingNotificationClicks>()
             .push(PendingNotificationClick {
-                entity_bits: body.to_bits(),
+                entity_bits: toast.to_bits(),
                 context_link: NotificationContextLink::SelectBody(body),
             });
 
@@ -154,6 +203,7 @@ mod tests {
     #[test]
     fn test_click_opens_research_menu_on_research_completed_toast() {
         let mut world = fresh_world();
+        let toast = spawn_toast(&mut world);
         // Sanity: default menu is Survey, so the test will detect
         // any non-Research result.
         assert_eq!(world.resource::<ActiveMenu>().current, GameMenu::Survey);
@@ -161,7 +211,7 @@ mod tests {
         world
             .resource_mut::<PendingNotificationClicks>()
             .push(PendingNotificationClick {
-                entity_bits: 0,
+                entity_bits: toast.to_bits(),
                 context_link: NotificationContextLink::OpenMenu(GameMenu::Research),
             });
 
@@ -177,6 +227,7 @@ mod tests {
     #[test]
     fn test_click_no_op_when_context_link_is_none() {
         let mut world = fresh_world();
+        let toast = spawn_toast(&mut world);
         // Pre-state: Survey menu, no Selected entities.
         assert_eq!(world.resource::<ActiveMenu>().current, GameMenu::Survey);
         let pre_query = world.query::<&Selected>().iter(&world).count();
@@ -185,7 +236,7 @@ mod tests {
         world
             .resource_mut::<PendingNotificationClicks>()
             .push(PendingNotificationClick {
-                entity_bits: 0,
+                entity_bits: toast.to_bits(),
                 context_link: NotificationContextLink::None,
             });
 
@@ -215,10 +266,11 @@ mod tests {
     #[test]
     fn test_click_select_mission_is_noop_in_prg() {
         let mut world = fresh_world();
+        let toast = spawn_toast(&mut world);
         world
             .resource_mut::<PendingNotificationClicks>()
             .push(PendingNotificationClick {
-                entity_bits: 0,
+                entity_bits: toast.to_bits(),
                 context_link: NotificationContextLink::SelectMission(42),
             });
 
@@ -235,31 +287,27 @@ mod tests {
             .is_empty());
     }
 
-    /// A stale body id (entity already despawned before the
-    /// handler runs) must not panic the handler. `commands.entity(...)`
-    /// is documented to be a no-op on a despawned entity, but
-    /// the safe path is `get_entity` first; in Bevy 0.18
-    /// `get_entity` returns `Result<EntityRef, _>` and the
-    /// `commands.entity(...)` path inside the handler will only
-    /// panic if the entity was despawned in the *same frame*
-    /// *after* the handler took its `to_process` snapshot.
-    /// Either way, the queue-drain + no-assertion path here
-    /// asserts that the schedule does not panic.
+    /// A stale toast id (toast already despawned before the
+    /// handler runs) must not dispatch — the staleness guard
+    /// drops the click before the match. The `SelectBody` body
+    /// entity being also stale is fine: the dispatch is
+    /// short-circuited before we ever reach the body.
     #[test]
     fn test_click_with_stale_body_id_does_not_panic() {
         let mut world = fresh_world();
         // A fresh `Entity::from_bits(u64::MAX)` is not in the
-        // world, so the handler will call
-        // `commands.entity(stale).insert(Selected)`. Bevy 0.18's
-        // `EntityCommands::insert` on a non-existent entity is a
-        // no-op for our purposes (we don't assert on it), but
-        // the schedule must complete without panicking.
-        let stale = Entity::from_bits(u64::MAX);
+        // world, so the handler's staleness guard will skip
+        // this entry entirely (no Selected inserted, no menu
+        // change). The schedule must complete without
+        // panicking — the `command.entity(stale).insert(...)`
+        // path is never taken.
+        let stale_toast = Entity::from_bits(u64::MAX);
+        let stale_body = Entity::from_bits(u64::MAX);
         world
             .resource_mut::<PendingNotificationClicks>()
             .push(PendingNotificationClick {
-                entity_bits: stale.to_bits(),
-                context_link: NotificationContextLink::SelectBody(stale),
+                entity_bits: stale_toast.to_bits(),
+                context_link: NotificationContextLink::SelectBody(stale_body),
             });
 
         let mut schedule = bevy::prelude::Schedule::default();
@@ -271,6 +319,14 @@ mod tests {
             .resource::<PendingNotificationClicks>()
             .to_focus
             .is_empty());
+
+        // No `Selected` was inserted (the guard short-circuited
+        // before the dispatch).
+        let post_query = world.query::<&Selected>().iter(&world).count();
+        assert_eq!(
+            post_query, 0,
+            "click_handler must not insert Selected on a stale-toast click"
+        );
     }
 
     /// The handler must drain multiple entries in one frame.
@@ -279,24 +335,27 @@ mod tests {
     #[test]
     fn test_click_drains_multiple_entries() {
         let mut world = fresh_world();
+        let toast1 = spawn_toast(&mut world);
+        let toast2 = spawn_toast(&mut world);
+        let toast3 = spawn_toast(&mut world);
         let body1 = world.spawn_empty().id();
         let body2 = world.spawn_empty().id();
         world
             .resource_mut::<PendingNotificationClicks>()
             .push(PendingNotificationClick {
-                entity_bits: body1.to_bits(),
+                entity_bits: toast1.to_bits(),
                 context_link: NotificationContextLink::SelectBody(body1),
             });
         world
             .resource_mut::<PendingNotificationClicks>()
             .push(PendingNotificationClick {
-                entity_bits: body2.to_bits(),
+                entity_bits: toast2.to_bits(),
                 context_link: NotificationContextLink::SelectBody(body2),
             });
         world
             .resource_mut::<PendingNotificationClicks>()
             .push(PendingNotificationClick {
-                entity_bits: 0,
+                entity_bits: toast3.to_bits(),
                 context_link: NotificationContextLink::OpenMenu(GameMenu::Construction),
             });
 
