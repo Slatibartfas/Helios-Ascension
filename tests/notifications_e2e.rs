@@ -6,20 +6,30 @@
 //! pipeline and the cross-cutting render / settings / RON /
 //! pause-on-event surfaces.
 //!
-//! # Bevy 0.18 message-buffer trap
+//! # Bevy 0.18 traps (both fixed here)
 //!
-//! Bevy 0.18's `Messages<T>` is **double-buffered**: a
-//! `MessageReader` only sees events written by `MessageWriter` after
-//! a per-frame `message_update_system` swap. `App::update()` runs
-//! that system implicitly, but a bare `Schedule::run(&mut world)`
-//! does **not** — readers see an empty buffer. The first attempt at
-//! this file used raw `Schedule` and 3 of 5 runnable tests failed
-//! silently (the bridge produced nothing, coalesce saw no events).
-//! This file uses `App::new()` + `app.update()` exclusively, which
-//! is the same pattern the existing unit tests in
-//! `src/ui/notifications/systems/coalesce.rs` and
-//! `.../event_bridge.rs` use, and which automatically wires the
-//! message-update system.
+//! Two Bevy 0.18 mechanisms bit the first two iterations of this
+//! file:
+//!
+//! 1. **Double-buffered `Messages<T>`**. A `MessageReader` only
+//!    sees events written by `MessageWriter` after a per-frame
+//!    `message_update_system` swap. `App::update()` runs that
+//!    system implicitly, but a bare `Schedule::run(&mut world)`
+//!    does **not** — readers see an empty buffer. This file uses
+//!    `App::new()` + `app.update()` exclusively.
+//! 2. **Deferred `Commands::spawn`**. `coalesce_notifications`
+//!    spawns `ActiveNotification` entities via `commands.spawn()`,
+//!    which Bevy materialises only at the end of the schedule
+//!    pass. The first time we tried to coalesce two events in the
+//!    same frame, the second event's `active.get_mut(matched)`
+//!    call returned `Err` (the placeholder entity from
+//!    `commands.spawn().id()` isn't yet in the world), so the
+//!    `count` bump was silently dropped. The fix: write one event
+//!    per `app.update()` so the next frame's query sees the
+//!    previously-spawned entity. `pause_on_event_toasts` has the
+//!    same shape: three `app.update()` calls (prime cache → fire
+//!    + deferred spawn + empty-query scan → live-entity scan that
+//!    actually pauses).
 //!
 //! # Stacked-PR scope
 //!
@@ -232,6 +242,13 @@ fn test_settings_override_disables_category() {
 #[test]
 fn test_group_window_default_then_overridden() {
     // ── Default 2.0 s window: two events at t=0 and t=1.0 ──
+    //
+    // Each event is fired in its own `app.update()` so the
+    // coalesce system actually sees the previously-spawned entity
+    // (Bevy's `Commands::spawn` is deferred — the entity isn't
+    // visible to queries until the next frame). Firing both
+    // events in the same frame leaves the second one's count
+    // bump no-op'ing on a `get_mut` that returns `Err`.
     let mut app = build_app();
     app.world_mut().resource_mut::<SimulationTime>().elapsed = 0.0;
 
@@ -248,8 +265,13 @@ fn test_group_window_default_then_overridden() {
                 sticky: false,
             },
         );
+        if i == 0 {
+            app.update();
+            app.world_mut().resource_mut::<SimulationTime>().elapsed = 1.0;
+        } else {
+            app.update();
+        }
     }
-    app.update();
 
     {
         let mut q = app.world_mut().query::<&ActiveNotification>();
@@ -366,9 +388,16 @@ fn test_group_window_default_then_overridden() {
 // `pause_on_event=true` category → toast inserted →
 // TimeScale::pause() called. The `pause_on_event_toasts` system
 // uses a `Local<HashSet<Entity>>` cache to detect newly-inserted
-// entities — we need at least two `app.update()` calls (one to
-// insert + prime the cache, one to detect + pause), OR we can
-// pre-populate the cache via a no-op update.
+// entities, and `coalesce_notifications` defers the spawn via
+// `Commands::spawn` (Bevy 0.18). We therefore need three
+// `app.update()` calls:
+//   1. prime the empty cache (no events, no entities, cache = {})
+//   2. fire the event + run coalesce (entity is now spawned
+//      *deferred* — the next frame materializes it) and run
+//      pause_on_event_toasts (active query still empty, cache = {})
+//   3. run pause_on_event_toasts AGAIN with the live entity
+//      visible — the new-entity diff against the empty cache
+//      triggers `TimeScale::pause()`.
 #[test]
 fn test_pause_on_event_chain() {
     let mut app = build_app();
@@ -396,9 +425,10 @@ fn test_pause_on_event_chain() {
     // was inserted.
     app.update();
 
-    // Fire the event. Coalesce will spawn the entity; the
-    // `pause_on_event_toasts` system notices the new entity
-    // and pauses TimeScale.
+    // Fire the event. The next `app.update()` runs coalesce
+    // (which defers the spawn via `Commands::spawn`) and
+    // pause_on_event_toasts (which sees an empty `active` query
+    // because the spawn hasn't been materialized yet).
     fire_event(
         &mut app,
         NotificationEvent {
@@ -411,6 +441,11 @@ fn test_pause_on_event_chain() {
             sticky: false,
         },
     );
+    app.update();
+
+    // Third update: the coalesce-deferred spawn is now visible
+    // to queries. pause_on_event_toasts sees the new entity,
+    // diffs against the still-empty cache, and pauses.
     app.update();
 
     // TimeScale must be paused.
