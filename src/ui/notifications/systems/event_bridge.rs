@@ -113,7 +113,7 @@ pub fn bridge_survey_events(
                 let body_name = body_name(world, *body);
                 (
                     format!("{name} aborted"),
-                    format!("{body_name}"),
+                    body_name.to_string(),
                     NotificationSeverity::Warning,
                     "survey.mission_complete",
                 )
