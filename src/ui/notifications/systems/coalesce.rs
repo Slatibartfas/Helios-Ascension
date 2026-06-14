@@ -480,7 +480,7 @@ mod tests {
             let mut data = app.world_mut().resource_mut::<NotificationCategoriesData>();
             data.categories.insert(
                 "survey.mission_complete".into(),
-                super::super::super::data::NotificationCategory {
+                crate::ui::notifications::data::NotificationCategory {
                     id: "survey.mission_complete".to_string(),
                     display_name: "Survey complete".to_string(),
                     default_dismiss_s: 5.0,
@@ -516,7 +516,7 @@ mod tests {
             let mut data = app.world_mut().resource_mut::<NotificationCategoriesData>();
             data.categories.insert(
                 "survey.mission_complete".into(),
-                super::super::super::data::NotificationCategory {
+                crate::ui::notifications::data::NotificationCategory {
                     id: "survey.mission_complete".to_string(),
                     display_name: "Survey complete".to_string(),
                     default_dismiss_s: 7.5,
