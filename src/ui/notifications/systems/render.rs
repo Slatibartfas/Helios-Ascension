@@ -127,7 +127,7 @@ pub fn render_notification_toasts(
     window.show(ctx, |ui| {
         ui.vertical(|ui| {
             for (entity, n) in &visible {
-                render_one_toast(ui, &n, *entity, now, &mut pending_dismiss);
+                render_one_toast(ui, n, *entity, now, &mut pending_dismiss);
                 ui.add_space(theme::Spacing::sm);
             }
         });
