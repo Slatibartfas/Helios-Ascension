@@ -37,6 +37,46 @@ pub struct ScientistSummary {
     pub seniority: SeniorityTier,
 }
 
+/// Why a particular mission template was recommended for a body.
+///
+/// GRA-114: the dossier SURVEY section now renders the *reason* a
+/// template was picked, not just the pick itself. The enum is
+/// closed (no modder surface) so the priority logic and the
+/// `reason_text` helper in `src/ui/dossier_panel.rs` stay stable;
+/// templates remain the modder surface.
+///
+/// Priority for the "single most-applicable reason" selection (per
+/// LGD GRA-114 design contract):
+/// 1. `SpecialistOnStation` — a roster scientist matches the
+///    template's method AND contributes a non-zero roster bonus.
+/// 2. `ConfidenceRescue` — primary dim's confidence is below
+///    `WARNING_CONFIDENCE`.
+/// 3. `CrossDim` — template covers ≥ 2 dimensions.
+/// 4. `TierGap { from_tier, to_tier }` — a tier-gap win on the
+///    primary dim.
+/// 5. `BestFit` — fallback (zero score, zero gap).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReasonTag {
+    /// A scientist on the roster matches this template's method and
+    /// is at high seniority (i.e. contributes a non-zero roster
+    /// bonus). The variant carries the specialty so the dossier can
+    /// name the discipline.
+    SpecialistOnStation { specialty: ScientistSpecialty },
+    /// Primary dim is below `WARNING_CONFIDENCE`; the survey
+    /// rescues the dim's confidence back to healthy.
+    ConfidenceRescue,
+    /// Template covers multiple dimensions; one survey closes
+    /// multiple gaps at once.
+    CrossDim,
+    /// Closes the largest tier gap on the primary dimension. The
+    /// from/to tiers are the source of truth; the dossier surfaces
+    /// them in the `reason_text` helper.
+    TierGap { from_tier: u8, to_tier: u8 },
+    /// Fallback when no other reason applies (e.g. all other
+    /// factors are 0).
+    BestFit,
+}
+
 /// Registry of discovery dimensions. Loaded from
 /// `assets/data/survey/dimensions.ron` (PR-B).
 ///
