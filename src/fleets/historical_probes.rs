@@ -302,10 +302,10 @@ pub fn mean_motion_rad_s(a_au: f64, e: f64) -> f64 {
 
 // ── Spawn system ────────────────────────────────────────────────────────────
 
-/// Color used for the historical-probe orbit paths.  A pale cyan so the
-/// probes are visually distinct from natural bodies (greys / browns) and
-/// from player fleets (orange / red selection).
-const PROBE_ORBIT_COLOR: Color = Color::srgba(0.55, 0.85, 1.00, 0.55);
+// The probe orbit-ring color lives in `src/ui/theme.rs` as
+// `theme::Color::PROBE_ORBIT` so the Bevy-Color audit baseline stays
+// clean.  We alias it here to keep the call sites short.
+use crate::ui::theme::Color::PROBE_ORBIT as PROBE_ORBIT_COLOR;
 
 /// Spawn the four historical probes (Voyager 1, Voyager 2, Parker Solar
 /// Probe, New Horizons) at the 2026-01-01 JPL Horizons epoch.  Idempotent
