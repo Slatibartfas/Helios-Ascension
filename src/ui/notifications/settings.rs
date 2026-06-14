@@ -105,7 +105,12 @@ impl NotificationSettings {
 
     /// Get the per-category override, inserting the manifest default
     /// if absent. Callers use this to render a settings UI that
-    /// matches what the spawn system would see.
+    /// matches what the spawn system would see. `sticky` defaults
+    /// from `manifest_default_dismiss_s <= 0.0` to match
+    /// `reset_all` — categories designed sticky in the manifest
+    /// (e.g. `economy.stockpile_critical`, `encounters.hostile_contact`)
+    /// stay sticky on first open instead of being silently flipped
+    /// to non-sticky.
     pub fn get_or_default(
         &mut self,
         category: &NotificationCategoryId,
@@ -120,7 +125,7 @@ impl NotificationSettings {
                 pause_on_event: false,
                 sound_on: true,
                 auto_dismiss_s: manifest_default_dismiss_s,
-                sticky: false,
+                sticky: manifest_default_dismiss_s <= 0.0,
             })
     }
 
@@ -199,6 +204,26 @@ mod tests {
     fn test_category_id_from_str() {
         let id: NotificationCategoryId = "foo".into();
         assert_eq!(id.as_str(), "foo");
+    }
+
+    #[test]
+    fn test_get_or_default_sticky_matches_manifest_sticky() {
+        // Kilo finding: `get_or_default` previously hard-coded
+        // `sticky: false`, so categories designed sticky in the
+        // manifest (e.g. `economy.stockpile_critical`,
+        // `encounters.hostile_contact` with `default_dismiss_s = 0.0`)
+        // were silently flipped to non-sticky on first open. This
+        // mirrors the `reset_all` rule (line 146) so the per-category
+        // map the settings panel renders matches the manifest.
+        let mut s = NotificationSettings::default();
+        let sticky_id = NotificationCategoryId::from("economy.stockpile_critical");
+        let normal_id = NotificationCategoryId::from("survey.mission_complete");
+
+        let sticky_row = s.get_or_default(&sticky_id, true, 0.0);
+        assert!(sticky_row.sticky, "default_dismiss_s = 0.0 must mean sticky");
+
+        let normal_row = s.get_or_default(&normal_id, true, 5.0);
+        assert!(!normal_row.sticky, "default_dismiss_s > 0.0 must mean non-sticky");
     }
 
     #[test]
