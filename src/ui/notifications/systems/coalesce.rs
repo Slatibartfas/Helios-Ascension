@@ -491,6 +491,7 @@ mod tests {
                     display_name: "Stockpile critical".to_string(),
                     default_dismiss_s: 5.0,
                     enabled: false,
+                    pause_on_event: false,
                 },
             );
         }
@@ -527,6 +528,7 @@ mod tests {
                     display_name: "Survey complete".to_string(),
                     default_dismiss_s: 7.5,
                     enabled: true,
+                    pause_on_event: false,
                 },
             );
         }

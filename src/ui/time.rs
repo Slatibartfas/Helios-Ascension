@@ -41,6 +41,14 @@ impl TimeScale {
     pub fn is_paused(&self) -> bool {
         self.scale == 0.0
     }
+
+    /// The scale value that will be restored on `resume()`. Read-only
+    /// public accessor — used by the notifications pause-on-event
+    /// tests in `src/ui/notifications/systems/tick.rs` to assert
+    /// that `pause()` captured the pre-pause speed.
+    pub fn last_active_scale(&self) -> f32 {
+        self.last_active_scale
+    }
 }
 
 impl Default for TimeScale {

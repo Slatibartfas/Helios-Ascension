@@ -103,6 +103,17 @@ impl Plugin for NotificationsPlugin {
             // Render set is added to EguiPrimaryContextPass by
             // `UIPlugin::build` so it can chain after
             // `UiSystemSet::Overlays` (see src/ui/mod.rs).
+            //
+            // PR-D (GRA-138) registered Coalesce above; we
+            // chain `Coalesce → Tick` so a brand-new event
+            // lands in the live toast before PR-B's auto-dismiss
+            // timer can despawn it.
+            //
+            // PR-F (GRA-140) adds `pause_on_event_toasts` to the
+            // same Tick set. The `Coalesce → Tick` chain keeps
+            // `pause_on_event_toasts`'s "newly-inserted entity"
+            // detection working: the new entity is visible to
+            // Tick in the same frame that Coalesce produced it.
             .configure_sets(
                 Update,
                 NotificationsSystemSet::Coalesce.before(NotificationsSystemSet::Tick),
@@ -112,6 +123,7 @@ impl Plugin for NotificationsPlugin {
                 (
                     systems::auto_dismiss_toasts,
                     systems::apply_pending_dismissals,
+                    systems::pause_on_event_toasts,
                 )
                     .in_set(NotificationsSystemSet::Tick)
                     .after(NotificationsSystemSet::EventBridge),
