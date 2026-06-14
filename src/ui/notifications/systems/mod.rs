@@ -27,7 +27,7 @@ pub mod render;
 pub mod tick;
 
 pub use render::render_notification_toasts;
-pub use tick::{apply_pending_dismissals, auto_dismiss_toasts};
+pub use tick::{apply_pending_dismissals, auto_dismiss_toasts, pause_on_event_toasts};
 
 /// System-set taxonomy for the notifications feature.
 ///

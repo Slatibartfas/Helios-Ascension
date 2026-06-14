@@ -2,12 +2,16 @@
 //
 // Lists every category the player can opt into. PR-A (GRA-135)
 // registers the schema; PR-B starts producing events; PR-D adds
-// grouping/dedup; later PRs add per-event severity, sound, icons.
+// grouping/dedup; PR-F (GRA-140) wires `pause_on_event` to
+// `TimeScale::pause()`.
 //
 // Modding guide:
 // - Add a row to opt a new category in (or out via `enabled: false`).
 // - `id` must be unique. Duplicate ids panic in debug builds.
 // - `default_dismiss_s` is overridden per-event if the bridge sets it.
+// - `pause_on_event: true` causes a toast in this category to call
+//   `TimeScale::pause()` on insert. The player can override this
+//   per category in the settings panel (PR-E).
 // - Personnel / diplomacy / encounters categories are placeholders
 //   for upcoming systems and ship with `enabled: false`.
 
@@ -43,6 +47,7 @@
             display_name: "Survey mission blocked",
             default_dismiss_s: 6.0,
             enabled: true,
+            pause_on_event: true,
         ),
         (
             id: "survey.tier_revealed",
@@ -137,6 +142,7 @@
             display_name: "Stockpile critical",
             default_dismiss_s: 0.0, // sticky
             enabled: true,
+            pause_on_event: true,
         ),
         (
             id: "economy.freight_dispatched",

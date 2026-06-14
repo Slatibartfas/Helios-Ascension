@@ -34,10 +34,20 @@ pub struct NotificationCategory {
     /// Per-category overrides in `NotificationSettings` win.
     #[serde(default = "default_enabled")]
     pub enabled: bool,
+    /// Whether a toast in this category should pause the simulation
+    /// on insert. PR-F (GRA-140) wires this to `TimeScale::pause()`.
+    /// Defaults to `false` so existing RON rows that predate the
+    /// field still parse.
+    #[serde(default = "default_pause_on_event")]
+    pub pause_on_event: bool,
 }
 
 fn default_enabled() -> bool {
     true
+}
+
+fn default_pause_on_event() -> bool {
+    false
 }
 
 /// Loaded manifest. Keyed by id for O(1) lookup from the spawn system
@@ -152,6 +162,7 @@ mod tests {
                 display_name: "Test".to_string(),
                 default_dismiss_s: 3.0,
                 enabled: true,
+                pause_on_event: false,
             },
         );
         let looked = data.get(&id).expect("inserted category must be findable");

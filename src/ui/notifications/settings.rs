@@ -33,7 +33,10 @@ impl From<String> for NotificationCategoryId {
 /// Per-category override. PR-A only models the on/off toggle; PR-D
 /// adds severity floor, sound, etc. PR-E (GRA-139) extends with the
 /// fields the settings panel renders (pause_on_event, sound_on,
-/// auto_dismiss_s, sticky).
+/// auto_dismiss_s, sticky). PR-F (GRA-140) wires the
+/// `pause_on_event` field to the actual `TimeScale::pause()` call
+/// (the toggle is visually exposed in the settings panel from
+/// PR-E).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PerCategorySetting {
     pub enabled: bool,
@@ -100,6 +103,22 @@ impl NotificationSettings {
         match self.per_category.get(category) {
             Some(override_) => override_.enabled,
             None => manifest_default_enabled,
+        }
+    }
+
+    /// Resolve whether a category currently requests
+    /// `TimeScale::pause()` on insert. The per-category override
+    /// wins; the caller passes the manifest's
+    /// `NotificationCategory::pause_on_event` as the fallback.
+    /// PR-F (GRA-140) drives this from `tick.rs`.
+    pub fn is_category_pause_on_event(
+        &self,
+        category: &NotificationCategoryId,
+        manifest_default_pause_on_event: bool,
+    ) -> bool {
+        match self.per_category.get(category) {
+            Some(override_) => override_.pause_on_event,
+            None => manifest_default_pause_on_event,
         }
     }
 
@@ -200,6 +219,32 @@ mod tests {
         assert!(!s.is_category_enabled(&other, false));
     }
 
+    /// PR-F: the per-category override wins over the manifest
+    /// default for `pause_on_event`.
+    #[test]
+    fn test_pause_on_event_override_wins_over_manifest() {
+        let mut s = NotificationSettings::default();
+        let id = NotificationCategoryId::from("survey.mission_failed");
+        s.per_category.insert(
+            id.clone(),
+            PerCategorySetting {
+                enabled: true,
+                pause_on_event: true,
+                sound_on: true,
+                auto_dismiss_s: 6.0,
+                sticky: false,
+            },
+        );
+        // Manifest says no-pause, override says pause → pause.
+        assert!(s.is_category_pause_on_event(&id, false));
+        // Manifest says pause, no override → pause.
+        let other = NotificationCategoryId::from("survey.complete");
+        assert!(s.is_category_pause_on_event(&other, true));
+        // Manifest says no-pause, no override → no-pause.
+        let other2 = NotificationCategoryId::from("survey.dimension_unlocked");
+        assert!(!s.is_category_pause_on_event(&other2, false));
+    }
+
     #[test]
     fn test_category_id_from_str() {
         let id: NotificationCategoryId = "foo".into();
@@ -268,6 +313,7 @@ mod tests {
                 display_name: "Test".to_string(),
                 default_dismiss_s: 6.0,
                 enabled: true,
+                pause_on_event: false,
             },
         );
         s.reset_all(&data);
