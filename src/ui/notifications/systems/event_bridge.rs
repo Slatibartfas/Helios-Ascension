@@ -43,9 +43,9 @@
 use bevy::prelude::*;
 
 use crate::colony::events::ConstructionEvent;
-use crate::colony::types::BuildingType;
 use crate::research::events::ResearchEvent;
-use crate::survey::events::{MissionFailureReason, SurveyEvent};
+use crate::survey::events::SurveyEvent;
+use crate::survey::types::MissionFailureReason;
 use crate::ui::notifications::events::{NotificationEvent, NotificationSeverity};
 use crate::ui::notifications::settings::NotificationCategoryId;
 
@@ -53,9 +53,13 @@ use crate::ui::notifications::settings::NotificationCategoryId;
 ///
 /// Falls back to `"body"` if the entity has no `Name` component or the
 /// name is empty — the toast still reads sensibly.
-fn body_name(entities: &World, body: Entity) -> String {
-    entities
-        .entity(body)
+///
+/// Bevy 0.18: `World::get_entity` returns `Result<EntityRef, _>`; the
+/// `Ok` variant means the entity is still alive. `EntityRef` is not
+/// itself a `Result` (no `.ok()` on it).
+fn body_name(world: &World, body: Entity) -> String {
+    world
+        .get_entity(body)
         .ok()
         .and_then(|e| e.get::<Name>().map(|n| n.as_str().to_string()))
         .filter(|s| !s.is_empty())
@@ -306,6 +310,7 @@ mod tests {
     //! supported path.
 
     use super::*;
+    use crate::colony::types::BuildingType;
     use crate::survey::types::AnomalyType;
     use crate::survey::types::MissionFailureReason;
     use crate::survey::types::SurveyMethod;
@@ -468,14 +473,13 @@ mod tests {
 
     #[test]
     fn test_bridge_survey_crew_injured() {
-        use crate::personnel::types::ScientistId;
         let mut world = fresh_world();
         let body = spawn_body(&mut world, "Mare Imbrium 1");
         world.write_message(SurveyEvent::CrewInjured {
             body,
             mission_id: 4,
             name: "Mare Imbrium 1".to_string(),
-            scientist: ScientistId(1),
+            scientist: 1,
             scientist_name: "Dr. Vasquez".to_string(),
             injured_until_sim_time: 9_000_000.0,
         });

@@ -1,4 +1,6 @@
 use bevy::prelude::*;
+
+use super::ResearchEvent;
 use std::collections::{HashMap, HashSet};
 
 use crate::colony::{BuildingsData, Colony};
