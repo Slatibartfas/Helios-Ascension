@@ -220,10 +220,16 @@ mod tests {
         let normal_id = NotificationCategoryId::from("survey.mission_complete");
 
         let sticky_row = s.get_or_default(&sticky_id, true, 0.0);
-        assert!(sticky_row.sticky, "default_dismiss_s = 0.0 must mean sticky");
+        assert!(
+            sticky_row.sticky,
+            "default_dismiss_s = 0.0 must mean sticky"
+        );
 
         let normal_row = s.get_or_default(&normal_id, true, 5.0);
-        assert!(!normal_row.sticky, "default_dismiss_s > 0.0 must mean non-sticky");
+        assert!(
+            !normal_row.sticky,
+            "default_dismiss_s > 0.0 must mean non-sticky"
+        );
     }
 
     #[test]
