@@ -661,3 +661,59 @@ pub struct PlannedTransfer {
     /// Only meaningful when `leg2_orbit` is `Some`.
     pub leg2_start_s: f64,
 }
+
+/// Which historical space probe a `HistoricalProbe` entity represents.
+///
+/// The four values match the LGD brief for GRA-127.B (GRA-131): the four
+/// most-referenced deep-space probes at the 2026-01-01 epoch.  Each kind
+/// pins a single JPL Horizons state vector used at spawn time and
+/// drives the per-probe science bonus (`+0.5 RP` once per save, gated on
+/// `SimulationTime` so the bonus never applies to player save-scumming).
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum HistoricalProbeKind {
+    /// Voyager 1 — hyperbolic escape trajectory, ~169.5 AU heliocentric at 2026-01-01.
+    Voyager1,
+    /// Voyager 2 — hyperbolic escape trajectory, ~138.7 AU heliocentric at 2026-01-01.
+    Voyager2,
+    /// Parker Solar Probe — bound elliptical orbit inside Mercury's perihelion.
+    Parker,
+    /// New Horizons — hyperbolic escape trajectory, ~64.1 AU heliocentric at 2026-01-01.
+    NewHorizons,
+}
+
+impl HistoricalProbeKind {
+    /// Short identifier used in save data, telemetry, and log lines.
+    pub fn slug(self) -> &'static str {
+        match self {
+            HistoricalProbeKind::Voyager1 => "voyager_1",
+            HistoricalProbeKind::Voyager2 => "voyager_2",
+            HistoricalProbeKind::Parker => "parker",
+            HistoricalProbeKind::NewHorizons => "new_horizons",
+        }
+    }
+}
+
+/// Marker + descriptive metadata for a historical space probe entity.
+///
+/// `HistoricalProbe` is a *companion* to the regular `KeplerOrbit` (and
+/// optional `HyperbolicTrajectory` for the three escape trajectories).
+/// It carries the kind discriminator, a display name, the launching
+/// agency, and the launch year so the starmap tooltip and science
+/// panel can show "Voyager 1 (NASA, 1977)" without an extra lookup.
+///
+/// Historical probes are spawned exactly once per save (idempotency
+/// tracked by the `HistoricalProbesSpawned` resource).  They never
+/// appear in the player fleet list, never accept transfer orders, and
+/// do not consume construction materials — they are background
+/// science assets only.
+#[derive(Component, Debug, Clone, Copy)]
+pub struct HistoricalProbe {
+    /// Which historical probe this entity represents.
+    pub kind: HistoricalProbeKind,
+    /// Display name (e.g. "Voyager 1").
+    pub name: &'static str,
+    /// Launching space agency (e.g. "NASA").
+    pub agency: &'static str,
+    /// Calendar year the probe launched (UTC).
+    pub launch_year: u16,
+}

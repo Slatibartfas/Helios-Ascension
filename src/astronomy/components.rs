@@ -135,6 +135,73 @@ impl Default for KeplerOrbit {
     }
 }
 
+/// Companion component for a `KeplerOrbit` with `eccentricity > 1.0` (hyperbolic
+/// escape trajectory).
+///
+/// The existing `KeplerOrbit::mean_motion` and `KeplerOrbit::mean_anomaly_epoch`
+/// are only meaningful for `e < 1` (closed orbits).  For hyperbolic trajectories
+/// the Kepler equation becomes `M = e*sinh(H) - H` and `M` is unbounded, so we
+/// store the hyperbolic anomaly `H` at the epoch in this companion component
+/// instead and use `e*sinh(H) - H` to advance it over time.
+///
+/// Attach this component to any entity whose `KeplerOrbit.eccentricity > 1.0`.
+/// The propagation system in `src/astronomy/systems.rs::propagate_orbits` reads
+/// it to compute position; the orbit-path renderer uses `asymptote_velocity_kms`
+/// and `periapsis_distance_au` to draw a partial hyperbola (periapsis → 200 AU,
+/// fading tail).  GRA-131.
+#[derive(Component, Debug, Clone, Copy)]
+pub struct HyperbolicTrajectory {
+    /// Hyperbolic excess speed v∞ = sqrt(-μ/a), in km/s.  `a` is negative for
+    /// hyperbolics.  Used by the orbit-path renderer for HUD readouts.
+    pub asymptote_velocity_kms: f64,
+
+    /// Periapsis distance q = |a| (e - 1), in AU.  This is the closest
+    /// approach to the focus (the Sun for heliocentric probes).
+    pub periapsis_distance_au: f64,
+
+    /// Reserved for a future v0.5.x b-plane targeting helper.  Unused in
+    /// v0.5.0 — the brief marks it as out-of-scope.  Set to 0.0 for now.
+    pub b_plane_angle_rad: f64,
+
+    /// TDB Julian date of the epoch the stored `hyperbolic_anomaly_epoch` is
+    /// evaluated at.  Recorded for future re-derivation when a JPL Horizons
+    /// refresh updates the source state vector.
+    pub epoch_jd_tdb: f64,
+
+    /// Hyperbolic anomaly H at the epoch.  Used to compute the corresponding
+    /// M = e*sinh(H) - H at the epoch, then advance H by the change in M
+    /// over the elapsed time (Newton-Raphson on `e*sinh(H) - H = M`).
+    pub hyperbolic_anomaly_epoch: f64,
+}
+
+impl HyperbolicTrajectory {
+    /// Build a `HyperbolicTrajectory` from a hyperbolic `KeplerOrbit` and its
+    /// epoch hyperbolic anomaly.
+    #[allow(clippy::too_many_arguments)]
+    pub fn from_orbit(
+        orbit: &KeplerOrbit,
+        hyperbolic_anomaly_epoch: f64,
+        epoch_jd_tdb: f64,
+    ) -> Self {
+        // Standard gravitational parameter of the Sun, IAU 2012 (km³/s²).
+        const MU_SUN_KM3_S2: f64 = 1.32712440018e11;
+        // 1 AU in km.  Hard-coded so this constructor has no dependency on
+        // `crate::astronomy::systems::SCALING_FACTOR` (which is a render-unit
+        // scale, not an AU→km constant).
+        const AU_KM: f64 = 1.49597870700e8;
+        let a_km_real = orbit.semi_major_axis * AU_KM;
+        let asymptote_velocity_kms = (-MU_SUN_KM3_S2 / a_km_real).max(0.0).sqrt();
+        let periapsis_distance_au = (-orbit.semi_major_axis) * (orbit.eccentricity - 1.0);
+        Self {
+            asymptote_velocity_kms,
+            periapsis_distance_au,
+            b_plane_angle_rad: 0.0,
+            epoch_jd_tdb,
+            hyperbolic_anomaly_epoch,
+        }
+    }
+}
+
 /// Component that marks an entity as having a visible orbit path
 /// Used for orbit visualization
 #[derive(Component, Debug, Clone, Copy)]
