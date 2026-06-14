@@ -96,12 +96,12 @@ impl NotificationSettings {
         category: &NotificationCategoryId,
         manifest_default_enabled: bool,
     ) -> PerCategorySetting {
-        self.per_category
+        *self
+            .per_category
             .entry(category.clone())
             .or_insert(PerCategorySetting {
                 enabled: manifest_default_enabled,
             })
-            .clone()
     }
 }
 
@@ -121,8 +121,10 @@ mod tests {
 
     #[test]
     fn test_global_off_wins() {
-        let mut s = NotificationSettings::default();
-        s.global_enabled = false;
+        let mut s = NotificationSettings {
+            global_enabled: false,
+            ..NotificationSettings::default()
+        };
         let id = NotificationCategoryId::from("survey.test");
         assert!(!s.is_category_enabled(&id, true));
     }

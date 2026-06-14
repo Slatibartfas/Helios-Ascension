@@ -14,8 +14,6 @@
 //!
 //! PR-D adds the grouping/dedup logic on top of those.
 
-use bevy::prelude::*;
-
 // Placeholder so the sub-module is non-empty in PR-A. The marker
 // keeps the file in version control without committing a no-op
 // function that clippy would flag as `dead_code`.
