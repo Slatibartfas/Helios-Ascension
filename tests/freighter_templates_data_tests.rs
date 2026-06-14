@@ -376,6 +376,7 @@ fn legacy_freighter_gets_template_ref_at_migration() {
     // Spawn a legacy freighter entity (no ShipTemplateRef).
     let info = ShipInfo {
         name: "Legacy Test Freighter".to_string(),
+        hull_id: None,
         class: ShipClass::Freighter,
         dry_mass_t: 1.0,
         fuel_mass_t: 0.0,
@@ -432,6 +433,7 @@ fn migration_skips_non_freighter_ships() {
     let mut app = build_app_with_templates_loaded();
     let info = ShipInfo {
         name: "Frigate".to_string(),
+        hull_id: None,
         class: ShipClass::Frigate,
         dry_mass_t: 1.0,
         fuel_mass_t: 0.0,

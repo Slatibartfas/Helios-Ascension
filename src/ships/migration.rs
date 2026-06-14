@@ -184,6 +184,7 @@ mod tests {
 
         let info = ShipInfo {
             name: "Legacy Freighter".to_string(),
+            hull_id: None,
             class: ShipClass::Freighter,
             dry_mass_t: 1.0,
             fuel_mass_t: 0.0,
@@ -231,6 +232,7 @@ mod tests {
 
         let info = ShipInfo {
             name: "Frigate".to_string(),
+            hull_id: None,
             class: ShipClass::Frigate,
             dry_mass_t: 1.0,
             fuel_mass_t: 0.0,
