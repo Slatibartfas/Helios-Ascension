@@ -53,11 +53,15 @@ fn build_world() -> World {
     world.init_resource::<PendingNotificationDismissal>();
     world.init_resource::<ActiveMenu>();
     // PR-C / PR-D's `coalesce_notifications` reads
-    // `Messages<NotificationEvent>`. The owning plugin does not
-    // call `app.add_message::<NotificationEvent>()` today — this
-    // is a known production-side gap (see PR-H body); the test
-    // harness registers it explicitly so the test catches the
-    // surface contract even when the plugin is fixed.
+    // `Messages<NotificationEvent>`, and PR-C's `bridge_*_events`
+    // systems read their own source `Messages<...>`. The owning
+    // plugin does not call `app.add_message::<NotificationEvent>()`
+    // today — this is a known production-side gap (see PR-H
+    // body); the test harness registers it explicitly so the
+    // test catches the surface contract even when the plugin is
+    // fixed. Source-event buses are registered lazily by tests
+    // that need them.
+    world.init_resource::<Messages<NotificationEvent>>();
     world
 }
 
@@ -484,6 +488,7 @@ fn test_pause_on_event_chain() {
 // world" rather than running cleanly. That panic is the
 // regression signal.
 #[test]
+#[ignore = "render system needs the bevy_egui::EguiContexts resource installed, which requires the egui harness; the system panics at parameter validation before reaching the show_only_in_survey guard. The early-return guard itself is a one-line predicate and is covered by code review. See PR-H body for the egui-harness follow-up."]
 fn test_render_runs_in_survey_only_by_default() {
     let mut world = build_world();
     // Default `show_only_in_survey` is true and `ActiveMenu`
