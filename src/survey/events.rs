@@ -181,9 +181,15 @@ pub enum MissionLaunchReason {
     /// in `dispatch_survey_mission` now routes here.
     NoScientists,
     /// The template's `requires_ship_class` / `requires_min_ship_count`
-    /// gate was not met. Either the body has no ships of the
-    /// required hull class at its starmap location, or the count
-    /// of matching ships is below the template's minimum.
+    /// gate was not met. Currently a world-wide count of matching
+    /// `ShipTemplateRef` entities (per-body ship inventory at a
+    /// starmap location is a follow-on to GRA-120 — see the
+    /// `count_ships_with_hull_class` TODO in `src/survey/systems.rs`).
+    /// In practice this means a fresh game-state with no freighters
+    /// yet reports the gate as unsatisfied rather than silently
+    /// passing; once the per-body inventory lands the reason text
+    /// should be re-tightened to "at the target body's starmap
+    /// location" wording.
     NoShipAvailable,
     /// The template id does not exist in the
     /// [`SurveyMissionTemplates`](crate::survey::data::SurveyMissionTemplates)
