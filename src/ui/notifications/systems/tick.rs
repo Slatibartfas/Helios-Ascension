@@ -130,8 +130,11 @@ mod tests {
         schedule.add_systems(auto_dismiss_toasts);
         schedule.run(&mut world);
 
-        // The expired toast must be despawned.
-        assert!(world.get_entity(id).is_none());
+        // The expired toast must be despawned. Bevy 0.18's
+        // `World::get_entity` returns `Result<EntityRef, _>`
+        // (not `Option`); the Ok variant means the entity is
+        // still alive.
+        assert!(world.get_entity(id).is_err());
     }
 
     /// Sticky toasts ignore the auto-dismiss timer.
@@ -158,8 +161,8 @@ mod tests {
         schedule.add_systems(auto_dismiss_toasts);
         schedule.run(&mut world);
 
-        // Sticky — still alive.
-        assert!(world.get_entity(id).is_some());
+        // Sticky — still alive. Bevy 0.18 Result variant.
+        assert!(world.get_entity(id).is_ok());
     }
 
     /// Click-to-dismiss queue: an entry whose entity is still
@@ -196,7 +199,7 @@ mod tests {
         schedule.add_systems(apply_pending_dismissals);
         schedule.run(&mut world);
 
-        assert!(world.get_entity(live).is_none());
+        assert!(world.get_entity(live).is_err());
         // Queue is drained.
         assert!(world
             .resource::<PendingNotificationDismissal>()

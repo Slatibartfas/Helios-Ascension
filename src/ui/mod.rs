@@ -456,9 +456,17 @@ impl Plugin for UIPlugin {
                     UiSystemSet::TopBar,
                     UiSystemSet::MainPanels,
                     UiSystemSet::Overlays,
-                    notifications::NotificationsSystemSet::Render,
                 )
                     .chain(),
+            )
+            // Notifications render is a foreign SystemSet (declared
+            // in `src/ui/notifications/systems/mod.rs`) so it can't
+            // join the same `chain()` tuple as `UiSystemSet`. Order
+            // it explicitly with `.after()` here so toasts paint
+            // after the Overlays set.
+            .configure_sets(
+                EguiPrimaryContextPass,
+                notifications::NotificationsSystemSet::Render.after(UiSystemSet::Overlays),
             )
             .add_systems(
                 EguiPrimaryContextPass,

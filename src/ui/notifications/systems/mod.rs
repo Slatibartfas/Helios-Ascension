@@ -17,6 +17,8 @@
 //!   `UiSystemSet::Overlays` so toasts paint on top of every
 //!   other panel.
 
+use bevy::prelude::*;
+
 pub mod render;
 pub mod tick;
 

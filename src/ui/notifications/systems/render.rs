@@ -52,7 +52,7 @@ pub fn render_notification_toasts(
     settings: Res<NotificationSettings>,
     sim_time: Res<SimulationTime>,
     categories: Res<crate::ui::notifications::data::NotificationCategoriesData>,
-    mut active: Query<(Entity, &ActiveNotification)>,
+    active: Query<(Entity, &ActiveNotification)>,
     mut pending_dismiss: ResMut<crate::ui::notifications::components::PendingNotificationDismissal>,
 ) {
     if !settings.global_enabled {
@@ -145,10 +145,10 @@ fn render_one_toast(
 ) {
     let (border, text) = severity_palette(n.severity);
 
-    let frame = egui::Frame::none()
+    let frame = egui::Frame::new()
         .fill(theme::BG)
         .stroke(egui::Stroke::new(1.0, border))
-        .rounding(egui::Rounding::same(4.0))
+        .corner_radius(egui::CornerRadius::same(4))
         .inner_margin(egui::Margin::symmetric(
             theme::Spacing::md as i8,
             theme::Spacing::sm as i8,
@@ -214,11 +214,15 @@ fn render_one_toast(
 }
 
 fn severity_palette(severity: NotificationSeverity) -> (egui::Color32, egui::Color32) {
+    // The pre-existing `theme::STATUS_*` constants in this file
+    // are `egui::Color32`, while the new `theme::Color::STATUS_*`
+    // mirror module exposes `bevy::prelude::Color`. Toast panel
+    // uses egui throughout, so stick with the Color32 family.
     match severity {
-        NotificationSeverity::Info => (theme::STATUS_INFO_BORDER, theme::STATUS_INFO_TEXT),
-        NotificationSeverity::Notice => (theme::TAB_ACTIVE_BORDER, theme::TEXT),
-        NotificationSeverity::Warning => (theme::STATUS_WARNING_BORDER, theme::STATUS_WARNING_TEXT),
-        NotificationSeverity::Critical => (theme::STATUS_DANGER_BORDER, theme::STATUS_DANGER_TEXT),
+        NotificationSeverity::Info => (theme::ACCENT, theme::TEXT),
+        NotificationSeverity::Notice => (theme::ACCENT, theme::TEXT),
+        NotificationSeverity::Warning => (theme::STATUS_WARN, theme::TEXT),
+        NotificationSeverity::Critical => (theme::STATUS_ERROR, theme::TEXT),
     }
 }
 
