@@ -474,15 +474,18 @@ mod tests {
         // Kilo finding: the manifest's `enabled = false` was
         // silently ignored because the system hard-coded the
         // default to `true`. Build a manifest with a disabled
-        // category and assert the event is dropped.
+        // category and assert the event is dropped. Use a
+        // category that `settings_with_window` does not pre-seed
+        // with a per-category override so the manifest's `enabled`
+        // is the only signal `is_category_enabled` sees.
         let mut app = build_app(Some(2.0));
         {
             let mut data = app.world_mut().resource_mut::<NotificationCategoriesData>();
             data.categories.insert(
-                "survey.mission_complete".into(),
-                crate::ui::notifications::data::NotificationCategory {
-                    id: "survey.mission_complete".to_string(),
-                    display_name: "Survey complete".to_string(),
+                "economy.stockpile_critical".into(),
+                super::super::super::data::NotificationCategory {
+                    id: "economy.stockpile_critical".to_string(),
+                    display_name: "Stockpile critical".to_string(),
                     default_dismiss_s: 5.0,
                     enabled: false,
                 },
@@ -491,9 +494,9 @@ mod tests {
 
         app.world_mut().resource_mut::<SimulationTime>().elapsed = 0.0;
         app.world_mut().write_message(event(
-            "survey.mission_complete",
+            "economy.stockpile_critical",
             NotificationSeverity::Notice,
-            Some("mare-imbrium-1"),
+            Some("water-low"),
         ));
         app.update();
         assert_eq!(
