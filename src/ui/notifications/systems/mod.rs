@@ -42,8 +42,10 @@ pub enum NotificationsSystemSet {
     /// messages. Reserved for PR-C (GRA-137).
     #[allow(dead_code)]
     EventBridge,
-    /// Coalesces/grouping pass. Reserved for PR-D (GRA-138).
-    #[allow(dead_code)]
+    /// Coalesces/grouping pass. PR-D (GRA-138) registers
+    /// `coalesce_notifications` in this set; the plugin chains
+    /// `Coalesce → Tick` so a brand-new event lands in the live
+    /// toast before PR-B's auto-dismiss timer can despawn it.
     Coalesce,
     /// Auto-dismiss timer + click-dismiss queue drain. PR-B.
     Tick,

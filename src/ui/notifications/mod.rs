@@ -60,13 +60,17 @@ impl Plugin for NotificationsPlugin {
             // visibility via `NotificationsSettingsOpen`.
             .add_plugins(NotificationsSettingsPanelPlugin)
             // PR-D (GRA-138): the coalesce/grouping pass. Runs in
-            // `Update`, ungrouped for now — PR-B's
-            // `NotificationsSystemSet` (defined in PR-B's
-            // `src/ui/notifications/systems/mod.rs`) re-groups
-            // this system into the `Coalesce` set on top of
-            // PR-D's merge.
-            .add_systems(Update, coalesce_notifications)
-            // Dev introspection hook for bevy_inspector_egi. The
+            // `Update` in the `Coalesce` set; chained before
+            // `Tick` below so a brand-new event lands in the live
+            // toast before PR-B's auto-dismiss timer can despawn
+            // it (otherwise the tick system could despawn a toast
+            // that the same-frame coalesce was about to merge
+            // into). Kilo Code Review finding.
+            .add_systems(
+                Update,
+                coalesce_notifications.in_set(NotificationsSystemSet::Coalesce),
+            )
+            // Dev introspection hook for bevy_inspector_egui. The
             // inspector plugin is not currently attached in `main.rs`,
             // but registering the type means a future inspector wiring
             // (or a unit test using `AppTypeRegistry`) can iterate
@@ -82,6 +86,10 @@ impl Plugin for NotificationsPlugin {
             // Render set is added to EguiPrimaryContextPass by
             // `UIPlugin::build` so it can chain after
             // `UiSystemSet::Overlays` (see src/ui/mod.rs).
+            .configure_sets(
+                Update,
+                NotificationsSystemSet::Coalesce.before(NotificationsSystemSet::Tick),
+            )
             .add_systems(
                 Update,
                 (

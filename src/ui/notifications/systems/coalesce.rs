@@ -3,10 +3,9 @@
 //! group, within the global `default_group_window_s` window.
 //!
 //! Ordering: this system runs in `Update` (no egui), in the
-//! `NotificationsSystemSet::Coalesce` set. It is registered
-//! `before` `NotificationsSystemSet::Tick` (PR-B) so the tick
-//! system sees the latest `count`/`created_at` when computing
-//! auto-dismiss.
+//! `NotificationsSystemSet::Coalesce` set, chained before
+//! `NotificationsSystemSet::Tick` (PR-B) so the tick system sees
+//! the latest `count`/`created_at` when computing auto-dismiss.
 //!
 //! # Behavior
 //!
@@ -14,10 +13,9 @@
 //!
 //! 1. If the global `global_enabled` flag is `false`, drop the
 //!    event silently.
-//! 2. If the event's category is disabled
-//!    (`NotificationSettings::is_category_enabled` returns
-//!    `false` for the manifest default + the per-category
-//!    override), drop the event silently.
+//! 2. If the event's category is disabled in either the manifest
+//!    (`NotificationCategoriesData`) or the per-category player
+//!    override, drop the event silently.
 //! 3. If the event has no `dedup_key`, always spawn a fresh
 //!    entity.
 //! 4. Otherwise, scan existing `ActiveNotification` entities. If
@@ -49,6 +47,7 @@ use bevy::prelude::*;
 use crate::ui::time::SimulationTime;
 
 use super::super::components::ActiveNotification;
+use super::super::data::NotificationCategoriesData;
 use super::super::events::{NotificationEvent, NotificationSeverity};
 use super::super::settings::{NotificationCategoryId, NotificationSettings};
 // `NotificationsSystemSet` is defined in `super` (PR-B GRA-136 owns
@@ -68,12 +67,29 @@ fn severity_rank(s: NotificationSeverity) -> u8 {
     }
 }
 
+/// Resolve the manifest default for a category. The coalesce
+/// system runs in `Update` (post-Startup) so the resource is
+/// always present in production. In tests we fall back to
+/// `enabled = true, default_dismiss_s = 0.0` if the manifest is
+/// missing or the category is unknown — matches the RON
+/// `default_enabled` serde default.
+fn manifest_defaults(
+    categories: &NotificationCategoriesData,
+    id: &NotificationCategoryId,
+) -> (bool, f32) {
+    match categories.get(id) {
+        Some(cat) => (cat.enabled, cat.default_dismiss_s),
+        None => (true, 0.0),
+    }
+}
+
 /// Coalesce system. Drains `NotificationEvent`s from the message
 /// buffer and produces `ActiveNotification` entities.
 pub fn coalesce_notifications(
     mut commands: Commands,
     mut events: MessageReader<NotificationEvent>,
     settings: Res<NotificationSettings>,
+    categories: Res<NotificationCategoriesData>,
     time: Res<SimulationTime>,
     mut active: Query<(Entity, &mut ActiveNotification)>,
 ) {
@@ -111,23 +127,30 @@ pub fn coalesce_notifications(
     }
 
     for event in &events {
-        // Per-category enabled check. PR-A's settings model takes
-        // a `manifest_default_enabled` fallback — we don't have
-        // access to the RON manifest here (coalesce is a pure
-        // sim-side system and the RON loader lives behind a
-        // startup system), so we use the player's override only
-        // and default to *enabled* if no override exists. This
-        // matches PR-A's `get_or_default` default of `true` for
-        // unknown categories.
-        if !settings.is_category_enabled(&event.category, true) {
+        // Per-category enabled check. Combines the manifest's
+        // `enabled` row (from `assets/data/notifications.ron`)
+        // with the player's per-category override in
+        // `NotificationSettings`; either being off drops the
+        // event. Unknown categories default to enabled (matches
+        // the RON `serde(default)` rule for new fields).
+        let (manifest_enabled, manifest_default_dismiss_s) =
+            manifest_defaults(&categories, &event.category);
+        if !settings.is_category_enabled(&event.category, manifest_enabled) {
             continue;
         }
 
         let in_severity = severity_rank(event.severity);
+        // Auto-dismiss fallback: prefer the manifest's
+        // `default_dismiss_s` over the group window. Previously
+        // the group window (default 2.0 s) was reused as the
+        // auto-dismiss fallback, which made sticky categories
+        // (manifest `default_dismiss_s = 0.0`) auto-dismiss in
+        // 2.0 s instead of staying sticky. Kilo finding.
+        let auto_dismiss_fallback = manifest_default_dismiss_s;
 
         // No dedup key → always spawn.
         let Some(key) = event.dedup_key.as_ref() else {
-            let new_entity = spawn_new(&mut commands, event, &time, group_window);
+            let new_entity = spawn_new(&mut commands, event, &time, auto_dismiss_fallback);
             index.push(ActiveRef {
                 entity: new_entity,
                 category: event.category.clone(),
@@ -164,14 +187,7 @@ pub fn coalesce_notifications(
                     note.severity = event.severity;
                     note.title = event.title.clone();
                     note.body = event.body.clone();
-                    // `auto_dismiss_s` on the entity is `f32`
-                    // (a concrete value, not Option) — fall back
-                    // to the global `default_group_window_s` if
-                    // the event didn't override it. Note: this
-                    // is the *same* field name but a different
-                    // semantic from the group window; PR-B's
-                    // auto-dismiss timer reads it directly.
-                    note.auto_dismiss_s = event.auto_dismiss_s.unwrap_or(group_window);
+                    note.auto_dismiss_s = event.auto_dismiss_s.unwrap_or(auto_dismiss_fallback);
                     note.sticky = event.sticky;
                     note.created_at = now;
                 }
@@ -182,7 +198,7 @@ pub fn coalesce_notifications(
             // New group: spawn a fresh entity and add it to the
             // local index so subsequent events in the same
             // frame can coalesce with it.
-            let new_entity = spawn_new(&mut commands, event, &time, group_window);
+            let new_entity = spawn_new(&mut commands, event, &time, auto_dismiss_fallback);
             index.push(ActiveRef {
                 entity: new_entity,
                 category: event.category.clone(),
@@ -261,11 +277,13 @@ mod tests {
     /// Build Bevy `App` with everything the coalesce system needs.
     /// Does NOT add `NotificationsPlugin` — that would also add
     /// the RON loader and the Bevy `Reflect` machinery, neither
-    /// of which the coalesce system touches.
+    /// of which the coalesce system touches. The categories
+    /// manifest is provided inline so tests stay self-contained.
     fn build_app(group_window: Option<f32>) -> App {
         let mut app = App::new();
         app.init_resource::<SimulationTime>();
         app.init_resource::<PendingNotificationDismissal>();
+        app.init_resource::<NotificationCategoriesData>();
         app.add_message::<NotificationEvent>();
         app.insert_resource(settings_with_window(group_window));
         app.add_systems(Update, coalesce_notifications);
@@ -448,6 +466,80 @@ mod tests {
             count_active(&mut app2),
             3,
             "0.1 s window with 0.5 s gaps produces 3 entities"
+        );
+    }
+
+    #[test]
+    fn test_coalesce_respects_manifest_disabled_category() {
+        // Kilo finding: the manifest's `enabled = false` was
+        // silently ignored because the system hard-coded the
+        // default to `true`. Build a manifest with a disabled
+        // category and assert the event is dropped.
+        let mut app = build_app(Some(2.0));
+        {
+            let mut data = app.world_mut().resource_mut::<NotificationCategoriesData>();
+            data.categories.insert(
+                "survey.mission_complete".into(),
+                super::super::data::NotificationCategory {
+                    id: "survey.mission_complete".to_string(),
+                    display_name: "Survey complete".to_string(),
+                    default_dismiss_s: 5.0,
+                    enabled: false,
+                },
+            );
+        }
+
+        app.world_mut().resource_mut::<SimulationTime>().elapsed = 0.0;
+        app.world_mut().write_message(event(
+            "survey.mission_complete",
+            NotificationSeverity::Notice,
+            Some("mare-imbrium-1"),
+        ));
+        app.update();
+        assert_eq!(
+            count_active(&mut app),
+            0,
+            "manifest disabled category must be dropped"
+        );
+    }
+
+    #[test]
+    fn test_coalesce_uses_manifest_dismiss_s_not_group_window() {
+        // Kilo finding: the auto-dismiss fallback on spawned
+        // entities was the global `default_group_window_s`
+        // (2.0 s default), not the category's
+        // `default_dismiss_s`. Build a manifest with
+        // `default_dismiss_s = 7.5` and assert the spawned
+        // entity carries 7.5 s, not 2.0 s.
+        let mut app = build_app(Some(2.0));
+        {
+            let mut data = app.world_mut().resource_mut::<NotificationCategoriesData>();
+            data.categories.insert(
+                "survey.mission_complete".into(),
+                super::super::data::NotificationCategory {
+                    id: "survey.mission_complete".to_string(),
+                    display_name: "Survey complete".to_string(),
+                    default_dismiss_s: 7.5,
+                    enabled: true,
+                },
+            );
+        }
+
+        app.world_mut().resource_mut::<SimulationTime>().elapsed = 0.0;
+        app.world_mut().write_message(event(
+            "survey.mission_complete",
+            NotificationSeverity::Notice,
+            // No dedup key — exercises the spawn-new branch.
+            None,
+        ));
+        app.update();
+        assert_eq!(count_active(&mut app), 1);
+        let mut q = app.world_mut().query::<&ActiveNotification>();
+        let note = q.iter(app.world()).next().unwrap();
+        assert!(
+            (note.auto_dismiss_s - 7.5).abs() < 1e-6,
+            "auto-dismiss must inherit manifest default (7.5 s), got {}",
+            note.auto_dismiss_s
         );
     }
 }
