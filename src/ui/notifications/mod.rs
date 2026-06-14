@@ -15,7 +15,7 @@
 //! - [`components`] — `ActiveNotification` per-toast component +
 //!   `PendingNotificationDismissal` action-queue resource.
 //! - [`systems`]   — `tick` (auto-dismiss + click-dismiss drain)
-//!   and `render` (egui top-right panel).
+//!   and `render` (egui top-right panel), `coalesce` (PR-D).
 //! - [`ui_settings`] — the settings panel modal (PR-E / GRA-139).
 
 use bevy::prelude::*;
@@ -31,6 +31,7 @@ pub use components::{ActiveNotification, PendingNotificationDismissal};
 pub use data::{load_notification_categories, NotificationCategoriesData, NotificationCategory};
 pub use events::{NotificationEvent, NotificationSeverity};
 pub use settings::{NotificationCategoryId, NotificationSettings};
+pub use systems::coalesce::coalesce_notifications;
 pub use systems::NotificationsSystemSet;
 pub use ui_settings::{
     ui_notifications_settings_panel, NotificationsSettingsOpen, NotificationsSettingsPanelPlugin,
@@ -40,8 +41,12 @@ pub use ui_settings::{
 ///
 /// PR-A registers the resources + the dev-introspection `Reflect`
 /// handle for `ActiveNotification`. PR-B wires the `Tick` and
-/// `Render` system sets. PR-E (GRA-139) registers the settings
-/// panel modal.
+/// `Render` system sets. PR-D adds the `coalesce_notifications`
+/// system in `Update`; the system-set chain that orders it
+/// relative to PR-B's tick + render is wired in PR-B's merge
+/// (PR-B owns the canonical `NotificationsSystemSet` enum, so
+/// PR-D does not re-define it). PR-E (GRA-139) registers the
+/// settings panel modal.
 pub struct NotificationsPlugin;
 
 impl Plugin for NotificationsPlugin {
@@ -54,7 +59,14 @@ impl Plugin for NotificationsPlugin {
             // "Notifications" button in the top menu bar toggles its
             // visibility via `NotificationsSettingsOpen`.
             .add_plugins(NotificationsSettingsPanelPlugin)
-            // Dev introspection hook for bevy_inspector_egui. The
+            // PR-D (GRA-138): the coalesce/grouping pass. Runs in
+            // `Update`, ungrouped for now — PR-B's
+            // `NotificationsSystemSet` (defined in PR-B's
+            // `src/ui/notifications/systems/mod.rs`) re-groups
+            // this system into the `Coalesce` set on top of
+            // PR-D's merge.
+            .add_systems(Update, coalesce_notifications)
+            // Dev introspection hook for bevy_inspector_egi. The
             // inspector plugin is not currently attached in `main.rs`,
             // but registering the type means a future inspector wiring
             // (or a unit test using `AppTypeRegistry`) can iterate

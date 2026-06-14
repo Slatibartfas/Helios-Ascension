@@ -2,7 +2,7 @@
 //!
 //! PR-B wires the toast panel and the timer/click tick layers.
 //! PR-C (GRA-137) will add `event_bridge` for Survey +
-//! Construction + Research; PR-D (GRA-138) will add the
+//! Construction + Research; PR-D (GRA-138) adds the
 //! coalesce/grouping pass. The system sets declared here give
 //! every layer a stable slot in the frame schedule.
 //!
@@ -16,9 +16,13 @@
 //!   `EguiPrimaryContextPass`, chained after
 //!   `UiSystemSet::Overlays` so toasts paint on top of every
 //!   other panel.
+//!
+//! PR-D (GRA-138) adds [`coalesce`] — the grouping/dedup layer that
+//! runs in `Update` before PR-B's tick + render systems.
 
 use bevy::prelude::*;
 
+pub mod coalesce;
 pub mod render;
 pub mod tick;
 
