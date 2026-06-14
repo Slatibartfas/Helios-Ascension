@@ -43,10 +43,13 @@
 use bevy::prelude::*;
 
 use crate::colony::events::ConstructionEvent;
+use crate::game_state::GameMenu;
 use crate::research::events::ResearchEvent;
 use crate::survey::events::SurveyEvent;
 use crate::survey::types::MissionFailureReason;
-use crate::ui::notifications::events::{NotificationEvent, NotificationSeverity};
+use crate::ui::notifications::events::{
+    NotificationContextLink, NotificationEvent, NotificationSeverity,
+};
 use crate::ui::notifications::settings::NotificationCategoryId;
 
 /// Map a celestial body `Entity` to a human-readable name for toast text.
@@ -93,12 +96,19 @@ pub fn bridge_survey_events(
     body_names: Query<&Name>,
 ) {
     for event in survey_events.read() {
-        let (title, body, severity, category) = match event {
-            SurveyEvent::MissionCompleted { name, .. } => (
+        // PR-G (GRA-141): every survey variant carries a `body:
+        // Entity`, so we always wire `SelectBody(body)` on the
+        // outgoing `NotificationEvent` — the render system reads
+        // this on body-click and pushes it into
+        // `PendingNotificationClicks` for `click_handler` to
+        // dispatch (Selected marker + active_menu = Survey).
+        let (title, body, severity, category, body_entity) = match event {
+            SurveyEvent::MissionCompleted { name, body, .. } => (
                 format!("{name} complete"),
                 String::new(),
                 NotificationSeverity::Info,
                 "survey.mission_complete",
+                *body,
             ),
             SurveyEvent::MissionFailed {
                 name, reason, body, ..
@@ -109,6 +119,7 @@ pub fn bridge_survey_events(
                     format!("{body_name}: {}", failure_reason_text(*reason)),
                     NotificationSeverity::Warning,
                     "survey.mission_complete",
+                    *body,
                 )
             }
             SurveyEvent::MissionAborted { name, body, .. } => {
@@ -118,6 +129,7 @@ pub fn bridge_survey_events(
                     body_name.to_string(),
                     NotificationSeverity::Warning,
                     "survey.mission_complete",
+                    *body,
                 )
             }
             SurveyEvent::AnomalyActivated { body, anomaly, .. } => {
@@ -127,6 +139,7 @@ pub fn bridge_survey_events(
                     format!("{body_name} ({})", anomaly.ron_id()),
                     NotificationSeverity::Notice,
                     "survey.dimension_unlocked",
+                    *body,
                 )
             }
             SurveyEvent::AnomalyDetected {
@@ -144,6 +157,7 @@ pub fn bridge_survey_events(
                     ),
                     NotificationSeverity::Info,
                     "survey.anomaly_detected",
+                    *body,
                 )
             }
             SurveyEvent::CrewInjured {
@@ -158,6 +172,7 @@ pub fn bridge_survey_events(
                     format!("{scientist_name} on {name} ({body_name})"),
                     NotificationSeverity::Warning,
                     "survey.mission_complete",
+                    *body,
                 )
             }
             SurveyEvent::ProbeLost { body, name, .. } => {
@@ -167,6 +182,7 @@ pub fn bridge_survey_events(
                     format!("{name} ({body_name})"),
                     NotificationSeverity::Warning,
                     "survey.mission_complete",
+                    *body,
                 )
             }
             SurveyEvent::RoverStuck { body, name, .. } => {
@@ -176,6 +192,7 @@ pub fn bridge_survey_events(
                     format!("{name} ({body_name})"),
                     NotificationSeverity::Warning,
                     "survey.mission_complete",
+                    *body,
                 )
             }
             SurveyEvent::DrillBitStuck { body, name, .. } => {
@@ -185,6 +202,7 @@ pub fn bridge_survey_events(
                     format!("{name} ({body_name})"),
                     NotificationSeverity::Warning,
                     "survey.mission_complete",
+                    *body,
                 )
             }
             // Other variants (`AnomalyRefuted`, `MissionStarted`,
@@ -205,6 +223,7 @@ pub fn bridge_survey_events(
             dedup_key: None,
             auto_dismiss_s: None,
             sticky: false,
+            context_link: NotificationContextLink::SelectBody(body_entity),
         });
     }
 }
@@ -216,6 +235,8 @@ pub fn bridge_construction_events(
     colonies: Query<&crate::colony::components::Colony>,
 ) {
     for event in construction_events.read() {
+        // PR-G (GRA-141): both construction variants route the
+        // player to the Construction menu on click.
         let (title, body, severity, category) = match event {
             ConstructionEvent::Completed { colony, building } => {
                 let colony_name = colonies
@@ -245,6 +266,7 @@ pub fn bridge_construction_events(
             dedup_key: None,
             auto_dismiss_s: None,
             sticky: false,
+            context_link: NotificationContextLink::OpenMenu(GameMenu::Construction),
         });
     }
 }
@@ -255,6 +277,9 @@ pub fn bridge_research_events(
     mut notifications: MessageWriter<NotificationEvent>,
 ) {
     for event in research_events.read() {
+        // PR-G (GRA-141): tech completion opens the Research
+        // menu on click — issue's acceptance test 2 is exactly
+        // this path: assert `GameMenu::Research`.
         let (title, body, severity, category) = match event {
             ResearchEvent::TechCompleted {
                 tech_id: _,
@@ -275,6 +300,7 @@ pub fn bridge_research_events(
             dedup_key: None,
             auto_dismiss_s: None,
             sticky: false,
+            context_link: NotificationContextLink::OpenMenu(GameMenu::Research),
         });
     }
 }

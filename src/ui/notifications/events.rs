@@ -3,9 +3,14 @@
 //! PR-A defines the `NotificationEvent` Bevy `Message` and its severity
 //! enum. Sim-layer bridges (survey/construction/research) will
 //! `Messages::write` these in PR-B; the spawn system will consume
-//! them and create `ActiveNotification` entities.
+//! them and create `ActiveNotification` entities. PR-G (GRA-141)
+//! adds `context_link` and the matching `NotificationContextLink`
+//! enum so a click on the toast body can jump the player to the
+//! relevant context (body / menu / mission).
 
 use bevy::prelude::*;
+
+use crate::game_state::GameMenu;
 
 /// How loud a notification should be when it surfaces.
 ///
@@ -21,6 +26,31 @@ pub enum NotificationSeverity {
     Warning,
     /// Loss of life, broken project, hostile contact — demand attention.
     Critical,
+}
+
+/// What "jump to context" should do for a clicked toast.
+///
+/// PR-G (GRA-141) wires this through `PendingNotificationClicks` →
+/// `click_handler`. `SelectMission` is reserved for a follow-up
+/// (the in-game mission-id resolution path does not exist yet);
+/// the PR-G minimal version treats it as a no-op and only dispatches
+/// the body and menu cases.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NotificationContextLink {
+    /// Open the dossier focused on the given body entity. Implies
+    /// `active_menu.current = GameMenu::Survey` and inserts the
+    /// `Selected` marker on the body.
+    SelectBody(Entity),
+    /// Switch the active menu (e.g. `GameMenu::Research` on a tech
+    /// completion toast).
+    OpenMenu(GameMenu),
+    /// Reserved for a follow-up. The current PR-G version treats
+    /// this as a no-op because there is no in-game mission-dossier
+    /// router yet.
+    SelectMission(u64),
+    /// No jump. `click_handler` drops the click without touching
+    /// any state.
+    None,
 }
 
 /// One notification request, emitted by a sim bridge.
@@ -50,4 +80,9 @@ pub struct NotificationEvent {
     pub auto_dismiss_s: Option<f32>,
     /// `true` overrides the auto-dismiss timer (e.g. critical alerts).
     pub sticky: bool,
+    /// PR-G (GRA-141): where a body-click on the toast should jump.
+    /// `NotificationContextLink::None` is the default and means
+    /// "the click does nothing" — useful for toasts that are
+    /// informational only.
+    pub context_link: NotificationContextLink,
 }

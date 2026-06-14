@@ -2,20 +2,26 @@
 //!
 //! PR-A (GRA-135) lays the type & data foundation. PR-B (GRA-136)
 //! adds the tick + render layers that make toasts appear and
-//! dismiss. PR-C / D / E add event bridges, coalescing, and a
-//! settings panel respectively.
+//! dismiss. PR-C / D / E / F add event bridges, coalescing,
+//! settings, and pause-on-event respectively. PR-G (GRA-141) adds
+//! the click-to-focus dispatcher so a body-click on the toast
+//! jumps the player to the relevant context.
 //!
 //! Module map:
 //! - [`events`]    — `NotificationEvent` Bevy `Message` produced by sim
-//!   bridges and consumed by the spawn system in PR-B / PR-C.
+//!   bridges and consumed by the spawn system in PR-B / PR-C. PR-G
+//!   adds `NotificationContextLink` + `context_link` field.
 //! - [`data`]      — RON loader for `assets/data/notifications.ron`;
 //!   `NotificationCategoriesData` resource.
 //! - [`settings`]  — `NotificationSettings` resource (per-category
 //!   overrides + global knobs).
 //! - [`components`] — `ActiveNotification` per-toast component +
-//!   `PendingNotificationDismissal` action-queue resource.
-//! - [`systems`]   — `tick` (auto-dismiss + click-dismiss drain)
-//!   and `render` (egui top-right panel), `coalesce` (PR-D).
+//!   `PendingNotificationDismissal` action-queue resource (PR-B) +
+//!   `PendingNotificationClicks` action-queue resource (PR-G).
+//! - [`systems`]   — `tick` (auto-dismiss + click-dismiss drain +
+//!   pause-on-event), `coalesce` (PR-D dedup), `click_handler`
+//!   (PR-G click-to-focus dispatch), and `render` (egui top-right
+//!   panel).
 //! - [`ui_settings`] — the settings panel modal (PR-E / GRA-139).
 
 use bevy::prelude::*;
@@ -27,9 +33,12 @@ pub mod settings;
 pub mod systems;
 pub mod ui_settings;
 
-pub use components::{ActiveNotification, PendingNotificationDismissal};
+pub use components::{
+    ActiveNotification, PendingNotificationClick, PendingNotificationClicks,
+    PendingNotificationDismissal,
+};
 pub use data::{load_notification_categories, NotificationCategoriesData, NotificationCategory};
-pub use events::{NotificationEvent, NotificationSeverity};
+pub use events::{NotificationContextLink, NotificationEvent, NotificationSeverity};
 pub use settings::{NotificationCategoryId, NotificationSettings};
 pub use systems::coalesce::coalesce_notifications;
 pub use systems::NotificationsSystemSet;
@@ -48,6 +57,8 @@ pub use ui_settings::{
 /// PR-D does not re-define it). PR-E (GRA-139) registers the
 /// settings panel modal. PR-C (GRA-137) adds the `EventBridge`
 /// set with three source-event → `NotificationEvent` bridges.
+/// PR-G (GRA-141) adds `PendingNotificationClicks` resource and
+/// the `click_to_focus` system in the `Tick` set.
 pub struct NotificationsPlugin;
 
 impl Plugin for NotificationsPlugin {
@@ -55,6 +66,10 @@ impl Plugin for NotificationsPlugin {
         app.init_resource::<NotificationSettings>()
             .init_resource::<NotificationCategoriesData>()
             .init_resource::<PendingNotificationDismissal>()
+            // PR-G (GRA-141): the click-to-focus queue. Mirrors
+            // `PendingNotificationDismissal` — the render
+            // system pushes, the `click_to_focus` system drains.
+            .init_resource::<PendingNotificationClicks>()
             .add_systems(Startup, load_notification_categories)
             // Settings panel (PR-E / GRA-139) — modal renderer, the
             // "Notifications" button in the top menu bar toggles its
@@ -99,10 +114,11 @@ impl Plugin for NotificationsPlugin {
                 )
                     .in_set(NotificationsSystemSet::EventBridge),
             )
-            // PR-B systems. The Tick set runs in Update; the
-            // Render set is added to EguiPrimaryContextPass by
-            // `UIPlugin::build` so it can chain after
-            // `UiSystemSet::Overlays` (see src/ui/mod.rs).
+            // PR-B + PR-F + PR-G systems. The Tick set runs in
+            // Update; the Render set is added to
+            // EguiPrimaryContextPass by `UIPlugin::build` so it
+            // can chain after `UiSystemSet::Overlays` (see
+            // src/ui/mod.rs).
             //
             // PR-D (GRA-138) registered Coalesce above; we
             // chain `Coalesce → Tick` so a brand-new event
@@ -114,6 +130,13 @@ impl Plugin for NotificationsPlugin {
             // `pause_on_event_toasts`'s "newly-inserted entity"
             // detection working: the new entity is visible to
             // Tick in the same frame that Coalesce produced it.
+            //
+            // PR-G (GRA-141) adds `click_to_focus` to the same
+            // Tick set. `click_to_focus` chains after
+            // `apply_pending_dismissals` so a body-click on a
+            // toast that was already despawned by the same
+            // frame's click-to-dismiss is silently dropped
+            // (stale entity id).
             .configure_sets(
                 Update,
                 NotificationsSystemSet::Coalesce.before(NotificationsSystemSet::Tick),
@@ -124,6 +147,7 @@ impl Plugin for NotificationsPlugin {
                     systems::auto_dismiss_toasts,
                     systems::apply_pending_dismissals,
                     systems::pause_on_event_toasts,
+                    systems::click_to_focus,
                 )
                     .in_set(NotificationsSystemSet::Tick)
                     .after(NotificationsSystemSet::EventBridge),
