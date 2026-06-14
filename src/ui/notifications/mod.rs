@@ -15,7 +15,7 @@
 //! - [`components`] — `ActiveNotification` per-toast component +
 //!   `PendingNotificationDismissal` action-queue resource.
 //! - [`systems`]   — `tick` (auto-dismiss + click-dismiss drain)
-//!   and `render` (egui top-right panel).
+//!   and `render` (egui top-right panel), `coalesce` (PR-D).
 //! - [`ui_settings`] — the settings panel modal (PR-E / GRA-139).
 
 use bevy::prelude::*;
@@ -31,6 +31,7 @@ pub use components::{ActiveNotification, PendingNotificationDismissal};
 pub use data::{load_notification_categories, NotificationCategoriesData, NotificationCategory};
 pub use events::{NotificationEvent, NotificationSeverity};
 pub use settings::{NotificationCategoryId, NotificationSettings};
+pub use systems::coalesce::coalesce_notifications;
 pub use systems::NotificationsSystemSet;
 pub use ui_settings::{
     ui_notifications_settings_panel, NotificationsSettingsOpen, NotificationsSettingsPanelPlugin,
@@ -40,8 +41,12 @@ pub use ui_settings::{
 ///
 /// PR-A registers the resources + the dev-introspection `Reflect`
 /// handle for `ActiveNotification`. PR-B wires the `Tick` and
-/// `Render` system sets. PR-E (GRA-139) registers the settings
-/// panel modal.
+/// `Render` system sets. PR-D adds the `coalesce_notifications`
+/// system in `Update`; the system-set chain that orders it
+/// relative to PR-B's tick + render is wired in PR-B's merge
+/// (PR-B owns the canonical `NotificationsSystemSet` enum, so
+/// PR-D does not re-define it). PR-E (GRA-139) registers the
+/// settings panel modal.
 pub struct NotificationsPlugin;
 
 impl Plugin for NotificationsPlugin {
@@ -54,6 +59,17 @@ impl Plugin for NotificationsPlugin {
             // "Notifications" button in the top menu bar toggles its
             // visibility via `NotificationsSettingsOpen`.
             .add_plugins(NotificationsSettingsPanelPlugin)
+            // PR-D (GRA-138): the coalesce/grouping pass. Runs in
+            // `Update` in the `Coalesce` set; chained before
+            // `Tick` below so a brand-new event lands in the live
+            // toast before PR-B's auto-dismiss timer can despawn
+            // it (otherwise the tick system could despawn a toast
+            // that the same-frame coalesce was about to merge
+            // into). Kilo Code Review finding.
+            .add_systems(
+                Update,
+                coalesce_notifications.in_set(NotificationsSystemSet::Coalesce),
+            )
             // Dev introspection hook for bevy_inspector_egui. The
             // inspector plugin is not currently attached in `main.rs`,
             // but registering the type means a future inspector wiring
@@ -70,6 +86,10 @@ impl Plugin for NotificationsPlugin {
             // Render set is added to EguiPrimaryContextPass by
             // `UIPlugin::build` so it can chain after
             // `UiSystemSet::Overlays` (see src/ui/mod.rs).
+            .configure_sets(
+                Update,
+                NotificationsSystemSet::Coalesce.before(NotificationsSystemSet::Tick),
+            )
             .add_systems(
                 Update,
                 (

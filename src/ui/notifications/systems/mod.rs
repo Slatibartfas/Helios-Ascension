@@ -2,7 +2,7 @@
 //!
 //! PR-B wires the toast panel and the timer/click tick layers.
 //! PR-C (GRA-137) will add `event_bridge` for Survey +
-//! Construction + Research; PR-D (GRA-138) will add the
+//! Construction + Research; PR-D (GRA-138) adds the
 //! coalesce/grouping pass. The system sets declared here give
 //! every layer a stable slot in the frame schedule.
 //!
@@ -16,9 +16,13 @@
 //!   `EguiPrimaryContextPass`, chained after
 //!   `UiSystemSet::Overlays` so toasts paint on top of every
 //!   other panel.
+//!
+//! PR-D (GRA-138) adds [`coalesce`] — the grouping/dedup layer that
+//! runs in `Update` before PR-B's tick + render systems.
 
 use bevy::prelude::*;
 
+pub mod coalesce;
 pub mod render;
 pub mod tick;
 
@@ -38,8 +42,10 @@ pub enum NotificationsSystemSet {
     /// messages. Reserved for PR-C (GRA-137).
     #[allow(dead_code)]
     EventBridge,
-    /// Coalesces/grouping pass. Reserved for PR-D (GRA-138).
-    #[allow(dead_code)]
+    /// Coalesces/grouping pass. PR-D (GRA-138) registers
+    /// `coalesce_notifications` in this set; the plugin chains
+    /// `Coalesce → Tick` so a brand-new event lands in the live
+    /// toast before PR-B's auto-dismiss timer can despawn it.
     Coalesce,
     /// Auto-dismiss timer + click-dismiss queue drain. PR-B.
     Tick,
