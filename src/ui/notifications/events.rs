@@ -11,7 +11,7 @@ use bevy::prelude::*;
 ///
 /// PR-A only needs the variant set; PR-B maps each variant to a colour
 /// token in the toast panel.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect)]
 pub enum NotificationSeverity {
     /// Informational only — no action required.
     Info,

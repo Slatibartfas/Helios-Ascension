@@ -43,7 +43,13 @@ impl Plugin for NotificationsPlugin {
             // inspector plugin is not currently attached in `main.rs`,
             // but registering the type means a future inspector wiring
             // (or a unit test using `AppTypeRegistry`) can iterate
-            // live toasts without further code changes.
-            .register_type::<ActiveNotification>();
+            // live toasts without further code changes. The nested
+            // types (`NotificationCategoryId`, `NotificationSeverity`)
+            // are pulled in transitively because their `Reflect` impl
+            // is derived; registering them explicitly is harmless
+            // and documents the dependency.
+            .register_type::<ActiveNotification>()
+            .register_type::<NotificationCategoryId>()
+            .register_type::<NotificationSeverity>();
     }
 }

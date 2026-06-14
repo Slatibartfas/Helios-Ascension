@@ -9,7 +9,7 @@ use bevy::prelude::*;
 use std::collections::HashMap;
 
 /// Stable category id, with a `From<&str>` for ergonomic call sites.
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq, Reflect)]
 pub struct NotificationCategoryId(pub String);
 
 impl NotificationCategoryId {
