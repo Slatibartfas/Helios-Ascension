@@ -11,6 +11,14 @@ pub struct ShipInfo {
     pub name: String,
     /// Ship class (Frigate, Destroyer, etc.).
     pub class: ShipClass,
+    /// Optional hull definition id (e.g. `micro_probe_frame`).  When `Some`,
+    /// the ship's dry mass and slot layout come from the matching
+    /// `ShipHullDefinition` rather than from the class default.  Day-1
+    /// spawns (`spawn_initial_fleet`, GRA-128) set this for every ship so
+    /// the fleet honours the tier-1 hull spec from `assets/data/ship_hulls.ron`.
+    /// `None` for class-default construction paths (auto-freight templates,
+    /// pre-save ship records that pre-date the field, etc.).
+    pub hull_id: Option<String>,
     /// Dry mass without propellant (tonnes).
     pub dry_mass_t: f32,
     /// Current propellant mass (tonnes).
@@ -34,18 +42,43 @@ pub struct ShipInfo {
 
 impl ShipInfo {
     /// Create a ship with typical parameters for its class and propulsion type.
+    ///
+    /// Thin wrapper around [`ShipInfo::new_with_dry_mass`] that uses the
+    /// class's default dry mass.  `hull_id` defaults to `None` so the
+    /// existing class-only construction paths (auto-freight templates,
+    /// pre-GRA-128 callers) keep working unchanged.  GRA-128.
     pub fn new(name: String, class: ShipClass, propulsion: PropulsionType) -> Self {
-        let dry_mass = class.default_dry_mass_t();
+        Self::new_with_dry_mass(name, None, class, propulsion, class.default_dry_mass_t())
+    }
+
+    /// Create a ship with a hull-aware dry mass.
+    ///
+    /// `hull_id` is recorded on the `ShipInfo` (so the constructor round-trip
+    /// persists which RON hull spec produced the ship), and the resolved
+    /// `dry_mass_t` (typically `ShipHullDefinition::base_dry_mass_t` from the
+    /// `ShipbuildingData` registry) overrides the class default.  Fuel load
+    /// is recomputed from `class.default_fuel_fraction()` against the new dry
+    /// mass; thrust uses `propulsion.thrust_kn(dry_mass)` and Isp uses
+    /// `propulsion.isp_s()`.  Pass `class.default_dry_mass_t()` for a
+    /// class-only ship.  GRA-128.
+    pub fn new_with_dry_mass(
+        name: String,
+        hull_id: Option<&str>,
+        class: ShipClass,
+        propulsion: PropulsionType,
+        dry_mass_t: f32,
+    ) -> Self {
         // fuel_fraction is of total wet mass: fuel = dry * frac/(1-frac)
         let fuel_frac = class.default_fuel_fraction();
-        let fuel_mass = dry_mass * fuel_frac / (1.0 - fuel_frac);
+        let fuel_mass = dry_mass_t * fuel_frac / (1.0 - fuel_frac);
         Self {
             name,
+            hull_id: hull_id.map(|s| s.to_string()),
             class,
-            dry_mass_t: dry_mass,
+            dry_mass_t,
             fuel_mass_t: fuel_mass,
             max_fuel_t: fuel_mass,
-            thrust_kn: propulsion.thrust_kn(dry_mass),
+            thrust_kn: propulsion.thrust_kn(dry_mass_t),
             isp_s: propulsion.isp_s(),
             propulsion,
             cargo_capacity_t: 0.0,

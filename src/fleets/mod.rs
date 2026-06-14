@@ -27,6 +27,7 @@ pub use orbital_mechanics::{
     AU_IN_METERS, GM_SUN, G_CONST,
 };
 pub use systems::activate_scheduled_departures;
+pub use systems::DayOneFleetSpawned;
 pub use types::{FleetRole, PropulsionType, ShipClass};
 pub use visuals::FleetMesh;
 
