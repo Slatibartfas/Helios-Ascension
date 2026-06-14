@@ -191,6 +191,7 @@ mod tests {
             thrust_kn: 0.0,
             isp_s: 0.0,
             propulsion: PropulsionType::Chemical,
+            cargo_capacity_t: 0.0,
         };
         let entity = world
             .spawn(ShipInstance::new(
@@ -237,6 +238,7 @@ mod tests {
             thrust_kn: 0.0,
             isp_s: 0.0,
             propulsion: PropulsionType::Chemical,
+            cargo_capacity_t: 0.0,
         };
         let entity = world
             .spawn(ShipInstance::new(

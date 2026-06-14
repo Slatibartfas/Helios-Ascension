@@ -15,6 +15,11 @@ use super::visuals::predict_body_physics_pos;
 use crate::astronomy::{orbit_position_from_mean_anomaly, KeplerOrbit, SpaceCoordinates};
 use crate::plugins::solar_system::{CelestialBody, LogicalParent};
 use crate::plugins::solar_system_data::BodyType;
+use crate::shipbuilding::ShipbuildingData;
+use crate::ships::{
+    freighter_cargo_capacity_t_for_components, FreighterSlots, FreighterTemplateRegistry,
+    ShipTemplateRef,
+};
 use crate::ui::{SimulationTime, TimeScale};
 
 // ── Position update systems ───────────────────────────────────────────────────
@@ -85,20 +90,46 @@ fn spawn_fleet_with_ship_entities(
 }
 
 pub fn sync_fleet_cache_from_ship_entities(
-    ships: Query<(Entity, &ShipInstance)>,
+    ships: Query<(
+        Entity,
+        &ShipInstance,
+        Option<&ShipTemplateRef>,
+        Option<&FreighterSlots>,
+    )>,
     mut fleets: Query<(Entity, &mut Fleet)>,
+    registry: Res<FreighterTemplateRegistry>,
+    shipbuilding_data: Res<ShipbuildingData>,
 ) {
     let mut grouped: HashMap<Entity, Vec<(i32, String, ShipInfo)>> = HashMap::new();
 
-    for (_, ship) in ships.iter() {
+    for (_, ship, template_ref, freighter_slots) in ships.iter() {
         let Some(fleet_entity) = ship.assigned_fleet else {
             continue;
         };
 
+        let mut info = ship.as_ship_info();
+        // GRA-119: stamp `cargo_capacity_t` from the ship's resolved
+        // template + slot list.  Non-freighter entities (no
+        // `ShipTemplateRef` or no `FreighterSlots`) keep the default 0.0
+        // — the dispatch sites use the fleet-level getter which sums to
+        // zero for those ships, so the cap never applies.  This means
+        // pre-migration saves / hand-spawned test freighters without
+        // the template components degrade gracefully (the auto-freight
+        // loop simply won't pick them up — same as today's behaviour
+        // for non-freighter classes).
+        if let (Some(template_ref), Some(slots)) = (template_ref, freighter_slots) {
+            info.cargo_capacity_t = freighter_cargo_capacity_t_for_components(
+                &registry,
+                &shipbuilding_data,
+                template_ref,
+                slots,
+            );
+        }
+
         grouped.entry(fleet_entity).or_default().push((
             ship.sort_order,
             ship.info.name.clone(),
-            ship.as_ship_info(),
+            info,
         ));
     }
 

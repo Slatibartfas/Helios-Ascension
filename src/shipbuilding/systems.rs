@@ -996,6 +996,7 @@ fn build_ship_info(project: &ShipConstructionProject) -> ShipInfo {
         thrust_kn: project.thrust_kn as f32,
         isp_s: project.isp_s as f32,
         propulsion,
+        cargo_capacity_t: 0.0,
     }
 }
 
@@ -1015,6 +1016,7 @@ fn build_ship_info_from_summary(name: &str, summary: &ShipDesignSummary) -> Ship
         thrust_kn: summary.thrust_kn as f32,
         isp_s: summary.isp_s as f32,
         propulsion,
+        cargo_capacity_t: 0.0,
     }
 }
 
