@@ -2421,9 +2421,20 @@ mod tests {
         //    layer keys off this event to surface a single
         //    "dispatch failed" message; duplicate events would
         //    cause the toast to fire twice.
+        //
+        //    Bevy 0.18 `Messages<E>` keeps a double-buffer: `write`
+        //    pushes to `messages_b` (the "current" buffer), and
+        //    `update_drain` swaps-then-drains the OLD buffer. In a
+        //    production frame, Bevy's `Messages::update_system` has
+        //    already run, so by the time the next system calls
+        //    `update_drain` the message is in the old buffer. In a
+        //    test that calls `dispatch_survey_mission` directly
+        //    without a frame boundary, the message is in B and
+        //    `update_drain` would drain the empty A. `Messages::drain`
+        //    empties both buffers, which is what the test needs.
         let events: Vec<_> = {
             let mut buf = world.resource_mut::<Messages<SurveyEvent>>();
-            buf.update_drain().collect()
+            buf.drain().collect()
         };
         let blocked: Vec<_> = events
             .iter()
