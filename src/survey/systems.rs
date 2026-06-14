@@ -2403,6 +2403,21 @@ mod tests {
             scientist_ids: vec![99, 100],
         });
 
+        // Bevy 0.18 `Messages<E>` uses a double-buffer; in
+        // production the `Messages::update_system` that runs at
+        // the top of each frame swaps the buffers so the
+        // dispatcher's `update_drain` call sees the events that
+        // were written in the prior frame. This test calls
+        // `dispatch_survey_mission` directly with no frame
+        // boundary in between, so we must simulate that swap
+        // here — otherwise the dispatcher's `update_drain` would
+        // drain the empty buffer and the dispatch would be
+        // silently dropped before reaching the per-scientist
+        // gate.
+        world
+            .resource_mut::<Messages<DispatchSurveyMission>>()
+            .update();
+
         dispatch_survey_mission(&mut world);
 
         // 1. The dispatch is dropped: the body's mission list is
