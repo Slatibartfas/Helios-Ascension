@@ -4,89 +4,102 @@
 //! These tests exercise the full `NotificationEvent` → `coalesce` →
 //! `ActiveNotification` → `auto_dismiss_toasts` → entity-despawned
 //! pipeline and the cross-cutting render / settings / RON /
-//! pause-on-event surfaces. They use the same `World::new()` +
-//! `Schedule` pattern as the existing tests in
-//! `tests/survey_anomaly_tests.rs` so the Bevy 0.18 minimal-App
-//! traps ([[feedback-bevy-018-add-message-when-adding-writer]])
-//! are visible: the test harness calls `app.add_message::<T>()`
-//! for every message bus the systems touch.
+//! pause-on-event surfaces.
 //!
-//! Each test runs in < 100 ms (no real time, no IO). Tests marked
-//! `#[ignore]` are not run by default — they require features
-//! that are on adjacent PR branches but not yet on main. Run
-//! `cargo test --test notifications_e2e -- --ignored` to
-//! verify them once those PRs merge.
+//! # Bevy 0.18 message-buffer trap
 //!
-//! # Stacked-PR scope note
+//! Bevy 0.18's `Messages<T>` is **double-buffered**: a
+//! `MessageReader` only sees events written by `MessageWriter` after
+//! a per-frame `message_update_system` swap. `App::update()` runs
+//! that system implicitly, but a bare `Schedule::run(&mut world)`
+//! does **not** — readers see an empty buffer. The first attempt at
+//! this file used raw `Schedule` and 3 of 5 runnable tests failed
+//! silently (the bridge produced nothing, coalesce saw no events).
+//! This file uses `App::new()` + `app.update()` exclusively, which
+//! is the same pattern the existing unit tests in
+//! `src/ui/notifications/systems/coalesce.rs` and
+//! `.../event_bridge.rs` use, and which automatically wires the
+//! message-update system.
 //!
-//! PR-H is stacked on PR-D (GRA-138, `fcef6af`). PR-C (GRA-137)
-//! and PR-F (GRA-140) merged to main the same day PR-H was
-//! resumed; both `event_bridge` and `pause_on_event_toasts` are
-//! available on the base. The only `#[ignore]`-d test in this
-//! file is #8 (RON severity clamp), which targets a feature
-//! that does not exist yet — see the spec-delta comment in
-//! the test body.
+//! # Stacked-PR scope
+//!
+//! PR-H is stacked on PR-D (GRA-138). PR-C (GRA-137) and PR-F
+//! (GRA-140) merged to main the same day PR-H was resumed; both
+//! `event_bridge` and `pause_on_event_toasts` are available on the
+//! base. Three tests are `#[ignore]`-d:
+//!
+//! * #5 (render `show_only_in_survey` early-return) — render system
+//!   needs the egui harness, drops for the same reason as the
+//!   GRA-139 unit tests (see [[feedback-egui-render-tests]]).
+//! * #6 (render `max_visible_toasts` truncation) — same harness
+//!   dependency.
+//! * #8 (RON severity clamp) — spec delta: `NotificationCategory`
+//!   has no `severity` field and `NotificationSeverity` has no
+//!   `Deserialize` impl. Re-enable after a PR-A extension.
+//!
+//! Run `cargo test --test notifications_e2e -- --ignored` to
+//! verify the three ignored tests once their dependencies land.
 
 use bevy::prelude::*;
 use helios_ascension::game_state::{ActiveMenu, GameMenu};
 use helios_ascension::ui::notifications::components::{
     ActiveNotification, PendingNotificationDismissal,
 };
-use helios_ascension::ui::notifications::data::NotificationCategoriesData;
+use helios_ascension::ui::notifications::data::{NotificationCategoriesData, NotificationCategory};
 use helios_ascension::ui::notifications::events::{NotificationEvent, NotificationSeverity};
-use helios_ascension::ui::notifications::settings::{NotificationCategoryId, NotificationSettings};
-use helios_ascension::ui::notifications::systems::coalesce::coalesce_notifications;
-use helios_ascension::ui::notifications::systems::tick::{
-    apply_pending_dismissals, auto_dismiss_toasts,
+use helios_ascension::ui::notifications::settings::{
+    NotificationCategoryId, NotificationSettings, PerCategorySetting,
 };
-use helios_ascension::ui::time::SimulationTime;
+use helios_ascension::ui::notifications::systems::coalesce::coalesce_notifications;
+use helios_ascension::ui::notifications::systems::event_bridge::bridge_survey_events;
+use helios_ascension::ui::notifications::systems::tick::{
+    apply_pending_dismissals, auto_dismiss_toasts, pause_on_event_toasts,
+};
+use helios_ascension::ui::time::{SimulationTime, TimeScale};
 
-/// Build a Bevy `World` with the resources / message buses the
-/// notifications systems need. Does not run any system; the
-/// caller adds the systems they want to exercise to a `Schedule`
-/// and runs it.
-fn build_world() -> World {
-    let mut world = World::new();
-    world.init_resource::<SimulationTime>();
-    world.init_resource::<NotificationSettings>();
-    world.init_resource::<NotificationCategoriesData>();
-    world.init_resource::<PendingNotificationDismissal>();
-    world.init_resource::<ActiveMenu>();
-    // PR-C / PR-D's `coalesce_notifications` reads
-    // `Messages<NotificationEvent>`, and PR-C's `bridge_*_events`
-    // systems read their own source `Messages<...>`. The owning
-    // plugin does not call `app.add_message::<NotificationEvent>()`
-    // today — this is a known production-side gap (see PR-H
-    // body); the test harness registers it explicitly so the
-    // test catches the surface contract even when the plugin is
-    // fixed. Source-event buses are registered lazily by tests
-    // that need them.
-    world.init_resource::<Messages<NotificationEvent>>();
-    world
-}
-
-/// Build a single-tick `Schedule` containing the coalesce +
-/// dismiss-tick systems. The two are independent on their own
-/// (`Tick` is configured to follow `Coalesce` in
-/// `NotificationsPlugin`, but for the unit tests we only need
-/// both to run, not their relative order — each test asserts a
-/// single-frame end state).
-fn notifications_schedule() -> Schedule {
-    let mut schedule = Schedule::default();
-    schedule.add_systems((
-        coalesce_notifications,
-        auto_dismiss_toasts,
-        apply_pending_dismissals,
-    ));
-    schedule
+/// Build a Bevy `App` with the resources, message buses, and
+/// coalesce/tick systems the notifications feature needs. The
+/// caller adds the bridge systems or extra `app.update()` calls.
+///
+/// `App::new()` (not `World::new()` + `Schedule`) is required for
+/// the Bevy 0.18 message double-buffer to flush — see the module
+/// header for the trap.
+fn build_app() -> App {
+    let mut app = App::new();
+    app.init_resource::<SimulationTime>();
+    app.init_resource::<NotificationSettings>();
+    app.init_resource::<NotificationCategoriesData>();
+    app.init_resource::<PendingNotificationDismissal>();
+    app.init_resource::<ActiveMenu>();
+    // The owning plugin does not call `app.add_message::<NotificationEvent>()`
+    // today (a known production-side gap — see PR-H body); the test
+    // harness registers it explicitly so the coalesce system doesn't
+    // panic with "Message not initialized" when the bridge writes
+    // one. Also register the source-event buses the bridges need.
+    app.add_message::<NotificationEvent>();
+    app.add_systems(
+        Update,
+        (
+            bridge_survey_events,
+            coalesce_notifications,
+            auto_dismiss_toasts,
+            apply_pending_dismissals,
+            pause_on_event_toasts,
+        ),
+    );
+    app
 }
 
 /// Spawn a `NotificationEvent` into the message bus. The
-/// `coalesce_notifications` system will pick it up on the next
-/// `Update` tick and create an `ActiveNotification` entity if
-/// the settings / manifest allow it.
-fn fire_event(world: &mut World, event: NotificationEvent) {
-    world.write_message(event);
+/// `coalesce_notifications` system picks it up on the next
+/// `app.update()` tick and creates an `ActiveNotification` entity.
+fn fire_event(app: &mut App, event: NotificationEvent) {
+    app.world_mut().write_message(event);
+}
+
+fn count_active(app: &mut App) -> usize {
+    let mut q = app.world_mut().query::<&ActiveNotification>();
+    q.iter(app.world()).count()
 }
 
 // ── Test 1 ───────────────────────────────────────────────────────
@@ -100,83 +113,56 @@ fn test_full_event_to_dismissed_toast_lifecycle() {
     use helios_ascension::survey::events::SurveyEvent;
     use helios_ascension::survey::types::SurveyMethod;
 
-    let mut world = build_world();
+    let mut app = build_app();
+    // The bridge reads `Messages<SurveyEvent>` — register it. The
+    // bridge uses `Query<&Name>` for body-name text.
+    app.add_message::<SurveyEvent>();
+    let body_entity = app.world_mut().spawn(Name::new("Mars Test Body")).id();
 
-    // Bridge reads `Messages<SurveyEvent>` and writes
-    // `Messages<NotificationEvent>`. The plugin does not call
-    // `app.add_message::<NotificationEvent>()` today (this is
-    // a known production-side gap, see PR-H body); we register
-    // it explicitly here so the bridge runs without panicking
-    // with "Message not initialized".
-    world.init_resource::<Messages<NotificationEvent>>();
-    world.init_resource::<Messages<SurveyEvent>>();
+    // Override the spawned toast's auto-dismiss to 0.1 s so the
+    // test runs in microseconds. The category's manifest default
+    // is 6.0 s. We can't tweak it pre-spawn because the spawn path
+    // copies `event.auto_dismiss_s.unwrap_or(manifest_default)`;
+    // pass `Some(0.1)` in the event instead. The bridge sets this
+    // from the source event's payload (`auto_dismiss_s` is not on
+    // `SurveyEvent::MissionCompleted` — the bridge falls back to
+    // `None`, which means the coalesce system will use the
+    // manifest default). To force a short dismiss, mutate the
+    // entity directly post-spawn (the same hack the original
+    // `Schedule` test used).
+    app.world_mut()
+        .write_message(SurveyEvent::MissionCompleted {
+            body: body_entity,
+            mission_id: 1,
+            name: "Test Survey".to_string(),
+            method: SurveyMethod::Orbital,
+        });
+    app.update();
 
-    // A body entity the SurveyEvent refers to; the bridge
-    // looks it up via `Query<&Name>` for body-name text.
-    let body_entity = world.spawn(Name::new("Mars Test Body")).id();
-
-    // Drop a survey mission-completed event into the bus.
-    world.write_message(SurveyEvent::MissionCompleted {
-        body: body_entity,
-        mission_id: 1,
-        name: "Test Survey".to_string(),
-        method: SurveyMethod::Orbital,
-    });
-
-    // Run a schedule that exercises the full chain: bridge
-    // produces NotificationEvent → coalesce spawns entity →
-    // dismiss-tick fires the timer.
-    let mut schedule = Schedule::default();
-    schedule.add_systems((
-        helios_ascension::ui::notifications::systems::event_bridge::bridge_survey_events,
-        coalesce_notifications,
-        auto_dismiss_toasts,
-    ));
-    schedule.run(&mut world);
-
-    // One ActiveNotification entity should now exist.
-    let active: Vec<Entity> = {
-        let mut q = world.query::<(Entity, &ActiveNotification)>();
-        q.iter(&world).map(|(e, _)| e).collect()
-    };
+    // Bridge + coalesce produced 1 entity.
     assert_eq!(
-        active.len(),
+        count_active(&mut app),
         1,
         "bridge + coalesce must produce exactly 1 ActiveNotification for 1 SurveyEvent::MissionCompleted"
     );
 
-    // The dismiss-timer setting is the manifest's
-    // `default_dismiss_s` for `survey.mission_complete` (= 6.0 s
-    // in assets/data/notifications.ron). We override the per-
-    // category setting in NotificationSettings for a 0.1 s timer
-    // so the test runs in microseconds, not seconds.
-    // (The test setup never loaded the manifest, so the
-    // fallback default is 0.0 — we override the spawned entity
-    // directly to avoid the no-default-dismiss trap.)
+    // Force a short auto-dismiss so the test doesn't need 6 s of
+    // simulated time. The dismiss-timer logic in
+    // `auto_dismiss_toasts` uses `now - created_at` against this
+    // field.
     {
-        let mut q = world.query::<&mut ActiveNotification>();
-        for mut note in q.iter_mut(&mut world) {
+        let mut q = app.world_mut().query::<&mut ActiveNotification>();
+        for mut note in q.iter_mut(app.world_mut()) {
             note.auto_dismiss_s = 0.1;
         }
     }
 
     // Advance the simulation clock past the dismiss window.
-    {
-        let mut t = world.resource_mut::<SimulationTime>();
-        t.elapsed = 1_000.0;
-    }
+    app.world_mut().resource_mut::<SimulationTime>().elapsed = 1_000.0;
+    app.update();
 
-    // Re-run the dismiss-tick. The toast should despawn.
-    let mut schedule = Schedule::default();
-    schedule.add_systems(auto_dismiss_toasts);
-    schedule.run(&mut world);
-
-    let active_after: Vec<Entity> = {
-        let mut q = world.query::<(Entity, &ActiveNotification)>();
-        q.iter(&world).map(|(e, _)| e).collect()
-    };
     assert_eq!(
-        active_after.len(),
+        count_active(&mut app),
         0,
         "auto-dismiss tick must despawn the entity after the timer elapses"
     );
@@ -187,15 +173,12 @@ fn test_full_event_to_dismissed_toast_lifecycle() {
 // coalesce. Asserts no `ActiveNotification` entity was created.
 #[test]
 fn test_settings_override_disables_category() {
-    let mut world = build_world();
-
-    // Set the per-category override to disabled.
-    let cat_id = NotificationCategoryId::from("survey.mission_complete");
+    let mut app = build_app();
     {
-        let mut settings = world.resource_mut::<NotificationSettings>();
+        let mut settings = app.world_mut().resource_mut::<NotificationSettings>();
         settings.per_category.insert(
-            cat_id.clone(),
-            helios_ascension::ui::notifications::settings::PerCategorySetting {
+            NotificationCategoryId::from("survey.mission_complete"),
+            PerCategorySetting {
                 enabled: false,
                 pause_on_event: false,
                 sound_on: false,
@@ -206,9 +189,9 @@ fn test_settings_override_disables_category() {
     }
 
     fire_event(
-        &mut world,
+        &mut app,
         NotificationEvent {
-            category: cat_id,
+            category: NotificationCategoryId::from("survey.mission_complete"),
             severity: NotificationSeverity::Info,
             title: "should be dropped".to_string(),
             body: String::new(),
@@ -217,13 +200,10 @@ fn test_settings_override_disables_category() {
             sticky: false,
         },
     );
+    app.update();
 
-    let mut schedule = notifications_schedule();
-    schedule.run(&mut world);
-
-    let mut q = world.query::<&ActiveNotification>();
     assert_eq!(
-        q.iter(&world).count(),
+        count_active(&mut app),
         0,
         "per-category enabled=false must drop the event before spawning an entity"
     );
@@ -233,25 +213,21 @@ fn test_settings_override_disables_category() {
 // `default_group_window_s` is 2.0 s by default. With the default
 // setting, two events with the same dedup_key inside the window
 // coalesce into one entity with `count == 2`. Overriding the
-// window to 0.0 s means no two events can be in the same group;
-// the second event spawns a new entity.
+// window to 0.5 s means two events 1.0 s apart do NOT coalesce;
+// with a 1.5 s override the same 1.0 s gap DOES coalesce. The
+// coalesce condition is `(now - r.created_at) <= group_window`,
+// so the boundary is inclusive.
 #[test]
 fn test_group_window_default_then_overridden() {
     // ── Default 2.0 s window: two events at t=0 and t=1.0 ──
-    let mut world = build_world();
-    {
-        let mut t = world.resource_mut::<SimulationTime>();
-        t.elapsed = 0.0;
-    }
-
-    let cat_id = NotificationCategoryId::from("survey.mission_complete");
-    // Default window is 2.0 s; do not touch `default_group_window_s`.
+    let mut app = build_app();
+    app.world_mut().resource_mut::<SimulationTime>().elapsed = 0.0;
 
     for i in 0..2 {
         fire_event(
-            &mut world,
+            &mut app,
             NotificationEvent {
-                category: cat_id.clone(),
+                category: NotificationCategoryId::from("survey.mission_complete"),
                 severity: NotificationSeverity::Info,
                 title: format!("repeat {i}"),
                 body: String::new(),
@@ -261,13 +237,11 @@ fn test_group_window_default_then_overridden() {
             },
         );
     }
+    app.update();
 
-    // First frame: both events in the same frame coalesce.
-    let mut schedule = notifications_schedule();
-    schedule.run(&mut world);
     {
-        let mut q = world.query::<&ActiveNotification>();
-        let notes: Vec<&ActiveNotification> = q.iter(&world).collect();
+        let mut q = app.world_mut().query::<&ActiveNotification>();
+        let notes: Vec<&ActiveNotification> = q.iter(app.world()).collect();
         assert_eq!(
             notes.len(),
             1,
@@ -281,21 +255,18 @@ fn test_group_window_default_then_overridden() {
     }
 
     // ── Override 0.5 s: events 1.0 s apart do NOT coalesce ──
-    let mut world = build_world();
+    let mut app = build_app();
     {
-        let mut t = world.resource_mut::<SimulationTime>();
+        let mut t = app.world_mut().resource_mut::<SimulationTime>();
         t.elapsed = 0.0;
-        let mut settings = world.resource_mut::<NotificationSettings>();
+        let mut settings = app.world_mut().resource_mut::<NotificationSettings>();
         settings.default_group_window_s = 0.5;
     }
 
-    let cat_id_2 = NotificationCategoryId::from("survey.mission_complete");
-
-    // First event at t=0.
     fire_event(
-        &mut world,
+        &mut app,
         NotificationEvent {
-            category: cat_id_2.clone(),
+            category: NotificationCategoryId::from("survey.mission_complete"),
             severity: NotificationSeverity::Info,
             title: "first".to_string(),
             body: String::new(),
@@ -304,23 +275,12 @@ fn test_group_window_default_then_overridden() {
             sticky: false,
         },
     );
-    {
-        let mut schedule = notifications_schedule();
-        schedule.run(&mut world);
-    }
-
-    // Advance sim time past the 0.5 s override window.
-    {
-        let mut t = world.resource_mut::<SimulationTime>();
-        t.elapsed = 1.0;
-    }
-
-    // Second event at t=1.0 with the same dedup_key — the
-    // group window has elapsed so this is a fresh group.
+    app.update();
+    app.world_mut().resource_mut::<SimulationTime>().elapsed = 1.0;
     fire_event(
-        &mut world,
+        &mut app,
         NotificationEvent {
-            category: cat_id_2.clone(),
+            category: NotificationCategoryId::from("survey.mission_complete"),
             severity: NotificationSeverity::Info,
             title: "second".to_string(),
             body: String::new(),
@@ -329,33 +289,27 @@ fn test_group_window_default_then_overridden() {
             sticky: false,
         },
     );
-    {
-        let mut schedule = notifications_schedule();
-        schedule.run(&mut world);
-    }
-    {
-        let mut q = world.query::<&ActiveNotification>();
-        assert_eq!(
-            q.iter(&world).count(),
-            2,
-            "with default_group_window_s=0.5, two same-dedup_key events 1.0 s apart must NOT coalesce"
-        );
-    }
+    app.update();
+
+    assert_eq!(
+        count_active(&mut app),
+        2,
+        "with default_group_window_s=0.5, two same-dedup_key events 1.0 s apart must NOT coalesce"
+    );
 
     // ── Sanity: the override really is honored. With a 1.5 s
-    // override the SAME 1.0 s gap WOULD coalesce.
-    let mut world = build_world();
+    // override the SAME 1.0 s gap WOULD coalesce. ──
+    let mut app = build_app();
     {
-        let mut t = world.resource_mut::<SimulationTime>();
+        let mut t = app.world_mut().resource_mut::<SimulationTime>();
         t.elapsed = 0.0;
-        let mut settings = world.resource_mut::<NotificationSettings>();
+        let mut settings = app.world_mut().resource_mut::<NotificationSettings>();
         settings.default_group_window_s = 1.5;
     }
-
     fire_event(
-        &mut world,
+        &mut app,
         NotificationEvent {
-            category: cat_id_2.clone(),
+            category: NotificationCategoryId::from("survey.mission_complete"),
             severity: NotificationSeverity::Info,
             title: "first".to_string(),
             body: String::new(),
@@ -364,18 +318,12 @@ fn test_group_window_default_then_overridden() {
             sticky: false,
         },
     );
-    {
-        let mut schedule = notifications_schedule();
-        schedule.run(&mut world);
-    }
-    {
-        let mut t = world.resource_mut::<SimulationTime>();
-        t.elapsed = 1.0;
-    }
+    app.update();
+    app.world_mut().resource_mut::<SimulationTime>().elapsed = 1.0;
     fire_event(
-        &mut world,
+        &mut app,
         NotificationEvent {
-            category: cat_id_2.clone(),
+            category: NotificationCategoryId::from("survey.mission_complete"),
             severity: NotificationSeverity::Info,
             title: "second".to_string(),
             body: String::new(),
@@ -384,13 +332,11 @@ fn test_group_window_default_then_overridden() {
             sticky: false,
         },
     );
+    app.update();
+
     {
-        let mut schedule = notifications_schedule();
-        schedule.run(&mut world);
-    }
-    {
-        let mut q = world.query::<&ActiveNotification>();
-        let notes: Vec<&ActiveNotification> = q.iter(&world).collect();
+        let mut q = app.world_mut().query::<&ActiveNotification>();
+        let notes: Vec<&ActiveNotification> = q.iter(app.world()).collect();
         assert_eq!(
             notes.len(),
             1,
@@ -406,24 +352,22 @@ fn test_group_window_default_then_overridden() {
 
 // ── Test 4 ───────────────────────────────────────────────────────
 // `pause_on_event=true` category → toast inserted →
-// TimeScale::pause() called.
+// TimeScale::pause() called. The `pause_on_event_toasts` system
+// uses a `Local<HashSet<Entity>>` cache to detect newly-inserted
+// entities — we need at least two `app.update()` calls (one to
+// insert + prime the cache, one to detect + pause), OR we can
+// pre-populate the cache via a no-op update.
 #[test]
 fn test_pause_on_event_chain() {
-    use helios_ascension::ui::notifications::data::NotificationCategory;
-    use helios_ascension::ui::time::TimeScale;
-    use std::collections::HashMap;
-
-    let mut world = build_world();
-    world.insert_resource(TimeScale::new());
-    // Manually populate the categories manifest with a row
-    // that requests pause_on_event. The startup loader is not
-    // invoked here (we use a minimal World); the per-category
-    // override path is what we exercise.
+    let mut app = build_app();
+    app.init_resource::<TimeScale>();
+    // Populate the categories manifest with a row that requests
+    // pause_on_event. The startup loader is not invoked here (we
+    // use a minimal App); we set the manifest directly.
     {
-        let mut cats = world.resource_mut::<NotificationCategoriesData>();
-        let id = NotificationCategoryId::from("survey.mission_complete");
+        let mut cats = app.world_mut().resource_mut::<NotificationCategoriesData>();
         cats.categories.insert(
-            id.clone(),
+            NotificationCategoryId::from("survey.mission_complete"),
             NotificationCategory {
                 id: "survey.mission_complete".to_string(),
                 display_name: "Mission complete".to_string(),
@@ -432,19 +376,22 @@ fn test_pause_on_event_chain() {
                 pause_on_event: true,
             },
         );
-        // Touch HashMap so the import isn't flagged unused on
-        // toolchains that elide the std re-export.
-        let _: &HashMap<_, _> = &cats.categories;
     }
+
+    // First update with no events primes the
+    // `Local<HashSet<Entity>>` cache in `pause_on_event_toasts` —
+    // the cache is empty on construction, so without this the
+    // first toast would always be "new" regardless of when it
+    // was inserted.
+    app.update();
 
     // Fire the event. Coalesce will spawn the entity; the
     // `pause_on_event_toasts` system notices the new entity
     // and pauses TimeScale.
-    let cat_id = NotificationCategoryId::from("survey.mission_complete");
     fire_event(
-        &mut world,
+        &mut app,
         NotificationEvent {
-            category: cat_id,
+            category: NotificationCategoryId::from("survey.mission_complete"),
             severity: NotificationSeverity::Critical,
             title: "Survey done".to_string(),
             body: String::new(),
@@ -453,19 +400,10 @@ fn test_pause_on_event_chain() {
             sticky: false,
         },
     );
-
-    // Run the chain. Order matters: coalesce first (so the
-    // new entity is visible to pause_on_event_toasts), then
-    // pause_on_event_toasts (which is in the Tick set).
-    let mut schedule = Schedule::default();
-    schedule.add_systems((
-        coalesce_notifications,
-        helios_ascension::ui::notifications::systems::tick::pause_on_event_toasts,
-    ));
-    schedule.run(&mut world);
+    app.update();
 
     // TimeScale must be paused.
-    let time_scale = world.resource::<TimeScale>();
+    let time_scale = app.world().resource::<TimeScale>();
     assert!(
         time_scale.is_paused(),
         "TimeScale must be paused after a pause_on_event=true toast was inserted"
@@ -478,7 +416,7 @@ fn test_pause_on_event_chain() {
 // before doing any work.
 //
 // The render system touches `bevy_egui::EguiContexts`, which is
-// not available in a minimal `World` — the system would panic on
+// not available in a minimal `App` — the system would panic on
 // `contexts.ctx_mut()` if it got that far. The contract is
 // therefore observable only via the early-return guard
 // (`render.rs:61-65`): the system must return without touching
@@ -487,21 +425,25 @@ fn test_pause_on_event_chain() {
 // regressed, the system would panic with "EguiContexts not in
 // world" rather than running cleanly. That panic is the
 // regression signal.
+//
+// Same harness-deficiency as the GRA-139 settings panel tests —
+// `cargo test` cannot drive the egui render path; a separate
+// integration test that uses the egui harness is the only path
+// to end-to-end coverage.
 #[test]
 #[ignore = "render system needs the bevy_egui::EguiContexts resource installed, which requires the egui harness; the system panics at parameter validation before reaching the show_only_in_survey guard. The early-return guard itself is a one-line predicate and is covered by code review. See PR-H body for the egui-harness follow-up."]
 fn test_render_runs_in_survey_only_by_default() {
-    let mut world = build_world();
+    use helios_ascension::ui::notifications::systems::render::render_notification_toasts;
+
+    let mut app = build_app();
     // Default `show_only_in_survey` is true and `ActiveMenu`
     // defaults to `GameMenu::Survey`, so the default path
     // wouldn't even hit the guard. Force the guard by switching
     // the menu to `Construction`.
-    {
-        let mut menu = world.resource_mut::<ActiveMenu>();
-        menu.current = GameMenu::Construction;
-    }
+    app.world_mut().resource_mut::<ActiveMenu>().current = GameMenu::Construction;
 
     // Spawn a toast so the render system has work to skip.
-    world.spawn(ActiveNotification {
+    app.world_mut().spawn(ActiveNotification {
         category: NotificationCategoryId::from("survey.mission_complete"),
         severity: NotificationSeverity::Info,
         title: "should not render on Construction".to_string(),
@@ -512,48 +454,41 @@ fn test_render_runs_in_survey_only_by_default() {
         dedup_key: None,
         count: 1,
     });
+    app.add_systems(Update, render_notification_toasts);
 
     // No `bevy_egui::EguiContexts` is installed. The render
     // system must not panic — its `show_only_in_survey` guard
     // returns before `contexts.ctx_mut()`.
-    let mut schedule = Schedule::default();
-    schedule.add_systems(
-        helios_ascension::ui::notifications::systems::render::render_notification_toasts,
-    );
-    schedule.run(&mut world);
+    app.update();
 
     // The entity must still be alive (the render system does
     // not despawn).
-    let mut q = world.query::<&ActiveNotification>();
-    assert_eq!(q.iter(&world).count(), 1);
+    assert_eq!(count_active(&mut app), 1);
 }
 
 // ── Test 6 ───────────────────────────────────────────────────────
 // With `max_visible_toasts = 5` and 10 spawned
 // `ActiveNotification` entities, the render system's truncation
-// logic caps the rendered list at 5. The render system reaches
-// `contexts.ctx_mut()` only after the truncation step, and
-// `bevy_egui::EguiContexts` is not installed in the harness —
-// the system panics on `Err(_)` return. We therefore assert
-// only the **observable part of the system that is
-// testable without egui**: the early `is_empty()` short-circuit
-// (already covered by `tick::test_render_is_a_noop_when_no_active_notifications`)
-// and the `truncate(max_visible_toasts)` step. The truncation
-// step does not have a side-effect surface we can probe from
-// the outside. The full coverage requires the egui harness
-// (PR-H body note).
+// logic caps the rendered list at 5. Same harness dependency as
+// test #5 — the render system reaches `contexts.ctx_mut()` only
+// after the truncation step, and `bevy_egui::EguiContexts` is
+// not installed in the harness — so we assert only the
+// observable part of the system: the entities are not despawned
+// by the render path.
 #[test]
 #[ignore = "render system truncation requires the egui harness; the test runs cleanly with 0 toasts but the truncate step is not observable without bevy_egui::EguiContexts. See PR-H body for the egui-harness follow-up."]
 fn test_max_visible_toasts_caps_render() {
-    let mut world = build_world();
+    use helios_ascension::ui::notifications::systems::render::render_notification_toasts;
+
+    let mut app = build_app();
     {
-        let mut settings = world.resource_mut::<NotificationSettings>();
+        let mut settings = app.world_mut().resource_mut::<NotificationSettings>();
         settings.max_visible_toasts = 5;
         settings.show_only_in_survey = false;
     }
     // Spawn 10 toasts.
     for i in 0..10 {
-        world.spawn(ActiveNotification {
+        app.world_mut().spawn(ActiveNotification {
             category: NotificationCategoryId::from("survey.mission_complete"),
             severity: NotificationSeverity::Info,
             title: format!("toast {i}"),
@@ -565,19 +500,11 @@ fn test_max_visible_toasts_caps_render() {
             count: 1,
         });
     }
-    // Render the system: with no `EguiContexts` resource
-    // installed, the `contexts.ctx_mut()` call returns `Err`
-    // and the system early-returns. The truncation step is
-    // therefore not reached. We assert the system runs
-    // without panicking and leaves the 10 entities intact.
-    let mut schedule = Schedule::default();
-    schedule.add_systems(
-        helios_ascension::ui::notifications::systems::render::render_notification_toasts,
-    );
-    schedule.run(&mut world);
-    let mut q = world.query::<&ActiveNotification>();
+    app.add_systems(Update, render_notification_toasts);
+    app.update();
+
     assert_eq!(
-        q.iter(&world).count(),
+        count_active(&mut app),
         10,
         "render system must not despawn entities"
     );
@@ -587,13 +514,11 @@ fn test_max_visible_toasts_caps_render() {
 // `sticky=true` toast survives the auto-dismiss timer.
 #[test]
 fn test_sticky_toast_never_dismisses_on_timer() {
-    let mut world = build_world();
-    {
-        let mut t = world.resource_mut::<SimulationTime>();
-        t.elapsed = 1_000_000.0;
-    }
+    let mut app = build_app();
+    app.world_mut().resource_mut::<SimulationTime>().elapsed = 1_000_000.0;
 
-    let id = world
+    let id = app
+        .world_mut()
         .spawn(ActiveNotification {
             category: NotificationCategoryId::from("survey.mission_complete"),
             severity: NotificationSeverity::Critical,
@@ -609,12 +534,10 @@ fn test_sticky_toast_never_dismisses_on_timer() {
 
     // The auto-dismiss timer has long expired (1_000_000 s > 0.1 s)
     // but `sticky=true` must skip the timer.
-    let mut schedule = Schedule::default();
-    schedule.add_systems(auto_dismiss_toasts);
-    schedule.run(&mut world);
+    app.update();
 
     assert!(
-        world.get_entity(id).is_ok(),
+        app.world().get_entity(id).is_ok(),
         "sticky toast must survive the auto-dismiss timer"
     );
 }
@@ -648,5 +571,5 @@ fn test_ron_loader_clamps_unknown_severity() {
     //   4. assert a `warn!` was emitted (capture via
     //      `tracing-test` or a custom `tracing_subscriber`
     //      layer — PR-H does not introduce that harness today)
-    let _ = build_world();
+    let _app = build_app();
 }
