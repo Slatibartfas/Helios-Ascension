@@ -35,18 +35,15 @@ use crate::survey::components::{
     ActiveSurveyMission, ContinuousStationBonus, ContinuousSurveyStation, FailedMissionRecord,
     SurveyState,
 };
-#[cfg(test)]
-use crate::survey::data::ScientistSummary;
-#[cfg(test)]
-use crate::survey::data::SurveyMissionTemplate;
-use crate::survey::data::{ReasonTag, SurveyMissionTemplates};
+use crate::survey::data::{
+    ReasonTag, ScientistSummary, SurveyMissionTemplate, SurveyMissionTemplates,
+};
 use crate::survey::events::{
     AbortSurveyMission, DismissFailedMission, DismissSurveyMission, DispatchSurveyMission,
 };
-#[cfg(test)]
-use crate::survey::types::WARNING_CONFIDENCE;
 use crate::survey::types::{
     AnomalyState, MissionFailureReason, MissionStatus, SurveyDimension, MAX_TIER,
+    WARNING_CONFIDENCE,
 };
 use bevy::ecs::system::SystemParam;
 use std::borrow::Cow;
@@ -2096,7 +2093,7 @@ fn score_template(
         .count() as f32;
 
     let cross_dim_bonus: f32 = ((template.target_tiers.len() as f32) - 1.0).max(0.0) * 0.25;
-    let cost_penalty: f32 = -(1.0 + (template.base_duration_days as f32) / 365.0).ln() * 0.5;
+    let cost_penalty: f32 = -(1.0_f32 + (template.base_duration_days as f32) / 365.0).ln() * 0.5;
     let roster_bonus: f32 = match roster {
         None => 0.0,
         Some(rs) => rs
