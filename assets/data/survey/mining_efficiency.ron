@@ -1,16 +1,18 @@
 // Per-(resource class, dimension, tier) mining efficiency curve
-// (GRA-98 / v0.5.0 survey rework).
+// (GRA-98 / v0.5.0 survey rework, rebalanced for GRA-117).
 //
 // Loads into `MiningEfficiencyRegistry::rows` (see
 // `src/survey/data.rs`, GRA-79 PR-A scaffold). Powers
 // SURVEY_REWORK.md §11 (Resource Reveal Matrix).
 //
-// The numbers below are the **default** balance curve: tier 2 of the
-// gating dimension unlocks mining at a low efficiency, tier 4–5
-// unlocks full yield. Modders can rebalance by editing the rows
-// directly — e.g. make tier 2 mining 25% instead of 40%, or push
-// full efficiency to tier 5 instead of tier 4 — without recompiling
-// Rust.
+// The numbers below are the **default** balance curve. GRA-117
+// (Survey Steps are too coarse) widens the tier span and pulls
+// full-yield out one tier: tier 2 unlocks at 0.20 (was 0.40), tier
+// 4 reaches 0.75 (was 1.00), tier 5 reaches 1.00 (new top tier
+// for ShallowOre / DeepOre / AtmosphericGas). Modders can rebalance
+// by editing the rows directly — e.g. push tier 2 mining to 0.10
+// for a slower game, or move the t4→t5 boundary back to t4 —
+// without recompiling Rust.
 //
 // Field reference (mirrors `MiningEfficiencyRow` in `data.rs`):
 //   `id`                    — stable RON id, format
@@ -50,13 +52,16 @@
 (
     rows: [
         // ===== ShallowOre (proven crustal) =====
-        // Gated by MineralDeposits. Full yield at tier 4.
+        // Gated by MineralDeposits. GRA-117 rebalance: tier 2 = 0.20
+        // (was 0.40), tier 3 = 0.45 (new intermediate), tier 4 = 0.75
+        // (was 1.00), tier 5 = 1.00 (new top tier; requires sample
+        // return or other full-characterization mission).
         (
             id: "ShallowOre_MineralDeposits_t2",
             resource_class: "ShallowOre",
             dimension: MineralDeposits,
             min_tier: 2,
-            efficiency_pct: 0.40,
+            efficiency_pct: 0.20,
             requires_confirmation: false,
         ),
         (
@@ -64,7 +69,7 @@
             resource_class: "ShallowOre",
             dimension: MineralDeposits,
             min_tier: 3,
-            efficiency_pct: 0.70,
+            efficiency_pct: 0.45,
             requires_confirmation: false,
         ),
         (
@@ -72,6 +77,14 @@
             resource_class: "ShallowOre",
             dimension: MineralDeposits,
             min_tier: 4,
+            efficiency_pct: 0.75,
+            requires_confirmation: false,
+        ),
+        (
+            id: "ShallowOre_MineralDeposits_t5",
+            resource_class: "ShallowOre",
+            dimension: MineralDeposits,
+            min_tier: 5,
             efficiency_pct: 1.00,
             requires_confirmation: false,
         ),
@@ -81,12 +94,15 @@
         // The Coder's loader should AND the conditions; the row
         // below with the higher gating dimension (Subsurface)
         // is the authoritative tier table for ramp.
+        // GRA-117 rebalance: t3 = 0.15 (was 0.30), t4 = 0.45
+        // (was 0.70), t5 = 0.75 (new intermediate), t6
+        // (= "post_drill" continuation) = 1.00.
         (
             id: "DeepOre_Subsurface_t3",
             resource_class: "DeepOre",
             dimension: Subsurface,
             min_tier: 3,
-            efficiency_pct: 0.30,
+            efficiency_pct: 0.15,
             requires_confirmation: true,
         ),
         (
@@ -94,11 +110,19 @@
             resource_class: "DeepOre",
             dimension: Subsurface,
             min_tier: 4,
-            efficiency_pct: 0.70,
+            efficiency_pct: 0.45,
             requires_confirmation: true,
         ),
         (
             id: "DeepOre_Subsurface_t5",
+            resource_class: "DeepOre",
+            dimension: Subsurface,
+            min_tier: 5,
+            efficiency_pct: 0.75,
+            requires_confirmation: true,
+        ),
+        (
+            id: "DeepOre_Subsurface_t5_post_drill",
             resource_class: "DeepOre",
             dimension: Subsurface,
             min_tier: 5,
@@ -108,15 +132,14 @@
 
         // ===== PlanetaryBulk (mantle / core) =====
         // Gated by Subsurface tier 5 + drill confirmation.
-        // Single row: 20% efficiency at the unlock tier, scaling to
-        // 100% only after a drill_core_sample mission completes
-        // (tracked as a per-body mission flag, not a dimension).
+        // GRA-117 rebalance: tier 5 = 0.10 (was 0.20); full 1.00
+        // is reached only after drill_core_sample post-drill row.
         (
             id: "PlanetaryBulk_Subsurface_t5",
             resource_class: "PlanetaryBulk",
             dimension: Subsurface,
             min_tier: 5,
-            efficiency_pct: 0.20,
+            efficiency_pct: 0.10,
             requires_confirmation: true,
         ),
         (
@@ -129,13 +152,14 @@
         ),
 
         // ===== AtmosphericGas =====
-        // Gated by Atmosphere. 60% at tier 3, 100% at tier 5.
+        // Gated by Atmosphere. 35% at tier 3 (was 60%), 65% at
+        // tier 4 (was 80%), 100% at tier 5.
         (
             id: "AtmosphericGas_Atmosphere_t3",
             resource_class: "AtmosphericGas",
             dimension: Atmosphere,
             min_tier: 3,
-            efficiency_pct: 0.60,
+            efficiency_pct: 0.35,
             requires_confirmation: false,
         ),
         (
@@ -143,7 +167,7 @@
             resource_class: "AtmosphericGas",
             dimension: Atmosphere,
             min_tier: 4,
-            efficiency_pct: 0.80,
+            efficiency_pct: 0.65,
             requires_confirmation: false,
         ),
         (
@@ -157,15 +181,15 @@
 
         // ===== TraceIsotope (He-3, lunar volatiles) =====
         // Gated by Anomalies tier 2 + sample-return confirmation.
-        // 10% at unlock, 100% only after a sample_return mission
-        // completes per-body. The 10% is the headline number from
-        // the design doc §11.
+        // 5% at unlock (was 10%), 100% only after a sample_return
+        // mission completes per-body. The 5% is a stronger tease of
+        // the value locked behind full characterization.
         (
             id: "TraceIsotope_Anomalies_t2",
             resource_class: "TraceIsotope",
             dimension: Anomalies,
             min_tier: 2,
-            efficiency_pct: 0.10,
+            efficiency_pct: 0.05,
             requires_confirmation: true,
         ),
         (

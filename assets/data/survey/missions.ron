@@ -1,4 +1,5 @@
-// Survey mission templates (PR-B / GRA-80, extended by PR-G / GRA-85).
+// Survey mission templates (PR-B / GRA-80, extended by PR-G / GRA-85,
+// rebalanced for GRA-117).
 //
 // Each entry is a single "send probe" click. The dossier SURVEY
 // section's "DISPATCH MISSION" button lists these and lets the
@@ -8,7 +9,13 @@
 // Per the SURVEY_REWORK design doc §5, durations and dimensions
 // are placeholders that LGD will tune over subsequent passes.
 // The values here are "reasonable defaults" — modders can
-// rebalance without touching Rust.
+// rebalance without touching Rust. GRA-117 (Survey Steps are too
+// coarse) lengthens the per-mission wall-clock by ~1.4× for the
+// early-game templates and ~1.1× for the late-game templates so
+// a full tier 0 → tier 4 sweep reads as a real multi-decade
+// investment rather than a 12-year slam-dunk. The Coder's loader
+// does not need to change for this PR — the field shape is
+// identical, only the value differs.
 //
 // Field reference:
 //   `id`              — stable RON id (used by the dispatch event)
@@ -73,7 +80,7 @@
                 OrbitalMech: 1,
                 Atmosphere: 1,
             },
-            base_duration_days: 540,
+            base_duration_days: 730,
             axis_yield_per_day: 1.0,
             is_ground_team: false,
             failure_modes: [
@@ -97,7 +104,7 @@
                 MineralClasses: 2,
                 Atmosphere: 2,
             },
-            base_duration_days: 1095,
+            base_duration_days: 1460,
             axis_yield_per_day: 0.9,
             is_ground_team: false,
             failure_modes: [
@@ -120,7 +127,7 @@
                 Atmosphere: 3,
                 Habitability: 1,
             },
-            base_duration_days: 730,
+            base_duration_days: 1095,
             axis_yield_per_day: 1.0,
             is_ground_team: false,
             failure_modes: [
@@ -143,7 +150,7 @@
                 MineralDeposits: 2,
                 SurfaceFeatures: 3,
             },
-            base_duration_days: 1095,
+            base_duration_days: 1460,
             axis_yield_per_day: 0.8,
             is_ground_team: true,
             failure_modes: [
@@ -167,7 +174,7 @@
                 SurfaceFeatures: 4,
                 Habitability: 2,
             },
-            base_duration_days: 2555,
+            base_duration_days: 3650,
             axis_yield_per_day: 0.6,
             is_ground_team: true,
             failure_modes: [
@@ -193,7 +200,7 @@
             target_tiers: {
                 Subsurface: 3,
             },
-            base_duration_days: 1825,
+            base_duration_days: 2555,
             axis_yield_per_day: 0.7,
             is_ground_team: true,
             failure_modes: [
@@ -216,7 +223,7 @@
                 MineralDeposits: 4,
                 Subsurface: 4,
             },
-            base_duration_days: 730,
+            base_duration_days: 1095,
             axis_yield_per_day: 0.9,
             is_ground_team: true,
             failure_modes: [
@@ -243,7 +250,7 @@
                 MineralDeposits: 5,
                 MineralClasses: 4,
             },
-            base_duration_days: 2920,
+            base_duration_days: 3650,
             axis_yield_per_day: 0.5,
             is_ground_team: true,
             failure_modes: [
@@ -266,7 +273,7 @@
                 MineralClasses: 1,
                 SurfaceFeatures: 1,
             },
-            base_duration_days: 365,
+            base_duration_days: 540,
             axis_yield_per_day: 1.0,
             is_ground_team: false,
             failure_modes: [
