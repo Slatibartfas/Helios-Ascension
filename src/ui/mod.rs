@@ -456,6 +456,7 @@ impl Plugin for UIPlugin {
                     UiSystemSet::TopBar,
                     UiSystemSet::MainPanels,
                     UiSystemSet::Overlays,
+                    notifications::NotificationsSystemSet::Render,
                 )
                     .chain(),
             )
@@ -525,15 +526,28 @@ impl Plugin for UIPlugin {
                 EguiPrimaryContextPass,
                 capture_egui_panel_bounds.after(UiSystemSet::Overlays),
             )
+            // Notifications toast panel (GRA-136 PR-B). Paints in
+            // `EguiPrimaryContextPass`; the chain above
+            // (`TopBar → MainPanels → Overlays → Render`) already
+            // orders it after `Overlays` so toasts sit on top of
+            // every other surface. The `NotificationsSystemSet::Tick`
+            // set is added in `Update` from `NotificationsPlugin::build`
+            // — the tick systems need to be free of the egui context.
+            .add_systems(
+                EguiPrimaryContextPass,
+                notifications::systems::render_notification_toasts
+                    .in_set(notifications::NotificationsSystemSet::Render),
+            )
             // Screenshot plugin (Shift+F12 manual capture, 5 named slots).
             // Pure data + keybind + capture pump; the heavy
             // `bevy::render::view::screenshot` import is gated under
             // `#[cfg(not(test))]` so the test target's incremental compile
             // stays within the GHA 5:00 cliff.
             .add_plugins(screenshot::ScreenshotPlugin)
-            // Notifications foundation (GRA-135 PR-A). Types,
-            // settings resource, and RON loader only — systems
-            // land in PR-B (GRA-136).
+            // Notifications foundation (GRA-135 PR-A) + tick /
+            // render wiring (GRA-136 PR-B). The Tick set is
+            // added in `Update` from inside the plugin so the
+            // tick systems stay decoupled from the egui pass.
             .add_plugins(notifications::NotificationsPlugin);
     }
 }
