@@ -386,9 +386,12 @@ pub fn process_construction_actions(
 
         // Attach a MinimumStockpile with basic life-support thresholds so that
         // private freighters automatically keep the outpost stocked.
+        // Defaults match the GRA-31 life-support scale: Water=100 (O₂ parity)
+        // and Food=500 (~5× O₂ default, comfortably below starting stockpile
+        // so the auto-freight loop does not fire on day 1).
         let mut minimum = crate::economy::MinimumStockpile::default();
-        minimum.set(ResourceType::Food, 5_000.0);
-        minimum.set(ResourceType::Water, 2.0);
+        minimum.set(ResourceType::Food, 500.0);
+        minimum.set(ResourceType::Water, 100.0);
         commands.entity(body_entity).insert(minimum);
 
         // Insert Population component so the growth system picks it up

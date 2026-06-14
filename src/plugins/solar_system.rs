@@ -1987,8 +1987,11 @@ pub fn initialize_colony_stockpiles(
         let mut minimum = MinimumStockpile::default();
         if colony.name != "Earth" {
             // Outposts need steady resupply of core consumables.
-            minimum.set(ResourceType::Food, 5_000.0);
-            minimum.set(ResourceType::Water, 2.0);
+            // Defaults match the GRA-31 life-support scale: Water=100 (O₂ parity)
+            // and Food=500 (~5× O₂ default, comfortably below starting stockpile
+            // so the auto-freight loop does not fire on day 1).
+            minimum.set(ResourceType::Food, 500.0);
+            minimum.set(ResourceType::Water, 100.0);
         }
 
         commands.entity(entity).insert(stockpile);
