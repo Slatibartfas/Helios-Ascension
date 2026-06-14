@@ -846,7 +846,7 @@ fn ui_top_menu_bar(
             // `UiSystemSet::Overlays` so it paints on top of every
             // other panel.
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.add_space(theme::md);
+                ui.add_space(theme::Spacing::md);
                 let mut settings_open = notifications_open.0;
                 let button_text = if settings_open {
                     "🔔 Notifications ✓"
