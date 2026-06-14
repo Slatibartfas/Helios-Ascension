@@ -252,7 +252,10 @@ mod tests {
         // + the `manifest_default_enabled=true` arg in
         // `is_category_enabled` already gives us this, but we
         // set it explicitly to make the test intent obvious).
-        let _ = s.get_or_default(&"survey.mission_complete".into(), true);
+        // `manifest_default_dismiss_s = 5.0` matches the test
+        // manifest's default; the Kilo-fixed `get_or_default`
+        // (merged via PR #169) now requires a third arg.
+        let _ = s.get_or_default(&"survey.mission_complete".into(), true, 5.0);
         s
     }
 
