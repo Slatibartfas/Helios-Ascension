@@ -8,7 +8,6 @@
 //! `main.rs` — registration is forward-looking).
 
 use bevy::prelude::*;
-use bevy::reflect::Reflect;
 
 use super::events::NotificationSeverity;
 use super::settings::NotificationCategoryId;

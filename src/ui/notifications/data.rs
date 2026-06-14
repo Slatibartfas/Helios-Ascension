@@ -158,4 +158,27 @@ mod tests {
         assert_eq!(looked.display_name, "Test");
         assert!(looked.enabled);
     }
+
+    #[test]
+    fn test_load_via_world_resource() {
+        // Issue acceptance: load `assets/data/notifications.ron`
+        // through the startup system and read the resource from a
+        // `World` to assert count >= 20.
+        use bevy::ecs::schedule::Schedule;
+        use bevy::ecs::world::World;
+
+        let mut world = World::new();
+        let mut schedule = Schedule::default();
+        schedule.add_systems(load_notification_categories);
+        schedule.run(&mut world);
+
+        let data = world
+            .get_resource::<NotificationCategoriesData>()
+            .expect("load_notification_categories must insert the resource");
+        assert!(
+            data.len() >= 20,
+            "expected at least 20 categories from the World round-trip, got {}",
+            data.len()
+        );
+    }
 }
