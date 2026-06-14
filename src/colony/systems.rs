@@ -1,6 +1,8 @@
 use bevy::prelude::*;
 use std::collections::HashMap;
 
+use super::ConstructionEvent;
+
 use super::components::{
     Colony, ColonyEnvironmentCosts, ConstructionProject, PendingConstructionActions,
 };
@@ -65,6 +67,7 @@ pub fn advance_construction(
     mut projects: Query<(Entity, &mut ConstructionProject)>,
     sim_time: Res<SimulationTime>,
     mut last_elapsed: Local<f64>,
+    mut construction_events: MessageWriter<ConstructionEvent>,
 ) {
     let current_elapsed = sim_time.elapsed_seconds();
     let dt = current_elapsed - *last_elapsed;
@@ -130,6 +133,16 @@ pub fn advance_construction(
                             colony.name
                         );
                     }
+                    // Fire the construction event for the notifications
+                    // bridge (PR-C, GRA-137) and any future sim
+                    // listeners. The colony reference is borrowed
+                    // above; we emit unconditionally (even if the
+                    // colony reference failed) so the player still
+                    // gets a toast for the building being added.
+                    construction_events.write(ConstructionEvent::Completed {
+                        colony: colony_entity,
+                        building: project.building_type,
+                    });
                     commands.entity(proj_entity).despawn();
                 }
             }

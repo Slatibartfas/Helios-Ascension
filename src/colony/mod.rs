@@ -13,6 +13,7 @@ use bevy::prelude::*;
 
 pub mod components;
 pub mod data;
+pub mod events;
 pub mod systems;
 pub mod types;
 
@@ -25,6 +26,7 @@ pub use data::{
     building_is_available_on, AtmosphereKind, BuildingDefinition, BuildingModifierDef,
     BuildingsData, SynergyRule,
 };
+pub use events::ConstructionEvent;
 pub use systems::DepletionTimeline;
 pub use systems::{
     advance_construction, compute_depletion_timeline, deduct_environment_costs,
@@ -169,6 +171,13 @@ impl Plugin for ColonyPlugin {
             .init_resource::<BuildingEditState>()
             .init_resource::<DepletionTimeline>()
             .init_resource::<ColonySynergies>()
+            // PR-C (GRA-137): construction-complete event the
+            // notification bridge consumes. Without
+            // `add_message`, downstream systems (e.g. the
+            // freighter-template tests) that only init the
+            // resources they care about would panic when the
+            // sim tick tries to write a `MessageWriter`.
+            .add_message::<ConstructionEvent>()
             // Startup systems
             .add_systems(Startup, data::load_buildings)
             // Update systems

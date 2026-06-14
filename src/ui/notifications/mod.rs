@@ -46,7 +46,8 @@ pub use ui_settings::{
 /// relative to PR-B's tick + render is wired in PR-B's merge
 /// (PR-B owns the canonical `NotificationsSystemSet` enum, so
 /// PR-D does not re-define it). PR-E (GRA-139) registers the
-/// settings panel modal.
+/// settings panel modal. PR-C (GRA-137) adds the `EventBridge`
+/// set with three source-event → `NotificationEvent` bridges.
 pub struct NotificationsPlugin;
 
 impl Plugin for NotificationsPlugin {
@@ -82,6 +83,22 @@ impl Plugin for NotificationsPlugin {
             .register_type::<ActiveNotification>()
             .register_type::<NotificationCategoryId>()
             .register_type::<NotificationSeverity>()
+            // PR-C (GRA-137): the three event bridges. Run in
+            // `Update` *before* `Tick` so the auto-dismiss timer
+            // and click-dismiss queue see a fully populated
+            // `Messages<NotificationEvent>` buffer on the same
+            // frame the bridge emitted. Ordering within the set
+            // is irrelevant — each bridge consumes a disjoint
+            // source message family.
+            .add_systems(
+                Update,
+                (
+                    systems::bridge_survey_events,
+                    systems::bridge_construction_events,
+                    systems::bridge_research_events,
+                )
+                    .in_set(NotificationsSystemSet::EventBridge),
+            )
             // PR-B systems. The Tick set runs in Update; the
             // Render set is added to EguiPrimaryContextPass by
             // `UIPlugin::build` so it can chain after
@@ -96,7 +113,8 @@ impl Plugin for NotificationsPlugin {
                     systems::auto_dismiss_toasts,
                     systems::apply_pending_dismissals,
                 )
-                    .in_set(NotificationsSystemSet::Tick),
+                    .in_set(NotificationsSystemSet::Tick)
+                    .after(NotificationsSystemSet::EventBridge),
             );
     }
 }
