@@ -121,7 +121,7 @@ mod tests {
 
     #[test]
     fn test_global_off_wins() {
-        let mut s = NotificationSettings {
+        let s = NotificationSettings {
             global_enabled: false,
             ..NotificationSettings::default()
         };
