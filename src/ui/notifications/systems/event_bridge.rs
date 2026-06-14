@@ -54,14 +54,16 @@ use crate::ui::notifications::settings::NotificationCategoryId;
 /// Falls back to `"body"` if the entity has no `Name` component or the
 /// name is empty — the toast still reads sensibly.
 ///
-/// Bevy 0.18: `World::get_entity` returns `Result<EntityRef, _>`; the
-/// `Ok` variant means the entity is still alive. `EntityRef` is not
-/// itself a `Result` (no `.ok()` on it).
-fn body_name(world: &World, body: Entity) -> String {
-    world
-        .get_entity(body)
+/// Bevy 0.18: this helper takes a `Query<&Name>` rather than `&World`
+/// because `MessageReader` / `MessageWriter` hold a mutable borrow on
+/// the world, and a same-system `&World` parameter triggers
+/// `SystemParam` conflict (`&World conflicts with a previous mutable
+/// system parameter`).
+fn body_name(body_names: &Query<&Name>, body: Entity) -> String {
+    body_names
+        .get(body)
         .ok()
-        .and_then(|e| e.get::<Name>().map(|n| n.as_str().to_string()))
+        .map(|n| n.as_str().to_string())
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| "body".to_string())
 }
@@ -88,7 +90,7 @@ fn body_name(world: &World, body: Entity) -> String {
 pub fn bridge_survey_events(
     mut survey_events: MessageReader<SurveyEvent>,
     mut notifications: MessageWriter<NotificationEvent>,
-    world: &World,
+    body_names: Query<&Name>,
 ) {
     for event in survey_events.read() {
         let (title, body, severity, category) = match event {
@@ -101,7 +103,7 @@ pub fn bridge_survey_events(
             SurveyEvent::MissionFailed {
                 name, reason, body, ..
             } => {
-                let body_name = body_name(world, *body);
+                let body_name = body_name(&body_names, *body);
                 (
                     format!("{name} failed"),
                     format!("{body_name}: {}", failure_reason_text(*reason)),
@@ -110,7 +112,7 @@ pub fn bridge_survey_events(
                 )
             }
             SurveyEvent::MissionAborted { name, body, .. } => {
-                let body_name = body_name(world, *body);
+                let body_name = body_name(&body_names, *body);
                 (
                     format!("{name} aborted"),
                     body_name.to_string(),
@@ -119,7 +121,7 @@ pub fn bridge_survey_events(
                 )
             }
             SurveyEvent::AnomalyActivated { body, anomaly, .. } => {
-                let body_name = body_name(world, *body);
+                let body_name = body_name(&body_names, *body);
                 (
                     "Anomaly activated".to_string(),
                     format!("{body_name} ({})", anomaly.ron_id()),
@@ -132,7 +134,7 @@ pub fn bridge_survey_events(
                 anomaly,
                 initial_confidence,
             } => {
-                let body_name = body_name(world, *body);
+                let body_name = body_name(&body_names, *body);
                 (
                     "Anomaly detected".to_string(),
                     format!(
@@ -150,7 +152,7 @@ pub fn bridge_survey_events(
                 scientist_name,
                 ..
             } => {
-                let body_name = body_name(world, *body);
+                let body_name = body_name(&body_names, *body);
                 (
                     "Crew injured".to_string(),
                     format!("{scientist_name} on {name} ({body_name})"),
@@ -159,7 +161,7 @@ pub fn bridge_survey_events(
                 )
             }
             SurveyEvent::ProbeLost { body, name, .. } => {
-                let body_name = body_name(world, *body);
+                let body_name = body_name(&body_names, *body);
                 (
                     "Probe lost".to_string(),
                     format!("{name} ({body_name})"),
@@ -168,7 +170,7 @@ pub fn bridge_survey_events(
                 )
             }
             SurveyEvent::RoverStuck { body, name, .. } => {
-                let body_name = body_name(world, *body);
+                let body_name = body_name(&body_names, *body);
                 (
                     "Rover stuck".to_string(),
                     format!("{name} ({body_name})"),
@@ -177,7 +179,7 @@ pub fn bridge_survey_events(
                 )
             }
             SurveyEvent::DrillBitStuck { body, name, .. } => {
-                let body_name = body_name(world, *body);
+                let body_name = body_name(&body_names, *body);
                 (
                     "Drill bit stuck".to_string(),
                     format!("{name} ({body_name})"),
@@ -302,10 +304,9 @@ mod tests {
     //!
     //! The Bevy 0.18 idiom is to register the bridge as a system on a
     //! `Schedule`, run the schedule against a `World` (the schedule
-    //! installs the `MessageReader` / `MessageWriter` system params
-    //! from the world's `Messages<T>` resources), then drain the
-    //! resulting `Messages<NotificationEvent>`. Direct calls
-    //! (`bridge_survey_events(read, write, &world)`) would require a
+    //! installs the `MessageReader` / `MessageWriter` / `Query` system
+    //! params from the world's resources), then drain the resulting
+    //! `Messages<NotificationEvent>`. Direct calls would require a
     //! private `bypass_validation` accessor; using a schedule is the
     //! supported path.
 
