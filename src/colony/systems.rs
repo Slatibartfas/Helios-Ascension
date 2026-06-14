@@ -1,6 +1,8 @@
 use bevy::prelude::*;
 use std::collections::HashMap;
 
+use super::ConstructionEvent;
+
 use super::components::{
     Colony, ColonyEnvironmentCosts, ConstructionProject, PendingConstructionActions,
 };
