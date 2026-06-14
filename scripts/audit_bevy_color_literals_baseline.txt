@@ -3,21 +3,22 @@
 # Regenerate with: python3 scripts/audit_bevy_color_literals.py --emit-baseline
 # Move entries out as they're promoted to src/ui/theme.rs Color constants.
 
-src/astronomy/components.rs:190  Self::new(Color::srgba(0.5, 0.5, 0.5, 0.3))
+src/astronomy/components.rs:257  Self::new(Color::srgba(0.5, 0.5, 0.5, 0.3))
 src/astronomy/lagrange.rs:136  Color::srgba(1.0, 1.0, 0.3, 1.0) // bright yellow when hovered
 src/astronomy/lagrange.rs:138  Color::srgba(0.50, 0.80, 1.0, 0.90) // default blue-cyan
 src/astronomy/selection.rs:1101  Color::srgb(0.3, 0.65, 0.85)
 src/astronomy/selection.rs:1104  Color::srgb(0.5, 0.9, 1.0)
-src/astronomy/systems.rs:758  let segment_color = Color::srgba(
-src/astronomy/systems.rs:821  let color = Color::srgba(
-src/astronomy/systems.rs:976  let ion_base_color = Color::srgba(0.7, 0.85, 1.0, brightness * 0.6);
-src/astronomy/systems.rs:977  let ion_tip_color = Color::srgba(0.5, 0.75, 1.0, 0.0);
-src/astronomy/systems.rs:1010  let dust_base_color = Color::srgba(1.0, 0.85, 0.4, brightness * 0.5);
-src/astronomy/systems.rs:1011  let dust_tip_color = Color::srgba(1.0, 0.7, 0.2, 0.0);
-src/astronomy/systems.rs:1241  let color = Color::srgba(
-src/astronomy/systems.rs:1298  let color = Color::srgba(
-src/astronomy/systems.rs:1325  let color = Color::srgba(0.9, 0.95, 1.0, coma_alpha * 0.5);
-src/astronomy/systems.rs:1332  let jet_color = Color::srgba(0.95, 0.95, 1.0, coma_alpha * 0.7);
+src/astronomy/systems.rs:884  let segment_color = Color::srgba(
+src/astronomy/systems.rs:995  let segment_color = Color::srgba(
+src/astronomy/systems.rs:1056  let color = Color::srgba(
+src/astronomy/systems.rs:1211  let ion_base_color = Color::srgba(0.7, 0.85, 1.0, brightness * 0.6);
+src/astronomy/systems.rs:1212  let ion_tip_color = Color::srgba(0.5, 0.75, 1.0, 0.0);
+src/astronomy/systems.rs:1245  let dust_base_color = Color::srgba(1.0, 0.85, 0.4, brightness * 0.5);
+src/astronomy/systems.rs:1246  let dust_tip_color = Color::srgba(1.0, 0.7, 0.2, 0.0);
+src/astronomy/systems.rs:1476  let color = Color::srgba(
+src/astronomy/systems.rs:1533  let color = Color::srgba(
+src/astronomy/systems.rs:1560  let color = Color::srgba(0.9, 0.95, 1.0, coma_alpha * 0.5);
+src/astronomy/systems.rs:1567  let jet_color = Color::srgba(0.95, 0.95, 1.0, coma_alpha * 0.7);
 src/fleets/visuals.rs:279  |_| Color::srgba(1.0, 0.75, 0.15, 0.50),
 src/fleets/visuals.rs:292  |_| Color::srgba(1.0, 0.75, 0.15, 0.28),
 src/fleets/visuals.rs:297  let cross_color = Color::srgba(1.0, 0.75, 0.15, 0.65);

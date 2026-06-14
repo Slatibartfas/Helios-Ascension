@@ -4,8 +4,9 @@ use bevy::math::DVec3;
 use bevy::prelude::*;
 
 use super::components::{
-    CometTail, CurrentStarSystem, Destroyed, FloatingOrigin, Hovered, KeplerOrbit,
-    LocalOrbitAmplification, OrbitCenter, OrbitPath, Selected, SpaceCoordinates, SystemId,
+    CometTail, CurrentStarSystem, Destroyed, FloatingOrigin, Hovered, HyperbolicTrajectory,
+    KeplerOrbit, LocalOrbitAmplification, OrbitCenter, OrbitPath, Selected, SpaceCoordinates,
+    SystemId,
 };
 use crate::plugins::camera::{CameraAnchor, GameCamera, ViewMode};
 use crate::plugins::solar_system::{CelestialBody, Comet, LogicalParent, Moon, Planet, Star};
@@ -86,6 +87,58 @@ pub fn solve_kepler(mean_anomaly: f64, eccentricity: f64) -> f64 {
     }
 
     eccentric_anomaly
+}
+
+/// Solve the **hyperbolic** Kepler equation: `M = e * sinh(H) - H` for the
+/// hyperbolic anomaly `H`.
+///
+/// Used by the propagation branch for entities with `KeplerOrbit.eccentricity > 1.0`
+/// that carry a `HyperbolicTrajectory` companion.  The mean anomaly `M` for a
+/// hyperbolic orbit is unbounded (not modulo 2π like the elliptic case) and
+/// is integrated linearly over time once the asymptote velocity is known.
+///
+/// Newton-Raphson converges quadratically for `|H| < ~50`, which covers every
+/// real probe at 2026-01-01 (the brief's probes are all in `H ∈ [3, 4]`).
+///
+/// # Arguments
+/// * `mean_anomaly` - Hyperbolic mean anomaly `M = e sinh(H) - H`
+/// * `eccentricity` - Eccentricity `e` (must be `> 1.0` for a valid result)
+///
+/// # Returns
+/// Hyperbolic anomaly `H` in radians.
+pub fn solve_hyperbolic_kepler(mean_anomaly: f64, eccentricity: f64) -> f64 {
+    if eccentricity <= 1.0 {
+        // Not a hyperbolic orbit; the caller should not invoke this path.
+        return 0.0;
+    }
+    // Initial guess: H ≈ M / (e - 1) for large e (Curtis §3.5).
+    let mut h = mean_anomaly / (eccentricity - 1.0).max(1e-9);
+    for _ in 0..MAX_KEPLER_ITERATIONS {
+        let sinh_h = h.sinh();
+        let f = eccentricity * sinh_h - h - mean_anomaly;
+        let f_prime = eccentricity * h.cosh() - 1.0;
+        if f_prime.abs() < 1e-15 {
+            break;
+        }
+        let delta = f / f_prime;
+        h -= delta;
+        if delta.abs() < KEPLER_TOLERANCE {
+            break;
+        }
+    }
+    h
+}
+
+/// Convert hyperbolic anomaly `H` to true anomaly `ν` for `e > 1.0`.
+///
+/// `tan(ν/2) = sqrt((e+1)/(e-1)) * tanh(H/2)`
+pub fn hyperbolic_to_true_anomaly(hyperbolic_anomaly: f64, eccentricity: f64) -> f64 {
+    if eccentricity <= 1.0 {
+        return 0.0;
+    }
+    let ratio = ((eccentricity + 1.0) / (eccentricity - 1.0)).sqrt();
+    let tan_nu_half = ratio * (hyperbolic_anomaly * 0.5).tanh();
+    2.0 * tan_nu_half.atan()
 }
 
 /// Calculate the 3D orbital position from a mean anomaly.
@@ -256,7 +309,12 @@ fn orbit_path_segments(path: &OrbitPath, orbit: &KeplerOrbit, amplification: f64
 pub fn propagate_orbits(
     sim_time: Res<SimulationTime>,
     mut param_set: ParamSet<(
-        Query<(Entity, &KeplerOrbit, Option<&OrbitCenter>)>,
+        Query<(
+            Entity,
+            &KeplerOrbit,
+            Option<&OrbitCenter>,
+            Option<&HyperbolicTrajectory>,
+        )>,
         Query<&mut SpaceCoordinates>,
         Query<&SpaceCoordinates, Without<KeplerOrbit>>,
         Query<&SpaceCoordinates>,
@@ -266,9 +324,20 @@ pub fn propagate_orbits(
     let elapsed_time = sim_time.elapsed_seconds();
 
     // First pass: collect all orbiting entities and their (copied) orbital data
-    let mut entries: Vec<(Entity, KeplerOrbit, Option<Entity>)> = Vec::new();
-    for (entity, orbit, orbit_center) in param_set.p0().iter() {
-        entries.push((entity, *orbit, orbit_center.map(|oc| oc.0)));
+    // along with their optional `HyperbolicTrajectory` companion.  GRA-131.
+    let mut entries: Vec<(
+        Entity,
+        KeplerOrbit,
+        Option<Entity>,
+        Option<HyperbolicTrajectory>,
+    )> = Vec::new();
+    for (entity, orbit, orbit_center, hyperbolic) in param_set.p0().iter() {
+        entries.push((
+            entity,
+            *orbit,
+            orbit_center.map(|oc| oc.0),
+            hyperbolic.copied(),
+        ));
     }
 
     // Build a full depth map so entities are processed in ancestry order.
@@ -278,7 +347,7 @@ pub fn propagate_orbits(
     // the same depth, so a moon could read its planet's previous-frame
     // position and appear to flicker outside its orbit.
     let orbit_center_set: HashMap<Entity, Option<Entity>> =
-        entries.iter().map(|(e, _, oc)| (*e, *oc)).collect();
+        entries.iter().map(|(e, _, oc, _)| (*e, *oc)).collect();
     let mut depth_cache: HashMap<Entity, usize> = HashMap::new();
 
     fn depth_of(
@@ -305,15 +374,51 @@ pub fn propagate_orbits(
         depth
     }
 
-    entries.sort_by_key(|(entity, _, _)| depth_of(*entity, &orbit_center_set, &mut depth_cache));
+    entries.sort_by_key(|(entity, _, _, _)| depth_of(*entity, &orbit_center_set, &mut depth_cache));
 
     // Second pass: perform lookups and mutation without holding the p0 iterator borrow
-    for (entity, orbit, orbit_center_entity) in entries {
-        // Calculate current mean anomaly: M = M₀ + n*t
-        let mean_anomaly = orbit.mean_anomaly_epoch + orbit.mean_motion * elapsed_time;
-
-        // Compute orbital position relative to center
-        let orbit_pos = orbit_position_from_mean_anomaly(&orbit, mean_anomaly);
+    for (entity, orbit, orbit_center_entity, hyperbolic) in entries {
+        // ── Branch: hyperbolic (`e > 1`) vs elliptic (`e < 1`) ──────────
+        // The brief notes that `KeplerOrbit::mean_motion` is meaningless for
+        // hyperbolics — we advance the hyperbolic anomaly `H` instead, by
+        // solving `e*sinh(H) - H = M₀ + n*t` via Newton-Raphson.  Elliptic
+        // entities use the closed-form M = M₀ + n*t → E (Kepler) → ν.  GRA-131.
+        let orbit_pos = if orbit.eccentricity > 1.0 {
+            let hyp = hyperbolic.unwrap_or_else(|| {
+                // Defensive fallback: a `KeplerOrbit` flagged as hyperbolic
+                // without a companion is malformed.  Bail out at the origin
+                // rather than panic; a missing `HyperbolicTrajectory` would
+                // only happen if a modder added a hyperbolic `KeplerOrbit`
+                // and forgot the companion.  GRA-131.
+                bevy::log::warn!(
+                    "propagate_orbits: KeplerOrbit.eccentricity={:.4} on entity {:?} \
+                     has no HyperbolicTrajectory companion; leaving position at origin",
+                    orbit.eccentricity,
+                    entity
+                );
+                HyperbolicTrajectory {
+                    asymptote_velocity_kms: 0.0,
+                    periapsis_distance_au: 0.0,
+                    b_plane_angle_rad: 0.0,
+                    epoch_jd_tdb: 0.0,
+                    hyperbolic_anomaly_epoch: 0.0,
+                }
+            });
+            // M at the epoch: M₀ = e*sinh(H₀) - H₀
+            let m0 = orbit.eccentricity * hyp.hyperbolic_anomaly_epoch.sinh()
+                - hyp.hyperbolic_anomaly_epoch;
+            // No mean motion for hyperbolics (v∞ is constant); M(t) = M₀.
+            // We keep the field on KeplerOrbit for symmetry with the elliptic
+            // path but it is unused.  GRA-131.
+            let m = m0 + orbit.mean_motion * elapsed_time;
+            let h_now = solve_hyperbolic_kepler(m, orbit.eccentricity);
+            let nu = hyperbolic_to_true_anomaly(h_now, orbit.eccentricity);
+            orbit_position_from_true_anomaly(&orbit, nu)
+        } else {
+            // Elliptic path: M = M₀ + n*t, then Kepler solver + rotation.
+            let mean_anomaly = orbit.mean_anomaly_epoch + orbit.mean_motion * elapsed_time;
+            orbit_position_from_mean_anomaly(&orbit, mean_anomaly)
+        };
 
         // Add parent position if an OrbitCenter is specified
         let parent_pos = if let Some(oc_entity) = orbit_center_entity {
@@ -544,6 +649,7 @@ pub fn draw_orbit_paths(
         Option<&SystemId>,
         Has<Selected>,
         Has<Hovered>,
+        Option<&HyperbolicTrajectory>,
     )>,
     parent_coords: Query<&SpaceCoordinates>,
     floating_origin: Option<Res<crate::astronomy::components::FloatingOrigin>>,
@@ -563,6 +669,7 @@ pub fn draw_orbit_paths(
         system_id,
         is_selected,
         is_hovered,
+        _hyperbolic,
     ) in query.iter()
     {
         if !path.visible {
@@ -594,6 +701,25 @@ pub fn draw_orbit_paths(
                 Vec3::new(pos.x as f32, pos.y as f32, pos.z as f32)
             })
             .unwrap_or(Vec3::ZERO);
+
+        // ── Branch: hyperbolic (`e > 1`) — draw a partial hyperbola ──────
+        // The closed-orbit renderer walks the full ellipse backwards in
+        // true anomaly, which would cross the asymptote at ν = ±π for a
+        // hyperbola and produce non-physical lines.  Hyperbolics get a
+        // dedicated partial-arc renderer: sample ν from 0 (periapsis) up
+        // to the ν where r reaches 200 AU, with a fading tail.  GRA-131.
+        if orbit.eccentricity > 1.0 {
+            draw_hyperbolic_orbit_arc(
+                &mut gizmos,
+                orbit,
+                path,
+                amp,
+                parent_offset,
+                is_selected,
+                is_hovered,
+            );
+            continue;
+        }
 
         // Current true anomaly of the body
         let current_mean_anomaly = orbit.mean_anomaly_epoch + orbit.mean_motion * elapsed_time;
@@ -767,6 +893,115 @@ pub fn draw_orbit_paths(
 
             prev_point = Some(point);
         }
+    }
+}
+
+/// Maximum heliocentric distance (AU) to render a hyperbolic orbit-path arc.
+///
+/// The brief specifies periapsis → 200 AU, fading tail.  Past ~200 AU the
+/// starmap camera is zoomed out so much that the asymptote direction matters
+/// more than the exact trail; clipping here keeps the renderer fast and
+/// avoids drawing near-vertical "asymptote walls" that look like rendering
+/// bugs.  GRA-131.
+const HYPERBOLIC_ARC_MAX_DISTANCE_AU: f64 = 200.0;
+
+/// Draw a partial-arc orbit path for a hyperbolic `KeplerOrbit`.
+///
+/// Sweeps `ν` from 0 (periapsis, the closest approach) outward to the
+/// true anomaly at which the heliocentric distance reaches
+/// `HYPERBOLIC_ARC_MAX_DISTANCE_AU`.  Alpha fades from bright at periapsis
+/// to ~0 at the tail so the asymptote direction reads as a fading streak
+/// rather than a hard line.  GRA-131.
+fn draw_hyperbolic_orbit_arc(
+    gizmos: &mut Gizmos,
+    orbit: &KeplerOrbit,
+    path: &OrbitPath,
+    amp: f64,
+    parent_offset: Vec3,
+    is_selected: bool,
+    is_hovered: bool,
+) {
+    // Solve r(ν) = q (e + cos(ν)) / (1 + e cos(ν)) = max_distance
+    // ⇒ cos(ν) = (q - max_distance) / (e * max_distance - q)
+    // where q = |a| (e - 1) is the periapsis distance.  We then clamp to the
+    // domain (-π, +π) so we don't cross the asymptote.
+    let q = (-orbit.semi_major_axis) * (orbit.eccentricity - 1.0);
+    let e = orbit.eccentricity;
+    let max_d = HYPERBOLIC_ARC_MAX_DISTANCE_AU;
+    let cos_nu_max = ((q - max_d) / (e * max_d - q)).clamp(-1.0, 1.0);
+    let nu_max = cos_nu_max.acos();
+    // Sweep both +ν and -ν (the inbound leg is symmetric to the outbound
+    // leg, but we draw both for visual symmetry).
+    let nu_max = nu_max.min(std::f64::consts::PI - 1e-3);
+
+    let segments = (path.segments as i32).max(64);
+    let half = segments / 2;
+    let step = nu_max / half as f64;
+
+    let base = path.color.to_srgba();
+    let highlight_alpha_mult: f32 = if is_selected {
+        2.5
+    } else if is_hovered {
+        1.8
+    } else {
+        1.0
+    };
+    let highlight_color_boost: f32 = if is_selected {
+        0.3
+    } else if is_hovered {
+        0.15
+    } else {
+        0.0
+    };
+    let highlight_alpha_floor: f32 = if is_selected {
+        0.10
+    } else if is_hovered {
+        0.05
+    } else {
+        0.0
+    };
+
+    // Sample ν from -nu_max through 0 (periapsis) to +nu_max.  Periapsis
+    // (ν=0) is the brightest point; alpha fades toward both ends.
+    let mut prev_point: Option<Vec3> = None;
+    let total_segments = 2 * half;
+    for i in 0..=total_segments {
+        // i = 0 → -nu_max, i = half → 0 (periapsis), i = total → +nu_max
+        let nu = -nu_max + (i as f64) * step;
+        let position_au = orbit_position_from_true_anomaly(orbit, nu);
+        let distance_au = position_au.length();
+        if distance_au > max_d {
+            prev_point = None;
+            continue;
+        }
+        let scaled_x = (position_au.x * SCALING_FACTOR * amp) as f32;
+        let scaled_y = (position_au.y * SCALING_FACTOR * amp) as f32;
+        let scaled_z = (position_au.z * SCALING_FACTOR * amp) as f32;
+        let point = Vec3::new(scaled_x, scaled_y, scaled_z) + parent_offset;
+
+        if let Some(prev) = prev_point {
+            // t goes 0 (at -nu_max) → 0.5 (at periapsis) → 1 (at +nu_max)
+            let t = i as f32 / total_segments as f32;
+            // Fade: peak at periapsis (t = 0.5), zero at both ends.
+            // Use a tent function: alpha = 1 - 2*|t - 0.5| with the path's
+            // fade_exponent shaping how fast the ends fade out.
+            let t_dist_from_center = (t - 0.5).abs() * 2.0; // 0 at center, 1 at ends
+            let trail_alpha = base.alpha * (1.0 - t_dist_from_center).powf(path.fade_exponent);
+            let alpha = (trail_alpha * highlight_alpha_mult)
+                .max(highlight_alpha_floor)
+                .min(1.0);
+
+            if alpha > 0.01 {
+                let segment_color = Color::srgba(
+                    (base.red + highlight_color_boost).min(1.0),
+                    (base.green + highlight_color_boost).min(1.0),
+                    (base.blue + highlight_color_boost).min(1.0),
+                    alpha,
+                );
+                gizmos.line(prev, point, segment_color);
+            }
+        }
+        prev_point = Some(point);
     }
 }
 

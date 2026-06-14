@@ -9,6 +9,7 @@
 use bevy::prelude::*;
 
 pub mod components;
+pub mod historical_probes;
 pub mod orbital_mechanics;
 pub mod systems;
 pub mod types;
@@ -16,9 +17,11 @@ pub mod visuals;
 
 pub use components::{
     ActiveManeuver, AssignLogisticsRequestAction, AssignShipsAction, CreateFleetFromShipsAction,
-    Fleet, FleetOrbit, MergeFleetAction, PendingFleetActions, PlannedTransfer, ShipInfo,
-    ShipInstance, SpawnFleetAction, StartTransferAction, TransferReferenceFrame,
+    Fleet, FleetOrbit, HistoricalProbe, HistoricalProbeKind, MergeFleetAction, PendingFleetActions,
+    PlannedTransfer, ShipInfo, ShipInstance, SpawnFleetAction, StartTransferAction,
+    TransferReferenceFrame,
 };
+pub use historical_probes::{HistoricalProbeScanState, HistoricalProbesSpawned};
 pub use orbital_mechanics::{
     apply_thrust_limits, calculate_transfer_options, calculate_transfer_options_phased,
     compute_burn_time_s, compute_transfer_window, estimate_fuel_cost_tonnes, format_delta_v,
@@ -37,10 +40,29 @@ pub struct FleetPlugin;
 impl Plugin for FleetPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<PendingFleetActions>()
-            .add_systems(PostStartup, systems::spawn_initial_fleet)
+            .add_systems(
+                PostStartup,
+                (
+                    systems::spawn_initial_fleet,
+                    // GRA-131: spawn the four historical probes (Voyager 1,
+                    // Voyager 2, Parker, New Horizons) at the 2026-01-01
+                    // JPL Horizons epoch.  Chained after `spawn_initial_fleet`
+                    // so the player's Day-1 fleet exists by the time the
+                    // probes appear in the world.  The two spawn systems
+                    // share no resources or queries, so the order is purely
+                    // for narrative clarity (Day-1 fleet → historical
+                    // probes) and has no functional effect.
+                    historical_probes::spawn_historical_probes.after(systems::spawn_initial_fleet),
+                ),
+            )
             .add_systems(
                 Update,
                 (
+                    // GRA-131: grant the one-time +0.5 RP science bonus per
+                    // probe per save.  Runs once on the first Update tick
+                    // after spawn; the scan-state resource is the
+                    // idempotency gate.
+                    historical_probes::apply_historical_probe_scan_bonuses,
                     systems::process_fleet_actions,
                     systems::sync_fleet_cache_from_ship_entities
                         .after(systems::process_fleet_actions),

@@ -890,6 +890,19 @@ pub mod Color {
     /// Danger-status text (coral red).
     pub const STATUS_DANGER_TEXT: Color = Color::srgb(1.0, 0.45, 0.4);
 
+    // ── Orbit & Trajectory Colours ───────────────────────────────────
+    //
+    // Used by `OrbitPath` rendering (Bevy) and the historical-probe
+    // spawn in `src/fleets/historical_probes.rs`.  Picked during the
+    // GRA-131 (historical probes) PR so the probe orbit-ring tint is
+    // distinct from the planet orbit (PLANET_ORBIT) and the comet
+    // (yellow) paths.
+
+    /// Orbit ring drawn for the four historical probes (V1/V2/Parker/NH).
+    /// Light cyan at 55% alpha so the heliocentric background reads
+    /// through the partial-hyperbola path.
+    pub const PROBE_ORBIT: Color = Color::srgba(0.55, 0.85, 1.00, 0.55);
+
     // ── Tooltips & Overlays ─────────────────────────────────────────
     //
     // Mirrors the egui `TOOLTIP_BG` / `TOOLTIP_BG_ALT` set above. Used
