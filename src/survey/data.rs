@@ -146,10 +146,44 @@ pub struct SurveyMissionTemplate {
     /// remainder is the success rate.
     #[serde(default)]
     pub failure_modes: Vec<crate::survey::types::FailureMode>,
+    /// Optional ship-class gate. When `Some(id)`, the dispatch
+    /// system in [`dispatch_survey_mission`](crate::survey::systems::dispatch_survey_mission)
+    /// requires at least `requires_min_ship_count` ships of the
+    /// matching hull class (`ship_hulls.ron` id) at the body's
+    /// starmap location. When `None`, the gate is skipped
+    /// (back-compat: legacy / modder RON rows without this field
+    /// dispatch without a ship check). The RON edit that adds
+    /// this field per template is a follow-on LGD PR — this
+    /// Coder PR just adds the field, the gate, and the
+    /// `MissionLaunchBlocked` event for the missing-ship case.
+    #[serde(default)]
+    pub requires_ship_class: Option<String>,
+    /// Minimum count of `requires_ship_class` ships at the
+    /// body's starmap location. Defaults to `1` (the loader
+    /// applies this default even when the field is omitted from
+    /// RON, so existing rows still gate single-ship templates).
+    /// Set to `0` explicitly in RON to disable the count gate
+    /// while keeping the class gate, or to opt out of both
+    /// gates set `requires_ship_class: None`.
+    #[serde(default = "default_min_ship_count")]
+    pub requires_min_ship_count: u32,
+    /// Minimum number of scientists the player must assign to
+    /// the mission. `0` is the default (no gate), and matches
+    /// the behaviour of solo probe missions. Ground-team
+    /// templates should set this to `1` or more — the
+    /// `is_ground_team` field is still the loader's primary
+    /// signal, but the explicit count is the new
+    /// design-doc-recommended contract.
+    #[serde(default)]
+    pub min_assigned_scientists: u32,
 }
 
 fn default_template_yield() -> f32 {
     1.0
+}
+
+fn default_min_ship_count() -> u32 {
+    1
 }
 
 impl SurveyMissionTemplate {

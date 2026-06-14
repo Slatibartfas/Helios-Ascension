@@ -34,7 +34,7 @@ use super::data::{
 };
 use super::events::{
     AbortSurveyMission, DismissFailedMission, DismissSurveyMission, DispatchSurveyMission,
-    SurveyEvent,
+    MissionLaunchReason, SurveyEvent,
 };
 use super::types::{
     axis_advance_rate_for_tier, mining_yield_delta_for_tier, AnomalyType, FailureKind, FailureMode,
@@ -1124,9 +1124,21 @@ pub fn dispatch_survey_mission(world: &mut World) {
         buf.update_drain().collect()
     };
 
-    for ev in events {
-        // Resolve template. A missing template is a UI bug — warn
-        // and drop the event.
+    // GRA-120 (post-review fix): the outer per-event loop is labeled
+    // `'dispatch` so the per-scientist validation loop below can
+    // `break 'dispatch` when it emits a `MissionLaunchBlocked` event.
+    // Without the label, a per-scientist failure (injured / on-other-
+    // mission / missing) would `continue` only the inner scientist
+    // loop and fall through to `active_missions.push(...)`, dispatching
+    // the mission with the remaining healthy scientists while ALSO
+    // surfacing the failure toast to the dossier UI.
+    'dispatch: for ev in events {
+        // Resolve template. A missing template is a UI bug — emit
+        // `MissionLaunchBlocked::TemplateUnknown` and drop the event.
+        // The `method` field on the event defaults to `Flyby` when
+        // the template id doesn't resolve: the dossier toast layer
+        // will surface the unknown-template reason verbatim, so the
+        // method value is best-effort only.
         let template: &SurveyMissionTemplate = match templates.templates.get(&ev.template_id) {
             Some(t) => t,
             None => {
@@ -1134,20 +1146,77 @@ pub fn dispatch_survey_mission(world: &mut World) {
                     "DispatchSurveyMission: unknown template_id {:?}; dropping",
                     ev.template_id
                 );
+                world.write_message(SurveyEvent::MissionLaunchBlocked {
+                    body: ev.body,
+                    mission_id: 0,
+                    name: ev.name.clone(),
+                    method: SurveyMethod::Flyby,
+                    reason: MissionLaunchReason::TemplateUnknown,
+                });
                 continue;
             }
         };
 
-        // Validate the scientist team. The empty-team case is
-        // valid for solo probe missions; ground-team missions
-        // require at least one scientist.
-        if template.is_ground_team && ev.scientist_ids.is_empty() {
+        // GRA-120 (mission dispatch gates): validate the new
+        // template-level gates. Order matters: scientist-count is
+        // checked first because it's the cheapest query and
+        // usually the most common failure mode. The
+        // ship-class/count gate runs after, since it requires a
+        // world-wide `ShipTemplateRef` scan.
+        //
+        // The legacy `is_ground_team && empty` check is preserved
+        // as a fallback for templates that pre-date the new
+        // `min_assigned_scientists` field. The new field takes
+        // priority when it is non-zero.
+        let min_scientists = if template.min_assigned_scientists > 0 {
+            template.min_assigned_scientists
+        } else if template.is_ground_team {
+            1
+        } else {
+            0
+        };
+        if min_scientists > 0 && (ev.scientist_ids.len() as u32) < min_scientists {
             warn!(
-                "DispatchSurveyMission: ground-team template {:?} dispatched with no scientists; dropping",
-                ev.template_id
+                "DispatchSurveyMission: template {:?} requires at least {} scientists; dispatched with {}; dropping",
+                ev.template_id,
+                min_scientists,
+                ev.scientist_ids.len()
             );
+            world.write_message(SurveyEvent::MissionLaunchBlocked {
+                body: ev.body,
+                mission_id: 0,
+                name: ev.name.clone(),
+                method: template.method,
+                reason: MissionLaunchReason::NoScientists,
+            });
             continue;
         }
+        if let Some(required_hull) = template.requires_ship_class.as_deref() {
+            let available = count_ships_with_hull_class(world, required_hull);
+            if available < template.requires_min_ship_count {
+                warn!(
+                    "DispatchSurveyMission: template {:?} requires {} × ship class {:?}; found {}; dropping",
+                    ev.template_id,
+                    template.requires_min_ship_count,
+                    required_hull,
+                    available
+                );
+                world.write_message(SurveyEvent::MissionLaunchBlocked {
+                    body: ev.body,
+                    mission_id: 0,
+                    name: ev.name.clone(),
+                    method: template.method,
+                    reason: MissionLaunchReason::NoShipAvailable,
+                });
+                continue;
+            }
+        }
+
+        // Per-scientist validation. The `min_assigned_scientists`
+        // gate above already enforced the headcount, so this
+        // loop only needs to verify the *specific* scientists
+        // are eligible (not injured, not already on a mission,
+        // and exist in the world).
         for sid in &ev.scientist_ids {
             let scientist = {
                 let mut state = world.query::<&Scientist>();
@@ -1159,21 +1228,42 @@ pub fn dispatch_survey_mission(world: &mut World) {
                         "DispatchSurveyMission: scientist {} is injured; dropping dispatch",
                         s.name
                     );
-                    continue;
+                    world.write_message(SurveyEvent::MissionLaunchBlocked {
+                        body: ev.body,
+                        mission_id: 0,
+                        name: ev.name.clone(),
+                        method: template.method,
+                        reason: MissionLaunchReason::ScientistInjured,
+                    });
+                    continue 'dispatch;
                 }
                 Some(s) if s.current_survey_mission.is_some() => {
                     warn!(
                         "DispatchSurveyMission: scientist {} is already on a mission; dropping",
                         s.name
                     );
-                    continue;
+                    world.write_message(SurveyEvent::MissionLaunchBlocked {
+                        body: ev.body,
+                        mission_id: 0,
+                        name: ev.name.clone(),
+                        method: template.method,
+                        reason: MissionLaunchReason::ScientistOnOtherMission,
+                    });
+                    continue 'dispatch;
                 }
                 None => {
                     warn!(
                         "DispatchSurveyMission: scientist id {} not found; dropping",
                         sid
                     );
-                    continue;
+                    world.write_message(SurveyEvent::MissionLaunchBlocked {
+                        body: ev.body,
+                        mission_id: 0,
+                        name: ev.name.clone(),
+                        method: template.method,
+                        reason: MissionLaunchReason::ScientistMissing,
+                    });
+                    continue 'dispatch;
                 }
                 _ => {}
             }
@@ -1268,6 +1358,45 @@ pub fn dispatch_survey_mission(world: &mut World) {
             method,
         });
     }
+}
+
+/// GRA-120: Count entities at `body` whose hull class matches
+/// `hull_class_id`. The body→hull inventory is a coarse best-
+/// effort match: any ship in the world whose `ShipTemplateRef`'s
+/// `template_id` equals the requested hull id counts. Body-relative
+/// scoping (i.e. "ships at the body's starmap location") is not
+/// yet tracked in the ECS — the body location concept lives on
+/// `Fleet::orbit_body`, not on individual ship entities. The
+/// follow-on LGD RON edit that wires per-body ship inventories
+/// will tighten this check; the minimum bar for this PR is that
+/// the gate is in place and the event is emitted when the count
+/// falls short.
+///
+/// Returns `0` if the registry is empty (no `ShipTemplateRef`
+/// entities in the world), so a fresh game-state with no
+/// freighters yet reports the gate as unsatisfied rather than
+/// silently passing.
+///
+/// # TODO(follow-on to GRA-120)
+/// Tighten this to a body-scoped count: filter `ShipTemplateRef`
+/// entities by the fleet-orbit relation (`Fleet::orbit_body` for
+/// the dispatch target). The follow-on LGD RON edit that adds
+/// `requires_ship_class` per template should land in the same
+/// pass so the gate and its inputs evolve together. Until then
+/// the rustdoc on `MissionLaunchReason::NoShipAvailable` reflects
+/// the world-wide semantics.
+fn count_ships_with_hull_class(world: &mut World, hull_class_id: &str) -> u32 {
+    // Bevy 0.18: `World::query` takes `&mut self` because the
+    // query borrows the world for its lifetime. The dispatch
+    // system already runs with `&mut World`, so we thread the
+    // mutable borrow through. (See [[helios-bevy-018-world-get-vs-query]]
+    // — the same constraint applies to `QueryState::get(world, entity)`.)
+    let mut q = world.query::<&crate::ships::ShipTemplateRef>();
+    let count = q
+        .iter(world)
+        .filter(|ship_ref| ship_ref.template_id == hull_class_id)
+        .count();
+    count as u32
 }
 
 /// Consume [`AbortSurveyMission`] events: remove the mission from
@@ -2173,6 +2302,9 @@ mod tests {
                     axis_yield_per_day: 1.0,
                     is_ground_team: false,
                     failure_modes: Vec::new(),
+                    requires_ship_class: None,
+                    requires_min_ship_count: 1,
+                    min_assigned_scientists: 0,
                 },
             );
 
@@ -2192,6 +2324,162 @@ mod tests {
         // injured; the body's mission list is still empty.
         let state = world.get::<SurveyState>(body).unwrap();
         assert!(state.active_missions.is_empty());
+    }
+
+    #[test]
+    fn mixed_injured_healthy_team_is_dropped_not_partial_dispatched() {
+        // GRA-120 (post-review fix, Kilo Code Review WARNING on
+        // PR #163 + QA agent follow-up): the per-scientist
+        // validation `continue` in `dispatch_survey_mission` was
+        // only exiting the inner scientist loop, not the outer
+        // `'dispatch` loop. With a 2-scientist team
+        // `[injured, healthy]`, the dispatcher emitted
+        // `MissionLaunchBlocked { reason: ScientistInjured }` AND
+        // pushed a mission binding the healthy scientist. The
+        // single-scientist `injured_scientist_cannot_be_dispatched`
+        // test passed by accident — it never hit the fall-through
+        // path because the inner loop had no other scientist to
+        // skip. This regression test pins the fix: the outer
+        // loop now uses `continue 'dispatch` and the dispatch is
+        // dropped wholesale when any per-scientist gate fails.
+        let mut world = World::new();
+        world.init_resource::<SimulationTime>();
+        world.init_resource::<ProceduralRng>();
+        world.init_resource::<super::super::data::SurveyMissionTemplates>();
+        world.init_resource::<Messages<SurveyEvent>>();
+        world.init_resource::<Messages<DispatchSurveyMission>>();
+
+        // Body — empty SurveyState is enough; the body-state
+        // resolution path only runs if the per-scientist gate
+        // passes, which it must not.
+        let body = world.spawn(SurveyState::default()).id();
+
+        // Injured scientist (injured_until = +∞, always injured).
+        let _injured = world
+            .spawn(Scientist {
+                injured_until_sim_time: Some(f64::INFINITY),
+                ..make_scientist(99, "Injured")
+            })
+            .id();
+
+        // Healthy scientist — id 100, eligible for dispatch.
+        let _healthy = world.spawn(make_scientist(100, "Healthy")).id();
+
+        // Insert a flyby template. The template's `min_assigned_scientists`
+        // is 0 (probe mission), so the headcount gate is satisfied by
+        // 2 scientists; the per-scientist validation is what must
+        // block the dispatch.
+        world
+            .resource_mut::<super::super::data::SurveyMissionTemplates>()
+            .templates
+            .insert(
+                "flyby_recon".to_string(),
+                SurveyMissionTemplate {
+                    id: "flyby_recon".to_string(),
+                    display_name: "Flyby Probe".to_string(),
+                    method: SurveyMethod::Flyby,
+                    instrument_id: "phased_array_radar".to_string(),
+                    target_tiers: HashMap::new(),
+                    base_duration_days: 540,
+                    axis_yield_per_day: 1.0,
+                    is_ground_team: false,
+                    failure_modes: Vec::new(),
+                    requires_ship_class: None,
+                    requires_min_ship_count: 1,
+                    min_assigned_scientists: 0,
+                },
+            );
+
+        // Dispatch with [injured, healthy] — order matters: the
+        // injured scientist is first, so the per-scientist loop
+        // hits the injured arm before the healthy one. With the
+        // bug, the inner `continue` exits only the per-scientist
+        // loop and the dispatcher falls through to the mission-
+        // create path, binding the healthy scientist.
+        world.write_message(DispatchSurveyMission {
+            body,
+            template_id: "flyby_recon".to_string(),
+            name: "Mixed Team 1".to_string(),
+            scientist_ids: vec![99, 100],
+        });
+
+        // Bevy 0.18 `Messages<E>` uses a double-buffer; in
+        // production the `Messages::update_system` that runs at
+        // the top of each frame swaps the buffers so the
+        // dispatcher's `update_drain` call sees the events that
+        // were written in the prior frame. This test calls
+        // `dispatch_survey_mission` directly with no frame
+        // boundary in between, so we must simulate that swap
+        // here — otherwise the dispatcher's `update_drain` would
+        // drain the empty buffer and the dispatch would be
+        // silently dropped before reaching the per-scientist
+        // gate.
+        world
+            .resource_mut::<Messages<DispatchSurveyMission>>()
+            .update();
+
+        dispatch_survey_mission(&mut world);
+
+        // 1. The dispatch is dropped: the body's mission list is
+        //    empty. (Without the labelled `continue 'dispatch`,
+        //    the dispatcher would have created a mission binding
+        //    scientist 100 and pushed it here.)
+        let state = world.get::<SurveyState>(body).unwrap();
+        assert!(
+            state.active_missions.is_empty(),
+            "expected the dispatch to be dropped wholesale when any per-scientist gate fails; got {:?} active missions",
+            state.active_missions.len(),
+        );
+
+        // 2. Exactly one `MissionLaunchBlocked` event was emitted
+        //    (with `reason: ScientistInjured`). The dossier toast
+        //    layer keys off this event to surface a single
+        //    "dispatch failed" message; duplicate events would
+        //    cause the toast to fire twice.
+        //
+        //    Bevy 0.18 `Messages<E>` keeps a double-buffer: `write`
+        //    pushes to `messages_b` (the "current" buffer), and
+        //    `update_drain` swaps-then-drains the OLD buffer. In a
+        //    production frame, Bevy's `Messages::update_system` has
+        //    already run, so by the time the next system calls
+        //    `update_drain` the message is in the old buffer. In a
+        //    test that calls `dispatch_survey_mission` directly
+        //    without a frame boundary, the message is in B and
+        //    `update_drain` would drain the empty A. `Messages::drain`
+        //    empties both buffers, which is what the test needs.
+        let events: Vec<_> = {
+            let mut buf = world.resource_mut::<Messages<SurveyEvent>>();
+            buf.drain().collect()
+        };
+        let blocked: Vec<_> = events
+            .iter()
+            .filter_map(|e| match e {
+                SurveyEvent::MissionLaunchBlocked { reason, .. } => Some(*reason),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            blocked.len(),
+            1,
+            "expected exactly one MissionLaunchBlocked event; got {blocked:?}",
+        );
+        assert!(
+            matches!(blocked[0], MissionLaunchReason::ScientistInjured),
+            "expected reason=ScientistInjured; got {:?}",
+            blocked[0],
+        );
+
+        // 3. The healthy scientist is still un-bound to any mission.
+        //    With the bug, the dispatcher would have set
+        //    `s.current_survey_mission = Some(...)` on scientist 100.
+        let mut q = world.query::<&Scientist>();
+        for s in q.iter(&world) {
+            assert!(
+                s.current_survey_mission.is_none(),
+                "scientist {} was bound to a mission despite the dispatch being dropped",
+                s.name,
+            );
+        }
     }
 
     #[test]
@@ -3014,6 +3302,9 @@ mod tests {
                 // failure→recovery spawn path, not the rate.
                 probability: 1.0,
             }],
+            requires_ship_class: None,
+            requires_min_ship_count: 1,
+            min_assigned_scientists: 0,
         };
         template
             .target_tiers
@@ -3228,6 +3519,9 @@ mod tests {
                 // the failure→recovery spawn path, not the rate.
                 probability: 1.0,
             }],
+            requires_ship_class: None,
+            requires_min_ship_count: 1,
+            min_assigned_scientists: 0,
         };
         template
             .target_tiers
