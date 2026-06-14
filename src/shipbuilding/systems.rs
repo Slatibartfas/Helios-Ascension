@@ -985,6 +985,7 @@ fn build_ship_info(project: &ShipConstructionProject) -> ShipInfo {
     let fuel_mass = project.fuel_capacity_t.max(0.0) as f32;
     ShipInfo {
         name: project.design_name.clone(),
+        hull_id: Some(project.hull_id.clone()),
         class: if project.is_station {
             ShipClass::Station
         } else {
@@ -1005,6 +1006,7 @@ fn build_ship_info_from_summary(name: &str, summary: &ShipDesignSummary) -> Ship
     let fuel_mass = summary.fuel_capacity_t.max(0.0) as f32;
     ShipInfo {
         name: name.to_string(),
+        hull_id: None,
         class: if summary.is_station {
             ShipClass::Station
         } else {
