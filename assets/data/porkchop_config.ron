@@ -1,0 +1,159 @@
+// === Porkchop plot (H-1) config — GRA-150 / bundle D ===
+// Replaces the Efficient/Moderate/Fast placeholder in the transfer
+// planner. A porkchop is a contour plot of total ΔV (or C3 /
+// departure C3) over the (departure epoch, time-of-flight) plane;
+// the player picks a cell instead of a fake "Fast" label on a
+// Hohmann arc. The selected cell is converted to a real Lambert
+// conic via `build_planned_transfer` so the arc and the ΔV agree
+// for the first time.
+//
+// Schema lives entirely in this file: the planner reads
+// `PorkchopConfig` once at Startup, derives per-transfer grids
+// from the defaults + the first matching per-category override,
+// and the UI reads back the same `PorkchopConfig` to render the
+// grid + colormap + contours. Modders can:
+//
+//   * swap the colormap (add/remove/reorder `colormap` stops);
+//   * change default resolution (`defaults.resolution_*`);
+//   * add a per-category override with a new `match_key`
+//     (e.g. "titan_approach" for a moon-of-Saturn special case);
+//   * adjust bounds (`t_dep_window_days`, `tof_*` factors and
+//     floors/ceilings) without recompiling Rust.
+//
+// The Coder wires this file into `PorkchopConfig` (struct) +
+// `PorkchopGridDefaults` + `PorkchopCategoryOverride` +
+// `PorkchopColorStop` in `src/fleets/components.rs` and registers
+// the resource in `DataLoaderPlugin` (GRA-150 PR-D).
+//
+// Loader rules (enforced by load-time validation in
+// tests/porkchop_config_data_tests.rs, added as part of bundle D):
+//   1. `defaults.resolution_t_dep * defaults.resolution_tof`
+//      must be ≤ 5000 (sub-second recompute on a 4-core host).
+//   2. `colormap` must contain ≥ 2 stops; the first stop's
+//      ΔV must be `0.0`; the last stop's ΔV is treated as
+//      `+∞` (use `f64::INFINITY` in RON).
+//   3. `category_overrides` are matched top-down, first hit wins;
+//      a single override must be self-consistent (resolution ×
+//      resolution ≤ 5000, tof_min_factor > 0, tof_min < tof_max).
+//   4. The match keys used in code (`interplanetary`, `moon`,
+//      `star_approach`, `interstellar`, `binary`, `flyby`,
+//      `course_correction`, `lagrange`, `dwarf_planet`, `asteroid`,
+//      `comet`) are an *open* set — unknown keys are ignored
+//      and fall through to `defaults`.
+//
+// v0.5.0 ships with the 3 category_overrides below; the LGD
+// authored defaults to be conservative (60-day window, 40×30
+// resolution, ≤ 8 km/s tof baseline) so the first PR lands
+// without performance surprises.
+(
+    defaults: (
+        // ±60 days around the next optimal Hohmann window. Picked to
+        // span the typical Earth-Mars synodic period (780 d) over a
+        // ~month-and-a-half search range — small enough for a 1.2k
+        // cell grid to complete in <400 ms, wide enough that the
+        // cheapest cell is always within the visible grid.
+        t_dep_window_days: 60.0,
+        // TOF: 0.4× → 2.5× Hohmann time. The 0.4 floor prevents the
+        // player from picking a sub-orbital "transfer" that
+        // Lambert's solver would reject; the 2.5 ceiling keeps
+        // energy-bounded solutions from drifting into escape-class
+        // transfers.
+        tof_min_hohmann_factor: 0.4,
+        tof_max_hohmann_factor: 2.5,
+        tof_floor_days: 5.0,
+        tof_ceiling_years: 10.0,
+        // Resolution: 40 cols (t_dep) × 30 rows (tof) = 1200 cells.
+        // Worst case at 0.3 ms/cell → 360 ms, fits inside a single
+        // recompute budget. Caching is keyed on (origin, dest,
+        // sim_time_bucket), so a re-pan recomputes only when the
+        // player actually moves the window.
+        resolution_t_dep: 40,
+        resolution_tof: 30,
+        // C3 ceiling (km²/s²) above which a cell is rendered as
+        // red "infeasible" and is not selectable. Picked to
+        // match the helios theme's RED palette transition; the
+        // planner will surface a "widen search?" prompt when
+        // *no* cell in the window is feasible.
+        c3_ceiling_km2_s2: 400.0,
+    ),
+
+    // Per-category overrides. Matched top-down, first hit wins.
+    // A body's transfer category is derived from the (origin,
+    // destination) pair in the planner; the Coder's
+    // `classify_transfer_category` returns the match key.
+    category_overrides: [
+        // Interstellar: blow out the grid so the player can see
+        // the geological-timescale basin. The 500-yr cap from
+        // MAX_CURVED_CROSS_STAR_TRANSFER_TIME_S still applies at
+        // runtime; here we set the 100-yr ceiling and the UI
+        // flags cells > 50 yr in red.
+        (
+            match_key: "interstellar",
+            t_dep_window_days: 730.0,           // 2 yr
+            tof_min_hohmann_factor: 0.2,
+            tof_max_hohmann_factor: 5.0,
+            tof_ceiling_years: 100.0,
+            resolution_t_dep: 60,
+            resolution_tof: 50,
+        ),
+        // Moon transfers: tight window, fine grid. Short TOFs and
+        // small distances → cheap Lambert solves, can afford more
+        // cells. The 14-day window is roughly one lunar orbital
+        // period; the player can always pan to a new window if the
+        // cheapest cell is off-grid.
+        (
+            match_key: "moon",
+            t_dep_window_days: 14.0,
+            tof_min_hohmann_factor: 0.5,
+            tof_max_hohmann_factor: 1.8,
+            tof_floor_days: 0.5,
+            tof_ceiling_days: 60.0,
+            resolution_t_dep: 50,
+            resolution_tof: 40,
+        ),
+        // Star approach (any body → star): the round-trip
+        // Hohmann equivalent is years, so a wide window and a
+        // generous TOF range are warranted. The 365-day window
+        // is the synodic period scale for a typical body-star
+        // configuration; the 5-yr ceiling catches realistic
+        // solar Oberth transfers.
+        (
+            match_key: "star_approach",
+            t_dep_window_days: 365.0,
+            tof_min_hohmann_factor: 0.3,
+            tof_max_hohmann_factor: 3.0,
+            tof_ceiling_years: 5.0,
+            resolution_t_dep: 50,
+            resolution_tof: 40,
+        ),
+    ],
+
+    // ΔV (km/s) → RGBA stops. Linear interpolation between adjacent
+    // stops; the last stop's ΔV is the "+∞" sentinel and is used
+    // for infeasible cells (Lambert solver failed). RGBA tuples
+    // are (R, G, B, A) with components in 0..=255.
+    //
+    // Stops are tuned to match the helios theme palette:
+    //   GREEN  = best in class (≤ 4 km/s)
+    //   YELLOW = competitive  (4–8 km/s)
+    //   AMBER  = expensive    (8–15 km/s)
+    //   RED    = prohibitive  (> 15 km/s)
+    colormap: [
+        (delta_v_km_s: 0.0,                    rgba: ( 40, 200,  80, 220)),
+        (delta_v_km_s: 4.0,                    rgba: (220, 200,  60, 220)),
+        (delta_v_km_s: 8.0,                    rgba: (230, 140,  40, 220)),
+        (delta_v_km_s: 15.0,                   rgba: (220,  60,  60, 220)),
+        (delta_v_km_s: f64::INFINITY,          rgba: ( 60,  60,  60, 180)),
+    ],
+    // Iso-ΔV contour lines drawn on top of the grid, in km/s.
+    // The minimum (cheapest cell) contour is always drawn; the
+    // maximum is suppressed when the cell is at the edge of the
+    // grid (would otherwise draw a half-line at the boundary).
+    contour_levels_km_s: [3.0, 5.0, 8.0, 12.0],
+    // Cells with total ΔV above this (km/s) are rendered as
+    // "off the chart" — the colour is the +∞ stop and a hatch
+    // pattern is overlaid. Set to a value safely above the
+    // RED stop (15 km/s) so the four colour bands are all
+    // visible inside the grid.
+    display_max_dv_km_s: 20.0,
+)
