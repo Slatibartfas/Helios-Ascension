@@ -25,6 +25,11 @@
 //! - Click-to-dismiss pushes the entity id into
 //!   `PendingNotificationDismissal`; the tick system despawns
 //!   the entity, so the UI never mutates sim state directly.
+//!   PR-G (GRA-141): the dismiss "×" lives in its own button
+//!   child (`egui::Id::new("dismiss_button")`) and the rest of
+//!   the frame is the body-click region. A body-click pushes
+//!   the entity's `context_link` into `PendingNotificationClicks`
+//!   for the `click_handler` system to drain.
 //! - Theme integration: severity → `theme::STATUS_*` palette;
 //!   card chrome → `theme::TAB_*` borders. No new colours.
 
@@ -32,8 +37,11 @@ use bevy::prelude::*;
 use bevy_egui::egui;
 
 use crate::game_state::{ActiveMenu, GameMenu};
-use crate::ui::notifications::components::ActiveNotification;
-use crate::ui::notifications::events::NotificationSeverity;
+use crate::ui::notifications::components::{
+    ActiveNotification, PendingNotificationClick, PendingNotificationClicks,
+    PendingNotificationDismissal,
+};
+use crate::ui::notifications::events::{NotificationContextLink, NotificationSeverity};
 use crate::ui::notifications::settings::NotificationSettings;
 use crate::ui::theme;
 use crate::ui::time::SimulationTime;
@@ -46,6 +54,7 @@ use crate::ui::time::SimulationTime;
 /// inside `add_systems` would be one more entry in the chain
 /// tuple and could push us past Bevy's `IntoSystem` 7-element
 /// limit (see the existing `UiSystemSet` refactor commit).
+#[allow(clippy::too_many_arguments)]
 pub fn render_notification_toasts(
     mut contexts: bevy_egui::EguiContexts,
     active_menu: Res<ActiveMenu>,
@@ -53,7 +62,8 @@ pub fn render_notification_toasts(
     sim_time: Res<SimulationTime>,
     categories: Res<crate::ui::notifications::data::NotificationCategoriesData>,
     active: Query<(Entity, &ActiveNotification)>,
-    mut pending_dismiss: ResMut<crate::ui::notifications::components::PendingNotificationDismissal>,
+    mut pending_dismiss: ResMut<PendingNotificationDismissal>,
+    mut pending_focus: ResMut<PendingNotificationClicks>,
 ) {
     if !settings.global_enabled {
         return;
@@ -127,7 +137,14 @@ pub fn render_notification_toasts(
     window.show(ctx, |ui| {
         ui.vertical(|ui| {
             for (entity, n) in &visible {
-                render_one_toast(ui, n, *entity, now, &mut pending_dismiss);
+                render_one_toast(
+                    ui,
+                    n,
+                    *entity,
+                    now,
+                    &mut pending_dismiss,
+                    &mut pending_focus,
+                );
                 ui.add_space(theme::Spacing::sm);
             }
         });
@@ -139,9 +156,8 @@ fn render_one_toast(
     n: &ActiveNotification,
     entity: Entity,
     now: f64,
-    pending_dismiss: &mut ResMut<
-        crate::ui::notifications::components::PendingNotificationDismissal,
-    >,
+    pending_dismiss: &mut ResMut<PendingNotificationDismissal>,
+    pending_focus: &mut ResMut<PendingNotificationClicks>,
 ) {
     let (border, text) = severity_palette(n.severity);
 
@@ -155,33 +171,113 @@ fn render_one_toast(
         ));
 
     frame.show(ui, |ui| {
-        // Title row (clickable to dismiss).
-        let title_response = ui.add(
-            egui::Label::new(
-                egui::RichText::new(&n.title)
-                    .strong()
-                    .color(text)
-                    .size(14.0),
-            )
-            .sense(egui::Sense::click()),
-        );
-        if title_response.clicked() {
-            // Encode the entity as a stable u64. `Entity` exposes
-            // `to_bits()` in 0.18 which gives the packed
-            // (index, generation) pair as a u64.
-            pending_dismiss.push(entity.to_bits());
-        }
+        // PR-G (GRA-141): the title is now non-interactive text.
+        // Clicks land on the body region below (the rest of the
+        // frame). A separate "×" button on the right owns the
+        // dismiss action; the two are guaranteed disjoint because
+        // they live in different child-rects of the frame's
+        // `ui.horizontal(...)` row below.
+        ui.horizontal(|ui| {
+            ui.with_layout(egui::Layout::left_to_right(egui::Align::TOP), |ui| {
+                ui.add(
+                    egui::Label::new(
+                        egui::RichText::new(&n.title)
+                            .strong()
+                            .color(text)
+                            .size(14.0),
+                    )
+                    .wrap(),
+                );
+            });
 
-        // Body row, dimmer.
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
+                // The dismiss button is its own egui child so a
+                // click on it is consumed here and does not
+                // propagate to the body-click region below. We
+                // `push_id` with the entity's packed `to_bits()`
+                // so egui can match the button across frames
+                // even as the entity list churns — the GRA-141
+                // spec calls for `egui::Id::new("dismiss_button")`
+                // per-toast; pushing a per-toast id on top of
+                // that name is the equivalent in egui 0.33 (which
+                // does not expose `.id()` on `Button`).
+                ui.push_id(
+                    egui::Id::new("dismiss_button").with(entity.to_bits()),
+                    |ui| {
+                        let dismiss_btn = egui::Button::new(
+                            egui::RichText::new("×").color(theme::TEXT_HINT).size(14.0),
+                        );
+                        if ui.add(dismiss_btn).clicked() {
+                            // Encode the entity as a stable u64.
+                            // `Entity` exposes `to_bits()` in 0.18
+                            // which gives the packed (index,
+                            // generation) pair as a u64.
+                            pending_dismiss.push(entity.to_bits());
+                        }
+                    },
+                );
+            });
+        });
+
+        // Body region. The "rest of the frame" contract from
+        // the GRA-141 spec: any click that was NOT on the
+        // dismiss button above lands here and triggers the
+        // context link.
+        //
+        // Two render branches so the click target is always
+        // present when the toast has a non-`None` context_link:
+        //
+        // 1. `body` non-empty → click-sense label on the body
+        //    text (the natural target).
+        // 2. `body` empty but `context_link` is `Some`-ish →
+        //    a small dim "Click to view →" hint, also
+        //    click-sense. This covers toasts like
+        //    `SurveyEvent::MissionCompleted` whose body field
+        //    is empty in the bridge output but the bridge
+        //    still wires `context_link = SelectBody(body)`
+        //    (see `event_bridge.rs:107`). Without this branch
+        //    the player has no way to click such toasts.
+        // 3. `body` empty and `context_link == None` → render
+        //    nothing. No click target is needed (informational
+        //    toasts).
+        let has_context_link = !matches!(n.context_link, NotificationContextLink::None);
         if !n.body.is_empty() {
-            ui.add(
+            let body_response = ui.add(
                 egui::Label::new(
                     egui::RichText::new(&n.body)
                         .color(theme::TEXT_DIM)
                         .size(12.0),
                 )
+                .sense(egui::Sense::click())
                 .wrap(),
             );
+            if body_response.clicked() {
+                pending_focus.push(PendingNotificationClick {
+                    entity_bits: entity.to_bits(),
+                    context_link: n.context_link,
+                });
+            }
+        } else if has_context_link {
+            // Empty body, but the bridge set a context_link
+            // (e.g. `SurveyEvent::MissionCompleted`). Render a
+            // dim "Click to view →" hint as the click target
+            // so the player has something to click.
+            let hint_response = ui.add(
+                egui::Label::new(
+                    egui::RichText::new("Click to view →")
+                        .color(theme::TEXT_DIM)
+                        .italics()
+                        .size(12.0),
+                )
+                .sense(egui::Sense::click())
+                .wrap(),
+            );
+            if hint_response.clicked() {
+                pending_focus.push(PendingNotificationClick {
+                    entity_bits: entity.to_bits(),
+                    context_link: n.context_link,
+                });
+            }
         }
 
         // Count badge (PR-D will increment this; for now it
@@ -241,9 +337,8 @@ mod tests {
         world.insert_resource(ActiveMenu::default());
         world
             .insert_resource(crate::ui::notifications::data::NotificationCategoriesData::default());
-        world.insert_resource(
-            crate::ui::notifications::components::PendingNotificationDismissal::default(),
-        );
+        world.insert_resource(PendingNotificationDismissal::default());
+        world.insert_resource(PendingNotificationClicks::default());
 
         // Drive a Schedule; the system must complete without
         // panic, but we don't need to run any schedules here —

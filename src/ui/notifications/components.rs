@@ -6,10 +6,14 @@
 //! `bevy_inspector_egui` integration can introspect live toasts
 //! during dev (the inspector plugin is not currently attached in
 //! `main.rs` — registration is forward-looking).
+//!
+//! PR-G (GRA-141) adds `context_link` so a body-click can route the
+//! player to the relevant context, and `PendingNotificationClicks`
+//! as the action-queue resource the render system pushes into.
 
 use bevy::prelude::*;
 
-use super::events::NotificationSeverity;
+use super::events::{NotificationContextLink, NotificationSeverity};
 use super::settings::NotificationCategoryId;
 use crate::ui::time::SimulationTime;
 
@@ -40,6 +44,18 @@ pub struct ActiveNotification {
     /// How many events have folded into this toast. PR-A starts at
     /// 1; PR-D increments on each subsequent match.
     pub count: u32,
+    /// PR-G (GRA-141): where a body-click on the toast should jump.
+    /// The render system reads this when it sees a click on the
+    /// toast body (not the dismiss button). `None` is the
+    /// common case for informational toasts.
+    ///
+    /// `#[reflect(ignore)]` because `NotificationContextLink`
+    /// intentionally does not implement `Reflect` (the `OpenMenu`
+    /// variant would force `GameMenu` to also implement
+    /// `Reflect`/`TypePath` — a separate, larger design change).
+    /// The field is consumed at click time, never inspected.
+    #[reflect(ignore)]
+    pub context_link: NotificationContextLink,
 }
 
 impl ActiveNotification {
@@ -59,6 +75,7 @@ impl ActiveNotification {
             sticky: event.sticky,
             dedup_key: event.dedup_key.clone(),
             count: 1,
+            context_link: event.context_link,
         }
     }
 }
@@ -82,5 +99,40 @@ impl PendingNotificationDismissal {
 
     pub fn drain(&mut self) -> std::vec::Drain<'_, u64> {
         self.to_dismiss.drain(..)
+    }
+}
+
+/// Action-queue decoupling for click-to-focus (PR-G, GRA-141).
+///
+/// The render system pushes a `(entity_bits, context_link)` pair when
+/// the player clicks the toast body (not the dismiss "×" button).
+/// The `click_handler` system in `Update` drains the queue and
+/// dispatches: `SelectBody` → insert `Selected` + switch to
+/// `GameMenu::Survey`; `OpenMenu` → switch `active_menu.current`;
+/// `SelectMission` / `None` → no-op. Mirrors the
+/// `PendingNotificationDismissal` pattern.
+#[derive(Resource, Debug, Default, Clone)]
+pub struct PendingNotificationClicks {
+    pub to_focus: Vec<PendingNotificationClick>,
+}
+
+/// One click-to-focus request. `entity_bits` is the packed
+/// `Entity::to_bits()` of the toast that was clicked; `context_link`
+/// is copied off the `ActiveNotification` at click time so the
+/// handler doesn't have to re-query the (now possibly despawned)
+/// entity.
+#[derive(Debug, Clone, Copy)]
+pub struct PendingNotificationClick {
+    pub entity_bits: u64,
+    pub context_link: NotificationContextLink,
+}
+
+impl PendingNotificationClicks {
+    pub fn push(&mut self, click: PendingNotificationClick) {
+        self.to_focus.push(click);
+    }
+
+    pub fn drain(&mut self) -> std::vec::Drain<'_, PendingNotificationClick> {
+        self.to_focus.drain(..)
     }
 }

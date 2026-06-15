@@ -171,7 +171,7 @@ fn refresh_seen_set(active: &Query<(Entity, &ActiveNotification)>, cache: &mut H
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ui::notifications::events::NotificationSeverity;
+    use crate::ui::notifications::events::{NotificationContextLink, NotificationSeverity};
     use crate::ui::notifications::settings::NotificationCategoryId;
     use crate::ui::time::SimulationTime;
 
@@ -208,6 +208,7 @@ mod tests {
                 sticky: false,
                 dedup_key: None,
                 count: 1,
+                context_link: NotificationContextLink::None,
             })
             .id();
 
@@ -240,6 +241,7 @@ mod tests {
                 sticky: true,
                 dedup_key: None,
                 count: 1,
+                context_link: NotificationContextLink::None,
             })
             .id();
 
@@ -269,6 +271,7 @@ mod tests {
                 sticky: false,
                 dedup_key: None,
                 count: 1,
+                context_link: NotificationContextLink::None,
             })
             .id();
 
@@ -361,6 +364,7 @@ mod tests {
             sticky: false,
             dedup_key: None,
             count: 1,
+            context_link: NotificationContextLink::None,
         });
 
         let mut schedule = bevy::prelude::Schedule::default();
@@ -411,6 +415,7 @@ mod tests {
             sticky: false,
             dedup_key: None,
             count: 1,
+            context_link: NotificationContextLink::None,
         });
 
         let mut schedule = bevy::prelude::Schedule::default();
