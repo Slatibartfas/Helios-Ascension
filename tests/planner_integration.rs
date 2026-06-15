@@ -269,7 +269,10 @@ fn earth_to_mars_interplanetary() {
     // textbook Hohmann).  Assert the orbit is sane instead: positive SMA in
     // the right ballpark for an interplanetary hop, and the tof matches.
     let sma = planned.transfer_orbit.semi_major_axis;
-    assert!(sma > 0.5, "transfer SMA should be interplanetary, got {sma}");
+    assert!(
+        sma > 0.5,
+        "transfer SMA should be interplanetary, got {sma}"
+    );
     assert!(sma < 50.0, "transfer SMA should be bounded, got {sma}");
     assert!(planned.duration_s > 86_400.0 * 200.0);
 }
