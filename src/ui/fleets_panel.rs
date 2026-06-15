@@ -419,19 +419,17 @@ pub(super) fn ui_fleets_panel(
             });
             if settings.show_all_fleet_trajectories {
                 ui.horizontal_wrapped(|ui| {
-                    ui.label(egui::RichText::new("Class filter:").size(11.0).color(theme::TEXT_DIM));
+                    ui.label(
+                        egui::RichText::new("Class filter:")
+                            .size(11.0)
+                            .color(theme::TEXT_DIM),
+                    );
                     ui.checkbox(
                         &mut settings.trajectory_class_filter.freighter,
                         "Freighters",
                     );
-                    ui.checkbox(
-                        &mut settings.trajectory_class_filter.combat,
-                        "Combat",
-                    );
-                    ui.checkbox(
-                        &mut settings.trajectory_class_filter.civilian,
-                        "Civilian",
-                    );
+                    ui.checkbox(&mut settings.trajectory_class_filter.combat, "Combat");
+                    ui.checkbox(&mut settings.trajectory_class_filter.civilian, "Civilian");
                 });
             }
 

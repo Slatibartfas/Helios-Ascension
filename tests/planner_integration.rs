@@ -27,7 +27,13 @@ use helios_ascension::ui::transfer_planner::build_planned_transfer;
 
 // ── Test helpers ──────────────────────────────────────────────────────────────
 
-fn test_body(name: &str, body_type: BodyType, mass: f64, radius: f32, visual_radius: f32) -> CelestialBody {
+fn test_body(
+    name: &str,
+    body_type: BodyType,
+    mass: f64,
+    radius: f32,
+    visual_radius: f32,
+) -> CelestialBody {
     CelestialBody {
         name: name.to_string(),
         radius,
@@ -391,7 +397,13 @@ fn interstellar_proxima_to_sol() {
     let fleet = Fleet::new("Return Probe".to_string());
     let orbit = FleetOrbit::new(proxima_planet, 0.0001);
     // Multi-century interstellar transfer.
-    let option = dummy_option("Interstellar", 50_000.0, 86_400.0 * 365.25 * 800.0, 134_000.0, 0.99);
+    let option = dummy_option(
+        "Interstellar",
+        50_000.0,
+        86_400.0 * 365.25 * 800.0,
+        134_000.0,
+        0.99,
+    );
 
     let mut body_query_state = world.query::<(
         Entity,
