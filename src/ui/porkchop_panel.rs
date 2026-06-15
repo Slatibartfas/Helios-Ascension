@@ -262,21 +262,31 @@ fn sample_colormap(stops: &[crate::fleets::PorkchopColorStop], dv_km_s: f64) -> 
     if stops.is_empty() {
         return Color32::GRAY;
     }
-    if stops.len() == 1 {
-        return theme::color32_from_rgba(stops[0].rgba);
-    }
+    // Below the first stop: clamp to the first stop's colour.
     if dv_km_s <= stops[0].delta_v_km_s {
         return theme::color32_from_rgba(stops[0].rgba);
     }
+    // Walk adjacent stop pairs; the last stop is the +∞ sentinel and
+    // colours everything above the last finite stop.
     for window in stops.windows(2) {
         let a = &window[0];
         let b = &window[1];
-        if dv_km_s >= a.delta_v_km_s && dv_km_s <= b.delta_v_km_s {
-            let span = (b.delta_v_km_s - a.delta_v_km_s).max(f64::MIN_POSITIVE);
-            let t = ((dv_km_s - a.delta_v_km_s) / span) as f32;
+        if dv_km_s <= b.delta_v_km_s {
+            // +∞ sentinel: the b stop *is* the colour above the last
+            // finite ΔV — no interpolation, no division by +INF.
+            if !b.delta_v_km_s.is_finite() {
+                return theme::color32_from_rgba(b.rgba);
+            }
+            let span = b.delta_v_km_s - a.delta_v_km_s;
+            let t = if span > 0.0 {
+                ((dv_km_s - a.delta_v_km_s) / span) as f32
+            } else {
+                0.0
+            };
             return theme::lerp_rgba(a.rgba, b.rgba, t);
         }
     }
+    // Above the last stop (defensive — the +∞ branch should have caught it).
     theme::color32_from_rgba(stops.last().unwrap().rgba)
 }
 
