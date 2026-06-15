@@ -4668,6 +4668,7 @@ fn build_planned_transfer_lp(
 #[cfg(test)]
 mod tests {
     use super::build_planned_transfer;
+    use super::transfer_absolute_position;
     use crate::astronomy::components::SystemId;
     use crate::astronomy::orbit_position_from_mean_anomaly;
     use crate::astronomy::{KeplerOrbit, SpaceCoordinates};
