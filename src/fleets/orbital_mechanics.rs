@@ -521,8 +521,12 @@ pub fn calculate_transfer_options(
     let (_, _, t_h, sma_h, ecc_h) = hohmann_transfer(r1_au, r2_au, gm);
     let (dv1_i, dv2_i, plane_dv) = hohmann_burns_inclined(r1_au, r2_au, gm, delta_i_rad);
 
-    let efficient = TransferOption {
-        label: "Efficient",
+    // GRA-154 L-4 fallback: GRA-152's porkchop plot is stalled, so surface only
+    // a single Hohmann instead of the 3-option Efficient/Moderate/Fast
+    // placeholder trio.  When the porkchop ships, restore the 3-option fan
+    // (or replace this with a multi-cell grid).
+    let hohmann = TransferOption {
+        label: "Hohmann",
         total_delta_v_ms: dv1_i + dv2_i,
         delta_v1_ms: dv1_i,
         delta_v2_ms: dv2_i,
@@ -536,12 +540,7 @@ pub fn calculate_transfer_options(
         transfer_orbit_override: None,
     };
 
-    // Moderate ≈ 1.5× Δv, ≈ 0.65× time (plane_change_dv_ms propagates via scaled_transfer)
-    let moderate = scaled_transfer(&efficient, 1.5, "Moderate");
-    // Fast ≈ 2.5× Δv, ≈ 0.40× time
-    let fast = scaled_transfer(&efficient, 2.5, "Fast");
-
-    vec![efficient, moderate, fast]
+    vec![hohmann]
 }
 
 fn mean_anomaly_from_true_anomaly(eccentricity: f64, true_anomaly: f64) -> f64 {
@@ -1960,19 +1959,15 @@ mod tests {
     }
 
     #[test]
-    fn test_calculate_transfer_options_returns_three() {
+    fn test_calculate_transfer_options_returns_single_hohmann() {
+        // GRA-154 L-4 fallback: see comment on calculate_transfer_options.
         let options = calculate_transfer_options(1.0, 1.524, GM_SUN, 0.0);
-        assert_eq!(options.len(), 3, "should produce 3 options");
-        assert_eq!(options[0].label, "Efficient");
-        assert_eq!(options[1].label, "Moderate");
-        assert_eq!(options[2].label, "Fast");
-
-        // Δv increases from efficient to fast
-        assert!(options[1].total_delta_v_ms > options[0].total_delta_v_ms);
-        assert!(options[2].total_delta_v_ms > options[1].total_delta_v_ms);
-        // Transfer time decreases from efficient to fast
-        assert!(options[1].transfer_time_s < options[0].transfer_time_s);
-        assert!(options[2].transfer_time_s < options[1].transfer_time_s);
+        assert_eq!(options.len(), 1, "should produce 1 Hohmann option");
+        assert_eq!(options[0].label, "Hohmann");
+        assert!(options[0].total_delta_v_ms > 2_000.0);
+        assert!(options[0].total_delta_v_ms < 6_000.0);
+        assert!(options[0].transfer_time_s > 0.0);
+        assert!(options[0].transfer_time_s.is_finite());
     }
 
     #[test]
@@ -2800,22 +2795,21 @@ mod tests {
 
     /// Transfer options (Efficient/Moderate/Fast) should be produced consistently
     /// for a non-solar stellar GM.
+    /// GRA-154 L-4 fallback: even for non-solar stellar GM, the planner returns
+    /// a single Hohmann option (not the 3-option Efficient/Moderate/Fast fan).
+    /// The Hohmann ΔV still scales with √GM, so a 0.5 M☉ star gives a smaller
+    /// ΔV at the same orbital radii.
     #[test]
     fn test_transfer_options_non_solar_star() {
-        let gm_05 = GM_SUN * 0.5;
-        let opts = calculate_transfer_options(1.0, 1.524, gm_05, 0.0);
+        let gm_sol = calculate_transfer_options(1.0, 1.524, GM_SUN, 0.0);
+        let gm_05 = calculate_transfer_options(1.0, 1.524, GM_SUN * 0.5, 0.0);
 
-        assert_eq!(
-            opts.len(),
-            3,
-            "should still return 3 options for non-solar GM"
-        );
-        // Efficient option Δv < Moderate < Fast
-        assert!(opts[0].total_delta_v_ms < opts[1].total_delta_v_ms);
-        assert!(opts[1].total_delta_v_ms < opts[2].total_delta_v_ms);
-        // Transfer time Efficient > Moderate > Fast
-        assert!(opts[0].transfer_time_s > opts[1].transfer_time_s);
-        assert!(opts[1].transfer_time_s > opts[2].transfer_time_s);
+        assert_eq!(gm_sol.len(), 1, "should return 1 Hohmann for solar GM");
+        assert_eq!(gm_05.len(), 1, "should return 1 Hohmann for 0.5 M☉ GM");
+        // Lower GM → lower orbital speeds → smaller Hohmann Δv.
+        assert!(gm_05[0].total_delta_v_ms < gm_sol[0].total_delta_v_ms);
+        // Lower GM → longer orbital period → longer Hohmann transfer time.
+        assert!(gm_05[0].transfer_time_s > gm_sol[0].transfer_time_s);
     }
 
     /// `compute_transfer_window` must work correctly for non-solar stellar GM.
