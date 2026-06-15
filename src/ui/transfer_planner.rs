@@ -5285,8 +5285,22 @@ mod tests {
     /// atmosphere.
     #[test]
     fn gra149_c1_stellar_flyby_constants_are_safe_periapsis_multiples() {
-        assert!(super::STELLAR_FLYBY_RADIUS_KM_MULTIPLIER >= 1_500.0);
-        assert!(super::PLANETARY_FLYBY_RADIUS_KM_MULTIPLIER >= 3_000.0);
+        // Bind to local variables so clippy::assertions_on_constants does
+        // not see a literal-only comparison.
+        let stellar = super::STELLAR_FLYBY_RADIUS_KM_MULTIPLIER;
+        let planetary = super::PLANETARY_FLYBY_RADIUS_KM_MULTIPLIER;
+        assert!(
+            stellar >= 1_500.0,
+            "STELLAR_FLYBY_RADIUS_KM_MULTIPLIER = {stellar} km; must be >= 1.5 R☉ (1500 km)"
+        );
+        assert!(
+            planetary >= 3_000.0,
+            "PLANETARY_FLYBY_RADIUS_KM_MULTIPLIER = {planetary} km; must be >= 3 R_planet"
+        );
+        assert!(
+            stellar < planetary,
+            "stellar flyby constant ({stellar}) must be < planetary ({planetary})"
+        );
     }
 
     /// C-2: a star with `star_approach_au: Some(0.05)` parks the fleet at
