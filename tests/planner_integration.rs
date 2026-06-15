@@ -162,7 +162,7 @@ fn moon_to_earth_downward_transfer() {
         .id();
 
     let fleet = Fleet::new("Lunar Return".to_string());
-    let orbit = FleetOrbit::new(moon, 0.0001); // ~3× Earth-radius parking
+    let orbit = FleetOrbit::new(moon, 0.0001); // ~3× Earth-radius parking (low Earth orbit scale)
     let option = dummy_option("Efficient", 1_000.0, 86_400.0 * 3.0, 0.05, 0.2);
 
     let mut body_query_state = world.query::<(
@@ -193,12 +193,10 @@ fn moon_to_earth_downward_transfer() {
     assert_eq!(planned.destination_body, earth);
     // Downward: reference frame is the planet (Earth).
     assert_eq!(planned.reference_frame, TransferReferenceFrame::Body(earth));
-    // Parking-orbit radius at the destination body (Earth).  The planner
-    // pins this to the fleet's parking radius, which the test sets to 0.0001
-    // AU; we assert it lands well within lunar orbit rather than over-fitting
-    // on the exact value.
+    // Arrival parking-orbit radius reuses the fleet's parking radius at the
+    // origin body; the planner does not rescale it for downward transfers.
     assert!(planned.arrival_orbit_radius_au > 0.0);
-    assert!(planned.arrival_orbit_radius_au < 0.01);
+    assert!(planned.arrival_orbit_radius_au < 0.01); // parking orbit, well within lunar orbit
 }
 
 // ── Test 3: Earth → Mars (interplanetary) ─────────────────────────────────────
@@ -265,15 +263,13 @@ fn earth_to_mars_interplanetary() {
     // Reference frame is the Sun (shared central body).
     assert_eq!(planned.reference_frame, TransferReferenceFrame::Body(sun));
     assert_eq!(planned.orbit_center, sun);
-    // Transfer orbit SMA is interplanetary (between Earth and Mars orbits) and
-    // bounded.  The test bodies are co-radial at mean anomaly 0, so the
-    // Lambert geometry isn't a textbook Hohmann; assert a sanity band
-    // instead of the exact `(Earth_SMA + Mars_SMA) / 2 = 1.262` value.
+    // The same-star Lambert solver returns *a* feasible transfer orbit for the
+    // given phase angle and tof; we don't pin the SMA to a specific Hohmann
+    // value (the test bodies are co-radial so the Lambert geometry isn't a
+    // textbook Hohmann).  Assert the orbit is sane instead: positive SMA in
+    // the right ballpark for an interplanetary hop, and the tof matches.
     let sma = planned.transfer_orbit.semi_major_axis;
-    assert!(
-        sma > 0.5,
-        "transfer SMA should be interplanetary, got {sma}"
-    );
+    assert!(sma > 0.5, "transfer SMA should be interplanetary, got {sma}");
     assert!(sma < 50.0, "transfer SMA should be bounded, got {sma}");
     assert!(planned.duration_s > 86_400.0 * 200.0);
 }
