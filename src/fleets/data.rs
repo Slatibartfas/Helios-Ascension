@@ -113,7 +113,10 @@ mod tests {
     #[test]
     fn porkchop_config_default_validates() {
         let cfg = PorkchopConfig::default();
-        assert!(cfg.validate().is_ok(), "default PorkchopConfig should validate");
+        assert!(
+            cfg.validate().is_ok(),
+            "default PorkchopConfig should validate"
+        );
     }
 
     #[test]

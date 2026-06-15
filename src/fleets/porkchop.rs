@@ -11,9 +11,7 @@
 //! on GRA-152.  See `src/fleets/components.rs` for the loader-side structs.
 
 use super::components::{PorkchopConfig, ResolvedPorkchopParams};
-use super::orbital_mechanics::{
-    solve_lambert_transfer, MAX_CURVED_CROSS_STAR_TRANSFER_TIME_S,
-};
+use super::orbital_mechanics::{solve_lambert_transfer, MAX_CURVED_CROSS_STAR_TRANSFER_TIME_S};
 use crate::astronomy::orbit_position_from_mean_anomaly;
 use crate::astronomy::KeplerOrbit;
 use bevy::math::DVec3;
@@ -126,10 +124,10 @@ pub fn build_porkchop_grid_with_params(
         inputs.dest_orbit.semi_major_axis,
         inputs.system_gm,
     );
-    let tof_min_s = (params.tof_min_hohmann_factor * tof_h)
-        .max(params.tof_floor_days * SECONDS_PER_DAY);
-    let tof_max_s = (params.tof_max_hohmann_factor * tof_h)
-        .min(params.tof_ceiling_years * SECONDS_PER_YEAR);
+    let tof_min_s =
+        (params.tof_min_hohmann_factor * tof_h).max(params.tof_floor_days * SECONDS_PER_DAY);
+    let tof_max_s =
+        (params.tof_max_hohmann_factor * tof_h).min(params.tof_ceiling_years * SECONDS_PER_YEAR);
 
     let cols = params.resolution_t_dep.max(2);
     let rows = params.resolution_tof.max(2);
@@ -188,8 +186,7 @@ fn dep_window_bounds(inputs: &PorkchopInputs, params: &ResolvedPorkchopParams) -
     let n2 = inputs.dest_orbit.mean_motion;
     let tof = hohmann_time_s(r1, r2, inputs.system_gm);
     let phi_req = (PI - n2 * tof).rem_euclid(TAU);
-    let phi_curr = (inputs.dest_orbit.mean_anomaly_epoch
-        - inputs.origin_orbit.mean_anomaly_epoch)
+    let phi_curr = (inputs.dest_orbit.mean_anomaly_epoch - inputs.origin_orbit.mean_anomaly_epoch)
         .rem_euclid(TAU);
     let d_phi_dt = n2 - n1;
     if d_phi_dt.abs() < 1e-25 {
