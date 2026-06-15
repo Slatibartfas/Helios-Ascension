@@ -65,6 +65,28 @@ pub enum ShipClass {
     Station,
 }
 
+/// Coarse 3-bucket classification used by [`Settings::show_all_fleet_trajectories`]
+/// to filter the system-map trajectory overlay (GRA-154 M-7).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum FleetClass {
+    Freighter,
+    Combat,
+    Civilian,
+}
+
+impl ShipClass {
+    /// Coarse fleet-class bucket for the trajectory overlay filter.
+    pub fn fleet_class(self) -> FleetClass {
+        match self {
+            ShipClass::Freighter => FleetClass::Freighter,
+            ShipClass::Frigate | ShipClass::Destroyer | ShipClass::Cruiser => FleetClass::Combat,
+            ShipClass::Courier | ShipClass::ResearchVessel | ShipClass::Station => {
+                FleetClass::Civilian
+            }
+        }
+    }
+}
+
 impl ShipClass {
     /// Human-readable display name.
     pub fn display_name(self) -> &'static str {

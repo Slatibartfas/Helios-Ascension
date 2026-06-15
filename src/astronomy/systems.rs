@@ -493,7 +493,11 @@ pub const VISUAL_SPEED_BASE: f64 = std::f64::consts::TAU;
 ///   2× BASE  → ~1.7× BASE
 ///   10× BASE → ~3.3× BASE
 ///   100× BASE → ~5.6× BASE
-fn capped_visual_speed(effective_speed: f64) -> f64 {
+///
+/// Public so fleet parking orbits (`src/fleets/systems.rs`) can apply the
+/// same visual cap as orbital bodies, keeping parking fleets and their host
+/// bodies visually synchronized at all game speeds.
+pub fn capped_visual_speed(effective_speed: f64) -> f64 {
     if effective_speed <= VISUAL_SPEED_BASE {
         effective_speed
     } else {

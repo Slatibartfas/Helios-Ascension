@@ -316,6 +316,30 @@ impl Fleet {
     pub fn has_freighter_ship(&self) -> bool {
         self.ships.iter().any(|s| s.class == ShipClass::Freighter)
     }
+
+    /// Coarse 3-bucket classification for the trajectory overlay filter
+    /// (GRA-154 M-7).  Returns the first non-civilian bucket found, or
+    /// `Civilian` if every ship is civilian.  An empty fleet defaults to
+    /// `Civilian`.
+    pub fn fleet_class(&self) -> super::types::FleetClass {
+        use super::types::FleetClass;
+        let mut freighter = false;
+        let mut combat = false;
+        for s in &self.ships {
+            match s.class.fleet_class() {
+                FleetClass::Freighter => freighter = true,
+                FleetClass::Combat => combat = true,
+                FleetClass::Civilian => {}
+            }
+            if freighter {
+                return FleetClass::Freighter;
+            }
+            if combat {
+                return FleetClass::Combat;
+            }
+        }
+        FleetClass::Civilian
+    }
 }
 
 /// Stable circular parking orbit for a fleet around a celestial body.

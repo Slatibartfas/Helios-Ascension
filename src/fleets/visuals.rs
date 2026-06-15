@@ -7,6 +7,7 @@ use bevy::time::Real;
 use super::components::{
     ActiveManeuver, Fleet, FleetOrbit, PlannedTransfer, TransferReferenceFrame,
 };
+use super::types::FleetClass;
 use crate::astronomy::components::FloatingOrigin;
 use crate::astronomy::{
     orbit_position_from_mean_anomaly, KeplerOrbit, LocalOrbitAmplification, SpaceCoordinates,
@@ -1404,12 +1405,25 @@ pub fn draw_fleet_trajectories(
     fleet_ui_state.waiting_orbit_count = 0;
 
     for (entity, fleet, maneuver, maybe_orbit) in fleet_query.iter() {
-        // In System view only draw for the selected fleet, in Starmap always draw.
-        if *view_mode == ViewMode::System {
+        // In System view, by default only draw the selected fleet's trajectory.
+        // The player can opt in to drawing every in-transit fleet (filtered by
+        // class) via Settings.show_all_fleet_trajectories (GRA-154 M-7).
+        // Starmap view always draws every fleet.
+        if *view_mode == ViewMode::System && !settings.show_all_fleet_trajectories {
             match fleet_ui_state.selected_fleet {
                 Some(sel) if entity != sel => continue,
                 None => continue, // No fleet selected → hide all trajectories
                 _ => {}
+            }
+        } else if *view_mode == ViewMode::System {
+            // show_all_fleet_trajectories == true: apply the per-class filter.
+            let allow = match fleet.fleet_class() {
+                FleetClass::Freighter => settings.trajectory_class_filter.freighter,
+                FleetClass::Combat => settings.trajectory_class_filter.combat,
+                FleetClass::Civilian => settings.trajectory_class_filter.civilian,
+            };
+            if !allow {
+                continue;
             }
         }
 

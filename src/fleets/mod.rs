@@ -34,7 +34,7 @@ pub use orbital_mechanics::{
 };
 pub use systems::activate_scheduled_departures;
 pub use systems::DayOneFleetSpawned;
-pub use types::{FleetRole, PropulsionType, ShipClass};
+pub use types::{FleetClass, FleetRole, PropulsionType, ShipClass};
 pub use visuals::FleetMesh;
 
 /// Plugin that adds the fleet management system to the Bevy app.

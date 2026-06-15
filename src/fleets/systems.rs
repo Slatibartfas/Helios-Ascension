@@ -12,7 +12,7 @@ use super::components::{
 use super::orbital_mechanics::AU_IN_METERS;
 use super::types::{PropulsionType, ShipClass};
 use super::visuals::predict_body_physics_pos;
-use crate::astronomy::{orbit_position_from_mean_anomaly, KeplerOrbit, SpaceCoordinates};
+use crate::astronomy::{capped_visual_speed, orbit_position_from_mean_anomaly, KeplerOrbit, SpaceCoordinates};
 use crate::plugins::solar_system::{CelestialBody, LogicalParent};
 use crate::plugins::solar_system_data::BodyType;
 use crate::shipbuilding::ShipbuildingData;
@@ -187,13 +187,21 @@ pub fn update_fleet_orbit_positions(
         real_time.delta_secs_f64()
     };
 
+    // Scale the parking orbit rate by the current game time scale, then apply
+    // the same `capped_visual_speed` curve used for orbital bodies so that
+    // parking fleets stay visually synchronized with the body they orbit at
+    // all game speeds (previously the rate was gameplay-fixed and parking
+    // fleets kept spinning at a constant rate even at 1 year/s).
+    let effective_parking_rate =
+        capped_visual_speed(VISUAL_ORBIT_RATE * time_scale.scale as f64);
+
     for (mut fleet_sc, mut orbit) in fleet_query.iter_mut() {
         // Advance the visual orbital angle at a slow, legible rate.
         // `orbit.direction` is +1 (CCW/prograde) or -1 (CW/retrograde) and is set
         // at insertion to match the arrival arc's tangent direction.
         // direction == 0.0 marks an LP-stationed fleet whose angle is frozen.
         if orbit.direction != 0.0 {
-            orbit.angle_rad = (orbit.angle_rad + orbit.direction * VISUAL_ORBIT_RATE * real_delta)
+            orbit.angle_rad = (orbit.angle_rad + orbit.direction * effective_parking_rate * real_delta)
                 .rem_euclid(std::f64::consts::TAU);
         }
 

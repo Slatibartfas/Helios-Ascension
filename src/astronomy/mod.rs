@@ -42,10 +42,10 @@ pub use selection::{
     zoom_camera_to_anchored_body, RingHighlight,
 };
 pub use systems::{
-    check_natural_destruction, draw_orbit_paths, fade_destroyed_bodies, manage_comet_tail_meshes,
-    orbit_position_from_mean_anomaly, propagate_orbits, sync_floating_origin_to_anchor,
-    update_body_lod_visibility, update_orbit_visibility, update_render_transform,
-    update_tail_transforms, SCALING_FACTOR,
+    capped_visual_speed, check_natural_destruction, draw_orbit_paths, fade_destroyed_bodies,
+    manage_comet_tail_meshes, orbit_position_from_mean_anomaly, propagate_orbits,
+    sync_floating_origin_to_anchor, update_body_lod_visibility, update_orbit_visibility,
+    update_render_transform, update_tail_transforms, SCALING_FACTOR,
 };
 
 /// Plugin that adds astronomy systems to the Bevy app
