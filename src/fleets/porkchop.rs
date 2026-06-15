@@ -279,22 +279,33 @@ fn solve_cell(
             }
             // ΔV₁ is the burn from the origin body's parking-orbit speed up
             // to the transfer-ellipse departure speed.  We approximate the
-            // total as |v_inf_dep| + |v_inf_arr|, which is the standard
-            // porkchop convention (the parking-orbit ΔV is a small additive
-            // constant the planner adds separately via `max_delta_v_ms`).
+            // total as |v_dep| + |v_arr|, where:
+            //   * |v_dep| = (v1 − v_circ_dep) if v1 > v_circ_dep (transfer
+            //     ellipse moves *faster* than the parking orbit at r1,
+            //     e.g. perihelion of a Hohmann); 0 otherwise (rare).
+            //   * |v_arr| = (v_circ_arr − v2) if v_circ_arr > v2 (parking
+            //     at the destination is *faster* than the transfer ellipse
+            //     at aphelion, e.g. Hohmann arrival at Mars); 0 otherwise
+            //     (a faster-than-circular arrival — i.e. we're braking into
+            //     a sub-circular parking orbit, which the planner handles
+            //     as a separate `max_delta_v_ms` budget).
+            // The two are added because they happen at opposite ends of the
+            // transfer arc — total ΔV is the per-burn magnitude sum, the
+            // standard porkchop convention.
             let r2_m = (dest_pos_au * super::orbital_mechanics::AU_IN_METERS).length();
             let v_circ_arr_ms = (inputs.system_gm / r2_m).sqrt();
             let v2_speed_ms = v2_ms.length();
-            let v_inf_arr_ms = (v2_speed_ms - v_circ_arr_ms).max(0.0);
-            let total = v_inf_dep_ms + v_inf_arr_ms;
+            let dep_burn_ms = (v1_speed_ms - v_circ_ms).max(0.0);
+            let arr_burn_ms = (v_circ_arr_ms - v2_speed_ms).max(0.0);
+            let total = dep_burn_ms + arr_burn_ms;
             PorkchopCell {
                 t_dep_s,
                 tof_s,
                 total_dv_ms: total,
                 c3_departure: c3,
-                v_inf_arrival_ms: v_inf_arr_ms,
-                delta_v1_ms: v_inf_dep_ms,
-                delta_v2_ms: v_inf_arr_ms,
+                v_inf_arrival_ms: arr_burn_ms,
+                delta_v1_ms: dep_burn_ms,
+                delta_v2_ms: arr_burn_ms,
                 feasible: true,
                 origin_pos_au,
                 dest_pos_au,
