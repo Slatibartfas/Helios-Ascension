@@ -3690,10 +3690,10 @@ fn build_planned_transfer(
             // the barycentric endpoint computation and the final arrival_radius
             // selection below.
             let star_mass = dest_body.mass; // destination IS the star
-            // planet_sma_au (the origin body's star-centric SMA) is the departure
-            // distance.  Do NOT use orbit.radius_au — that is the fleet's local
-            // parking orbit radius and would make the outward/inward direction check
-            // incorrect in the star frame.
+                                            // planet_sma_au (the origin body's star-centric SMA) is the departure
+                                            // distance.  Do NOT use orbit.radius_au — that is the fleet's local
+                                            // parking orbit radius and would make the outward/inward direction check
+                                            // incorrect in the star frame.
             let planet_sma_au = origin_ko.map(|ko| ko.semi_major_axis).unwrap_or(1.0);
             let approach_au = star_approach_radius_au(dest_body);
             // For transfers that head *outward* (planet_sma_au < approach_au), the
