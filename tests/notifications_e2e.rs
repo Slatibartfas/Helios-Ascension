@@ -27,9 +27,9 @@
 //!    `count` bump was silently dropped. The fix: write one event
 //!    per `app.update()` so the next frame's query sees the
 //!    previously-spawned entity. `pause_on_event_toasts` has the
-//!    same shape: three `app.update()` calls (prime cache → fire
-//!    + deferred spawn + empty-query scan → live-entity scan that
-//!    actually pauses).
+//!    same shape — three `app.update()` calls (prime cache; fire
+//!    plus deferred spawn plus empty-query scan; live-entity scan
+//!    that actually pauses).
 //!
 //! # Stacked-PR scope
 //!
