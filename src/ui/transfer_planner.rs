@@ -84,6 +84,110 @@ fn is_stellar_mass(mass_kg: f64) -> bool {
     gm >= MIN_STELLAR_GM
 }
 
+/// Compute the Hill-sphere radius (AU) of a secondary body orbiting a much more
+/// massive primary. `a_au` is the secondary's orbital radius around the primary,
+/// `m_secondary_kg` is the secondary's mass, and `m_primary_kg` is the primary's
+/// mass.  Used to position L1 (inner) and L2 (outer) Lagrange points along the
+/// primary-secondary radial.
+#[inline]
+fn hill_radius_au(a_au: f64, m_secondary_kg: f64, m_primary_kg: f64) -> f64 {
+    if m_primary_kg <= 0.0 || a_au <= 0.0 {
+        return 0.0;
+    }
+    a_au * (m_secondary_kg / (3.0 * m_primary_kg)).powf(1.0 / 3.0)
+}
+
+/// Build a `LagrangeTarget` for L1 or L2 of a secondary body around its primary.
+///
+/// The label rendered in the transfer-planner picker is the LGD-locked format
+/// `🛰 L{n} ({secondary}-{primary})` (e.g. `🛰 L1 (Earth-Sol)`,
+/// `🛰 L1 (Moon-Earth)`) — see GRA-155 Q3.
+fn build_lagrange_target(
+    point: u8,
+    secondary_entity: Entity,
+    secondary_name: &str,
+    secondary_sma_au: f64,
+    secondary_mass_kg: f64,
+    primary_mass_kg: f64,
+) -> LagrangeTarget {
+    let r_hill = hill_radius_au(secondary_sma_au, secondary_mass_kg, primary_mass_kg);
+    let radius_au = match point {
+        1 => secondary_sma_au - r_hill,
+        2 => secondary_sma_au + r_hill,
+        _ => secondary_sma_au,
+    };
+    LagrangeTarget {
+        point,
+        planet_entity: secondary_entity,
+        planet_name: secondary_name.to_string(),
+        planet_sma_au: secondary_sma_au,
+        radius_au,
+        gm: G_CONST * primary_mass_kg,
+    }
+}
+
+/// Build the picker-row label for a Lagrange point using the LGD-locked Q3
+/// format from GRA-155:
+/// - **Sun-Planet**: `🛰 L1 (Earth-Sol)` — `{secondary}-{star}`.
+/// - **Planet-Moon**: `🛰 L1 (Earth-Moon)` — `{planet}-{moon}` (central first,
+///   per the LGD memo).  The system label is `{central}-{secondary}`.
+fn lagrange_picker_label(lp: &LagrangeTarget, central_name: &str, central_is_star: bool) -> String {
+    if central_is_star {
+        format!("🛰 L{} ({}-{})", lp.point, lp.planet_name, central_name)
+    } else {
+        format!("🛰 L{} ({}-{})", lp.point, central_name, lp.planet_name)
+    }
+}
+
+/// Compute the L1 and L2 [`LagrangeTarget`]s for a secondary body orbiting
+/// `host_entity`.  Returns `(l1, l2, host_name)` for the picker, or `None` if
+/// the body is not in a 2-body (host, mass) configuration we can solve.
+///
+/// - **Planet around Star** → Sun-Planet L1/L2 (`direct_lp_transfer_options`)
+/// - **Moon around Planet** → Planet-Moon L1/L2 (`co_orbital_phasing_options`)
+///
+/// `body_sma_au` is the secondary's orbital radius around the host (heliocentric
+/// for a planet, planet-centric for a moon).
+fn lagrange_targets_for_body(
+    body_entity: Entity,
+    body_query: &Query<(
+        Entity,
+        &CelestialBody,
+        &SpaceCoordinates,
+        Option<&KeplerOrbit>,
+        Option<&LogicalParent>,
+    )>,
+    host_entity: Entity,
+    body_sma_au: f64,
+) -> Option<(LagrangeTarget, LagrangeTarget, String)> {
+    let (_, host_body, _, _, _) = body_query.get(host_entity).ok()?;
+    let (_, sec_body, _, _, _) = body_query.get(body_entity).ok()?;
+    if host_body.body_type == BodyType::Star
+        && !matches!(sec_body.body_type, BodyType::Planet | BodyType::GasGiant)
+    {
+        // A body whose LogicalParent points at a star is a planet/gas-giant:
+        // Sun-Planet L1/L2.  Skip dwarfs/moons whose parent is a star.
+        return None;
+    }
+    let l1 = build_lagrange_target(
+        1,
+        body_entity,
+        &sec_body.name,
+        body_sma_au,
+        sec_body.mass,
+        host_body.mass,
+    );
+    let l2 = build_lagrange_target(
+        2,
+        body_entity,
+        &sec_body.name,
+        body_sma_au,
+        sec_body.mass,
+        host_body.mass,
+    );
+    Some((l1, l2, host_body.name.clone()))
+}
+
 /// Walk up the `LogicalParent` chain from `start_entity` until a `BodyType::Star`
 /// entity is found.  Returns `(star_entity, star_mass_kg)` or `None` if no stellar
 /// ancestor exists within a reasonable depth.
@@ -583,8 +687,8 @@ pub(super) fn render_transfer_planner(
             entity: Entity,
             name: String,
         },
-        // TODO(lagrange-transfers): variant kept so the match arm compiles; re-enable construction when ready.
-        #[allow(dead_code)]
+        // Lagrange-point destination. Built from `LagrangeTarget` so the planner
+        // can compute the transfer orbit without an L-point ECS entity.
         Lagrange {
             lp: LagrangeTarget,
         },
@@ -668,7 +772,26 @@ pub(super) fn render_transfer_planner(
             .filter(|(_, _, parent, _)| *parent == Some(orbit.body))
             .cloned()
             .collect();
-        if !local.is_empty() || !local_rings.is_empty() {
+
+        // L1/L2 of the current body itself: if it has a host (star for a planet,
+        // planet for a moon), emit both Lagrange rows.  Done unconditionally —
+        // the fleet can target its current body's L-points even if the system
+        // has no local moons to display.
+        let mut orbit_body_lagrange: Vec<(LagrangeTarget, String)> = Vec::new();
+        if let Ok((_, _, _, ob_ko, ob_parent)) = body_query.get(orbit.body) {
+            if let (Some(host_e), Some(sma)) =
+                (ob_parent.map(|p| p.0), ob_ko.map(|k| k.semi_major_axis))
+            {
+                if let Some((l1, l2, host_name)) =
+                    lagrange_targets_for_body(orbit.body, body_query, host_e, sma)
+                {
+                    orbit_body_lagrange.push((l1, host_name.clone()));
+                    orbit_body_lagrange.push((l2, host_name));
+                }
+            }
+        }
+
+        if !local.is_empty() || !local_rings.is_empty() || !orbit_body_lagrange.is_empty() {
             local.sort_by(|a, b| a.2.partial_cmp(&b.2).unwrap_or(std::cmp::Ordering::Equal));
             local_rings.sort_by(|a, b| a.3.partial_cmp(&b.3).unwrap_or(std::cmp::Ordering::Equal));
             dest_entries.push(DestEntry::Header(format!("{orbit_body_name} System")));
@@ -683,11 +806,13 @@ pub(super) fn render_transfer_planner(
                     dest_entries.push(DestEntry::Ring { entity: e, name });
                 }
             }
+            // Sun-Planet or Planet-Moon L1/L2 of the current body.  Pushed last
+            // so the per-body destinations (children) read first and the
+            // system-level Lagrange rows sit at the bottom of the group.
+            for (lp, _host_name) in &orbit_body_lagrange {
+                dest_entries.push(DestEntry::Lagrange { lp: lp.clone() });
+            }
         }
-
-        // TODO(lagrange-transfers): Re-enable Sun-Planet and Planet-Moon Lagrange
-        // point entries in this dropdown once transfer planning is working.
-        // Search for TODO(lagrange-transfers) to find all related disabled code.
     }
 
     // ── Groups 2+: planet systems (moons/rings orbiting a planet that isn't fleet's body) ──
@@ -752,7 +877,7 @@ pub(super) fn render_transfer_planner(
     });
 
     let mut planets_shown = std::collections::HashSet::<Entity>::new();
-    for (planet_name, (parent_e, _parent_sma, mut children)) in sorted_planet_systems {
+    for (planet_name, (parent_e, parent_sma, mut children)) in sorted_planet_systems {
         planets_shown.insert(parent_e);
         children.sort_by(|a, b| a.2.partial_cmp(&b.2).unwrap_or(std::cmp::Ordering::Equal));
         dest_entries.push(DestEntry::Header(format!("{planet_name} System")));
@@ -775,8 +900,35 @@ pub(super) fn render_transfer_planner(
                 });
             }
         }
-        // TODO(lagrange-transfers): Re-enable planet and moon Lagrange point
-        // sub-groups in this dropdown once transfer planning is working.
+
+        // Sun-Planet L1/L2 of the host planet.  `parent_sma` is the planet's
+        // heliocentric SMA (the planet's own orbit around its star).  We need
+        // the planet's host (the star) to read its mass for the Hill-sphere
+        // and to populate the picker label.
+        if let Ok((_, _, _, _, planet_parent_lp)) = body_query.get(parent_e) {
+            if let Some(star_e) = planet_parent_lp.map(|p| p.0) {
+                if let Some((l1, l2, _star_name)) =
+                    lagrange_targets_for_body(parent_e, body_query, star_e, parent_sma)
+                {
+                    dest_entries.push(DestEntry::Lagrange { lp: l1 });
+                    dest_entries.push(DestEntry::Lagrange { lp: l2 });
+                }
+            }
+        }
+
+        // Planet-Moon L1/L2 of each child moon in this system.  `child_sma_au`
+        // is the moon's planet-centric SMA; the host is the planet itself.
+        for (child_e, _child_name, child_sma_au, is_ring) in &children {
+            if *is_ring {
+                continue;
+            }
+            if let Some((l1, l2, _planet_name)) =
+                lagrange_targets_for_body(*child_e, body_query, parent_e, *child_sma_au)
+            {
+                dest_entries.push(DestEntry::Lagrange { lp: l1 });
+                dest_entries.push(DestEntry::Lagrange { lp: l2 });
+            }
+        }
     }
 
     // ── Group: Planets/GasGiants not yet shown (no children found in data) ───
@@ -1174,7 +1326,14 @@ pub(super) fn render_transfer_planner(
     });
 
     let target_label = if let Some(ref lp) = fleet_ui_state.target_lagrange {
-        format!("L{} {} — {}", lp.point, lp.planet_name, lp.qualifier())
+        let (host_name, host_is_star) = body_query
+            .get(lp.planet_entity)
+            .ok()
+            .and_then(|(_, _, _, _, host_lp)| host_lp)
+            .and_then(|host| body_query.get(host.0).ok())
+            .map(|(_, hb, _, _, _)| (hb.name.clone(), hb.body_type == BodyType::Star))
+            .unwrap_or_default();
+        lagrange_picker_label(lp, &host_name, host_is_star)
     } else if let Some(tf) = fleet_ui_state.target_fleet {
         all_fleets_query
             .get(tf)
@@ -1266,14 +1425,47 @@ pub(super) fn render_transfer_planner(
                                         fleet_ui_state.selected_gravity_assist = None;
                                     }
                                 }
-                                DestEntry::Lagrange { lp: _ } => {
-                                    // TODO(lagrange-transfers): Lagrange-point transfers are
-                                    // temporarily disabled. The LP markers are still rendered
-                                    // and selectable for viewing, but cannot be chosen as a
-                                    // fleet transfer destination until the transfer planner
-                                    // for L-points is fully working. Re-enable by restoring
-                                    // the DestEntry::Lagrange branch here and in
-                                    // ui_lp_click_handler / astronomy::systems::hover_lagrange_points.
+                                DestEntry::Lagrange { lp } => {
+                                    first_sub = false;
+                                    // Look up the host body (the star for Sun-Planet L-points,
+                                    // the planet for Planet-Moon L-points) so the picker row
+                                    // matches the LGD Q3 format `🛰 L{n} ({system})`.
+                                    let (host_name, host_is_star) = body_query
+                                        .get(lp.planet_entity)
+                                        .ok()
+                                        .and_then(|(_, _, _, _, host_lp)| host_lp)
+                                        .and_then(|host| body_query.get(host.0).ok())
+                                        .map(|(_, hb, _, _, _)| {
+                                            (hb.name.clone(), hb.body_type == BodyType::Star)
+                                        })
+                                        .unwrap_or_default();
+                                    let row_label =
+                                        lagrange_picker_label(lp, &host_name, host_is_star);
+                                    let selected = fleet_ui_state
+                                        .target_lagrange
+                                        .as_ref()
+                                        .map(|cur| {
+                                            cur.point == lp.point
+                                                && cur.planet_entity == lp.planet_entity
+                                        })
+                                        .unwrap_or(false);
+                                    if ui
+                                        .selectable_label(
+                                            selected,
+                                            egui::RichText::new(row_label).size(12.0),
+                                        )
+                                        .clicked()
+                                        && !selected
+                                    {
+                                        fleet_ui_state.target_lagrange = Some(lp.clone());
+                                        fleet_ui_state.target_body = None;
+                                        fleet_ui_state.target_fleet = None;
+                                        fleet_ui_state.target_star_system = None;
+                                        fleet_ui_state.computed_options.clear();
+                                        fleet_ui_state.planned_transfer = None;
+                                        fleet_ui_state.selected_option = 0;
+                                        fleet_ui_state.selected_gravity_assist = None;
+                                    }
                                 }
                                 DestEntry::FleetTarget {
                                     entity,
@@ -4669,6 +4861,7 @@ fn build_planned_transfer_lp(
 mod tests {
     use super::build_planned_transfer;
     use super::transfer_absolute_position;
+    use super::{build_lagrange_target, hill_radius_au, lagrange_picker_label};
     use crate::astronomy::components::SystemId;
     use crate::astronomy::orbit_position_from_mean_anomaly;
     use crate::astronomy::{KeplerOrbit, SpaceCoordinates};
@@ -5720,6 +5913,131 @@ mod tests {
             "boundary distance must be consistent: got {}, expected {}",
             boundary_distance,
             expected
+        );
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // GRA-156 (M-5): Lagrange-point transfer unit tests — one per L-point type.
+    //
+    // Locks the LGD Q3 format from GRA-155:
+    //   Sun-Planet  → `🛰 L{n} ({planet}-{star})`     e.g. `🛰 L1 (Earth-Sol)`
+    //   Planet-Moon → `🛰 L{n} ({planet}-{moon})`     e.g. `🛰 L1 (Earth-Moon)`
+    // and the Hill-sphere placement of L1 / L2 around the secondary body.
+    // ─────────────────────────────────────────────────────────────────────────
+
+    const EARTH_MASS_KG: f64 = 5.972e24;
+    const LUNA_MASS_KG: f64 = 7.342e22;
+    const SOL_MASS_KG: f64 = 1.989e30;
+    const EARTH_SMA_AU: f64 = 1.0;
+    const LUNA_SMA_AU: f64 = 0.00257;
+
+    fn earth_entity() -> Entity {
+        Entity::from_raw_u32(0xE0_01).expect("non-zero entity id")
+    }
+    fn luna_entity() -> Entity {
+        Entity::from_raw_u32(0xE0_02).expect("non-zero entity id")
+    }
+
+    #[test]
+    fn lagrange_sun_planet_l1_sits_inside_hill_sphere() {
+        let r_hill = hill_radius_au(EARTH_SMA_AU, EARTH_MASS_KG, SOL_MASS_KG);
+        // Earth-Moon and Earth-Sun commonly cited: Earth Hill radius ≈ 0.01 AU.
+        assert!(
+            r_hill > 0.005 && r_hill < 0.02,
+            "Earth Hill sphere should be ~0.01 AU, got {r_hill}"
+        );
+
+        let lp = build_lagrange_target(
+            1,
+            earth_entity(),
+            "Earth",
+            EARTH_SMA_AU,
+            EARTH_MASS_KG,
+            SOL_MASS_KG,
+        );
+        assert_eq!(lp.point, 1);
+        assert_eq!(lp.planet_name, "Earth");
+        assert!(
+            (lp.radius_au - (EARTH_SMA_AU - r_hill)).abs() < 1e-12,
+            "L1 should be at planet_sma - r_hill, got {}",
+            lp.radius_au
+        );
+        assert!(lp.gm > 0.0);
+        // Sun-Planet L1 picker label per GRA-155 Q3.
+        assert_eq!(lagrange_picker_label(&lp, "Sol", true), "🛰 L1 (Earth-Sol)");
+    }
+
+    #[test]
+    fn lagrange_sun_planet_l2_sits_outside_hill_sphere() {
+        let r_hill = hill_radius_au(EARTH_SMA_AU, EARTH_MASS_KG, SOL_MASS_KG);
+        let lp = build_lagrange_target(
+            2,
+            earth_entity(),
+            "Earth",
+            EARTH_SMA_AU,
+            EARTH_MASS_KG,
+            SOL_MASS_KG,
+        );
+        assert_eq!(lp.point, 2);
+        assert!(
+            (lp.radius_au - (EARTH_SMA_AU + r_hill)).abs() < 1e-12,
+            "L2 should be at planet_sma + r_hill, got {}",
+            lp.radius_au
+        );
+        assert_eq!(lagrange_picker_label(&lp, "Sol", true), "🛰 L2 (Earth-Sol)");
+    }
+
+    #[test]
+    fn lagrange_planet_moon_l1_sits_inside_hill_sphere() {
+        let r_hill = hill_radius_au(LUNA_SMA_AU, LUNA_MASS_KG, EARTH_MASS_KG);
+        // Lunar Hill sphere around Earth ≈ 0.0004 AU (≈ 60 000 km).
+        assert!(
+            r_hill > 0.0002 && r_hill < 0.0010,
+            "Luna Hill sphere should be ~0.0004 AU, got {r_hill}"
+        );
+
+        let lp = build_lagrange_target(
+            1,
+            luna_entity(),
+            "Moon",
+            LUNA_SMA_AU,
+            LUNA_MASS_KG,
+            EARTH_MASS_KG,
+        );
+        assert_eq!(lp.point, 1);
+        assert_eq!(lp.planet_name, "Moon");
+        assert!(
+            (lp.radius_au - (LUNA_SMA_AU - r_hill)).abs() < 1e-12,
+            "L1 should be at moon_sma - r_hill, got {}",
+            lp.radius_au
+        );
+        // Planet-Moon picker label per GRA-155 Q3 — central first.
+        assert_eq!(
+            lagrange_picker_label(&lp, "Earth", false),
+            "🛰 L1 (Earth-Moon)"
+        );
+    }
+
+    #[test]
+    fn lagrange_planet_moon_l2_sits_outside_hill_sphere() {
+        let r_hill = hill_radius_au(LUNA_SMA_AU, LUNA_MASS_KG, EARTH_MASS_KG);
+        let lp = build_lagrange_target(
+            2,
+            luna_entity(),
+            "Moon",
+            LUNA_SMA_AU,
+            LUNA_MASS_KG,
+            EARTH_MASS_KG,
+        );
+        assert_eq!(lp.point, 2);
+        assert!(
+            (lp.radius_au - (LUNA_SMA_AU + r_hill)).abs() < 1e-12,
+            "L2 should be at moon_sma + r_hill, got {}",
+            lp.radius_au
+        );
+        assert_eq!(
+            lagrange_picker_label(&lp, "Earth", false),
+            "🛰 L2 (Earth-Moon)"
         );
     }
 }
