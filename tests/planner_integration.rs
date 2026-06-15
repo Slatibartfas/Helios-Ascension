@@ -41,6 +41,7 @@ fn test_body(
         body_type,
         visual_radius,
         asteroid_class: None,
+        star_approach_au: None,
     }
 }
 
