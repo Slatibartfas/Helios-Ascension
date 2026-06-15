@@ -309,6 +309,15 @@ fn format_cell_tooltip(cell: &PorkchopCell) -> String {
 mod tests {
     use super::*;
 
+    /// Apply the same premultiplied-alpha transform that
+    /// `egui::Color32::from_rgba_unmultiplied` does internally, so tests
+    /// can compare a `Color32` against a raw `(r, g, b, a)` tuple.
+    fn premul(rgba: (u8, u8, u8, u8)) -> (u8, u8, u8, u8) {
+        let (r, g, b, a) = rgba;
+        let premul = |v: u8, alpha: u8| -> u8 { (v as f32 * alpha as f32 / 255.0).round() as u8 };
+        (premul(r, a), premul(g, a), premul(b, a), a)
+    }
+
     #[test]
     fn sample_colormap_interpolates_between_stops() {
         let cfg = PorkchopConfig::default();
@@ -324,18 +333,25 @@ mod tests {
     fn sample_colormap_clamp_below_first_stop() {
         let cfg = PorkchopConfig::default();
         // -1.0 km/s clamps to the first stop (delta_v_km_s = 0.0).
+        // Compare against the raw RGBA tuple on the first stop rather
+        // than `c.r()` / `c.g()` because `Color32::from_rgba_unmultiplied`
+        // stores premultiplied values internally — `c.r()` returns
+        // `round(r * a / 255)`, not the raw `r`.
+        let stop = cfg.colormap.first().expect("default colormap has stops");
         let c = sample_colormap(&cfg.colormap, -1.0);
-        assert_eq!(c.r(), 40);
-        assert_eq!(c.g(), 200);
+        assert_eq!((c.r(), c.g(), c.b(), c.a()), premul(stop.rgba));
     }
 
     #[test]
     fn sample_colormap_clamp_above_last_finite_stop() {
         let cfg = PorkchopConfig::default();
         // 1000 km/s clamps to the +∞ stop (60, 60, 60, 180).
+        let stop = cfg
+            .colormap
+            .iter()
+            .find(|s| !s.delta_v_km_s.is_finite())
+            .expect("default colormap has +∞ sentinel stop");
         let c = sample_colormap(&cfg.colormap, 1000.0);
-        assert_eq!(c.r(), 60);
-        assert_eq!(c.g(), 60);
-        assert_eq!(c.b(), 60);
+        assert_eq!((c.r(), c.g(), c.b(), c.a()), premul(stop.rgba));
     }
 }
