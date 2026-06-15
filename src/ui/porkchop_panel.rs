@@ -16,9 +16,10 @@
 //!   * Out-of-budget cells stay visible (greyed).
 
 use super::theme;
-use crate::fleets::porkchop::{PorkchopCell, PorkchopConfig, PorkchopGrid};
+use crate::fleets::porkchop::{PorkchopCell, PorkchopGrid};
+use crate::fleets::PorkchopConfig;
 use bevy::prelude::*;
-use egui::{self, Color32, Pos2, Rect, Response, Sense, Stroke, Ui, Vec2};
+use bevy_egui::egui::{self, Color32, Pos2, Rect, Response, Sense, Stroke, Ui, Vec2};
 
 pub(crate) const SECONDS_PER_DAY: f64 = 86_400.0;
 pub(crate) const SECONDS_PER_YEAR: f64 = 365.25 * SECONDS_PER_DAY;
@@ -295,7 +296,6 @@ fn format_cell_tooltip(cell: &PorkchopCell) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fleets::components::PorkchopConfig;
 
     #[test]
     fn sample_colormap_interpolates_between_stops() {
