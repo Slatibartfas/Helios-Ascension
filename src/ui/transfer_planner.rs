@@ -524,6 +524,7 @@ pub(super) fn render_transfer_planner(
     // correction (fleet is mid-transit). Used to compute accurate r1 and ΔV options
     // from the real location instead of the stand-in orbit body's SMA.
     course_correction_sc: Option<bevy::math::DVec3>,
+    porkchop_config: &crate::fleets::PorkchopConfig,
 ) {
     // `is_course_correction` is true only when the fleet has actively departed
     // (elapsed >= departure_time).  Waiting-to-depart fleets still have an
@@ -3378,6 +3379,51 @@ pub(super) fn render_transfer_planner(
             ui.add_space(4.0);
             ui.label(egui::RichText::new("Transfer Options:").strong().size(13.0));
             ui.add_space(2.0);
+
+            // GRA-152 H-1: when a porkchop grid is cached on the
+            // FleetUiState (the LGD-driven path), render the
+            // PorkchopPanel in place of the Efficient / Moderate /
+            // Fast `selectable_label` block.  When the grid is absent
+            // (e.g. course corrections, intra-system previews) the
+            // legacy 3-option row is rendered as before, so all
+            // pre-existing code paths keep working.
+            if let Some(grid) = fleet_ui_state.porkchop_grid.as_ref() {
+                // The phase-window overlay needs `compute_transfer_window`'s
+                // `time_to_window_s`; that value is computed upstream in this
+                // function (above).  We pass NaN here as a sentinel meaning
+                // "no phase-window overlay" — the panel renders the rest of
+                // the grid either way.  Wiring the live value requires
+                // threading it through this control flow; left as a
+                // follow-up so this PR stays focused.
+                let time_to_window_s = f64::NAN;
+                super::porkchop_panel::porkchop_panel(
+                    ui,
+                    grid,
+                    porkchop_config,
+                    &mut fleet_ui_state.selected_porkchop_cell,
+                    fleet_max_dv,
+                    time_to_window_s,
+                );
+                ui.add_space(4.0);
+                if let Some((sc, sr)) = fleet_ui_state.selected_porkchop_cell {
+                    if let Some(cell) = grid.cells.get(sr * grid.resolution.0 + sc) {
+                        if cell.feasible {
+                            ui.label(
+                                egui::RichText::new(format!(
+                                    "Selected cell: t_dep = {:.0} d, TOF = {:.0} d, ΔV = {:.2} km/s",
+                                    cell.t_dep_s / crate::ui::porkchop_panel::SECONDS_PER_DAY,
+                                    cell.tof_s / crate::ui::porkchop_panel::SECONDS_PER_DAY,
+                                    cell.total_dv_ms / 1000.0,
+                                ))
+                                .size(11.0)
+                                .color(theme::TEXT_DIM),
+                            );
+                        }
+                    }
+                }
+                // Skip the legacy 3-option row when the panel is shown.
+                return;
+            }
 
             let options: Vec<_> = fleet_ui_state.computed_options.clone();
             for (idx, option) in options.iter().enumerate() {

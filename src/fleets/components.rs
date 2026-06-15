@@ -3,6 +3,7 @@
 use super::types::{FleetRole, PropulsionType, ShipClass};
 use crate::astronomy::KeplerOrbit;
 use bevy::prelude::*;
+use serde::{Deserialize, Serialize};
 
 /// Summary information about a single ship within a fleet.
 #[derive(Debug, Clone)]
@@ -716,4 +717,155 @@ pub struct HistoricalProbe {
     pub agency: &'static str,
     /// Calendar year the probe launched (UTC).
     pub launch_year: u16,
+}
+
+// === Porkchop plot (H-1) — GRA-152 ============================================
+//
+// RON-driven replacement for the Efficient/Moderate/Fast placeholder options
+// in the transfer planner. A porkchop is a contour plot of total ΔV (or
+// departure C3) over the (t_dep, t_tof) plane; the player picks a cell, the
+// planner converts that cell to a real Lambert conic, and the executed arc
+// finally agrees with the displayed ΔV. The LGD-owned RON schema lives in
+// `assets/data/porkchop_config.ron`; the Rust types below are its loader
+// shape and the resource that `DataLoaderPlugin` registers at Startup.
+
+/// Default grid bounds for a transfer (used when no per-category override
+/// matches).  All times are in seconds; distances are in AU; C3 is in
+/// (km/s)².  The defaults match the LGD RON file's `defaults` block.
+#[derive(Debug, Clone, Serialize, Deserialize, Resource)]
+pub struct PorkchopConfig {
+    pub defaults: PorkchopGridDefaults,
+    #[serde(default)]
+    pub category_overrides: Vec<PorkchopCategoryOverride>,
+    pub colormap: Vec<PorkchopColorStop>,
+    #[serde(default)]
+    pub contour_levels_km_s: Vec<f64>,
+    pub display_max_dv_km_s: f64,
+}
+
+/// Conservative defaults used when no `PorkchopCategoryOverride` matches.
+/// Times are seconds; distances are AU; C3 is (km/s)².
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PorkchopGridDefaults {
+    /// ±`t_dep_window_days / 2` around the optimal Hohmann window.
+    pub t_dep_window_days: f64,
+    pub tof_min_hohmann_factor: f64,
+    pub tof_max_hohmann_factor: f64,
+    pub tof_floor_days: f64,
+    pub tof_ceiling_years: f64,
+    pub resolution_t_dep: usize,
+    pub resolution_tof: usize,
+    pub c3_ceiling_km2_s2: f64,
+}
+
+/// Per-category override.  Matched top-down against
+/// `PorkchopMetric` transfer category, first hit wins.  Unknown
+/// `match_key`s fall through to `defaults`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PorkchopCategoryOverride {
+    pub match_key: String,
+    pub t_dep_window_days: f64,
+    pub tof_min_hohmann_factor: f64,
+    pub tof_max_hohmann_factor: f64,
+    pub tof_floor_days: f64,
+    pub tof_ceiling_years: f64,
+    pub resolution_t_dep: usize,
+    pub resolution_tof: usize,
+    pub c3_ceiling_km2_s2: f64,
+}
+
+/// One stop in the porkchop ΔV → RGBA colormap.  Linear interpolation
+/// between adjacent stops.  The last stop's `delta_v_km_s` is treated as
+/// the +∞ sentinel and is used to colour infeasible cells.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct PorkchopColorStop {
+    pub delta_v_km_s: f64,
+    pub rgba: (u8, u8, u8, u8),
+}
+
+impl Default for PorkchopConfig {
+    fn default() -> Self {
+        Self {
+            defaults: PorkchopGridDefaults {
+                t_dep_window_days: 60.0,
+                tof_min_hohmann_factor: 0.4,
+                tof_max_hohmann_factor: 2.5,
+                tof_floor_days: 5.0,
+                tof_ceiling_years: 10.0,
+                resolution_t_dep: 40,
+                resolution_tof: 30,
+                c3_ceiling_km2_s2: 400.0,
+            },
+            category_overrides: Vec::new(),
+            colormap: vec![
+                PorkchopColorStop {
+                    delta_v_km_s: 0.0,
+                    rgba: (40, 200, 80, 220),
+                },
+                PorkchopColorStop {
+                    delta_v_km_s: 4.0,
+                    rgba: (220, 200, 60, 220),
+                },
+                PorkchopColorStop {
+                    delta_v_km_s: 8.0,
+                    rgba: (230, 140, 40, 220),
+                },
+                PorkchopColorStop {
+                    delta_v_km_s: 15.0,
+                    rgba: (220, 60, 60, 220),
+                },
+                PorkchopColorStop {
+                    delta_v_km_s: f64::INFINITY,
+                    rgba: (60, 60, 60, 180),
+                },
+            ],
+            contour_levels_km_s: vec![3.0, 5.0, 8.0, 12.0],
+            display_max_dv_km_s: 20.0,
+        }
+    }
+}
+
+impl PorkchopConfig {
+    /// Resolve the effective grid bounds for a transfer category.
+    /// Returns `(t_dep_window_days, tof_{min,max}_hohmann_factor, tof_floor_days,
+    /// tof_ceiling_years, resolution_{t_dep,tof}, c3_ceiling_km2_s2)`.
+    pub fn resolve(&self, category: &str) -> ResolvedPorkchopParams {
+        for ov in &self.category_overrides {
+            if ov.match_key == category {
+                return ResolvedPorkchopParams {
+                    t_dep_window_days: ov.t_dep_window_days,
+                    tof_min_hohmann_factor: ov.tof_min_hohmann_factor,
+                    tof_max_hohmann_factor: ov.tof_max_hohmann_factor,
+                    tof_floor_days: ov.tof_floor_days,
+                    tof_ceiling_years: ov.tof_ceiling_years,
+                    resolution_t_dep: ov.resolution_t_dep,
+                    resolution_tof: ov.resolution_tof,
+                    c3_ceiling_km2_s2: ov.c3_ceiling_km2_s2,
+                };
+            }
+        }
+        ResolvedPorkchopParams {
+            t_dep_window_days: self.defaults.t_dep_window_days,
+            tof_min_hohmann_factor: self.defaults.tof_min_hohmann_factor,
+            tof_max_hohmann_factor: self.defaults.tof_max_hohmann_factor,
+            tof_floor_days: self.defaults.tof_floor_days,
+            tof_ceiling_years: self.defaults.tof_ceiling_years,
+            resolution_t_dep: self.defaults.resolution_t_dep,
+            resolution_tof: self.defaults.resolution_tof,
+            c3_ceiling_km2_s2: self.defaults.c3_ceiling_km2_s2,
+        }
+    }
+}
+
+/// Resolved grid bounds returned by `PorkchopConfig::resolve`.
+#[derive(Debug, Clone, Copy)]
+pub struct ResolvedPorkchopParams {
+    pub t_dep_window_days: f64,
+    pub tof_min_hohmann_factor: f64,
+    pub tof_max_hohmann_factor: f64,
+    pub tof_floor_days: f64,
+    pub tof_ceiling_years: f64,
+    pub resolution_t_dep: usize,
+    pub resolution_tof: usize,
+    pub c3_ceiling_km2_s2: f64,
 }

@@ -9,8 +9,10 @@
 use bevy::prelude::*;
 
 pub mod components;
+pub mod data;
 pub mod historical_probes;
 pub mod orbital_mechanics;
+pub mod porkchop;
 pub mod systems;
 pub mod types;
 pub mod visuals;
@@ -18,8 +20,9 @@ pub mod visuals;
 pub use components::{
     ActiveManeuver, AssignLogisticsRequestAction, AssignShipsAction, CreateFleetFromShipsAction,
     Fleet, FleetOrbit, HistoricalProbe, HistoricalProbeKind, MergeFleetAction, PendingFleetActions,
-    PlannedTransfer, ShipInfo, ShipInstance, SpawnFleetAction, StartTransferAction,
-    TransferReferenceFrame,
+    PlannedTransfer, PorkchopCategoryOverride, PorkchopColorStop, PorkchopConfig,
+    PorkchopGridDefaults, ResolvedPorkchopParams, ShipInfo, ShipInstance, SpawnFleetAction,
+    StartTransferAction, TransferReferenceFrame,
 };
 pub use historical_probes::{HistoricalProbeScanState, HistoricalProbesSpawned};
 pub use orbital_mechanics::{
@@ -40,6 +43,7 @@ pub struct FleetPlugin;
 impl Plugin for FleetPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<PendingFleetActions>()
+            .add_systems(Startup, data::load_porkchop_config)
             .add_systems(
                 PostStartup,
                 (
