@@ -91,7 +91,8 @@ fn transfer_porkchop_cheapest_within_10pct_of_canonical_hohmann() {
 
     // A cheapest cell must exist — at least one cell in the default
     // resolution should be feasible.
-    grid.min_cell.expect("porkchop must have at least one feasible cell for Earth→Mars");
+    grid.min_cell
+        .expect("porkchop must have at least one feasible cell for Earth→Mars");
 
     // The Hohmann-time cell must be within 10 % of the canonical
     // 5.6 km/s.  We assert on the Hohmann cell (not the global min)
