@@ -70,6 +70,16 @@ impl Plugin for NotificationsPlugin {
             // `PendingNotificationDismissal` — the render
             // system pushes, the `click_to_focus` system drains.
             .init_resource::<PendingNotificationClicks>()
+            // Register the notification message bus. PR-C (GRA-137)
+            // bridges Survey / Construction / Research events into
+            // `Messages<NotificationEvent>`, and the render / tick /
+            // coalesce systems all read it back as
+            // `MessageReader<NotificationEvent>`. Bevy 0.18's
+            // `MessageReader` validation requires the bus to be
+            // registered with the `MessageRegistry` — without this
+            // call the systems panic on first dispatch in main with
+            // `Message not initialized`. Filed as GRA-146.
+            .add_message::<NotificationEvent>()
             .add_systems(Startup, load_notification_categories)
             // Settings panel (PR-E / GRA-139) — modal renderer, the
             // "Notifications" button in the top menu bar toggles its
