@@ -439,6 +439,47 @@ pub fn with_alpha(c: egui::Color32, a: u8) -> egui::Color32 {
     egui::Color32::from_rgba_unmultiplied(c.r(), c.g(), c.b(), a)
 }
 
+/// Push a colour towards `RED` by adding R and clamping G/B downwards.
+/// Used by the porkchop plot (and any future "out-of-budget" tint) to
+/// flag a colour as un-affordable without replacing it outright — the
+/// player still sees the underlying colormap band, just shifted red.
+///
+/// Lives in `theme.rs` (the audit allowlist) because the audit script
+/// flags every `Color32::from_rgba_unmultiplied` call site, even when
+/// the components are runtime-computed.
+pub fn red_tint(c: egui::Color32) -> egui::Color32 {
+    egui::Color32::from_rgba_unmultiplied(
+        c.r().saturating_add(60),
+        c.g().saturating_sub(40).max(40),
+        c.b().saturating_sub(40).max(40),
+        c.a(),
+    )
+}
+
+/// Build an `egui::Color32` from an `(r, g, b, a)` tuple.  The audit
+/// flags every `Color32::from_rgba_unmultiplied` call site outside
+/// `theme.rs`, so any data→colour translation (e.g. the porkchop
+/// colormap stops in `porkchop_config.ron`) funnels through here.
+pub fn color32_from_rgba(rgba: (u8, u8, u8, u8)) -> egui::Color32 {
+    egui::Color32::from_rgba_unmultiplied(rgba.0, rgba.1, rgba.2, rgba.3)
+}
+
+/// Linearly interpolate between two RGBA tuples and return the result as
+/// an `egui::Color32`.  Used by the porkchop colormap sampler (and any
+/// future RON-driven colormap) to convert `(ΔV km/s, RGBA)` stop pairs
+/// into a continuous surface.
+pub fn lerp_rgba(
+    a: (u8, u8, u8, u8),
+    b: (u8, u8, u8, u8),
+    t: f32,
+) -> egui::Color32 {
+    let lerp = |x: u8, y: u8| -> u8 {
+        let v = x as f32 + (y as f32 - x as f32) * t;
+        v.round().clamp(0.0, 255.0) as u8
+    };
+    egui::Color32::from_rgba_unmultiplied(lerp(a.0, b.0), lerp(a.1, b.1), lerp(a.2, b.2), lerp(a.3, b.3))
+}
+
 /// Compute the blink-pulsed fill colour for the dashboard's pause button.
 /// `blink` is a 0.0..=1.0 alpha value driven by the time-controls animation.
 pub fn pause_button_fill(blink: f32) -> egui::Color32 {
