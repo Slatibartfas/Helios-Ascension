@@ -14,6 +14,10 @@ src/ui/dossier_panel.rs:1406  egui::Color32::from_rgba_premultiplied(0, 0, 0, 80
 src/ui/dossier_panel.rs:2855  let fill_color = egui::Color32::from_rgba_premultiplied(
 src/ui/dossier_panel.rs:2877  egui::Color32::from_rgba_premultiplied(220, 230, 240, (180.0 * brightness) as u8),
 src/ui/fleets_panel.rs:171  egui::Color32::from_rgba_premultiplied(0, 140, 160, 42)
+src/ui/porkchop_panel.rs:265  Color32::from_rgba_unmultiplied(
+src/ui/porkchop_panel.rs:279  return Color32::from_rgba_unmultiplied(s.rgba.0, s.rgba.1, s.rgba.2, s.rgba.3);
+src/ui/porkchop_panel.rs:287  return Color32::from_rgba_unmultiplied(
+src/ui/porkchop_panel.rs:297  Color32::from_rgba_unmultiplied(last.rgba.0, last.rgba.1, last.rgba.2, last.rgba.3)
 src/ui/research_panel.rs:1278  egui::Color32::from_rgba_unmultiplied(13, 17, 23, 120),
 src/ui/research_panel.rs:1359  egui::Color32::from_rgba_unmultiplied(13, 17, 23, 120),
 src/ui/research_panel.rs:1459  .fill(egui::Color32::from_rgba_unmultiplied(13, 17, 23, 245))

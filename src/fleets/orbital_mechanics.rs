@@ -23,7 +23,7 @@ pub const G0: f64 = 9.806_65;
 /// enormous, ETAs run into geological timescales, and the preview becomes visually
 /// misleading. Beyond this horizon, the planner falls back to direct point-and-burn
 /// profiles instead of offering curved barycentric options.
-const MAX_CURVED_CROSS_STAR_TRANSFER_TIME_S: f64 = 500.0 * 365.25 * 86_400.0;
+pub(crate) const MAX_CURVED_CROSS_STAR_TRANSFER_TIME_S: f64 = 500.0 * 365.25 * 86_400.0;
 
 /// A transfer trajectory option for the player to choose between.
 #[derive(Debug, Clone)]

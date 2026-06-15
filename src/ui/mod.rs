@@ -30,6 +30,7 @@ mod economy_panel;
 mod fleets_panel;
 pub mod icons;
 pub mod notifications;
+mod porkchop_panel;
 mod research_panel;
 mod resources_bar;
 mod settings;
@@ -222,6 +223,13 @@ pub struct FleetUiState {
     pub selected_option: usize,
     /// Transfer options computed for the current (fleet, target) pair.
     pub computed_options: Vec<TransferOption>,
+    /// Cached porkchop grid for the current (fleet, target) pair.  When
+    /// `Some`, the transfer planner renders the `PorkchopPanel` in place
+    /// of the Efficient / Moderate / Fast `selectable_label` block.  When
+    /// `None`, the legacy 3-option row is rendered.  GRA-152 (H-1).
+    pub porkchop_grid: Option<crate::fleets::porkchop::PorkchopGrid>,
+    /// `(col, row)` index of the player-selected cell in `porkchop_grid`.
+    pub selected_porkchop_cell: Option<(usize, usize)>,
     /// Fully assembled transfer plan ready for execution (if any).
     pub planned_transfer: Option<PlannedTransfer>,
     /// Whether the floating Transfer Planner popup window is open.
@@ -262,6 +270,8 @@ impl FleetUiState {
         self.selected_dest_category = None;
         self.departure_offset_days = 0.0;
         self.computed_options.clear();
+        self.porkchop_grid = None;
+        self.selected_porkchop_cell = None;
         self.planned_transfer = None;
         self.selected_option = 0;
         self.gravity_assist_candidates.clear();

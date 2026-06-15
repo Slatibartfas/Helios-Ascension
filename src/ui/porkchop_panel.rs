@@ -241,18 +241,18 @@ fn draw_dashed_vertical(painter: &egui::Painter, x: f32, top: f32, bottom: f32, 
 
 fn cell_color(cell: &PorkchopCell, cfg: &PorkchopConfig, fleet_max_dv_ms: f64) -> Color32 {
     if !cell.feasible {
-        return Color32::from_rgba_unmultiplied(50, 50, 50, 180);
+        // Infeasible cell: muted dim grey, lower-alpha than the colormap
+        // stops so the player's eye is drawn to the feasible basin.
+        return theme::TEXT_HINT.linear_multiply(0.5);
     }
     let dv_km_s = (cell.total_dv_ms / 1000.0).clamp(0.0, cfg.display_max_dv_km_s);
     let c = sample_colormap(&cfg.colormap, dv_km_s);
-    // Mark out-of-budget cells (fleet ΔV too low) with a red tint
+    // Mark out-of-budget cells (fleet ΔV too low) with a red tint.
+    // We add a red offset to the colormap colour rather than swapping it
+    // outright so the player can still see *which* ΔV band the cell sits
+    // in even when it's unaffordable.
     if cell.total_dv_ms > fleet_max_dv_ms {
-        return Color32::from_rgba_unmultiplied(
-            c.r().saturating_add(60),
-            c.g().saturating_sub(40).max(40),
-            c.b().saturating_sub(40).max(40),
-            c.a(),
-        );
+        return theme::red_tint(c);
     }
     c
 }
@@ -262,8 +262,7 @@ fn sample_colormap(stops: &[crate::fleets::PorkchopColorStop], dv_km_s: f64) -> 
         return Color32::GRAY;
     }
     if stops.len() == 1 {
-        let s = &stops[0];
-        return Color32::from_rgba_unmultiplied(s.rgba.0, s.rgba.1, s.rgba.2, s.rgba.3);
+        return theme::color32_from_rgba(stops[0].rgba);
     }
     for window in stops.windows(2) {
         let a = &window[0];
@@ -271,22 +270,11 @@ fn sample_colormap(stops: &[crate::fleets::PorkchopColorStop], dv_km_s: f64) -> 
         if dv_km_s >= a.delta_v_km_s && dv_km_s <= b.delta_v_km_s {
             let span = (b.delta_v_km_s - a.delta_v_km_s).max(f64::MIN_POSITIVE);
             let t = ((dv_km_s - a.delta_v_km_s) / span) as f32;
-            return Color32::from_rgba_unmultiplied(
-                lerp_u8(a.rgba.0, b.rgba.0, t),
-                lerp_u8(a.rgba.1, b.rgba.1, t),
-                lerp_u8(a.rgba.2, b.rgba.2, t),
-                lerp_u8(a.rgba.3, b.rgba.3, t),
-            );
+            return theme::lerp_rgba(a.rgba, b.rgba, t);
         }
     }
     // Above the last finite stop or below the first: clamp.
-    let last = stops.last().unwrap();
-    Color32::from_rgba_unmultiplied(last.rgba.0, last.rgba.1, last.rgba.2, last.rgba.3)
-}
-
-fn lerp_u8(a: u8, b: u8, t: f32) -> u8 {
-    let v = a as f32 + (b as f32 - a as f32) * t;
-    v.round().clamp(0.0, 255.0) as u8
+    theme::color32_from_rgba(stops.last().unwrap().rgba)
 }
 
 fn format_cell_tooltip(cell: &PorkchopCell) -> String {

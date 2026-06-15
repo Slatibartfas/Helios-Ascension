@@ -1975,6 +1975,7 @@ pub(super) fn ui_transfer_planner_popup(
     sim_time: Res<SimulationTime>,
     current_system: Res<CurrentStarSystem>,
     nearby_stars: Res<NearbyStarsData>,
+    porkchop_config: Res<crate::fleets::PorkchopConfig>,
 ) {
     if !fleet_ui_state.show_transfer_popup {
         return;
@@ -2059,6 +2060,7 @@ pub(super) fn ui_transfer_planner_popup(
                         &nearby_stars,
                         sim_time.current_timestamp(),
                         course_correction_sc,
+                        &porkchop_config,
                     );
                 });
         });
