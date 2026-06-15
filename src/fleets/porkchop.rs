@@ -462,10 +462,10 @@ mod tests {
                 if !cell.feasible {
                     continue;
                 }
-                if lo.map_or(true, |c| cell.t_dep_s < c.t_dep_s) {
+                if lo.is_none_or(|c| cell.t_dep_s < c.t_dep_s) {
                     lo = Some(cell);
                 }
-                if hi.map_or(true, |c| cell.t_dep_s > c.t_dep_s) {
+                if hi.is_none_or(|c| cell.t_dep_s > c.t_dep_s) {
                     hi = Some(cell);
                 }
             }
