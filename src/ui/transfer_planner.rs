@@ -100,7 +100,7 @@ fn hill_radius_au(a_au: f64, m_secondary_kg: f64, m_primary_kg: f64) -> f64 {
 /// Build a `LagrangeTarget` for L1 or L2 of a secondary body around its primary.
 ///
 /// The label rendered in the transfer-planner picker is the LGD-locked format
-/// `🛰 L{n} ({secondary}-{primary})` (e.g. `🛰 L1 (Earth-Sol)`,
+/// `🛰 L{n} ({secondary}-{primary})` (e.g. `🛰 L1 (Earth-Sun)`,
 /// `🛰 L1 (Moon-Earth)`) — see GRA-155 Q3.
 fn build_lagrange_target(
     point: u8,
@@ -126,14 +126,26 @@ fn build_lagrange_target(
     }
 }
 
+/// Map a RON star name to its player-facing English label for picker rows.
+/// The RON keeps the IAU-style name (`Sol`) for data integrity; the UI uses
+/// the human-readable word (`Sun`) per the LGD Q3 lock on GRA-155.
+fn star_display_label(ron_name: &str) -> &str {
+    match ron_name {
+        "Sol" => "Sun",
+        other => other,
+    }
+}
+
 /// Build the picker-row label for a Lagrange point using the LGD-locked Q3
 /// format from GRA-155:
-/// - **Sun-Planet**: `🛰 L1 (Earth-Sol)` — `{secondary}-{star}`.
+/// - **Sun-Planet**: `🛰 L1 (Earth-Sun)` — `{secondary}-{star}`. The star
+///   uses its English display label (e.g. `Sun` for the RON star `Sol`).
 /// - **Planet-Moon**: `🛰 L1 (Earth-Moon)` — `{planet}-{moon}` (central first,
 ///   per the LGD memo).  The system label is `{central}-{secondary}`.
 fn lagrange_picker_label(lp: &LagrangeTarget, central_name: &str, central_is_star: bool) -> String {
     if central_is_star {
-        format!("🛰 L{} ({}-{})", lp.point, lp.planet_name, central_name)
+        let star = star_display_label(central_name);
+        format!("🛰 L{} ({}-{})", lp.point, lp.planet_name, star)
     } else {
         format!("🛰 L{} ({}-{})", lp.point, central_name, lp.planet_name)
     }
@@ -5920,7 +5932,7 @@ mod tests {
     // GRA-156 (M-5): Lagrange-point transfer unit tests — one per L-point type.
     //
     // Locks the LGD Q3 format from GRA-155:
-    //   Sun-Planet  → `🛰 L{n} ({planet}-{star})`     e.g. `🛰 L1 (Earth-Sol)`
+    //   Sun-Planet  → `🛰 L{n} ({planet}-{star})`     e.g. `🛰 L1 (Earth-Sun)`
     //   Planet-Moon → `🛰 L{n} ({planet}-{moon})`     e.g. `🛰 L1 (Earth-Moon)`
     // and the Hill-sphere placement of L1 / L2 around the secondary body.
     // ─────────────────────────────────────────────────────────────────────────
@@ -5964,7 +5976,7 @@ mod tests {
         );
         assert!(lp.gm > 0.0);
         // Sun-Planet L1 picker label per GRA-155 Q3.
-        assert_eq!(lagrange_picker_label(&lp, "Sol", true), "🛰 L1 (Earth-Sol)");
+        assert_eq!(lagrange_picker_label(&lp, "Sol", true), "🛰 L1 (Earth-Sun)");
     }
 
     #[test]
@@ -5984,7 +5996,7 @@ mod tests {
             "L2 should be at planet_sma + r_hill, got {}",
             lp.radius_au
         );
-        assert_eq!(lagrange_picker_label(&lp, "Sol", true), "🛰 L2 (Earth-Sol)");
+        assert_eq!(lagrange_picker_label(&lp, "Sol", true), "🛰 L2 (Earth-Sun)");
     }
 
     #[test]
