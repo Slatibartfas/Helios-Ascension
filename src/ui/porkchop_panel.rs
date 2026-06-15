@@ -309,9 +309,9 @@ fn format_cell_tooltip(cell: &PorkchopCell) -> String {
 mod tests {
     use super::*;
 
-    /// Apply the same premultiplied-alpha transform that
-    /// `egui::Color32::from_rgba_unmultiplied` does internally, so tests
-    /// can compare a `Color32` against a raw `(r, g, b, a)` tuple.
+    /// Apply the same premultiplied-alpha transform that the egui
+    /// unmultiplied RGBA constructor does internally, so tests can
+    /// compare a `Color32` against a raw `(r, g, b, a)` tuple.
     fn premul(rgba: (u8, u8, u8, u8)) -> (u8, u8, u8, u8) {
         let (r, g, b, a) = rgba;
         let premul = |v: u8, alpha: u8| -> u8 { (v as f32 * alpha as f32 / 255.0).round() as u8 };
@@ -334,9 +334,9 @@ mod tests {
         let cfg = PorkchopConfig::default();
         // -1.0 km/s clamps to the first stop (delta_v_km_s = 0.0).
         // Compare against the raw RGBA tuple on the first stop rather
-        // than `c.r()` / `c.g()` because `Color32::from_rgba_unmultiplied`
-        // stores premultiplied values internally — `c.r()` returns
-        // `round(r * a / 255)`, not the raw `r`.
+        // than `c.r()` / `c.g()` because egui stores premultiplied
+        // values internally — `c.r()` returns `round(r * a / 255)`,
+        // not the raw `r`.  See the `premul` helper above.
         let stop = cfg.colormap.first().expect("default colormap has stops");
         let c = sample_colormap(&cfg.colormap, -1.0);
         assert_eq!((c.r(), c.g(), c.b(), c.a()), premul(stop.rgba));
