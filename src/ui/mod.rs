@@ -41,7 +41,7 @@ mod tab;
 mod tech_tree;
 pub(super) mod theme;
 pub mod time;
-mod transfer_planner;
+pub mod transfer_planner;
 
 pub use settings::Settings;
 

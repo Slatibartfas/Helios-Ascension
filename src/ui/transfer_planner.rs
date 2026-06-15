@@ -132,7 +132,7 @@ fn is_inter_star_transfer(
     origin_host_star.is_some() && target_host_star.is_some() && origin_host_star != target_host_star
 }
 
-fn transfer_absolute_position(
+pub fn transfer_absolute_position(
     entity: Entity,
     sim_time_s: f64,
     body_query: &Query<(
@@ -3711,7 +3711,7 @@ pub(super) fn render_transfer_planner(
 }
 
 /// Build a `PlannedTransfer` from the selected transfer option and fleet/body state.
-pub(crate) fn build_planned_transfer(
+pub fn build_planned_transfer(
     _fleet_entity: Entity,
     fleet: &Fleet,
     orbit: &FleetOrbit,
