@@ -468,16 +468,17 @@ pub fn color32_from_rgba(rgba: (u8, u8, u8, u8)) -> egui::Color32 {
 /// an `egui::Color32`.  Used by the porkchop colormap sampler (and any
 /// future RON-driven colormap) to convert `(ΔV km/s, RGBA)` stop pairs
 /// into a continuous surface.
-pub fn lerp_rgba(
-    a: (u8, u8, u8, u8),
-    b: (u8, u8, u8, u8),
-    t: f32,
-) -> egui::Color32 {
+pub fn lerp_rgba(a: (u8, u8, u8, u8), b: (u8, u8, u8, u8), t: f32) -> egui::Color32 {
     let lerp = |x: u8, y: u8| -> u8 {
         let v = x as f32 + (y as f32 - x as f32) * t;
         v.round().clamp(0.0, 255.0) as u8
     };
-    egui::Color32::from_rgba_unmultiplied(lerp(a.0, b.0), lerp(a.1, b.1), lerp(a.2, b.2), lerp(a.3, b.3))
+    egui::Color32::from_rgba_unmultiplied(
+        lerp(a.0, b.0),
+        lerp(a.1, b.1),
+        lerp(a.2, b.2),
+        lerp(a.3, b.3),
+    )
 }
 
 /// Compute the blink-pulsed fill colour for the dashboard's pause button.
