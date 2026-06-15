@@ -103,11 +103,6 @@ use crate::research::{
     TechTreeEditState, TechnologiesData, Technology,
 };
 
-/// Semi-major axis threshold (AU) below which a body's orbit is considered
-/// non-heliocentric (e.g. a moon orbiting a planet rather than the star).
-/// Used when walking up the hierarchy to find the heliocentric SMA.
-const MIN_HELIOCENTRIC_SMA_AU: f64 = 0.05;
-
 /// Minimum supported window dimensions before showing the low-resolution warning.
 /// The UI is now intended to remain usable at 1280×720, even though larger
 /// windows still provide a better strategic overview.

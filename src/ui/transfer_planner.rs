@@ -28,6 +28,39 @@ const MIN_ORBITAL_RADIUS_AU: f64 = 0.001; // 1/1000 AU ≈ 149,600 km (inside Me
 /// A conservative minimum altitude above the atmosphere/surface.
 const PLANETARY_FLYBY_RADIUS_KM_MULTIPLIER: f64 = 3_000.0; // = 1_000 m/km × 3
 
+/// Safe gravity-assist periapsis scaling factor for **stellar** flyby bodies.
+///
+/// `1_000 m/km × 1.5` — 1.5× the star's photospheric radius, in m/km.  Stars are
+/// much larger and hotter than planets; a periapsis measured in stellar radii keeps
+/// the flyby outside the corona where solar wind / radiation pressure dominate and
+/// Δv cannot be modelled as a simple two-body assist.  This constant is the
+/// pair-buddy to [`PLANETARY_FLYBY_RADIUS_KM_MULTIPLIER`]; together they bracket
+/// the safe-periapsis formulas used by the gravity-assist planner.  Any future
+/// code path that considers a star as a flyby body MUST use this multiplier
+/// (not the planetary one) and MUST explicitly exclude stars from the GA
+/// candidate filter — see the gravity-assist filter in `compute_route_options`.
+#[allow(dead_code)] // Reserved for future stellar-flyby assist code (GRA-149 C-1).
+const STELLAR_FLYBY_RADIUS_KM_MULTIPLIER: f64 = 1_500.0; // = 1_000 m/km × 1.5 ≈ 1.5 R★
+
+/// Default star-approach parking radius (AU) used when a star entity has no
+/// per-body `star_approach_au` override.  0.3 AU is well outside the
+/// photospheres of all main-sequence stars but close enough that the planner
+/// can still display a meaningful arrival orbit.  GRA-149 C-2 makes this
+/// the global default; per-body overrides live in `CelestialBody.star_approach_au`
+/// (e.g. an M-dwarf can park at 0.05 AU above its surface).
+const STELLAR_APPROACH_AU: f64 = 0.3;
+
+/// Resolve the star-approach parking radius (AU) for a star body.
+///
+/// Returns `body.star_approach_au` if set (per-body override from RON or
+/// procedural data); otherwise falls back to [`STELLAR_APPROACH_AU`] (0.3 AU).
+/// Caller is responsible for clamping against the host planet's SMA to keep
+/// the parking orbit outside the origin planet.
+#[inline]
+fn star_approach_radius_au(body: &CelestialBody) -> f64 {
+    body.star_approach_au.unwrap_or(STELLAR_APPROACH_AU)
+}
+
 /// Returns `true` when `gm` is large enough to be a stellar-mass central body.
 ///
 /// Used to decide whether transfer-window phase angles should be read from
@@ -35,6 +68,19 @@ const PLANETARY_FLYBY_RADIUS_KM_MULTIPLIER: f64 = 3_000.0; // = 1_000 m/km × 3
 /// and whether gravity-assist candidates should be offered.
 #[inline]
 fn is_stellar_gm(gm: f64) -> bool {
+    gm >= MIN_STELLAR_GM
+}
+
+/// Returns `true` when `mass_kg` is large enough that the body is a stellar-mass
+/// central body (rather than a planet / moon).  This is the mass-domain twin of
+/// [`is_stellar_gm`] and is the GRA-149 C-3 replacement for the legacy
+/// SMA-threshold classifier.  Threshold = `MIN_STELLAR_GM / G ≈ 0.01 M☉` — well
+/// above Jupiter (~1.9 × 10²⁷ kg) and below the smallest hydrogen-fusing stars
+/// (~1.4 × 10²⁹ kg).  Use this whenever you need to ask "is this body a star
+/// in a class sense?" without going through `G·M`.
+#[inline]
+fn is_stellar_mass(mass_kg: f64) -> bool {
+    let gm = mass_kg * crate::fleets::orbital_mechanics::G_CONST;
     gm >= MIN_STELLAR_GM
 }
 
@@ -134,11 +180,18 @@ fn star_frame_reference_orbit(
         .get(body_entity)
         .ok()
         .and_then(|(_, _, _, ko, _)| ko.copied());
+    // GRA-149 C-3: a body owns its own reference orbit (i.e. it IS the host
+    // star) when its mass is stellar, not when its SMA is large enough.  The
+    // legacy 0.05 AU threshold mis-classified hot-Jupiters and any close-orbit
+    // planet, which then caused Δv errors of order M_star/M_planet because
+    // the planner treated the planet as a moon in the planet-local frame.
+    let own_mass_is_stellar = body_query
+        .get(body_entity)
+        .ok()
+        .map(|(_, b, _, _, _)| is_stellar_mass(b.mass))
+        .unwrap_or(false);
 
-    if own_orbit
-        .map(|orbit| orbit.semi_major_axis >= MIN_HELIOCENTRIC_SMA_AU)
-        .unwrap_or(false)
-    {
+    if own_mass_is_stellar {
         return own_orbit;
     }
 
@@ -791,8 +844,12 @@ pub(super) fn render_transfer_planner(
     // one "☀ Sol Approach" entry.  In binary / trinary systems each star gets
     // its own entry, enabling direct inter-star transfer planning and stellar
     // gravity-assist routes (e.g. Star A → Star B → Star C).
+    //
+    // GRA-149 C-2: the approach radius in the label is now sourced from the
+    // per-body `star_approach_au` override (or the 0.3 AU default) so the
+    // label matches the actual arrival parking radius used by the planner.
     {
-        let mut system_stars: Vec<(Entity, String)> = body_query
+        let mut system_stars: Vec<(Entity, String, f64)> = body_query
             .iter()
             .filter_map(|(e, b, _, _, _)| {
                 if b.body_type != BodyType::Star {
@@ -806,17 +863,17 @@ pub(super) fn render_transfer_planner(
                 {
                     return None;
                 }
-                Some((e, b.name.clone()))
+                Some((e, b.name.clone(), star_approach_radius_au(b)))
             })
             .collect();
         // Stable sort by name so order is deterministic across frames.
         system_stars.sort_by(|a, b| a.1.cmp(&b.1));
         if !system_stars.is_empty() {
             dest_entries.push(DestEntry::Header("Star Approach".to_string()));
-            for (star_e, star_name) in system_stars {
+            for (star_e, star_name, approach_au) in system_stars {
                 dest_entries.push(DestEntry::Body {
                     entity: star_e,
-                    name: format!("☀ {} Approach (0.3 AU)", star_name),
+                    name: format!("☀ {} Approach ({:.2} AU)", star_name, approach_au),
                 });
             }
         }
@@ -1327,27 +1384,36 @@ pub(super) fn render_transfer_planner(
                 .unwrap_or(bevy::math::DVec3::ZERO);
             let r2_au = target_sc.length().max(0.001);
 
-            // r1: heliocentric distance of the departing fleet
+            // r1: heliocentric distance of the departing fleet.
+            // GRA-149 C-3: pick own SMA only when the body is itself a star
+            // (i.e., it owns its own heliocentric frame).  For planets and
+            // moons — including close-orbit giants like hot-Jupiters at
+            // 0.02 AU that the legacy 0.05 AU threshold mis-classified —
+            // always walk up to the parent star's SMA.
             let r1_au = {
                 let own_ko = body_query
                     .get(orbit.body)
                     .ok()
-                    .and_then(|(_, _, _, ko, _)| ko)
+                    .and_then(|(_, _, _, ko, _)| ko.copied())
                     .map(|ko| ko.semi_major_axis);
                 let origin_parent = body_query
                     .get(orbit.body)
                     .ok()
-                    .and_then(|(_, _, _, _, lp)| lp)
-                    .map(|lp| lp.0);
-                if own_ko.map(|s| s < MIN_HELIOCENTRIC_SMA_AU).unwrap_or(true) {
+                    .and_then(|(_, _, _, _, lp)| lp.map(|lp| lp.0));
+                let own_is_stellar = body_query
+                    .get(orbit.body)
+                    .ok()
+                    .map(|(_, b, _, _, _)| is_stellar_mass(b.mass))
+                    .unwrap_or(false);
+                if own_is_stellar {
+                    own_ko.unwrap_or(1.0)
+                } else {
                     origin_parent
                         .and_then(|pe| body_query.get(pe).ok())
-                        .and_then(|(_, _, _, ko, _)| ko)
+                        .and_then(|(_, _, _, ko, _)| ko.copied())
                         .map(|ko| ko.semi_major_axis)
                         .or(own_ko)
                         .unwrap_or(1.0)
-                } else {
-                    own_ko.unwrap_or(1.0)
                 }
             };
             // Determine the host star's GM for the fleet intercept.  Walk the
@@ -1472,21 +1538,31 @@ pub(super) fn render_transfer_planner(
                 // Star approach transfer: plot a Hohmann from the fleet's stellar-orbit
                 // distance to SOLAR_APPROACH_AU, using the target star's actual GM.
                 // Walk up the parent chain to find the fleet's stellar SMA.
+                //
+                // GRA-149 C-3: the fleet's body is treated as the host star only
+                // when the body's mass is stellar (not when its SMA exceeds the
+                // legacy 0.05 AU threshold).  For moons and close-orbit planets
+                // the planner walks up to the parent.
                 let own_sma = body_query
                     .get(orbit.body)
                     .ok()
-                    .and_then(|(_, _, _, ko, _)| ko)
+                    .and_then(|(_, _, _, ko, _)| ko.copied())
                     .map(|ko| ko.semi_major_axis);
-                let r1_au = if own_sma.map(|s| s < MIN_HELIOCENTRIC_SMA_AU).unwrap_or(true) {
+                let own_is_stellar = body_query
+                    .get(orbit.body)
+                    .ok()
+                    .map(|(_, b, _, _, _)| is_stellar_mass(b.mass))
+                    .unwrap_or(false);
+                let r1_au = if own_is_stellar {
+                    own_sma.unwrap_or(1.0)
+                } else {
                     // Fleet is parked at a moon/sub-body; use its planet's heliocentric SMA.
                     origin_parent
                         .and_then(|pe| body_query.get(pe).ok())
-                        .and_then(|(_, _, _, ko, _)| ko)
+                        .and_then(|(_, _, _, ko, _)| ko.copied())
                         .map(|ko| ko.semi_major_axis)
                         .or(own_sma)
                         .unwrap_or(1.0)
-                } else {
-                    own_sma.unwrap_or(1.0)
                 };
                 // Ensure r2 is strictly less than r1 (always an inward transfer).
                 let r2_au = SOLAR_APPROACH_AU.min(r1_au * 0.5);
@@ -1656,23 +1732,32 @@ pub(super) fn render_transfer_planner(
                 } else {
                     // If fleet is parked at a moon, its KeplerOrbit SMA is Earth-relative, NOT
                     // heliocentric. Walk up one level to get the heliocentric SMA.
+                    //
+                    // GRA-149 C-3: "is this body itself a star?" is now decided by mass,
+                    // not by SMA.  Hot-Jupiters at 0.02 AU used to be mis-classified as
+                    // moons; the planner then walked up to their parent star but the
+                    // GA candidate filter and downstream GM lookups still treated the
+                    // hot-Jupiter as a moon.  The mass check makes the intent explicit.
                     let own_sma = body_query
                         .get(orbit.body)
                         .ok()
-                        .and_then(|(_, _, _, ko, _)| ko)
+                        .and_then(|(_, _, _, ko, _)| ko.copied())
                         .map(|ko| ko.semi_major_axis);
-                    let origin_is_star = body_query
+                    let origin_is_stellar = body_query
                         .get(orbit.body)
                         .ok()
-                        .map(|(_, body, _, _, _)| body.body_type == BodyType::Star)
+                        .map(|(_, b, _, _, _)| is_stellar_mass(b.mass))
                         .unwrap_or(false);
-                    let r1 = if origin_is_star {
+                    let r1 = if origin_is_stellar {
                         orbit.radius_au.max(MIN_ORBITAL_RADIUS_AU)
-                    } else if own_sma.map(|s| s < MIN_HELIOCENTRIC_SMA_AU).unwrap_or(true) {
-                        // Small SMA → likely a moon; use its parent's heliocentric SMA
+                    } else if origin_parent.is_some() {
+                        // Body is not a star and has a parent → walk up to the
+                        // parent's heliocentric SMA.  Works for moons, hot-Jupiters,
+                        // and any other close-orbit body that the legacy 0.05 AU
+                        // threshold would have mis-classified.
                         origin_parent
                             .and_then(|pe| body_query.get(pe).ok())
-                            .and_then(|(_, _, _, ko, _)| ko)
+                            .and_then(|(_, _, _, ko, _)| ko.copied())
                             .map(|ko| ko.semi_major_axis)
                             .or(own_sma)
                             .unwrap_or(1.0)
@@ -1684,11 +1769,18 @@ pub(super) fn render_transfer_planner(
                         .ok()
                         .and_then(|(_, _, _, ko, _)| ko)
                         .map(|ko| ko.semi_major_axis);
-                    let r2 = if dest_sma
-                        .map(|s| s < MIN_HELIOCENTRIC_SMA_AU)
-                        .unwrap_or(true)
-                    {
-                        // Small SMA → likely a moon; use its parent's heliocentric SMA
+                    // GRA-149 C-3: classify "is this body itself a star?" by mass,
+                    // not by SMA.  See the parallel r1 block above for rationale.
+                    let dest_is_stellar = body_query
+                        .get(target_entity)
+                        .ok()
+                        .map(|(_, b, _, _, _)| is_stellar_mass(b.mass))
+                        .unwrap_or(false);
+                    let r2 = if dest_is_stellar {
+                        dest_sma.unwrap_or(1.5)
+                    } else if dest_parent.is_some() {
+                        // Body is not a star and has a parent → walk up to the
+                        // parent's heliocentric SMA.
                         dest_parent
                             .and_then(|pe| body_query.get(pe).ok())
                             .and_then(|(_, _, _, ko, _)| ko)
@@ -1914,25 +2006,38 @@ pub(super) fn render_transfer_planner(
                         }
                     } else {
                         // Heliocentric: walk up from moons to their heliocentric parents.
-                        let helio_origin_ko = if origin_ko
-                            .map(|ko| ko.semi_major_axis < MIN_HELIOCENTRIC_SMA_AU)
-                            .unwrap_or(true)
-                        {
-                            origin_parent.and_then(|pe| {
-                                body_query.get(pe).ok().and_then(|(_, _, _, ko, _)| ko)
-                            })
-                        } else {
+                        //
+                        // GRA-149 C-3: classify "is the body a star itself?" by mass
+                        // rather than by SMA, so close-orbit planets (hot-Jupiters at
+                        // 0.02 AU) are no longer treated as moons when picking the
+                        // heliocentric reference orbit for the plane-change diff.
+                        let origin_is_stellar = body_query
+                            .get(orbit.body)
+                            .ok()
+                            .map(|(_, b, _, _, _)| is_stellar_mass(b.mass))
+                            .unwrap_or(false);
+                        let dest_is_stellar_mass = body_query
+                            .get(target_entity)
+                            .ok()
+                            .map(|(_, b, _, _, _)| is_stellar_mass(b.mass))
+                            .unwrap_or(false);
+                        let helio_origin_ko = if origin_is_stellar {
                             origin_ko
-                        };
-                        let helio_dest_ko = if dest_ko
-                            .map(|ko| ko.semi_major_axis < MIN_HELIOCENTRIC_SMA_AU)
-                            .unwrap_or(true)
-                        {
-                            dest_parent.and_then(|pe| {
-                                body_query.get(pe).ok().and_then(|(_, _, _, ko, _)| ko)
-                            })
                         } else {
+                            origin_parent
+                                .and_then(|pe| {
+                                    body_query.get(pe).ok().and_then(|(_, _, _, ko, _)| ko)
+                                })
+                                .or(origin_ko)
+                        };
+                        let helio_dest_ko = if dest_is_stellar_mass {
                             dest_ko
+                        } else {
+                            dest_parent
+                                .and_then(|pe| {
+                                    body_query.get(pe).ok().and_then(|(_, _, _, ko, _)| ko)
+                                })
+                                .or(dest_ko)
                         };
                         match (helio_origin_ko, helio_dest_ko) {
                             (Some(o), Some(d)) => plane_change_angle(
@@ -2063,6 +2168,16 @@ pub(super) fn render_transfer_planner(
                         if !is_planet_class {
                             return None;
                         }
+                        // Stars are intentionally excluded from gravity-assist candidates:
+                        // a stellar flyby would require STELLAR_FLYBY_RADIUS_KM_MULTIPLIER
+                        // (1.5 R★ ≈ 1.5 stellar radii) rather than the planetary multiplier,
+                        // and the existing 2-body assist model is not valid inside the
+                        // corona.  Future maintainers: do NOT widen `is_planet_class` to
+                        // include BodyType::Star without also switching the periapsis
+                        // formula below to use STELLAR_FLYBY_RADIUS_KM_MULTIPLIER.
+                        if body.body_type == BodyType::Star {
+                            return None;
+                        }
                         // Exclude the fleet's current body and the chosen destination
                         if e == orbit.body || Some(e) == body_target_snap {
                             return None;
@@ -2075,9 +2190,13 @@ pub(super) fn render_transfer_planner(
                             return None;
                         }
                         let sma = maybe_ko?.semi_major_axis;
-                        if sma < MIN_HELIOCENTRIC_SMA_AU {
-                            return None;
-                        }
+                        // GRA-149 C-3: the legacy 0.05 AU SMA threshold used to drop
+                        // hot-Jupiters (close-orbit giants at ~0.02 AU) from the GA
+                        // candidate list, even when a flyby of such a body would
+                        // have been a strong assist.  We keep the candidate as long
+                        // as it has any heliocentric SMA at all (i.e., it owns a
+                        // Kepler orbit).  Pure moons and unbound bodies still fall
+                        // out because `maybe_ko?` returns None above.
                         let flyby_r = sma;
                         let gm_p = G_CONST * body.mass;
                         // Safe flyby periapsis using the named multipliers.
@@ -3477,7 +3596,6 @@ fn build_planned_transfer(
 ) -> Option<PlannedTransfer> {
     use crate::astronomy::KeplerOrbit;
     use crate::fleets::orbital_mechanics::{solve_lambert_transfer, AU_IN_METERS, GM_SUN, G_CONST};
-    const STELLAR_APPROACH_AU: f64 = 0.3;
 
     let departure_time_s = sim_time_s;
     let arrival_time_s = departure_time_s + option.transfer_time_s;
@@ -3561,19 +3679,36 @@ fn build_planned_transfer(
         } else if dest_is_star {
             // Transfer toward the destination star.
             // The transfer orbit is centred on the destination star, so gm = G·M_star.
-            // The "arrival orbit" radius is approximated as the planet's sphere of influence:
-            //   r_SOI = a_planet × (M_planet / M_star)^(2/5)
-            // where M_star is the destination star's mass.
+            //
+            // GRA-149 C-2: arrival parking radius is the per-body `star_approach_au`
+            // field (RON override or per-star default).  Previously this code parked
+            // the fleet at the planet's sphere of influence (SOI), which (a) is not a
+            // real orbit — SOI is a frame-switch threshold — and (b) the picker label
+            // claimed 0.3 AU while the math produced ~0.012 AU for hot-Jupiters.  The
+            // arrival parking radius is now sourced from a single helper that
+            // resolves the per-body value (or the global default) and is reused by
+            // the barycentric endpoint computation and the final arrival_radius
+            // selection below.
             let star_mass = dest_body.mass; // destination IS the star
-                                            // Use planet_sma_au (the origin body's star-centric SMA) for both origin_sma_au and
-                                            // the SOI computation — NOT orbit.radius_au, which is the fleet's local parking orbit
-                                            // radius and would make the outward/inward direction check incorrect in the star frame.
+                                            // planet_sma_au (the origin body's star-centric SMA) is the departure
+                                            // distance.  Do NOT use orbit.radius_au — that is the fleet's local
+                                            // parking orbit radius and would make the outward/inward direction check
+                                            // incorrect in the star frame.
             let planet_sma_au = origin_ko.map(|ko| ko.semi_major_axis).unwrap_or(1.0);
-            let planet_mass = origin_body.mass;
-            let soi_au = planet_sma_au * (planet_mass / star_mass.max(1.0)).powf(0.4);
+            let approach_au = star_approach_radius_au(dest_body);
+            // For transfers that head *outward* (planet_sma_au < approach_au), the
+            // parking radius is the approach value.  For inward transfers we keep
+            // the arrival inside the origin orbit so the planet doesn't have to
+            // pre-date the fleet.  This preserves the prior "SOI is always inside
+            // the origin orbit" safety.
+            let arrival_au = if approach_au >= planet_sma_au {
+                approach_au
+            } else {
+                (planet_sma_au * 0.01).max(approach_au)
+            };
             (
                 planet_sma_au,
-                soi_au.max(planet_sma_au * 0.01), // SOI is always inside the origin orbit
+                arrival_au,
                 G_CONST * star_mass,
                 target_entity,
                 target_entity,
@@ -3725,31 +3860,42 @@ fn build_planned_transfer(
                 )
             } else {
                 // If fleet is at a moon, its own SMA is Earth-relative — use parent's SMA.
-                let r1 = if origin_ko
-                    .map(|ko| ko.semi_major_axis < MIN_HELIOCENTRIC_SMA_AU)
-                    .unwrap_or(true)
-                {
+                //
+                // GRA-149 C-3: classify "is the body a star itself?" by mass
+                // instead of SMA.  Hot-Jupiters at 0.02 AU and any other close-orbit
+                // giant planet now correctly use their own heliocentric SMA
+                // (and contribute a correct frame GM in the body_system_ids
+                // resolution below), rather than being silently re-parented to
+                // whatever happens to be at <0.05 AU.
+                let origin_is_stellar = body_query
+                    .get(orbit.body)
+                    .ok()
+                    .map(|(_, b, _, _, _)| is_stellar_mass(b.mass))
+                    .unwrap_or(false);
+                let dest_is_stellar = body_query
+                    .get(target_entity)
+                    .ok()
+                    .map(|(_, b, _, _, _)| is_stellar_mass(b.mass))
+                    .unwrap_or(false);
+                let r1 = if origin_is_stellar {
+                    origin_ko.map(|ko| ko.semi_major_axis).unwrap_or(1.0)
+                } else {
                     origin_parent
                         .and_then(|pe| body_query.get(pe).ok())
                         .and_then(|(_, _, _, ko, _)| ko)
                         .map(|ko| ko.semi_major_axis)
                         .or_else(|| origin_ko.map(|ko| ko.semi_major_axis))
                         .unwrap_or(1.0)
-                } else {
-                    origin_ko.map(|ko| ko.semi_major_axis).unwrap_or(1.0)
                 };
-                let r2 = if dest_ko
-                    .map(|ko| ko.semi_major_axis < MIN_HELIOCENTRIC_SMA_AU)
-                    .unwrap_or(true)
-                {
+                let r2 = if dest_is_stellar {
+                    dest_ko.map(|ko| ko.semi_major_axis).unwrap_or(1.5)
+                } else {
                     dest_parent
                         .and_then(|pe| body_query.get(pe).ok())
                         .and_then(|(_, _, _, ko, _)| ko)
                         .map(|ko| ko.semi_major_axis)
                         .or_else(|| dest_ko.map(|ko| ko.semi_major_axis))
                         .unwrap_or(1.5)
-                } else {
-                    dest_ko.map(|ko| ko.semi_major_axis).unwrap_or(1.5)
                 };
                 // Use the host star's actual GM rather than the hardcoded GM_SUN so that
                 // non-Sol systems (e.g. 1.1 M☉ Alpha Centauri A, or a 0.5 M☉ K-dwarf) produce
@@ -4066,11 +4212,15 @@ fn build_planned_transfer(
             transfer_absolute_position(target_entity, arrival_time_s, body_query)
                 .unwrap_or(dest_rel + center_pos);
         let dest_future = if dest_is_star {
+            // GRA-149 C-2: arrival parking radius now matches the per-body
+            // star_approach_au override (or the 0.3 AU default) instead of a
+            // hard-coded SOI value.
+            let approach_au = star_approach_radius_au(dest_body);
             let inbound = (dest_future_center - origin_future).normalize_or_zero();
             if inbound.length_squared() > 1e-20 {
-                dest_future_center - inbound * STELLAR_APPROACH_AU
+                dest_future_center - inbound * approach_au
             } else {
-                dest_future_center + bevy::math::DVec3::new(STELLAR_APPROACH_AU, 0.0, 0.0)
+                dest_future_center + bevy::math::DVec3::new(approach_au, 0.0, 0.0)
             }
         } else {
             dest_future_center
@@ -4167,11 +4317,18 @@ fn build_planned_transfer(
         departure_velocity_ms.or(exact_star_centered_data.map(|data| data.2));
     let arrival_velocity_ms = arrival_velocity_ms.or(exact_star_centered_data.map(|data| data.3));
 
-    // Arrival orbit radius: for rings/stars use the SMA, otherwise reuse fleet parking radius
+    // Arrival orbit radius:
+    //   * For barycentric same-star star approaches: the per-body approach radius
+    //     (matches the picker label, the barycentric endpoint, and the parking
+    //     orbit math above).
+    //   * For rings: the ring's own SMA.
+    //   * For non-barycentric star approaches: dest_sma_au (which the C-2 fix
+    //     unified with the approach radius — see the dest_is_star branch above).
+    //   * Otherwise: reuse the fleet's existing parking radius.
     let arrival_orbit_radius_au = if reference_frame.is_barycentric() && dest_is_star {
-        STELLAR_APPROACH_AU
+        star_approach_radius_au(dest_body)
     } else if dest_is_ring || dest_is_star {
-        dest_sma_au // ring radius or SOI boundary for stars
+        dest_sma_au
     } else {
         orbit.radius_au
     };
@@ -4396,6 +4553,29 @@ mod tests {
             body_type,
             visual_radius,
             asteroid_class: None,
+            star_approach_au: None,
+        }
+    }
+
+    /// Same as [`test_body`] but allows pinning the per-body star-approach
+    /// radius.  Used by the GRA-149 C-2 acceptance test to verify the
+    /// `star_approach_au: Some(0.05)` override reaches the planner unchanged.
+    fn test_body_with_approach(
+        name: &str,
+        body_type: BodyType,
+        mass: f64,
+        radius: f32,
+        visual_radius: f32,
+        star_approach_au: Option<f64>,
+    ) -> CelestialBody {
+        CelestialBody {
+            name: name.to_string(),
+            radius,
+            mass,
+            body_type,
+            visual_radius,
+            asteroid_class: None,
+            star_approach_au,
         }
     }
 
@@ -5088,5 +5268,217 @@ mod tests {
             .expect("star should exist");
         let approach_distance = (end_pos - star_pos).length();
         assert!((approach_distance - 0.3).abs() < 1e-6);
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // GRA-149 acceptance tests (C-1 / C-2 / C-3)
+    //
+    // Pin the GRA-149 fixes so a future regression to the legacy
+    // `sma < MIN_HELIOCENTRIC_SMA_AU` classifier (which mis-classified
+    // hot-Jupiters as moons) is caught.
+    // ──────────────────────────────────────────────────────────────────────
+
+    /// C-1: the stellar flyby constant is documented at 1.5 R★ (1500 m/km
+    /// × 1.5) and the planetary constant is 3 planetary radii.  Both must
+    /// stay larger than 1.0× their respective body radii so the
+    /// flyby-periapsis math never under-shoots into the photosphere /
+    /// atmosphere.
+    #[test]
+    fn gra149_c1_stellar_flyby_constants_are_safe_periapsis_multiples() {
+        // Bind to local variables so clippy::assertions_on_constants does
+        // not see a literal-only comparison.
+        let stellar = super::STELLAR_FLYBY_RADIUS_KM_MULTIPLIER;
+        let planetary = super::PLANETARY_FLYBY_RADIUS_KM_MULTIPLIER;
+        assert!(
+            stellar >= 1_500.0,
+            "STELLAR_FLYBY_RADIUS_KM_MULTIPLIER = {stellar} km; must be >= 1.5 R☉ (1500 km)"
+        );
+        assert!(
+            planetary >= 3_000.0,
+            "PLANETARY_FLYBY_RADIUS_KM_MULTIPLIER = {planetary} km; must be >= 3 R_planet"
+        );
+        assert!(
+            stellar < planetary,
+            "stellar flyby constant ({stellar}) must be < planetary ({planetary})"
+        );
+    }
+
+    /// C-2: a star with `star_approach_au: Some(0.05)` parks the fleet at
+    /// 0.05 AU when the destination is that star — not the 0.3 AU default
+    /// and not the planet's SOI.  This is the M-3 / GRA-153 dependency
+    /// pin: M-3 calls `origin_body.star_approach_au` (or the parking-orbit
+    /// default) to rebuild the parking orbit after an Abort.
+    #[test]
+    fn gra149_c2_star_approach_respects_per_body_override() {
+        let mut world = World::new();
+
+        let star = world
+            .spawn((
+                test_body_with_approach(
+                    "Red Dwarf",
+                    BodyType::Star,
+                    2.4e29, // 0.12 M☉ — sub-solar
+                    110_000.0,
+                    22.0,
+                    Some(0.05), // per-body override
+                ),
+                SpaceCoordinates::new(DVec3::ZERO),
+                SystemId(7),
+            ))
+            .id();
+        let origin = world
+            .spawn((
+                test_body("Origin", BodyType::Planet, 5.97e24, 6_371.0, 12.0),
+                SpaceCoordinates::new(DVec3::new(0.45, 0.0, 0.0)),
+                KeplerOrbit::circular(0.5, 1.0e-7),
+                LogicalParent(star),
+                SystemId(7),
+            ))
+            .id();
+
+        let fleet = Fleet::new("Test Fleet".to_string());
+        let orbit = FleetOrbit::new(origin, 0.0001);
+        let option = TransferOption {
+            label: "Efficient",
+            total_delta_v_ms: 12_000.0,
+            delta_v1_ms: 6_000.0,
+            delta_v2_ms: 6_000.0,
+            transfer_time_s: 86_400.0 * 8.0,
+            sma_au: 0.27,
+            eccentricity: 0.4,
+            energy_multiplier: 1.0,
+            burn_time_s: 0.0,
+            plane_change_dv_ms: 0.0,
+            is_thrust_limited: false,
+            transfer_orbit_override: None,
+        };
+
+        let mut body_query_state = world.query::<(
+            Entity,
+            &CelestialBody,
+            &SpaceCoordinates,
+            Option<&KeplerOrbit>,
+            Option<&LogicalParent>,
+        )>();
+        let mut system_id_query_state = world.query::<&SystemId>();
+        let body_query = body_query_state.query(&world);
+        let system_id_query = system_id_query_state.query(&world);
+
+        let planned = build_planned_transfer(
+            Entity::PLACEHOLDER,
+            &fleet,
+            &orbit,
+            star,
+            0.0,
+            &body_query,
+            &option,
+            None,
+            &system_id_query,
+            7,
+        )
+        .expect("star-approach transfer with override should build");
+
+        // The per-body override is the source of truth — not 0.3 AU, not SOI.
+        // The inward-transfer safety floor at `planet_sma_au * 0.01 = 0.005`
+        // does not bind here because 0.05 > 0.005.
+        assert!(
+            (planned.arrival_orbit_radius_au - 0.05).abs() < 1e-9,
+            "arrival_orbit_radius_au = {}, expected 0.05 (per-body override)",
+            planned.arrival_orbit_radius_au
+        );
+    }
+
+    /// C-3: a hot-Jupiter (gas giant at SMA 0.02 AU, well below the legacy
+    /// 0.05 AU classifier) with `LogicalParent(star)` is correctly treated
+    /// as heliocentric by the planner — it does NOT walk up to the parent
+    /// star's 1.0 AU orbit.  This pins the GRA-149 C-3 fix to
+    /// `is_stellar_mass` and ensures hot-Jupiters are not silently
+    /// mis-classified as moons.
+    #[test]
+    fn gra149_c3_hot_jupiter_uses_heliocentric_frame_not_walked_up() {
+        let mut world = World::new();
+
+        let star = world
+            .spawn((
+                test_body("Star A", BodyType::Star, 1.9e30, 700_000.0, 40.0),
+                SpaceCoordinates::new(DVec3::ZERO),
+                SystemId(7),
+            ))
+            .id();
+        let hot_jupiter = world
+            .spawn((
+                test_body("Hot Jupiter", BodyType::GasGiant, 1.9e27, 70_000.0, 30.0),
+                SpaceCoordinates::new(DVec3::new(0.02, 0.0, 0.0)),
+                KeplerOrbit::circular(0.02, 1.0e-6), // SMA = 0.02 AU
+                LogicalParent(star),
+                SystemId(7),
+            ))
+            .id();
+        let destination = world
+            .spawn((
+                test_body("Destination", BodyType::Planet, 6.4e24, 6_800.0, 13.0),
+                SpaceCoordinates::new(DVec3::new(1.8, 0.5, 0.0)),
+                KeplerOrbit::new(0.02, 1.85, 0.0, 0.0, 0.2, 0.4, 1.2e-7),
+                LogicalParent(star),
+                SystemId(7),
+            ))
+            .id();
+
+        let fleet = Fleet::new("Test Fleet".to_string());
+        let orbit = FleetOrbit::new(hot_jupiter, 0.0001);
+        let option = TransferOption {
+            label: "Efficient",
+            total_delta_v_ms: 12_000.0,
+            delta_v1_ms: 6_000.0,
+            delta_v2_ms: 6_000.0,
+            transfer_time_s: 86_400.0 * 4.0,
+            sma_au: 1.0,
+            eccentricity: 0.5,
+            energy_multiplier: 1.0,
+            burn_time_s: 0.0,
+            plane_change_dv_ms: 0.0,
+            is_thrust_limited: false,
+            transfer_orbit_override: None,
+        };
+
+        let mut body_query_state = world.query::<(
+            Entity,
+            &CelestialBody,
+            &SpaceCoordinates,
+            Option<&KeplerOrbit>,
+            Option<&LogicalParent>,
+        )>();
+        let mut system_id_query_state = world.query::<&SystemId>();
+        let body_query = body_query_state.query(&world);
+        let system_id_query = system_id_query_state.query(&world);
+
+        let planned = build_planned_transfer(
+            Entity::PLACEHOLDER,
+            &fleet,
+            &orbit,
+            destination,
+            0.0,
+            &body_query,
+            &option,
+            None,
+            &system_id_query,
+            7,
+        )
+        .expect("hot-Jupiter to outer-planet transfer should build");
+
+        // The transfer must be heliocentric (BodyLocal(star)), not the
+        // hot-Jupiter's planet-local frame.  Under the legacy SMA
+        // classifier (0.05 AU), this would have been classified as a
+        // planet-local transfer — the regression to guard against.
+        match planned.reference_frame {
+            TransferReferenceFrame::Body(frame_center) => {
+                assert_eq!(
+                    frame_center, star,
+                    "hot-Jupiter at 0.02 AU must resolve to star's frame, \
+                     not the planet's frame"
+                );
+            }
+            other => panic!("expected Body(star) frame for hot-Jupiter, got {:?}", other),
+        }
     }
 }

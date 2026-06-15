@@ -186,6 +186,15 @@ pub struct CelestialBody {
     pub visual_radius: f32,
     /// Asteroid spectral class (if applicable)
     pub asteroid_class: Option<AsteroidClass>,
+    /// Per-body override for the star-approach parking radius (AU).
+    /// `None` means "use the global default" (0.3 AU for main-sequence stars; the
+    /// planner will down-scale for sub-solar bodies internally if needed).
+    /// Only meaningful for `BodyType::Star`; ignored otherwise.
+    /// Rationale (GRA-149 C-2): the picker label "Sol Approach (0.3 AU)" used to
+    /// lie about the arrival radius — the planner arrived at the planet's SOI
+    /// boundary, not 0.3 AU.  This field pins the actual parking radius so the
+    /// label can match the math.
+    pub star_approach_au: Option<f64>,
 }
 
 impl CelestialBody {
@@ -207,7 +216,7 @@ impl CelestialBody {
 }
 
 /// Logical parent for UI hierarchy, separate from spatial transform parenting
-#[derive(Component)]
+#[derive(Component, Copy, Clone)]
 pub struct LogicalParent(pub Entity);
 
 #[derive(Component)]
@@ -883,6 +892,7 @@ pub fn setup_solar_system(
                     body_type: body_data.body_type,
                     visual_radius,
                     asteroid_class: body_data.asteroid_class,
+                    star_approach_au: body_data.star_approach_au,
                 },
                 RotationSpeed(rotation_speed),
                 // Stars sit at the system origin; give them SpaceCoordinates so they
@@ -903,6 +913,7 @@ pub fn setup_solar_system(
                     body_type: body_data.body_type,
                     visual_radius,
                     asteroid_class: body_data.asteroid_class,
+                    star_approach_au: body_data.star_approach_au,
                 },
                 RotationSpeed(rotation_speed),
                 PlanetCategory(classify_for_spawn(body_data).to_string()),

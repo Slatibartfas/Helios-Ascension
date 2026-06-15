@@ -1402,6 +1402,7 @@ fn populate_host_bodies(
                         body_type: BodyType::Star,
                         visual_radius: max_star_vis,
                         asteroid_class: None,
+                        star_approach_au: None,
                     });
                 }
             }
@@ -1549,6 +1550,9 @@ fn spawn_star_entity_with_metallicity(
             body_type: BodyType::Star,
             visual_radius: calculate_visual_radius(BodyType::Star, star_data.radius_sol * 695700.0),
             asteroid_class: None,
+            // Procedural stars have no RON override; planner falls back to
+            // STELLAR_APPROACH_AU (0.3 AU) for main-sequence bodies.
+            star_approach_au: None,
         },
         StellarProperties::new(star_data.luminosity_sol, star_data.temp_k),
         if orbit.is_some() {
@@ -1718,6 +1722,7 @@ fn spawn_confirmed_planet(
             body_type: BodyType::Planet,
             visual_radius,
             asteroid_class: None,
+            star_approach_au: None,
         },
         SurfaceTemperature {
             average_celsius: avg_temp,
@@ -1857,6 +1862,7 @@ fn spawn_procedural_planet(
             body_type: planet.body_type(),
             visual_radius,
             asteroid_class: None,
+            star_approach_au: None,
         },
         SurfaceTemperature {
             average_celsius: avg_temp,
@@ -1960,6 +1966,7 @@ fn spawn_dwarf_planets(
                 body_type: BodyType::DwarfPlanet,
                 visual_radius,
                 asteroid_class: None,
+                star_approach_au: None,
             },
             SurfaceTemperature {
                 average_celsius: avg_temp,
@@ -2108,6 +2115,7 @@ fn spawn_asteroid_belt(
                 visual_radius: calculate_visual_radius(BodyType::Asteroid, radius as f32)
                     * vis_scale,
                 asteroid_class: Some(asteroid_class),
+                star_approach_au: None,
             },
             SurfaceTemperature {
                 average_celsius: avg_temp,
@@ -2219,6 +2227,7 @@ fn spawn_cometary_cloud(
                 body_type: BodyType::Comet,
                 visual_radius: calculate_visual_radius(BodyType::Comet, radius as f32) * vis_scale,
                 asteroid_class: Some(AsteroidClass::PType), // P-type (volatile-rich)
+                star_approach_au: None,
             },
             SurfaceTemperature {
                 average_celsius: avg_temp,
@@ -2503,6 +2512,7 @@ fn spawn_procedural_ring(
             body_type: BodyType::Ring,
             visual_radius: outer_radius,
             asteroid_class: None,
+            star_approach_au: None,
         },
         Mesh3d(mesh_handle),
         MeshMaterial3d(mat_handle),
@@ -2792,6 +2802,7 @@ fn spawn_procedural_moons(
                 body_type: BodyType::Moon,
                 visual_radius: moon_visual_radius,
                 asteroid_class: None,
+                star_approach_au: None,
             },
             SurfaceTemperature {
                 average_celsius: avg_temp,

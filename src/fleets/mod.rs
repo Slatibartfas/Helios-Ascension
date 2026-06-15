@@ -214,6 +214,7 @@ mod ga_transfer_tests {
                     body_type: BodyType::Planet,
                     visual_radius: 1.0,
                     asteroid_class: None,
+                    star_approach_au: None,
                 },
             ))
             .id();
@@ -228,6 +229,7 @@ mod ga_transfer_tests {
                     body_type: BodyType::Planet,
                     visual_radius: 1.0,
                     asteroid_class: None,
+                    star_approach_au: None,
                 },
             ))
             .id();
