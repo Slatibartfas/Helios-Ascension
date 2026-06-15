@@ -265,6 +265,9 @@ fn sample_colormap(stops: &[crate::fleets::PorkchopColorStop], dv_km_s: f64) -> 
     if stops.len() == 1 {
         return theme::color32_from_rgba(stops[0].rgba);
     }
+    if dv_km_s <= stops[0].delta_v_km_s {
+        return theme::color32_from_rgba(stops[0].rgba);
+    }
     for window in stops.windows(2) {
         let a = &window[0];
         let b = &window[1];
@@ -274,7 +277,6 @@ fn sample_colormap(stops: &[crate::fleets::PorkchopColorStop], dv_km_s: f64) -> 
             return theme::lerp_rgba(a.rgba, b.rgba, t);
         }
     }
-    // Above the last finite stop or below the first: clamp.
     theme::color32_from_rgba(stops.last().unwrap().rgba)
 }
 

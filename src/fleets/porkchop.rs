@@ -255,11 +255,12 @@ fn solve_cell(
         Some((v1_ms, v2_ms, orbit)) => {
             // v_inf at departure = |v_departure| − circular orbital speed at r1.
             // For interplanetary (GM_SUN) this is the hyperbolic excess speed.
-            let v1_sq = v1_ms.length_squared();
-            let c3 = v1_sq; // m²/s² — for heliocentric central body, v∞² ≈ |v1|² when
-                            // starting from a low-eccentricity parking orbit.  Modders
-                            // can refine with a sub-circular-orbit correction.
-            if !c3.is_finite() || c3 < 0.0 || c3 > c3_ceiling_ms2 {
+            let r1_m = (origin_pos_au * super::orbital_mechanics::AU_IN_METERS).length();
+            let v_circ_ms = (inputs.system_gm / r1_m).sqrt();
+            let v1_speed_ms = v1_ms.length();
+            let v_inf_dep_ms = (v1_speed_ms - v_circ_ms).max(0.0);
+            let c3 = v_inf_dep_ms * v_inf_dep_ms; // m²/s²
+            if !c3.is_finite() || c3 > c3_ceiling_ms2 {
                 return PorkchopCell {
                     t_dep_s,
                     tof_s,
@@ -277,23 +278,23 @@ fn solve_cell(
                 };
             }
             // ΔV₁ is the burn from the origin body's parking-orbit speed up
-            // to the transfer-ellipse departure speed.  Without the fleet's
-            // parking-orbit state we approximate the total as the sum of
-            // |v1| (departure hyperbolic speed) and |v2| (arrival hyperbolic
-            // speed), which is the standard porkchop convention (B = v∞_dep
-            // + v∞_arr; the parking-orbit ΔV is a small additive constant
-            // the planner adds separately via `max_delta_v_ms` accounting).
-            let dv1 = v1_ms.length();
-            let dv2 = v2_ms.length();
-            let total = dv1 + dv2;
+            // to the transfer-ellipse departure speed.  We approximate the
+            // total as |v_inf_dep| + |v_inf_arr|, which is the standard
+            // porkchop convention (the parking-orbit ΔV is a small additive
+            // constant the planner adds separately via `max_delta_v_ms`).
+            let r2_m = (dest_pos_au * super::orbital_mechanics::AU_IN_METERS).length();
+            let v_circ_arr_ms = (inputs.system_gm / r2_m).sqrt();
+            let v2_speed_ms = v2_ms.length();
+            let v_inf_arr_ms = (v2_speed_ms - v_circ_arr_ms).max(0.0);
+            let total = v_inf_dep_ms + v_inf_arr_ms;
             PorkchopCell {
                 t_dep_s,
                 tof_s,
                 total_dv_ms: total,
                 c3_departure: c3,
-                v_inf_arrival_ms: v2_ms.length(),
-                delta_v1_ms: dv1,
-                delta_v2_ms: dv2,
+                v_inf_arrival_ms: v_inf_arr_ms,
+                delta_v1_ms: v_inf_dep_ms,
+                delta_v2_ms: v_inf_arr_ms,
                 feasible: true,
                 origin_pos_au,
                 dest_pos_au,
@@ -419,7 +420,23 @@ mod tests {
 
     #[test]
     fn porkchop_earth_moon_trivial() {
-        let cfg = PorkchopConfig::default();
+        // Build a config with the moon override inline (the production
+        // RON file ships with it, but the unit test path uses the bare
+        // default which has no overrides).
+        let cfg = PorkchopConfig {
+            category_overrides: vec![super::super::components::PorkchopCategoryOverride {
+                match_key: "moon".to_string(),
+                t_dep_window_days: 14.0,
+                tof_min_hohmann_factor: 0.5,
+                tof_max_hohmann_factor: 1.8,
+                tof_floor_days: 0.5,
+                tof_ceiling_years: 0.165, // ≈ 60 days
+                resolution_t_dep: 50,
+                resolution_tof: 40,
+                c3_ceiling_km2_s2: 400.0,
+            }],
+            ..PorkchopConfig::default()
+        };
         let inputs = make_inputs(earth_orbit(), moon_orbit(), "moon");
         let grid = build_porkchop_grid(&cfg, &inputs);
         // The moon-transfer override uses a 14-day window and a fine grid.
