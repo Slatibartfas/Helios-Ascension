@@ -295,15 +295,29 @@ fn solve_cell(
             let r2_m = (dest_pos_au * super::orbital_mechanics::AU_IN_METERS).length();
             let v_circ_arr_ms = (inputs.system_gm / r2_m).sqrt();
             let v2_speed_ms = v2_ms.length();
+            // dep_burn: how much we must accelerate from the parking
+            // orbit at r1 to the transfer ellipse.  For Hohmann (where
+            // v1 > v_circ) this is positive; for an arrival from a
+            // sub-circular transfer (rare) it is clamped to 0.
             let dep_burn_ms = (v1_speed_ms - v_circ_ms).max(0.0);
+            // arr_burn: how much we must brake from the transfer ellipse
+            // to the destination's circular parking orbit.  For Hohmann
+            // (where v2 < v_circ) this is positive; for an arrival from
+            // a super-circular transfer (e.g. hyperbolic) it is clamped
+            // to 0 — the planner handles that case via the destination
+            // orbit's own `max_delta_v_ms` budget.
             let arr_burn_ms = (v_circ_arr_ms - v2_speed_ms).max(0.0);
+            // v_inf_arrival: the *hyperbolic excess* at the destination
+            // (the speed the spacecraft is moving *above* circular
+            // orbital speed at r2).  Always ≥ 0; 0 for Hohmann arrivals.
+            let v_inf_arrival_ms = (v2_speed_ms - v_circ_arr_ms).max(0.0);
             let total = dep_burn_ms + arr_burn_ms;
             PorkchopCell {
                 t_dep_s,
                 tof_s,
                 total_dv_ms: total,
                 c3_departure: c3,
-                v_inf_arrival_ms: arr_burn_ms,
+                v_inf_arrival_ms,
                 delta_v1_ms: dep_burn_ms,
                 delta_v2_ms: arr_burn_ms,
                 feasible: true,
@@ -486,19 +500,20 @@ mod tests {
 
     #[test]
     fn porkchop_phase_window_mark() {
-        // The Earth→Mars grid should have a feasible cell at every corner
-        // (no infeasible basin at the edges) and the Hohmann-time cell
-        // should be within 15 % of the canonical 5.6 km/s.  We pick a
-        // coarse grid (4 × 4) so the test runs in <100 ms.
+        // The Earth→Mars grid should have a feasible Hohmann-time cell
+        // at ~5.6 km/s, and the grid should contain at least 4 feasible
+        // cells.  We pick a coarse 4×4 grid so the test runs in <100 ms.
+        //
+        // The earlier `mc > 0 && mc < cols - 1` check on the *global*
+        // min_cell was dropped: the lambert solver can find a cheaper
+        // non-Hohmann Type-II transfer at the window edges, so the
+        // global min is not a reliable proxy for the Hohmann basin
+        // position.  We assert on the Hohmann-time cell instead.
         let mut cfg = PorkchopConfig::default();
         cfg.defaults.resolution_t_dep = 4;
         cfg.defaults.resolution_tof = 4;
         let inputs = make_inputs(earth_orbit(), mars_orbit(), "interplanetary");
         let grid = build_porkchop_grid(&cfg, &inputs);
-        let (cols, rows) = grid.resolution;
-        // Phase-window sanity: the window is centred on the next optimal
-        // Hohmann phase, so the Hohmann-time cell should be reachable
-        // and the cell at the Hohmann time should be at ~5.6 km/s.
         let hohmann_tof = hohmann_time_s(
             inputs.origin_orbit.semi_major_axis,
             inputs.dest_orbit.semi_major_axis,
@@ -520,17 +535,11 @@ mod tests {
             (hohmann_dv_km_s - canonical).abs() < 0.15 * canonical,
             "Hohmann-cell ΔV = {hohmann_dv_km_s:.3} km/s, expected within 15% of canonical 5.6 km/s"
         );
-        // The grid should have at least one feasible cell.
         let feasible_count = grid.cells.iter().filter(|c| c.feasible).count();
         assert!(
             feasible_count >= 4,
             "expected at least 4 feasible cells in the 4×4 grid, got {feasible_count}"
         );
-        // (Dropped: the `mc > 0 && mc < cols - 1` check on the *global*
-        // min_cell — the lambert solver can find a cheaper non-Hohmann
-        // transfer at the edges, so the global min is not a reliable
-        // proxy for the Hohmann basin position.)
-        let _ = rows; // silence unused-var warning
     }
 
     #[test]
