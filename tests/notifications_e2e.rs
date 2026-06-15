@@ -57,7 +57,9 @@ use helios_ascension::ui::notifications::components::{
     ActiveNotification, PendingNotificationDismissal,
 };
 use helios_ascension::ui::notifications::data::{NotificationCategoriesData, NotificationCategory};
-use helios_ascension::ui::notifications::events::{NotificationEvent, NotificationSeverity};
+use helios_ascension::ui::notifications::events::{
+    NotificationContextLink, NotificationEvent, NotificationSeverity,
+};
 use helios_ascension::ui::notifications::settings::{
     NotificationCategoryId, NotificationSettings, PerCategorySetting,
 };
@@ -220,6 +222,7 @@ fn test_settings_override_disables_category() {
             dedup_key: Some("mission:1".to_string()),
             auto_dismiss_s: Some(10.0),
             sticky: false,
+            context_link: NotificationContextLink::default(),
         },
     );
     app.update();
@@ -263,6 +266,7 @@ fn test_group_window_default_then_overridden() {
                 dedup_key: Some("mission:42".to_string()),
                 auto_dismiss_s: Some(60.0),
                 sticky: false,
+                context_link: NotificationContextLink::default(),
             },
         );
         if i == 0 {
@@ -307,6 +311,7 @@ fn test_group_window_default_then_overridden() {
             dedup_key: Some("mission:99".to_string()),
             auto_dismiss_s: Some(60.0),
             sticky: false,
+            context_link: NotificationContextLink::default(),
         },
     );
     app.update();
@@ -321,6 +326,7 @@ fn test_group_window_default_then_overridden() {
             dedup_key: Some("mission:99".to_string()),
             auto_dismiss_s: Some(60.0),
             sticky: false,
+            context_link: NotificationContextLink::default(),
         },
     );
     app.update();
@@ -350,6 +356,7 @@ fn test_group_window_default_then_overridden() {
             dedup_key: Some("mission:99".to_string()),
             auto_dismiss_s: Some(60.0),
             sticky: false,
+            context_link: NotificationContextLink::default(),
         },
     );
     app.update();
@@ -364,6 +371,7 @@ fn test_group_window_default_then_overridden() {
             dedup_key: Some("mission:99".to_string()),
             auto_dismiss_s: Some(60.0),
             sticky: false,
+            context_link: NotificationContextLink::default(),
         },
     );
     app.update();
@@ -439,6 +447,7 @@ fn test_pause_on_event_chain() {
             dedup_key: None,
             auto_dismiss_s: Some(30.0),
             sticky: false,
+            context_link: NotificationContextLink::default(),
         },
     );
     app.update();
@@ -499,6 +508,7 @@ fn test_render_runs_in_survey_only_by_default() {
         sticky: false,
         dedup_key: None,
         count: 1,
+        context_link: NotificationContextLink::default(),
     });
     app.add_systems(Update, render_notification_toasts);
 
@@ -544,6 +554,7 @@ fn test_max_visible_toasts_caps_render() {
             sticky: false,
             dedup_key: None,
             count: 1,
+            context_link: NotificationContextLink::default(),
         });
     }
     app.add_systems(Update, render_notification_toasts);
@@ -575,6 +586,7 @@ fn test_sticky_toast_never_dismisses_on_timer() {
             sticky: true,
             dedup_key: None,
             count: 1,
+            context_link: NotificationContextLink::default(),
         })
         .id();
 
