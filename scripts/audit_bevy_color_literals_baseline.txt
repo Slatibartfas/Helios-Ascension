@@ -64,35 +64,35 @@ src/fleets/visuals.rs:4061  let node_color = Color::srgba(1.0, 1.0, 0.3, 0.9);
 src/main.rs:120  color: Color::srgb(0.7, 0.75, 1.0), // Cool blue-white starlight tint
 src/main.rs:131  color: Color::srgb(0.6, 0.65, 0.8), // Slightly cool galactic tint
 src/main.rs:143  commands.insert_resource(ClearColor(Color::srgb(0.01, 0.01, 0.02)));
-src/plugins/solar_system.rs:345  Color::srgb(
 src/plugins/solar_system.rs:354  Color::srgb(
 src/plugins/solar_system.rs:363  Color::srgb(
 src/plugins/solar_system.rs:372  Color::srgb(
 src/plugins/solar_system.rs:381  Color::srgb(
 src/plugins/solar_system.rs:390  Color::srgb(
 src/plugins/solar_system.rs:399  Color::srgb(
-src/plugins/solar_system.rs:415  Color::srgb(brightness * 0.85, brightness * 0.90, brightness * 1.0)
-src/plugins/solar_system.rs:420  Color::srgb(brightness * 1.1, brightness * 0.85, brightness * 0.65)
-src/plugins/solar_system.rs:425  Color::srgb(brightness * 1.0, brightness * 0.95, brightness * 0.85)
-src/plugins/solar_system.rs:430  Color::srgb(brightness * 1.2, brightness * 0.75, brightness * 0.6)
-src/plugins/solar_system.rs:436  Color::srgb(brightness + tint, brightness, brightness - tint * 0.5)
-src/plugins/solar_system.rs:443  Color::srgb(
-src/plugins/solar_system.rs:457  Color::srgb(brightness * 0.95, brightness * 0.95, brightness * 1.0)
-src/plugins/solar_system.rs:462  Color::srgb(
-src/plugins/solar_system.rs:471  Color::srgb(brightness, brightness * 0.97, brightness * 0.95)
-src/plugins/solar_system.rs:476  Color::srgb(brightness * 0.9, brightness * 0.92, brightness * 1.05)
-src/plugins/solar_system.rs:481  Color::srgb(brightness * 1.05, brightness * 0.92, brightness * 0.8)
-src/plugins/solar_system.rs:487  Color::srgb(
-src/plugins/solar_system.rs:727  let base_color = Color::srgb(body_data.color.0, body_data.color.1, body_data.color.2);
-src/plugins/solar_system.rs:730  (Color::srgb(1.0, 1.0, 1.0), 0.7, 0.0)
-src/plugins/solar_system.rs:1562  (Color::srgba(1.0, 0.82, 0.5, 0.82), true)
-src/plugins/solar_system.rs:1566  (Color::srgba(0.4, 0.75, 1.0, 0.85), true)
-src/plugins/solar_system.rs:1570  (Color::srgba(0.25, 0.45, 0.75, 0.7), false)
-src/plugins/solar_system.rs:1574  (Color::srgba(0.65, 0.65, 0.65, 0.5), true)
-src/plugins/solar_system.rs:1579  (Color::srgba(0.3, 0.55, 0.22, 0.45), false)
-src/plugins/solar_system.rs:1583  (Color::srgba(1.0, 0.8, 0.3, 0.65), false)
-src/plugins/solar_system.rs:1585  BodyType::Ring => (Color::srgba(0.0, 0.0, 0.0, 0.0), false),
-src/plugins/solar_system_data.rs:343  Color::srgb(
+src/plugins/solar_system.rs:408  Color::srgb(
+src/plugins/solar_system.rs:424  Color::srgb(brightness * 0.85, brightness * 0.90, brightness * 1.0)
+src/plugins/solar_system.rs:429  Color::srgb(brightness * 1.1, brightness * 0.85, brightness * 0.65)
+src/plugins/solar_system.rs:434  Color::srgb(brightness * 1.0, brightness * 0.95, brightness * 0.85)
+src/plugins/solar_system.rs:439  Color::srgb(brightness * 1.2, brightness * 0.75, brightness * 0.6)
+src/plugins/solar_system.rs:445  Color::srgb(brightness + tint, brightness, brightness - tint * 0.5)
+src/plugins/solar_system.rs:452  Color::srgb(
+src/plugins/solar_system.rs:466  Color::srgb(brightness * 0.95, brightness * 0.95, brightness * 1.0)
+src/plugins/solar_system.rs:471  Color::srgb(
+src/plugins/solar_system.rs:480  Color::srgb(brightness, brightness * 0.97, brightness * 0.95)
+src/plugins/solar_system.rs:485  Color::srgb(brightness * 0.9, brightness * 0.92, brightness * 1.05)
+src/plugins/solar_system.rs:490  Color::srgb(brightness * 1.05, brightness * 0.92, brightness * 0.8)
+src/plugins/solar_system.rs:496  Color::srgb(
+src/plugins/solar_system.rs:736  let base_color = Color::srgb(body_data.color.0, body_data.color.1, body_data.color.2);
+src/plugins/solar_system.rs:739  (Color::srgb(1.0, 1.0, 1.0), 0.7, 0.0)
+src/plugins/solar_system.rs:1573  (Color::srgba(1.0, 0.82, 0.5, 0.82), true)
+src/plugins/solar_system.rs:1577  (Color::srgba(0.4, 0.75, 1.0, 0.85), true)
+src/plugins/solar_system.rs:1581  (Color::srgba(0.25, 0.45, 0.75, 0.7), false)
+src/plugins/solar_system.rs:1585  (Color::srgba(0.65, 0.65, 0.65, 0.5), true)
+src/plugins/solar_system.rs:1590  (Color::srgba(0.3, 0.55, 0.22, 0.45), false)
+src/plugins/solar_system.rs:1594  (Color::srgba(1.0, 0.8, 0.3, 0.65), false)
+src/plugins/solar_system.rs:1596  BodyType::Ring => (Color::srgba(0.0, 0.0, 0.0, 0.0), false),
+src/plugins/solar_system_data.rs:350  Color::srgb(
 src/plugins/starmap.rs:348  base_color: Color::srgb(1.0, 0.95, 0.7),
 src/plugins/starmap.rs:405  base_color: Color::srgb(r, g, b),
 src/plugins/starmap.rs:599  Color::srgb(base, base * 0.95, base * 0.88),
@@ -122,10 +122,10 @@ src/plugins/starmap.rs:842  BodyType::GasGiant => Color::srgb(0.9, 0.8, 0.6),
 src/plugins/starmap.rs:843  BodyType::Moon => Color::srgb(0.6, 0.6, 0.6),
 src/plugins/starmap.rs:844  BodyType::Asteroid => Color::srgb(0.4, 0.4, 0.3),
 src/plugins/starmap.rs:845  BodyType::Comet => Color::srgb(0.7, 0.8, 0.9),
-src/plugins/system_populator.rs:1566  Color::srgba(1.0, 0.85, 0.4, 0.55),
-src/plugins/system_populator.rs:1730  OrbitPath::new(Color::srgba(0.4, 0.75, 1.0, 0.85)), // Lighter blue — planets
-src/plugins/system_populator.rs:1873  OrbitPath::new(Color::srgba(0.4, 0.75, 1.0, 0.85)), // Lighter blue — planets
-src/plugins/system_populator.rs:1975  OrbitPath::new(Color::srgba(0.25, 0.45, 0.75, 0.7)), // Darker blue — dwarf planets
-src/plugins/system_populator.rs:2118  OrbitPath::with_fade(Color::srgba(0.3, 0.55, 0.22, 0.45), 5.0), // Dark green, steep fade — asteroids
-src/plugins/system_populator.rs:2229  OrbitPath::new(Color::srgba(1.0, 0.8, 0.3, 0.65)), // Yellow — comets
-src/plugins/system_populator.rs:2802  OrbitPath::new(Color::srgba(0.65, 0.65, 0.65, 0.5)), // Grey — moons
+src/plugins/system_populator.rs:1570  Color::srgba(1.0, 0.85, 0.4, 0.55),
+src/plugins/system_populator.rs:1735  OrbitPath::new(Color::srgba(0.4, 0.75, 1.0, 0.85)), // Lighter blue — planets
+src/plugins/system_populator.rs:1879  OrbitPath::new(Color::srgba(0.4, 0.75, 1.0, 0.85)), // Lighter blue — planets
+src/plugins/system_populator.rs:1982  OrbitPath::new(Color::srgba(0.25, 0.45, 0.75, 0.7)), // Darker blue — dwarf planets
+src/plugins/system_populator.rs:2126  OrbitPath::with_fade(Color::srgba(0.3, 0.55, 0.22, 0.45), 5.0), // Dark green, steep fade — asteroids
+src/plugins/system_populator.rs:2238  OrbitPath::new(Color::srgba(1.0, 0.8, 0.3, 0.65)), // Yellow — comets
+src/plugins/system_populator.rs:2813  OrbitPath::new(Color::srgba(0.65, 0.65, 0.65, 0.5)), // Grey — moons

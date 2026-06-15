@@ -2513,6 +2513,7 @@ mod tests {
             } else {
                 None
             },
+            star_approach_au: None,
         }
     }
 
@@ -2702,6 +2703,7 @@ mod tests {
                     body_type: crate::plugins::solar_system_data::BodyType::Planet,
                     visual_radius: 1.0,
                     asteroid_class: None,
+                    star_approach_au: None,
                 },
                 SurveyState::default(),
             ))
@@ -2715,6 +2717,7 @@ mod tests {
                     body_type: crate::plugins::solar_system_data::BodyType::Moon,
                     visual_radius: 0.5,
                     asteroid_class: None,
+                    star_approach_au: None,
                 },
                 SurveyState::default(),
             ))
@@ -2786,6 +2789,7 @@ mod tests {
                     body_type: crate::plugins::solar_system_data::BodyType::Planet,
                     visual_radius: 1.0,
                     asteroid_class: None,
+                    star_approach_au: None,
                 },
                 SurveyState::default(),
             ))
@@ -2799,6 +2803,7 @@ mod tests {
                     body_type: crate::plugins::solar_system_data::BodyType::Moon,
                     visual_radius: 0.5,
                     asteroid_class: None,
+                    star_approach_au: None,
                 },
                 SurveyState::default(),
             ))
@@ -2812,6 +2817,7 @@ mod tests {
                     body_type: crate::plugins::solar_system_data::BodyType::Planet,
                     visual_radius: 1.0,
                     asteroid_class: None,
+                    star_approach_au: None,
                 },
                 SurveyState::default(),
             ))
@@ -2868,6 +2874,7 @@ mod tests {
                     body_type: crate::plugins::solar_system_data::BodyType::Planet,
                     visual_radius: 1.0,
                     asteroid_class: None,
+                    star_approach_au: None,
                 },
                 SurveyState::default(),
             ))
@@ -2881,6 +2888,7 @@ mod tests {
                     body_type: crate::plugins::solar_system_data::BodyType::Moon,
                     visual_radius: 0.5,
                     asteroid_class: None,
+                    star_approach_au: None,
                 },
                 SurveyState::default(),
             ))
@@ -2972,6 +2980,7 @@ mod tests {
                     body_type: crate::plugins::solar_system_data::BodyType::Planet,
                     visual_radius: 1.0,
                     asteroid_class: None,
+                    star_approach_au: None,
                 },
                 SurveyState::default(),
             ))
@@ -3027,6 +3036,7 @@ mod tests {
                     body_type: crate::plugins::solar_system_data::BodyType::Planet,
                     visual_radius: 1.0,
                     asteroid_class: None,
+                    star_approach_au: None,
                 },
                 SurveyState::default(),
             ))

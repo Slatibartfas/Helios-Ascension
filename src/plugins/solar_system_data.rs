@@ -206,6 +206,13 @@ pub struct CelestialBodyData {
     /// Leave unset for bodies that are still present in the current era.
     #[serde(default)]
     pub destroyed_at: Option<i64>,
+    /// Per-body star-approach parking radius (AU).  Only meaningful for stars; ignored
+    /// otherwise.  When unset, the planner falls back to a global default (0.3 AU
+    /// for main-sequence stars; smaller values for sub-solar bodies).  Used by the
+    /// transfer-planner star-approach destination picker so the displayed label
+    /// matches the actual arrival parking radius (GRA-149 C-2).
+    #[serde(default)]
+    pub star_approach_au: Option<f64>,
 }
 
 /// Complete solar system data
