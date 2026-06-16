@@ -85,9 +85,12 @@ pub const GRAVITY_ASSIST: egui::Color32 = egui::Color32::from_rgb(180, 130, 255)
 /// Pale cyan used for historical probe orbit rings and the read-only
 /// "Deep Space Probes" section in the fleet panel.  Matches the Bevy
 /// `Color::PROBE_ORBIT` literal in the `theme::Color` submodule
-/// (srgba(0.55, 0.85, 1.00, 0.55)) so the on-starmap orbit line and the
-/// panel row indicator stay visually consistent.
-pub const PROBE_ORBIT: egui::Color32 = egui::Color32::from_rgba_unmultiplied(140, 217, 255, 140);
+/// (srgba(0.55, 0.85, 1.00, 0.55) → premul 77, 119, 140, 140) so the
+/// on-starmap orbit line and the panel row indicator stay visually
+/// consistent.  Uses `from_rgba_premultiplied` (const) rather than
+/// `from_rgba_unmultiplied` (non-const) so the `pub const` initializer
+/// is valid.
+pub const PROBE_ORBIT: egui::Color32 = egui::Color32::from_rgba_premultiplied(77, 119, 140, 140);
 
 // ─── Text Colours ────────────────────────────────────────────────────────
 
