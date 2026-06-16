@@ -120,6 +120,7 @@ fn earth_to_moon_intra_planet_system() {
         None,
         &system_id_query,
         0,
+        None,
     )
     .expect("Earth → Moon transfer should build successfully");
 
@@ -188,6 +189,7 @@ fn moon_to_earth_downward_transfer() {
         None,
         &system_id_query,
         0,
+        None,
     )
     .expect("Moon → Earth transfer should build successfully");
 
@@ -257,6 +259,7 @@ fn earth_to_mars_interplanetary() {
         None,
         &system_id_query,
         0,
+        None,
     )
     .expect("Earth → Mars Hohmann should build successfully");
 
@@ -342,6 +345,7 @@ fn binary_system_cross_star_transfer() {
         None,
         &system_id_query,
         7,
+        None,
     )
     .expect("binary system cross-star transfer should build successfully");
 
@@ -427,6 +431,7 @@ fn interstellar_proxima_to_sol() {
         None,
         &system_id_query,
         99,
+        None,
     )
     .expect("interstellar Proxima → Sol transfer should build successfully");
 
@@ -509,6 +514,7 @@ fn gravity_assist_earth_mars_via_venus() {
         None,
         &system_id_query,
         0,
+        None,
     )
     .expect("Earth → Mars GA post-flyby leg should build");
 
@@ -589,6 +595,7 @@ fn course_correction_redirects_mid_flight() {
         Some(current_pos_au),
         &system_id_query,
         0,
+        None,
     )
     .expect("mid-flight course-correction to Venus should build");
 
