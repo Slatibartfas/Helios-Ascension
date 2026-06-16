@@ -1,13 +1,14 @@
 use super::transfer_planner::render_transfer_planner;
 use super::*;
-use crate::astronomy::components::SpaceCoordinates;
+use crate::astronomy::components::{HyperbolicTrajectory, SpaceCoordinates};
+use crate::astronomy::KeplerOrbit;
 use crate::economy::hohmann_round_trip_seconds;
 use crate::economy::LocalStockpile;
 use crate::economy::PendingResourceRequests;
 use crate::economy::RequestPriority;
 use crate::economy::RequestState;
 use crate::economy::ResourceRequest;
-use crate::fleets::components::ShipInfo;
+use crate::fleets::components::{HistoricalProbe, HistoricalProbeKind, ShipInfo};
 
 /// Filter applied to the fleet list when navigating from the Private
 /// Shipping overview panel (GRA-37.e).  `None` shows every fleet
@@ -310,6 +311,15 @@ pub(super) fn ui_fleets_panel(
     coords_query: Query<&SpaceCoordinates, Without<Fleet>>,
     shipping_companies: Res<crate::economy::ShippingCompanies>,
     mut shipping_company_filter: ResMut<ShippingCompanyFilter>,
+    historical_probes: Query<
+        (
+            &SpaceCoordinates,
+            &KeplerOrbit,
+            Option<&HyperbolicTrajectory>,
+            &HistoricalProbe,
+        ),
+        With<HistoricalProbe>,
+    >,
 ) {
     if active_menu.current != GameMenu::Fleets {
         return;
@@ -606,6 +616,19 @@ pub(super) fn ui_fleets_panel(
                                     }
                                 }
                             }
+
+                            theme::divider(ui);
+
+                            // ── Deep Space Probes (GRA-162) ────────────────────
+                            // Read-only section that surfaces the four
+                            // historical probe entities (Voyager 1, Voyager 2,
+                            // Parker Solar Probe, New Horizons) so the
+                            // player can see them alongside their own fleet.
+                            // Probes are physics-only entities (no `Fleet`
+                            // component, no transfer orders), so we render
+                            // them as a separate non-interactive table
+                            // below the player fleet list.
+                            render_historical_probes_section(ui, &historical_probes);
                         });
                     },
                 );
@@ -854,6 +877,182 @@ fn find_body_star_name(
         }
     }
     "Unknown System".to_string()
+}
+
+/// Render the read-only "Deep Space Probes" table (GRA-162).
+///
+/// Lists the four historical probe entities (Voyager 1, Voyager 2, Parker
+/// Solar Probe, New Horizons) below the player fleet list.  Probes are
+/// physics-only entities (no `Fleet` component, no `FleetOrbit`, no
+/// `ShipInstance`) so they intentionally never appear in `render_fleet_list`
+/// — this section is the player's only way to see them in the panel.
+///
+/// Columns: name | agency | launch year | heliocentric distance (AU) |
+/// trajectory type (Hyperbolic escape / Elliptical bound).  Rows are
+/// sorted by `HistoricalProbeKind` ordinal for stable display
+/// (V1 → V2 → Parker → NH) and use `theme::PROBE_ORBIT` for the row
+/// indicator swatch.  No action buttons are rendered — the section is
+/// strictly read-only so the player cannot issue transfer orders to a
+/// probe.
+fn render_historical_probes_section(
+    ui: &mut egui::Ui,
+    probe_query: &Query<
+        (
+            &SpaceCoordinates,
+            &KeplerOrbit,
+            Option<&HyperbolicTrajectory>,
+            &HistoricalProbe,
+        ),
+        With<HistoricalProbe>,
+    >,
+) {
+    // Collect + sort by HistoricalProbeKind ordinal for stable ordering.
+    // `iter()` on the query returns references in arbitrary order, so we
+    // materialise into a Vec and sort.
+    struct ProbeRow {
+        name: &'static str,
+        agency: &'static str,
+        launch_year: u16,
+        distance_au: f64,
+        is_hyperbolic: bool,
+    }
+    let mut rows: Vec<(HistoricalProbeKind, ProbeRow)> = probe_query
+        .iter()
+        .map(|(coords, orbit, hyper, probe)| {
+            // The orbit's `semi_major_axis` is signed: positive for
+            // bound ellipses, negative for hyperbolas.  But the brief
+            // asks us to classify from `eccentricity` directly so the
+            // decision matches the test in
+            // `src/fleets/historical_probes.rs::eccentricity_classification`.
+            let is_hyperbolic = orbit.eccentricity >= 1.0 || hyper.is_some();
+            (
+                probe.kind,
+                ProbeRow {
+                    name: probe.name,
+                    agency: probe.agency,
+                    launch_year: probe.launch_year,
+                    distance_au: coords.position.length(),
+                    is_hyperbolic,
+                },
+            )
+        })
+        .collect();
+    // HistoricalProbeKind is `#[derive(PartialOrd, Ord)]` over its
+    // declaration order (Voyager1 < Voyager2 < Parker < NewHorizons).
+    rows.sort_by_key(|(kind, _)| *kind);
+
+    ui.label(
+        egui::RichText::new("DEEP SPACE PROBES")
+            .font(theme::heading())
+            .color(theme::ACCENT),
+    );
+    ui.label(
+        egui::RichText::new(
+            "Background science assets — read-only. These probes are not under your command \
+             and cannot be transferred.",
+        )
+        .font(theme::body(11.0))
+        .color(theme::TEXT_DIM),
+    );
+    ui.add_space(2.0);
+
+    // Column header row.  Widths are tuned for the left-column width
+    // (~340–560 px after the panel padding).  We use simple labels and
+    // monospace for the numeric columns to keep the digits aligned.
+    egui::Grid::new("historical_probes_header")
+        .num_columns(5)
+        .spacing([10.0, 4.0])
+        .min_col_width(60.0)
+        .show(ui, |ui| {
+            ui.label(
+                egui::RichText::new("Name")
+                    .font(theme::mono(10.0))
+                    .color(theme::TEXT_DIM)
+                    .strong(),
+            );
+            ui.label(
+                egui::RichText::new("Agency")
+                    .font(theme::mono(10.0))
+                    .color(theme::TEXT_DIM)
+                    .strong(),
+            );
+            ui.label(
+                egui::RichText::new("Launched")
+                    .font(theme::mono(10.0))
+                    .color(theme::TEXT_DIM)
+                    .strong(),
+            );
+            ui.label(
+                egui::RichText::new("Distance (AU)")
+                    .font(theme::mono(10.0))
+                    .color(theme::TEXT_DIM)
+                    .strong(),
+            );
+            ui.label(
+                egui::RichText::new("Trajectory")
+                    .font(theme::mono(10.0))
+                    .color(theme::TEXT_DIM)
+                    .strong(),
+            );
+            ui.end_row();
+        });
+
+    for (_, row) in &rows {
+        egui::Grid::new(format!("historical_probe_row_{}", row.name))
+            .num_columns(5)
+            .spacing([10.0, 2.0])
+            .min_col_width(60.0)
+            .show(ui, |ui| {
+                // Row indicator swatch + name (the swatch is a small color
+                // square on the leading edge of the name cell).
+                ui.horizontal(|ui| {
+                    let (swatch_rect, _) =
+                        ui.allocate_exact_size(egui::vec2(8.0, 8.0), egui::Sense::hover());
+                    ui.painter()
+                        .rect_filled(swatch_rect, 1.5, theme::PROBE_ORBIT);
+                    ui.label(
+                        egui::RichText::new(row.name)
+                            .font(theme::body(12.0))
+                            .color(theme::TEXT_VALUE),
+                    );
+                });
+                ui.label(
+                    egui::RichText::new(row.agency)
+                        .font(theme::body(12.0))
+                        .color(theme::TEXT),
+                );
+                ui.label(
+                    egui::RichText::new(row.launch_year.to_string())
+                        .font(theme::mono(12.0))
+                        .color(theme::TEXT),
+                );
+                ui.label(
+                    egui::RichText::new(format!("{:.2}", row.distance_au))
+                        .font(theme::mono(12.0))
+                        .color(theme::TEXT_VALUE),
+                );
+                let (traj_text, traj_color) = if row.is_hyperbolic {
+                    ("Hyperbolic escape", theme::GRAVITY_ASSIST)
+                } else {
+                    ("Elliptical bound", theme::RP_BLUE)
+                };
+                ui.label(
+                    egui::RichText::new(traj_text)
+                        .font(theme::body(12.0))
+                        .color(traj_color),
+                );
+                ui.end_row();
+            });
+    }
+
+    if rows.is_empty() {
+        ui.label(
+            egui::RichText::new("No historical probes in this save.")
+                .font(theme::body(11.5))
+                .italics()
+                .color(theme::TEXT_HINT),
+        );
+    }
 }
 
 /// Render the scrollable list of fleets on the left side, grouped by star system.
