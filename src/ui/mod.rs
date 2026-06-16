@@ -201,6 +201,13 @@ pub struct FleetUiState {
     pub target_body: Option<Entity>,
     /// Selected Lagrange-point target (mutually exclusive with `target_body`).
     pub target_lagrange: Option<LagrangeTarget>,
+    /// User-controlled parking radius (AU) for a star-approach target.
+    /// `(star_entity, radius_au)`.  Set by the interactive
+    /// `DestEntry::StarApproach` picker (GRA-161); consumed by
+    /// `build_planned_transfer` to override `star_approach_radius_au(b)`
+    /// for the destination star.  `None` means "use the per-body default
+    /// from `CelestialBody.star_approach_au`".
+    pub target_star_approach: Option<(Entity, f64)>,
     /// Selected top-level category in the two-level destination selector.
     /// Holds the category label string (e.g. "Earth", "Mars", "Fleets").
     pub selected_dest_category: Option<String>,
@@ -262,6 +269,7 @@ impl FleetUiState {
         self.target_lagrange = None;
         self.target_fleet = None;
         self.target_star_system = None;
+        self.target_star_approach = None;
         self.selected_dest_category = None;
         self.departure_offset_days = 0.0;
         self.computed_options.clear();

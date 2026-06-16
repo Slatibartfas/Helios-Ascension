@@ -50,6 +50,23 @@ const STELLAR_FLYBY_RADIUS_KM_MULTIPLIER: f64 = 1_500.0; // = 1_000 m/km × 1.5 
 /// (e.g. an M-dwarf can park at 0.05 AU above its surface).
 const STELLAR_APPROACH_AU: f64 = 0.3;
 
+/// Minimum allowed star-approach parking radius (AU) for the interactive
+/// destination picker.  0.05 AU is well above the photospheres of all
+/// main-sequence stars (the Sun's photosphere is ~4.7 × 10⁻³ AU; M-dwarfs
+/// are even smaller) and is the value GRA-149 C-2 uses for tight M-dwarf
+/// overrides.  Clamping below this would let the player pick an orbit
+/// inside the star's corona where Δv cannot be modelled as a two-body
+/// assist.  GRA-161.
+const MIN_STAR_APPROACH_AU: f64 = 0.05;
+
+/// Maximum allowed star-approach parking radius (AU) for the interactive
+/// destination picker.  5.00 AU sits inside Jupiter's orbit in the Sol
+/// system and outside the closest planet in most M-dwarf systems.  The
+/// picker computes a per-star upper bound (closest-planet SMA × 0.9) for
+/// the arrival so the parking orbit cannot be placed inside an existing
+/// planetary orbit.  GRA-161.
+const MAX_STAR_APPROACH_AU: f64 = 5.0;
+
 /// Resolve the star-approach parking radius (AU) for a star body.
 ///
 /// Returns `body.star_approach_au` if set (per-body override from RON or
@@ -59,6 +76,66 @@ const STELLAR_APPROACH_AU: f64 = 0.3;
 #[inline]
 fn star_approach_radius_au(body: &CelestialBody) -> f64 {
     body.star_approach_au.unwrap_or(STELLAR_APPROACH_AU)
+}
+
+/// Compute the user-selectable `radius_au` bounds for the interactive
+/// star-approach picker (`DestEntry::StarApproach`).
+///
+/// Lower bound: [`MIN_STAR_APPROACH_AU`] (0.05 AU) — above the photosphere
+/// of all main-sequence stars.
+/// Upper bound: 90 % of the closest planet's orbital SMA in the host
+/// system (so the parking orbit sits well inside the innermost planet)
+/// or [`MAX_STAR_APPROACH_AU`] (5.0 AU) if no planet is closer than that.
+/// GRA-161.
+fn star_approach_bounds_au(
+    star_entity: Entity,
+    body_query: &Query<(
+        Entity,
+        &CelestialBody,
+        &SpaceCoordinates,
+        Option<&KeplerOrbit>,
+        Option<&LogicalParent>,
+    )>,
+    body_system_ids: &Query<&SystemId>,
+    current_system_id: usize,
+) -> (f64, f64) {
+    let min_au = MIN_STAR_APPROACH_AU;
+    let mut max_au = MAX_STAR_APPROACH_AU;
+    let mut closest_sma: Option<f64> = None;
+    for (_, b, _, ko, lp) in body_query.iter() {
+        if b.body_type == BodyType::Star || b.body_type == BodyType::Ring {
+            continue;
+        }
+        if lp.map(|p| p.0) != Some(star_entity) {
+            continue;
+        }
+        if !body_system_ids
+            .get(star_entity)
+            .ok()
+            .map(|s| s.0 == current_system_id)
+            .unwrap_or(false)
+        {
+            continue;
+        }
+        if let Some(k) = ko {
+            let sma = k.semi_major_axis;
+            if sma > 0.0 {
+                closest_sma = Some(match closest_sma {
+                    Some(prev) if prev <= sma => prev,
+                    _ => sma,
+                });
+            }
+        }
+    }
+    if let Some(closest) = closest_sma {
+        // 90 % of the closest planet's SMA keeps the parking orbit
+        // well clear of the planet's sphere of influence.
+        let planet_cap = (closest * 0.9).max(MIN_STAR_APPROACH_AU + 0.01);
+        if planet_cap < max_au {
+            max_au = planet_cap;
+        }
+    }
+    (min_au, max_au)
 }
 
 /// Returns `true` when `gm` is large enough to be a stellar-mass central body.
@@ -686,6 +763,9 @@ pub(super) fn render_transfer_planner(
     //   Lagrange — one of the 5 L-points of a planet-star system
     //   FleetTarget — another fleet (for intercept course)
     //   StarSystem — interstellar target (another star system)
+    //   StarApproach — a star with an interactive parking-radius control
+    //     (GRA-161). Distinct from `Body` so the picker can render a
+    //     `DragValue` next to the row instead of a static label.
     #[derive(Clone)]
     enum DestEntry {
         Header(String),
@@ -713,6 +793,19 @@ pub(super) fn render_transfer_planner(
             system_id: usize,
             name: String,
             distance_ly: f32,
+        },
+        StarApproach {
+            entity: Entity,
+            name: String,
+            /// Current user-controlled parking radius (AU).
+            radius_au: f64,
+            /// Default parking radius (per-body `star_approach_au` or
+            /// `STELLAR_APPROACH_AU` fallback).
+            default_radius_au: f64,
+            /// Lower clamp for the picker `DragValue`.
+            min_radius_au: f64,
+            /// Upper clamp for the picker `DragValue`.
+            max_radius_au: f64,
         },
     }
 
@@ -1067,13 +1160,19 @@ pub(super) fn render_transfer_planner(
 
     // ── Group: Star Approach ─────────────────────────────────────────────────
     // List every star in the current system.  In single-star systems this gives
-    // one "☀ Sol Approach" entry.  In binary / trinary systems each star gets
+    // one "🛰 Sol Approach" entry.  In binary / trinary systems each star gets
     // its own entry, enabling direct inter-star transfer planning and stellar
     // gravity-assist routes (e.g. Star A → Star B → Star C).
     //
     // GRA-149 C-2: the approach radius in the label is now sourced from the
     // per-body `star_approach_au` override (or the 0.3 AU default) so the
     // label matches the actual arrival parking radius used by the planner.
+    //
+    // GRA-161: emit a `DestEntry::StarApproach` variant instead of `Body`
+    // so the picker can render an interactive `DragValue` for the parking
+    // radius.  The radius defaults to `star_approach_radius_au(b)` and
+    // clamps to per-star bounds (`MIN_STAR_APPROACH_AU` to either
+    // `MAX_STAR_APPROACH_AU` or 90 % of the closest planet's SMA).
     {
         let mut system_stars: Vec<(Entity, String, f64)> = body_query
             .iter()
@@ -1097,13 +1196,26 @@ pub(super) fn render_transfer_planner(
         if !system_stars.is_empty() {
             dest_entries.push(DestEntry::Header("Star Approach".to_string()));
             for (star_e, star_name, approach_au) in system_stars {
-                // 🛰 (parking-orbit star approach) — distinct from ☀ to signal
-                // that this entry is a per-body parking-orbit transfer, not a
-                // raw "fly to the star" approach. The approach altitude comes
-                // from `star_approach_radius_au(b)` (GRA-149 C-2 wiring).
-                dest_entries.push(DestEntry::Body {
+                let (min_radius_au, max_radius_au) =
+                    star_approach_bounds_au(star_e, body_query, body_system_ids, current_system_id);
+                // Honour a persisted user choice for the same star when
+                // available; otherwise use the per-body default.  Clamp to
+                // the per-star bounds so an out-of-range persisted value
+                // (e.g. loaded from a save with different bounds) cannot
+                // crash the planner.
+                let initial_radius_au = fleet_ui_state
+                    .target_star_approach
+                    .filter(|(e, _)| *e == star_e)
+                    .map(|(_, r)| r)
+                    .unwrap_or(approach_au)
+                    .clamp(min_radius_au, max_radius_au);
+                dest_entries.push(DestEntry::StarApproach {
                     entity: star_e,
-                    name: format!("🛰 {} Approach ({:.2} AU)", star_name, approach_au),
+                    name: star_name,
+                    radius_au: initial_radius_au,
+                    default_radius_au: approach_au,
+                    min_radius_au,
+                    max_radius_au,
                 });
             }
         }
@@ -1185,6 +1297,7 @@ pub(super) fn render_transfer_planner(
                     || label == "Dwarf Planets"
                     || label == "Solar"
                     || label == "Interstellar"
+                    || label == "Star Approach"
                     || label.starts_with("Small Bodies")
             }
             _ => false,
@@ -1237,6 +1350,11 @@ pub(super) fn render_transfer_planner(
                 DestEntry::Body { entity, .. } | DestEntry::Ring { entity, .. } => {
                     *entity == target
                 }
+                // GRA-161: a star-approach target lives in its own
+                // "Star Approach" group; recognise it here so the
+                // category ComboBox auto-selects when the player picks
+                // a star via the new interactive picker.
+                DestEntry::StarApproach { entity, .. } => *entity == target,
                 _ => false,
             }) {
                 correct_category = Some(group.name.clone());
@@ -1322,6 +1440,11 @@ pub(super) fn render_transfer_planner(
                         fleet_ui_state.target_lagrange = None;
                         fleet_ui_state.target_fleet = None;
                         fleet_ui_state.target_star_system = None;
+                        // GRA-161: also clear the user-controlled star-approach
+                        // radius when the category changes.  The radius is
+                        // meaningless once the destination is no longer a
+                        // star in the new category.
+                        fleet_ui_state.target_star_approach = None;
                         fleet_ui_state.computed_options.clear();
                         fleet_ui_state.planned_transfer = None;
                         fleet_ui_state.selected_option = 0;
@@ -1357,15 +1480,26 @@ pub(super) fn render_transfer_planner(
     } else if let Some((_, ref name, _)) = fleet_ui_state.target_star_system {
         name.clone()
     } else {
+        // GRA-161: extract star_approach before borrowing fleet_ui_state
+        // in the closure so the borrow is released before line 4123.
+        let star_approach = fleet_ui_state.target_star_approach;
         fleet_ui_state
             .target_body
-            .and_then(|e| body_query.get(e).ok())
-            .map(|(_, b, _, _, _)| {
-                if b.body_type == BodyType::Ring {
-                    format!("{} 💍", b.name)
-                } else {
-                    b.name.clone()
-                }
+            .and_then(|e| {
+                body_query.get(e).ok().map(move |(_, b, _, _, _)| {
+                    if b.body_type == BodyType::Ring {
+                        format!("{} 💍", b.name)
+                    } else if b.body_type == BodyType::Star {
+                        let r = star_approach
+                            .as_ref()
+                            .filter(|(se, _)| *se == e)
+                            .map(|(_, r)| *r)
+                            .unwrap_or(star_approach_radius_au(b));
+                        format!("🛰 {} ({:.2} AU)", b.name, r)
+                    } else {
+                        b.name.clone()
+                    }
+                })
             })
             .unwrap_or_else(|| "— Target —".to_owned())
     };
@@ -1409,6 +1543,10 @@ pub(super) fn render_transfer_planner(
                                         fleet_ui_state.target_body = Some(*entity);
                                         fleet_ui_state.target_lagrange = None;
                                         fleet_ui_state.target_fleet = None;
+                                        // GRA-161: switching to a non-star
+                                        // destination invalidates the
+                                        // star-approach parking radius.
+                                        fleet_ui_state.target_star_approach = None;
                                         fleet_ui_state.computed_options.clear();
                                         fleet_ui_state.planned_transfer = None;
                                         fleet_ui_state.selected_option = 0;
@@ -1431,6 +1569,10 @@ pub(super) fn render_transfer_planner(
                                         fleet_ui_state.target_body = Some(*entity);
                                         fleet_ui_state.target_lagrange = None;
                                         fleet_ui_state.target_fleet = None;
+                                        // GRA-161: switching to a non-star
+                                        // destination invalidates the
+                                        // star-approach parking radius.
+                                        fleet_ui_state.target_star_approach = None;
                                         fleet_ui_state.computed_options.clear();
                                         fleet_ui_state.planned_transfer = None;
                                         fleet_ui_state.selected_option = 0;
@@ -1473,6 +1615,8 @@ pub(super) fn render_transfer_planner(
                                         fleet_ui_state.target_body = None;
                                         fleet_ui_state.target_fleet = None;
                                         fleet_ui_state.target_star_system = None;
+                                        // GRA-161: Lagrange targets are not stars.
+                                        fleet_ui_state.target_star_approach = None;
                                         fleet_ui_state.computed_options.clear();
                                         fleet_ui_state.planned_transfer = None;
                                         fleet_ui_state.selected_option = 0;
@@ -1507,6 +1651,8 @@ pub(super) fn render_transfer_planner(
                                         fleet_ui_state.target_body = None;
                                         fleet_ui_state.target_lagrange = None;
                                         fleet_ui_state.target_star_system = None;
+                                        // GRA-161: fleet intercepts are not stars.
+                                        fleet_ui_state.target_star_approach = None;
                                         fleet_ui_state.computed_options.clear();
                                         fleet_ui_state.planned_transfer = None;
                                         fleet_ui_state.selected_option = 0;
@@ -1550,10 +1696,100 @@ pub(super) fn render_transfer_planner(
                                         fleet_ui_state.target_body = None;
                                         fleet_ui_state.target_lagrange = None;
                                         fleet_ui_state.target_fleet = None;
+                                        fleet_ui_state.target_star_approach = None;
                                         fleet_ui_state.computed_options.clear();
                                         fleet_ui_state.planned_transfer = None;
                                         fleet_ui_state.selected_option = 0;
                                         fleet_ui_state.selected_gravity_assist = None;
+                                    }
+                                }
+                                DestEntry::StarApproach {
+                                    entity,
+                                    name,
+                                    radius_au,
+                                    default_radius_au,
+                                    min_radius_au,
+                                    max_radius_au,
+                                } => {
+                                    first_sub = false;
+                                    // Star-approach rows carry both a `selectable_label`
+                                    // (the star name) and a `DragValue` (the parking
+                                    // radius).  Layout: "  🛰 {name}" on the left and the
+                                    // spinner on the right inside the same row.
+                                    let is_sel = fleet_ui_state.target_body == Some(*entity)
+                                        && fleet_ui_state.target_lagrange.is_none()
+                                        && fleet_ui_state.target_fleet.is_none();
+                                    let row_text = format!("  🛰 {name}");
+                                    let label_response = ui.selectable_label(
+                                        is_sel,
+                                        egui::RichText::new(row_text).size(12.0),
+                                    );
+                                    if label_response.clicked() && !is_sel {
+                                        fleet_ui_state.target_body = Some(*entity);
+                                        fleet_ui_state.target_lagrange = None;
+                                        fleet_ui_state.target_fleet = None;
+                                        fleet_ui_state.target_star_system = None;
+                                        // Persist the current radius on the UI
+                                        // state so the planner consumes it.
+                                        fleet_ui_state.target_star_approach =
+                                            Some((*entity, *radius_au));
+                                        fleet_ui_state.computed_options.clear();
+                                        fleet_ui_state.planned_transfer = None;
+                                        fleet_ui_state.selected_option = 0;
+                                        fleet_ui_state.selected_gravity_assist = None;
+                                        // Clear the cached porkchop grid so the
+                                        // GRA-159 rebuild path re-runs against
+                                        // the new arrival radius on the next
+                                        // frame.  The grid is invalidated here
+                                        // regardless of whether the radius
+                                        // changed; the rebuild itself is the
+                                        // GRA-159 wiring's responsibility.
+                                        fleet_ui_state.porkchop_grid = None;
+                                        fleet_ui_state.selected_porkchop_cell = None;
+                                    }
+                                    // Inline DragValue for the parking radius.
+                                    // `ui.add_space` keeps the spinner visually
+                                    // inside the same row as the label.  Hover
+                                    // text explains the default and the bounds.
+                                    ui.add_space(4.0);
+                                    let mut r = *radius_au;
+                                    let min_r = *min_radius_au;
+                                    let max_r = *max_radius_au;
+                                    let drag = egui::DragValue::new(&mut r)
+                                        .range(min_r..=max_r)
+                                        .speed(0.01)
+                                        .max_decimals(2)
+                                        .prefix("r=")
+                                        .suffix(" AU");
+                                    let tooltip = format!(
+                                        "Parking orbit radius around {name}. \
+                                         Default {:.2} AU (per-body `star_approach_au`). \
+                                         Clamped to [{min:.2}, {max:.2}] AU.",
+                                        default_radius_au,
+                                        min = min_radius_au,
+                                        max = max_radius_au,
+                                    );
+                                    let drag_response = ui.add(drag).on_hover_text(&tooltip);
+                                    if drag_response.changed() {
+                                        // Clamp defensively in case the user's
+                                        // drag lands exactly on the boundary
+                                        // and a float epsilon flips the value.
+                                        let clamped = r.clamp(*min_radius_au, *max_radius_au);
+                                        if (clamped - *radius_au).abs() > f64::EPSILON {
+                                            // Store in UI state and invalidate
+                                            // the cached porkchop grid so the
+                                            // GRA-159 rebuild picks it up.
+                                            fleet_ui_state.target_star_approach =
+                                                Some((*entity, clamped));
+                                            if fleet_ui_state.target_body == Some(*entity) {
+                                                fleet_ui_state.computed_options.clear();
+                                                fleet_ui_state.planned_transfer = None;
+                                                fleet_ui_state.selected_option = 0;
+                                                fleet_ui_state.selected_gravity_assist = None;
+                                            }
+                                            fleet_ui_state.porkchop_grid = None;
+                                            fleet_ui_state.selected_porkchop_cell = None;
+                                        }
                                     }
                                 }
                             }
@@ -3147,6 +3383,14 @@ pub(super) fn render_transfer_planner(
                     .ok()
                     .and_then(|(_, _, _, maybe_fo, _)| maybe_fo)
                     .and_then(|fo| {
+                        // GRA-161: pull the user-controlled star-approach
+                        // override from FleetUiState.  `target_star_approach`
+                        // is only valid when the destination is the star it
+                        // references; other targets ignore the override.
+                        let target_orbit_radius_au = fleet_ui_state
+                            .target_star_approach
+                            .filter(|(e, _)| *e == fo.body)
+                            .map(|(_, r)| r);
                         build_planned_transfer(
                             fleet_entity,
                             fleet,
@@ -3158,9 +3402,14 @@ pub(super) fn render_transfer_planner(
                             course_correction_sc,
                             body_system_ids,
                             current_system_id,
+                            target_orbit_radius_au,
                         )
                     })
             } else if let Some(te) = body_target_snap {
+                let target_orbit_radius_au = fleet_ui_state
+                    .target_star_approach
+                    .filter(|(e, _)| *e == te)
+                    .map(|(_, r)| r);
                 build_planned_transfer(
                     fleet_entity,
                     fleet,
@@ -3172,6 +3421,7 @@ pub(super) fn render_transfer_planner(
                     course_correction_sc,
                     body_system_ids,
                     current_system_id,
+                    target_orbit_radius_au,
                 )
             } else {
                 None
@@ -3389,7 +3639,11 @@ pub(super) fn render_transfer_planner(
                             all_fleets_query.get(tfe).ok()
                                 .and_then(|(_, _, _, maybe_fo, _)| maybe_fo)
                                 .and_then(|fo| {
-                                    build_planned_transfer(fleet_entity, fleet, orbit, fo.body, planned_departure_time_s, body_query, &sel_option, course_correction_sc, body_system_ids, current_system_id)
+                                    let target_orbit_radius_au = fleet_ui_state
+                                        .target_star_approach
+                                        .filter(|(e, _)| *e == fo.body)
+                                        .map(|(_, r)| r);
+                                    build_planned_transfer(fleet_entity, fleet, orbit, fo.body, planned_departure_time_s, body_query, &sel_option, course_correction_sc, body_system_ids, current_system_id, target_orbit_radius_au)
                                 })
                         } else if let Some(te) = body_target_snap {
                             if sel_option.label == "Gravity Assist" {
@@ -3406,11 +3660,15 @@ pub(super) fn render_transfer_planner(
                                     .map(|e| e.option.clone());
 
                                 if let Some(flyby) = flyby_e {
+                                    let target_orbit_radius_au = fleet_ui_state
+                                        .target_star_approach
+                                        .filter(|(e, _)| *e == flyby)
+                                        .map(|(_, r)| r);
                                     let mut maybe_pt = build_planned_transfer(
                                         fleet_entity, fleet, orbit, flyby, planned_departure_time_s,
                                         body_query, &sel_option, course_correction_sc,
                                         body_system_ids, current_system_id,
-                                    );
+                                        target_orbit_radius_au,);
 
                                     if let Some(ref mut pt) = maybe_pt {
                                         // Record the flyby body so the executed maneuver can
@@ -3513,10 +3771,18 @@ pub(super) fn render_transfer_planner(
                                     }
                                     maybe_pt
                                 } else {
-                                    build_planned_transfer(fleet_entity, fleet, orbit, te, planned_departure_time_s, body_query, &sel_option, course_correction_sc, body_system_ids, current_system_id)
+                                    let target_orbit_radius_au = fleet_ui_state
+                                        .target_star_approach
+                                        .filter(|(e, _)| *e == te)
+                                        .map(|(_, r)| r);
+                                    build_planned_transfer(fleet_entity, fleet, orbit, te, planned_departure_time_s, body_query, &sel_option, course_correction_sc, body_system_ids, current_system_id, target_orbit_radius_au)
                                 }
                             } else {
-                                build_planned_transfer(fleet_entity, fleet, orbit, te, planned_departure_time_s, body_query, &sel_option, course_correction_sc, body_system_ids, current_system_id)
+                                let target_orbit_radius_au = fleet_ui_state
+                                    .target_star_approach
+                                    .filter(|(e, _)| *e == te)
+                                    .map(|(_, r)| r);
+                                build_planned_transfer(fleet_entity, fleet, orbit, te, planned_departure_time_s, body_query, &sel_option, course_correction_sc, body_system_ids, current_system_id, target_orbit_radius_au)
                             }
                         } else {
                             None
@@ -4029,6 +4295,11 @@ pub(super) fn render_transfer_planner(
 }
 
 /// Build a `PlannedTransfer` from the selected transfer option and fleet/body state.
+///
+/// `target_orbit_radius_au` overrides the per-body `star_approach_au` field
+/// for star-approach transfers when set; the value comes from the GRA-161
+/// interactive `DestEntry::StarApproach` picker.  Pass `None` to use the
+/// per-body default (no override).
 pub fn build_planned_transfer(
     _fleet_entity: Entity,
     fleet: &Fleet,
@@ -4050,6 +4321,10 @@ pub fn build_planned_transfer(
     course_correction_pos: Option<bevy::math::DVec3>,
     body_system_ids: &Query<&SystemId>,
     current_system_id: usize,
+    // GRA-161: user-controlled parking-radius override for star-approach
+    // destinations.  `Some(r)` replaces `star_approach_radius_au(dest_body)`
+    // in the `dest_is_star` branch.
+    target_orbit_radius_au: Option<f64>,
 ) -> Option<PlannedTransfer> {
     use crate::astronomy::KeplerOrbit;
     use crate::fleets::orbital_mechanics::{solve_lambert_transfer, AU_IN_METERS, GM_SUN, G_CONST};
@@ -4146,13 +4421,22 @@ pub fn build_planned_transfer(
             // resolves the per-body value (or the global default) and is reused by
             // the barycentric endpoint computation and the final arrival_radius
             // selection below.
+            //
+            // GRA-161: when the user drags the parking-radius spinner in the
+            // destination picker, the override (`target_orbit_radius_au`)
+            // wins over the per-body default.  The override is clamped
+            // to `[MIN_STAR_APPROACH_AU, MAX_STAR_APPROACH_AU]` at the
+            // picker so we can trust the value here, but we still apply a
+            // safety floor against the origin's SMA so the arrival orbit
+            // can never end up inside the origin planet.
             let star_mass = dest_body.mass; // destination IS the star
                                             // planet_sma_au (the origin body's star-centric SMA) is the departure
                                             // distance.  Do NOT use orbit.radius_au — that is the fleet's local
                                             // parking orbit radius and would make the outward/inward direction check
                                             // incorrect in the star frame.
             let planet_sma_au = origin_ko.map(|ko| ko.semi_major_axis).unwrap_or(1.0);
-            let approach_au = star_approach_radius_au(dest_body);
+            let approach_au =
+                target_orbit_radius_au.unwrap_or_else(|| star_approach_radius_au(dest_body));
             // For transfers that head *outward* (planet_sma_au < approach_au), the
             // parking radius is the approach value.  For inward transfers we keep
             // the arrival inside the origin orbit so the planet doesn't have to
@@ -5115,6 +5399,7 @@ mod tests {
             None,
             &system_id_query,
             7,
+            None,
         )
         .expect("cross-star transfer should build successfully");
 
@@ -5214,6 +5499,7 @@ mod tests {
             None,
             &system_id_query,
             7,
+            None,
         )
         .expect("curved cross-star transfer should build successfully");
 
@@ -5290,6 +5576,7 @@ mod tests {
             None,
             &system_id_query,
             7,
+            None,
         )
         .expect("star-origin transfer should build successfully");
 
@@ -5366,6 +5653,7 @@ mod tests {
             None,
             &system_id_query,
             7,
+            None,
         )
         .expect("star-destination transfer should build successfully");
 
@@ -5444,6 +5732,7 @@ mod tests {
             None,
             &system_id_query,
             7,
+            None,
         )
         .expect("initial star transfer should build successfully");
         let planned_later = build_planned_transfer(
@@ -5457,6 +5746,7 @@ mod tests {
             None,
             &system_id_query,
             7,
+            None,
         )
         .expect("delayed star transfer should build successfully");
 
@@ -5538,6 +5828,7 @@ mod tests {
             None,
             &system_id_query,
             7,
+            None,
         )
         .expect("star-origin transfer should build successfully");
 
@@ -5631,6 +5922,7 @@ mod tests {
             None,
             &system_id_query,
             7,
+            None,
         )
         .expect("same-star transfer should build successfully");
 
@@ -5709,6 +6001,7 @@ mod tests {
             None,
             &system_id_query,
             7,
+            None,
         )
         .expect("cross-star star-approach transfer should build successfully");
 
@@ -5834,6 +6127,7 @@ mod tests {
             None,
             &system_id_query,
             7,
+            None,
         )
         .expect("star-approach transfer with override should build");
 
@@ -5922,6 +6216,7 @@ mod tests {
             None,
             &system_id_query,
             7,
+            None,
         )
         .expect("hot-Jupiter to outer-planet transfer should build");
 
@@ -6164,6 +6459,202 @@ mod tests {
         assert_eq!(
             lagrange_picker_label(&lp, "Earth", false),
             "🛰 L2 (Earth-Moon)"
+        );
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // GRA-161 acceptance tests
+    //
+    // Pin the interactive star-approach parking-radius picker so a future
+    // regression to the static `0.30 AU` label (or to the per-body
+    // `star_approach_au` only) is caught.
+    // ──────────────────────────────────────────────────────────────────────
+
+    /// H-1: `star_approach_bounds_au` for a star with no closer planet than
+    /// 5 AU returns `(MIN_STAR_APPROACH_AU, MAX_STAR_APPROACH_AU)` —
+    /// `0.05..=5.00` AU.  This is the no-clamp default and is what the
+    /// picker would use for a free-floating star with no planets.
+    #[test]
+    fn gra161_h1_bounds_no_planet_returns_full_range() {
+        let mut world = World::new();
+        let star = world
+            .spawn((
+                test_body("Free Star", BodyType::Star, 1.0e30, 500_000.0, 22.0),
+                SpaceCoordinates::new(DVec3::ZERO),
+                SystemId(7),
+            ))
+            .id();
+        let mut body_query_state = world.query::<(
+            Entity,
+            &CelestialBody,
+            &SpaceCoordinates,
+            Option<&KeplerOrbit>,
+            Option<&LogicalParent>,
+        )>();
+        let mut system_id_query_state = world.query::<&SystemId>();
+        let body_query = body_query_state.query(&world);
+        let system_id_query = system_id_query_state.query(&world);
+        let (min_au, max_au) =
+            super::star_approach_bounds_au(star, &body_query, &system_id_query, 7);
+        assert!(
+            (min_au - super::MIN_STAR_APPROACH_AU).abs() < 1e-12,
+            "min_au = {min_au}, expected {}",
+            super::MIN_STAR_APPROACH_AU
+        );
+        assert!(
+            (max_au - super::MAX_STAR_APPROACH_AU).abs() < 1e-12,
+            "max_au = {max_au}, expected {}",
+            super::MAX_STAR_APPROACH_AU
+        );
+    }
+
+    /// H-2: `star_approach_bounds_au` for a star whose closest planet is
+    /// at 1.0 AU returns `min=0.05, max=0.9` — the upper clamp is
+    /// 90 % of the closest planet SMA, not the global 5.0 AU cap.
+    /// This guarantees the parking orbit cannot be placed inside an
+    /// existing planetary orbit.
+    #[test]
+    fn gra161_h2_bounds_clamps_to_closest_planet() {
+        let mut world = World::new();
+        let star = world
+            .spawn((
+                test_body("Host Star", BodyType::Star, 1.0e30, 500_000.0, 22.0),
+                SpaceCoordinates::new(DVec3::ZERO),
+                SystemId(7),
+            ))
+            .id();
+        // A planet at 1.0 AU, the closest to this star.
+        let _planet = world
+            .spawn((
+                test_body("Inner Planet", BodyType::Planet, 5.97e24, 6_371.0, 12.0),
+                SpaceCoordinates::new(DVec3::new(1.0, 0.0, 0.0)),
+                KeplerOrbit::circular(1.0, 1.0e-7),
+                LogicalParent(star),
+                SystemId(7),
+            ))
+            .id();
+        // A second planet further out — must not loosen the cap.
+        let _outer = world
+            .spawn((
+                test_body("Outer Planet", BodyType::GasGiant, 1.9e27, 70_000.0, 30.0),
+                SpaceCoordinates::new(DVec3::new(2.5, 0.0, 0.0)),
+                KeplerOrbit::circular(2.5, 1.0e-7),
+                LogicalParent(star),
+                SystemId(7),
+            ))
+            .id();
+        let mut body_query_state = world.query::<(
+            Entity,
+            &CelestialBody,
+            &SpaceCoordinates,
+            Option<&KeplerOrbit>,
+            Option<&LogicalParent>,
+        )>();
+        let mut system_id_query_state = world.query::<&SystemId>();
+        let body_query = body_query_state.query(&world);
+        let system_id_query = system_id_query_state.query(&world);
+        let (min_au, max_au) =
+            super::star_approach_bounds_au(star, &body_query, &system_id_query, 7);
+        assert!(
+            (min_au - 0.05).abs() < 1e-12,
+            "min_au = {min_au}, expected 0.05"
+        );
+        assert!(
+            (max_au - 0.9).abs() < 1e-9,
+            "max_au = {max_au}, expected 0.9 (90% of 1.0 AU)"
+        );
+    }
+
+    /// H-3: `build_planned_transfer` honours the GRA-161
+    /// `target_orbit_radius_au` override for star-approach destinations.
+    /// The same star with two different override values produces two
+    /// different `arrival_orbit_radius_au` values, proving the picker
+    /// flows end-to-end into the planned transfer.
+    #[test]
+    fn gra161_h3_target_orbit_radius_au_overrides_star_approach() {
+        let mut world = World::new();
+        let star = world
+            .spawn((
+                test_body("Host Star", BodyType::Star, 1.9e30, 700_000.0, 40.0),
+                SpaceCoordinates::new(DVec3::ZERO),
+                SystemId(7),
+            ))
+            .id();
+        let origin = world
+            .spawn((
+                test_body("Origin", BodyType::Planet, 5.97e24, 6_371.0, 12.0),
+                SpaceCoordinates::new(DVec3::new(0.6, 0.0, 0.0)),
+                KeplerOrbit::circular(0.6, 1.0e-7),
+                LogicalParent(star),
+                SystemId(7),
+            ))
+            .id();
+        let fleet = Fleet::new("Test Fleet".to_string());
+        let orbit = FleetOrbit::new(origin, 0.0001);
+        let option = TransferOption {
+            label: "Efficient",
+            total_delta_v_ms: 12_000.0,
+            delta_v1_ms: 6_000.0,
+            delta_v2_ms: 6_000.0,
+            transfer_time_s: 86_400.0 * 12.0,
+            sma_au: 0.5,
+            eccentricity: 0.3,
+            energy_multiplier: 1.0,
+            burn_time_s: 0.0,
+            plane_change_dv_ms: 0.0,
+            is_thrust_limited: false,
+            transfer_orbit_override: None,
+        };
+        let mut body_query_state = world.query::<(
+            Entity,
+            &CelestialBody,
+            &SpaceCoordinates,
+            Option<&KeplerOrbit>,
+            Option<&LogicalParent>,
+        )>();
+        let mut system_id_query_state = world.query::<&SystemId>();
+        let body_query = body_query_state.query(&world);
+        let system_id_query = system_id_query_state.query(&world);
+        // First call: no override, planner should use the per-body
+        // `star_approach_au` (None) fallback → 0.3 AU.
+        let planned_default = build_planned_transfer(
+            Entity::PLACEHOLDER,
+            &fleet,
+            &orbit,
+            star,
+            0.0,
+            &body_query,
+            &option,
+            None,
+            &system_id_query,
+            7,
+            None,
+        )
+        .expect("star-approach transfer (no override) should build");
+        assert!(
+            (planned_default.arrival_orbit_radius_au - 0.3).abs() < 1e-9,
+            "default arrival radius = {}, expected 0.3 (STELLAR_APPROACH_AU)",
+            planned_default.arrival_orbit_radius_au
+        );
+        // Second call: user dragged the picker to 0.45 AU.
+        let planned_custom = build_planned_transfer(
+            Entity::PLACEHOLDER,
+            &fleet,
+            &orbit,
+            star,
+            0.0,
+            &body_query,
+            &option,
+            None,
+            &system_id_query,
+            7,
+            Some(0.45),
+        )
+        .expect("star-approach transfer (override 0.45) should build");
+        assert!(
+            (planned_custom.arrival_orbit_radius_au - 0.45).abs() < 1e-9,
+            "override arrival radius = {}, expected 0.45 (GRA-161 picker)",
+            planned_custom.arrival_orbit_radius_au
         );
     }
 }
