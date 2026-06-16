@@ -1,6 +1,7 @@
 use super::time::format_timestamp_date_time;
 use super::*;
 use crate::fleets::orbital_mechanics::calculate_cross_star_ballistic_options;
+use crate::fleets::porkchop::build_grid_for_body_target;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PlannerTransferFrame {
@@ -323,6 +324,44 @@ fn is_inter_star_transfer(
     let origin_host_star = find_host_star(origin_entity, body_query).map(|(entity, _)| entity);
     let target_host_star = find_host_star(target_entity, body_query).map(|(entity, _)| entity);
     origin_host_star.is_some() && target_host_star.is_some() && origin_host_star != target_host_star
+}
+
+/// Resolve the heliocentric `KeplerOrbit` for a body used as a porkchop
+/// origin or destination.  Mirrors the three-case logic in
+/// `fleets::porkchop::heliocentric_orbit_for_body` but takes the
+/// planner's `&Query<...>` directly so the dest-click sites can
+/// resolve the orbits inline before calling
+/// `build_grid_for_body_target` (the pure helper that consumes them).
+fn heliocentric_orbit_for_body(
+    body: Entity,
+    body_query: &Query<(
+        Entity,
+        &CelestialBody,
+        &SpaceCoordinates,
+        Option<&KeplerOrbit>,
+        Option<&LogicalParent>,
+    )>,
+) -> Option<KeplerOrbit> {
+    let (_, body_data, _, ko, lp) = body_query.get(body).ok()?;
+    if body_data.body_type == BodyType::Star {
+        // Stars carry a barycentric (near-zero SMA) orbit by JPL
+        // convention.  The porkchop math consumes this only for the
+        // `system_gm` derivation; for a star-vs-star transfer the
+        // caller is responsible for picking a different solver.
+        return ko.copied();
+    }
+    if let Some(orbit) = ko.copied() {
+        return Some(orbit);
+    }
+    // Body has no orbit of its own — typical for moons.  Fall back
+    // to the parent's heliocentric orbit (Earth's 1 AU orbit for
+    // Luna, etc.).  Limit the walk to a single step because the JPL
+    // dataset never has more than one intermediate parent (moon →
+    // planet → star), and deeper chains are extremely rare in the
+    // spawned game state.
+    let parent = lp.map(|lp| lp.0)?;
+    let (_, _, _, parent_ko, _) = body_query.get(parent).ok()?;
+    parent_ko.copied()
 }
 
 pub fn transfer_absolute_position(
@@ -1449,6 +1488,12 @@ pub(super) fn render_transfer_planner(
                         fleet_ui_state.planned_transfer = None;
                         fleet_ui_state.selected_option = 0;
                         fleet_ui_state.selected_gravity_assist = None;
+                        // GRA-159: drop any cached porkchop from the prior
+                        // category — the new category may not have a
+                        // matching body to recompute against, and a stale
+                        // grid would otherwise render with the wrong names.
+                        fleet_ui_state.porkchop_grid = None;
+                        fleet_ui_state.selected_porkchop_cell = None;
                     }
                 }
             });
@@ -1551,6 +1596,64 @@ pub(super) fn render_transfer_planner(
                                         fleet_ui_state.planned_transfer = None;
                                         fleet_ui_state.selected_option = 0;
                                         fleet_ui_state.selected_gravity_assist = None;
+                                        // GRA-159: populate the porkchop grid so
+                                        // the LGD `PorkchopPanel` renders instead
+                                        // of the legacy Efficient/Moderate/Fast
+                                        // row.  Orbits that the helper can't
+                                        // resolve (e.g. local-frame moon-to-moon
+                                        // or bodies with no JPL orbit) yield
+                                        // `None` and fall through to the legacy
+                                        // row, preserving the pre-existing
+                                        // planner behaviour.
+                                        fleet_ui_state.porkchop_grid =
+                                            (|| -> Option<crate::fleets::porkchop::PorkchopGrid> {
+                                                let origin_orbit = heliocentric_orbit_for_body(
+                                                    orbit.body, body_query,
+                                                )?;
+                                                let dest_orbit = heliocentric_orbit_for_body(
+                                                    *entity, body_query,
+                                                )?;
+                                                let origin_name = body_query
+                                                    .get(orbit.body)
+                                                    .ok()
+                                                    .map(|(_, b, _, _, _)| b.name.clone())
+                                                    .unwrap_or_else(|| "Origin".to_string());
+                                                let dest_name = body_query
+                                                    .get(*entity)
+                                                    .ok()
+                                                    .map(|(_, b, _, _, _)| b.name.clone())
+                                                    .unwrap_or_else(|| "Dest".to_string());
+                                                let dest_body_type = body_query
+                                                    .get(*entity)
+                                                    .ok()
+                                                    .map(|(_, b, _, _, _)| b.body_type)
+                                                    .unwrap_or(BodyType::Planet);
+                                                let dest_parent = body_query
+                                                    .get(*entity)
+                                                    .ok()
+                                                    .and_then(|(_, _, _, _, lp)| lp)
+                                                    .map(|lp| lp.0);
+                                                let origin_parent = body_query
+                                                    .get(orbit.body)
+                                                    .ok()
+                                                    .and_then(|(_, _, _, _, lp)| lp)
+                                                    .map(|lp| lp.0);
+                                                let category = crate::fleets::porkchop::classify_body_transfer_category(
+                                                    dest_body_type,
+                                                    dest_parent,
+                                                    origin_parent,
+                                                );
+                                                Some(build_grid_for_body_target(
+                                                    porkchop_config,
+                                                    origin_orbit,
+                                                    dest_orbit,
+                                                    origin_name,
+                                                    dest_name,
+                                                    category,
+                                                    elapsed,
+                                                ))
+                                            })();
+                                        fleet_ui_state.selected_porkchop_cell = None;
                                     }
                                 }
                                 DestEntry::Ring { entity, name } => {
@@ -1577,6 +1680,59 @@ pub(super) fn render_transfer_planner(
                                         fleet_ui_state.planned_transfer = None;
                                         fleet_ui_state.selected_option = 0;
                                         fleet_ui_state.selected_gravity_assist = None;
+                                        // GRA-159: same wire-in as the Body
+                                        // branch — rings are treated like
+                                        // bodies for the planner's view
+                                        // (per GRA-149 C-3 follow-up).
+                                        fleet_ui_state.porkchop_grid =
+                                            (|| -> Option<crate::fleets::porkchop::PorkchopGrid> {
+                                                let origin_orbit = heliocentric_orbit_for_body(
+                                                    orbit.body, body_query,
+                                                )?;
+                                                let dest_orbit = heliocentric_orbit_for_body(
+                                                    *entity, body_query,
+                                                )?;
+                                                let origin_name = body_query
+                                                    .get(orbit.body)
+                                                    .ok()
+                                                    .map(|(_, b, _, _, _)| b.name.clone())
+                                                    .unwrap_or_else(|| "Origin".to_string());
+                                                let dest_name = body_query
+                                                    .get(*entity)
+                                                    .ok()
+                                                    .map(|(_, b, _, _, _)| b.name.clone())
+                                                    .unwrap_or_else(|| "Dest".to_string());
+                                                let dest_body_type = body_query
+                                                    .get(*entity)
+                                                    .ok()
+                                                    .map(|(_, b, _, _, _)| b.body_type)
+                                                    .unwrap_or(BodyType::Planet);
+                                                let dest_parent = body_query
+                                                    .get(*entity)
+                                                    .ok()
+                                                    .and_then(|(_, _, _, _, lp)| lp)
+                                                    .map(|lp| lp.0);
+                                                let origin_parent = body_query
+                                                    .get(orbit.body)
+                                                    .ok()
+                                                    .and_then(|(_, _, _, _, lp)| lp)
+                                                    .map(|lp| lp.0);
+                                                let category = crate::fleets::porkchop::classify_body_transfer_category(
+                                                    dest_body_type,
+                                                    dest_parent,
+                                                    origin_parent,
+                                                );
+                                                Some(build_grid_for_body_target(
+                                                    porkchop_config,
+                                                    origin_orbit,
+                                                    dest_orbit,
+                                                    origin_name,
+                                                    dest_name,
+                                                    category,
+                                                    elapsed,
+                                                ))
+                                            })();
+                                        fleet_ui_state.selected_porkchop_cell = None;
                                     }
                                 }
                                 DestEntry::Lagrange { lp } => {
@@ -1621,6 +1777,17 @@ pub(super) fn render_transfer_planner(
                                         fleet_ui_state.planned_transfer = None;
                                         fleet_ui_state.selected_option = 0;
                                         fleet_ui_state.selected_gravity_assist = None;
+                                        // GRA-159: Lagrange point selection
+                                        // is handled by the sibling issue
+                                        // GRA-158 (which will extend
+                                        // `build_grid_for_body_target` for
+                                        // the L-point case).  For now, drop
+                                        // any cached body-path grid so a
+                                        // stale (Earth→Mars) panel does not
+                                        // render with the Lagrange picker
+                                        // selected.
+                                        fleet_ui_state.porkchop_grid = None;
+                                        fleet_ui_state.selected_porkchop_cell = None;
                                     }
                                 }
                                 DestEntry::FleetTarget {
@@ -1657,6 +1824,13 @@ pub(super) fn render_transfer_planner(
                                         fleet_ui_state.planned_transfer = None;
                                         fleet_ui_state.selected_option = 0;
                                         fleet_ui_state.selected_gravity_assist = None;
+                                        // GRA-159: fleet intercept uses
+                                        // a dedicated solver path (not the
+                                        // body-target helper), so drop the
+                                        // cached body grid.  GRA-160 will
+                                        // wire the fleet-intercept grid in.
+                                        fleet_ui_state.porkchop_grid = None;
+                                        fleet_ui_state.selected_porkchop_cell = None;
                                     }
                                 }
                                 DestEntry::StarSystem {
@@ -1701,6 +1875,19 @@ pub(super) fn render_transfer_planner(
                                         fleet_ui_state.planned_transfer = None;
                                         fleet_ui_state.selected_option = 0;
                                         fleet_ui_state.selected_gravity_assist = None;
+                                        // GRA-159: interstellar is
+                                        // out-of-scope for the body path
+                                        // — the LGD's "interstellar"
+                                        // category override belongs to a
+                                        // separate solver (cross-star
+                                        // ballistic, see
+                                        // `calculate_cross_star_ballistic_options`).
+                                        // Drop the cached body grid to
+                                        // prevent a stale (e.g. Earth→Mars)
+                                        // panel from rendering under a
+                                        // star-system picker.
+                                        fleet_ui_state.porkchop_grid = None;
+                                        fleet_ui_state.selected_porkchop_cell = None;
                                     }
                                 }
                                 DestEntry::StarApproach {

@@ -11,10 +11,14 @@
 //! on GRA-152.  See `src/fleets/components.rs` for the loader-side structs.
 
 use super::components::{PorkchopConfig, ResolvedPorkchopParams};
-use super::orbital_mechanics::{solve_lambert_transfer, MAX_CURVED_CROSS_STAR_TRANSFER_TIME_S};
+use super::orbital_mechanics::{
+    solve_lambert_transfer, GM_SUN, MAX_CURVED_CROSS_STAR_TRANSFER_TIME_S,
+};
 use crate::astronomy::orbit_position_from_mean_anomaly;
 use crate::astronomy::KeplerOrbit;
+use crate::plugins::solar_system_data::BodyType;
 use bevy::math::DVec3;
+use bevy::prelude::Entity;
 use serde::{Deserialize, Serialize};
 
 const SECONDS_PER_DAY: f64 = 86_400.0;
@@ -552,5 +556,235 @@ mod tests {
         let inputs = make_inputs(earth_orbit(), mars_orbit(), "interplanetary");
         let grid = build_porkchop_grid(&cfg, &inputs);
         assert_eq!(grid.cells.len(), grid.resolution.0 * grid.resolution.1);
+    }
+}
+
+// === Planner wiring helpers (GRA-159 H-1 plumbing) =========================
+//
+// GRA-152 shipped the `PorkchopPanel` renderer and GRA-156 shipped the
+// LGD-validated Lambert math, but the planner never wrote
+// `fleet_ui_state.porkchop_grid` — so the `if let Some(grid)` branch in
+// `src/ui/transfer_planner.rs` was unreachable and the legacy 3-option
+// row always rendered.  These helpers translate the planner's
+// destination-state snapshot (already-resolved heliocentric orbits,
+// names, and a category string) into a `PorkchopGrid` that the
+// existing render branch consumes without further changes.
+//
+// The helpers are pure: they take pre-resolved `KeplerOrbit`s and
+// category strings, NOT Bevy queries.  The planner does the
+// body-query lookups in-place (it already has `body_query` in scope)
+// and hands the resolved values to `build_grid_for_body_target`.
+// This keeps the pure-math module free of `Query`/`QueryState`
+// plumbing and makes the helper unit-testable without a world.
+
+/// Build a `PorkchopGrid` for a body-target selection (planet/moon/ring)
+/// from already-resolved heliocentric orbits and a category string.
+/// Pure function: the planner resolves the orbits via its `body_query`
+/// and passes the values in.  The category keys are open-set; unknown
+/// keys fall through to `PorkchopConfig::defaults`.
+///
+/// This is the *body* path of the wire-in: GRA-159 scope is planet
+/// and moon destinations.  Fleet-intercept and Lagrange targets have
+/// their own call sites in the planner and are addressed by sibling
+/// issues (GRA-158 Lagrange, GRA-160 fleet intercept, GRA-161
+/// interstellar).
+pub fn build_grid_for_body_target(
+    cfg: &PorkchopConfig,
+    origin_orbit: KeplerOrbit,
+    dest_orbit: KeplerOrbit,
+    origin_name: String,
+    dest_name: String,
+    category: &str,
+    sim_time_s: f64,
+) -> PorkchopGrid {
+    let inputs = PorkchopInputs {
+        origin_name,
+        dest_name,
+        origin_orbit,
+        dest_orbit,
+        // Porkchop math is heliocentric: it always uses the host star's GM
+        // for the Lambert solver.  The planner's per-frame logic in
+        // `transfer_planner.rs` already special-cases local-frame
+        // transfers (moon→moon) — those return `None` from the
+        // caller's resolve step and fall through to the legacy
+        // 3-option row, which is correct (we're scoping GRA-159 to
+        // the heliocentric body path).
+        system_gm: GM_SUN,
+        sim_time_s,
+        category: category.to_string(),
+    };
+    build_porkchop_grid(cfg, &inputs)
+}
+
+/// Classify the transfer category so the right `PorkchopConfig` override
+/// is selected.  The keys are an *open* set declared in
+/// `assets/data/porkchop_config.ron` (interplanetary, moon, star_approach,
+/// interstellar, …) — unknown keys fall through to `defaults`.
+///
+/// This is intentionally minimal for GRA-159: the body-path (planet/moon
+/// destinations) only.  Lagrange / fleet-intercept / interstellar are
+/// siblings (GRA-158, GRA-160, GRA-161) and will extend this function
+/// when their call sites are wired.
+pub fn classify_body_transfer_category(
+    dest_body_type: BodyType,
+    dest_parent: Option<Entity>,
+    origin_parent: Option<Entity>,
+) -> &'static str {
+    if dest_body_type == BodyType::Star {
+        return "star_approach";
+    }
+    if dest_parent.is_some() && dest_parent == origin_parent {
+        return "moon";
+    }
+    "interplanetary"
+}
+#[cfg(test)]
+mod planner_wiring_tests {
+    //! Tests for the GRA-159 helper functions that translate the
+    //! planner's destination-state snapshot into a `PorkchopGrid`.
+    //!
+    //! These tests use synthetic `KeplerOrbit` fixtures and the pure
+    //! helper API, so the pure-math module stays free of `Query`/
+    //! `QueryState` plumbing and the tests run without a world.
+    use super::*;
+    use crate::plugins::solar_system_data::BodyType;
+
+    #[test]
+    fn planner_wiring_earth_to_mars_returns_non_empty_grid() {
+        // The pure helper consumes pre-resolved orbits + names.  We
+        // exercise it with a synthetic Earth→Mars pair to assert the
+        // contract: at least one feasible cell, names threaded
+        // through.  The ECS lookups themselves are the planner's job
+        // and covered by integration tests in `tests/planner_integration.rs`.
+        let cfg = PorkchopConfig::default();
+        let earth_orbit = KeplerOrbit::circular(1.0, 1.0);
+        let mars_orbit = KeplerOrbit::circular(1.524, 1.0);
+        let grid = build_grid_for_body_target(
+            &cfg,
+            earth_orbit,
+            mars_orbit,
+            "Earth".to_string(),
+            "Mars".to_string(),
+            "interplanetary",
+            0.0,
+        );
+        assert!(
+            grid.cells.iter().any(|c| c.feasible),
+            "Earth→Mars porkchop must contain at least one feasible cell"
+        );
+        assert_eq!(grid.origin_name, "Earth");
+        assert_eq!(grid.dest_name, "Mars");
+        assert_eq!(grid.metric, PorkchopMetric::TotalDv);
+    }
+
+    #[test]
+    fn planner_wiring_classifies_moon_vs_interplanetary() {
+        // The category classifier is pure: it takes pre-resolved
+        // (dest_body_type, dest_parent, origin_parent) and returns
+        // the right RON match key.  No ECS plumbing required.
+        // Earth→Moon: same parent (Earth) → "moon" override.
+        // Earth→Mars: different parents (Moon-orbits-Earth vs
+        // Mars-orbits-Sun) → "interplanetary".
+        let earth = Entity::from_bits(0x1000);
+        let mars = Entity::from_bits(0x1001);
+        let moon = Entity::from_bits(0x1002);
+        // Luna orbits Earth (parent == origin_parent).
+        assert_eq!(
+            classify_body_transfer_category(BodyType::Moon, Some(earth), Some(earth)),
+            "moon",
+            "Earth→Moon should classify as moon (shared non-stellar parent)"
+        );
+        // Mars orbits the Sun (dest_parent = sun != origin_parent = earth).
+        assert_eq!(
+            classify_body_transfer_category(BodyType::Planet, Some(mars), Some(earth)),
+            "interplanetary",
+            "Earth→Mars should classify as interplanetary (different host bodies)"
+        );
+        // Star target (any → Sol) → "star_approach".
+        assert_eq!(
+            classify_body_transfer_category(BodyType::Star, None, Some(earth)),
+            "star_approach",
+            "any→star should classify as star_approach"
+        );
+        let _ = moon; // silence unused warning
+    }
+
+    #[test]
+    fn planner_wiring_uses_moon_override_when_caller_passes_it() {
+        // The helper respects the caller's category string.  We pass
+        // "moon" with two co-orbital bodies to verify the override
+        // takes effect (the window bounds become ±7 days instead of
+        // ±30 for the default interplanetary).
+        let cfg = PorkchopConfig {
+            category_overrides: vec![crate::fleets::components::PorkchopCategoryOverride {
+                match_key: "moon".to_string(),
+                t_dep_window_days: 14.0,
+                tof_min_hohmann_factor: 0.5,
+                tof_max_hohmann_factor: 1.8,
+                tof_floor_days: 0.5,
+                tof_ceiling_years: 0.165, // ≈ 60 days
+                resolution_t_dep: 50,
+                resolution_tof: 40,
+                c3_ceiling_km2_s2: 400.0,
+            }],
+            ..PorkchopConfig::default()
+        };
+        let earth_orbit = KeplerOrbit::circular(1.0, 1.0);
+        let moon_orbit = KeplerOrbit::circular(1.00257, 1.0);
+        let grid = build_grid_for_body_target(
+            &cfg,
+            earth_orbit,
+            moon_orbit,
+            "Earth".to_string(),
+            "Luna".to_string(),
+            "moon",
+            0.0,
+        );
+        // The moon override's ±7 day half-window should be the bound.
+        let half_window_d = (grid.t_dep_bounds_s.1 - grid.t_dep_bounds_s.0) * 0.5 / SECONDS_PER_DAY;
+        assert!(
+            (half_window_d - 7.0).abs() < 0.5,
+            "moon override should give ±7 day half-window, got {half_window_d}"
+        );
+    }
+
+    #[test]
+    fn fleet_ui_state_clear_target_drops_porkchop_grid() {
+        // The wire-in must invalidate the cached grid when the
+        // planner switches fleets.  The "switch fleet" path lives in
+        // `FleetUiState::clear_target` (the planner's catch-all
+        // invalidation hook) — assert the Some → None transition
+        // here so the contract is locked in even if the per-site
+        // inline clears are ever refactored.
+        use crate::ui::FleetUiState;
+        let mut state = FleetUiState::default();
+        // Hand-build a non-trivial grid (the only field the
+        // `clear_target` contract cares about is `is_some()`).
+        let cfg = PorkchopConfig::default();
+        let inputs = PorkchopInputs {
+            origin_name: "Origin".to_string(),
+            dest_name: "Dest".to_string(),
+            origin_orbit: KeplerOrbit::circular(1.0, 1.0),
+            dest_orbit: KeplerOrbit::circular(1.524, 1.0),
+            system_gm: GM_SUN,
+            sim_time_s: 0.0,
+            category: "interplanetary".to_string(),
+        };
+        let grid = build_porkchop_grid(&cfg, &inputs);
+        state.porkchop_grid = Some(grid);
+        state.selected_porkchop_cell = Some((0, 0));
+        // Sanity: grid is now Some.
+        assert!(state.porkchop_grid.is_some());
+        assert!(state.selected_porkchop_cell.is_some());
+        // Switching fleets / clearing the target must drop both.
+        state.clear_target();
+        assert!(
+            state.porkchop_grid.is_none(),
+            "clear_target must drop the cached porkchop grid (GRA-159 invalidation contract)"
+        );
+        assert!(
+            state.selected_porkchop_cell.is_none(),
+            "clear_target must drop the selected cell index too"
+        );
     }
 }
