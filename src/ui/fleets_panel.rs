@@ -406,7 +406,32 @@ pub(super) fn ui_fleets_panel(
                      transit arcs.  Useful when auto-freight (GRA-37.a) generates a lot of \
                      moving traffic.",
                 );
+                ui.separator();
+                ui.checkbox(
+                    &mut settings.show_all_fleet_trajectories,
+                    "Show all fleet trajectories",
+                )
+                .on_hover_text(
+                    "When on, every in-transit fleet (subject to the per-class filter \
+                     below) gets its amber arc drawn in the System view, not just the \
+                     selected fleet.  Off by default. (GRA-154 M-7.)",
+                );
             });
+            if settings.show_all_fleet_trajectories {
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(
+                        egui::RichText::new("Class filter:")
+                            .size(11.0)
+                            .color(theme::TEXT_DIM),
+                    );
+                    ui.checkbox(
+                        &mut settings.trajectory_class_filter.freighter,
+                        "Freighters",
+                    );
+                    ui.checkbox(&mut settings.trajectory_class_filter.combat, "Combat");
+                    ui.checkbox(&mut settings.trajectory_class_filter.civilian, "Civilian");
+                });
+            }
 
             theme::divider(ui);
 

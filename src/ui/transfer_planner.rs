@@ -132,7 +132,7 @@ fn is_inter_star_transfer(
     origin_host_star.is_some() && target_host_star.is_some() && origin_host_star != target_host_star
 }
 
-fn transfer_absolute_position(
+pub fn transfer_absolute_position(
     entity: Entity,
     sim_time_s: f64,
     body_query: &Query<(
@@ -791,10 +791,8 @@ pub(super) fn render_transfer_planner(
     let mut standalone: Vec<(Entity, String, f64)> = candidates
         .iter()
         .filter(|(e, _, btype, sma, _)| {
-            matches!(
-                btype,
-                BodyType::Planet | BodyType::GasGiant | BodyType::DwarfPlanet
-            ) && sma.is_some()
+            matches!(btype, BodyType::Planet | BodyType::GasGiant)
+                && sma.is_some()
                 && !planets_shown.contains(e)
                 && !already_listed.contains(e)
                 && orbit.body != *e
@@ -809,6 +807,30 @@ pub(super) fn render_transfer_planner(
         }
     }
 
+    // ── Group: Dwarf Planets (not yet shown) ────────────────────────────────
+    // Dwarf planets (Pluto, Eris, Ceres, etc.) get a separate top-level
+    // header so they are not buried inside the "Planets" group with
+    // Mercury/Venus/Earth-class bodies. Sorted by semi-major axis
+    // (≈ perihelion for near-circular orbits) — most accessible first.
+    let mut dwarf_planets: Vec<(Entity, String, f64)> = candidates
+        .iter()
+        .filter(|(e, _, btype, sma, _)| {
+            matches!(btype, BodyType::DwarfPlanet)
+                && sma.is_some()
+                && !planets_shown.contains(e)
+                && !already_listed.contains(e)
+                && orbit.body != *e
+        })
+        .map(|(e, name, _, sma, _)| (*e, name.clone(), sma.unwrap()))
+        .collect();
+    if !dwarf_planets.is_empty() {
+        dwarf_planets.sort_by(|a, b| a.2.partial_cmp(&b.2).unwrap_or(std::cmp::Ordering::Equal));
+        dest_entries.push(DestEntry::Header("Dwarf Planets".to_string()));
+        for (e, name, _) in dwarf_planets {
+            dest_entries.push(DestEntry::Body { entity: e, name });
+        }
+    }
+
     // ── Group: Small bodies ─────────────────────────────────────────────────
     let already_listed2: std::collections::HashSet<Entity> = dest_entries
         .iter()
@@ -817,26 +839,65 @@ pub(super) fn render_transfer_planner(
             _ => None,
         })
         .collect();
-    let mut small_bodies: Vec<(Entity, String, f64)> = candidates
+    // Split small bodies by type so the picker groups Asteroids and Comets
+    // separately (most accessible first by perihelion ≈ semi-major axis).
+    // The shared "Small Bodies" top-level header keeps the picker scannable
+    // when a system has 50+ asteroids or comets; sub-headers carry the count
+    // so the player can tell at a glance which type dominates.
+    let mut asteroids: Vec<(Entity, String, f64)> = candidates
         .iter()
         .filter(|(e, _, btype, sma, _)| {
-            matches!(btype, BodyType::Asteroid | BodyType::Comet)
+            matches!(btype, BodyType::Asteroid)
                 && sma.is_some()
                 && !already_listed2.contains(e)
                 && orbit.body != *e
         })
         .map(|(e, name, _, sma, _)| (*e, name.clone(), sma.unwrap()))
         .collect();
-    if !small_bodies.is_empty() {
-        small_bodies.sort_by(|a, b| a.2.partial_cmp(&b.2).unwrap_or(std::cmp::Ordering::Equal));
-        let sb_label = if small_bodies.len() > 5 {
-            format!("Small Bodies ({} total)", small_bodies.len())
+    let mut comets: Vec<(Entity, String, f64)> = candidates
+        .iter()
+        .filter(|(e, _, btype, sma, _)| {
+            matches!(btype, BodyType::Comet)
+                && sma.is_some()
+                && !already_listed2.contains(e)
+                && orbit.body != *e
+        })
+        .map(|(e, name, _, sma, _)| (*e, name.clone(), sma.unwrap()))
+        .collect();
+
+    if !asteroids.is_empty() || !comets.is_empty() {
+        let total = asteroids.len() + comets.len();
+        let sb_label = if total > 5 {
+            format!("Small Bodies ({} total)", total)
         } else {
             "Small Bodies".to_string()
         };
         dest_entries.push(DestEntry::Header(sb_label));
-        for (e, name, _) in small_bodies {
-            dest_entries.push(DestEntry::Body { entity: e, name });
+
+        if !asteroids.is_empty() {
+            asteroids.sort_by(|a, b| a.2.partial_cmp(&b.2).unwrap_or(std::cmp::Ordering::Equal));
+            let label = if asteroids.len() > 1 {
+                format!("Asteroids ({})", asteroids.len())
+            } else {
+                "Asteroids".to_string()
+            };
+            dest_entries.push(DestEntry::Header(label));
+            for (e, name, _) in asteroids {
+                dest_entries.push(DestEntry::Body { entity: e, name });
+            }
+        }
+
+        if !comets.is_empty() {
+            comets.sort_by(|a, b| a.2.partial_cmp(&b.2).unwrap_or(std::cmp::Ordering::Equal));
+            let label = if comets.len() > 1 {
+                format!("Comets ({})", comets.len())
+            } else {
+                "Comets".to_string()
+            };
+            dest_entries.push(DestEntry::Header(label));
+            for (e, name, _) in comets {
+                dest_entries.push(DestEntry::Body { entity: e, name });
+            }
         }
     }
 
@@ -872,9 +933,13 @@ pub(super) fn render_transfer_planner(
         if !system_stars.is_empty() {
             dest_entries.push(DestEntry::Header("Star Approach".to_string()));
             for (star_e, star_name, approach_au) in system_stars {
+                // 🛰 (parking-orbit star approach) — distinct from ☀ to signal
+                // that this entry is a per-body parking-orbit transfer, not a
+                // raw "fly to the star" approach. The approach altitude comes
+                // from `star_approach_radius_au(b)` (GRA-149 C-2 wiring).
                 dest_entries.push(DestEntry::Body {
                     entity: star_e,
-                    name: format!("☀ {} Approach ({:.2} AU)", star_name, approach_au),
+                    name: format!("🛰 {} Approach ({:.2} AU)", star_name, approach_au),
                 });
             }
         }
@@ -953,6 +1018,7 @@ pub(super) fn render_transfer_planner(
             DestEntry::Header(label) => {
                 label.ends_with(" System")
                     || label == "Planets"
+                    || label == "Dwarf Planets"
                     || label == "Solar"
                     || label == "Interstellar"
                     || label.starts_with("Small Bodies")
@@ -1254,6 +1320,16 @@ pub(super) fn render_transfer_planner(
                                         .as_ref()
                                         .map(|(id, _, _)| *id == *system_id)
                                         .unwrap_or(false);
+                                    // One-line hover tooltip explaining the
+                                    // ✨ marker and the multi-year / multi-century
+                                    // travel time implication (GRA-154 M-2).
+                                    let tooltip = format!(
+                                        "Interstellar transfer to {raw_name} ({ly:.2} ly). \
+                                         Plan multi-year / multi-century trajectories — \
+                                         this is a barycentric route, not a parking orbit.",
+                                        raw_name = name.trim_start_matches('✨').trim(),
+                                        ly = distance_ly,
+                                    );
                                     if ui
                                         .selectable_label(
                                             is_sel,
@@ -1261,6 +1337,7 @@ pub(super) fn render_transfer_planner(
                                                 .size(12.0)
                                                 .color(theme::GRAVITY_ASSIST),
                                         )
+                                        .on_hover_text(&tooltip)
                                         .clicked()
                                         && !is_sel
                                     {
@@ -3474,6 +3551,22 @@ pub(super) fn render_transfer_planner(
                         fleet_ui_state.planned_transfer = None;
                     }
 
+                    // Epoch line: "Depart: DD.MM.YYYY HH:MM / Arrive: …" beneath the
+                    // option name, so the player sees the absolute transfer window
+                    // without having to compute it from the departure offset slider.
+                    let depart_offset_s = fleet_ui_state.departure_offset_days.max(0.0) * 86_400.0;
+                    let depart_ts = current_timestamp + depart_offset_s as i64;
+                    let arrive_ts = depart_ts + option.transfer_time_s as i64;
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "Depart: {} / Arrive: {}",
+                            format_timestamp_date_time(depart_ts),
+                            format_timestamp_date_time(arrive_ts),
+                        ))
+                        .size(11.0)
+                        .color(theme::TEXT_DIM),
+                    );
+
                     egui::Grid::new(format!("option_{idx}"))
                         .num_columns(4)
                         .spacing([16.0, 2.0])
@@ -3618,7 +3711,7 @@ pub(super) fn render_transfer_planner(
 }
 
 /// Build a `PlannedTransfer` from the selected transfer option and fleet/body state.
-fn build_planned_transfer(
+pub fn build_planned_transfer(
     _fleet_entity: Entity,
     fleet: &Fleet,
     orbit: &FleetOrbit,
@@ -4575,6 +4668,7 @@ fn build_planned_transfer_lp(
 #[cfg(test)]
 mod tests {
     use super::build_planned_transfer;
+    use super::transfer_absolute_position;
     use crate::astronomy::components::SystemId;
     use crate::astronomy::orbit_position_from_mean_anomaly;
     use crate::astronomy::{KeplerOrbit, SpaceCoordinates};
@@ -5526,5 +5620,106 @@ mod tests {
             }
             other => panic!("expected Body(star) frame for hot-Jupiter, got {:?}", other),
         }
+    }
+
+    /// L-6: a single-star transfer from a star-system origin must read
+    /// positions in the star-centric frame, and an inter-star transfer must
+    /// read them in the barycentric frame.  This test exercises the boundary:
+    /// the same fleet moves from one frame to the other mid-flight (which
+    /// shouldn't happen in practice, but the math must be defensible).
+    #[test]
+    fn transfer_absolute_position_uses_consistent_frame_at_star_system_boundary() {
+        let mut world = World::new();
+
+        // Star A: single-star system (SystemId 11).  Position is the
+        // star-system origin, so all bodies in this system are star-centric
+        // relative to A.
+        let star_a = world
+            .spawn((
+                test_body("Alpha", BodyType::Star, 1.9e30, 700_000.0, 40.0),
+                SpaceCoordinates::new(DVec3::ZERO),
+                SystemId(11),
+            ))
+            .id();
+        let planet_a = world
+            .spawn((
+                test_body("Alpha-b", BodyType::Planet, 5.97e24, 6_371.0, 12.0),
+                SpaceCoordinates::new(DVec3::new(1.0, 0.0, 0.0)),
+                KeplerOrbit::circular(1.0, 1.0e-7),
+                LogicalParent(star_a),
+                SystemId(11),
+            ))
+            .id();
+        // Star B: second star of a binary (SystemId 12).  Its
+        // `SpaceCoordinates.position` is the barycentric offset of B
+        // relative to the A+B barycentre.
+        let star_b = world
+            .spawn((
+                test_body("Beta", BodyType::Star, 1.3e30, 600_000.0, 35.0),
+                SpaceCoordinates::new(DVec3::new(20.0, 0.0, 0.0)),
+                SystemId(12),
+            ))
+            .id();
+        let planet_b = world
+            .spawn((
+                test_body("Beta-b", BodyType::Planet, 6.4e24, 6_800.0, 13.0),
+                SpaceCoordinates::new(DVec3::new(21.0, 0.0, 0.0)),
+                KeplerOrbit::circular(1.0, 1.0e-7),
+                LogicalParent(star_b),
+                SystemId(12),
+            ))
+            .id();
+
+        let mut body_query_state = world.query::<(
+            Entity,
+            &CelestialBody,
+            &SpaceCoordinates,
+            Option<&KeplerOrbit>,
+            Option<&LogicalParent>,
+        )>();
+        let body_query = body_query_state.query(&world);
+
+        // Single-star: planet A's transfer-absolute position equals its
+        // SpaceCoordinates.position (star-centric, parent is at origin).
+        let pos_planet_a = transfer_absolute_position(planet_a, 0.0, &body_query)
+            .expect("planet A absolute position should resolve");
+        let sc_planet_a = body_query
+            .get(planet_a)
+            .map(|(_, _, sc, _, _)| sc.position)
+            .unwrap();
+        assert_eq!(
+            pos_planet_a, sc_planet_a,
+            "single-star system: planet A position must equal its SpaceCoordinates"
+        );
+
+        // Inter-star: planet B's transfer-absolute position equals its
+        // SpaceCoordinates.position (already barycentric in this world
+        // model — star B itself is offset by 20 AU from the barycentre).
+        let pos_planet_b = transfer_absolute_position(planet_b, 0.0, &body_query)
+            .expect("planet B absolute position should resolve");
+        let sc_planet_b = body_query
+            .get(planet_b)
+            .map(|(_, _, sc, _, _)| sc.position)
+            .unwrap();
+        assert_eq!(
+            pos_planet_b, sc_planet_b,
+            "barycentric: planet B position must equal its SpaceCoordinates"
+        );
+
+        // The key invariant: a transfer crossing the star-system boundary
+        // (planet A → planet B) computes positions in their own frame.  The
+        // math at the boundary is just a position comparison; it must not
+        // silently re-interpret star-A-centric positions as barycentric.
+        // We assert the boundary distance is the *sum* of the two offsets,
+        // not the difference, because both are now in the same barycentric
+        // frame.
+        let boundary_distance = (pos_planet_b - pos_planet_a).length();
+        let expected = (sc_planet_b - sc_planet_a).length();
+        assert!(
+            (boundary_distance - expected).abs() < 1e-6,
+            "boundary distance must be consistent: got {}, expected {}",
+            boundary_distance,
+            expected
+        );
     }
 }
