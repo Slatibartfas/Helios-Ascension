@@ -890,10 +890,19 @@ fn find_body_star_name(
 /// Columns: name | agency | launch year | heliocentric distance (AU) |
 /// trajectory type (Hyperbolic escape / Elliptical bound).  Rows are
 /// sorted by `HistoricalProbeKind` ordinal for stable display
-/// (V1 → V2 → Parker → NH) and use `theme::PROBE_ORBIT` for the row
-/// indicator swatch.  No action buttons are rendered — the section is
-/// strictly read-only so the player cannot issue transfer orders to a
-/// probe.
+/// (Voyager 1 → Voyager 2 → Parker → New Horizons) and use
+/// `theme::PROBE_ORBIT` for the row indicator swatch.  No action buttons
+/// are rendered — the section is strictly read-only so the player cannot
+/// issue transfer orders to a probe.
+fn probe_kind_index(kind: HistoricalProbeKind) -> u8 {
+    match kind {
+        HistoricalProbeKind::Voyager1 => 0,
+        HistoricalProbeKind::Voyager2 => 1,
+        HistoricalProbeKind::Parker => 2,
+        HistoricalProbeKind::NewHorizons => 3,
+    }
+}
+
 fn render_historical_probes_section(
     ui: &mut egui::Ui,
     probe_query: &Query<
@@ -939,10 +948,13 @@ fn render_historical_probes_section(
         .collect();
     // HistoricalProbeKind is declared in display order
     // (Voyager1 → Voyager2 → Parker → NewHorizons); sort by the
-    // discriminant so the table is stable across runs.  We use
-    // `as u8` because the enum derives `Eq`/`Hash`/`Copy` but
-    // not `Ord` — see `src/fleets/components.rs:733`.
-    rows.sort_by_key(|(kind, _)| *kind as u8);
+    // discriminant so the table is stable across runs.  The enum
+    // derives `Eq`/`Hash`/`Copy` but not `Ord` (see
+    // `src/fleets/components.rs:733`), so we map each variant to its
+    // declaration index via an explicit match rather than a `as u8`
+    // cast — that also avoids the `clippy::cast_enum_to_primitive`
+    // lint that newer clippy versions raise on repr-less enums.
+    rows.sort_by_key(|(kind, _)| probe_kind_index(*kind));
 
     ui.label(
         egui::RichText::new("DEEP SPACE PROBES")
