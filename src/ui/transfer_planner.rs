@@ -3031,7 +3031,7 @@ pub(super) fn render_transfer_planner(
                 if abort_dv_ms > 0.0 {
                     let dry_mass_t = fleet.ships.iter().map(|s| s.dry_mass_t as f64).sum::<f64>();
                     let wet_mass_t = dry_mass_t + fleet.total_fuel_t() as f64;
-                    let avg_isp_s = fleet.average_isp_s() as f32;
+                    let avg_isp_s = fleet.average_isp_s();
                     crate::fleets::orbital_mechanics::estimate_fuel_cost_tonnes(
                         wet_mass_t as f32,
                         avg_isp_s,
