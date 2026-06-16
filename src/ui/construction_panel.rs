@@ -138,9 +138,14 @@ impl BuildFilter {
         }
     }
 
+    /// Stable snake_case token for `Tab::id`.  Distinct from
+    /// `label()` (the user-facing chip text).
+    ///
+    /// `#[allow(dead_code)]` is needed because the only call site is
+    /// the `Tab::id` impl below, and the compiler does not track
+    /// reachability through trait dispatch into a forwarding helper.
+    #[allow(dead_code)]
     pub fn as_tab(self) -> &'static str {
-        // Stable snake_case token for `Tab::id`.  Distinct from
-        // `label()` (the user-facing chip text).
         match self {
             Self::All => "all",
             Self::Food => "food",
