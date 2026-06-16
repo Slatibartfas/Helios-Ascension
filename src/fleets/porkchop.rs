@@ -643,11 +643,10 @@ mod planner_wiring_tests {
     //! Tests for the GRA-159 helper functions that translate the
     //! planner's destination-state snapshot into a `PorkchopGrid`.
     //!
-    //! These tests use a minimal Bevy `World` with one star + two
-    //! planets so the body-query lookups exercise the real ECS
-    //! plumbing (not just the pure-math `build_porkchop_grid` path).
+    //! These tests use synthetic `KeplerOrbit` fixtures and the pure
+    //! helper API, so the pure-math module stays free of `Query`/
+    //! `QueryState` plumbing and the tests run without a world.
     use super::*;
-    use crate::astronomy::SpaceCoordinates;
     use crate::plugins::solar_system_data::BodyType;
 
     #[test]
@@ -686,9 +685,9 @@ mod planner_wiring_tests {
         // Earth→Moon: same parent (Earth) → "moon" override.
         // Earth→Mars: different parents (Moon-orbits-Earth vs
         // Mars-orbits-Sun) → "interplanetary".
-        let earth = Entity::from_raw(0x1000);
-        let mars = Entity::from_raw(0x1001);
-        let moon = Entity::from_raw(0x1002);
+        let earth = Entity::from_bits(0x1000);
+        let mars = Entity::from_bits(0x1001);
+        let moon = Entity::from_bits(0x1002);
         // Luna orbits Earth (parent == origin_parent).
         assert_eq!(
             classify_body_transfer_category(BodyType::Moon, Some(earth), Some(earth)),
