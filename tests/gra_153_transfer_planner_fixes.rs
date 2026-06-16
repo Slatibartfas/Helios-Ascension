@@ -234,7 +234,10 @@ fn gra_153_h3_refreshes_start_position_at_action_queue_time() {
     prop_schedule.add_systems(update_fleet_maneuver_positions);
     prop_schedule.run(&mut world);
 
-    let fleet_pos_after = world.get::<SpaceCoordinates>(fleet_entity).unwrap().position;
+    let fleet_pos_after = world
+        .get::<SpaceCoordinates>(fleet_entity)
+        .unwrap()
+        .position;
     let expected_mid = p1 + (end_pos - p1) * 0.5;
     let dist_to_expected = (fleet_pos_after - expected_mid).length();
     let dist_to_p0_orbit = (fleet_pos_after - p0).length();
