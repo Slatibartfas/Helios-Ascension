@@ -681,10 +681,20 @@ pub fn process_fleet_actions(
         // kinematic interpolation.  Efficient/Moderate/Fast Hohmann-style options now use
         // proper Keplerian arcs — the transfer orbit elements are computed from the
         // fleet's actual position by build_planned_transfer.
+        //
+        // GRA-153 H-3 (Kilo CRITICAL 2): mid-transit course corrections must
+        // ALSO re-anchor the transfer orbit, not just `start_position_au`.
+        // For a non-kinematic Keplerian propagation, `update_fleet_maneuver_positions`
+        // follows `transfer_orbit` from its current state and ignores
+        // `start_position_au` — so refreshing only the start position is
+        // decorative when the planner built a Keplerian orbit from a stale
+        // snapshot.  Force in-transit course corrections to be kinematic so
+        // the propagation actually uses the refreshed start.
         let is_kinematic = t.option_label == "Full Thrust"
             || t.option_label.contains("Coast")
             || t.option_label == "Max Speed"
-            || t.option_label.contains("Direct");
+            || t.option_label.contains("Direct")
+            || is_in_transit;
         let (start_position_au, end_position_au) = if is_kinematic {
             // For course corrections (mid-transit), always use the fleet's actual current
             // physics position as departure — the pre-computed start from the planner may
@@ -732,24 +742,7 @@ pub fn process_fleet_actions(
 
             (Some(start_pos), Some(end_pos))
         } else {
-            // GRA-153 H-3: for non-kinematic course corrections (mid-transit Hohmann-style
-            // options), the planner built the transfer orbit from a position snapshot
-            // captured when the popup opened.  If the fleet has drifted between popup open
-            // and Execute (high time-scale), the orbit is anchored to a stale position.
-            // Refresh `start_position_au` from the fleet's CURRENT physics position so the
-            // resulting `ActiveManeuver` records the actual departure point.  The orbital
-            // elements (`sma_au`, `eccentricity`, orientation) are kept from the planner —
-            // their `argument_of_periapsis` will be re-oriented by
-            // `activate_scheduled_departures` at the actual departure moment.
-            if is_in_transit {
-                if let Ok(fleet_sc) = fleet_sc_query.get(action.fleet) {
-                    (Some(fleet_sc.position), None)
-                } else {
-                    (None, None)
-                }
-            } else {
-                (None, None)
-            }
+            (None, None)
         };
 
         let start_visual_pos = if is_in_transit {
@@ -774,6 +767,10 @@ pub fn process_fleet_actions(
             arrival_delta_v_ms: t.arrival_delta_v_ms,
             fuel_used_t: t.fuel_cost_t,
             option_label: t.option_label,
+            // GRA-153 H-3 (Kilo CRITICAL 2): force kinematic propagation for
+            // in-transit course corrections so the refreshed start/end
+            // positions actually drive fleet position.
+            kinematic_override: is_in_transit,
             departure_angle,
             start_position_au,
             end_position_au,
@@ -863,16 +860,35 @@ pub fn process_fleet_actions(
             .get(action.fleet)
             .map(|sc| sc.position)
             .unwrap_or(DVec3::ZERO);
-        // Origin body parking radius — default 0.001 AU for non-stellar origin
-        // (the planner doesn't store pre-departure parking radius on the
-        // maneuver, so we use a conservative low-orbit default).
-        let parking_r_au = 0.001_f64;
-        // Use the orbital center's heliocentric position for the destination.
-        let dest_pos = center_coords
-            .get(current_man.orbit_center)
+        // Origin body parking radius — prefer a body-type-aware default.
+        // GRA-149 (C-2) added `star_approach_au` for stars; for non-stellar
+        // bodies we use a conservative low-orbit default (0.001 AU ≈ 150k km,
+        // well inside the SOI of any planet).  GRA-153 Kilo WARNING: the
+        // destination must be the ORIGIN body (where the fleet started), not
+        // the orbit center (typically the Sun).
+        let origin_body = current_man.origin_body;
+        let parking_r_au = body_query
+            .get(origin_body)
+            .map(|(_, body, _)| match body.body_type {
+                BodyType::Star => body.star_approach_au.unwrap_or(0.3),
+                BodyType::Planet | BodyType::GasGiant | BodyType::DwarfPlanet => 0.001_f64,
+                BodyType::Moon => 0.0001_f64,
+                BodyType::Asteroid | BodyType::Comet | BodyType::Ring => 0.0005_f64,
+            })
+            .unwrap_or(0.001_f64);
+        let origin_pos = center_coords
+            .get(origin_body)
             .map(|sc| sc.position)
-            .unwrap_or(DVec3::ZERO)
-            + DVec3::new(parking_r_au, 0.0, 0.0); // simple offset along +x
+            .unwrap_or(DVec3::ZERO);
+        // Park the abort destination at `origin_pos + offset` where the
+        // offset is `parking_r_au` along the heliocentric radial direction
+        // (away from the Sun, so it doesn't end up inside the star).
+        let radial = if origin_pos.length() > 1e-9 {
+            origin_pos.normalize()
+        } else {
+            DVec3::new(1.0, 0.0, 0.0)
+        };
+        let dest_pos = origin_pos + radial * parking_r_au;
 
         // Build a minimal kinematic ActiveManeuver pointing the fleet back to
         // the origin body.  Kinematic mode (no Kepler orbit) so the existing
@@ -909,6 +925,11 @@ pub fn process_fleet_actions(
             flyby_body: None,
             leg2_orbit: None,
             leg2_start_s: 0.0,
+            // GRA-153 M-3 / Kilo CRITICAL 1: belt-and-braces — set the
+            // override flag in addition to the "Abort to Origin" label so
+            // `is_kinematic()` returns true even if the label is later
+            // changed for UX reasons.
+            kinematic_override: true,
         };
         commands
             .entity(action.fleet)

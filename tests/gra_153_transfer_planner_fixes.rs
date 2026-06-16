@@ -124,6 +124,7 @@ fn gra_153_h3_refreshes_start_position_at_action_queue_time() {
                 flyby_body: None,
                 leg2_orbit: None,
                 leg2_start_s: 0.0,
+                kinematic_override: false,
             },
         ))
         .id();
@@ -209,6 +210,45 @@ fn gra_153_h3_refreshes_start_position_at_action_queue_time() {
         diff_p1,
         diff_p0
     );
+
+    // Kilo CRITICAL 2 follow-up: the resulting maneuver must propagate the
+    // fleet along a line from p1 to its destination, not along the stale
+    // Keplerian orbit anchored to p0.  Advance `SimulationTime` past
+    // `departure_time` by half the transfer duration and run
+    // `update_fleet_maneuver_positions` once; the resulting fleet position
+    // must lie near the midpoint of the new line, not on the stale orbit.
+    use helios_ascension::fleets::systems::update_fleet_maneuver_positions;
+    let (transfer_duration, end_pos) = {
+        let m = world.get::<ActiveManeuver>(fleet_entity).unwrap();
+        (
+            m.arrival_time - m.departure_time,
+            m.end_position_au
+                .expect("GRA-153 H-3: end_position_au must be set for kinematic maneuver"),
+        )
+    };
+    {
+        let mut sim_time = world.resource_mut::<helios_ascension::ui::SimulationTime>();
+        sim_time.elapsed += transfer_duration * 0.5;
+    }
+    let mut prop_schedule = Schedule::default();
+    prop_schedule.add_systems(update_fleet_maneuver_positions);
+    prop_schedule.run(&mut world);
+
+    let fleet_pos_after = world.get::<SpaceCoordinates>(fleet_entity).unwrap().position;
+    let expected_mid = p1 + (end_pos - p1) * 0.5;
+    let dist_to_expected = (fleet_pos_after - expected_mid).length();
+    let dist_to_p0_orbit = (fleet_pos_after - p0).length();
+    assert!(
+        dist_to_expected < 0.1,
+        "GRA-153 H-3 Kilo CRITICAL 2: after propagating half the transfer, the fleet \
+         should be near the midpoint of p1→end_pos (got {:?}, expected ~{:?}, \
+         distance = {:.3e}). Distance to stale p0 = {:.3e} — if this is small, \
+         the maneuver is still propagating the stale orbit.",
+        fleet_pos_after,
+        expected_mid,
+        dist_to_expected,
+        dist_to_p0_orbit
+    );
 }
 
 // ── M-3: Abort to Origin preserves the fleet entity ──────────────────────────
@@ -283,6 +323,7 @@ fn gra_153_m3_abort_to_origin_preserves_fleet_and_ships() {
                 flyby_body: None,
                 leg2_orbit: None,
                 leg2_start_s: 0.0,
+                kinematic_override: false,
             },
         ))
         .id();
@@ -339,6 +380,32 @@ fn gra_153_m3_abort_to_origin_preserves_fleet_and_ships() {
     assert_eq!(
         maneuver.origin_body, earth,
         "GRA-153 M-3: origin_body should still be Earth"
+    );
+    // Kilo CRITICAL 1 follow-up: the abort must propagate as kinematic
+    // (linear-interp start→end), not as a Keplerian transfer using the old
+    // orbit.  Otherwise the fleet flies the original Hohmann to the original
+    // destination, not back to origin.
+    assert!(
+        maneuver.is_kinematic(),
+        "GRA-153 M-3: Abort to Origin must be kinematic (is_kinematic() = true), \
+         got option_label = {:?}",
+        maneuver.option_label
+    );
+    // Kilo WARNING follow-up: end_position_au must be near the origin body
+    // (Earth at (1, 0, 0) AU), not near the Sun (at origin) or along +x by
+    // 0.001 AU from the Sun.
+    let end_pos = maneuver
+        .end_position_au
+        .expect("GRA-153 M-3: end_position_au must be set for kinematic abort");
+    let dist_to_earth = (end_pos - DVec3::new(1.0, 0.0, 0.0)).length();
+    let dist_to_sun = end_pos.length();
+    assert!(
+        dist_to_earth < 0.01,
+        "GRA-153 M-3: end_position_au ({:?}) should be within 0.01 AU of Earth (1, 0, 0); \
+         distance to Earth = {:.3e}, distance to Sun = {:.3e}",
+        end_pos,
+        dist_to_earth,
+        dist_to_sun
     );
 
     // Assert 3: all 3 ships still have assigned_fleet = Some(fleet_entity).

@@ -465,6 +465,12 @@ pub struct ActiveManeuver {
     /// and propagated into the corresponding `ActiveManeuver`.  The render
     /// systems use it to reconstruct the two‑leg trajectory after execution.
     pub flyby_body: Option<Entity>,
+    /// GRA-153 H-3 (Kilo CRITICAL 2): when `true`, force `is_kinematic()`
+    /// to return `true` regardless of `option_label`.  Set by
+    /// `process_fleet_actions` for mid-transit course corrections so the
+    /// propagation actually uses the refreshed `start_position_au` /
+    /// `end_position_au` instead of the stale Keplerian orbit.
+    pub kinematic_override: bool,
 }
 
 impl ActiveManeuver {
@@ -474,10 +480,18 @@ impl ActiveManeuver {
     /// Kinematic transfers include full-thrust, coast phases, max-speed runs,
     /// and direct L1/L2 Lagrange-point transfers.
     pub fn is_kinematic(&self) -> bool {
-        self.option_label == "Full Thrust"
+        self.kinematic_override
+            || self.option_label == "Full Thrust"
             || self.option_label.contains("Coast")
             || self.option_label == "Max Speed"
             || self.option_label.contains("Direct")
+            // GRA-153 M-3: Abort to Origin is propagated as a linear
+            // interpolation from the fleet's current heliocentric position
+            // (start_position_au) to the origin body's predicted position at
+            // arrival (end_position_au).  Treating it as a Keplerian transfer
+            // would re-fly the original Hohmann orbit, which is the bug
+            // class this maneuver exists to avoid.
+            || self.option_label == "Abort to Origin"
     }
 
     /// Fractional progress of the transfer arc, clamped to \[0, 1\].
