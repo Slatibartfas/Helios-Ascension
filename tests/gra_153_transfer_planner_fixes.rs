@@ -164,7 +164,7 @@ fn gra_153_h3_refreshes_start_position_at_action_queue_time() {
         abort_cost_t: 0.0,
         departure_offset_s: 0.0,
     });
-    drop(pending);
+    let _ = pending;
 
     // Insert SimulationTime resource.
     world.insert_resource(helios_ascension::ui::SimulationTime::new());
@@ -294,7 +294,7 @@ fn gra_153_m3_abort_to_origin_preserves_fleet_and_ships() {
                 0.0001,
                 false,
                 Some(fleet_entity),
-                i as i32,
+                i,
             );
             world.spawn(si).id()
         })
@@ -306,7 +306,7 @@ fn gra_153_m3_abort_to_origin_preserves_fleet_and_ships() {
         fleet: fleet_entity,
         abort_cost_t: 50.0,
     });
-    drop(pending);
+    let _ = pending;
 
     // Insert SimulationTime.
     world.insert_resource(helios_ascension::ui::SimulationTime::new());
@@ -343,7 +343,7 @@ fn gra_153_m3_abort_to_origin_preserves_fleet_and_ships() {
     for (i, ship_entity) in ship_entities.iter().enumerate() {
         let si = world
             .get::<ShipInstance>(*ship_entity)
-            .expect(&format!("GRA-153 M-3: ship {i} should still exist"));
+            .unwrap_or_else(|| panic!("GRA-153 M-3: ship {i} should still exist"));
         assert_eq!(
             si.assigned_fleet,
             Some(fleet_entity),
