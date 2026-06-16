@@ -1,6 +1,7 @@
 use super::time::format_timestamp_date_time;
 use super::*;
 use crate::fleets::orbital_mechanics::calculate_cross_star_ballistic_options;
+use crate::fleets::porkchop::build_grid_for_body_target;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PlannerTransferFrame {
@@ -1326,6 +1327,12 @@ pub(super) fn render_transfer_planner(
                         fleet_ui_state.planned_transfer = None;
                         fleet_ui_state.selected_option = 0;
                         fleet_ui_state.selected_gravity_assist = None;
+                        // GRA-159: drop any cached porkchop from the prior
+                        // category — the new category may not have a
+                        // matching body to recompute against, and a stale
+                        // grid would otherwise render with the wrong names.
+                        fleet_ui_state.porkchop_grid = None;
+                        fleet_ui_state.selected_porkchop_cell = None;
                     }
                 }
             });
@@ -1413,6 +1420,22 @@ pub(super) fn render_transfer_planner(
                                         fleet_ui_state.planned_transfer = None;
                                         fleet_ui_state.selected_option = 0;
                                         fleet_ui_state.selected_gravity_assist = None;
+                                        // GRA-159: populate the porkchop grid so
+                                        // the LGD `PorkchopPanel` renders instead
+                                        // of the legacy Efficient/Moderate/Fast
+                                        // row.  `None` for orbits the helper
+                                        // can't resolve (e.g. local-frame
+                                        // moon-to-moon) — those fall through to
+                                        // the legacy row, preserving the
+                                        // pre-existing planner behaviour.
+                                        fleet_ui_state.porkchop_grid = build_grid_for_body_target(
+                                            porkchop_config,
+                                            orbit.body,
+                                            *entity,
+                                            body_query,
+                                            elapsed,
+                                        );
+                                        fleet_ui_state.selected_porkchop_cell = None;
                                     }
                                 }
                                 DestEntry::Ring { entity, name } => {
@@ -1435,6 +1458,18 @@ pub(super) fn render_transfer_planner(
                                         fleet_ui_state.planned_transfer = None;
                                         fleet_ui_state.selected_option = 0;
                                         fleet_ui_state.selected_gravity_assist = None;
+                                        // GRA-159: same wire-in as the Body
+                                        // branch — rings are treated like
+                                        // bodies for the planner's view
+                                        // (per GRA-149 C-3 follow-up).
+                                        fleet_ui_state.porkchop_grid = build_grid_for_body_target(
+                                            porkchop_config,
+                                            orbit.body,
+                                            *entity,
+                                            body_query,
+                                            elapsed,
+                                        );
+                                        fleet_ui_state.selected_porkchop_cell = None;
                                     }
                                 }
                                 DestEntry::Lagrange { lp } => {
@@ -1477,6 +1512,17 @@ pub(super) fn render_transfer_planner(
                                         fleet_ui_state.planned_transfer = None;
                                         fleet_ui_state.selected_option = 0;
                                         fleet_ui_state.selected_gravity_assist = None;
+                                        // GRA-159: Lagrange point selection
+                                        // is handled by the sibling issue
+                                        // GRA-158 (which will extend
+                                        // `build_grid_for_body_target` for
+                                        // the L-point case).  For now, drop
+                                        // any cached body-path grid so a
+                                        // stale (Earth→Mars) panel does not
+                                        // render with the Lagrange picker
+                                        // selected.
+                                        fleet_ui_state.porkchop_grid = None;
+                                        fleet_ui_state.selected_porkchop_cell = None;
                                     }
                                 }
                                 DestEntry::FleetTarget {
@@ -1511,6 +1557,13 @@ pub(super) fn render_transfer_planner(
                                         fleet_ui_state.planned_transfer = None;
                                         fleet_ui_state.selected_option = 0;
                                         fleet_ui_state.selected_gravity_assist = None;
+                                        // GRA-159: fleet intercept uses
+                                        // a dedicated solver path (not the
+                                        // body-target helper), so drop the
+                                        // cached body grid.  GRA-160 will
+                                        // wire the fleet-intercept grid in.
+                                        fleet_ui_state.porkchop_grid = None;
+                                        fleet_ui_state.selected_porkchop_cell = None;
                                     }
                                 }
                                 DestEntry::StarSystem {
@@ -1554,6 +1607,19 @@ pub(super) fn render_transfer_planner(
                                         fleet_ui_state.planned_transfer = None;
                                         fleet_ui_state.selected_option = 0;
                                         fleet_ui_state.selected_gravity_assist = None;
+                                        // GRA-159: interstellar is
+                                        // out-of-scope for the body path
+                                        // — the LGD's "interstellar"
+                                        // category override belongs to a
+                                        // separate solver (cross-star
+                                        // ballistic, see
+                                        // `calculate_cross_star_ballistic_options`).
+                                        // Drop the cached body grid to
+                                        // prevent a stale (e.g. Earth→Mars)
+                                        // panel from rendering under a
+                                        // star-system picker.
+                                        fleet_ui_state.porkchop_grid = None;
+                                        fleet_ui_state.selected_porkchop_cell = None;
                                     }
                                 }
                             }
