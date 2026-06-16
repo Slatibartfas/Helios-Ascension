@@ -1583,7 +1583,7 @@ mod tests {
     fn earth_lp(point: u8) -> LagrangeTarget {
         LagrangeTarget {
             point,
-            planet_entity: Entity::from_raw(0xE0),
+            planet_entity: Entity::PLACEHOLDER,
             planet_name: "Earth".to_string(),
             planet_sma_au: 1.0,
             radius_au: if point == 1 { 0.99 } else { 1.01 },
@@ -1596,7 +1596,7 @@ mod tests {
             render_pos: bevy::math::Vec3::ZERO,
             hit_radius: 4.0,
             point,
-            planet_entity: Entity::from_raw(0xE0),
+            planet_entity: Entity::PLACEHOLDER,
             planet_name: "Earth".to_string(),
             planet_sma_au: 1.0,
             lp_radius_au: if point == 1 { 0.99 } else { 1.01 },
@@ -1616,6 +1616,8 @@ mod tests {
             energy_multiplier: 0.0,
             burn_time_s: 0.0,
             plane_change_dv_ms: 0.0,
+            is_thrust_limited: false,
+            transfer_orbit_override: None,
         }
     }
 
@@ -1628,8 +1630,8 @@ mod tests {
         let mut state = FleetUiState::default();
         // Pre-populate every other target slot and per-target state so we
         // can verify the helper clears them all atomically.
-        state.target_body = Some(Entity::from_raw(0xAA));
-        state.target_fleet = Some(Entity::from_raw(0xBB));
+        state.target_body = Some(Entity::PLACEHOLDER);
+        state.target_fleet = Some(Entity::PLACEHOLDER);
         state.target_star_system = Some((0, "Sol".to_string(), 0.0_f32));
         state.selected_option = 3;
         state.selected_gravity_assist = Some(2);
@@ -1640,7 +1642,7 @@ mod tests {
         assert_eq!(state.target_lagrange.as_ref().map(|lp| lp.point), Some(1));
         assert_eq!(
             state.target_lagrange.as_ref().map(|lp| lp.planet_entity),
-            Some(Entity::from_raw(0xE0))
+            Some(Entity::PLACEHOLDER)
         );
         assert!(state.target_body.is_none(), "target_body must be cleared");
         assert!(state.target_fleet.is_none(), "target_fleet must be cleared");
@@ -1670,7 +1672,7 @@ mod tests {
         state.target_lagrange = Some(earth_lp(1));
         // Body/Ring click arms set `target_body = Some(...)` and clear
         // `target_lagrange` together.  Mirror that exact mutation here.
-        state.target_body = Some(Entity::from_raw(0xAA));
+        state.target_body = Some(Entity::PLACEHOLDER);
         state.target_lagrange = None;
         state.target_fleet = None;
         state.target_star_system = None;
@@ -1680,7 +1682,7 @@ mod tests {
         state.selected_gravity_assist = None;
 
         assert!(state.target_lagrange.is_none());
-        assert_eq!(state.target_body, Some(Entity::from_raw(0xAA)));
+        assert_eq!(state.target_body, Some(Entity::PLACEHOLDER));
     }
 
     /// GRA-160: left-clicking an LP marker in the 3D scene dispatches
@@ -1697,7 +1699,7 @@ mod tests {
         world
             .resource_mut::<FleetUiState>()
             .target_body
-            .replace(Entity::from_raw(0xAA));
+            .replace(Entity::PLACEHOLDER);
 
         // Simulate `handle_lp_hover` writing a click into the resource.
         world.resource_mut::<LastLpClick>().info = Some(earth_lp_marker(4));
@@ -1713,7 +1715,7 @@ mod tests {
             .as_ref()
             .expect("target_lagrange must be set after LP click");
         assert_eq!(lp.point, 4);
-        assert_eq!(lp.planet_entity, Entity::from_raw(0xE0));
+        assert_eq!(lp.planet_entity, Entity::PLACEHOLDER);
         assert_eq!(lp.planet_name, "Earth");
         assert!(state.target_body.is_none(), "click must clear target_body");
         assert!(state.target_fleet.is_none());
