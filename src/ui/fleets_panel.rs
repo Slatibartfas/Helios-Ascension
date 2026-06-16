@@ -937,9 +937,12 @@ fn render_historical_probes_section(
             )
         })
         .collect();
-    // HistoricalProbeKind is `#[derive(PartialOrd, Ord)]` over its
-    // declaration order (Voyager1 < Voyager2 < Parker < NewHorizons).
-    rows.sort_by_key(|(kind, _)| *kind);
+    // HistoricalProbeKind is declared in display order
+    // (Voyager1 → Voyager2 → Parker → NewHorizons); sort by the
+    // discriminant so the table is stable across runs.  We use
+    // `as u8` because the enum derives `Eq`/`Hash`/`Copy` but
+    // not `Ord` — see `src/fleets/components.rs:733`.
+    rows.sort_by_key(|(kind, _)| *kind as u8);
 
     ui.label(
         egui::RichText::new("DEEP SPACE PROBES")
