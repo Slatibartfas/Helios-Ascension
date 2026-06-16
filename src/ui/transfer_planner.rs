@@ -2973,9 +2973,73 @@ pub(super) fn render_transfer_planner(
                 None
             };
             let abort_cost_t: f32 = if let Some(maneuver) = current_maneuver {
-                let progress = maneuver.progress(elapsed) as f32;
-                let abort_factor = 4.0 * progress * (1.0 - progress);
-                maneuver.fuel_used_t * abort_factor * 0.6
+                // GRA-153 H-4: replace the parabolic peak heuristic
+                // (`fuel_used * 4p(1-p) * 0.6`) with a real mid-flight abort ΔV.
+                //
+                // The cheapest mid-flight abort cancels the fleet's current
+                // Keplerian velocity and circularises at the fleet's CURRENT
+                // radius from the origin body — a true `|v_required - v_current|`
+                // vis-viva computation.  This is the same approach the planner
+                // uses for non-abort course corrections (see `course_correction_
+                // transfer_options` in orbital_mechanics.rs).
+                let abort_dv_ms: f64 = (|| -> Option<f64> {
+                    // Fleet's current heliocentric position (planner-open
+                    // snapshot — fine for a button label).
+                    let r_pos = course_correction_sc?;
+                    // Compute the central body's GM via Kepler's third law from
+                    // the current transfer orbit's SMA and mean motion.
+                    let a_m = maneuver.transfer_orbit.semi_major_axis
+                        * crate::fleets::orbital_mechanics::AU_IN_METERS;
+                    let n = maneuver.transfer_orbit.mean_motion;
+                    if a_m <= 0.0 || n <= 0.0 {
+                        return None;
+                    }
+                    let gm = (n * n) * (a_m * a_m * a_m);
+                    // Fleet's current Keplerian velocity from the active orbit.
+                    let t_since_depart = (elapsed - maneuver.departure_time).max(0.0);
+                    let mean_anomaly = maneuver.transfer_orbit.mean_anomaly_epoch
+                        + maneuver.transfer_orbit.mean_motion * t_since_depart;
+                    let v_current_ms = crate::fleets::orbital_mechanics::keplerian_velocity_vector(
+                        &maneuver.transfer_orbit,
+                        mean_anomaly,
+                        gm,
+                    );
+                    // Resolve the orbital center's heliocentric position so
+                    // the radius-from-center is local (handles moon transfers).
+                    let center_helio = match maneuver.reference_frame {
+                        crate::fleets::TransferReferenceFrame::SystemBarycentric => {
+                            bevy::math::DVec3::ZERO
+                        }
+                        crate::fleets::TransferReferenceFrame::Body(center_entity) => body_query
+                            .get(center_entity)
+                            .map(|(_, _, sc, _, _)| sc.position)
+                            .unwrap_or(bevy::math::DVec3::ZERO),
+                    };
+                    let r_local_au = (r_pos - center_helio).length();
+                    if r_local_au <= 1e-6 {
+                        return None;
+                    }
+                    // Circular velocity at the current radius.
+                    let v_circ_ms =
+                        (gm / (r_local_au * crate::fleets::orbital_mechanics::AU_IN_METERS)).sqrt();
+                    // ΔV to circularise at the current orbit.
+                    let dv_circ_ms = (v_current_ms.length() - v_circ_ms).abs();
+                    Some(dv_circ_ms)
+                })()
+                .unwrap_or(0.0);
+                // Convert ΔV to fuel tonnes via the rocket equation.
+                if abort_dv_ms > 0.0 {
+                    let dry_mass_t = fleet.ships.iter().map(|s| s.dry_mass_t as f64).sum::<f64>();
+                    let wet_mass_t = dry_mass_t + fleet.total_fuel_t() as f64;
+                    let avg_isp_s = fleet.average_isp_s() as f32;
+                    crate::fleets::orbital_mechanics::estimate_fuel_cost_tonnes(
+                        wet_mass_t as f32,
+                        avg_isp_s,
+                        abort_dv_ms,
+                    )
+                } else {
+                    0.0
+                }
             } else {
                 0.0
             };
@@ -3277,6 +3341,56 @@ pub(super) fn render_transfer_planner(
                     );
                 }
             });
+
+            // GRA-153 M-3: "Abort to Origin" + "Disband Fleet" buttons.
+            // Shown only when the fleet is mid-transit (course correction mode).
+            // - "Abort to Origin" (primary, default): refits a parking orbit
+            //   at the origin body.  Preserves the fleet entity, ships, and
+            //   render position.  The fleet is NOT silently dissolved.
+            // - "Disband Fleet" (secondary, confirmation): the legacy
+            //   "silently dissolve" behaviour, gated behind a confirmation
+            //   modal to prevent accidental clicks.
+            if is_course_correction {
+                ui.add_space(theme::Spacing::sm);
+                let abort_label = if abort_cost_t > 0.0 {
+                    let abort_dv_kms = (fleet_max_dv - dv_after_abort) / 1_000.0;
+                    format!("⛔ Abort to Origin (+{:.2} km/s burn)", abort_dv_kms)
+                } else {
+                    "⛔ Abort to Origin".to_string()
+                };
+                if ui
+                    .add(
+                        egui::Button::new(
+                            egui::RichText::new(&abort_label)
+                                .size(12.0)
+                                .color(theme::RED),
+                        )
+                        .min_size(egui::Vec2::new(120.0, 30.0)),
+                    )
+                    .on_hover_text("Cancel the current transfer and return the fleet to a parking orbit at the origin body. Ships are preserved.")
+                    .clicked()
+                {
+                    pending_actions.abort_to_origin.push(AbortToOriginAction {
+                        fleet: fleet_entity,
+                        abort_cost_t,
+                    });
+                    fleet_ui_state.show_transfer_popup = false;
+                }
+                if ui
+                    .add(
+                        egui::Button::new(
+                            egui::RichText::new("💥 Disband Fleet")
+                                .size(10.0)
+                                .color(theme::TEXT_DIM),
+                        )
+                        .min_size(egui::Vec2::new(120.0, 24.0)),
+                    )
+                    .on_hover_text("Permanently dissolve this fleet. All ships return to independent orbit. This cannot be undone.")
+                    .clicked()
+                {
+                    fleet_ui_state.disband_confirm_fleet = Some(fleet_entity);
+                }
+            }
             if !hides_calendar_eta {
                 let dep_s = fleet_ui_state.departure_offset_days * 86_400.0;
                 let total_eta_s = dep_s + sel_option.transfer_time_s;

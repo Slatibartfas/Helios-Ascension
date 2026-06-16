@@ -526,6 +526,10 @@ pub fn process_fleet_actions(
     center_coords: Query<&SpaceCoordinates, Without<Fleet>>,
     fleet_sc_query: Query<&SpaceCoordinates, With<Fleet>>,
     fleet_transform_query: Query<&Transform, With<Fleet>>,
+    // GRA-153 M-3: typed access to `ActiveManeuver` for the Abort-to-Origin
+    // handler.  Separate from the existing `maneuver_query` (which is
+    // `Query<(), ...>` used for the parked/in-transit boolean check).
+    active_maneuver_query: Query<&ActiveManeuver, With<Fleet>>,
     mut ship_queries: ParamSet<(
         Query<(Entity, &ShipInstance)>,
         Query<(Entity, &mut ShipInstance)>,
@@ -728,7 +732,24 @@ pub fn process_fleet_actions(
 
             (Some(start_pos), Some(end_pos))
         } else {
-            (None, None)
+            // GRA-153 H-3: for non-kinematic course corrections (mid-transit Hohmann-style
+            // options), the planner built the transfer orbit from a position snapshot
+            // captured when the popup opened.  If the fleet has drifted between popup open
+            // and Execute (high time-scale), the orbit is anchored to a stale position.
+            // Refresh `start_position_au` from the fleet's CURRENT physics position so the
+            // resulting `ActiveManeuver` records the actual departure point.  The orbital
+            // elements (`sma_au`, `eccentricity`, orientation) are kept from the planner —
+            // their `argument_of_periapsis` will be re-oriented by
+            // `activate_scheduled_departures` at the actual departure moment.
+            if is_in_transit {
+                if let Ok(fleet_sc) = fleet_sc_query.get(action.fleet) {
+                    (Some(fleet_sc.position), None)
+                } else {
+                    (None, None)
+                }
+            } else {
+                (None, None)
+            }
         };
 
         let start_visual_pos = if is_in_transit {
@@ -785,6 +806,115 @@ pub fn process_fleet_actions(
     // Cancel maneuvers — park the fleet in place (no orbit body available, so skip for now)
     for entity in actions.cancel_maneuvers.drain(..) {
         commands.entity(entity).remove::<ActiveManeuver>();
+    }
+
+    // GRA-153 M-3: "Abort to Origin" — overwrite the active maneuver with a
+    // return-to-origin transfer.  The fleet entity, its ships' `assigned_fleet`,
+    // and the visible render position are all preserved (only `ActiveManeuver`
+    // is replaced).  This avoids the silent despawn that the legacy
+    // `cancel_maneuvers` path produced when the resulting fleet had neither
+    // `FleetOrbit` nor `ActiveManeuver`.
+    for action in actions.abort_to_origin.drain(..) {
+        // Skip if the fleet is no longer in transit (e.g. the maneuver already
+        // completed between action-queue and process-tick).
+        if maneuver_query.get(action.fleet).is_err() {
+            continue;
+        }
+
+        // Deduct the abort burn fuel cost (same per-ship split as
+        // `start_transfers`).
+        if action.abort_cost_t > 0.0 {
+            let per_ship_abort = if let Ok(fleet) = fleet_query.get(action.fleet) {
+                if fleet.ships.is_empty() {
+                    0.0
+                } else {
+                    action.abort_cost_t / fleet.ships.len() as f32
+                }
+            } else {
+                0.0
+            };
+            if let Ok(mut fleet) = fleet_query.get_mut(action.fleet) {
+                let per_ship = if fleet.ships.is_empty() {
+                    0.0
+                } else {
+                    action.abort_cost_t / fleet.ships.len() as f32
+                };
+                for ship in fleet.ships.iter_mut() {
+                    ship.fuel_mass_t = (ship.fuel_mass_t - per_ship).max(0.0);
+                }
+            }
+            for (_, mut ship) in ship_queries.p1().iter_mut() {
+                if ship.assigned_fleet == Some(action.fleet) {
+                    ship.info.fuel_mass_t = (ship.info.fuel_mass_t - per_ship_abort).max(0.0);
+                }
+            }
+        }
+
+        // Look up the current maneuver via a fresh typed access.  We can't
+        // reuse the existing `maneuver_query` (it's `Query<(), ...>`) so we
+        // re-query via the typed `active_maneuver_query` added to the system
+        // params below.
+        let Some(current_man) = active_maneuver_query.get(action.fleet).ok() else {
+            continue;
+        };
+
+        // The fleet's current heliocentric position is the abort start.
+        let start_pos = fleet_sc_query
+            .get(action.fleet)
+            .map(|sc| sc.position)
+            .unwrap_or(DVec3::ZERO);
+        // Origin body parking radius — default 0.001 AU for non-stellar origin
+        // (the planner doesn't store pre-departure parking radius on the
+        // maneuver, so we use a conservative low-orbit default).
+        let parking_r_au = 0.001_f64;
+        // Use the orbital center's heliocentric position for the destination.
+        let dest_pos = center_coords
+            .get(current_man.orbit_center)
+            .map(|sc| sc.position)
+            .unwrap_or(DVec3::ZERO)
+            + DVec3::new(parking_r_au, 0.0, 0.0); // simple offset along +x
+
+        // Build a minimal kinematic ActiveManeuver pointing the fleet back to
+        // the origin body.  Kinematic mode (no Kepler orbit) so the existing
+        // `update_fleet_maneuver_positions` linear-interpolates between start
+        // and end positions; the duration is set to a small fraction of the
+        // original remaining transfer time so the abort arrives quickly.
+        let remaining_s = (current_man.arrival_time - elapsed).max(0.0);
+        let abort_duration_s = (remaining_s * 0.5).max(86_400.0); // half the remaining, min 1 day
+        let maneuver = ActiveManeuver {
+            // Reuse the current orbit (orientation will be re-anchored by
+            // `update_fleet_maneuver_positions`).
+            transfer_orbit: current_man.transfer_orbit,
+            reference_frame: current_man.reference_frame,
+            orbit_center: current_man.origin_body,
+            origin_body: current_man.origin_body,
+            departure_time: elapsed,
+            arrival_time: elapsed + abort_duration_s,
+            preserve_orbit_geometry: true,
+            destination_body: current_man.origin_body,
+            // Park at the origin body's parking radius (a reasonable default).
+            arrival_orbit_radius_au: parking_r_au,
+            arrival_delta_v_ms: 0.0,
+            fuel_used_t: action.abort_cost_t,
+            option_label: "Abort to Origin",
+            departure_angle: 0.0,
+            start_position_au: Some(start_pos),
+            end_position_au: Some(dest_pos),
+            departure_velocity_ms: None,
+            arrival_velocity_ms: None,
+            start_visual_pos: fleet_transform_query
+                .get(action.fleet)
+                .ok()
+                .map(|tr| tr.translation),
+            flyby_body: None,
+            leg2_orbit: None,
+            leg2_start_s: 0.0,
+        };
+        commands
+            .entity(action.fleet)
+            .remove::<FleetOrbit>()
+            .remove::<ActiveManeuver>()
+            .insert(maneuver);
     }
 
     // Refuel fleets — fill every ship to max propellant capacity.

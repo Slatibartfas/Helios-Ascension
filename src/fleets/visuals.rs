@@ -1020,7 +1020,7 @@ fn tangential_ring_arrival_point(
 #[cfg(test)]
 mod tests {
     use super::{
-        compute_barycentric_visual_arc, compute_transfer_arc,
+        compute_barycentric_visual_arc, compute_gravity_assist_arc, compute_transfer_arc,
         should_sample_planned_transfer_preview, tangential_ring_arrival_point,
     };
     use crate::astronomy::KeplerOrbit;
@@ -1219,6 +1219,64 @@ mod tests {
         assert!(!super::should_use_exact_endpoint_bezier(
             TransferReferenceFrame::Body(bevy::prelude::Entity::from_bits(9))
         ));
+    }
+
+    // GRA-153 H-5: the gravity-assist preview must show BOTH legs (origin→flyby and
+    // flyby→destination), not just Leg-1.  The `compute_gravity_assist_arc` helper is
+    // shared between the preview (`draw_gravity_assist_preview`) and the in-transit
+    // renderer (`draw_fleet_trajectories`), so verifying the geometry here guarantees
+    // both call-sites get a two-leg Bezier.
+    #[test]
+    fn gra_153_h5_gravity_assist_arc_produces_two_distinct_legs() {
+        // Earth→Venus→Mars geometry: origin at 1 AU, Venus at 0.72 AU, Mars at 1.52 AU.
+        let op = Vec3::new(1.0, 0.0, 0.0);
+        let fp = Vec3::new(0.0, 0.72, 0.0);
+        let dp = Vec3::new(-1.5, 0.0, 0.0);
+        let origin_ring_r = 0.05;
+        let flyby_ring_r = 0.04;
+        let dest_ring_r = 0.06;
+
+        let ga = compute_gravity_assist_arc(op, fp, dp, origin_ring_r, flyby_ring_r, dest_ring_r);
+
+        // Leg-1 endpoint must lie on the origin ring.
+        let leg1_start = ga.eval_leg1(0.0);
+        let leg1_end = ga.eval_leg1(1.0);
+        let leg2_start = ga.eval_leg2(0.0);
+        let leg2_end = ga.eval_leg2(1.0);
+
+        assert!(
+            (leg1_start - op).length() < origin_ring_r + 0.05,
+            "Leg-1 start should sit on the origin ring (got {:?}, op={:?}, origin_ring_r={})",
+            leg1_start,
+            op,
+            origin_ring_r
+        );
+        // Leg-1 end and Leg-2 start should coincide at the flyby periapsis (C0 continuity).
+        assert!(
+            (leg1_end - leg2_start).length() < 1e-4,
+            "Leg-1 end and Leg-2 start must coincide at periapsis (leg1_end={:?}, leg2_start={:?})",
+            leg1_end,
+            leg2_start
+        );
+        // Leg-2 end should sit on the destination ring.
+        assert!(
+            (leg2_end - dp).length() < dest_ring_r + 0.05,
+            "Leg-2 end should sit on the destination ring (got {:?}, dp={:?}, dest_ring_r={})",
+            leg2_end,
+            dp,
+            dest_ring_r
+        );
+        // The two legs must NOT be the same segment: midpoint of Leg-1 and midpoint of
+        // Leg-2 should be far apart (the flyby bends the path).
+        let leg1_mid = ga.eval_leg1(0.5);
+        let leg2_mid = ga.eval_leg2(0.5);
+        assert!(
+            (leg1_mid - leg2_mid).length() > 0.1,
+            "Leg-1 and Leg-2 midpoints must diverge (got leg1_mid={:?}, leg2_mid={:?}, dist={})",
+            leg1_mid,
+            leg2_mid,
+            (leg1_mid - leg2_mid).length()
+        );
     }
 }
 

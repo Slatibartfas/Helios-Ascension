@@ -541,6 +541,12 @@ pub struct PendingFleetActions {
     /// `ShipClass::Freighter`.  Consumed by `process_fleet_logistics_assignments`
     /// in `economy::logistics`.
     pub assign_logistics_requests: Vec<AssignLogisticsRequestAction>,
+    /// Requests to abort a mid-transit maneuver and return the fleet to a
+    /// parking orbit at its origin body.  Distinct from `cancel_maneuvers`
+    /// (which silently dissolves the fleet) and from `disband_fleets` (which
+    /// requires confirmation).  Consumed by `process_fleet_actions` in
+    /// `fleets::systems`.  GRA-153 M-3.
+    pub abort_to_origin: Vec<AbortToOriginAction>,
 }
 
 /// Merge two or more fleets: all ships from `source_fleets` are moved into
@@ -634,6 +640,21 @@ pub struct StartTransferAction {
     /// How far in the future (seconds) the fleet should depart.  Zero = depart immediately.
     /// The fleet remains in its parking orbit until this offset elapses.
     pub departure_offset_s: f64,
+}
+
+/// Request to abort a mid-transit maneuver and return the fleet to a parking
+/// orbit at its origin body.  GRA-153 M-3.
+///
+/// The handler (`process_fleet_actions`) inspects the fleet's current
+/// `ActiveManeuver`, deducts the abort fuel cost, and replaces the maneuver
+/// with a fresh return-to-origin transfer — preserving the fleet entity, its
+/// ships' `assigned_fleet` membership, and the visible render position.
+#[derive(Debug, Clone, Copy)]
+pub struct AbortToOriginAction {
+    /// The fleet entity that should abort its current maneuver.
+    pub fleet: Entity,
+    /// Fuel (tonnes) to deduct as the abort burn (matches the H-4 result).
+    pub abort_cost_t: f32,
 }
 
 /// A fully computed transfer plan, ready to be turned into an `ActiveManeuver`.
