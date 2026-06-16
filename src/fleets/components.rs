@@ -465,6 +465,12 @@ pub struct ActiveManeuver {
     /// and propagated into the corresponding `ActiveManeuver`.  The render
     /// systems use it to reconstruct the two‑leg trajectory after execution.
     pub flyby_body: Option<Entity>,
+    /// GRA-153 H-3 (Kilo CRITICAL 2): when `true`, force `is_kinematic()`
+    /// to return `true` regardless of `option_label`.  Set by
+    /// `process_fleet_actions` for mid-transit course corrections so the
+    /// propagation actually uses the refreshed `start_position_au` /
+    /// `end_position_au` instead of the stale Keplerian orbit.
+    pub kinematic_override: bool,
 }
 
 impl ActiveManeuver {
@@ -474,10 +480,18 @@ impl ActiveManeuver {
     /// Kinematic transfers include full-thrust, coast phases, max-speed runs,
     /// and direct L1/L2 Lagrange-point transfers.
     pub fn is_kinematic(&self) -> bool {
-        self.option_label == "Full Thrust"
+        self.kinematic_override
+            || self.option_label == "Full Thrust"
             || self.option_label.contains("Coast")
             || self.option_label == "Max Speed"
             || self.option_label.contains("Direct")
+            // GRA-153 M-3: Abort to Origin is propagated as a linear
+            // interpolation from the fleet's current heliocentric position
+            // (start_position_au) to the origin body's predicted position at
+            // arrival (end_position_au).  Treating it as a Keplerian transfer
+            // would re-fly the original Hohmann orbit, which is the bug
+            // class this maneuver exists to avoid.
+            || self.option_label == "Abort to Origin"
     }
 
     /// Fractional progress of the transfer arc, clamped to \[0, 1\].
@@ -541,6 +555,12 @@ pub struct PendingFleetActions {
     /// `ShipClass::Freighter`.  Consumed by `process_fleet_logistics_assignments`
     /// in `economy::logistics`.
     pub assign_logistics_requests: Vec<AssignLogisticsRequestAction>,
+    /// Requests to abort a mid-transit maneuver and return the fleet to a
+    /// parking orbit at its origin body.  Distinct from `cancel_maneuvers`
+    /// (which silently dissolves the fleet) and from `disband_fleets` (which
+    /// requires confirmation).  Consumed by `process_fleet_actions` in
+    /// `fleets::systems`.  GRA-153 M-3.
+    pub abort_to_origin: Vec<AbortToOriginAction>,
 }
 
 /// Merge two or more fleets: all ships from `source_fleets` are moved into
@@ -634,6 +654,21 @@ pub struct StartTransferAction {
     /// How far in the future (seconds) the fleet should depart.  Zero = depart immediately.
     /// The fleet remains in its parking orbit until this offset elapses.
     pub departure_offset_s: f64,
+}
+
+/// Request to abort a mid-transit maneuver and return the fleet to a parking
+/// orbit at its origin body.  GRA-153 M-3.
+///
+/// The handler (`process_fleet_actions`) inspects the fleet's current
+/// `ActiveManeuver`, deducts the abort fuel cost, and replaces the maneuver
+/// with a fresh return-to-origin transfer — preserving the fleet entity, its
+/// ships' `assigned_fleet` membership, and the visible render position.
+#[derive(Debug, Clone, Copy)]
+pub struct AbortToOriginAction {
+    /// The fleet entity that should abort its current maneuver.
+    pub fleet: Entity,
+    /// Fuel (tonnes) to deduct as the abort burn (matches the H-4 result).
+    pub abort_cost_t: f32,
 }
 
 /// A fully computed transfer plan, ready to be turned into an `ActiveManeuver`.

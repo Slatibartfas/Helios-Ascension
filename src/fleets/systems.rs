@@ -526,6 +526,10 @@ pub fn process_fleet_actions(
     center_coords: Query<&SpaceCoordinates, Without<Fleet>>,
     fleet_sc_query: Query<&SpaceCoordinates, With<Fleet>>,
     fleet_transform_query: Query<&Transform, With<Fleet>>,
+    // GRA-153 M-3: typed access to `ActiveManeuver` for the Abort-to-Origin
+    // handler.  Separate from the existing `maneuver_query` (which is
+    // `Query<(), ...>` used for the parked/in-transit boolean check).
+    active_maneuver_query: Query<&ActiveManeuver, With<Fleet>>,
     mut ship_queries: ParamSet<(
         Query<(Entity, &ShipInstance)>,
         Query<(Entity, &mut ShipInstance)>,
@@ -677,10 +681,20 @@ pub fn process_fleet_actions(
         // kinematic interpolation.  Efficient/Moderate/Fast Hohmann-style options now use
         // proper Keplerian arcs — the transfer orbit elements are computed from the
         // fleet's actual position by build_planned_transfer.
+        //
+        // GRA-153 H-3 (Kilo CRITICAL 2): mid-transit course corrections must
+        // ALSO re-anchor the transfer orbit, not just `start_position_au`.
+        // For a non-kinematic Keplerian propagation, `update_fleet_maneuver_positions`
+        // follows `transfer_orbit` from its current state and ignores
+        // `start_position_au` — so refreshing only the start position is
+        // decorative when the planner built a Keplerian orbit from a stale
+        // snapshot.  Force in-transit course corrections to be kinematic so
+        // the propagation actually uses the refreshed start.
         let is_kinematic = t.option_label == "Full Thrust"
             || t.option_label.contains("Coast")
             || t.option_label == "Max Speed"
-            || t.option_label.contains("Direct");
+            || t.option_label.contains("Direct")
+            || is_in_transit;
         let (start_position_au, end_position_au) = if is_kinematic {
             // For course corrections (mid-transit), always use the fleet's actual current
             // physics position as departure — the pre-computed start from the planner may
@@ -753,6 +767,10 @@ pub fn process_fleet_actions(
             arrival_delta_v_ms: t.arrival_delta_v_ms,
             fuel_used_t: t.fuel_cost_t,
             option_label: t.option_label,
+            // GRA-153 H-3 (Kilo CRITICAL 2): force kinematic propagation for
+            // in-transit course corrections so the refreshed start/end
+            // positions actually drive fleet position.
+            kinematic_override: is_in_transit,
             departure_angle,
             start_position_au,
             end_position_au,
@@ -785,6 +803,139 @@ pub fn process_fleet_actions(
     // Cancel maneuvers — park the fleet in place (no orbit body available, so skip for now)
     for entity in actions.cancel_maneuvers.drain(..) {
         commands.entity(entity).remove::<ActiveManeuver>();
+    }
+
+    // GRA-153 M-3: "Abort to Origin" — overwrite the active maneuver with a
+    // return-to-origin transfer.  The fleet entity, its ships' `assigned_fleet`,
+    // and the visible render position are all preserved (only `ActiveManeuver`
+    // is replaced).  This avoids the silent despawn that the legacy
+    // `cancel_maneuvers` path produced when the resulting fleet had neither
+    // `FleetOrbit` nor `ActiveManeuver`.
+    for action in actions.abort_to_origin.drain(..) {
+        // Skip if the fleet is no longer in transit (e.g. the maneuver already
+        // completed between action-queue and process-tick).
+        if maneuver_query.get(action.fleet).is_err() {
+            continue;
+        }
+
+        // Deduct the abort burn fuel cost (same per-ship split as
+        // `start_transfers`).
+        if action.abort_cost_t > 0.0 {
+            let per_ship_abort = if let Ok(fleet) = fleet_query.get(action.fleet) {
+                if fleet.ships.is_empty() {
+                    0.0
+                } else {
+                    action.abort_cost_t / fleet.ships.len() as f32
+                }
+            } else {
+                0.0
+            };
+            if let Ok(mut fleet) = fleet_query.get_mut(action.fleet) {
+                let per_ship = if fleet.ships.is_empty() {
+                    0.0
+                } else {
+                    action.abort_cost_t / fleet.ships.len() as f32
+                };
+                for ship in fleet.ships.iter_mut() {
+                    ship.fuel_mass_t = (ship.fuel_mass_t - per_ship).max(0.0);
+                }
+            }
+            for (_, mut ship) in ship_queries.p1().iter_mut() {
+                if ship.assigned_fleet == Some(action.fleet) {
+                    ship.info.fuel_mass_t = (ship.info.fuel_mass_t - per_ship_abort).max(0.0);
+                }
+            }
+        }
+
+        // Look up the current maneuver via a fresh typed access.  We can't
+        // reuse the existing `maneuver_query` (it's `Query<(), ...>`) so we
+        // re-query via the typed `active_maneuver_query` added to the system
+        // params below.
+        let Some(current_man) = active_maneuver_query.get(action.fleet).ok() else {
+            continue;
+        };
+
+        // The fleet's current heliocentric position is the abort start.
+        let start_pos = fleet_sc_query
+            .get(action.fleet)
+            .map(|sc| sc.position)
+            .unwrap_or(DVec3::ZERO);
+        // Origin body parking radius — prefer a body-type-aware default.
+        // GRA-149 (C-2) added `star_approach_au` for stars; for non-stellar
+        // bodies we use a conservative low-orbit default (0.001 AU ≈ 150k km,
+        // well inside the SOI of any planet).  GRA-153 Kilo WARNING: the
+        // destination must be the ORIGIN body (where the fleet started), not
+        // the orbit center (typically the Sun).
+        let origin_body = current_man.origin_body;
+        let parking_r_au = body_query
+            .get(origin_body)
+            .map(|(_, body, _)| match body.body_type {
+                BodyType::Star => body.star_approach_au.unwrap_or(0.3),
+                BodyType::Planet | BodyType::GasGiant | BodyType::DwarfPlanet => 0.001_f64,
+                BodyType::Moon => 0.0001_f64,
+                BodyType::Asteroid | BodyType::Comet | BodyType::Ring => 0.0005_f64,
+            })
+            .unwrap_or(0.001_f64);
+        let origin_pos = center_coords
+            .get(origin_body)
+            .map(|sc| sc.position)
+            .unwrap_or(DVec3::ZERO);
+        // Park the abort destination at `origin_pos + offset` where the
+        // offset is `parking_r_au` along the heliocentric radial direction
+        // (away from the Sun, so it doesn't end up inside the star).
+        let radial = if origin_pos.length() > 1e-9 {
+            origin_pos.normalize()
+        } else {
+            DVec3::new(1.0, 0.0, 0.0)
+        };
+        let dest_pos = origin_pos + radial * parking_r_au;
+
+        // Build a minimal kinematic ActiveManeuver pointing the fleet back to
+        // the origin body.  Kinematic mode (no Kepler orbit) so the existing
+        // `update_fleet_maneuver_positions` linear-interpolates between start
+        // and end positions; the duration is set to a small fraction of the
+        // original remaining transfer time so the abort arrives quickly.
+        let remaining_s = (current_man.arrival_time - elapsed).max(0.0);
+        let abort_duration_s = (remaining_s * 0.5).max(86_400.0); // half the remaining, min 1 day
+        let maneuver = ActiveManeuver {
+            // Reuse the current orbit (orientation will be re-anchored by
+            // `update_fleet_maneuver_positions`).
+            transfer_orbit: current_man.transfer_orbit,
+            reference_frame: current_man.reference_frame,
+            orbit_center: current_man.origin_body,
+            origin_body: current_man.origin_body,
+            departure_time: elapsed,
+            arrival_time: elapsed + abort_duration_s,
+            preserve_orbit_geometry: true,
+            destination_body: current_man.origin_body,
+            // Park at the origin body's parking radius (a reasonable default).
+            arrival_orbit_radius_au: parking_r_au,
+            arrival_delta_v_ms: 0.0,
+            fuel_used_t: action.abort_cost_t,
+            option_label: "Abort to Origin",
+            departure_angle: 0.0,
+            start_position_au: Some(start_pos),
+            end_position_au: Some(dest_pos),
+            departure_velocity_ms: None,
+            arrival_velocity_ms: None,
+            start_visual_pos: fleet_transform_query
+                .get(action.fleet)
+                .ok()
+                .map(|tr| tr.translation),
+            flyby_body: None,
+            leg2_orbit: None,
+            leg2_start_s: 0.0,
+            // GRA-153 M-3 / Kilo CRITICAL 1: belt-and-braces — set the
+            // override flag in addition to the "Abort to Origin" label so
+            // `is_kinematic()` returns true even if the label is later
+            // changed for UX reasons.
+            kinematic_override: true,
+        };
+        commands
+            .entity(action.fleet)
+            .remove::<FleetOrbit>()
+            .remove::<ActiveManeuver>()
+            .insert(maneuver);
     }
 
     // Refuel fleets — fill every ship to max propellant capacity.
