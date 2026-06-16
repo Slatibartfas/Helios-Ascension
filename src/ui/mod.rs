@@ -1573,6 +1573,15 @@ fn ui_resolution_warning(
 
 #[cfg(test)]
 mod tests {
+    // The whole tests module exercises the `FleetUiState` mutation contract
+    // by re-applying the same field-reassign pattern the production click
+    // arms in `render_transfer_planner` use.  `field_reassign_with_default`
+    // is fine here — that lint targets code paths that should prefer struct
+    // init, but tests that verify the mutation itself need to start from a
+    // known pre-state and trigger the mutation, which is exactly the
+    // field-reassign shape.
+    #![allow(clippy::field_reassign_with_default)]
+
     use super::{ui_lp_click_handler, FleetUiState, LagrangeTarget};
     use crate::astronomy::components::LpMarkerInfo;
     use crate::fleets::orbital_mechanics::TransferOption;
@@ -1627,15 +1636,18 @@ mod tests {
     /// slots plus the per-target transfer-planning state.
     #[test]
     fn select_lagrange_target_sets_lp_and_clears_other_targets() {
-        let mut state = FleetUiState::default();
         // Pre-populate every other target slot and per-target state so we
-        // can verify the helper clears them all atomically.
-        state.target_body = Some(Entity::PLACEHOLDER);
-        state.target_fleet = Some(Entity::PLACEHOLDER);
-        state.target_star_system = Some((0, "Sol".to_string(), 0.0_f32));
-        state.selected_option = 3;
-        state.selected_gravity_assist = Some(2);
-        state.computed_options.push(legacy_option());
+        // can verify the helper clears them all atomically.  Use struct
+        // init (not field-reassign) to satisfy `clippy::field_reassign_with_default`.
+        let mut state = FleetUiState {
+            target_body: Some(Entity::PLACEHOLDER),
+            target_fleet: Some(Entity::PLACEHOLDER),
+            target_star_system: Some((0, "Sol".to_string(), 0.0_f32)),
+            selected_option: 3,
+            selected_gravity_assist: Some(2),
+            computed_options: vec![legacy_option()],
+            ..Default::default()
+        };
 
         state.select_lagrange_target(earth_lp(1));
 
@@ -1663,15 +1675,23 @@ mod tests {
 
     /// GRA-160: `target_lagrange` is mutually exclusive with `target_body`.
     /// Selecting a body via the destination picker (mirrored here by
-    /// direct field write) must clear `target_lagrange` — this is the
-    /// symmetric half of the contract, locked by the Body/Ring click
-    /// branches in `render_transfer_planner`.
+    /// re-applying the same field-reassign pattern the Body/Ring click
+    /// branches in `render_transfer_planner` use) must clear
+    /// `target_lagrange` — the symmetric half of the contract.
     #[test]
     fn selecting_body_clears_target_lagrange() {
+        // Pre-state: an LP is the active target.
         let mut state = FleetUiState::default();
         state.target_lagrange = Some(earth_lp(1));
-        // Body/Ring click arms set `target_body = Some(...)` and clear
-        // `target_lagrange` together.  Mirror that exact mutation here.
+
+        // Apply the same mutation the Body/Ring click arms perform in
+        // `render_transfer_planner` (lines 1431-1437 in main):
+        //   target_body = Some(...)
+        //   target_lagrange = None
+        //   target_fleet = None
+        //   target_star_system = None
+        //   computed_options.clear(); planned_transfer = None;
+        //   selected_option = 0; selected_gravity_assist = None;
         state.target_body = Some(Entity::PLACEHOLDER);
         state.target_lagrange = None;
         state.target_fleet = None;
@@ -1681,6 +1701,7 @@ mod tests {
         state.selected_option = 0;
         state.selected_gravity_assist = None;
 
+        // Post-state: the LP target is gone, the body target is set.
         assert!(state.target_lagrange.is_none());
         assert_eq!(state.target_body, Some(Entity::PLACEHOLDER));
     }
