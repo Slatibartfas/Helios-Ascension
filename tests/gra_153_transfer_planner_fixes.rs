@@ -77,6 +77,7 @@ fn gra_153_h3_refreshes_start_position_at_action_queue_time() {
     use helios_ascension::fleets::systems::process_fleet_actions;
 
     let mut world = World::new();
+    world.init_resource::<helios_ascension::fleets::components::PendingFleetActions>();
     // Sun at origin (for the barycentric reference frame).
     let _sun = world
         .spawn((
@@ -223,6 +224,7 @@ fn gra_153_m3_abort_to_origin_preserves_fleet_and_ships() {
     use helios_ascension::fleets::systems::process_fleet_actions;
 
     let mut world = World::new();
+    world.init_resource::<helios_ascension::fleets::components::PendingFleetActions>();
     let _sun = world
         .spawn((
             test_body("Sol", BodyType::Star, 1.9e30),
