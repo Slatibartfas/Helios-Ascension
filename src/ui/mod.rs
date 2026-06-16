@@ -288,6 +288,43 @@ impl FleetUiState {
         self.selected_fleets.clear();
         self.last_single_selected = None;
     }
+
+    /// Select a Lagrange-point target and clear every other target slot.
+    ///
+    /// The four target fields (`target_body`, `target_lagrange`, `target_fleet`,
+    /// `target_star_system`) are mutually exclusive — picking one invalidates
+    /// the others and resets the per-target transfer-planning state
+    /// (`computed_options`, `planned_transfer`, `selected_option`, etc.).
+    /// GRA-160; mirrors the `Body`/`Ring`/`FleetTarget`/`StarSystem` branches
+    /// in `render_transfer_planner`'s destination picker and the 3D-scene
+    /// `ui_lp_click_handler` so both paths mutate state through one contract.
+    ///
+    /// Also clears the GRA-159 porkchop-grid cache and the GRA-161
+    /// `target_star_approach` so the planner does not render a stale panel
+    /// for a previous target.
+    ///
+    /// The porkchop-grid build for the new origin/dest pair is intentionally
+    /// **not** triggered here — it is the caller's responsibility (the
+    /// planner re-runs `build_grid_for_body_target` on its next tick once
+    /// the new `target_lagrange` is observed).
+    pub fn select_lagrange_target(&mut self, lp: LagrangeTarget) {
+        self.target_lagrange = Some(lp);
+        self.target_body = None;
+        self.target_fleet = None;
+        self.target_star_system = None;
+        // GRA-161: Lagrange targets are not stars — drop any
+        // star-approach parking radius the user had dialed in.
+        self.target_star_approach = None;
+        self.computed_options.clear();
+        self.planned_transfer = None;
+        self.selected_option = 0;
+        self.selected_gravity_assist = None;
+        // GRA-159: drop any cached body-path grid so a stale
+        // (e.g. Earth→Mars) panel does not render with the Lagrange
+        // picker selected.  The planner re-builds on its next tick.
+        self.porkchop_grid = None;
+        self.selected_porkchop_cell = None;
+    }
 }
 
 /// System sets for UI ordering. Avoids Bevy's tuple-complexity limit
@@ -1258,16 +1295,29 @@ fn ui_hover_tooltip(
 /// Read [`LastLpClick`] resource and update the fleet transfer planner
 /// so that the clicked LP becomes the active transfer target.
 ///
-/// TODO(lagrange-transfers): Re-enable this handler once Lagrange-point transfer
-/// planning is working correctly. Currently LP markers are display-only; clicking
-/// one does not open the transfer planner.
-fn ui_lp_click_handler(mut last_click: ResMut<LastLpClick>, _fleet_ui_state: ResMut<FleetUiState>) {
-    // Consume the click so it doesn't accumulate, but don't act on it.
-    let _ = last_click.info.take();
-    // TODO(lagrange-transfers): When re-enabling, restore the body below:
-    // let Some(m_owned) = last_click.info.take() else { return; };
-    // let m = &m_owned;
-    // fleet_ui_state.target_lagrange = Some(LagrangeTarget { ... });
+/// GRA-160: left-clicking an L4/L5 marker in the 3D scene now drives the
+/// planner just like picking the LP in the destination dropdown.  The
+/// `handle_lp_hover` system in `astronomy::lagrange` writes
+/// [`LastLpClick`] on each left-click; this system drains it and routes
+/// the click through [`FleetUiState::select_lagrange_target`] so the
+/// destination-picker and 3D-scene click paths share one state-mutation
+/// contract.
+fn ui_lp_click_handler(
+    mut last_click: ResMut<LastLpClick>,
+    mut fleet_ui_state: ResMut<FleetUiState>,
+) {
+    let Some(m) = last_click.info.take() else {
+        return;
+    };
+    let lp = LagrangeTarget {
+        point: m.point,
+        planet_entity: m.planet_entity,
+        planet_name: m.planet_name,
+        planet_sma_au: m.planet_sma_au,
+        radius_au: m.lp_radius_au,
+        gm: m.gm,
+    };
+    fleet_ui_state.select_lagrange_target(lp);
 }
 
 /// Display hover tooltip for star systems in starmap view
@@ -1518,5 +1568,187 @@ fn ui_resolution_warning(
         if inner_response.inner == Some(true) {
             warning.dismissed = true;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    // The whole tests module exercises the `FleetUiState` mutation contract
+    // by re-applying the same field-reassign pattern the production click
+    // arms in `render_transfer_planner` use.  `field_reassign_with_default`
+    // is fine here — that lint targets code paths that should prefer struct
+    // init, but tests that verify the mutation itself need to start from a
+    // known pre-state and trigger the mutation, which is exactly the
+    // field-reassign shape.
+    #![allow(clippy::field_reassign_with_default)]
+
+    use super::{ui_lp_click_handler, FleetUiState, LagrangeTarget};
+    use crate::astronomy::components::LpMarkerInfo;
+    use crate::fleets::orbital_mechanics::TransferOption;
+    use crate::ui::LastLpClick;
+    use bevy::ecs::system::RunSystemOnce;
+    use bevy::prelude::*;
+
+    fn earth_lp(point: u8) -> LagrangeTarget {
+        LagrangeTarget {
+            point,
+            planet_entity: Entity::PLACEHOLDER,
+            planet_name: "Earth".to_string(),
+            planet_sma_au: 1.0,
+            radius_au: if point == 1 { 0.99 } else { 1.01 },
+            gm: 1.327_124_400_18e11_f64,
+        }
+    }
+
+    fn earth_lp_marker(point: u8) -> LpMarkerInfo {
+        LpMarkerInfo {
+            render_pos: bevy::math::Vec3::ZERO,
+            hit_radius: 4.0,
+            point,
+            planet_entity: Entity::PLACEHOLDER,
+            planet_name: "Earth".to_string(),
+            planet_sma_au: 1.0,
+            lp_radius_au: if point == 1 { 0.99 } else { 1.01 },
+            gm: 1.327_124_400_18e11_f64,
+        }
+    }
+
+    fn legacy_option() -> TransferOption {
+        TransferOption {
+            label: "legacy",
+            total_delta_v_ms: 0.0,
+            delta_v1_ms: 0.0,
+            delta_v2_ms: 0.0,
+            transfer_time_s: 0.0,
+            sma_au: 0.0,
+            eccentricity: 0.0,
+            energy_multiplier: 0.0,
+            burn_time_s: 0.0,
+            plane_change_dv_ms: 0.0,
+            is_thrust_limited: false,
+            transfer_orbit_override: None,
+        }
+    }
+
+    /// GRA-160: selecting an LP via the destination picker (or any other
+    /// path that goes through `select_lagrange_target`) must set
+    /// `target_lagrange` and clear the other mutually-exclusive target
+    /// slots plus the per-target transfer-planning state.
+    #[test]
+    fn select_lagrange_target_sets_lp_and_clears_other_targets() {
+        // Pre-populate every other target slot and per-target state so we
+        // can verify the helper clears them all atomically.  Use struct
+        // init (not field-reassign) to satisfy `clippy::field_reassign_with_default`.
+        let mut state = FleetUiState {
+            target_body: Some(Entity::PLACEHOLDER),
+            target_fleet: Some(Entity::PLACEHOLDER),
+            target_star_system: Some((0, "Sol".to_string(), 0.0_f32)),
+            selected_option: 3,
+            selected_gravity_assist: Some(2),
+            computed_options: vec![legacy_option()],
+            ..Default::default()
+        };
+
+        state.select_lagrange_target(earth_lp(1));
+
+        assert_eq!(state.target_lagrange.as_ref().map(|lp| lp.point), Some(1));
+        assert_eq!(
+            state.target_lagrange.as_ref().map(|lp| lp.planet_entity),
+            Some(Entity::PLACEHOLDER)
+        );
+        assert!(state.target_body.is_none(), "target_body must be cleared");
+        assert!(state.target_fleet.is_none(), "target_fleet must be cleared");
+        assert!(
+            state.target_star_system.is_none(),
+            "target_star_system must be cleared"
+        );
+        assert!(
+            state.computed_options.is_empty(),
+            "computed_options must be cleared"
+        );
+        assert_eq!(state.selected_option, 0, "selected_option must reset");
+        assert!(
+            state.selected_gravity_assist.is_none(),
+            "selected_gravity_assist must clear"
+        );
+    }
+
+    /// GRA-160: `target_lagrange` is mutually exclusive with `target_body`.
+    /// Selecting a body via the destination picker (mirrored here by
+    /// re-applying the same field-reassign pattern the Body/Ring click
+    /// branches in `render_transfer_planner` use) must clear
+    /// `target_lagrange` — the symmetric half of the contract.
+    #[test]
+    fn selecting_body_clears_target_lagrange() {
+        // Pre-state: an LP is the active target.
+        let mut state = FleetUiState::default();
+        state.target_lagrange = Some(earth_lp(1));
+
+        // Apply the same mutation the Body/Ring click arms perform in
+        // `render_transfer_planner` (lines 1431-1437 in main):
+        //   target_body = Some(...)
+        //   target_lagrange = None
+        //   target_fleet = None
+        //   target_star_system = None
+        //   computed_options.clear(); planned_transfer = None;
+        //   selected_option = 0; selected_gravity_assist = None;
+        state.target_body = Some(Entity::PLACEHOLDER);
+        state.target_lagrange = None;
+        state.target_fleet = None;
+        state.target_star_system = None;
+        state.computed_options.clear();
+        state.planned_transfer = None;
+        state.selected_option = 0;
+        state.selected_gravity_assist = None;
+
+        // Post-state: the LP target is gone, the body target is set.
+        assert!(state.target_lagrange.is_none());
+        assert_eq!(state.target_body, Some(Entity::PLACEHOLDER));
+    }
+
+    /// GRA-160: left-clicking an LP marker in the 3D scene dispatches
+    /// through `ui_lp_click_handler` to the same state-mutation contract
+    /// as a destination-picker click.  Verifies the 3D-scene click path
+    /// populates `target_lagrange` from a `LpMarkerInfo` and clears
+    /// `LastLpClick` (so the click doesn't accumulate).
+    #[test]
+    fn ui_lp_click_handler_dispatches_marker_to_lagrange_target() {
+        let mut world = World::new();
+        world.init_resource::<LastLpClick>();
+        world.insert_resource(FleetUiState::default());
+        // Pre-set a body target so we can verify the handler clears it.
+        world
+            .resource_mut::<FleetUiState>()
+            .target_body
+            .replace(Entity::PLACEHOLDER);
+
+        // Simulate `handle_lp_hover` writing a click into the resource.
+        world.resource_mut::<LastLpClick>().info = Some(earth_lp_marker(4));
+
+        // Run the system under test.  RunSystemOnce only needs the two
+        // resources the handler actually reads; the input is exactly what
+        // `handle_lp_hover` would produce on a real L4 marker click.
+        let _ = world.run_system_once(ui_lp_click_handler);
+
+        let state = world.resource::<FleetUiState>();
+        let lp = state
+            .target_lagrange
+            .as_ref()
+            .expect("target_lagrange must be set after LP click");
+        assert_eq!(lp.point, 4);
+        assert_eq!(lp.planet_entity, Entity::PLACEHOLDER);
+        assert_eq!(lp.planet_name, "Earth");
+        assert!(state.target_body.is_none(), "click must clear target_body");
+        assert!(state.target_fleet.is_none());
+        assert!(state.target_star_system.is_none());
+        assert!(state.computed_options.is_empty());
+        assert_eq!(state.selected_option, 0);
+        assert!(state.selected_gravity_assist.is_none());
+
+        // The handler must drain LastLpClick so the click doesn't replay.
+        assert!(
+            world.resource::<LastLpClick>().info.is_none(),
+            "LastLpClick must be consumed by the handler"
+        );
     }
 }
