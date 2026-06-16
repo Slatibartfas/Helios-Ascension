@@ -1767,27 +1767,17 @@ pub(super) fn render_transfer_planner(
                                         .clicked()
                                         && !selected
                                     {
-                                        fleet_ui_state.target_lagrange = Some(lp.clone());
-                                        fleet_ui_state.target_body = None;
-                                        fleet_ui_state.target_fleet = None;
-                                        fleet_ui_state.target_star_system = None;
-                                        // GRA-161: Lagrange targets are not stars.
-                                        fleet_ui_state.target_star_approach = None;
-                                        fleet_ui_state.computed_options.clear();
-                                        fleet_ui_state.planned_transfer = None;
-                                        fleet_ui_state.selected_option = 0;
-                                        fleet_ui_state.selected_gravity_assist = None;
-                                        // GRA-159: Lagrange point selection
-                                        // is handled by the sibling issue
-                                        // GRA-158 (which will extend
-                                        // `build_grid_for_body_target` for
-                                        // the L-point case).  For now, drop
-                                        // any cached body-path grid so a
-                                        // stale (Earth→Mars) panel does not
-                                        // render with the Lagrange picker
-                                        // selected.
-                                        fleet_ui_state.porkchop_grid = None;
-                                        fleet_ui_state.selected_porkchop_cell = None;
+                                        // GRA-160: shared state-mutation contract via
+                                        // `select_lagrange_target` — clears
+                                        // `target_body`/`target_fleet`/`target_star_system`/
+                                        // `target_star_approach` and resets the per-target
+                                        // transfer-planning fields. The 3D-scene click
+                                        // path (`ui_lp_click_handler`) reuses the same
+                                        // helper so the two entry points cannot drift.
+                                        // GRA-159 (now merged) handles the porkchop-grid
+                                        // build via `build_grid_for_body_target` for the
+                                        // L-point case in `src/fleets/porkchop.rs`.
+                                        fleet_ui_state.select_lagrange_target(lp.clone());
                                     }
                                 }
                                 DestEntry::FleetTarget {
