@@ -249,6 +249,44 @@ fn is_inter_star_transfer(
     origin_host_star.is_some() && target_host_star.is_some() && origin_host_star != target_host_star
 }
 
+/// Resolve the heliocentric `KeplerOrbit` for a body used as a porkchop
+/// origin or destination.  Mirrors the three-case logic in
+/// `fleets::porkchop::heliocentric_orbit_for_body` but takes the
+/// planner's `&Query<...>` directly so the dest-click sites can
+/// resolve the orbits inline before calling
+/// `build_grid_for_body_target` (the pure helper that consumes them).
+fn heliocentric_orbit_for_body(
+    body: Entity,
+    body_query: &Query<(
+        Entity,
+        &CelestialBody,
+        &SpaceCoordinates,
+        Option<&KeplerOrbit>,
+        Option<&LogicalParent>,
+    )>,
+) -> Option<KeplerOrbit> {
+    let (_, body_data, _, ko, lp) = body_query.get(body).ok()?;
+    if body_data.body_type == BodyType::Star {
+        // Stars carry a barycentric (near-zero SMA) orbit by JPL
+        // convention.  The porkchop math consumes this only for the
+        // `system_gm` derivation; for a star-vs-star transfer the
+        // caller is responsible for picking a different solver.
+        return ko.copied();
+    }
+    if let Some(orbit) = ko.copied() {
+        return Some(orbit);
+    }
+    // Body has no orbit of its own — typical for moons.  Fall back
+    // to the parent's heliocentric orbit (Earth's 1 AU orbit for
+    // Luna, etc.).  Limit the walk to a single step because the JPL
+    // dataset never has more than one intermediate parent (moon →
+    // planet → star), and deeper chains are extremely rare in the
+    // spawned game state.
+    let parent = lp.map(|lp| lp.0)?;
+    let (_, _, _, parent_ko, _) = body_query.get(parent).ok()?;
+    parent_ko.copied()
+}
+
 pub fn transfer_absolute_position(
     entity: Entity,
     sim_time_s: f64,
@@ -1423,18 +1461,60 @@ pub(super) fn render_transfer_planner(
                                         // GRA-159: populate the porkchop grid so
                                         // the LGD `PorkchopPanel` renders instead
                                         // of the legacy Efficient/Moderate/Fast
-                                        // row.  `None` for orbits the helper
-                                        // can't resolve (e.g. local-frame
-                                        // moon-to-moon) — those fall through to
-                                        // the legacy row, preserving the
-                                        // pre-existing planner behaviour.
-                                        fleet_ui_state.porkchop_grid = build_grid_for_body_target(
-                                            porkchop_config,
-                                            orbit.body,
-                                            *entity,
-                                            body_query,
-                                            elapsed,
-                                        );
+                                        // row.  Orbits that the helper can't
+                                        // resolve (e.g. local-frame moon-to-moon
+                                        // or bodies with no JPL orbit) yield
+                                        // `None` and fall through to the legacy
+                                        // row, preserving the pre-existing
+                                        // planner behaviour.
+                                        fleet_ui_state.porkchop_grid =
+                                            (|| -> Option<crate::fleets::porkchop::PorkchopGrid> {
+                                                let origin_orbit = heliocentric_orbit_for_body(
+                                                    orbit.body, body_query,
+                                                )?;
+                                                let dest_orbit = heliocentric_orbit_for_body(
+                                                    *entity, body_query,
+                                                )?;
+                                                let origin_name = body_query
+                                                    .get(orbit.body)
+                                                    .ok()
+                                                    .map(|(_, b, _, _, _)| b.name.clone())
+                                                    .unwrap_or_else(|| "Origin".to_string());
+                                                let dest_name = body_query
+                                                    .get(*entity)
+                                                    .ok()
+                                                    .map(|(_, b, _, _, _)| b.name.clone())
+                                                    .unwrap_or_else(|| "Dest".to_string());
+                                                let dest_body_type = body_query
+                                                    .get(*entity)
+                                                    .ok()
+                                                    .map(|(_, b, _, _, _)| b.body_type)
+                                                    .unwrap_or(BodyType::Planet);
+                                                let dest_parent = body_query
+                                                    .get(*entity)
+                                                    .ok()
+                                                    .and_then(|(_, _, _, _, lp)| lp)
+                                                    .map(|lp| lp.0);
+                                                let origin_parent = body_query
+                                                    .get(orbit.body)
+                                                    .ok()
+                                                    .and_then(|(_, _, _, _, lp)| lp)
+                                                    .map(|lp| lp.0);
+                                                let category = crate::fleets::porkchop::classify_body_transfer_category(
+                                                    dest_body_type,
+                                                    dest_parent,
+                                                    origin_parent,
+                                                );
+                                                Some(build_grid_for_body_target(
+                                                    porkchop_config,
+                                                    origin_orbit,
+                                                    dest_orbit,
+                                                    origin_name,
+                                                    dest_name,
+                                                    category,
+                                                    elapsed,
+                                                ))
+                                            })();
                                         fleet_ui_state.selected_porkchop_cell = None;
                                     }
                                 }
@@ -1462,13 +1542,54 @@ pub(super) fn render_transfer_planner(
                                         // branch — rings are treated like
                                         // bodies for the planner's view
                                         // (per GRA-149 C-3 follow-up).
-                                        fleet_ui_state.porkchop_grid = build_grid_for_body_target(
-                                            porkchop_config,
-                                            orbit.body,
-                                            *entity,
-                                            body_query,
-                                            elapsed,
-                                        );
+                                        fleet_ui_state.porkchop_grid =
+                                            (|| -> Option<crate::fleets::porkchop::PorkchopGrid> {
+                                                let origin_orbit = heliocentric_orbit_for_body(
+                                                    orbit.body, body_query,
+                                                )?;
+                                                let dest_orbit = heliocentric_orbit_for_body(
+                                                    *entity, body_query,
+                                                )?;
+                                                let origin_name = body_query
+                                                    .get(orbit.body)
+                                                    .ok()
+                                                    .map(|(_, b, _, _, _)| b.name.clone())
+                                                    .unwrap_or_else(|| "Origin".to_string());
+                                                let dest_name = body_query
+                                                    .get(*entity)
+                                                    .ok()
+                                                    .map(|(_, b, _, _, _)| b.name.clone())
+                                                    .unwrap_or_else(|| "Dest".to_string());
+                                                let dest_body_type = body_query
+                                                    .get(*entity)
+                                                    .ok()
+                                                    .map(|(_, b, _, _, _)| b.body_type)
+                                                    .unwrap_or(BodyType::Planet);
+                                                let dest_parent = body_query
+                                                    .get(*entity)
+                                                    .ok()
+                                                    .and_then(|(_, _, _, _, lp)| lp)
+                                                    .map(|lp| lp.0);
+                                                let origin_parent = body_query
+                                                    .get(orbit.body)
+                                                    .ok()
+                                                    .and_then(|(_, _, _, _, lp)| lp)
+                                                    .map(|lp| lp.0);
+                                                let category = crate::fleets::porkchop::classify_body_transfer_category(
+                                                    dest_body_type,
+                                                    dest_parent,
+                                                    origin_parent,
+                                                );
+                                                Some(build_grid_for_body_target(
+                                                    porkchop_config,
+                                                    origin_orbit,
+                                                    dest_orbit,
+                                                    origin_name,
+                                                    dest_name,
+                                                    category,
+                                                    elapsed,
+                                                ))
+                                            })();
                                         fleet_ui_state.selected_porkchop_cell = None;
                                     }
                                 }

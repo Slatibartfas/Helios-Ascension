@@ -16,10 +16,9 @@ use super::orbital_mechanics::{
 };
 use crate::astronomy::orbit_position_from_mean_anomaly;
 use crate::astronomy::KeplerOrbit;
-use crate::plugins::solar_system::{CelestialBody, LogicalParent};
 use crate::plugins::solar_system_data::BodyType;
 use bevy::math::DVec3;
-use bevy::prelude::{Entity, Query};
+use bevy::prelude::Entity;
 use serde::{Deserialize, Serialize};
 
 const SECONDS_PER_DAY: f64 = 86_400.0;
@@ -567,113 +566,54 @@ mod tests {
 // `fleet_ui_state.porkchop_grid` — so the `if let Some(grid)` branch in
 // `src/ui/transfer_planner.rs` was unreachable and the legacy 3-option
 // row always rendered.  These helpers translate the planner's
-// destination-state snapshot (origin fleet body, target body entity,
-// body query) into a `PorkchopGrid` that the existing render branch
-// consumes without further changes.
+// destination-state snapshot (already-resolved heliocentric orbits,
+// names, and a category string) into a `PorkchopGrid` that the
+// existing render branch consumes without further changes.
 //
-// The helpers are kept here (not in the planner) so the Bevy-Query
-// plumbing stays out of the pure-math module.  The planner calls
-// `build_grid_for_body_target` from the dest-click sites; everything
-// downstream reuses the existing `PorkchopPanel` (no schema changes).
+// The helpers are pure: they take pre-resolved `KeplerOrbit`s and
+// category strings, NOT Bevy queries.  The planner does the
+// body-query lookups in-place (it already has `body_query` in scope)
+// and hands the resolved values to `build_grid_for_body_target`.
+// This keeps the pure-math module free of `Query`/`QueryState`
+// plumbing and makes the helper unit-testable without a world.
 
-/// Walk up the `LogicalParent` chain from `start_entity` and return the
-/// first body in the chain that is itself a star (and that carries a
-/// `KeplerOrbit`, barycentric for single-star systems).  Kept as a
-/// helper for future interstellar and binary-star wiring (GRA-156
-/// follow-ups); the current heliocentric body path uses
-/// `heliocentric_orbit_for_body` directly because it does not need a
-/// stellar reference.
-#[allow(dead_code)]
-fn find_stellar_ancestor(
-    start_entity: Entity,
-    body_query: &Query<
-        '_,
-        '_,
-        (
-            Entity,
-            &CelestialBody,
-            &crate::astronomy::SpaceCoordinates,
-            Option<&KeplerOrbit>,
-            Option<&LogicalParent>,
-        ),
-    >,
-) -> Option<(Entity, KeplerOrbit)> {
-    let mut current = Some(start_entity);
-    for _ in 0..8 {
-        let entity = current?;
-        let (_, body, _, ko, lp) = body_query.get(entity).ok()?;
-        if body.body_type == BodyType::Star {
-            // Stars may carry their own barycentric KeplerOrbit (Sol, Proxima,
-            // etc.) or may not (single-star system).  If absent, return None
-            // so the caller falls back to `GM_SUN` and a circular 1-AU orbit
-            // — the porkchop math still produces a valid (if less precise)
-            // grid for system-internal transfers.
-            return ko.copied().map(|k| (entity, k));
-        }
-        current = lp.map(|lp| lp.0);
-    }
-    None
-}
-
-/// Resolve the heliocentric `KeplerOrbit` for a body used as an origin
-/// or destination in the planner.  Three cases:
+/// Build a `PorkchopGrid` for a body-target selection (planet/moon/ring)
+/// from already-resolved heliocentric orbits and a category string.
+/// Pure function: the planner resolves the orbits via its `body_query`
+/// and passes the values in.  The category keys are open-set; unknown
+/// keys fall through to `PorkchopConfig::defaults`.
 ///
-///   * The body **is** a star → its own barycentric `KeplerOrbit`
-///     (Sol, Proxima, …).  These are near-zero SMA by JPL convention
-///     and the planner math treats them as a reference frame, not a
-///     transfer endpoint.
-///   * The body orbits a star directly (planet, dwarf-planet, asteroid,
-///     comet) → its own `KeplerOrbit`, which is *already* heliocentric.
-///   * The body orbits a non-stellar parent (moon → planet) → the
-///     parent's heliocentric orbit.  For example Luna inherits
-///     Earth's 1 AU heliocentric orbit because the porkchop math is
-///     heliocentric, not planetocentric.
-///
-/// Returns `None` only when the body's own orbit (and its parent's
-/// heliocentric orbit, if the body is a moon) cannot be resolved —
-/// i.e. the LGD hasn't wired up the body's `KeplerOrbit` in the JPL
-/// dataset.  The caller falls back to the legacy 3-option row.
-fn heliocentric_orbit_for_body(
-    body: Entity,
-    body_query: &Query<
-        '_,
-        '_,
-        (
-            Entity,
-            &CelestialBody,
-            &crate::astronomy::SpaceCoordinates,
-            Option<&KeplerOrbit>,
-            Option<&LogicalParent>,
-        ),
-    >,
-) -> Option<KeplerOrbit> {
-    let (_, body_data, _, ko, lp) = body_query.get(body).ok()?;
-    if body_data.body_type == BodyType::Star {
-        return ko.copied();
-    }
-    if let Some(orbit) = ko.copied() {
-        return Some(orbit);
-    }
-    let parent = lp.map(|lp| lp.0)?;
-    let (_, parent_body, _, parent_ko, parent_lp) = body_query.get(parent).ok()?;
-    if parent_body.body_type == BodyType::Star {
-        return parent_ko.copied();
-    }
-    let mut cursor = parent_lp.map(|p| p.0);
-    for _ in 0..6 {
-        let Some(c) = cursor else { break };
-        let Ok((_, cb, _, ck, clp)) = body_query.get(c) else {
-            break;
-        };
-        if cb.body_type == BodyType::Star {
-            return ck.copied();
-        }
-        if let Some(orbit) = ck.copied() {
-            return Some(orbit);
-        }
-        cursor = clp.map(|p| p.0);
-    }
-    None
+/// This is the *body* path of the wire-in: GRA-159 scope is planet
+/// and moon destinations.  Fleet-intercept and Lagrange targets have
+/// their own call sites in the planner and are addressed by sibling
+/// issues (GRA-158 Lagrange, GRA-160 fleet intercept, GRA-161
+/// interstellar).
+pub fn build_grid_for_body_target(
+    cfg: &PorkchopConfig,
+    origin_orbit: KeplerOrbit,
+    dest_orbit: KeplerOrbit,
+    origin_name: String,
+    dest_name: String,
+    category: &str,
+    sim_time_s: f64,
+) -> PorkchopGrid {
+    let inputs = PorkchopInputs {
+        origin_name,
+        dest_name,
+        origin_orbit,
+        dest_orbit,
+        // Porkchop math is heliocentric: it always uses the host star's GM
+        // for the Lambert solver.  The planner's per-frame logic in
+        // `transfer_planner.rs` already special-cases local-frame
+        // transfers (moon→moon) — those return `None` from the
+        // caller's resolve step and fall through to the legacy
+        // 3-option row, which is correct (we're scoping GRA-159 to
+        // the heliocentric body path).
+        system_gm: GM_SUN,
+        sim_time_s,
+        category: category.to_string(),
+    };
+    build_porkchop_grid(cfg, &inputs)
 }
 
 /// Classify the transfer category so the right `PorkchopConfig` override
@@ -686,107 +626,18 @@ fn heliocentric_orbit_for_body(
 /// siblings (GRA-158, GRA-160, GRA-161) and will extend this function
 /// when their call sites are wired.
 pub fn classify_body_transfer_category(
-    origin_body: Entity,
-    dest_body: Entity,
-    body_query: &Query<
-        '_,
-        '_,
-        (
-            Entity,
-            &CelestialBody,
-            &crate::astronomy::SpaceCoordinates,
-            Option<&KeplerOrbit>,
-            Option<&LogicalParent>,
-        ),
-    >,
+    dest_body_type: BodyType,
+    dest_parent: Option<Entity>,
+    origin_parent: Option<Entity>,
 ) -> &'static str {
-    let dest_is_star = body_query
-        .get(dest_body)
-        .ok()
-        .map(|(_, b, _, _, _)| b.body_type == BodyType::Star)
-        .unwrap_or(false);
-    if dest_is_star {
+    if dest_body_type == BodyType::Star {
         return "star_approach";
     }
-    // dest is a planet/moon: if it shares a non-stellar parent with the
-    // origin (e.g. Earth→Moon with the fleet at LEO around Earth) the
-    // "moon" override applies; otherwise the default interplanetary
-    // window is the right pick.
-    let dest_parent = body_query
-        .get(dest_body)
-        .ok()
-        .and_then(|(_, _, _, _, lp)| lp)
-        .map(|lp| lp.0);
-    let origin_parent = body_query
-        .get(origin_body)
-        .ok()
-        .and_then(|(_, _, _, _, lp)| lp)
-        .map(|lp| lp.0);
     if dest_parent.is_some() && dest_parent == origin_parent {
         return "moon";
     }
     "interplanetary"
 }
-
-/// Build a `PorkchopGrid` for a body-target selection (planet/moon/ring)
-/// given the planner's fleet orbit and the body's entity.  Returns
-/// `None` when the body lacks resolvable heliocentric orbits (e.g.
-/// the LGD has not yet added the body to the JPL dataset) so the
-/// caller can fall back to the legacy 3-option row.
-///
-/// This is the *body* path of the wire-in: GRA-159 scope is planet
-/// and moon destinations.  Fleet-intercept and Lagrange targets have
-/// their own call sites in the planner and are addressed by sibling
-/// issues (GRA-158 Lagrange, GRA-160 fleet intercept, GRA-161
-/// interstellar).
-pub fn build_grid_for_body_target(
-    cfg: &PorkchopConfig,
-    fleet_orbit_body: Entity,
-    target_entity: Entity,
-    body_query: &Query<
-        '_,
-        '_,
-        (
-            Entity,
-            &CelestialBody,
-            &crate::astronomy::SpaceCoordinates,
-            Option<&KeplerOrbit>,
-            Option<&LogicalParent>,
-        ),
-    >,
-    sim_time_s: f64,
-) -> Option<PorkchopGrid> {
-    let origin_orbit = heliocentric_orbit_for_body(fleet_orbit_body, body_query)?;
-    let dest_orbit = heliocentric_orbit_for_body(target_entity, body_query)?;
-    let origin_name = body_query
-        .get(fleet_orbit_body)
-        .ok()
-        .map(|(_, b, _, _, _)| b.name.clone())
-        .unwrap_or_else(|| "Origin".to_string());
-    let dest_name = body_query
-        .get(target_entity)
-        .ok()
-        .map(|(_, b, _, _, _)| b.name.clone())
-        .unwrap_or_else(|| "Dest".to_string());
-    let category = classify_body_transfer_category(fleet_orbit_body, target_entity, body_query);
-    let inputs = PorkchopInputs {
-        origin_name,
-        dest_name,
-        origin_orbit,
-        dest_orbit,
-        // Porkchop math is heliocentric: it always uses the host star's GM
-        // for the Lambert solver.  The planner's per-frame logic in
-        // `transfer_planner.rs` already special-cases local-frame
-        // transfers (moon→moon) — those return `None` here and fall
-        // through to the legacy 3-option row, which is correct
-        // (we're scoping GRA-159 to the heliocentric body path).
-        system_gm: GM_SUN,
-        sim_time_s,
-        category: category.to_string(),
-    };
-    Some(build_porkchop_grid(cfg, &inputs))
-}
-
 #[cfg(test)]
 mod planner_wiring_tests {
     //! Tests for the GRA-159 helper functions that translate the
@@ -797,232 +648,104 @@ mod planner_wiring_tests {
     //! plumbing (not just the pure-math `build_porkchop_grid` path).
     use super::*;
     use crate::astronomy::SpaceCoordinates;
-    use crate::plugins::solar_system::CelestialBody;
     use crate::plugins::solar_system_data::BodyType;
-    use bevy::prelude::*;
-
-    fn make_world() -> World {
-        let mut world = World::new();
-        // The planner helper reads from a BodyQuery; tests below use
-        // `world.query::<...>()` which returns a fresh query each call
-        // so the helper sees a live snapshot.
-        // Earth-like heliocentric orbit (1 AU, 365 d period).
-        let earth_ko = KeplerOrbit::circular(1.0, 2.0 * std::f64::consts::PI / (365.25 * 86_400.0));
-        let mars_ko = KeplerOrbit::circular(1.524, 2.0 * std::f64::consts::PI / (687.0 * 86_400.0));
-        // The Sun (no parent).  Carries a zero-SMA barycentric orbit
-        // because the real JPL dataset does the same — the planner
-        // uses it as the heliocentric reference for the parent walk.
-        let _sun = world
-            .spawn((
-                CelestialBody {
-                    name: "Sun".to_string(),
-                    radius: 6.957e8,
-                    mass: 1.989e30,
-                    body_type: BodyType::Star,
-                    visual_radius: 6.957e8,
-                    asteroid_class: None,
-                    star_approach_au: None,
-                },
-                KeplerOrbit::circular(0.0, 0.0),
-                SpaceCoordinates::default(),
-            ))
-            .id();
-        // Earth (parent → Sun).  Spawned flat; the parent is patched
-        // after the Sun entity exists.  We resolve by name in the test
-        // so the spawn order is not load-bearing.
-        world.spawn((
-            CelestialBody {
-                name: "Earth".to_string(),
-                radius: 6.371e6,
-                mass: 5.972e24,
-                body_type: BodyType::Planet,
-                visual_radius: 6.371e6,
-                asteroid_class: None,
-                star_approach_au: None,
-            },
-            earth_ko,
-            SpaceCoordinates::default(),
-        ));
-        // Mars.
-        world.spawn((
-            CelestialBody {
-                name: "Mars".to_string(),
-                radius: 3.39e6,
-                mass: 6.39e23,
-                body_type: BodyType::Planet,
-                visual_radius: 3.39e6,
-                asteroid_class: None,
-                star_approach_au: None,
-            },
-            mars_ko,
-            SpaceCoordinates::default(),
-        ));
-        world
-    }
 
     #[test]
     fn planner_wiring_earth_to_mars_returns_non_empty_grid() {
-        let world = make_world();
-        // Resolve the two planet entities by name so the test does not
-        // depend on spawn order inside `make_world`.
-        let (earth, mars) = {
-            let mut earth_e = None;
-            let mut mars_e = None;
-            let mut q = world.query::<(Entity, &CelestialBody)>();
-            for (e, b) in q.iter(&world) {
-                match b.name.as_str() {
-                    "Earth" => earth_e = Some(e),
-                    "Mars" => mars_e = Some(e),
-                    _ => {}
-                }
-            }
-            (earth_e.unwrap(), mars_e.unwrap())
-        };
+        // The pure helper consumes pre-resolved orbits + names.  We
+        // exercise it with a synthetic Earth→Mars pair to assert the
+        // contract: at least one feasible cell, names threaded
+        // through.  The ECS lookups themselves are the planner's job
+        // and covered by integration tests in `tests/planner_integration.rs`.
         let cfg = PorkchopConfig::default();
-        let grid = {
-            let body_q = world.query::<(
-                Entity,
-                &CelestialBody,
-                &SpaceCoordinates,
-                Option<&KeplerOrbit>,
-                Option<&LogicalParent>,
-            )>();
-            build_grid_for_body_target(&cfg, earth, mars, &body_q, 0.0)
-                .expect("heliocentric orbits resolve for Earth and Mars")
-        };
+        let earth_orbit = KeplerOrbit::circular(1.0, 1.0);
+        let mars_orbit = KeplerOrbit::circular(1.524, 1.0);
+        let grid = build_grid_for_body_target(
+            &cfg,
+            earth_orbit,
+            mars_orbit,
+            "Earth".to_string(),
+            "Mars".to_string(),
+            "interplanetary",
+            0.0,
+        );
         assert!(
             grid.cells.iter().any(|c| c.feasible),
             "Earth→Mars porkchop must contain at least one feasible cell"
         );
         assert_eq!(grid.origin_name, "Earth");
         assert_eq!(grid.dest_name, "Mars");
+        assert_eq!(grid.metric, PorkchopMetric::TotalDv);
     }
 
     #[test]
     fn planner_wiring_classifies_moon_vs_interplanetary() {
-        // The category classifier must distinguish "Earth→Moon"
-        // (shared non-stellar parent) from "Earth→Mars" (different
-        // stellar-orbit planets).  We build a Sun→Earth→Moon
-        // hierarchy and assert both transitions.
-        let mut world = World::new();
-        let sun = world
-            .spawn((
-                CelestialBody {
-                    name: "Sun".to_string(),
-                    radius: 6.957e8,
-                    mass: 1.989e30,
-                    body_type: BodyType::Star,
-                    visual_radius: 6.957e8,
-                    asteroid_class: None,
-                    star_approach_au: None,
-                },
-                KeplerOrbit::circular(0.0, 0.0),
-                SpaceCoordinates::default(),
-            ))
-            .id();
-        let earth = world
-            .spawn((
-                CelestialBody {
-                    name: "Earth".to_string(),
-                    radius: 6.371e6,
-                    mass: 5.972e24,
-                    body_type: BodyType::Planet,
-                    visual_radius: 6.371e6,
-                    asteroid_class: None,
-                    star_approach_au: None,
-                },
-                KeplerOrbit::circular(1.0, 1.0),
-                SpaceCoordinates::default(),
-                LogicalParent(sun),
-            ))
-            .id();
-        let moon = world
-            .spawn((
-                CelestialBody {
-                    name: "Luna".to_string(),
-                    radius: 1.737e6,
-                    mass: 7.342e22,
-                    body_type: BodyType::Moon,
-                    visual_radius: 1.737e6,
-                    asteroid_class: None,
-                    star_approach_au: None,
-                },
-                KeplerOrbit::circular(0.00257, 1.0),
-                SpaceCoordinates::default(),
-                LogicalParent(earth),
-            ))
-            .id();
-        let mars = world
-            .spawn((
-                CelestialBody {
-                    name: "Mars".to_string(),
-                    radius: 3.39e6,
-                    mass: 6.39e23,
-                    body_type: BodyType::Planet,
-                    visual_radius: 3.39e6,
-                    asteroid_class: None,
-                    star_approach_au: None,
-                },
-                KeplerOrbit::circular(1.524, 1.0),
-                SpaceCoordinates::default(),
-                LogicalParent(sun),
-            ))
-            .id();
+        // The category classifier is pure: it takes pre-resolved
+        // (dest_body_type, dest_parent, origin_parent) and returns
+        // the right RON match key.  No ECS plumbing required.
         // Earth→Moon: same parent (Earth) → "moon" override.
-        // Earth→Mars: different parents (Moon-orbits-Earth vs Mars-orbits-Sun) → "interplanetary".
-        let body_q = world.query::<(
-            Entity,
-            &CelestialBody,
-            &SpaceCoordinates,
-            Option<&KeplerOrbit>,
-            Option<&LogicalParent>,
-        )>();
+        // Earth→Mars: different parents (Moon-orbits-Earth vs
+        // Mars-orbits-Sun) → "interplanetary".
+        let earth = Entity::from_raw(0x1000);
+        let mars = Entity::from_raw(0x1001);
+        let moon = Entity::from_raw(0x1002);
+        // Luna orbits Earth (parent == origin_parent).
         assert_eq!(
-            classify_body_transfer_category(earth, moon, &body_q),
+            classify_body_transfer_category(BodyType::Moon, Some(earth), Some(earth)),
             "moon",
             "Earth→Moon should classify as moon (shared non-stellar parent)"
         );
+        // Mars orbits the Sun (dest_parent = sun != origin_parent = earth).
         assert_eq!(
-            classify_body_transfer_category(earth, mars, &body_q),
+            classify_body_transfer_category(BodyType::Planet, Some(mars), Some(earth)),
             "interplanetary",
             "Earth→Mars should classify as interplanetary (different host bodies)"
         );
+        // Star target (any → Sol) → "star_approach".
+        assert_eq!(
+            classify_body_transfer_category(BodyType::Star, None, Some(earth)),
+            "star_approach",
+            "any→star should classify as star_approach"
+        );
+        let _ = moon; // silence unused warning
     }
 
     #[test]
-    fn planner_wiring_returns_none_for_missing_orbit() {
-        // A planet with no KeplerOrbit and no resolvable stellar
-        // ancestor should return None so the planner falls back to
-        // the legacy 3-option row.
-        let mut world = World::new();
-        let lonely = world
-            .spawn((
-                CelestialBody {
-                    name: "Rogue".to_string(),
-                    radius: 1.0,
-                    mass: 1.0,
-                    body_type: BodyType::Planet,
-                    visual_radius: 1.0,
-                    asteroid_class: None,
-                    star_approach_au: None,
-                },
-                SpaceCoordinates::default(),
-            ))
-            .id();
-        let cfg = PorkchopConfig::default();
-        let result = {
-            let body_q = world.query::<(
-                Entity,
-                &CelestialBody,
-                &SpaceCoordinates,
-                Option<&KeplerOrbit>,
-                Option<&LogicalParent>,
-            )>();
-            build_grid_for_body_target(&cfg, lonely, lonely, &body_q, 0.0)
+    fn planner_wiring_uses_moon_override_when_caller_passes_it() {
+        // The helper respects the caller's category string.  We pass
+        // "moon" with two co-orbital bodies to verify the override
+        // takes effect (the window bounds become ±7 days instead of
+        // ±30 for the default interplanetary).
+        let cfg = PorkchopConfig {
+            category_overrides: vec![crate::fleets::components::PorkchopCategoryOverride {
+                match_key: "moon".to_string(),
+                t_dep_window_days: 14.0,
+                tof_min_hohmann_factor: 0.5,
+                tof_max_hohmann_factor: 1.8,
+                tof_floor_days: 0.5,
+                tof_ceiling_years: 0.165, // ≈ 60 days
+                resolution_t_dep: 50,
+                resolution_tof: 40,
+                c3_ceiling_km2_s2: 400.0,
+            }],
+            ..PorkchopConfig::default()
         };
+        let earth_orbit = KeplerOrbit::circular(1.0, 1.0);
+        let moon_orbit = KeplerOrbit::circular(1.00257, 1.0);
+        let grid = build_grid_for_body_target(
+            &cfg,
+            earth_orbit,
+            moon_orbit,
+            "Earth".to_string(),
+            "Luna".to_string(),
+            "moon",
+            0.0,
+        );
+        // The moon override's ±7 day half-window should be the bound.
+        let half_window_d = (grid.t_dep_bounds_s.1 - grid.t_dep_bounds_s.0) * 0.5 / SECONDS_PER_DAY;
         assert!(
-            result.is_none(),
-            "missing heliocentric orbit should yield None, not a panic"
+            (half_window_d - 7.0).abs() < 0.5,
+            "moon override should give ±7 day half-window, got {half_window_d}"
         );
     }
 
