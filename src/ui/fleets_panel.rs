@@ -2277,11 +2277,19 @@ pub(super) fn ui_transfer_planner_popup(
         .open(&mut open)
         .resizable(true)
         .collapsible(false)
-        .default_width(460.0)
+        .default_width(520.0)
+        // The porkchop plot needs ~600 px of vertical space (see
+        // `PorkchopPanel` in `src/ui/porkchop_panel.rs`); the legacy
+        // Efficient/Moderate/Fast rows plus the gravity-assist list
+        // can push the planner past 800 px on Mars-class destinations.
+        // The ScrollArea makes the panel scrollable when the content
+        // exceeds the viewport, so the 900 px default is just the
+        // initial height — the user can resize further or scroll.
+        .default_height(900.0)
         .anchor(egui::Align2::RIGHT_TOP, egui::vec2(-10.0, 135.0))
         .show(ctx, |ui| {
             egui::ScrollArea::vertical()
-                .max_height(600.0)
+                .max_height(1200.0)
                 .show(ui, |ui| {
                     render_transfer_planner(
                         ui,

@@ -853,6 +853,83 @@ pub(super) fn render_transfer_planner(
     }
     ui.separator();
 
+    // ── GRA-159 deferred porkchop build ─────────────────────────────────────
+    // The porkchop grid is normally built by the Body/Ring click handlers in
+    // the destination picker below.  But there are entry points that set
+    // `target_body` without firing the click handler:
+    //   - The 3D-scene right-click handler in
+    //     `src/astronomy/selection.rs:467-473` ("open transfer planner")
+    //     sets `target_body` and `show_transfer_popup = true` but never
+    //     builds the grid.
+    //   - Any future entry point (hotkeys, automation, tests) that
+    //     sets `target_body` directly.
+    // Without this deferred build, those entry points would leave
+    // `porkchop_grid = None` and the legacy 3-option row would render
+    // even for a valid heliocentric destination.
+    //
+    // We build the grid here (once per frame) whenever a body target is
+    // set but the grid is missing and the destination is a planet/star.
+    // For moons/rings the grid stays `None` and the legacy row renders,
+    // which is the correct local-frame cislunar behaviour.
+    //
+    // GRA-154: skip the build when a gravity assist is selected.  The
+    // porkchop models direct Lambert arcs; assist trajectories are
+    // multi-leg and the planner uses the legacy 3-option row + assist
+    // stitching instead.  The assist handlers clear `porkchop_grid` on
+    // selection; this guard keeps it `None` even if the user switches
+    // target_body mid-frame.
+    if let Some(target_entity) = fleet_ui_state.target_body {
+        if fleet_ui_state.porkchop_grid.is_none()
+            && fleet_ui_state.selected_gravity_assist.is_none()
+            && should_build_porkchop_for_destination(body_query, target_entity)
+        {
+            if let (Some(origin_orbit), Some(dest_orbit)) = (
+                heliocentric_orbit_for_body(orbit.body, body_query),
+                heliocentric_orbit_for_body(target_entity, body_query),
+            ) {
+                let origin_name = body_query
+                    .get(orbit.body)
+                    .ok()
+                    .map(|(_, b, _, _, _)| b.name.clone())
+                    .unwrap_or_else(|| "Origin".to_string());
+                let dest_name = body_query
+                    .get(target_entity)
+                    .ok()
+                    .map(|(_, b, _, _, _)| b.name.clone())
+                    .unwrap_or_else(|| "Dest".to_string());
+                let dest_body_type = body_query
+                    .get(target_entity)
+                    .ok()
+                    .map(|(_, b, _, _, _)| b.body_type)
+                    .unwrap_or(BodyType::Planet);
+                let dest_parent = body_query
+                    .get(target_entity)
+                    .ok()
+                    .and_then(|(_, _, _, _, lp)| lp)
+                    .map(|lp| lp.0);
+                let origin_parent = body_query
+                    .get(orbit.body)
+                    .ok()
+                    .and_then(|(_, _, _, _, lp)| lp)
+                    .map(|lp| lp.0);
+                let category = crate::fleets::porkchop::classify_body_transfer_category(
+                    dest_body_type,
+                    dest_parent,
+                    origin_parent,
+                );
+                fleet_ui_state.porkchop_grid = Some(build_grid_for_body_target(
+                    porkchop_config,
+                    origin_orbit,
+                    dest_orbit,
+                    origin_name,
+                    dest_name,
+                    category,
+                    elapsed,
+                ));
+            }
+        }
+    }
+
     // ── Hierarchical destination selector ────────────────────────────────────
     // DestEntry variants:
     //   Header — non-clickable category label; separator drawn BEFORE it (but not the very first)
@@ -1670,6 +1747,16 @@ pub(super) fn render_transfer_planner(
                                         // legacy 3-option row renders, which
                                         // already has the correct local-frame
                                         // cislunar / moon-to-parent handling.
+                                        //
+                                        // Note: the planner render function also
+                                        // has a deferred-build path (see the
+                                        // "GRA-159 deferred porkchop build" block
+                                        // above the destination picker) that
+                                        // catches the case where `target_body` is
+                                        // set by a non-click entry point (e.g. the
+                                        // 3D-scene right-click handler).  The
+                                        // click handler below is still the primary
+                                        // path; the deferred build is a safety net.
                                         fleet_ui_state.porkchop_grid =
                                             if should_build_porkchop_for_destination(body_query, *entity) {
                                                 (|| -> Option<crate::fleets::porkchop::PorkchopGrid> {
@@ -3867,7 +3954,17 @@ pub(super) fn render_transfer_planner(
                 );
             }
 
-            // Execute Transfer button with ETA on the same row
+            // Execute Transfer button with ETA on the same row.
+            //
+            // GRA-154 H-1: when the porkchop plot is shown, the legacy
+            // 3-option row is skipped (see the `if let Some(grid)` arm
+            // below).  But this "Execute Transfer" button currently
+            // renders ABOVE the porkchop regardless, so the user sees
+            // TWO commit buttons (this one + "🚀 Execute Porkchop
+            // Transfer" inside the panel).  Hide this button when the
+            // porkchop is shown — the porkchop's own button is the
+            // single commit path.
+            if fleet_ui_state.porkchop_grid.is_none() {
             ui.horizontal(|ui| {
                 let insufficient = !sel_option.transfer_time_s.is_finite()
                     || (sel_option.is_thrust_limited
@@ -4070,6 +4167,7 @@ pub(super) fn render_transfer_planner(
                     );
                 }
             });
+            } // end !porkchop_grid — hide legacy "Execute Transfer" when panel is shown
 
             // GRA-153 M-3: "Abort to Origin" + "Disband Fleet" buttons.
             // Shown only when the fleet is mid-transit (course correction mode).
@@ -4268,6 +4366,13 @@ pub(super) fn render_transfer_planner(
                                     // Shift selection back to direct Efficient option
                                     fleet_ui_state.selected_option = 0;
                                     fleet_ui_state.planned_transfer = None;
+                                    // GRA-154: clearing the assist lets the
+                                    // porkchop (if cached) become accurate
+                                    // again for the direct route.  Drop it
+                                    // so the deferred-build path rebuilds
+                                    // on the next frame.
+                                    fleet_ui_state.porkchop_grid = None;
+                                    fleet_ui_state.selected_porkchop_cell = None;
                                 }
                             } else {
                                 let label = if beneficial {
@@ -4279,6 +4384,21 @@ pub(super) fn render_transfer_planner(
                                     fleet_ui_state.selected_gravity_assist = Some(idx);
                                     fleet_ui_state.selected_option = 0; // GA is option 0
                                     fleet_ui_state.planned_transfer = None;
+                                    // GRA-154: the porkchop math models
+                                    // direct (t_dep, t_tof) Lambert arcs.
+                                    // A selected gravity assist is a
+                                    // multi-leg trajectory (Earth → flyby →
+                                    // destination) whose ΔV cannot be
+                                    // expressed as a single (t_dep, t_tof)
+                                    // contour.  Drop the cached porkchop so
+                                    // the planner falls through to the legacy
+                                    // 3-option row (which has the per-leg
+                                    // dep/mid/arr burns) and the gravity-assist
+                                    // builder path (`Execute Transfer` →
+                                    // "Gravity Assist" branch → Leg-1 +
+                                    // Leg-2 stitching in `build_planned_transfer`).
+                                    fleet_ui_state.porkchop_grid = None;
+                                    fleet_ui_state.selected_porkchop_cell = None;
                                 }
                             }
                         });

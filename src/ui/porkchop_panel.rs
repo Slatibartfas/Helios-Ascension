@@ -210,18 +210,25 @@ pub fn porkchop_panel(
                     *selected = Some((col, row));
                 }
             }
-            // Hover tooltip (single frame, latched by interact_pos).
-            if let Some((sc, sr)) = *selected {
-                if sc == col && sr == row {
-                    let tooltip = format_cell_tooltip(&grid.cells[row * cols + col]);
-                    painter.text(
-                        pos + Vec2::new(8.0, -8.0),
-                        egui::Align2::LEFT_BOTTOM,
-                        tooltip,
-                        egui::FontId::proportional(11.0),
-                        theme::TEXT,
-                    );
-                }
+            // Hover tooltip — show for ANY hovered feasible cell (not just
+            // the selected one).  The previous contract only painted the
+            // tooltip when the hovered cell matched `*selected`, which
+            // meant the user had to first click a cell, then move the mouse
+            // over it again to see the values.  That hid the porkchop's
+            // most useful affordance (browsing ΔV across the t_dep × t_tof
+            // plane) behind a click.  Now hovering any feasible cell
+            // paints its (t_dep, t_tof, ΔV, C3, v∞, ETA) tooltip inline
+            // at the cursor.
+            let cell = &grid.cells[row * cols + col];
+            if cell.feasible {
+                let tooltip = format_cell_tooltip(cell);
+                painter.text(
+                    pos + Vec2::new(8.0, -8.0),
+                    egui::Align2::LEFT_BOTTOM,
+                    tooltip,
+                    egui::FontId::proportional(11.0),
+                    theme::TEXT,
+                );
             }
         }
     }

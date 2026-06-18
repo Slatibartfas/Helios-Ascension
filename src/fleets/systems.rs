@@ -26,22 +26,19 @@ use crate::ui::{SimulationTime, TimeScale};
 
 // ── Position update systems ───────────────────────────────────────────────────
 
-/// One full visual revolution every 60 real seconds — a constant,
-/// gameplay-friendly rate that is **independent of the simulation time
-/// scale** so the fleet icon doesn't blur past the player at high
-/// game speeds and doesn't crawl when the simulation is paused.
+/// One full visual revolution every 40 real seconds — readable at any time scale.
+/// The rate is **independent of the simulation time scale** so the fleet icon
+/// doesn't blur past the player at high game speeds (1 year/s would otherwise
+/// scale the visual orbit to >3000 rev/min — unusable UX) and doesn't crawl
+/// when the simulation is paused.
 ///
-/// 1 rev / 60 s matches the planner-and-camera loop's expected frame
-/// rate (~30 fps) so the icon moves ~6°/frame on screen: visible but
-/// not flickery.  The fleet's analytical `SpaceCoordinates` are still
-/// computed from this angle for collision/range queries, while the
-/// actual render position uses the body's visual `Transform` so moon
-/// orbit amplification is handled correctly.
-///
-/// The doc-comment claim of "1 rev per 120 s" was out of sync with the
-/// 40 s constant and with the real-time scaling that made the icon
-/// streak at high time scales.  Both are fixed here.
-const VISUAL_ORBIT_RATE: f64 = std::f64::consts::TAU / 60.0;
+/// 1 rev / 40 s is fast enough to read at 60 fps (~9°/frame on a 30 fps loop)
+/// but slow enough that a 50-pixel orbit ring is traversed at ~13 px/sec —
+/// readable, not strobing.  The fleet's analytical `SpaceCoordinates` are still
+/// computed from this angle for collision/range queries, while the actual
+/// render position uses the body's visual `Transform` so moon orbit
+/// amplification is handled correctly.
+const VISUAL_ORBIT_RATE: f64 = std::f64::consts::TAU / 40.0;
 
 fn ordered_ship_entities_for_fleet(
     ships: &Query<(Entity, &ShipInstance)>,
