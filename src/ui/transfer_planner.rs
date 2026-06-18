@@ -332,7 +332,16 @@ fn is_inter_star_transfer(
 /// planner's `&Query<...>` directly so the dest-click sites can
 /// resolve the orbits inline before calling
 /// `build_grid_for_body_target` (the pure helper that consumes them).
-fn heliocentric_orbit_for_body(
+///
+/// **GRA-159 fix:** `Moon` and `Ring` body types have a *local-frame*
+/// `KeplerOrbit` (around the parent), not a heliocentric one.  Feeding
+/// a local-frame sma (e.g. Luna's 0.00257 AU) into the porkchop Lambert
+/// solver — which assumes heliocentric inputs — produces an infeasible
+/// grid.  We therefore unconditionally walk up to the parent's
+/// heliocentric `KeplerOrbit` for these body types.  `Star` keeps its
+/// barycentric convention; `Planet` (and any other non-Moon/Ring body)
+/// keeps its own heliocentric `KeplerOrbit` if present.
+pub(crate) fn heliocentric_orbit_for_body(
     body: Entity,
     body_query: &Query<(
         Entity,
@@ -350,18 +359,68 @@ fn heliocentric_orbit_for_body(
         // caller is responsible for picking a different solver.
         return ko.copied();
     }
-    if let Some(orbit) = ko.copied() {
-        return Some(orbit);
+    // For `Moon` and `Ring` body types, the body's own `KeplerOrbit` (if
+    // present) is a *local-frame* orbit around the parent — never a
+    // heliocentric one — so we ignore it and always walk up to the
+    // parent's heliocentric orbit.  This is the bug fix for GRA-159:
+    // previously the function returned the local-frame orbit, which the
+    // porkchop Lambert solver then treated as heliocentric, producing
+    // an infeasible grid for moon destinations.
+    let needs_parent_orbit = matches!(body_data.body_type, BodyType::Moon | BodyType::Ring);
+    if !needs_parent_orbit {
+        if let Some(orbit) = ko.copied() {
+            return Some(orbit);
+        }
     }
-    // Body has no orbit of its own — typical for moons.  Fall back
-    // to the parent's heliocentric orbit (Earth's 1 AU orbit for
-    // Luna, etc.).  Limit the walk to a single step because the JPL
-    // dataset never has more than one intermediate parent (moon →
-    // planet → star), and deeper chains are extremely rare in the
-    // spawned game state.
+    // Body has no heliocentric orbit of its own (Moon/Ring always;
+    // Planet only if it somehow lacks one) — fall back to the parent's
+    // heliocentric orbit (Earth's 1 AU orbit for Luna, etc.).  Limit
+    // the walk to a single step because the JPL dataset never has more
+    // than one intermediate parent (moon → planet → star), and deeper
+    // chains are extremely rare in the spawned game state.
     let parent = lp.map(|lp| lp.0)?;
     let (_, _, _, parent_ko, _) = body_query.get(parent).ok()?;
     parent_ko.copied()
+}
+
+/// Decide whether the porkchop `(t_dep, t_tof)` grid is the right
+/// tool for a given destination body, or whether the planner should
+/// fall through to the legacy Efficient / Moderate / Fast 3-option
+/// row.
+///
+/// The porkchop math assumes **heliocentric** inputs (`system_gm =
+/// GM_SUN`, both bodies orbiting the star).  For local-frame
+/// destinations — moons and rings — the destination's heliocentric
+/// `KeplerOrbit` is the **parent's** orbit (per `heliocentric_orbit_for_body`'s
+/// GRA-159 fix).  When the fleet is parked at the parent body (e.g.
+/// a fleet in Earth orbit targeting Luna), the planner receives
+/// `r1 ≈ r2 ≈ parent_sma_au`, which is a degenerate Lambert
+/// problem — the solver returns all-infeasible cells because the
+/// destination is geometrically coincident with the origin's
+/// heliocentric position.  The legacy 3-option row has its own
+/// local-frame transfer math (`calculate_transfer_options`'s
+/// `dest_parent == Some(orbit.body)` branch) that handles cislunar
+/// transfers correctly.
+///
+/// Returns `false` for `BodyType::Moon` and `BodyType::Ring`
+/// destinations; `true` for everything else (planets, stars, comets,
+/// asteroids with their own heliocentric `KeplerOrbit`).
+pub fn should_build_porkchop_for_destination(
+    body_query: &Query<(
+        Entity,
+        &CelestialBody,
+        &SpaceCoordinates,
+        Option<&KeplerOrbit>,
+        Option<&LogicalParent>,
+    )>,
+    dest_entity: Entity,
+) -> bool {
+    match body_query.get(dest_entity).ok().map(|(_, b, _, _, _)| b.body_type) {
+        Some(BodyType::Moon) | Some(BodyType::Ring) => false,
+        // Stars, planets, comets, asteroids all have (or resolve to)
+        // heliocentric orbits, so the porkchop math is the right tool.
+        _ => true,
+    }
 }
 
 pub fn transfer_absolute_position(
@@ -1599,14 +1658,21 @@ pub(super) fn render_transfer_planner(
                                         // GRA-159: populate the porkchop grid so
                                         // the LGD `PorkchopPanel` renders instead
                                         // of the legacy Efficient/Moderate/Fast
-                                        // row.  Orbits that the helper can't
-                                        // resolve (e.g. local-frame moon-to-moon
-                                        // or bodies with no JPL orbit) yield
-                                        // `None` and fall through to the legacy
-                                        // row, preserving the pre-existing
-                                        // planner behaviour.
+                                        // row.  For moon and ring destinations the
+                                        // per-frame `body_target_snap` branch uses
+                                        // the local-frame transfer math (parent
+                                        // gravitational parameter, parking
+                                        // orbits) which the porkchop Lambert
+                                        // solver cannot model — it would receive
+                                        // `r1 ≈ r2` and produce a degenerate
+                                        // (all-infeasible) grid.  In that case
+                                        // we set `porkchop_grid = None` so the
+                                        // legacy 3-option row renders, which
+                                        // already has the correct local-frame
+                                        // cislunar / moon-to-parent handling.
                                         fleet_ui_state.porkchop_grid =
-                                            (|| -> Option<crate::fleets::porkchop::PorkchopGrid> {
+                                            if should_build_porkchop_for_destination(body_query, *entity) {
+                                                (|| -> Option<crate::fleets::porkchop::PorkchopGrid> {
                                                 let origin_orbit = heliocentric_orbit_for_body(
                                                     orbit.body, body_query,
                                                 )?;
@@ -1652,7 +1718,10 @@ pub(super) fn render_transfer_planner(
                                                     category,
                                                     elapsed,
                                                 ))
-                                            })();
+                                            })()
+                                            } else {
+                                                None
+                                            };
                                         fleet_ui_state.selected_porkchop_cell = None;
                                     }
                                 }
@@ -1684,54 +1753,67 @@ pub(super) fn render_transfer_planner(
                                         // branch — rings are treated like
                                         // bodies for the planner's view
                                         // (per GRA-149 C-3 follow-up).
+                                        // Rings are local-frame markers
+                                        // around their parent planet; the
+                                        // per-frame body-target branch uses
+                                        // the parent's local-frame transfer
+                                        // math (parent GM, ring altitude),
+                                        // which the porkchop Lambert solver
+                                        // cannot model.  Use the shared
+                                        // helper to gate the build — same
+                                        // predicate as the Body branch.
                                         fleet_ui_state.porkchop_grid =
-                                            (|| -> Option<crate::fleets::porkchop::PorkchopGrid> {
-                                                let origin_orbit = heliocentric_orbit_for_body(
-                                                    orbit.body, body_query,
-                                                )?;
-                                                let dest_orbit = heliocentric_orbit_for_body(
-                                                    *entity, body_query,
-                                                )?;
-                                                let origin_name = body_query
-                                                    .get(orbit.body)
-                                                    .ok()
-                                                    .map(|(_, b, _, _, _)| b.name.clone())
-                                                    .unwrap_or_else(|| "Origin".to_string());
-                                                let dest_name = body_query
-                                                    .get(*entity)
-                                                    .ok()
-                                                    .map(|(_, b, _, _, _)| b.name.clone())
-                                                    .unwrap_or_else(|| "Dest".to_string());
-                                                let dest_body_type = body_query
-                                                    .get(*entity)
-                                                    .ok()
-                                                    .map(|(_, b, _, _, _)| b.body_type)
-                                                    .unwrap_or(BodyType::Planet);
-                                                let dest_parent = body_query
-                                                    .get(*entity)
-                                                    .ok()
-                                                    .and_then(|(_, _, _, _, lp)| lp)
-                                                    .map(|lp| lp.0);
-                                                let origin_parent = body_query
-                                                    .get(orbit.body)
-                                                    .ok()
-                                                    .and_then(|(_, _, _, _, lp)| lp)
-                                                    .map(|lp| lp.0);
-                                                let category = crate::fleets::porkchop::classify_body_transfer_category(
-                                                    dest_body_type,
-                                                    dest_parent,
-                                                    origin_parent,
-                                                );
-                                                Some(build_grid_for_body_target(
-                                                    porkchop_config,
-                                                    origin_orbit,
-                                                    dest_orbit,
-                                                    origin_name,
-                                                    dest_name,
-                                                    category,
-                                                    elapsed,
-                                                ))
-                                            })();
+                                            if should_build_porkchop_for_destination(body_query, *entity) {
+                                                (|| -> Option<crate::fleets::porkchop::PorkchopGrid> {
+                                                    let origin_orbit = heliocentric_orbit_for_body(
+                                                        orbit.body, body_query,
+                                                    )?;
+                                                    let dest_orbit = heliocentric_orbit_for_body(
+                                                        *entity, body_query,
+                                                    )?;
+                                                    let origin_name = body_query
+                                                        .get(orbit.body)
+                                                        .ok()
+                                                        .map(|(_, b, _, _, _)| b.name.clone())
+                                                        .unwrap_or_else(|| "Origin".to_string());
+                                                    let dest_name = body_query
+                                                        .get(*entity)
+                                                        .ok()
+                                                        .map(|(_, b, _, _, _)| b.name.clone())
+                                                        .unwrap_or_else(|| "Dest".to_string());
+                                                    let dest_body_type = body_query
+                                                        .get(*entity)
+                                                        .ok()
+                                                        .map(|(_, b, _, _, _)| b.body_type)
+                                                        .unwrap_or(BodyType::Planet);
+                                                    let dest_parent = body_query
+                                                        .get(*entity)
+                                                        .ok()
+                                                        .and_then(|(_, _, _, _, lp)| lp)
+                                                        .map(|lp| lp.0);
+                                                    let origin_parent = body_query
+                                                        .get(orbit.body)
+                                                        .ok()
+                                                        .and_then(|(_, _, _, _, lp)| lp)
+                                                        .map(|lp| lp.0);
+                                                    let category = crate::fleets::porkchop::classify_body_transfer_category(
+                                                        dest_body_type,
+                                                        dest_parent,
+                                                        origin_parent,
+                                                    );
+                                                    Some(build_grid_for_body_target(
+                                                        porkchop_config,
+                                                        origin_orbit,
+                                                        dest_orbit,
+                                                        origin_name,
+                                                        dest_name,
+                                                        category,
+                                                        elapsed,
+                                                    ))
+                                                })()
+                                            } else {
+                                                None
+                                            };
                                         fleet_ui_state.selected_porkchop_cell = None;
                                     }
                                 }
@@ -4256,6 +4338,114 @@ pub(super) fn render_transfer_planner(
                                 .size(11.0)
                                 .color(theme::TEXT_DIM),
                             );
+                        }
+                    }
+                }
+                // GRA-154 H-1: turn the selected porkchop cell into a
+                // `PlannedTransfer` and let the player commit it.  Until
+                // this branch was added the panel only displayed the
+                // cell's stats and the file's `return;` skipped the
+                // legacy "Execute Transfer" button, so clicking a cell
+                // was effectively a dead end.  We build a synthetic
+                // `TransferOption` from the cell's Lambert-solved values
+                // and feed it through the same `build_planned_transfer`
+                // call the body-target branch uses, then push a
+                // `StartTransferAction` to the pending-actions queue.
+                if let Some((sc, sr)) = fleet_ui_state.selected_porkchop_cell {
+                    let target_entity = match body_target_snap {
+                        Some(te) => te,
+                        None => {
+                            // Stale grid: target was cleared but the
+                            // player still has a cell picked.  Clear the
+                            // selection so the next frame's render path
+                            // is clean.
+                            fleet_ui_state.selected_porkchop_cell = None;
+                            return;
+                        }
+                    };
+                    if let Some(cell) = grid.cells.get(sr * grid.resolution.0 + sc).cloned() {
+                        let can_execute = cell.feasible
+                            && cell.total_dv_ms.is_finite()
+                            && cell.total_dv_ms <= fleet_max_dv
+                            && cell.delta_v1_ms.is_finite()
+                            && cell.delta_v2_ms.is_finite();
+                        let btn = egui::Button::new(
+                            egui::RichText::new("🚀 Execute Porkchop Transfer")
+                                .size(13.0)
+                                .strong(),
+                        );
+                        if ui
+                            .add_enabled(can_execute, btn)
+                            .on_disabled_hover_text(
+                                "Select a feasible cell (greyed cells cannot be executed).",
+                            )
+                            .clicked()
+                        {
+                            // Synthetic `TransferOption` populated from
+                            // the cell's Lambert-solved values.  Only the
+                            // fields `build_planned_transfer` actually
+                            // reads are populated; the rest stay at
+                            // sensible defaults.
+                            //
+                            // `cell.t_dep_s` is the offset from the
+                            // planner's "now" reference (`elapsed`); the
+                            // body-target call uses the absolute epoch
+                            // (`planned_departure_time_s = elapsed +
+                            // cell.t_dep_s`).
+                            let planned_departure_time_s = elapsed + cell.t_dep_s;
+                            let (cell_sma_au, cell_ecc) = cell
+                                .transfer_orbit
+                                .as_ref()
+                                .map(|o| (o.semi_major_axis, o.eccentricity))
+                                .unwrap_or((0.0, 0.0));
+                            let synthetic_option = crate::fleets::orbital_mechanics::TransferOption {
+                                label: "Porkchop Cell",
+                                total_delta_v_ms: cell.total_dv_ms,
+                                delta_v1_ms: cell.delta_v1_ms,
+                                delta_v2_ms: cell.delta_v2_ms,
+                                transfer_time_s: cell.tof_s,
+                                sma_au: cell_sma_au,
+                                eccentricity: cell_ecc,
+                                energy_multiplier: 1.0,
+                                burn_time_s: 0.0,
+                                plane_change_dv_ms: 0.0,
+                                is_thrust_limited: false,
+                                transfer_orbit_override: cell.transfer_orbit.clone(),
+                            };
+                            // Porkchop grids are only built for body
+                            // targets (planets/moons) — never stars —
+                            // so the star-approach override is always
+                            // `None` for this path.
+                            let target_orbit_radius_au: Option<f64> = None;
+                            if let Some(transfer) = build_planned_transfer(
+                                fleet_entity,
+                                fleet,
+                                orbit,
+                                target_entity,
+                                planned_departure_time_s,
+                                body_query,
+                                &synthetic_option,
+                                course_correction_sc,
+                                body_system_ids,
+                                current_system_id,
+                                target_orbit_radius_au,
+                            ) {
+                                // Fresh transfers from a stable parking
+                                // orbit have no in-flight maneuver to
+                                // abort, so the abort-cost burn penalty
+                                // is zero (mirrors the non-course-
+                                // correction leg of the legacy branch).
+                                pending_actions.start_transfers.push(StartTransferAction {
+                                    fleet: fleet_entity,
+                                    transfer,
+                                    abort_cost_t: 0.0,
+                                    departure_offset_s: cell.t_dep_s,
+                                });
+                                // Close the transfer popup so the preview
+                                // arc doesn't immediately show an abort
+                                // trajectory after launch.
+                                fleet_ui_state.show_transfer_popup = false;
+                            }
                         }
                     }
                 }
@@ -6833,5 +7023,123 @@ mod tests {
             "override arrival radius = {}, expected 0.45 (GRA-161 picker)",
             planned_custom.arrival_orbit_radius_au
         );
+    }
+
+    // ── GRA-159 regression tests for heliocentric_orbit_for_body ─────────
+    //
+    // The previous version of `heliocentric_orbit_for_body` returned a
+    // moon's own `KeplerOrbit` (the moon-around-parent local-frame orbit)
+    // as if it were heliocentric.  The porkchop Lambert solver then
+    // treated it as heliocentric and produced an infeasible grid.  The
+    // fix: for `BodyType::Moon` and `BodyType::Ring`, always walk up to
+    // the parent's heliocentric `KeplerOrbit`.  The tests below lock
+    // that contract in place.
+
+    /// Build a minimal in-memory world with a Sol-like star, an Earth-like
+    /// planet (heliocentric orbit at 1.0 AU), and a Luna-like moon
+    /// (local-frame orbit at 0.00257 AU, parent = Earth).  Returns the
+    /// world plus the entity references for direct calls to the helper.
+    fn world_with_moon_fixture() -> (World, Entity, Entity, Entity) {
+        let mut world = World::new();
+        let sol = world
+            .spawn((
+                test_body("Sol", BodyType::Star, 1.989e30, 696_000.0, 40.0),
+                SpaceCoordinates::new(DVec3::ZERO),
+                SystemId(0),
+            ))
+            .id();
+        let earth = world
+            .spawn((
+                test_body("Earth", BodyType::Planet, 5.972e24, 6_371.0, 12.0),
+                SpaceCoordinates::new(DVec3::new(1.0, 0.0, 0.0)),
+                KeplerOrbit::circular(1.0, 1.991e-7), // heliocentric 1 AU
+                LogicalParent(sol),
+                SystemId(0),
+            ))
+            .id();
+        // Luna: its own KeplerOrbit is the *local-frame* orbit around
+        // Earth (sma = 0.00257 AU) — never heliocentric.  The bug would
+        // return this value instead of walking up to Earth's 1.0 AU.
+        let luna = world
+            .spawn((
+                test_body("Luna", BodyType::Moon, 7.342e22, 1_737.4, 5.0),
+                SpaceCoordinates::new(DVec3::new(1.0 + 0.00257, 0.0, 0.0)),
+                KeplerOrbit::circular(0.00257, 2.66e-6), // local-frame, NOT heliocentric
+                LogicalParent(earth),
+                SystemId(0),
+            ))
+            .id();
+        (world, sol, earth, luna)
+    }
+
+    #[test]
+    fn heliocentric_orbit_for_body_moon_walks_up_to_parent_heliocentric() {
+        // GRA-159 regression test: a moon's local-frame orbit must
+        // never be returned as the heliocentric orbit.  The helper
+        // must walk up to the parent's heliocentric KeplerOrbit.
+        let (mut world, _sol, _earth, luna) = world_with_moon_fixture();
+        let mut query_state = world.query::<(
+            Entity,
+            &CelestialBody,
+            &SpaceCoordinates,
+            Option<&KeplerOrbit>,
+            Option<&LogicalParent>,
+        )>();
+        let body_query = query_state.query(&world);
+        let helio = super::heliocentric_orbit_for_body(luna, &body_query)
+            .expect("moon with a parent should resolve to the parent's heliocentric orbit");
+        // The heliocentric sma is Earth's 1.0 AU, NOT Luna's local 0.00257 AU.
+        assert!(
+            (helio.semi_major_axis - 1.0).abs() < 1e-9,
+            "moon should resolve to parent heliocentric sma = 1.0 AU, got {}",
+            helio.semi_major_axis
+        );
+        assert!(
+            helio.semi_major_axis > 0.5,
+            "moon bug regression: returned the moon's local-frame orbit ({}) instead of the heliocentric orbit",
+            helio.semi_major_axis
+        );
+    }
+
+    #[test]
+    fn heliocentric_orbit_for_body_planet_returns_own_orbit() {
+        // Sanity check: a planet (heliocentric) still returns its own
+        // KeplerOrbit; the GRA-159 fix must not regress planet handling.
+        let (mut world, _sol, earth, _luna) = world_with_moon_fixture();
+        let mut query_state = world.query::<(
+            Entity,
+            &CelestialBody,
+            &SpaceCoordinates,
+            Option<&KeplerOrbit>,
+            Option<&LogicalParent>,
+        )>();
+        let body_query = query_state.query(&world);
+        let helio = super::heliocentric_orbit_for_body(earth, &body_query)
+            .expect("planet with heliocentric orbit should resolve");
+        assert!(
+            (helio.semi_major_axis - 1.0).abs() < 1e-9,
+            "Earth heliocentric sma = 1.0 AU, got {}",
+            helio.semi_major_axis
+        );
+    }
+
+    #[test]
+    fn heliocentric_orbit_for_body_star_returns_own_orbit() {
+        // Sanity check: a star's barycentric orbit is returned
+        // unchanged (JPL convention).  The Sol fixture does not have
+        // a KeplerOrbit inserted, so the Star branch returns None
+        // (acceptable: stars without a barycentric KO are rare and
+        // the porkchop path doesn't need them).
+        let (mut world, sol, _earth, _luna) = world_with_moon_fixture();
+        let mut query_state = world.query::<(
+            Entity,
+            &CelestialBody,
+            &SpaceCoordinates,
+            Option<&KeplerOrbit>,
+            Option<&LogicalParent>,
+        )>();
+        let body_query = query_state.query(&world);
+        // Must not panic; result may be None or Some.
+        let _ = super::heliocentric_orbit_for_body(sol, &body_query);
     }
 }

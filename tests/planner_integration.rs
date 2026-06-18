@@ -23,7 +23,7 @@ use helios_ascension::fleets::orbital_mechanics::TransferOption;
 use helios_ascension::fleets::TransferReferenceFrame;
 use helios_ascension::plugins::solar_system::{CelestialBody, LogicalParent};
 use helios_ascension::plugins::solar_system_data::BodyType;
-use helios_ascension::ui::transfer_planner::build_planned_transfer;
+use helios_ascension::ui::transfer_planner::{build_planned_transfer, should_build_porkchop_for_destination};
 
 // ── Test helpers ──────────────────────────────────────────────────────────────
 
@@ -606,4 +606,208 @@ fn course_correction_redirects_mid_flight() {
     // Earth → Venus SMA — only that the destination is correct.
     assert!(planned.transfer_orbit.semi_major_axis > 0.0);
     let _mars_present = mars;
+}
+
+// ── Test 8: GRA-154 H-1 — porkchop cell → PlannedTransfer wiring ────────────
+//
+// The transfer planner renders a porkchop plot (GRA-152 H-1) and lets the
+// player click a feasible cell.  The new "🚀 Execute Porkchop Transfer"
+// button (GRA-154 H-1, in `src/ui/transfer_planner.rs`) builds a synthetic
+// `TransferOption` from the cell's Lambert-solved values and feeds it
+// through `build_planned_transfer` so the click commits a real
+// `PlannedTransfer` to the action queue.  This test exercises the contract:
+// a synthetic `TransferOption` shaped like a `PorkchopCell` (with
+// `transfer_orbit_override: Some(...)`) produces a valid `PlannedTransfer`
+// for an Earth→Mars transfer.
+#[test]
+fn porkchop_cell_builds_planned_transfer_for_earth_to_mars() {
+    use helios_ascension::astronomy::KeplerOrbit;
+
+    let mut world = World::new();
+    let sun = world
+        .spawn((
+            test_body("Sun", BodyType::Star, 1.989e30, 696_000.0, 40.0),
+            SpaceCoordinates::new(DVec3::ZERO),
+            SystemId(0),
+        ))
+        .id();
+    let earth = world
+        .spawn((
+            test_body("Earth", BodyType::Planet, 5.97e24, 6_371.0, 12.0),
+            SpaceCoordinates::new(DVec3::new(1.0, 0.0, 0.0)),
+            KeplerOrbit::circular(1.0, 1.991e-7),
+            LogicalParent(sun),
+            SystemId(0),
+        ))
+        .id();
+    let mars = world
+        .spawn((
+            test_body("Mars", BodyType::Planet, 6.4e23, 3_390.0, 7.0),
+            SpaceCoordinates::new(DVec3::new(1.524, 0.0, 0.0)),
+            KeplerOrbit::circular(1.524, 1.06e-7),
+            LogicalParent(sun),
+            SystemId(0),
+        ))
+        .id();
+
+    let fleet = Fleet::new("Porkchop Test Fleet".to_string());
+    let orbit = FleetOrbit::new(earth, 0.0001);
+
+    // Synthetic TransferOption shaped like a PorkchopCell: a Lambert-solved
+    // conic is provided via `transfer_orbit_override`, all ΔV components
+    // are split into dep + arr halves, the label is the canonical
+    // "Porkchop Cell" used by the new "Execute Porkchop Transfer" button.
+    let n = 2.0 * std::f64::consts::PI / (365.25 * 86_400.0);
+    let porkchop_option = TransferOption {
+        label: "Porkchop Cell",
+        total_delta_v_ms: 6_200.0, // ~6.2 km/s, within 20% of Hohmann 5.6
+        delta_v1_ms: 3_600.0,
+        delta_v2_ms: 2_600.0,
+        transfer_time_s: 86_400.0 * 259.0, // ~Hohmann TOF for Earth→Mars
+        sma_au: 1.262,                     // (r1 + r2) / 2 for Earth→Mars
+        eccentricity: 0.207,               // |r2 - r1| / (r1 + r2)
+        energy_multiplier: 1.0,
+        burn_time_s: 0.0,
+        plane_change_dv_ms: 0.0,
+        is_thrust_limited: false,
+        transfer_orbit_override: Some(KeplerOrbit {
+            eccentricity: 0.207,
+            semi_major_axis: 1.262,
+            inclination: 0.0,
+            longitude_ascending_node: 0.0,
+            argument_of_periapsis: 0.0,
+            mean_anomaly_epoch: 0.0,
+            mean_motion: n,
+        }),
+    };
+
+    let mut body_query_state = world.query::<(
+        Entity,
+        &CelestialBody,
+        &SpaceCoordinates,
+        Option<&KeplerOrbit>,
+        Option<&LogicalParent>,
+    )>();
+    let mut system_id_query_state = world.query::<&SystemId>();
+    let body_query = body_query_state.query(&world);
+    let system_id_query = system_id_query_state.query(&world);
+
+    let planned = build_planned_transfer(
+        Entity::PLACEHOLDER,
+        &fleet,
+        &orbit,
+        mars,
+        0.0, // sim_time_s: porkchop departure happens at sim start
+        &body_query,
+        &porkchop_option,
+        None, // no course-correction override
+        &system_id_query,
+        0,
+        None, // no star-approach override
+    )
+    .expect("porkchop cell synthetic TransferOption should build a PlannedTransfer");
+
+    // The transfer was created from a porkchop cell — verify it landed on Mars
+    // with a sensible transfer orbit.  The Lambert-solved conic is supplied
+    // via `transfer_orbit_override`, so the planner should preserve it
+    // (subject to its barycentric-vs-body-frame check).
+    assert_eq!(planned.destination_body, mars);
+    assert!(planned.transfer_orbit.semi_major_axis > 0.0);
+    assert!(planned.duration_s > 0.0);
+    // The arrival ΔV is sourced from `option.delta_v2_ms` in build_planned_transfer.
+    assert!((planned.arrival_delta_v_ms - 2_600.0).abs() < 1.0);
+}
+
+// ── Test 9: GRA-159 should_build_porkchop_for_destination ────────────────────
+//
+// After the GRA-159 moon fix, `heliocentric_orbit_for_body(Luna)` walks up
+// to the parent's heliocentric orbit (Earth's 1.0 AU).  This means a
+// porkchop build for an Earth→Luna transfer sees `r1 ≈ r2 ≈ 1.0 AU` —
+// a degenerate Lambert problem where the destination is geometrically
+// coincident with the origin's heliocentric position.  The porkchop
+// solver returns all-infeasible cells for such a case, which the UI
+// would then show as an all-grey panel.
+//
+// The planner must therefore **skip** the porkchop build for moon and
+// ring destinations and let the legacy 3-option row render (it has its
+// own local-frame cislunar transfer math).  This test pins that
+// decision: the helper `should_build_porkchop_for_destination` returns
+// `false` for moons and rings, `true` for planets and stars.
+#[test]
+fn should_build_porkchop_rejects_moon_and_ring_destinations() {
+    let mut world = World::new();
+    let sol = world
+        .spawn((
+            test_body("Sol", BodyType::Star, 1.989e30, 696_000.0, 40.0),
+            SpaceCoordinates::new(DVec3::ZERO),
+            SystemId(0),
+        ))
+        .id();
+    let earth = world
+        .spawn((
+            test_body("Earth", BodyType::Planet, 5.97e24, 6_371.0, 12.0),
+            SpaceCoordinates::new(DVec3::new(1.0, 0.0, 0.0)),
+            KeplerOrbit::circular(1.0, 1.991e-7),
+            LogicalParent(sol),
+            SystemId(0),
+        ))
+        .id();
+    let mars = world
+        .spawn((
+            test_body("Mars", BodyType::Planet, 6.4e23, 3_390.0, 7.0),
+            SpaceCoordinates::new(DVec3::new(1.524, 0.0, 0.0)),
+            KeplerOrbit::circular(1.524, 1.06e-7),
+            LogicalParent(sol),
+            SystemId(0),
+        ))
+        .id();
+    let luna = world
+        .spawn((
+            test_body("Luna", BodyType::Moon, 7.342e22, 1_737.4, 5.0),
+            SpaceCoordinates::new(DVec3::new(1.00257, 0.0, 0.0)),
+            KeplerOrbit::circular(0.00257, 2.66e-6),
+            LogicalParent(earth),
+            SystemId(0),
+        ))
+        .id();
+    let ring = world
+        .spawn((
+            test_body("Saturn's Rings", BodyType::Ring, 0.0, 100_000.0, 5.0),
+            SpaceCoordinates::new(DVec3::new(9.5, 0.0, 0.0)),
+            LogicalParent(earth),
+            SystemId(0),
+        ))
+        .id();
+
+    let mut body_query_state = world.query::<(
+        Entity,
+        &CelestialBody,
+        &SpaceCoordinates,
+        Option<&KeplerOrbit>,
+        Option<&LogicalParent>,
+    )>();
+    let body_query = body_query_state.query(&world);
+
+    // Moons and rings: planner must skip the porkchop build.
+    assert!(
+        !should_build_porkchop_for_destination(&body_query, luna),
+        "Luna is a moon → planner must skip porkchop and use legacy 3-option row"
+    );
+    assert!(
+        !should_build_porkchop_for_destination(&body_query, ring),
+        "Saturn's Rings is a ring → planner must skip porkchop"
+    );
+    // Planets and stars: planner must build the porkchop.
+    assert!(
+        should_build_porkchop_for_destination(&body_query, earth),
+        "Earth is a planet → planner must build porkchop"
+    );
+    assert!(
+        should_build_porkchop_for_destination(&body_query, mars),
+        "Mars is a planet → planner must build porkchop"
+    );
+    assert!(
+        should_build_porkchop_for_destination(&body_query, sol),
+        "Sol is a star → planner must build porkchop"
+    );
 }

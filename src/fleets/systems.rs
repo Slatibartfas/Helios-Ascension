@@ -13,7 +13,7 @@ use super::orbital_mechanics::AU_IN_METERS;
 use super::types::{PropulsionType, ShipClass};
 use super::visuals::predict_body_physics_pos;
 use crate::astronomy::{
-    capped_visual_speed, orbit_position_from_mean_anomaly, KeplerOrbit, SpaceCoordinates,
+    orbit_position_from_mean_anomaly, KeplerOrbit, SpaceCoordinates,
 };
 use crate::plugins::solar_system::{CelestialBody, LogicalParent};
 use crate::plugins::solar_system_data::BodyType;
@@ -26,8 +26,22 @@ use crate::ui::{SimulationTime, TimeScale};
 
 // ── Position update systems ───────────────────────────────────────────────────
 
-/// One full visual revolution every 40 real seconds — readable at any time scale.
-const VISUAL_ORBIT_RATE: f64 = std::f64::consts::TAU / 40.0;
+/// One full visual revolution every 60 real seconds — a constant,
+/// gameplay-friendly rate that is **independent of the simulation time
+/// scale** so the fleet icon doesn't blur past the player at high
+/// game speeds and doesn't crawl when the simulation is paused.
+///
+/// 1 rev / 60 s matches the planner-and-camera loop's expected frame
+/// rate (~30 fps) so the icon moves ~6°/frame on screen: visible but
+/// not flickery.  The fleet's analytical `SpaceCoordinates` are still
+/// computed from this angle for collision/range queries, while the
+/// actual render position uses the body's visual `Transform` so moon
+/// orbit amplification is handled correctly.
+///
+/// The doc-comment claim of "1 rev per 120 s" was out of sync with the
+/// 40 s constant and with the real-time scaling that made the icon
+/// streak at high time scales.  Both are fixed here.
+const VISUAL_ORBIT_RATE: f64 = std::f64::consts::TAU / 60.0;
 
 fn ordered_ship_entities_for_fleet(
     ships: &Query<(Entity, &ShipInstance)>,
@@ -171,11 +185,21 @@ pub fn sync_ship_instance_locations(
 
 /// Update `SpaceCoordinates` for every fleet in a stable parking orbit.
 ///
-/// The visual orbital angle advances at a gameplay-friendly fixed real-time rate
-/// (1 rev per 120 s) that freezes when the simulation is paused.  The
-/// `SpaceCoordinates` are updated from the angle for collision/range queries,
-/// but the actual render position uses the body's visual `Transform` so moon
-/// orbit amplification is handled correctly.
+/// The visual orbital angle advances at a **constant** real-time rate
+/// (1 rev per `VISUAL_ORBIT_RATE` — currently 60 s) and freezes when
+/// the simulation is paused.  The rate is **independent of the
+/// simulation time scale** so the fleet icon doesn't blur past the
+/// player at high game speeds (1 year/s would otherwise scale the
+/// visual orbit to >3000 rev/min — unusable UX).  The previous
+/// behaviour scaled the parking-orbit rate by `time_scale.scale` and
+/// applied the same logarithmic cap used for orbital bodies, which
+/// produced a fast, strobing fleet icon at every game-speed tier
+/// above the visual-speed base.
+///
+/// The `SpaceCoordinates` are updated from the angle for collision /
+/// range queries, but the actual render position uses the body's
+/// visual `Transform` so moon orbit amplification is handled
+/// correctly.
 pub fn update_fleet_orbit_positions(
     real_time: Res<Time<Real>>,
     time_scale: Res<TimeScale>,
@@ -189,21 +213,19 @@ pub fn update_fleet_orbit_positions(
         real_time.delta_secs_f64()
     };
 
-    // Scale the parking orbit rate by the current game time scale, then apply
-    // the same `capped_visual_speed` curve used for orbital bodies so that
-    // parking fleets stay visually synchronized with the body they orbit at
-    // all game speeds (previously the rate was gameplay-fixed and parking
-    // fleets kept spinning at a constant rate even at 1 year/s).
-    let effective_parking_rate = capped_visual_speed(VISUAL_ORBIT_RATE * time_scale.scale as f64);
-
     for (mut fleet_sc, mut orbit) in fleet_query.iter_mut() {
-        // Advance the visual orbital angle at a slow, legible rate.
-        // `orbit.direction` is +1 (CCW/prograde) or -1 (CW/retrograde) and is set
-        // at insertion to match the arrival arc's tangent direction.
-        // direction == 0.0 marks an LP-stationed fleet whose angle is frozen.
+        // Advance the visual orbital angle at the constant
+        // `VISUAL_ORBIT_RATE` (no time-scale multiplier, no logarithmic
+        // cap — the fleet icon must move at the same readable pace at
+        // every game speed).
+        //
+        // `orbit.direction` is +1 (CCW/prograde) or -1 (CW/retrograde)
+        // and is set at insertion to match the arrival arc's tangent
+        // direction.  direction == 0.0 marks an LP-stationed fleet
+        // whose angle is frozen.
         if orbit.direction != 0.0 {
             orbit.angle_rad = (orbit.angle_rad
-                + orbit.direction * effective_parking_rate * real_delta)
+                + orbit.direction * VISUAL_ORBIT_RATE * real_delta)
                 .rem_euclid(std::f64::consts::TAU);
         }
 

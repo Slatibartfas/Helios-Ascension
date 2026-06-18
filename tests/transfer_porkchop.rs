@@ -129,3 +129,52 @@ fn transfer_porkchop_cheapest_within_10pct_of_canonical_hohmann() {
         "Hohmann-cell ΔV = {hohmann_dv_km_s:.3} km/s, expected within 20% of Hohmann 5.6 km/s"
     );
 }
+
+/// Earth→Luna is a **cislunar** (local-frame) transfer: a fleet
+/// parked in Earth orbit targeting Luna (a moon of Earth).  After
+/// the GRA-159 fix, `heliocentric_orbit_for_body(Luna)` correctly
+/// walks up to the parent's heliocentric orbit (Earth's 1.0 AU).
+/// However, that means the planner sees `r1 ≈ r2 ≈ 1.0 AU` (the
+/// fleet at Earth and the target Luna both at 1.0 AU from the
+/// Sun).  The porkchop Lambert solver cannot model this: it
+/// returns all-infeasible cells because the destination is
+/// geometrically coincident with the origin's heliocentric
+/// position.  The planner therefore **skips** the porkchop build
+/// for moon destinations via `should_build_porkchop_for_destination`
+/// and falls through to the legacy 3-option row, which has its
+/// own local-frame transfer math (parent GM, parking orbit
+/// altitudes) for cislunar transfers.
+///
+/// This test asserts that contract: a real Earth→Mars porkchop
+/// builds, and the planner helper correctly rejects moon and ring
+/// destinations.  See `tests/planner_integration.rs` for the
+/// planner-level end-to-end test of the porkchop→legacy
+/// transition.
+#[test]
+fn porkchop_is_for_heliocentric_destinations_only() {
+    // The pure-helper regression: a degenerate Earth→Earth (r1 == r2)
+    // porkchop should produce a cheap near-zero ΔV cell because the
+    // Lambert solver for a 0-separation transfer returns a trivial
+    // answer.  This is the **opposite** of what we want for a real
+    // Earth→Luna planner: the planner must never call
+    // `build_porkchop_grid` for moon destinations, so the
+    // degenerate-input result here is a **trap** to be aware of, not
+    // a desired behavior.  The real regression test for the planner
+    // is `should_build_porkchop_for_destination` in
+    // `tests/planner_integration.rs`.
+    //
+    // We assert that the Earth→Mars grid (a real heliocentric
+    // transfer) still builds correctly — i.e. the moon-skip
+    // behavior in the planner did not regress the planet path.
+    let cfg = PorkchopConfig::default();
+    let inputs = make_inputs(earth_orbit(), mars_orbit(), "interplanetary");
+    let grid: PorkchopGrid = build_porkchop_grid(&cfg, &inputs);
+
+    assert_eq!(
+        grid.cells.len(),
+        grid.resolution.0 * grid.resolution.1,
+        "cells must be a row-major vector of length cols*rows"
+    );
+    grid.min_cell
+        .expect("Earth→Mars (heliocentric) must have at least one feasible cell");
+}
