@@ -230,6 +230,13 @@ pub struct FleetUiState {
     /// of the Efficient / Moderate / Fast `selectable_label` block.  When
     /// `None`, the legacy 3-option row is rendered.  GRA-152 (H-1).
     pub porkchop_grid: Option<crate::fleets::porkchop::PorkchopGrid>,
+    /// Simulation-time epoch the cached porkchop grid was built at.  The
+    /// grid's `t_dep = 0` column reflects the planet positions at *this*
+    /// epoch, so as `SimulationTime` advances the cached ΔV values become
+    /// stale.  The planner rebuilds the grid once the staleness crosses
+    /// a configurable threshold (see `PORKCHOP_STALENESS_THRESHOLD_S`
+    /// below).  `None` when no grid is cached.
+    pub porkchop_built_at_s: Option<f64>,
     /// `(col, row)` index of the player-selected cell in `porkchop_grid`.
     pub selected_porkchop_cell: Option<(usize, usize)>,
     /// Fully assembled transfer plan ready for execution (if any).
@@ -274,6 +281,7 @@ impl FleetUiState {
         self.departure_offset_days = 0.0;
         self.computed_options.clear();
         self.porkchop_grid = None;
+        self.porkchop_built_at_s = None;
         self.selected_porkchop_cell = None;
         self.planned_transfer = None;
         self.selected_option = 0;
@@ -323,6 +331,7 @@ impl FleetUiState {
         // (e.g. Earth→Mars) panel does not render with the Lagrange
         // picker selected.  The planner re-builds on its next tick.
         self.porkchop_grid = None;
+        self.porkchop_built_at_s = None;
         self.selected_porkchop_cell = None;
     }
 }

@@ -416,6 +416,21 @@ fn resolve_preview_reference_frame(
 /// and re-derives the Moderate/Fast time with the **nominal** energy
 /// multiplier (1.5 / 2.5) instead of the phase-corrected value.
 fn stable_preview_travel_time(ui: &FleetUiState) -> f64 {
+    // Porkchop path: when the player has picked a cell on the porkchop
+    // grid, the 3D preview must reflect that cell's `tof_s` rather
+    // than the legacy Efficient/Moderate/Fast option the panel was
+    // last synchronised against.  Without this precedence the ghost
+    // arc keeps redrawing at the Hohmann time even after the player
+    // picks a non-Hohmann cell — the "trajectory never updates" bug.
+    if ui.porkchop_grid.is_some() {
+        if let Some(pt) = &ui.planned_transfer {
+            return pt.duration_s;
+        }
+        // Fall through to the legacy path so the panel still draws
+        // *something* while the planner is mid-frame (e.g. during the
+        // one tick between selecting a cell and `planned_transfer`
+        // being rebuilt).
+    }
     if ui.selected_option < ui.computed_options.len() {
         let opt = &ui.computed_options[ui.selected_option];
         // Options with inherently stable times (Efficient, kinematic, etc.)

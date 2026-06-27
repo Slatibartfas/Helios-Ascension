@@ -29,6 +29,39 @@ const MIN_ORBITAL_RADIUS_AU: f64 = 0.001; // 1/1000 AU ≈ 149,600 km (inside Me
 /// A conservative minimum altitude above the atmosphere/surface.
 const PLANETARY_FLYBY_RADIUS_KM_MULTIPLIER: f64 = 3_000.0; // = 1_000 m/km × 3
 
+/// Maximum in-game seconds the cached porkchop grid is allowed to stay
+/// fresh before the planner rebuilds it.  The grid's `t_dep = 0` column
+/// is anchored to the sim-time epoch the grid was built at; once the
+/// sim has advanced more than this many seconds past that epoch, the
+/// "Now" column no longer reflects the current planetary geometry and
+/// the ΔV values drift noticeably.  3 days is short enough to stay
+/// accurate for inner-planet transfers (where planets move ~1°/day)
+/// and long enough to amortize the 40×30 = 1200-cell Lambert solve
+/// (worst-case ~360 ms) so we don't rebuild every frame.
+///
+/// `None` is treated as "never stale" — the planner only rebuilds when
+/// the sim actually advances past this threshold, so a paused game
+/// keeps using the cached grid indefinitely.
+const PORKCHOP_STALENESS_THRESHOLD_S: f64 = 3.0 * 86_400.0;
+
+/// Pure-function helper: should the cached porkchop grid be invalidated
+/// because `elapsed` has drifted too far from the build epoch?
+///
+/// Returns `true` only when both `built_at` and the cached grid are
+/// present — i.e. a grid *exists* and is older than the threshold.
+/// Returning `false` for `built_at = None` is intentional: a fresh
+/// build (no grid yet) is handled by the deferred-build path, not
+/// the staleness path.
+///
+/// Public-ish (crate-private with a `pub(super)` so unit tests can
+/// exercise the boundary without spinning up a Bevy world).
+pub(super) fn porkchop_grid_is_stale(built_at: Option<f64>, elapsed: f64) -> bool {
+    if let Some(built) = built_at {
+        return (elapsed - built).abs() > PORKCHOP_STALENESS_THRESHOLD_S;
+    }
+    false
+}
+
 /// Safe gravity-assist periapsis scaling factor for **stellar** flyby bodies.
 ///
 /// `1_000 m/km × 1.5` — 1.5× the star's photospheric radius, in m/km.  Stars are
@@ -878,6 +911,23 @@ pub(super) fn render_transfer_planner(
     // stitching instead.  The assist handlers clear `porkchop_grid` on
     // selection; this guard keeps it `None` even if the user switches
     // target_body mid-frame.
+    //
+    // Porkchop staleness: the grid's `t_dep = 0` column is anchored to
+    // the sim-time epoch the grid was built at.  If the player lets
+    // time advance past the build epoch by more than
+    // `PORKCHOP_STALENESS_THRESHOLD_S`, the cached ΔV values drift
+    // (inner-planet geometries rotate ~1°/day, so ΔV can change by
+    // tens of percent per day).  Invalidate the cache here so the
+    // deferred build re-solves the grid against the *current* epoch —
+    // that's why closing-and-reopening the planner now refreshes the
+    // "starting point" tick.
+    if fleet_ui_state.porkchop_grid.is_some()
+        && porkchop_grid_is_stale(fleet_ui_state.porkchop_built_at_s, elapsed)
+    {
+        fleet_ui_state.porkchop_grid = None;
+        fleet_ui_state.porkchop_built_at_s = None;
+        fleet_ui_state.selected_porkchop_cell = None;
+    }
     if let Some(target_entity) = fleet_ui_state.target_body {
         if fleet_ui_state.porkchop_grid.is_none()
             && fleet_ui_state.selected_gravity_assist.is_none()
@@ -926,6 +976,9 @@ pub(super) fn render_transfer_planner(
                     category,
                     elapsed,
                 ));
+                // Stamp the build epoch so the staleness check above
+                // can decide when the grid needs refreshing.
+                fleet_ui_state.porkchop_built_at_s = Some(elapsed);
             }
         }
     }
@@ -1809,6 +1862,11 @@ pub(super) fn render_transfer_planner(
                                             } else {
                                                 None
                                             };
+                                        // Stamp the build epoch so the
+                                        // planner's staleness check
+                                        // knows when to refresh the
+                                        // grid as sim time advances.
+                                        fleet_ui_state.porkchop_built_at_s = Some(elapsed);
                                         fleet_ui_state.selected_porkchop_cell = None;
                                     }
                                 }
@@ -1901,6 +1959,11 @@ pub(super) fn render_transfer_planner(
                                             } else {
                                                 None
                                             };
+                                        // Stamp the build epoch so the
+                                        // planner's staleness check
+                                        // knows when to refresh the
+                                        // grid as sim time advances.
+                                        fleet_ui_state.porkchop_built_at_s = Some(elapsed);
                                         fleet_ui_state.selected_porkchop_cell = None;
                                     }
                                 }
@@ -3523,6 +3586,20 @@ pub(super) fn render_transfer_planner(
                     1.0 // 1 day
                 };
 
+                // Porkchop replacement: when the player has a porkchop
+                // grid active, the (t_dep, t_tof) plane below IS the
+                // departure-time selector — there is nothing for the
+                // slider to do.  Hide the Transfer Window + Planned
+                // Departure boxes entirely; the player picks t_dep by
+                // clicking a porkchop cell.  We still keep the
+                // "Arrives:" timestamp and side-panel ΔV stats so the
+                // player sees the consequence of their click.
+                if fleet_ui_state.porkchop_grid.is_some() {
+                    // Skip rendering the Transfer Window + Planned
+                    // Departure boxes.  Fall through to the
+                    // post-window section.
+                } else {
+
                 // ── Transfer Window (left) + Planned Departure (right) side by side ──
                 ui.horizontal_top(|ui| {
                 // Left: Transfer Window box
@@ -3628,13 +3705,42 @@ pub(super) fn render_transfer_planner(
                         ui.label(egui::RichText::new(quality_str).size(11.0).color(quality_color))
                             .on_hover_text("Indicates how well the planets are aligned for a transfer at the planned departure time. Poor alignment requires significantly more ΔV.");
 
-                        // Next Window button on its own row
-                        if window_days > 0.5 {
-                            ui.add_space(2.0);
-                            if ui.small_button(format!("🎯 Next Window (+{:.0} d)", window_days)).clicked() {
+                        // Depart-Now / Next-Window shortcut buttons on
+                        // their own row.  "Depart Now" snaps the slider
+                        // to t_dep = 0 so the player doesn't have to
+                        // drag it all the way to the left edge (the
+                        // porkchop t_dep axis goes negative on Saturn
+                        // and other long-synodic-period destinations,
+                        // and reaching "Now" by dragging a 5-year
+                        // slider feels punishing).  Next-Window snaps
+                        // to the optimal Hohmann window.
+                        ui.add_space(2.0);
+                        ui.horizontal(|ui| {
+                            let now_btn = egui::Button::new(
+                                egui::RichText::new("⚡ Depart Now")
+                                    .size(11.0)
+                                    .strong(),
+                            );
+                            if ui
+                                .add(now_btn)
+                                .on_hover_text(
+                                    "Snap the departure slider to t = 0 (immediate launch).",
+                                )
+                                .clicked()
+                            {
+                                fleet_ui_state.departure_offset_days = 0.0;
+                            }
+                            if window_days > 0.5
+                                && ui
+                                    .small_button(format!(
+                                        "🎯 Next Window (+{:.0} d)",
+                                        window_days
+                                    ))
+                                    .clicked()
+                            {
                                 fleet_ui_state.departure_offset_days = window_days;
                             }
-                        }
+                        });
                     });
                 });
 
@@ -3689,6 +3795,7 @@ pub(super) fn render_transfer_planner(
                     });
                 });
             });
+                } // end !porkchop_grid (legacy Transfer Window / Planned Departure boxes)
             }
         } // end !is_course_correction (Transfer Window / Departure slider section)
 
@@ -4461,6 +4568,106 @@ pub(super) fn render_transfer_planner(
                         }
                     }
                 }
+                // GRA-154 H-2: drive the trajectory preview from the
+                // selected porkchop cell.  The PorkchopPanel sets
+                // `selected_porkchop_cell` on click; this block
+                // translates that into a synthetic `TransferOption` and
+                // feeds it through `build_planned_transfer`, populating
+                // `fleet_ui_state.planned_transfer` so the 3D preview
+                // arc, ghost marker and right-side stats panel all
+                // update the moment the player picks a cell.  Without
+                // this block the panel only updated the on-canvas
+                // selection highlight — the trajectory overlay kept
+                // showing whatever `selected_option` last pointed at.
+                //
+                // Also sync `departure_offset_days` so the legacy
+                // side-panel "Arrives:" timestamp, the
+                // `waiting_orbit_count`, and any other code path that
+                // reads `departure_offset_days` stays consistent with
+                // the cell the player just clicked.  The porkchop is
+                // the source of truth for t_dep; the slider has been
+                // hidden in this UI mode (see "Hide slider" block
+                // below) so the player's only way to set the
+                // departure time is through the porkchop.
+                //
+                // Clear the preview when nothing is selected or the
+                // selected cell is infeasible / out-of-budget, so the
+                // ghost arc disappears instead of going stale.
+                fleet_ui_state.planned_transfer = match fleet_ui_state.selected_porkchop_cell {
+                    Some((sc, sr)) => {
+                        let cell = grid.cells.get(sr * grid.resolution.0 + sc);
+                        match (cell, body_target_snap) {
+                            (Some(cell), Some(target_entity)) if cell.feasible
+                                && cell.total_dv_ms.is_finite()
+                                && cell.total_dv_ms <= fleet_max_dv
+                                && cell.delta_v1_ms.is_finite()
+                                && cell.delta_v2_ms.is_finite() =>
+                            {
+                                let (cell_sma_au, cell_ecc) = cell
+                                    .transfer_orbit
+                                    .as_ref()
+                                    .map(|o| (o.semi_major_axis, o.eccentricity))
+                                    .unwrap_or((0.0, 0.0));
+                                let synthetic_option =
+                                    crate::fleets::orbital_mechanics::TransferOption {
+                                        label: "Porkchop Cell",
+                                        total_delta_v_ms: cell.total_dv_ms,
+                                        delta_v1_ms: cell.delta_v1_ms,
+                                        delta_v2_ms: cell.delta_v2_ms,
+                                        transfer_time_s: cell.tof_s,
+                                        sma_au: cell_sma_au,
+                                        eccentricity: cell_ecc,
+                                        energy_multiplier: 1.0,
+                                        burn_time_s: 0.0,
+                                        plane_change_dv_ms: 0.0,
+                                        is_thrust_limited: false,
+                                        // `cell.transfer_orbit` is
+                                        // `Option<KeplerOrbit>` (Copy);
+                                        // the orbit is just a few
+                                        // floats, so pass by value
+                                        // instead of cloning.
+                                        transfer_orbit_override: cell.transfer_orbit,
+                                    };
+                                // Porkchop cells use the player's chosen
+                                // t_dep directly (the cell's `t_dep_s`
+                                // is an offset from the planner's "now"
+                                // reference) — the departure-time
+                                // slider is intentionally ignored for
+                                // porkchop selections because the cell
+                                // already encodes the absolute t_dep.
+                                let planned_departure_time_s =
+                                    elapsed + cell.t_dep_s;
+                                // Sync `departure_offset_days` so the
+                                // side-panel "Arrives:" timestamp and
+                                // `waiting_orbit_count` reflect the
+                                // porkchop cell's t_dep.  The slider is
+                                // hidden in porkchop mode so the cell
+                                // is the only source of t_dep; without
+                                // this sync, downstream code that reads
+                                // `departure_offset_days` would still
+                                // see the last slider value.
+                                fleet_ui_state.departure_offset_days =
+                                    cell.t_dep_s / crate::ui::porkchop_panel::SECONDS_PER_DAY;
+                                let target_orbit_radius_au: Option<f64> = None;
+                                build_planned_transfer(
+                                    fleet_entity,
+                                    fleet,
+                                    orbit,
+                                    target_entity,
+                                    planned_departure_time_s,
+                                    body_query,
+                                    &synthetic_option,
+                                    course_correction_sc,
+                                    body_system_ids,
+                                    current_system_id,
+                                    target_orbit_radius_au,
+                                )
+                            }
+                            _ => None,
+                        }
+                    }
+                    None => None,
+                };
                 // GRA-154 H-1: turn the selected porkchop cell into a
                 // `PlannedTransfer` and let the player commit it.  Until
                 // this branch was added the panel only displayed the
@@ -4530,7 +4737,9 @@ pub(super) fn render_transfer_planner(
                                 burn_time_s: 0.0,
                                 plane_change_dv_ms: 0.0,
                                 is_thrust_limited: false,
-                                transfer_orbit_override: cell.transfer_orbit.clone(),
+                                // `cell.transfer_orbit` is `Option<KeplerOrbit>`
+                                // (Copy); pass by value instead of cloning.
+                                transfer_orbit_override: cell.transfer_orbit,
                             };
                             // Porkchop grids are only built for body
                             // targets (planets/moons) — never stars —
@@ -7261,5 +7470,64 @@ mod tests {
         let body_query = query_state.query(&world);
         // Must not panic; result may be None or Some.
         let _ = super::heliocentric_orbit_for_body(sol, &body_query);
+    }
+
+    // ── Porkchop staleness regression test (GRA-152 follow-up) ─────────────
+    //
+    // User report: when the player lets time advance, the porkchop's
+    // "starting point" tick stays anchored to the time the grid was
+    // built, so closing and reopening the planner shows a stale ΔV
+    // for "Depart Now" cells.  Fix: invalidate the cached grid once
+    // the sim has advanced past `PORKCHOP_STALENESS_THRESHOLD_S` so
+    // the next frame rebuilds it against the current epoch.
+
+    #[test]
+    fn porkchop_staleness_returns_true_after_threshold() {
+        // Built 4 days ago, sim time has advanced 4 days past that
+        // build: clearly past the 3-day threshold.
+        let built = 0.0;
+        let elapsed = 4.0 * 86_400.0;
+        assert!(super::porkchop_grid_is_stale(Some(built), elapsed));
+    }
+
+    #[test]
+    fn porkchop_staleness_returns_false_within_threshold() {
+        // Built 1 day ago: inside the 3-day threshold.
+        let built = 1_000.0;
+        let elapsed = built + 1.0 * 86_400.0;
+        assert!(!super::porkchop_grid_is_stale(Some(built), elapsed));
+    }
+
+    #[test]
+    fn porkchop_staleness_returns_false_at_threshold_boundary() {
+        // Exactly at the threshold — should NOT invalidate (the
+        // comparator is strict `>`, not `>=`, so a grid built exactly
+        // 3 days ago is still considered fresh).
+        let built = 0.0;
+        let elapsed = 3.0 * 86_400.0;
+        assert!(
+            !super::porkchop_grid_is_stale(Some(built), elapsed),
+            "exactly 3 days = exactly at threshold = not stale"
+        );
+    }
+
+    #[test]
+    fn porkchop_staleness_returns_false_when_no_build_epoch() {
+        // No grid has ever been built — the deferred-build path
+        // handles that, not the staleness path.  We must NOT
+        // misreport a stale grid when no build epoch exists.
+        assert!(!super::porkchop_grid_is_stale(None, 1.0e9));
+    }
+
+    #[test]
+    fn porkchop_staleness_handles_time_reversal() {
+        // If the player uses a debug command to rewind time, `elapsed`
+        // can land *before* `built`.  The `abs()` guard means we
+        // still recognise staleness in that direction (the build is
+        // 4 days in the future relative to `elapsed`, which is just
+        // as stale as 4 days in the past).
+        let built = 4.0 * 86_400.0;
+        let elapsed = 0.0;
+        assert!(super::porkchop_grid_is_stale(Some(built), elapsed));
     }
 }

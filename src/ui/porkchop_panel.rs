@@ -24,8 +24,21 @@ use bevy_egui::egui::{self, Color32, Pos2, Rect, Response, Sense, Stroke, Ui, Ve
 pub(crate) const SECONDS_PER_DAY: f64 = 86_400.0;
 pub(crate) const SECONDS_PER_YEAR: f64 = 365.25 * SECONDS_PER_DAY;
 
+/// Minimum ΔV span (km/s) below which we do *not* stretch the colormap
+/// across the grid range.  Real interplanetary porkchops always span
+/// more than 0.5 km/s, so this floor only matters for degenerate grids
+/// (e.g. local transfers where every feasible cell lands on the same
+/// Hohmann ΔV).  Without the floor those grids would wash out to a
+/// near-uniform colour band; with it they keep their nominal colormap
+/// band so the user still sees useful variation.
+const COLORMAP_MIN_SPAN_KM_S: f64 = 0.5;
+
 /// Selected-cell index in the grid.  Persisted on the `FleetUiState`
 /// (`fleet_ui_state.selected_porkchop_cell: Option<(usize, usize)>`).
+///
+/// Returns `Response` so callers can chain egui interactions
+/// (e.g. `on_hover_text` for a status-bar tooltip) on top of the
+/// in-canvas hover hint.
 pub fn porkchop_panel(
     ui: &mut Ui,
     grid: &PorkchopGrid,
@@ -46,8 +59,27 @@ pub fn porkchop_panel(
         }
     }
 
+    // Compute the colormap ΔV range from the grid's *feasible* cells
+    // (NASA/JPL-style relative colormap).  Without this, a porkchop
+    // whose ΔV band sits entirely in the red half of the absolute
+    // colormap would render almost uniformly red — the user reported
+    // this as "color always looks quite uniform, not so much green to
+    // red".  Stretching the colormap onto the grid's actual min/max
+    // makes the gradient readable across every transfer type (Earth↔
+    // Mars, deep-space, Jupiter moons).
+    let grid_dv_range = compute_grid_dv_range(grid);
+    let color_stops = resample_colormap(cfg, grid_dv_range);
+
+    // Hover + click.  `Sense::hover()` alone ignores clicks (the user
+    // reported they "couldn't click any other tile"), and
+    // `Sense::click_and_drag()` only reports `interact_pointer_pos`
+    // while a button is held (which hid the tooltip behind "hold left
+    // mouse button").  Combining the two with `|` keeps `hover_pos()`
+    // populated as the pointer moves freely *and* makes `clicked()`
+    // fire on a normal left-click.
     let desired_size = Vec2::new(ui.available_width().max(320.0), 240.0);
-    let (resp, painter) = ui.allocate_painter(desired_size, Sense::click_and_drag());
+    let (resp, painter) =
+        ui.allocate_painter(desired_size, Sense::click() | Sense::hover());
     let plot_rect = resp.rect;
 
     // Background
@@ -67,6 +99,20 @@ pub fn porkchop_panel(
     let cell_w = grid_rect.width() / cols as f32;
     let cell_h = grid_rect.height() / rows as f32;
 
+    // Compute the (col, row) of the cell currently under the cursor.
+    // `hover_pos()` is filled by `Sense::hover` whenever the pointer
+    // is over the response rect — no button held — which is what
+    // makes the per-cell tooltip actually appear when the user simply
+    // sweeps the mouse across the porkchop.
+    let hover_cell: Option<(usize, usize)> = resp
+        .hover_pos()
+        .filter(|pos| grid_rect.contains(*pos))
+        .map(|pos| {
+            let col = ((pos.x - grid_rect.left()) / cell_w) as usize;
+            let row = ((pos.y - grid_rect.top()) / cell_h) as usize;
+            (col.min(cols - 1), row.min(rows - 1))
+        });
+
     // 1. Cells (coloured rects)
     for row in 0..rows {
         for col in 0..cols {
@@ -78,8 +124,30 @@ pub fn porkchop_panel(
                 ),
                 Vec2::new(cell_w, cell_h),
             );
-            let color = cell_color(cell, cfg, fleet_max_dv_ms);
+            let color = cell_color(cell, &color_stops, grid_dv_range, fleet_max_dv_ms);
             painter.rect_filled(rect, 0.0, color);
+        }
+    }
+
+    // 1b. Hover highlight — drawn AFTER the cell fill but BEFORE the
+    // selection outline so the selection always wins when both apply.
+    // The highlight is a thin semi-transparent white outline so it
+    // reads against every colormap band (green, yellow, red, greyed).
+    if let Some((hc, hr)) = hover_cell {
+        if Some((hc, hr)) != *selected {
+            let rect = Rect::from_min_size(
+                Pos2::new(
+                    grid_rect.left() + hc as f32 * cell_w,
+                    grid_rect.top() + hr as f32 * cell_h,
+                ),
+                Vec2::new(cell_w, cell_h),
+            );
+            painter.rect_stroke(
+                rect,
+                0.0,
+                Stroke::new(1.5, Color32::from_white_alpha(180)),
+                egui::StrokeKind::Inside,
+            );
         }
     }
 
@@ -147,13 +215,20 @@ pub fn porkchop_panel(
     let label_color = theme::TEXT_DIM;
     let label_size = 10.0;
     let font_id = egui::FontId::proportional(label_size);
-    // X-axis: 5 ticks
+    // X-axis: 5 ticks.  The label shows "Now" instead of "+0 d" for
+    // the t_dep = 0 tick so the player can see at a glance that the
+    // leftmost column is "depart immediately" rather than the
+    // optimal-window departure date.
     for i in 0..=4 {
         let frac = i as f64 / 4.0;
         let t_dep_s = t_dep_min + frac * (t_dep_max - t_dep_min);
         let days = t_dep_s / SECONDS_PER_DAY;
         let x = grid_rect.left() + (frac as f32) * grid_rect.width();
-        let label = format!("{days:+.0} d");
+        let label = if days.abs() < 0.5 {
+            "Now".to_owned()
+        } else {
+            format!("{days:+.0} d")
+        };
         painter.text(
             Pos2::new(x, grid_rect.bottom() + 4.0),
             egui::Align2::CENTER_TOP,
@@ -197,43 +272,100 @@ pub fn porkchop_panel(
         label_color,
     );
 
-    // 6. Click handler — set the selected cell.
-    if let Some(pos) = resp.interact_pointer_pos() {
-        if grid_rect.contains(pos) {
-            let col = ((pos.x - grid_rect.left()) / cell_w) as usize;
-            let row = ((pos.y - grid_rect.top()) / cell_h) as usize;
-            let col = col.min(cols - 1);
-            let row = row.min(rows - 1);
-            if resp.clicked() || resp.drag_started() {
-                let cell = &grid.cells[row * cols + col];
-                if cell.feasible {
-                    *selected = Some((col, row));
-                }
-            }
-            // Hover tooltip — show for ANY hovered feasible cell (not just
-            // the selected one).  The previous contract only painted the
-            // tooltip when the hovered cell matched `*selected`, which
-            // meant the user had to first click a cell, then move the mouse
-            // over it again to see the values.  That hid the porkchop's
-            // most useful affordance (browsing ΔV across the t_dep × t_tof
-            // plane) behind a click.  Now hovering any feasible cell
-            // paints its (t_dep, t_tof, ΔV, C3, v∞, ETA) tooltip inline
-            // at the cursor.
-            let cell = &grid.cells[row * cols + col];
+    // 6. Click + hover tooltip — set the selected cell and show a
+    // per-cell tooltip at the cursor.
+    //
+    // `Sense::hover` reports `hover_pos()` whenever the pointer is
+    // over the response rect (no button held), which is what makes
+    // the tooltip appear the moment the user sweeps the mouse across
+    // the porkchop.  Click handling stays the same: a click on a
+    // feasible cell moves `*selected` to that cell, which downstream
+    // systems (trajectory preview, Execute button) read.
+    if let Some((hc, hr)) = hover_cell {
+        if resp.clicked() {
+            let cell = &grid.cells[hr * cols + hc];
             if cell.feasible {
-                let tooltip = format_cell_tooltip(cell);
-                painter.text(
-                    pos + Vec2::new(8.0, -8.0),
-                    egui::Align2::LEFT_BOTTOM,
-                    tooltip,
-                    egui::FontId::proportional(11.0),
-                    theme::TEXT,
-                );
+                *selected = Some((hc, hr));
+            }
+        }
+        let cell = &grid.cells[hr * cols + hc];
+        if cell.feasible {
+            // Tooltip rendered with a solid dark backdrop so it stays
+            // readable over the brightest colormap cells (red, yellow).
+            // The previous implementation painted bare `theme::TEXT`
+            // on top of the cell colour, which was illegible on the
+            // green/white end of the gradient.  We pass `plot_rect` so
+            // the tooltip can clamp inside the panel and flip above
+            // the cursor when there's no room below.
+            if let Some(pos) = resp.hover_pos() {
+                draw_cell_tooltip(&painter, pos, plot_rect, cell);
             }
         }
     }
 
     resp
+}
+
+/// Paint a small dark rounded-rect backdrop with the per-cell stats in
+/// the foreground.  Drawn near the cursor but clamped inside the
+/// caller-provided `plot_rect` so the tooltip never spills off the
+/// porkchop panel — and flipped *above* the cursor when in the lower
+/// half of the grid so it never sits on top of the cell the player
+/// is trying to inspect (this was the second bug: the tooltip
+/// disappeared when hovering the bottom rows because it anchored
+/// below the cursor and got clipped by the panel edge).
+fn draw_cell_tooltip(
+    painter: &egui::Painter,
+    cursor: Pos2,
+    plot_rect: Rect,
+    cell: &PorkchopCell,
+) {
+    let tooltip = format_cell_tooltip(cell);
+    let font = egui::FontId::proportional(11.0);
+    let pad = Vec2::new(6.0, 4.0);
+    let galley = painter.layout_no_wrap(tooltip.clone(), font.clone(), theme::TEXT);
+    let tooltip_size = Vec2::new(
+        galley.size().x + pad.x * 2.0,
+        galley.size().y + pad.y * 2.0,
+    );
+    // Default anchor: down-and-right of the cursor.  Flip above the
+    // cursor when there's more room up there than below, so the
+    // tooltip stays visible for cells in the bottom rows.
+    let below_room = plot_rect.bottom() - cursor.y;
+    let above_room = cursor.y - plot_rect.top();
+    let anchor = if below_room < tooltip_size.y + 12.0
+        && above_room > tooltip_size.y + 12.0
+    {
+        cursor + Vec2::new(10.0, -tooltip_size.y - 10.0)
+    } else {
+        cursor + Vec2::new(10.0, 10.0)
+    };
+    let mut rect = Rect::from_min_size(anchor, tooltip_size);
+    // Clamp horizontally so the tooltip never spills off the right
+    // edge of the panel.  When the cursor sits in the rightmost
+    // column we shift the tooltip to the left of the cursor instead.
+    if rect.right() > plot_rect.right() {
+        let shift = rect.right() - plot_rect.right();
+        rect = rect.translate(Vec2::new(-shift, 0.0));
+    }
+    if rect.left() < plot_rect.left() {
+        let shift = plot_rect.left() - rect.left();
+        rect = rect.translate(Vec2::new(shift, 0.0));
+    }
+    painter.rect_filled(rect, 3.0, Color32::from_black_alpha(220));
+    painter.rect_stroke(
+        rect,
+        3.0,
+        Stroke::new(1.0, Color32::from_white_alpha(80)),
+        egui::StrokeKind::Inside,
+    );
+    painter.text(
+        rect.min + pad,
+        egui::Align2::LEFT_TOP,
+        tooltip,
+        font,
+        theme::TEXT,
+    );
 }
 
 fn draw_dashed_vertical(painter: &egui::Painter, x: f32, top: f32, bottom: f32, color: Color32) {
@@ -247,14 +379,19 @@ fn draw_dashed_vertical(painter: &egui::Painter, x: f32, top: f32, bottom: f32, 
     }
 }
 
-fn cell_color(cell: &PorkchopCell, cfg: &PorkchopConfig, fleet_max_dv_ms: f64) -> Color32 {
+fn cell_color(
+    cell: &PorkchopCell,
+    color_stops: &[crate::fleets::PorkchopColorStop],
+    grid_dv_range: Option<(f64, f64)>,
+    fleet_max_dv_ms: f64,
+) -> Color32 {
     if !cell.feasible {
         // Infeasible cell: muted dim grey, lower-alpha than the colormap
         // stops so the player's eye is drawn to the feasible basin.
         return theme::TEXT_HINT.linear_multiply(0.5);
     }
-    let dv_km_s = (cell.total_dv_ms / 1000.0).clamp(0.0, cfg.display_max_dv_km_s);
-    let c = sample_colormap(&cfg.colormap, dv_km_s);
+    let dv_km_s = cell.total_dv_ms / 1000.0;
+    let c = sample_relative_colormap(color_stops, dv_km_s, grid_dv_range);
     // Mark out-of-budget cells (fleet ΔV too low) with a red tint.
     // We add a red offset to the colormap colour rather than swapping it
     // outright so the player can still see *which* ΔV band the cell sits
@@ -265,35 +402,123 @@ fn cell_color(cell: &PorkchopCell, cfg: &PorkchopConfig, fleet_max_dv_ms: f64) -
     c
 }
 
-fn sample_colormap(stops: &[crate::fleets::PorkchopColorStop], dv_km_s: f64) -> Color32 {
+/// ΔV range (km/s) of the grid's feasible cells, used to remap the
+/// colormap stops.  Returns `None` when the grid has no feasible cells
+/// (the caller falls back to the absolute colormap).
+fn compute_grid_dv_range(grid: &PorkchopGrid) -> Option<(f64, f64)> {
+    let mut min_dv = f64::INFINITY;
+    let mut max_dv = f64::NEG_INFINITY;
+    for cell in &grid.cells {
+        if !cell.feasible || !cell.total_dv_ms.is_finite() {
+            continue;
+        }
+        let dv_km_s = cell.total_dv_ms / 1000.0;
+        if dv_km_s < min_dv {
+            min_dv = dv_km_s;
+        }
+        if dv_km_s > max_dv {
+            max_dv = dv_km_s;
+        }
+    }
+    if !min_dv.is_finite() || !max_dv.is_finite() {
+        return None;
+    }
+    // Floor on the span so degenerate grids (all feasible cells
+    // clustered on one Hohmann ΔV) don't wash out to a uniform colour
+    // band.  When the real span is below the floor we expand the
+    // [min, max] window symmetrically around its midpoint.
+    let span = max_dv - min_dv;
+    if span < COLORMAP_MIN_SPAN_KM_S {
+        let mid = 0.5 * (min_dv + max_dv);
+        let half = COLORMAP_MIN_SPAN_KM_S * 0.5;
+        min_dv = mid - half;
+        max_dv = mid + half;
+    }
+    Some((min_dv.max(0.0), max_dv))
+}
+
+/// Re-sample the configured colormap onto the grid's ΔV range.  We
+/// keep the same colour stops (green → yellow → red) but stretch
+/// their `delta_v_km_s` anchors onto `[min_dv, max_dv]`.  This makes
+/// every feasible cell cover the full gradient, no matter whether the
+/// transfer is a low-energy Earth↔Moon hop or a high-energy Mars
+/// opposition burn.
+fn resample_colormap(
+    cfg: &PorkchopConfig,
+    range: Option<(f64, f64)>,
+) -> Vec<crate::fleets::PorkchopColorStop> {
+    let Some((min_dv, max_dv)) = range else {
+        return cfg.colormap.clone();
+    };
+    if cfg.colormap.is_empty() {
+        return cfg.colormap.clone();
+    }
+    // Drop the +∞ sentinel — its only role was to colour infeasible
+    // cells, which we now draw separately in `cell_color`.
+    let finite_stops: Vec<&crate::fleets::PorkchopColorStop> = cfg
+        .colormap
+        .iter()
+        .filter(|s| s.delta_v_km_s.is_finite())
+        .collect();
+    if finite_stops.is_empty() {
+        return cfg.colormap.clone();
+    }
+    let span = (max_dv - min_dv).max(COLORMAP_MIN_SPAN_KM_S);
+    let first_dv = finite_stops[0].delta_v_km_s;
+    let last_dv = finite_stops.last().unwrap().delta_v_km_s;
+    let finite_span = (last_dv - first_dv).max(1e-9);
+    let remap = |original: f64| -> f64 {
+        let t = ((original - first_dv) / finite_span).clamp(0.0, 1.0);
+        min_dv + t * span
+    };
+    let mut out: Vec<crate::fleets::PorkchopColorStop> = finite_stops
+        .iter()
+        .map(|s| crate::fleets::PorkchopColorStop {
+            delta_v_km_s: remap(s.delta_v_km_s),
+            rgba: s.rgba,
+        })
+        .collect();
+    // Restore the +∞ sentinel at the end so `sample_relative_colormap`
+    // can keep using the same +∞-as-sentinel convention.
+    if let Some(last_cfg) = cfg.colormap.iter().find(|s| !s.delta_v_km_s.is_finite()) {
+        out.push(*last_cfg);
+    }
+    out
+}
+
+/// Sample the (possibly resampled) colormap at a ΔV value in km/s.
+/// Mirrors `sample_colormap` but supports a `None` `grid_dv_range` for
+/// the absolute-fallback path.
+fn sample_relative_colormap(
+    stops: &[crate::fleets::PorkchopColorStop],
+    dv_km_s: f64,
+    _grid_dv_range: Option<(f64, f64)>,
+) -> Color32 {
     if stops.is_empty() {
         return Color32::GRAY;
     }
+    let dv = if dv_km_s.is_finite() { dv_km_s } else { 0.0 };
     // Below the first stop: clamp to the first stop's colour.
-    if dv_km_s <= stops[0].delta_v_km_s {
+    if dv <= stops[0].delta_v_km_s {
         return theme::color32_from_rgba(stops[0].rgba);
     }
-    // Walk adjacent stop pairs; the last stop is the +∞ sentinel and
-    // colours everything above the last finite stop.
+    // Walk adjacent stop pairs; the last stop may be a +∞ sentinel.
     for window in stops.windows(2) {
         let a = &window[0];
         let b = &window[1];
-        if dv_km_s <= b.delta_v_km_s {
-            // +∞ sentinel: the b stop *is* the colour above the last
-            // finite ΔV — no interpolation, no division by +INF.
+        if dv <= b.delta_v_km_s {
             if !b.delta_v_km_s.is_finite() {
                 return theme::color32_from_rgba(b.rgba);
             }
             let span = b.delta_v_km_s - a.delta_v_km_s;
             let t = if span > 0.0 {
-                ((dv_km_s - a.delta_v_km_s) / span) as f32
+                ((dv - a.delta_v_km_s) / span) as f32
             } else {
                 0.0
             };
             return theme::lerp_rgba(a.rgba, b.rgba, t);
         }
     }
-    // Above the last stop (defensive — the +∞ branch should have caught it).
     theme::color32_from_rgba(stops.last().unwrap().rgba)
 }
 
@@ -328,8 +553,9 @@ mod tests {
     #[test]
     fn sample_colormap_interpolates_between_stops() {
         let cfg = PorkchopConfig::default();
-        // 2.0 km/s should be between the 0.0 (green) and 4.0 (yellow) stops.
-        let c = sample_colormap(&cfg.colormap, 2.0);
+        // No grid range ⇒ absolute colormap.  2.0 km/s should sit
+        // between the 0.0 (green) and 4.0 (yellow) stops.
+        let c = sample_relative_colormap(&cfg.colormap, 2.0, None);
         let r = c.r();
         // Green is (40, 200, 80), yellow is (220, 200, 60).  At 50% interp
         // the green channel is somewhere between 40 and 220.
@@ -345,7 +571,7 @@ mod tests {
         // values internally — `c.r()` returns `round(r * a / 255)`,
         // not the raw `r`.  See the `premul` helper above.
         let stop = cfg.colormap.first().expect("default colormap has stops");
-        let c = sample_colormap(&cfg.colormap, -1.0);
+        let c = sample_relative_colormap(&cfg.colormap, -1.0, None);
         assert_eq!((c.r(), c.g(), c.b(), c.a()), premul(stop.rgba));
     }
 
@@ -358,7 +584,77 @@ mod tests {
             .iter()
             .find(|s| !s.delta_v_km_s.is_finite())
             .expect("default colormap has +∞ sentinel stop");
-        let c = sample_colormap(&cfg.colormap, 1000.0);
+        let c = sample_relative_colormap(&cfg.colormap, 1000.0, None);
         assert_eq!((c.r(), c.g(), c.b(), c.a()), premul(stop.rgba));
+    }
+
+    #[test]
+    fn relative_colormap_stretches_onto_grid_range() {
+        // Simulate an Earth↔Mars porkchop whose feasible ΔV band sits
+        // entirely in [6.0, 9.0] km/s.  Without the relative colormap
+        // the absolute 0–15 km/s gradient would render every cell in
+        // the orange band; with it the gradient spans the full
+        // green→red ramp.
+        let cfg = PorkchopConfig::default();
+        let range = Some((6.0_f64, 9.0_f64));
+        let stops = resample_colormap(&cfg, range);
+        // First finite stop should now anchor at 6.0 km/s.
+        assert!((stops[0].delta_v_km_s - 6.0).abs() < 1e-9);
+        // Last finite stop should anchor at 9.0 km/s.
+        let last_finite = stops
+            .iter()
+            .rev()
+            .find(|s| s.delta_v_km_s.is_finite())
+            .expect("resampled colormap has finite stops");
+        assert!((last_finite.delta_v_km_s - 9.0).abs() < 1e-9);
+        // Min cell colour should be the green band.
+        let c_min = sample_relative_colormap(&stops, 6.0, range);
+        let r = c_min.r();
+        assert!(r < 100, "min ΔV should sample the green end: r={r}");
+        // Max cell colour should be the red band.
+        let c_max = sample_relative_colormap(&stops, 9.0, range);
+        let r = c_max.r();
+        assert!(r > 150, "max ΔV should sample the red end: r={r}");
+    }
+
+    #[test]
+    fn relative_colormap_floor_on_degenerate_grid() {
+        // A degenerate grid with all cells at ΔV ≈ 7.5 km/s has a span
+        // below the colormap floor; the range should be expanded
+        // symmetrically so the colormap still produces visible
+        // variation rather than a uniform fill.
+        let range = compute_grid_dv_range_for_tests(&[7.5, 7.5, 7.5]);
+        let (lo, hi) = range.expect("non-empty");
+        assert!(hi - lo >= COLORMAP_MIN_SPAN_KM_S - 1e-9);
+    }
+
+    /// Test-only helper mirroring `compute_grid_dv_range` for arrays
+    /// of ΔV values in km/s.  Used by `relative_colormap_floor_on_
+    /// degenerate_grid` to avoid constructing a full `PorkchopGrid`.
+    fn compute_grid_dv_range_for_tests(dvs_km_s: &[f64]) -> Option<(f64, f64)> {
+        let mut min_dv = f64::INFINITY;
+        let mut max_dv = f64::NEG_INFINITY;
+        for &dv in dvs_km_s {
+            if !dv.is_finite() {
+                continue;
+            }
+            if dv < min_dv {
+                min_dv = dv;
+            }
+            if dv > max_dv {
+                max_dv = dv;
+            }
+        }
+        if !min_dv.is_finite() || !max_dv.is_finite() {
+            return None;
+        }
+        let span = max_dv - min_dv;
+        if span < COLORMAP_MIN_SPAN_KM_S {
+            let mid = 0.5 * (min_dv + max_dv);
+            let half = COLORMAP_MIN_SPAN_KM_S * 0.5;
+            min_dv = mid - half;
+            max_dv = mid + half;
+        }
+        Some((min_dv.max(0.0), max_dv))
     }
 }
