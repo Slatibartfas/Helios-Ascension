@@ -246,6 +246,15 @@ pub struct FleetUiState {
     /// a configurable threshold (see `PORKCHOP_STALENESS_THRESHOLD_S`
     /// below).  `None` when no grid is cached.
     pub porkchop_built_at_s: Option<f64>,
+    /// Wall-clock epoch (real-time seconds since Bevy startup) the
+    /// cached porkchop grid was built at.  Used as the real-time
+    /// floor in `porkchop_grid_is_stale`: the staleness check
+    /// requires *both* the sim-time cap and the real-time floor to
+    /// fire, so at intermediate sim speeds (1 wk/s, 1 day/s) the
+    /// grid refreshes at least once per real second rather than
+    /// waiting 52-72 real seconds for the sim-time cap alone to
+    /// trigger.  `None` when no grid is cached.
+    pub porkchop_last_real_build_s: Option<f64>,
     /// `(col, row)` index of the player-selected cell in `porkchop_grid`.
     pub selected_porkchop_cell: Option<(usize, usize)>,
     /// Fully assembled transfer plan ready for execution (if any).
@@ -292,6 +301,7 @@ impl FleetUiState {
         self.porkchop_grid = None;
         self.porkchop_built_for = None;
         self.porkchop_built_at_s = None;
+        self.porkchop_last_real_build_s = None;
         self.selected_porkchop_cell = None;
         self.planned_transfer = None;
         self.selected_option = 0;
@@ -343,6 +353,7 @@ impl FleetUiState {
         self.porkchop_grid = None;
         self.porkchop_built_for = None;
         self.porkchop_built_at_s = None;
+        self.porkchop_last_real_build_s = None;
         self.selected_porkchop_cell = None;
     }
 }

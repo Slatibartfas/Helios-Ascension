@@ -56,22 +56,39 @@
         // cell grid to complete in <400 ms, wide enough that the
         // cheapest cell is always within the visible grid.
         t_dep_window_days: 60.0,
-        // TOF: 0.4× → 2.5× Hohmann time. The 0.4 floor prevents the
+        // TOF: 0.4× → 5.0× Hohmann time.  The 0.4 floor prevents the
         // player from picking a sub-orbital "transfer" that
-        // Lambert's solver would reject; the 2.5 ceiling keeps
-        // energy-bounded solutions from drifting into escape-class
-        // transfers.
+        // Lambert's solver would reject.  The 5.0 ceiling (raised
+        // from 2.5 in the v0.5.0 follow-up) was extended because
+        // the old cap routinely truncated the cheap-transfer basin
+        // for outer-planet transfers — a Hohmann-optimal Earth→Mars
+        // window sits at ≈1.0× Hohmann time (258 d), but several
+        // lower-ΔV long-arc options (bi-elliptic with an apoapsis
+        // boost at Mars orbit, slow Hohmann-like transfers that
+        // catch a more favourable synodic phase) live out at 2–4×
+        // Hohmann time.  Without the wider cap the planner showed
+        // the red top of the basin and the player concluded
+        // "nothing useful above TOF = 200 d" when the real options
+        // were sitting just past the visible boundary.  5.0× is
+        // still bounded by `tof_ceiling_years = 10` (~ 14.25 yr
+        // for Earth→Jupiter) so the grid stays useful for fast
+        // rebuilds.
         tof_min_hohmann_factor: 0.4,
-        tof_max_hohmann_factor: 2.5,
+        tof_max_hohmann_factor: 5.0,
         tof_floor_days: 5.0,
         tof_ceiling_years: 10.0,
-        // Resolution: 40 cols (t_dep) × 30 rows (tof) = 1200 cells.
-        // Worst case at 0.3 ms/cell → 360 ms, fits inside a single
-        // recompute budget. Caching is keyed on (origin, dest,
-        // sim_time_bucket), so a re-pan recomputes only when the
-        // player actually moves the window.
+        // Resolution: 40 cols (t_dep) × 50 rows (tof) = 2000 cells.
+        // Bumped from 30 rows so the wider 5.0× TOF range still
+        // has useful per-row detail: at Earth→Mars (Hohmann ≈ 258 d)
+        // each row now spans (1290 − 103) / 50 ≈ 23.7 d, comparable
+        // to the previous (645 − 103) / 30 ≈ 18.1 d.  2000 cells
+        // is well within the 5000-cell budget enforced by
+        // `porkchop_config.ron` validator rule #1, and the rebuild
+        // budget at 0.3 ms/cell is ~600 ms worst-case — still under
+        // 1 s on a 4-core host, matching the rebuild cadence the
+        // 1 yr/s staleness cap targets.
         resolution_t_dep: 40,
-        resolution_tof: 30,
+        resolution_tof: 50,
         // C3 ceiling (km²/s²) above which a cell is rendered as
         // red "infeasible" and is not selectable. Picked to
         // match the helios theme's RED palette transition; the

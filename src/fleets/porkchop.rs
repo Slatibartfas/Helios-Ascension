@@ -470,11 +470,11 @@ mod tests {
             defaults: crate::fleets::PorkchopGridDefaults {
                 t_dep_window_days: 60.0,
                 tof_min_hohmann_factor: 0.4,
-                tof_max_hohmann_factor: 2.5,
+                tof_max_hohmann_factor: 5.0,
                 tof_floor_days: 5.0,
                 tof_ceiling_years: 10.0,
                 resolution_t_dep: 80,
-                resolution_tof: 30,
+                resolution_tof: 50,
                 c3_ceiling_km2_s2: 400.0,
             },
             ..PorkchopConfig::default()
@@ -763,17 +763,18 @@ pub fn build_grid_for_body_target(
 /// Build a *rotating-buffer* porkchop grid covering a 2× wider
 /// `t_dep` window than the visible planner surface.
 ///
-/// The buffer is 2× the normal `t_dep_window_days` so the planner
-/// can render the *current* half (the leftmost cells) while the
-/// rightmost cells cache the future.  As time advances the planner
-/// scrolls the visible window rightward through the buffer; once
-/// the buffer's "future" half is exhausted it invalidates and
-/// rebuilds.  Within the window the planner never re-solves
-/// Lambert — the ΔV surface is invariant under rotation, so the
-/// cached values stay accurate as planet positions shift with mean
-/// motion.  This eliminates the per-second rebuild cadence that
-/// the cap-based staleness check hit at 1 yr/s, replacing it with
-/// one rebuild every `t_dep_window_days` of player time.
+/// The buffer has 2× the columns of the visible planner surface, so
+/// the planner can render the *current* half (the leftmost cells)
+/// while the rightmost cells cache the future.  As time advances
+/// the planner scrolls the visible window rightward through the
+/// buffer; once the buffer's "future" half is exhausted it
+/// invalidates and rebuilds.  Within the window the planner never
+/// re-solves Lambert — the ΔV surface is invariant under rotation,
+/// so the cached values stay accurate as planet positions shift
+/// with mean motion.  This eliminates the per-second rebuild
+/// cadence that the cap-based staleness check hit at 1 yr/s,
+/// replacing it with one rebuild every `t_dep_window_days` of
+/// player time.
 pub fn build_rotating_buffer_for_body_target(
     cfg: &PorkchopConfig,
     origin_orbit: KeplerOrbit,

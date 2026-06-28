@@ -2216,6 +2216,7 @@ pub(super) fn ui_transfer_planner_popup(
     current_system: Res<CurrentStarSystem>,
     nearby_stars: Res<NearbyStarsData>,
     porkchop_config: Res<crate::fleets::PorkchopConfig>,
+    real_time: Res<Time<Real>>,
 ) {
     if !fleet_ui_state.show_transfer_popup {
         return;
@@ -2269,6 +2270,7 @@ pub(super) fn ui_transfer_planner_popup(
     };
 
     let elapsed = sim_time.elapsed_seconds();
+    let real_now_s = real_time.elapsed_secs() as f64;
     let current_system_id = current_system.0;
 
     // `open` is a separate local bool — `Window::open()` sets it to false when
@@ -2310,6 +2312,7 @@ pub(super) fn ui_transfer_planner_popup(
                         sim_time.current_timestamp(),
                         course_correction_sc,
                         &porkchop_config,
+                        real_now_s,
                     );
                 });
         });

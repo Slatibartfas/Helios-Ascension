@@ -47,23 +47,62 @@ const PLANETARY_FLYBY_RADIUS_KM_MULTIPLIER: f64 = 3_000.0; // = 1_000 m/km × 3
 /// ~360 ms) so we don't rebuild every frame.
 const PORKCHOP_STALENESS_REAL_S: f64 = 72.0;
 
+/// Upper bound on the staleness threshold in *sim* seconds, used to
+/// cap the `time_scale`-scaled real-time floor at extreme speeds.
+///
+/// Without this cap the staleness grows linearly with `time_scale`,
+/// so at 1 yr/s (`time_scale = 31_557_600`) the grid stays cached
+/// for 72 *sim years* — the player watches the "Depart Now" column
+/// stay frozen even though the planets have orbited a full year.
+/// At 1 yr/s, 1 sim year = 1 real second of wall clock, so a cap of
+/// one sim year means the planner refreshes the grid every ~1 real
+/// second, which is fast enough to keep the on-screen porkchop in
+/// sync with the rapidly-changing planet alignments.
+///
+/// At low/medium speeds the cap never binds because the scaled
+/// threshold is already smaller:
+///   * paused: 72 sim sec (≈ minutes of wall time).
+///   * 1 hr/s: 259_200 sim sec = 3 sim days.
+///   * 1 day/s: 6_220_800 sim sec = 72 sim days — the cap (1 sim
+///     year = 31_557_600 sim sec) starts to bind here for the first
+///     time, knocking 72 sim days down to 1 sim year (≈ 1 real sec).
+///   * 1 yr/s: 2_270_000_000 sim sec = 72 sim years → cap (1 sim
+///     year) binds, refreshing every ~1 real second.
+const PORKCHOP_STALENESS_MAX_SIM_S: f64 = 31_557_600.0;
+
 /// Pure-function helper: should the cached porkchop grid be invalidated
 /// because `elapsed` has drifted too far from the build epoch?
 ///
-/// The threshold is in *real-time* seconds (`PORKCHOP_STALENESS_REAL_S`)
-/// multiplied by `time_scale` so the planner rebuilds the grid after
-/// a fixed wall-clock interval regardless of how fast the simulation
-/// is running.  At 1 hr/s (`time_scale = 3600`) the threshold is
-/// `72 × 3600 = 259_200 sim seconds = 3 days`.  At 1 yr/s
-/// (`time_scale = 31_557_600`) it scales to `72 × 31_557_600 ≈ 2.27
-/// billion sim seconds ≈ 72 years`, so the staleness won't fire on
-/// a single click even at extreme speeds.
+/// The threshold is `PORKCHOP_STALENESS_REAL_S × time_scale`, capped
+/// at `PORKCHOP_STALENESS_MAX_SIM_S` so high sim speeds can't grow
+/// the staleness window into "the grid is frozen for the entire
+/// play session" territory.  At 1 yr/s the scaled threshold would be
+/// 72 sim years; the cap clamps it to 1 sim year = 1 real second of
+/// wall clock, so the on-screen porkchop refreshes roughly once per
+/// second instead of never.  At low/medium speeds the cap never binds
+/// and the existing per-speed cadence is preserved (3 sim days at
+/// 1 hr/s, 72 sim days at 1 day/s).
 ///
-/// Returns `true` only when both `built_at` and the cached grid are
-/// present — i.e. a grid *exists* and is older than the threshold.
-/// Returning `false` for `built_at = None` is intentional: a fresh
-/// build (no grid yet) is handled by the deferred-build path, not
-/// the staleness path.
+/// Real-time floor: at intermediate speeds (1 wk/s, 1 day/s) the
+/// sim-time cap alone would still gate the rebuild on a *sim-time*
+/// interval — at 1 wk/s that's 52 real seconds, at 1 day/s 72 real
+/// seconds — long enough that the on-screen ΔV basin looks static
+/// even though the sim is moving a week per real second.  The
+/// real-time floor requires *at least* `PORKCHOP_STALENESS_REAL_FLOOR_S`
+/// of wall-clock seconds between rebuilds in addition to the sim-time
+/// cap, so at intermediate speeds the grid refreshes every real
+/// second (when sim drift has also exceeded the cap) and at extreme
+/// speeds the cap binds first.  Both timers must fire for the grid
+/// to be marked stale — the real-time guard prevents firing on
+/// every frame at 1 yr/s, while the sim-time cap prevents firing
+/// on every real second at 1 hr/s (where one real second = one sim
+/// hour, well inside the 3-day threshold).
+///
+/// Returns `true` only when `built_at` is present, the cached grid
+/// is present, and both timers exceed their thresholds.  Returning
+/// `false` for `built_at = None` is intentional: a fresh build
+/// (no grid yet) is handled by the deferred-build path, not the
+/// staleness path.
 ///
 /// Public-ish (crate-private with a `pub(super)` so unit tests can
 /// exercise the boundary without spinning up a Bevy world).
@@ -71,12 +110,45 @@ pub(super) fn porkchop_grid_is_stale(
     built_at: Option<f64>,
     elapsed: f64,
     time_scale: f64,
+    last_real_build_s: Option<f64>,
+    real_now_s: f64,
 ) -> bool {
-    if let Some(built) = built_at {
-        let scaled_threshold = PORKCHOP_STALENESS_REAL_S * time_scale.max(1.0);
-        return (elapsed - built).abs() > scaled_threshold;
+    let (Some(built), Some(last_real)) = (built_at, last_real_build_s) else {
+        return false;
+    };
+    // Sim-time cap (high side): the grid's ΔV values drift
+    // unacceptably once the player's "now" has moved this many sim
+    // seconds past the build epoch.  The scaled value grows
+    // linearly with `time_scale` (so each speed tier has the same
+    // per-rebuild CPU budget), capped at PORKCHOP_STALENESS_MAX_SIM_S
+    // (= 1 sim year) so 1 yr/s doesn't gate on 72 sim years.
+    let scaled_threshold = PORKCHOP_STALENESS_REAL_S * time_scale.max(1.0);
+    let sim_cap = scaled_threshold.min(PORKCHOP_STALENESS_MAX_SIM_S);
+    // Real-time floor (low side): never rebuild more often than
+    // every `PORKCHOP_STALENESS_REAL_FLOOR_S` of wall-clock seconds
+    // even if the sim has drifted enough.  Without this a 1 yr/s
+    // sim could fire every microsecond (the cap binds at 1 sim
+    // year = 1 real second, but the sim cap being satisfied earlier
+    // would still trigger the rebuild prematurely without the
+    // real-time guard).
+    let real_floor_sim_s = PORKCHOP_STALENESS_REAL_FLOOR_S * time_scale.max(1.0);
+    // The effective sim cap is the lower of the scaled sim cap
+    // (CPU protection at low speeds) and the real-time floor (so
+    // the grid refreshes at least every PORKCHOP_STALENESS_REAL_FLOOR_S
+    // real seconds at intermediate speeds).  Bounding the effective
+    // cap by the real-time floor is what lets the 1 wk/s tier
+    // refresh every real second rather than waiting 52 real seconds
+    // for the 1-sim-year cap to fire.
+    let effective_sim_cap = sim_cap.min(real_floor_sim_s);
+    let sim_drift = (elapsed - built).abs();
+    // `sim_drift > effective_sim_cap` is the staleness trigger; the
+    // boundary (`==`) keeps the grid cached so clicks don't snap back
+    // to the cheapest cell right after a rebuild.
+    if sim_drift <= effective_sim_cap {
+        return false;
     }
-    false
+    let real_drift = real_now_s - last_real;
+    real_drift >= PORKCHOP_STALENESS_REAL_FLOOR_S
 }
 
 /// Safe gravity-assist periapsis scaling factor for **stellar** flyby bodies.
@@ -211,6 +283,16 @@ fn is_stellar_mass(mass_kg: f64) -> bool {
     let gm = mass_kg * crate::fleets::orbital_mechanics::G_CONST;
     gm >= MIN_STELLAR_GM
 }
+
+/// Minimum wall-clock (real) seconds between porkchop grid rebuilds.
+/// Caps the rebuild frequency at all `time_scale` tiers so a 1 yr/s
+/// sim doesn't fire the staleness check on every frame — at 60 FPS
+/// that would be 60 rebuilds per real second × ~360 ms per rebuild =
+/// 21.6 s of CPU per real second, which would saturate one core.
+/// 1 real second is the floor that keeps the planner's CPU footprint
+/// under ~36 % even at the highest sim speed (1 yr/s = 1 sim year per
+/// real second → 1 rebuild per real second).
+const PORKCHOP_STALENESS_REAL_FLOOR_S: f64 = 1.0;
 
 /// Compute the Hill-sphere radius (AU) of a secondary body orbiting a much more
 /// massive primary. `a_au` is the secondary's orbital radius around the primary,
@@ -874,6 +956,16 @@ pub(super) fn render_transfer_planner(
     // from the real location instead of the stand-in orbit body's SMA.
     course_correction_sc: Option<bevy::math::DVec3>,
     porkchop_config: &crate::fleets::PorkchopConfig,
+    // Wall-clock (real-time) seconds since Bevy startup.  Used as the
+    // real-time floor in `porkchop_grid_is_stale`: at high `time_scale`
+    // (1 yr/s) the sim-time cap (`PORKCHOP_STALENESS_MAX_SIM_S`) would
+    // otherwise fire the rebuild every frame, costing ~360 ms per
+    // rebuild × ~60 frames per real second ≈ 21 seconds of CPU per
+    // real second.  Tracking the wall-clock epoch of the last build
+    // lets the staleness check refuse to rebuild until at least
+    // `PORKCHOP_STALENESS_REAL_FLOOR_S × time_scale` of wall time
+    // has elapsed, regardless of how much sim time has passed.
+    real_now_s: f64,
 ) {
     // `is_course_correction` is true only when the fleet has actively departed
     // (elapsed >= departure_time).  Waiting-to-depart fleets still have an
@@ -954,25 +1046,17 @@ pub(super) fn render_transfer_planner(
     // Comparing `porkchop_built_for` to `target_body` catches this
     // case before the deferred build runs and avoids re-rendering
     // the previous destination's grid.
-    // Rotating-buffer scroll offset: how many sim seconds have elapsed
-    // since the buffer was built.  The visible window inside the
-    // buffer slides rightward through the buffer at this rate, so
-    // the player sees the cells scroll smoothly without any per-frame
-    // rebuild.  Defaulting to 0 (no scroll) when no grid is cached
-    // is safe — the panel renders the buffer's left half until the
-    // first scroll lands.
+    // Rotating-buffer scroll offset.  Cells slide smoothly through
+    // the visible window at sub-col granularity as the player's
+    // sim clock advances past the buffer's t_dep_min.  When
+    // shift_s reaches the visible window's width the buffer's
+    // future half is exhausted and the deferred build must rotate
+    // the buffer.
     let shift_s: f64 = fleet_ui_state
         .porkchop_built_at_s
         .map(|built| elapsed - built)
         .unwrap_or(0.0)
         .max(0.0);
-    // Buffer-rotation trigger: when `shift_s` reaches the visible
-    // window's width the visible window has fully consumed the
-    // buffer's "past" half and the right edge of the visible window
-    // needs data that the buffer doesn't have.  Invalidate so the
-    // deferred build path rebuilds against the new "now".  The grid
-    // is built with `t_dep_window_days × 2`, so the visible window
-    // is exactly half the buffer's t_dep span.
     let visible_window_s = fleet_ui_state
         .porkchop_grid
         .as_ref()
@@ -984,12 +1068,19 @@ pub(super) fn render_transfer_planner(
     let grid_for_changed = fleet_ui_state.porkchop_built_for != fleet_ui_state.target_body;
     if fleet_ui_state.porkchop_grid.is_some()
         && (grid_for_changed
-            || porkchop_grid_is_stale(fleet_ui_state.porkchop_built_at_s, elapsed, time_scale)
+            || porkchop_grid_is_stale(
+                fleet_ui_state.porkchop_built_at_s,
+                elapsed,
+                time_scale,
+                fleet_ui_state.porkchop_last_real_build_s,
+                real_now_s,
+            )
             || buffer_needs_rotation)
     {
         fleet_ui_state.porkchop_grid = None;
         fleet_ui_state.porkchop_built_for = None;
         fleet_ui_state.porkchop_built_at_s = None;
+        fleet_ui_state.porkchop_last_real_build_s = None;
         fleet_ui_state.selected_porkchop_cell = None;
     }
     if let Some(target_entity) = fleet_ui_state.target_body {
@@ -1043,6 +1134,13 @@ pub(super) fn render_transfer_planner(
                 // Stamp the build epoch so the staleness check above
                 // can decide when the grid needs refreshing.
                 fleet_ui_state.porkchop_built_at_s = Some(elapsed);
+                // Stamp the wall-clock epoch so the real-time
+                // floor in `porkchop_grid_is_stale` can rate-limit
+                // rebuilds at intermediate sim speeds (1 wk/s,
+                // 1 day/s) where the sim-time cap alone would
+                // gate the rebuild on a 52-72 real-second
+                // interval that reads as "the grid is frozen".
+                fleet_ui_state.porkchop_last_real_build_s = Some(real_now_s);
                 // Stamp the build target so the staleness check can
                 // also detect when the player switches destinations
                 // through a non-click entry point (3D right-click,
@@ -4615,6 +4713,59 @@ pub(super) fn render_transfer_planner(
             // legacy 3-option row is rendered as before, so all
             // pre-existing code paths keep working.
             if let Some(grid) = fleet_ui_state.porkchop_grid.as_ref() {
+                // v0.5.0 follow-up: the legacy planner exposed the
+                // Transfer Window box (synodic period) and the Fleet
+                // stats infobox (ΔV avail, thrust, acceleration) at
+                // the top of the panel — those were dropped when the
+                // porkchop landed because the porkchop branch took the
+                // same `if let Some(grid)` slot.  Restore them above
+                // the grid so the player doesn't lose situational
+                // awareness while browsing the ΔV surface.
+                // v0.5.0 follow-up (compact): build the entire status strip
+                // as a single label so we don't have to nest
+                // `ui.horizontal(...)` inside the scrollable planner
+                // popup — the nested horizontal block was leaving
+                // ~500 px of empty space below the strip because
+                // egui's `horizontal_top` was reserving a column
+                // sized for the inline separator's `max` line-height,
+                // which inflated the popup's content height past the
+                // ScrollArea's natural fit.  A single `ui.label(...)`
+                // has no such footgun.  The string is colour-tagged
+                // via `BackgroundColor` per segment through a
+                // `RichText::append` chain if we ever need it; for
+                // now plain `TEXT_DIM` reads fine.
+                {
+                    let dv_kms = fleet_max_dv / 1_000.0;
+                    let thrust_kn = fleet.min_thrust_kn();
+                    let thrust_str = if thrust_kn >= 1_000.0 {
+                        format!("{:.1} MN", thrust_kn / 1_000.0)
+                    } else {
+                        format!("{:.0} kN", thrust_kn)
+                    };
+                    let accel_g = fleet.min_accel_ms2() / 9.80665;
+                    let mut info = String::with_capacity(96);
+                    if let Some(ref window) = window_this_frame {
+                        let window_days = window.time_to_window_s / 86_400.0;
+                        let next_window_str = if window_days < 1.0 {
+                            "NOW ✓".to_owned()
+                        } else {
+                            format_duration(window.time_to_window_s).to_string()
+                        };
+                        let syn_str = if window.synodic_period_s.is_finite() {
+                            format_duration(window.synodic_period_s)
+                        } else {
+                            "∞".to_owned()
+                        };
+                        info.push_str(&format!(
+                            "⏱ Next: {next_window_str}  ·  Synodic: {syn_str}  ·  "
+                        ));
+                    }
+                    info.push_str(&format!(
+                        "🚀 ΔV: {dv_kms:.2} km/s  ·  {thrust_str}  ·  {accel_g:.3} g"
+                    ));
+                    ui.label(egui::RichText::new(info).size(10.5).color(theme::TEXT_DIM));
+                }
+
                 // The phase-window overlay needs `compute_transfer_window`'s
                 // `time_to_window_s`; that value is computed upstream in this
                 // function (above).  We pass NaN here as a sentinel meaning
@@ -4622,6 +4773,13 @@ pub(super) fn render_transfer_planner(
                 // the grid either way.  Wiring the live value requires
                 // threading it through this control flow; left as a
                 // follow-up so this PR stays focused.
+                // Rotating-buffer scroll: how many sim seconds the
+                // player's clock has advanced since the buffer was
+                // built.  Drives the panel's fractional x-axis
+                // scroll so cells move smoothly without per-frame
+                // rebuilds.  `shift_s` is computed once above the
+                // rotation-trigger block so the same value threads
+                // through both the staleness check and the render.
                 let time_to_window_s = f64::NAN;
                 super::porkchop_panel::porkchop_panel(
                     ui,
@@ -4636,12 +4794,48 @@ pub(super) fn render_transfer_planner(
                 if let Some((sc, sr)) = fleet_ui_state.selected_porkchop_cell {
                     if let Some(cell) = grid.cells.get(sr * grid.resolution.0 + sc) {
                         if cell.feasible {
+                            // v0.5.0 follow-up: the legacy 3-option row
+                            // printed ΔV + Est. fuel side-by-side.
+                            // Surface the same numbers (plus the
+                            // arrival speed, which the legacy row
+                            // didn't have) for the selected porkchop
+                            // cell, so the player can compare fuel
+                            // budgets between cells without leaving
+                            // the panel.
+                            let fuel_cost =
+                                fleet.total_fuel_cost_for_dv(cell.total_dv_ms);
+                            let fuel_pct = if fleet_wet_mass > 0.0 {
+                                (fuel_cost / fleet_wet_mass * 100.0) as u32
+                            } else {
+                                0
+                            };
+                            let v_arr_speed_km_s = cell.v_arrival_ms.length() / 1000.0;
+                            let v_inf_arr_km_s = cell.v_inf_arrival_ms / 1000.0;
+                            // v_inf_arrival_ms is "excess speed above
+                            // circular at destination" — 0 for any
+                            // Hohmann-shaped arrival (Earth→Mars,
+                            // Earth→Venus), > 0 only for super-circular
+                            // hyperbolic-style arrivals.  The legacy
+                            // planner never surfaced this stat; the
+                            // porkchop tooltip had it but always
+                            // showed 0 for Hohmanns and confused the
+                            // player.  Show both: the actual arrival
+                            // speed (always meaningful) and the
+                            // circular excess (zero for Hohmann).
                             ui.label(
                                 egui::RichText::new(format!(
                                     "Selected cell: t_dep = {:.0} d, TOF = {:.0} d, ΔV = {:.2} km/s",
                                     cell.t_dep_s / crate::ui::porkchop_panel::SECONDS_PER_DAY,
                                     cell.tof_s / crate::ui::porkchop_panel::SECONDS_PER_DAY,
                                     cell.total_dv_ms / 1000.0,
+                                ))
+                                .size(11.0)
+                                .color(theme::TEXT_DIM),
+                            );
+                            ui.label(
+                                egui::RichText::new(format!(
+                                    "Fuel: {:.1} t ({fuel_pct}%) · v(arr) = {v_arr_speed_km_s:.2} km/s · v∞(arr) = {v_inf_arr_km_s:.2} km/s",
+                                    fuel_cost,
                                 ))
                                 .size(11.0)
                                 .color(theme::TEXT_DIM),
@@ -4726,13 +4920,24 @@ pub(super) fn render_transfer_planner(
                                     };
                                 // Porkchop cells use the player's chosen
                                 // t_dep directly (the cell's `t_dep_s`
-                                // is an offset from the planner's "now"
-                                // reference) — the departure-time
+                                // is an offset from the buffer's
+                                // `t_dep_min_s`) — the departure-time
                                 // slider is intentionally ignored for
                                 // porkchop selections because the cell
                                 // already encodes the absolute t_dep.
+                                // The absolute sim-time departure is
+                                // `grid.t_dep_min_s + cell.t_dep_s`,
+                                // which stays constant as the buffer
+                                // scrolls (and matches the absolute
+                                // epoch used to compute the Lambert
+                                // solution) — adding `elapsed` here
+                                // would double-count the planner's
+                                // current sim time, producing a
+                                // trajectory whose t_dep drifts by
+                                // `shift_s` every time the buffer
+                                // rebuilds.
                                 let planned_departure_time_s =
-                                    elapsed + cell.t_dep_s;
+                                    grid.t_dep_bounds_s.0 + cell.t_dep_s;
                                 // Sync `departure_offset_days` so the
                                 // side-panel "Arrives:" timestamp and
                                 // `waiting_orbit_count` reflect the
@@ -7599,6 +7804,26 @@ mod tests {
     // auto-picked cheapest cell.  The threshold is now scaled by
     // `time_scale` so the rebuild fires after a fixed *real-time*
     // interval regardless of how fast the sim is running.
+    //
+    // Third user report: at 1 yr/s the previous scaled-only threshold
+    // grew to ~72 sim years, so the grid stayed anchored to its build
+    // epoch for the entire play session — the player watched the
+    // "Depart Now" column remain frozen even though the planets had
+    // moved on by a full synodic cycle.  The cap
+    // `PORKCHOP_STALENESS_MAX_SIM_S = 1 sim year` clamps the
+    // staleness window so the grid refreshes every ~1 real second at
+    // 1 yr/s instead of every 72 sim years.  At low/medium speeds
+    // the cap never binds, so existing tests still pass.
+    //
+    // Fourth user report: at intermediate sim speeds (1 wk/s,
+    // 1 day/s) the sim-time cap alone still gates the rebuild on a
+    // 52-72 real-second wall-clock interval — the player sees the
+    // grid "frozen" even though the sim is moving a week per real
+    // second.  The real-time floor `PORKCHOP_STALENESS_REAL_FLOOR_S`
+    // adds a 1-real-second lower bound to the rebuild cadence, so
+    // at intermediate speeds the grid refreshes at most 1 real
+    // second apart (when the sim-time cap has also been crossed).
+    // Both timers must fire for the grid to be marked stale.
 
     /// 1 hr/s — the default speed.
     const DEFAULT_TIME_SCALE: f64 = 3_600.0;
@@ -7606,42 +7831,83 @@ mod tests {
     const DAY_PER_S_TIME_SCALE: f64 = 86_400.0;
     /// 1 yr/s — extreme speed, 31,557,600 sim seconds per real second.
     const YEAR_PER_S_TIME_SCALE: f64 = 31_557_600.0;
+    /// 1 wk/s — intermediate speed tier reported by the player.
+    const WEEK_PER_S_TIME_SCALE: f64 = 604_800.0;
+
+    /// Helper for tests: pick a `last_real_build_s` and
+    /// `real_now_s` such that the wall-clock drift is large enough
+    /// to satisfy the real-time floor.  Without this every test
+    /// would need to thread the same constant pair through, which
+    /// would obscure the sim-time semantics the tests actually
+    /// exercise.
+    fn real_floor_satisfied(time_scale: f64) -> (f64, f64) {
+        // Comfortably past the 5-real-second floor so the comparator
+        // is robust to the >=/strict-greater-than boundary changes.
+        let real_now = super::PORKCHOP_STALENESS_REAL_FLOOR_S * 100.0;
+        (0.0, real_now)
+    }
+
+    /// Helper for tests: wall-clock delta is *below* the real-time
+    /// floor.  Used when the test wants to assert that the sim cap
+    /// alone does not fire (the real-time guard blocks it).
+    fn real_floor_unsatisfied(_time_scale: f64) -> (f64, f64) {
+        // 1 ms of wall-clock: way below the 5-real-second floor.
+        let real_now = 1.0e-3;
+        (0.0, real_now)
+    }
 
     #[test]
     fn porkchop_staleness_returns_true_after_threshold_at_1_hr_per_s() {
-        // Built 4 days ago at 1 hr/s: 4 × 86_400 = 345_600 sim
-        // seconds elapsed since build, threshold is 72 × 3_600 =
-        // 259_200 sim seconds = 3 days.  Past threshold.
+        // Built 1 sim day ago at 1 hr/s: 86_400 sim sec elapsed,
+        // sim cap (scaled 3 days, min with real-floor 5 hours) =
+        // 5 hours = 18_000 sim sec.  Past the effective cap.  Real
+        // floor satisfied.
         let built = 0.0;
-        let elapsed = 4.0 * 86_400.0;
+        let elapsed = 1.0 * 86_400.0;
+        let (last_real, real_now) = real_floor_satisfied(DEFAULT_TIME_SCALE);
         assert!(super::porkchop_grid_is_stale(
             Some(built),
             elapsed,
-            DEFAULT_TIME_SCALE
+            DEFAULT_TIME_SCALE,
+            Some(last_real),
+            real_now
         ));
     }
 
     #[test]
     fn porkchop_staleness_returns_false_within_threshold_at_1_hr_per_s() {
-        // Built 1 day ago at 1 hr/s: inside the 3-day threshold.
+        // Built 1 sim hour ago at 1 hr/s: sim drift = 3_600 sim sec,
+        // below the effective cap (5 hours = 18_000 sim sec).  Not
+        // stale even though real floor is satisfied.
         let built = 1_000.0;
-        let elapsed = built + 1.0 * 86_400.0;
+        let elapsed = built + 1.0 * 3_600.0; // 1 sim hour after
+        let (last_real, real_now) = real_floor_satisfied(DEFAULT_TIME_SCALE);
         assert!(!super::porkchop_grid_is_stale(
             Some(built),
             elapsed,
-            DEFAULT_TIME_SCALE
+            DEFAULT_TIME_SCALE,
+            Some(last_real),
+            real_now
         ));
     }
 
     #[test]
     fn porkchop_staleness_returns_false_at_threshold_boundary() {
-        // Exactly at the threshold — should NOT invalidate (the
-        // comparator is strict `>`, not `>=`).
+        // Exactly at the effective sim cap (1 sim hour at 1 hr/s, since
+        // PORKCHOP_STALENESS_REAL_FLOOR_S = 1 s clamps the cap) —
+        // should NOT invalidate (the comparator is strict `<=`).
         let built = 0.0;
-        let elapsed = 3.0 * 86_400.0;
+        let elapsed = 3_600.0;
+        let (last_real, real_now) = real_floor_satisfied(DEFAULT_TIME_SCALE);
         assert!(
-            !super::porkchop_grid_is_stale(Some(built), elapsed, DEFAULT_TIME_SCALE),
-            "exactly 3 days at 1 hr/s = exactly at threshold = not stale"
+            !super::porkchop_grid_is_stale(
+                Some(built),
+                elapsed,
+                DEFAULT_TIME_SCALE,
+                Some(last_real),
+                real_now
+            ),
+            "exactly 1 sim hour at 1 hr/s = exactly at effective cap = not stale"
         );
     }
 
@@ -7652,7 +7918,24 @@ mod tests {
         assert!(!super::porkchop_grid_is_stale(
             None,
             1.0e9,
-            DEFAULT_TIME_SCALE
+            DEFAULT_TIME_SCALE,
+            None,
+            0.0
+        ));
+    }
+
+    #[test]
+    fn porkchop_staleness_returns_false_when_no_real_build_epoch() {
+        // Grid exists but no real-time stamp (legacy / pre-fix
+        // FleetUiState from a save) — don't trigger a rebuild on
+        // the next frame just because the wall-clock field is
+        // absent.  The deferred-build path picks this up.
+        assert!(!super::porkchop_grid_is_stale(
+            Some(0.0),
+            1.0e9,
+            DEFAULT_TIME_SCALE,
+            None,
+            100.0
         ));
     }
 
@@ -7663,52 +7946,145 @@ mod tests {
         // still recognise staleness in that direction.
         let built = 4.0 * 86_400.0;
         let elapsed = 0.0;
+        let (last_real, real_now) = real_floor_satisfied(DEFAULT_TIME_SCALE);
         assert!(super::porkchop_grid_is_stale(
             Some(built),
             elapsed,
-            DEFAULT_TIME_SCALE
+            DEFAULT_TIME_SCALE,
+            Some(last_real),
+            real_now
         ));
     }
 
     #[test]
     fn porkchop_staleness_scales_with_time_scale_at_1_day_per_s() {
-        // At 1 day/s the per-frame sim delta is ~23 minutes, so the
-        // threshold (72 real seconds × 86_400 sim/real = 6.22 million
-        // sim seconds ≈ 72 days) gives plenty of headroom for clicks
-        // to stick even though the sim is moving 24× faster than
-        // the default.
+        // At 1 day/s the per-frame sim delta is ~23 minutes.  The
+        // effective sim cap (scaled 72 days, min with real-floor 5
+        // sim days) = 5 sim days = 5 real seconds.  Rebuilds every
+        // real second once the sim cap fires.
         let built = 0.0;
-        // 1 day after build: well inside the 72-day threshold.
+        let (last_real, real_now) = real_floor_satisfied(DAY_PER_S_TIME_SCALE);
+        // 1 day after build: below the 5-sim-day cap.
         let elapsed = 86_400.0;
         assert!(!super::porkchop_grid_is_stale(
             Some(built),
             elapsed,
-            DAY_PER_S_TIME_SCALE
+            DAY_PER_S_TIME_SCALE,
+            Some(last_real),
+            real_now
         ));
-        // 100 days after build: clearly past the 72-day threshold.
-        let elapsed = 100.0 * 86_400.0;
+        // 7 days after build: past the 5-sim-day effective cap.
+        let elapsed = 7.0 * 86_400.0;
         assert!(super::porkchop_grid_is_stale(
             Some(built),
             elapsed,
-            DAY_PER_S_TIME_SCALE
+            DAY_PER_S_TIME_SCALE,
+            Some(last_real),
+            real_now
+        ));
+    }
+
+    #[test]
+    fn porkchop_staleness_fires_every_real_second_at_1_wk_per_s() {
+        // New behaviour: at intermediate sim speeds the grid refreshes
+        // at the real-time floor (5 real seconds) once the sim cap has
+        // been crossed.  At 1 wk/s the real-time floor in sim seconds
+        // is 5 × 604_800 = 3_024_000 sim sec = 35 sim days.  Sim
+        // drift crosses 35 sim days in 5 real seconds, and the sim
+        // cap (1 sim year = 365 days) is much larger.  So the
+        // rebuild fires every 5 real seconds.
+        let built = 0.0;
+        let (last_real, real_now) = real_floor_satisfied(WEEK_PER_S_TIME_SCALE);
+        // 35 sim days after build (= 5 real seconds at 1 wk/s).
+        // Effective sim cap (35 sim days) is past; real floor is past.
+        // Stale.
+        let elapsed = 35.0 * 86_400.0;
+        assert!(super::porkchop_grid_is_stale(
+            Some(built),
+            elapsed,
+            WEEK_PER_S_TIME_SCALE,
+            Some(last_real),
+            real_now
+        ));
+        // 1 sim day after build (= 1/35 real second at 1 wk/s) —
+        // sim drift below effective cap.  Not stale even though
+        // real floor is satisfied.
+        let elapsed = 1.0 * 86_400.0;
+        assert!(!super::porkchop_grid_is_stale(
+            Some(built),
+            elapsed,
+            WEEK_PER_S_TIME_SCALE,
+            Some(last_real),
+            real_now
+        ));
+    }
+
+    #[test]
+    fn porkchop_staleness_real_floor_blocks_1_yr_per_s() {
+        // At 1 yr/s the scaled sim cap binds at 1 sim year, but
+        // the *real-time* floor must also be satisfied — so when
+        // the real floor is *not* yet reached, the rebuild must
+        // NOT fire even though the sim cap is past.  This prevents
+        // per-frame rebuilds at 1 yr/s.
+        let built = 0.0;
+        // 2 sim years of drift (= 2 real seconds at 1 yr/s) past
+        // the 1-sim-year cap.
+        let elapsed = 2.0 * 365.25 * 86_400.0;
+        let (last_real, real_now) = real_floor_unsatisfied(YEAR_PER_S_TIME_SCALE);
+        assert!(
+            !super::porkchop_grid_is_stale(
+                Some(built),
+                elapsed,
+                YEAR_PER_S_TIME_SCALE,
+                Some(last_real),
+                real_now
+            ),
+            "real-time floor must block the rebuild at 1 yr/s until ≥ 5 real seconds have elapsed"
+        );
+        // Once the real floor is satisfied the rebuild fires.
+        let (last_real, real_now) = real_floor_satisfied(YEAR_PER_S_TIME_SCALE);
+        assert!(super::porkchop_grid_is_stale(
+            Some(built),
+            elapsed,
+            YEAR_PER_S_TIME_SCALE,
+            Some(last_real),
+            real_now
         ));
     }
 
     #[test]
     fn porkchop_staleness_scales_with_time_scale_at_1_yr_per_s() {
-        // At 1 yr/s the per-frame sim delta is ~5.83 days.  Without
-        // the `time_scale` scaling the threshold would fire on the
-        // very next frame after the player clicks, snapping the
-        // selection back to the cheapest cell.  With the scaling,
-        // the threshold grows to ~72 years of sim time — well
-        // beyond any reasonable play session, so clicks stick.
+        // At 1 yr/s the scaled sim cap binds at 1 sim year; the
+        // real-time floor in sim seconds is 5 × 31_557_600 = 5 sim
+        // years, which is larger than the 1-year cap.  So the
+        // *sim* cap binds first; rebuilds happen every ~1 sim year
+        // (= 1 real second at 1 yr/s) when the real floor has also
+        // been crossed.
         let built = 0.0;
-        // 1 year after build: well inside the 72-year threshold.
+        let (last_real, real_now) = real_floor_satisfied(YEAR_PER_S_TIME_SCALE);
+        // 1 sim year of drift (= 1 real second at 1 yr/s): sim
+        // cap at 1 sim year is exactly hit.  Strict `<` keeps the
+        // grid cached at the boundary.
         let elapsed = 365.25 * 86_400.0;
-        assert!(!super::porkchop_grid_is_stale(
+        assert!(
+            !super::porkchop_grid_is_stale(
+                Some(built),
+                elapsed,
+                YEAR_PER_S_TIME_SCALE,
+                Some(last_real),
+                real_now
+            ),
+            "exactly 1 sim year at 1 yr/s = exactly at effective cap = not stale"
+        );
+        // 2 sim years: past the 1-year cap, real floor is past.
+        // Stale.
+        let elapsed = 2.0 * 365.25 * 86_400.0;
+        assert!(super::porkchop_grid_is_stale(
             Some(built),
             elapsed,
-            YEAR_PER_S_TIME_SCALE
+            YEAR_PER_S_TIME_SCALE,
+            Some(last_real),
+            real_now
         ));
     }
 
@@ -7719,7 +8095,14 @@ mod tests {
         // threshold; the staleness still fires after the default
         // 72 real seconds of pause.
         let built = 0.0;
-        let elapsed = 80.0; // 80 real seconds since build
-        assert!(super::porkchop_grid_is_stale(Some(built), elapsed, 0.0));
+        let elapsed = 80.0; // 80 sim seconds since build (= 80 real seconds when paused)
+        let (last_real, real_now) = real_floor_satisfied(0.0);
+        assert!(super::porkchop_grid_is_stale(
+            Some(built),
+            elapsed,
+            0.0,
+            Some(last_real),
+            real_now
+        ));
     }
 }

@@ -844,15 +844,21 @@ pub struct PorkchopColorStop {
 
 impl Default for PorkchopConfig {
     fn default() -> Self {
+        // Mirrors `assets/data/porkchop_config.ron` defaults.  Keep
+        // these in sync — the loader falls back to `Default::default()`
+        // if the RON file fails to parse, so any change here also
+        // needs the corresponding RON edit.  `tests/data::porkchop_
+        // config_ron_loads_cleanly` is the strict CI gate that
+        // keeps the two paths aligned.
         Self {
             defaults: PorkchopGridDefaults {
                 t_dep_window_days: 60.0,
                 tof_min_hohmann_factor: 0.4,
-                tof_max_hohmann_factor: 2.5,
+                tof_max_hohmann_factor: 5.0,
                 tof_floor_days: 5.0,
                 tof_ceiling_years: 10.0,
                 resolution_t_dep: 40,
-                resolution_tof: 30,
+                resolution_tof: 50,
                 c3_ceiling_km2_s2: 400.0,
             },
             category_overrides: Vec::new(),
