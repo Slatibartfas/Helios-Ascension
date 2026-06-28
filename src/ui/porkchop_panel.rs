@@ -84,11 +84,20 @@ pub fn porkchop_panel(
     // The scroll is a single *continuous* floating-point value in
     // column units (`scroll`).  Each cell at original buffer column
     // `c` has its left edge at `x = (c - scroll) * cell_w` in the
-    // visible window.  We draw any cell whose left edge lies within
-    // `[0, visible_cols * cell_w]`.  There is *no* integer / fractional
-    // split and *no* boundary snap — as time advances the cells slide
+    // visible window.  There is *no* integer / fractional split and
+    // *no* boundary snap — as time advances the cells slide
     // continuously leftward at sub-cell resolution, no jump.
-    let visible_cols = (cols / 2).max(1);
+    //
+    // Margin: `visible_cols = cols / 2 - 1` instead of `cols / 2`
+    // caps the rendered content by one buffer column on the right
+    // edge.  When the buffer rotates, the new buffer's left half
+    // replaces the old buffer's right half — but that replacement
+    // happens in the off-screen margin, so the user doesn't see
+    // the visible cell content snap by one tile width.  The cells
+    // at the right edge are still part of the scroll math (the
+    // scroll continues smoothly) but the planner only paints
+    // `visible_cols` cells across the panel.
+    let visible_cols = (cols / 2).saturating_sub(1).max(1);
     let t_dep_min = grid.t_dep_bounds_s.0;
     let t_dep_max = grid.t_dep_bounds_s.1;
     let col_step_s = if cols > 0 {
@@ -145,11 +154,11 @@ pub fn porkchop_panel(
 
     // 1. Cells (coloured rects).  Each buffer column `c` has its
     // left edge at `x = (c - scroll) * cell_w` in the visible
-    // window.  We draw any cell whose left edge lies within
-    // `[-cell_w, visible_cols * cell_w]` (i.e. partially on-screen)
-    // so the player sees cells scrolling smoothly off the left
-    // edge.  Drawing the cell at its `c - scroll` position gives
-    // continuous motion — no jumps at column boundaries.
+    // window.  We draw any cell whose left edge is at most
+    // one cell-width outside the visible window so the player
+    // sees cells smoothly scrolling on and off the left edge.
+    // The continuous-scroll x position is used directly so the
+    // motion is sub-cell resolution with no boundary snap.
     let visible_w = visible_cols as f32 * cell_w;
     for c in 0..cols as i32 {
         let x = grid_rect.left() + (c as f32 - scroll) * cell_w;

@@ -248,19 +248,25 @@ fn solve_cell(
 ) -> PorkchopCell {
     let t_dep_abs = inputs.sim_time_s + t_dep_s;
     let t_arr_abs = t_dep_abs + tof_s;
+    // Planet positions are at *absolute* sim time = `t_dep_abs` and
+    // `t_arr_abs`, not at `t_dep_s` and `t_dep_s + tof_s`.  The
+    // grid is built with `sim_time_s` anchored to the player's
+    // current sim clock; the `t_dep_s` cell offset is measured
+    // from that anchor, not from the orbit's mean-anomaly epoch
+    // (which is set at the orbit's spawn time and is independent
+    // of the player's clock).  Adding `sim_time_s` here is what
+    // makes the cells' ΔV values track the actual planet
+    // positions as the player advances the clock.
     let origin_pos_au = orbit_position_from_mean_anomaly(
         &inputs.origin_orbit,
-        inputs.origin_orbit.mean_anomaly_epoch + inputs.origin_orbit.mean_motion * t_dep_s,
+        inputs.origin_orbit.mean_anomaly_epoch
+            + inputs.origin_orbit.mean_motion * t_dep_abs,
     );
     let dest_pos_au = orbit_position_from_mean_anomaly(
         &inputs.dest_orbit,
-        inputs.dest_orbit.mean_anomaly_epoch + inputs.dest_orbit.mean_motion * (t_dep_s + tof_s),
+        inputs.dest_orbit.mean_anomaly_epoch
+            + inputs.dest_orbit.mean_motion * t_arr_abs,
     );
-    // We don't use t_dep_abs / t_arr_abs for propagation above (the
-    // body mean anomaly is propagated from epoch directly), but we keep
-    // them for future per-body mean-anomaly-at-epoch queries.
-    let _ = t_dep_abs;
-    let _ = t_arr_abs;
 
     if tof_s > MAX_CURVED_CROSS_STAR_TRANSFER_TIME_S {
         return PorkchopCell {
@@ -916,6 +922,91 @@ mod planner_wiring_tests {
         assert!(
             buffer.cells.iter().any(|c| c.feasible),
             "rotating buffer must still contain feasible cells"
+        );
+    }
+
+    /// Regression test for the planet-position bug: the
+    /// `solve_lambert_transfer` call inside `solve_cell` must use
+    /// the player's current `sim_time_s` as the *anchor* for
+    /// `t_dep_s` so the cell's planet positions track the actual
+    /// heliocentric state, not the orbit's spawn-time mean anomaly.
+    /// The pre-fix code computed `mean_anomaly_epoch + mean_motion *
+    /// t_dep_s`, so the grid was invariant under sim_time — every
+    /// cell stayed at the same planet positions forever, and the
+    /// cells at col 0 always represented the orbit-epoch transfer
+    /// even when the player was a year past the epoch.  With the
+    /// fix, the cell at t_dep_s = 0 represents the transfer
+    /// "depart at sim_time_s + 0" — i.e. the player's current
+    /// "now" — so a grid built at sim_time=0 and a grid built at
+    /// sim_time=0.5yr have different cell positions and the
+    /// rotating buffer can hand off seamlessly without a visible
+    /// jump.
+    ///
+    /// We compare at t=0 and t=0.5 yr (half of Earth's orbit) so
+    /// the planet positions differ — at t=1yr Earth is back to
+    /// its starting position, so the difference would be 0.
+    #[test]
+    fn planet_position_uses_absolute_sim_time() {
+        let cfg = PorkchopConfig::default();
+        // Inline orbits to avoid the cross-module visibility
+        // issue (these helpers live in `mod tests` at the top of
+        // the file, not in `planner_wiring_tests`).
+        let n_earth = 2.0 * std::f64::consts::PI / (365.25 * SECONDS_PER_DAY);
+        let earth = KeplerOrbit {
+            eccentricity: 0.0167,
+            semi_major_axis: 1.0,
+            inclination: 0.0,
+            longitude_ascending_node: 0.0,
+            argument_of_periapsis: 0.0,
+            mean_anomaly_epoch: 0.0,
+            mean_motion: n_earth,
+        };
+        let n_mars = 2.0 * std::f64::consts::PI / (687.0 * SECONDS_PER_DAY);
+        let mars = KeplerOrbit {
+            eccentricity: 0.0934,
+            semi_major_axis: 1.524,
+            inclination: 0.0,
+            longitude_ascending_node: 0.0,
+            argument_of_periapsis: 0.0,
+            mean_anomaly_epoch: 0.0,
+            mean_motion: n_mars,
+        };
+        let grid_at_t0 = build_grid_for_body_target(
+            &cfg,
+            earth,
+            mars,
+            "Earth".to_string(),
+            "Mars".to_string(),
+            "interplanetary",
+            0.0,
+        );
+        let half_year = 0.5 * 365.25 * 86_400.0;
+        let grid_at_thalf = build_grid_for_body_target(
+            &cfg,
+            earth,
+            mars,
+            "Earth".to_string(),
+            "Mars".to_string(),
+            "interplanetary",
+            half_year,
+        );
+        // Pick a feasible cell from each grid (col 20, row 25) and
+        // verify the planet positions differ.  Without the fix the
+        // positions would be byte-identical because the math
+        // ignored `sim_time_s`.
+        let col = 20;
+        let row = 25;
+        let a = &grid_at_t0.cells[row * grid_at_t0.resolution.0 + col];
+        let b = &grid_at_thalf.cells[row * grid_at_thalf.resolution.0 + col];
+        let dp = (a.origin_pos_au - b.origin_pos_au).length();
+        assert!(
+            dp > 0.5,
+            "origin planet should have moved ~2 AU between sim_time=0 and sim_time=0.5yr; got {dp} AU"
+        );
+        let dq = (a.dest_pos_au - b.dest_pos_au).length();
+        assert!(
+            dq > 0.5,
+            "dest planet should have moved between sim_time=0 and sim_time=0.5yr; got {dq} AU"
         );
     }
 

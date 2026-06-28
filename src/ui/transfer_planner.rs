@@ -1058,13 +1058,18 @@ pub(super) fn render_transfer_planner(
         .unwrap_or(0.0)
         .max(0.0);
     // Buffer covers 4× the visible window, so the visible window
-    // is exactly 1/4 of the buffer's t_dep span.  Rotation fires
-    // when the visible window has consumed 3/4 of the buffer (i.e.
-    // the rightmost visible cell is at the buffer's right edge).
+    // is exactly 1/2 of the buffer's t_dep span.  Rotation fires
+    // when the visible window's right edge has reached the
+    // buffer's right edge — i.e. shift_s == 1/2 * buffer_width.
+    // At that point the deferred build reanchors the new buffer
+    // at t_dep_min = current_time, so the visible cells at the
+    // new build are the *same physical cells* the user was
+    // already looking at in the old buffer's right half (Lambert
+    // is rotation-invariant).  No visual jump.
     let buffer_future_window_s = fleet_ui_state
         .porkchop_grid
         .as_ref()
-        .map(|g| (g.t_dep_bounds_s.1 - g.t_dep_bounds_s.0) * 3.0 / 4.0)
+        .map(|g| (g.t_dep_bounds_s.1 - g.t_dep_bounds_s.0) * 0.5)
         .unwrap_or(0.0);
     let buffer_needs_rotation =
         fleet_ui_state.porkchop_grid.is_some() && shift_s >= buffer_future_window_s;
