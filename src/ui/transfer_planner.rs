@@ -1049,21 +1049,25 @@ pub(super) fn render_transfer_planner(
     // Rotating-buffer scroll offset.  Cells slide smoothly through
     // the visible window at sub-col granularity as the player's
     // sim clock advances past the buffer's t_dep_min.  When
-    // shift_s reaches the visible window's width the buffer's
-    // future half is exhausted and the deferred build must rotate
-    // the buffer.
+    // shift_s reaches the buffer's "future half" the visible
+    // window is about to consume the rightmost cell and the
+    // deferred build must rotate the buffer.
     let shift_s: f64 = fleet_ui_state
         .porkchop_built_at_s
         .map(|built| elapsed - built)
         .unwrap_or(0.0)
         .max(0.0);
-    let visible_window_s = fleet_ui_state
+    // Buffer covers 4× the visible window, so the visible window
+    // is exactly 1/4 of the buffer's t_dep span.  Rotation fires
+    // when the visible window has consumed 3/4 of the buffer (i.e.
+    // the rightmost visible cell is at the buffer's right edge).
+    let buffer_future_window_s = fleet_ui_state
         .porkchop_grid
         .as_ref()
-        .map(|g| (g.t_dep_bounds_s.1 - g.t_dep_bounds_s.0) / 2.0)
+        .map(|g| (g.t_dep_bounds_s.1 - g.t_dep_bounds_s.0) * 3.0 / 4.0)
         .unwrap_or(0.0);
     let buffer_needs_rotation =
-        fleet_ui_state.porkchop_grid.is_some() && shift_s >= visible_window_s;
+        fleet_ui_state.porkchop_grid.is_some() && shift_s >= buffer_future_window_s;
 
     let grid_for_changed = fleet_ui_state.porkchop_built_for != fleet_ui_state.target_body;
     if fleet_ui_state.porkchop_grid.is_some()
@@ -1081,7 +1085,14 @@ pub(super) fn render_transfer_planner(
         fleet_ui_state.porkchop_built_for = None;
         fleet_ui_state.porkchop_built_at_s = None;
         fleet_ui_state.porkchop_last_real_build_s = None;
-        fleet_ui_state.selected_porkchop_cell = None;
+        // Note: do NOT clear `selected_porkchop_cell` on buffer
+        // rotation.  The (col, row) stays valid in the new buffer
+        // (modulo the new buffer's resolution, which the deferred
+        // build re-resolves against the same target).  Clearing here
+        // would re-trigger the panel's `min_cell` auto-pick, which
+        // jumps the selection to the cheapest cell of the *new*
+        // buffer every rotation.  We only clear on destination
+        // change or staleness expiry.
     }
     if let Some(target_entity) = fleet_ui_state.target_body {
         if fleet_ui_state.porkchop_grid.is_none()

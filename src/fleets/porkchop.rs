@@ -774,7 +774,11 @@ pub fn build_grid_for_body_target(
 /// with mean motion.  This eliminates the per-second rebuild
 /// cadence that the cap-based staleness check hit at 1 yr/s,
 /// replacing it with one rebuild every `t_dep_window_days` of
-/// player time.
+/// player time.  The buffer is 4× the visible window so the
+/// rotation cycle is `3 × t_dep_window_days` of player time
+/// before the deferred build re-solves Lambert — most play
+/// sessions never trigger a rebuild at 1 yr/s because the visible
+/// window slides through the cached cells in under 4 sim years.
 pub fn build_rotating_buffer_for_body_target(
     cfg: &PorkchopConfig,
     origin_orbit: KeplerOrbit,
@@ -784,12 +788,14 @@ pub fn build_rotating_buffer_for_body_target(
     category: &str,
     sim_time_s: f64,
 ) -> PorkchopGrid {
-    // Resolve the per-category params, then double `t_dep_window_days`
-    // and `resolution_t_dep` so the buffer has 2× the columns of the
-    // visible planner surface.  Resolution scales with window size to
-    // keep per-cell ΔV detail comparable to the non-rotating grid.
+    // Resolve the per-category params, then quadruple
+    // `t_dep_window_days` and double `resolution_t_dep` so the
+    // buffer has 2× the columns of the visible planner surface
+    // over a 4× t_dep span.  Resolution does NOT scale with
+    // window size (to keep per-cell ΔV detail constant), so the
+    // rebuild cost is ~2× the non-rotating build.
     let mut params = cfg.resolve(category);
-    params.t_dep_window_days *= 2.0;
+    params.t_dep_window_days *= 4.0;
     params.resolution_t_dep = (params.resolution_t_dep * 2).max(8);
     let inputs = PorkchopInputs {
         origin_name,
@@ -893,12 +899,12 @@ mod planner_wiring_tests {
             "interplanetary",
             0.0,
         );
-        // Buffer covers 2× the baseline's t_dep window.
+        // Buffer covers 4× the baseline's t_dep window.
         let baseline_width = baseline.t_dep_bounds_s.1 - baseline.t_dep_bounds_s.0;
         let buffer_width = buffer.t_dep_bounds_s.1 - buffer.t_dep_bounds_s.0;
         assert!(
-            (buffer_width - 2.0 * baseline_width).abs() < 1.0,
-            "buffer width {buffer_width} should be ≈ 2× baseline {baseline_width}"
+            (buffer_width - 4.0 * baseline_width).abs() < 1.0,
+            "buffer width {buffer_width} should be ≈ 4× baseline {baseline_width}"
         );
         // Buffer has 2× the columns so each visible column keeps
         // baseline's per-column ΔV resolution.

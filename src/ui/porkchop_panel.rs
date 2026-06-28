@@ -79,10 +79,15 @@ pub fn porkchop_panel(
 
     // Rotating-buffer scroll state.  `visible_cols = cols / 2` so the
     // player sees a normal-width panel while the buffer caches the
-    // unused half.  `col_step_s` is sim-seconds per buffer column;
-    // `shift_cols` is the buffer column currently at the left edge
-    // of the visible window, with `frac_shift` as the sub-cell
-    // offset (cells shift smoothly at the sub-col granularity).
+    // unused half.  `col_step_s` is sim-seconds per buffer column.
+    //
+    // The scroll is a single *continuous* floating-point value in
+    // column units (`scroll`).  Each cell at original buffer column
+    // `c` has its left edge at `x = (c - scroll) * cell_w` in the
+    // visible window.  We draw any cell whose left edge lies within
+    // `[0, visible_cols * cell_w]`.  There is *no* integer / fractional
+    // split and *no* boundary snap — as time advances the cells slide
+    // continuously leftward at sub-cell resolution, no jump.
     let visible_cols = (cols / 2).max(1);
     let t_dep_min = grid.t_dep_bounds_s.0;
     let t_dep_max = grid.t_dep_bounds_s.1;
@@ -91,9 +96,7 @@ pub fn porkchop_panel(
     } else {
         1.0
     };
-    let shift_cols_f = shift_s / col_step_s;
-    let shift_cols_int = shift_cols_f.floor() as i32;
-    let frac_shift = (shift_cols_f - shift_cols_int as f64) as f32;
+    let scroll = (shift_s / col_step_s) as f32;
 
     // Hover + click.  `Sense::hover()` alone ignores clicks (the user
     // reported they "couldn't click any other tile"), and
@@ -128,35 +131,35 @@ pub fn porkchop_panel(
     let cell_h = grid_rect.height() / rows as f32;
 
     // Compute the (col, row) of the cell currently under the cursor.
-    // Translate visible col → buffer col (add `shift_cols_int`) so
-    // the selected-cell index stays in the grid's coordinate system.
+    // The cursor's visible col is `cursor_x / cell_w + scroll`; the
+    // buffer col is that value floored.
     let hover_cell: Option<(usize, usize)> = resp
         .hover_pos()
         .filter(|pos| grid_rect.contains(*pos))
         .map(|pos| {
-            let c_visible = ((pos.x - grid_rect.left()) / cell_w) as i32;
-            let col = (c_visible + shift_cols_int).max(0) as usize;
+            let col_f = (pos.x - grid_rect.left()) / cell_w + scroll;
+            let col = col_f.max(0.0) as usize;
             let row = ((pos.y - grid_rect.top()) / cell_h) as usize;
             (col.min(cols - 1), row.min(rows - 1))
         });
 
-    // 1. Cells (coloured rects).  Each visible column `c_visible`
-    // maps to original buffer column `shift_cols_int + c_visible`.
-    // Skip cells outside the buffer.  Cells are drawn at sub-col
-    // positions (`-frac_shift` in cell-width units) so the scroll
-    // moves smoothly between integer column boundaries.
-    for c_visible in 0..visible_cols {
-        let orig_col = c_visible as i32 + shift_cols_int;
-        if orig_col < 0 || orig_col >= cols as i32 {
+    // 1. Cells (coloured rects).  Each buffer column `c` has its
+    // left edge at `x = (c - scroll) * cell_w` in the visible
+    // window.  We draw any cell whose left edge lies within
+    // `[-cell_w, visible_cols * cell_w]` (i.e. partially on-screen)
+    // so the player sees cells scrolling smoothly off the left
+    // edge.  Drawing the cell at its `c - scroll` position gives
+    // continuous motion — no jumps at column boundaries.
+    let visible_w = visible_cols as f32 * cell_w;
+    for c in 0..cols as i32 {
+        let x = grid_rect.left() + (c as f32 - scroll) * cell_w;
+        if x + cell_w < grid_rect.left() || x > grid_rect.left() + visible_w {
             continue;
         }
         for row in 0..rows {
-            let cell = &grid.cells[row * cols + orig_col as usize];
+            let cell = &grid.cells[row * cols + c as usize];
             let rect = Rect::from_min_size(
-                Pos2::new(
-                    grid_rect.left() + c_visible as f32 * cell_w - frac_shift * cell_w,
-                    grid_rect.top() + row as f32 * cell_h,
-                ),
+                Pos2::new(x, grid_rect.top() + row as f32 * cell_h),
                 Vec2::new(cell_w, cell_h),
             );
             let color = cell_color(cell, &color_stops, grid_dv_range, fleet_max_dv_ms);
@@ -170,13 +173,10 @@ pub fn porkchop_panel(
     // reads against every colormap band (green, yellow, red, greyed).
     if let Some((hc, hr)) = hover_cell {
         if Some((hc, hr)) != *selected {
-            let c_visible = (hc as i32 - shift_cols_int) as f32 - frac_shift;
-            if c_visible >= 0.0 && c_visible <= visible_cols as f32 {
+            let x = grid_rect.left() + (hc as f32 - scroll) * cell_w;
+            if x + cell_w >= grid_rect.left() && x <= grid_rect.left() + visible_w {
                 let rect = Rect::from_min_size(
-                    Pos2::new(
-                        grid_rect.left() + c_visible * cell_w,
-                        grid_rect.top() + hr as f32 * cell_h,
-                    ),
+                    Pos2::new(x, grid_rect.top() + hr as f32 * cell_h),
                     Vec2::new(cell_w, cell_h),
                 );
                 painter.rect_stroke(
@@ -192,23 +192,26 @@ pub fn porkchop_panel(
     // 2. Selection highlight (thick border on the selected cell).
     // Selected cell stays at the "Now" (leftmost) column when its
     // t_dep has scrolled past the player's current time — clamps to
-    // c_visible = 0 so the cell sticks at "Now" instead of
-    // disappearing off the left edge.
+    // the left edge so the cell sticks at "Now" instead of
+    // disappearing off the panel.
     if let Some((sc, sr)) = *selected {
         if sc < cols && sr < rows {
-            let c_visible_f = (sc as i32 - shift_cols_int) as f32 - frac_shift;
-            let c_visible = if c_visible_f < 0.0 {
-                0.0
-            } else if c_visible_f > visible_cols as f32 - 1.0 {
-                visible_cols as f32 - 1.0
+            let x_f = (sc as f32 - scroll) * cell_w;
+            // Pinned at left edge when the cell has scrolled into
+            // the past; hidden when it's scrolled off the right
+            // edge (i.e. the selected t_dep hasn't been reached
+            // yet).  The visible range is `[0, visible_w]`.
+            let x = if x_f < 0.0 {
+                grid_rect.left()
+            } else if x_f > visible_w {
+                // Off-screen to the right — skip the selection
+                // outline by placing it just past the panel.
+                grid_rect.right() + cell_w * 2.0
             } else {
-                c_visible_f
+                grid_rect.left() + x_f
             };
             let rect = Rect::from_min_size(
-                Pos2::new(
-                    grid_rect.left() + c_visible * cell_w,
-                    grid_rect.top() + sr as f32 * cell_h,
-                ),
+                Pos2::new(x, grid_rect.top() + sr as f32 * cell_h),
                 Vec2::new(cell_w, cell_h),
             );
             painter.rect_stroke(
