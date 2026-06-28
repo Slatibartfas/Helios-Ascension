@@ -1,7 +1,7 @@
 use super::time::format_timestamp_date_time;
 use super::*;
 use crate::fleets::orbital_mechanics::calculate_cross_star_ballistic_options;
-use crate::fleets::porkchop::build_grid_for_body_target;
+use crate::fleets::porkchop::{build_grid_for_body_target, build_rotating_buffer_for_body_target};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PlannerTransferFrame {
@@ -954,10 +954,38 @@ pub(super) fn render_transfer_planner(
     // Comparing `porkchop_built_for` to `target_body` catches this
     // case before the deferred build runs and avoids re-rendering
     // the previous destination's grid.
+    // Rotating-buffer scroll offset: how many sim seconds have elapsed
+    // since the buffer was built.  The visible window inside the
+    // buffer slides rightward through the buffer at this rate, so
+    // the player sees the cells scroll smoothly without any per-frame
+    // rebuild.  Defaulting to 0 (no scroll) when no grid is cached
+    // is safe — the panel renders the buffer's left half until the
+    // first scroll lands.
+    let shift_s: f64 = fleet_ui_state
+        .porkchop_built_at_s
+        .map(|built| elapsed - built)
+        .unwrap_or(0.0)
+        .max(0.0);
+    // Buffer-rotation trigger: when `shift_s` reaches the visible
+    // window's width the visible window has fully consumed the
+    // buffer's "past" half and the right edge of the visible window
+    // needs data that the buffer doesn't have.  Invalidate so the
+    // deferred build path rebuilds against the new "now".  The grid
+    // is built with `t_dep_window_days × 2`, so the visible window
+    // is exactly half the buffer's t_dep span.
+    let visible_window_s = fleet_ui_state
+        .porkchop_grid
+        .as_ref()
+        .map(|g| (g.t_dep_bounds_s.1 - g.t_dep_bounds_s.0) / 2.0)
+        .unwrap_or(0.0);
+    let buffer_needs_rotation =
+        fleet_ui_state.porkchop_grid.is_some() && shift_s >= visible_window_s;
+
     let grid_for_changed = fleet_ui_state.porkchop_built_for != fleet_ui_state.target_body;
     if fleet_ui_state.porkchop_grid.is_some()
         && (grid_for_changed
-            || porkchop_grid_is_stale(fleet_ui_state.porkchop_built_at_s, elapsed, time_scale))
+            || porkchop_grid_is_stale(fleet_ui_state.porkchop_built_at_s, elapsed, time_scale)
+            || buffer_needs_rotation)
     {
         fleet_ui_state.porkchop_grid = None;
         fleet_ui_state.porkchop_built_for = None;
@@ -1003,7 +1031,7 @@ pub(super) fn render_transfer_planner(
                     dest_parent,
                     origin_parent,
                 );
-                fleet_ui_state.porkchop_grid = Some(build_grid_for_body_target(
+                fleet_ui_state.porkchop_grid = Some(build_rotating_buffer_for_body_target(
                     porkchop_config,
                     origin_orbit,
                     dest_orbit,
@@ -4602,6 +4630,7 @@ pub(super) fn render_transfer_planner(
                     &mut fleet_ui_state.selected_porkchop_cell,
                     fleet_max_dv,
                     time_to_window_s,
+                    shift_s,
                 );
                 ui.add_space(4.0);
                 if let Some((sc, sr)) = fleet_ui_state.selected_porkchop_cell {

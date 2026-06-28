@@ -760,6 +760,48 @@ pub fn build_grid_for_body_target(
     build_porkchop_grid(cfg, &inputs)
 }
 
+/// Build a *rotating-buffer* porkchop grid covering a 2× wider
+/// `t_dep` window than the visible planner surface.
+///
+/// The buffer is 2× the normal `t_dep_window_days` so the planner
+/// can render the *current* half (the leftmost cells) while the
+/// rightmost cells cache the future.  As time advances the planner
+/// scrolls the visible window rightward through the buffer; once
+/// the buffer's "future" half is exhausted it invalidates and
+/// rebuilds.  Within the window the planner never re-solves
+/// Lambert — the ΔV surface is invariant under rotation, so the
+/// cached values stay accurate as planet positions shift with mean
+/// motion.  This eliminates the per-second rebuild cadence that
+/// the cap-based staleness check hit at 1 yr/s, replacing it with
+/// one rebuild every `t_dep_window_days` of player time.
+pub fn build_rotating_buffer_for_body_target(
+    cfg: &PorkchopConfig,
+    origin_orbit: KeplerOrbit,
+    dest_orbit: KeplerOrbit,
+    origin_name: String,
+    dest_name: String,
+    category: &str,
+    sim_time_s: f64,
+) -> PorkchopGrid {
+    // Resolve the per-category params, then double `t_dep_window_days`
+    // and `resolution_t_dep` so the buffer has 2× the columns of the
+    // visible planner surface.  Resolution scales with window size to
+    // keep per-cell ΔV detail comparable to the non-rotating grid.
+    let mut params = cfg.resolve(category);
+    params.t_dep_window_days *= 2.0;
+    params.resolution_t_dep = (params.resolution_t_dep * 2).max(8);
+    let inputs = PorkchopInputs {
+        origin_name,
+        dest_name,
+        origin_orbit,
+        dest_orbit,
+        system_gm: GM_SUN,
+        sim_time_s,
+        category: category.to_string(),
+    };
+    build_porkchop_grid_with_params(params, &inputs)
+}
+
 /// Classify the transfer category so the right `PorkchopConfig` override
 /// is selected.  The keys are an *open* set declared in
 /// `assets/data/porkchop_config.ron` (interplanetary, moon, star_approach,
@@ -819,6 +861,55 @@ mod planner_wiring_tests {
         assert_eq!(grid.origin_name, "Earth");
         assert_eq!(grid.dest_name, "Mars");
         assert_eq!(grid.metric, PorkchopMetric::TotalDv);
+    }
+
+    /// Rotating-buffer grid covers 2× the visible planner window: a
+    /// `t_dep_window_days` of 60 becomes 120 sim days, with double
+    /// the columns so each visible column keeps its original ΔV
+    /// resolution.  The planner scrolls the visible window through
+    /// the buffer without rebuilding until the buffer's "future"
+    /// half is exhausted.
+    #[test]
+    fn planner_wiring_rotating_buffer_doubles_window() {
+        let cfg = PorkchopConfig::default();
+        let earth_orbit = KeplerOrbit::circular(1.0, 1.0);
+        let mars_orbit = KeplerOrbit::circular(1.524, 1.0);
+        let buffer = build_rotating_buffer_for_body_target(
+            &cfg,
+            earth_orbit,
+            mars_orbit,
+            "Earth".to_string(),
+            "Mars".to_string(),
+            "interplanetary",
+            0.0,
+        );
+        let baseline = build_grid_for_body_target(
+            &cfg,
+            earth_orbit,
+            mars_orbit,
+            "Earth".to_string(),
+            "Mars".to_string(),
+            "interplanetary",
+            0.0,
+        );
+        // Buffer covers 2× the baseline's t_dep window.
+        let baseline_width = baseline.t_dep_bounds_s.1 - baseline.t_dep_bounds_s.0;
+        let buffer_width = buffer.t_dep_bounds_s.1 - buffer.t_dep_bounds_s.0;
+        assert!(
+            (buffer_width - 2.0 * baseline_width).abs() < 1.0,
+            "buffer width {buffer_width} should be ≈ 2× baseline {baseline_width}"
+        );
+        // Buffer has 2× the columns so each visible column keeps
+        // baseline's per-column ΔV resolution.
+        assert_eq!(
+            buffer.resolution.0,
+            baseline.resolution.0 * 2,
+            "buffer cols should be 2× baseline cols"
+        );
+        assert!(
+            buffer.cells.iter().any(|c| c.feasible),
+            "rotating buffer must still contain feasible cells"
+        );
     }
 
     #[test]

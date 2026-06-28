@@ -46,6 +46,13 @@ pub fn porkchop_panel(
     selected: &mut Option<(usize, usize)>,
     fleet_max_dv_ms: f64,
     time_to_window_s: f64,
+    // Sim seconds elapsed since the rotating buffer was built.
+    // When 0 the panel renders normally (the visible window starts
+    // at the buffer's left edge); as the player advances sim time
+    // the visible window scrolls rightward through the buffer.
+    // Pass `0.0` for the non-rotating-buffer case (legacy
+    // behaviour).
+    shift_s: f64,
 ) -> Response {
     let (cols, rows) = grid.resolution;
     if cols == 0 || rows == 0 {
@@ -70,6 +77,24 @@ pub fn porkchop_panel(
     let grid_dv_range = compute_grid_dv_range(grid);
     let color_stops = resample_colormap(cfg, grid_dv_range);
 
+    // Rotating-buffer scroll state.  The buffer is 2× the visible
+    // window, so we render only the half starting at column
+    // `shift_cols`.  `visible_cols = cols / 2`.  `col_step_s` is how
+    // many sim seconds each original column spans; with `shift_s`
+    // divided through, `shift_cols` is the column at which the
+    // current "now" tick sits — i.e. the buffer's leftmost cell
+    // represents `t_dep = shift_s` (depart now) rather than
+    // `t_dep = 0` (depart at build-time-now).
+    let visible_cols = cols / 2;
+    let t_dep_min = grid.t_dep_bounds_s.0;
+    let t_dep_max = grid.t_dep_bounds_s.1;
+    let col_step_s = if cols > 0 {
+        (t_dep_max - t_dep_min) / cols as f64
+    } else {
+        1.0
+    };
+    let shift_cols = (shift_s / col_step_s).floor() as i32;
+
     // Hover + click.  `Sense::hover()` alone ignores clicks (the user
     // reported they "couldn't click any other tile"), and
     // `Sense::click_and_drag()` only reports `interact_pointer_pos`
@@ -86,7 +111,9 @@ pub fn porkchop_panel(
     painter.rect_filled(plot_rect, 0.0, theme::BG_SOLID);
 
     // Cell layout — pad 32 px on the left (TOF axis labels) and 18 px on
-    // the bottom (t_dep axis labels).
+    // the bottom (t_dep axis labels).  Each visible column maps to
+    // original col `shift_cols + c_visible` so the cell layout uses
+    // the visible width / visible_cols.
     let pad_l = 36.0;
     let pad_b = 20.0;
     let grid_rect = Rect::from_min_size(
@@ -96,30 +123,39 @@ pub fn porkchop_panel(
             plot_rect.height() - pad_b - 4.0,
         ),
     );
-    let cell_w = grid_rect.width() / cols as f32;
+    let cell_w = grid_rect.width() / visible_cols as f32;
     let cell_h = grid_rect.height() / rows as f32;
 
     // Compute the (col, row) of the cell currently under the cursor.
     // `hover_pos()` is filled by `Sense::hover` whenever the pointer
     // is over the response rect — no button held — which is what
     // makes the per-cell tooltip actually appear when the user simply
-    // sweeps the mouse across the porkchop.
+    // sweeps the mouse across the porkchop.  Convert visible col back
+    // to original buffer col so the selected cell index stays in the
+    // grid's coordinate system.
     let hover_cell: Option<(usize, usize)> = resp
         .hover_pos()
         .filter(|pos| grid_rect.contains(*pos))
         .map(|pos| {
-            let col = ((pos.x - grid_rect.left()) / cell_w) as usize;
+            let c_visible = ((pos.x - grid_rect.left()) / cell_w) as usize;
+            let col = (c_visible as i32 + shift_cols).max(0) as usize;
             let row = ((pos.y - grid_rect.top()) / cell_h) as usize;
             (col.min(cols - 1), row.min(rows - 1))
         });
 
-    // 1. Cells (coloured rects)
-    for row in 0..rows {
-        for col in 0..cols {
-            let cell = &grid.cells[row * cols + col];
+    // 1. Cells (coloured rects).  Each visible column `c_visible`
+    // maps to original buffer col `shift_cols + c_visible`.  Skip
+    // cells outside the buffer.
+    for c_visible in 0..visible_cols {
+        let orig_col = c_visible as i32 + shift_cols;
+        if orig_col < 0 || orig_col >= cols as i32 {
+            continue;
+        }
+        for row in 0..rows {
+            let cell = &grid.cells[row * cols + orig_col as usize];
             let rect = Rect::from_min_size(
                 Pos2::new(
-                    grid_rect.left() + col as f32 * cell_w,
+                    grid_rect.left() + c_visible as f32 * cell_w,
                     grid_rect.top() + row as f32 * cell_h,
                 ),
                 Vec2::new(cell_w, cell_h),
@@ -135,44 +171,51 @@ pub fn porkchop_panel(
     // reads against every colormap band (green, yellow, red, greyed).
     if let Some((hc, hr)) = hover_cell {
         if Some((hc, hr)) != *selected {
-            let rect = Rect::from_min_size(
-                Pos2::new(
-                    grid_rect.left() + hc as f32 * cell_w,
-                    grid_rect.top() + hr as f32 * cell_h,
-                ),
-                Vec2::new(cell_w, cell_h),
-            );
-            painter.rect_stroke(
-                rect,
-                0.0,
-                Stroke::new(1.5, Color32::from_white_alpha(180)),
-                egui::StrokeKind::Inside,
-            );
+            let c_visible = (hc as i32 - shift_cols).max(0) as usize;
+            if c_visible < visible_cols {
+                let rect = Rect::from_min_size(
+                    Pos2::new(
+                        grid_rect.left() + c_visible as f32 * cell_w,
+                        grid_rect.top() + hr as f32 * cell_h,
+                    ),
+                    Vec2::new(cell_w, cell_h),
+                );
+                painter.rect_stroke(
+                    rect,
+                    0.0,
+                    Stroke::new(1.5, Color32::from_white_alpha(180)),
+                    egui::StrokeKind::Inside,
+                );
+            }
         }
     }
 
-    // 2. Selection highlight (thick border on the selected cell)
+    // 2. Selection highlight (thick border on the selected cell).
     if let Some((sc, sr)) = *selected {
         if sc < cols && sr < rows {
-            let rect = Rect::from_min_size(
-                Pos2::new(
-                    grid_rect.left() + sc as f32 * cell_w,
-                    grid_rect.top() + sr as f32 * cell_h,
-                ),
-                Vec2::new(cell_w, cell_h),
-            );
-            painter.rect_stroke(
-                rect,
-                0.0,
-                Stroke::new(2.0, theme::RP_BLUE),
-                egui::StrokeKind::Inside,
-            );
+            let c_visible = (sc as i32 - shift_cols).max(0) as usize;
+            if c_visible < visible_cols {
+                let rect = Rect::from_min_size(
+                    Pos2::new(
+                        grid_rect.left() + c_visible as f32 * cell_w,
+                        grid_rect.top() + sr as f32 * cell_h,
+                    ),
+                    Vec2::new(cell_w, cell_h),
+                );
+                painter.rect_stroke(
+                    rect,
+                    0.0,
+                    Stroke::new(2.0, theme::RP_BLUE),
+                    egui::StrokeKind::Inside,
+                );
+            }
         }
     }
 
-    // 3. Grid lines
-    for col in 0..=cols {
-        let x = grid_rect.left() + col as f32 * cell_w;
+    // 3. Grid lines — drawn at every visible column (visible_cols + 1
+    //    vertical lines for the rightmost edge).
+    for c_visible in 0..=visible_cols {
+        let x = grid_rect.left() + c_visible as f32 * cell_w;
         painter.line_segment(
             [
                 Pos2::new(x, grid_rect.top()),
@@ -193,36 +236,44 @@ pub fn porkchop_panel(
     }
 
     // 4. Phase-window overlay (dashed vertical line on the t_dep axis)
-    let t_dep_min = grid.t_dep_bounds_s.0;
-    let t_dep_max = grid.t_dep_bounds_s.1;
+    //    In rotating-buffer mode `time_to_window_s` is measured
+    //    relative to current sim time, so we shift by `shift_s` to
+    //    translate back into the buffer's coordinate system before
+    //    computing the column fraction.
     if time_to_window_s.is_finite()
-        && t_dep_max > t_dep_min
-        && time_to_window_s >= t_dep_min
-        && time_to_window_s <= t_dep_max
+        && (t_dep_max - t_dep_min) > 0.0
     {
-        let frac = (time_to_window_s - t_dep_min) / (t_dep_max - t_dep_min);
-        let x = grid_rect.left() + frac as f32 * grid_rect.width();
-        draw_dashed_vertical(
-            &painter,
-            x,
-            grid_rect.top(),
-            grid_rect.bottom(),
-            theme::AMBER,
-        );
+        let phase_window_buffer_s = time_to_window_s + shift_s;
+        if phase_window_buffer_s >= t_dep_min
+            && phase_window_buffer_s <= t_dep_max
+        {
+            let frac = (phase_window_buffer_s - t_dep_min) / (t_dep_max - t_dep_min);
+            let x = grid_rect.left() + frac as f32 * grid_rect.width();
+            draw_dashed_vertical(
+                &painter,
+                x,
+                grid_rect.top(),
+                grid_rect.bottom(),
+                theme::AMBER,
+            );
+        }
     }
 
-    // 5. Axis labels (t_dep days on bottom; tof days on left)
+    // 5. Axis labels (t_dep days on bottom; tof days on left).
+    //    X-axis ticks reflect the *visible* window: the leftmost
+    //    visible column is `t_dep = shift_s` ("Now" relative to the
+    //    rotating buffer) and the rightmost is `t_dep = shift_s +
+    //    visible_width`.  Each label below the grid shows the
+    //    absolute sim-day offset so the player can still read the
+    //    departure date in calendar terms.
     let label_color = theme::TEXT_DIM;
     let label_size = 10.0;
     let font_id = egui::FontId::proportional(label_size);
-    // X-axis: 5 ticks.  The label shows "Now" instead of "+0 d" for
-    // the t_dep = 0 tick so the player can see at a glance that the
-    // leftmost column is "depart immediately" rather than the
-    // optimal-window departure date.
+    let visible_width_s = (t_dep_max - t_dep_min) / 2.0;
     for i in 0..=4 {
         let frac = i as f64 / 4.0;
-        let t_dep_s = t_dep_min + frac * (t_dep_max - t_dep_min);
-        let days = t_dep_s / SECONDS_PER_DAY;
+        let tick_s = shift_s + frac * visible_width_s;
+        let days = tick_s / SECONDS_PER_DAY;
         let x = grid_rect.left() + (frac as f32) * grid_rect.width();
         let label = if days.abs() < 0.5 {
             "Now".to_owned()
