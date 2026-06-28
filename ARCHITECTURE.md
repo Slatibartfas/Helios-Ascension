@@ -356,9 +356,9 @@ let positions = calculate_positions_at_timestamp(start_ts);
 
 *Note:* The current implementation uses simplified moon/dwarf-planet models; for higher precision use JPL Horizons data and expand the ephemeris module accordingly.
 
-#### Exoplanets & Nearby Stars (v0.4.x → v0.5.0)
+#### Exoplanets & Nearby Stars (v0.4.x → v0.6)
 
-`src/astronomy/exoplanets.rs` ingests `assets/data/Exoplanets_NASA.csv` (5 000+ confirmed planets within 50 pc / ~163 ly from the NASA Exoplanet Archive). `src/astronomy/nearby_stars.rs` provides the 60+ nearest star systems from `assets/data/nearest_stars_raw.json`. Systems with confirmed planets get real `ConfirmedPlanet` entries; systems without get a procedural fallback via `src/astronomy/procedural.rs`. The `interstellar_probe` tech (tier 5, added in GRA-106) unlocks flyby of bodies in other star systems as the v0.5 → v0.6 hand-off.
+`src/astronomy/exoplanets.rs` defines the `ConfirmedPlanet` data model and `RealPlanet` marker component but **the NASA Exoplanet Archive CSV loader is not yet wired up**. The `assets/data/Exoplanets_NASA.csv` dump is untracked (see `assets/data/README.md`) — the structs and tests are in place, ready for the v0.6 interstellar travel milestone. `src/astronomy/nearby_stars.rs` provides the 60+ nearest star systems from `assets/data/nearest_stars_raw.json`. Systems without confirmed planets fall back to `src/astronomy/procedural.rs` today; the CSV-driven path ships with v0.6. The `interstellar_probe` tech (tier 5, added in GRA-106) unlocks flyby of bodies in other star systems.
 
 #### SurveyPlugin (`src/survey/`, v0.5.0)
 
@@ -423,7 +423,7 @@ Functions that operate on entities with specific components:
 ## Future Architecture Plans
 
 ### Upcoming Features
-1. **Interstellar Travel (v0.6)**: Ship movement between star systems; the `interstellar_probe` tech (GRA-106) is already on `main`, and the exoplanet ingestion (`src/astronomy/exoplanets.rs`) supplies 5 000+ confirmed targets
+1. **Interstellar Travel (v0.6)**: Ship movement between star systems; the `interstellar_probe` tech (GRA-106) is already on `main`. The exoplanet ingestion path in `src/astronomy/exoplanets.rs` is staged (structs + tests in place, CSV loader pending) — see `assets/data/README.md` for the deferred data source.
 2. **Combat System (v0.6 → v0.7)**: Space battles and defense; the `GroundDefenseBattery` and `MissileSilo` buildings are scaffolded for ground-side combat
 3. **Diplomacy & AI Factions (v0.6)**: Multi-faction competition, alliances, treaties, and victory conditions
 4. **Terraforming (v0.7 → v0.8)**: Long-term planetary modification; hooks in `BuildingType::category()` and `OrbitalSurveyStation` continuous-yield bonus
@@ -448,7 +448,7 @@ src/
 │   ├── components.rs    # SpaceCoordinates, KeplerOrbit, OrbitPath
 │   ├── systems.rs       # Orbit propagation, rendering, selection
 │   ├── ephemeris.rs     # J2000-based mean-anomaly computation for custom start dates
-│   ├── exoplanets.rs    # NASA Exoplanet Archive ingestion (5 000+ confirmed planets)
+│   ├── exoplanets.rs    # ConfirmedPlanet struct + RealPlanet marker; CSV loader staged for v0.6
 │   ├── nearby_stars.rs  # 60+ nearest star systems from `nearest_stars_raw.json`
 │   ├── procedural.rs    # Procedural fallback for systems without confirmed planets
 │   ├── lagrange.rs      # L1/L2/L3/L4/L5 computation helpers

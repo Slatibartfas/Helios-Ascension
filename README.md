@@ -109,7 +109,7 @@ The v0.4.0 building & logistics overhaul shipped — **52 building types** with 
   - **60+ nearest star systems** from real astronomical catalogs (NASA Exoplanet Archive)
   - Starmap view for interstellar navigation
   - Real star data including spectral types, masses, luminosities, and metallicities
-  - **Confirmed exoplanets** module (`src/astronomy/exoplanets.rs`) — 5 000+ confirmed planets within 50 pc ingested from `Exoplanets_NASA.csv`; procedural fallback for systems without confirmed planets
+  - **Confirmed exoplanets** module (`src/astronomy/exoplanets.rs`) — `ConfirmedPlanet` struct + `RealPlanet` marker staged; CSV ingestion from `Exoplanets_NASA.csv` deferred to v0.6 interstellar travel (see `assets/data/README.md`); procedural fallback covers systems without confirmed planets today
   - Procedural system generation for visited stars
   - **Interstellar probe** tech (tier 5) unlocks flyby of bodies in other star systems
 
@@ -255,7 +255,7 @@ The game uses a modular plugin architecture built on Bevy's ECS (Entity Componen
 
 - **CameraPlugin**: 3D camera movement and automatic view transitions
 - **SolarSystemPlugin**: Manages celestial bodies and orbital mechanics
-- **AstronomyPlugin**: High-precision Keplerian orbital mechanics, ephemeris, **exoplanet ingestion**, nearby-stars catalog
+- **AstronomyPlugin**: High-precision Keplerian orbital mechanics, ephemeris, nearby-stars catalog, **exoplanet data model staged for v0.6 ingestion**
 - **ColonyPlugin**: Colony management with **52 building types** (tiers, synergies, 4–6-resource maintenance, atmosphere availability)
 - **EconomyPlugin**: Per-body resource stockpiles, production, consumption, budget tracking, **resource request lifecycle, private shipping company AI, auto-freight dispatch, per-trip cargo-cap**
 - **ResearchPlugin**: Technology tree progression plus engineering targets used by ship module families; **GRA-127 tier-1 paid research_cost**

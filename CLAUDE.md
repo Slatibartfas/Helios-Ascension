@@ -57,7 +57,7 @@ src/
 
 ### Key Systems
 
-- **Astronomy**: KeplerOrbit propagation, comet tails, Lagrange points, starmap, **exoplanet ingestion (5 000+ confirmed planets)**, **JPL-epoch mean-anomaly computation**
+- **Astronomy**: KeplerOrbit propagation, comet tails, Lagrange points, starmap, **exoplanet data model staged (CSV loader deferred to v0.6, see `assets/data/README.md`)**, **JPL-epoch mean-anomaly computation**
 - **Colony**: **52 building types** across 8 categories, construction queue, population
 - **Economy**: **38 resource types**, mining operations, energy grid, per-body stockpiles, **localized logistics**, **shipping-company AI**
 - **Fleets**: 7 ship classes, 6 propulsion types, Hohmann transfers, **porkchop plot planner**, **Lagrange routing (L1–L5)**, **star-approach parking-radius picker**, gravity assists, **historical probes**
@@ -127,7 +127,7 @@ The modding surface is intentionally broad. All gameplay surfaces are RON-driven
 - Ship modules: `assets/data/ship_modules.ron`
 - Solar system: `assets/data/solar_system.ron`
 - Stars: `assets/data/nearest_stars_raw.json`
-- Exoplanets: `assets/data/Exoplanets_NASA.csv` (NASA Exoplanet Archive ingestion in `src/astronomy/exoplanets.rs`)
+- Exoplanets: `assets/data/Exoplanets_NASA.csv` (untracked; planned loader in `src/astronomy/exoplanets.rs`, ships with v0.6 — see `assets/data/README.md`)
 - Freighter templates: `assets/data/freighter_templates.ron`
 - Notifications: `assets/data/notifications.ron`
 - Porkchop config: `assets/data/porkchop_config.ron`

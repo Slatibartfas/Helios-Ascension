@@ -36,3 +36,18 @@ desktop.ini
 
 
 .claude/settings.local.json
+
+# ── Large astronomical data dumps (kept on disk, not tracked) ──
+# None of these are read at runtime — they are reference dumps
+# for offline ingestion. See assets/data/README.md for download links.
+#
+# - 83 MB: JPL Small-Body Database (~880k asteroids, comets, KBOs)
+# - 73 MB: NASA Exoplanet Archive TAP export
+# - 40 KB: JPL Comets List (kept alongside Small-Bodies for completeness)
+assets/data/JPL_SmallBodiesList.csv
+assets/data/Exoplanets_NASA.csv
+assets/data/JPL_CometsList.csv
+
+# Duplicate solar_system.ron lives at the repo root from an earlier
+# commit; only assets/data/solar_system.ron is loaded by the game.
+/solar_system.ron
