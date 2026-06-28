@@ -29,23 +29,35 @@ const MIN_ORBITAL_RADIUS_AU: f64 = 0.001; // 1/1000 AU ≈ 149,600 km (inside Me
 /// A conservative minimum altitude above the atmosphere/surface.
 const PLANETARY_FLYBY_RADIUS_KM_MULTIPLIER: f64 = 3_000.0; // = 1_000 m/km × 3
 
-/// Maximum in-game seconds the cached porkchop grid is allowed to stay
-/// fresh before the planner rebuilds it.  The grid's `t_dep = 0` column
-/// is anchored to the sim-time epoch the grid was built at; once the
-/// sim has advanced more than this many seconds past that epoch, the
-/// "Now" column no longer reflects the current planetary geometry and
-/// the ΔV values drift noticeably.  3 days is short enough to stay
-/// accurate for inner-planet transfers (where planets move ~1°/day)
-/// and long enough to amortize the 40×30 = 1200-cell Lambert solve
-/// (worst-case ~360 ms) so we don't rebuild every frame.
-///
-/// `None` is treated as "never stale" — the planner only rebuilds when
-/// the sim actually advances past this threshold, so a paused game
-/// keeps using the cached grid indefinitely.
-const PORKCHOP_STALENESS_THRESHOLD_S: f64 = 3.0 * 86_400.0;
+/// Maximum *real-time* seconds the cached porkchop grid is allowed to
+/// stay fresh before the planner rebuilds it.  The grid's `t_dep = 0`
+/// column is anchored to the sim-time epoch the grid was built at;
+/// once the sim has advanced enough, the "Now" column no longer
+/// reflects the current planetary geometry and the ΔV values drift
+/// noticeably.  We express the threshold in real-time seconds and
+/// multiply by `TimeScale::scale` at the call site so the rebuild
+/// fires after a consistent wall-clock interval regardless of how
+/// fast the simulation is running.  Without this scaling, at 1 yr/s
+/// the sim advances ~5.83 days per frame and the staleness fires
+/// immediately after the player clicks a cell, snapping the
+/// selection back to the auto-picked cheapest cell.  3 days at
+/// 1 hr/s (the default speed) is short enough to stay accurate for
+/// inner-planet transfers (where planets move ~1°/day) and long
+/// enough to amortize the 40×30 = 1200-cell Lambert solve (worst-case
+/// ~360 ms) so we don't rebuild every frame.
+const PORKCHOP_STALENESS_REAL_S: f64 = 72.0;
 
 /// Pure-function helper: should the cached porkchop grid be invalidated
 /// because `elapsed` has drifted too far from the build epoch?
+///
+/// The threshold is in *real-time* seconds (`PORKCHOP_STALENESS_REAL_S`)
+/// multiplied by `time_scale` so the planner rebuilds the grid after
+/// a fixed wall-clock interval regardless of how fast the simulation
+/// is running.  At 1 hr/s (`time_scale = 3600`) the threshold is
+/// `72 × 3600 = 259_200 sim seconds = 3 days`.  At 1 yr/s
+/// (`time_scale = 31_557_600`) it scales to `72 × 31_557_600 ≈ 2.27
+/// billion sim seconds ≈ 72 years`, so the staleness won't fire on
+/// a single click even at extreme speeds.
 ///
 /// Returns `true` only when both `built_at` and the cached grid are
 /// present — i.e. a grid *exists* and is older than the threshold.
@@ -55,9 +67,14 @@ const PORKCHOP_STALENESS_THRESHOLD_S: f64 = 3.0 * 86_400.0;
 ///
 /// Public-ish (crate-private with a `pub(super)` so unit tests can
 /// exercise the boundary without spinning up a Bevy world).
-pub(super) fn porkchop_grid_is_stale(built_at: Option<f64>, elapsed: f64) -> bool {
+pub(super) fn porkchop_grid_is_stale(
+    built_at: Option<f64>,
+    elapsed: f64,
+    time_scale: f64,
+) -> bool {
     if let Some(built) = built_at {
-        return (elapsed - built).abs() > PORKCHOP_STALENESS_THRESHOLD_S;
+        let scaled_threshold = PORKCHOP_STALENESS_REAL_S * time_scale.max(1.0);
+        return (elapsed - built).abs() > scaled_threshold;
     }
     false
 }
@@ -842,6 +859,14 @@ pub(super) fn render_transfer_planner(
     current_system_id: usize,
     body_system_ids: &Query<&SystemId>,
     elapsed: f64,
+    // Current `TimeScale::scale` (sim-seconds per real-second).  Used
+    // to scale the porkchop staleness threshold so the grid refreshes
+    // after a fixed *real-time* interval regardless of how fast the
+    // simulation is running.  Without this scaling, at 1 yr/s the
+    // sim advances ~5.83 days per frame and the staleness fires
+    // immediately after the player clicks a cell, snapping the
+    // selection back to the auto-picked cheapest cell.
+    time_scale: f64,
     nearby_stars: &NearbyStarsData,
     current_timestamp: i64,
     // Fleet's actual current heliocentric/local position when performing a course
@@ -921,10 +946,21 @@ pub(super) fn render_transfer_planner(
     // deferred build re-solves the grid against the *current* epoch —
     // that's why closing-and-reopening the planner now refreshes the
     // "starting point" tick.
+    //
+    // Also invalidate when the destination has changed.  Some entry
+    // points (the 3D-scene right-click handler, hotkeys, automation)
+    // set `target_body` without firing the planner's click handlers,
+    // so the cached grid stays around for the *old* destination.
+    // Comparing `porkchop_built_for` to `target_body` catches this
+    // case before the deferred build runs and avoids re-rendering
+    // the previous destination's grid.
+    let grid_for_changed = fleet_ui_state.porkchop_built_for != fleet_ui_state.target_body;
     if fleet_ui_state.porkchop_grid.is_some()
-        && porkchop_grid_is_stale(fleet_ui_state.porkchop_built_at_s, elapsed)
+        && (grid_for_changed
+            || porkchop_grid_is_stale(fleet_ui_state.porkchop_built_at_s, elapsed, time_scale))
     {
         fleet_ui_state.porkchop_grid = None;
+        fleet_ui_state.porkchop_built_for = None;
         fleet_ui_state.porkchop_built_at_s = None;
         fleet_ui_state.selected_porkchop_cell = None;
     }
@@ -979,6 +1015,12 @@ pub(super) fn render_transfer_planner(
                 // Stamp the build epoch so the staleness check above
                 // can decide when the grid needs refreshing.
                 fleet_ui_state.porkchop_built_at_s = Some(elapsed);
+                // Stamp the build target so the staleness check can
+                // also detect when the player switches destinations
+                // through a non-click entry point (3D right-click,
+                // hotkeys, automation) that doesn't fire the
+                // planner's per-frame rebuild path.
+                fleet_ui_state.porkchop_built_for = Some(target_entity);
             }
         }
     }
@@ -1867,6 +1909,11 @@ pub(super) fn render_transfer_planner(
                                         // knows when to refresh the
                                         // grid as sim time advances.
                                         fleet_ui_state.porkchop_built_at_s = Some(elapsed);
+                                        // Stamp the build target so the
+                                        // staleness check also catches
+                                        // future target-body mutations
+                                        // from non-click paths.
+                                        fleet_ui_state.porkchop_built_for = Some(*entity);
                                         fleet_ui_state.selected_porkchop_cell = None;
                                     }
                                 }
@@ -1964,6 +2011,11 @@ pub(super) fn render_transfer_planner(
                                         // knows when to refresh the
                                         // grid as sim time advances.
                                         fleet_ui_state.porkchop_built_at_s = Some(elapsed);
+                                        // Stamp the build target so the
+                                        // staleness check also catches
+                                        // future target-body mutations
+                                        // from non-click paths.
+                                        fleet_ui_state.porkchop_built_for = Some(*entity);
                                         fleet_ui_state.selected_porkchop_cell = None;
                                     }
                                 }
@@ -4597,9 +4649,24 @@ pub(super) fn render_transfer_planner(
                     Some((sc, sr)) => {
                         let cell = grid.cells.get(sr * grid.resolution.0 + sc);
                         match (cell, body_target_snap) {
+                            // Loosened guard: any feasible cell with
+                            // finite ΔV produces a preview, even if
+                            // the cell is out-of-budget for this
+                            // fleet.  The Execute button below has
+                            // its own `can_execute` check (which does
+                            // include the fleet-budget guard) so
+                            // out-of-budget cells are still rejected
+                            // at commit time — but the trajectory
+                            // preview is the player's primary way to
+                            // compare cells, so we let them see the
+                            // ghost arc for *any* feasible cell.  The
+                            // previous "preview stays None on
+                            // out-of-budget click" behaviour made the
+                            // 3D arc look frozen whenever the player
+                            // hovered over a red cell, which read as
+                            // "trajectory never updates".
                             (Some(cell), Some(target_entity)) if cell.feasible
                                 && cell.total_dv_ms.is_finite()
-                                && cell.total_dv_ms <= fleet_max_dv
                                 && cell.delta_v1_ms.is_finite()
                                 && cell.delta_v2_ms.is_finite() =>
                             {
@@ -4697,7 +4764,7 @@ pub(super) fn render_transfer_planner(
                             && cell.delta_v1_ms.is_finite()
                             && cell.delta_v2_ms.is_finite();
                         let btn = egui::Button::new(
-                            egui::RichText::new("🚀 Execute Porkchop Transfer")
+                            egui::RichText::new("🚀 Execute Transfer")
                                 .size(13.0)
                                 .strong(),
                         );
@@ -4779,6 +4846,22 @@ pub(super) fn render_transfer_planner(
                     }
                 }
                 // Skip the legacy 3-option row when the panel is shown.
+                return;
+            }
+
+            // GRA-154 H-2 follow-up: when a gravity assist is selected the
+            // legacy Efficient / Moderate / Fast row must NOT reappear.
+            // The assist branch in `build_planned_transfer` (above) uses the
+            // "Gravity Assist" `TransferOption::label` to stitch Leg-1 +
+            // Leg-2 — showing the legacy 3-option list alongside it would
+            // invite the player to click a `selectable_label` that points
+            // at the direct Lambert arc and silently undo the assist
+            // selection.  The per-assist stats panel above (ΔV saved,
+            // extra time, window period, v∞) already carries the cost
+            // breakdown, and the "Use Gravity Assist" / "Clear Assist"
+            // buttons let the player toggle the assist on/off without
+            // needing the legacy list to mediate.
+            if fleet_ui_state.selected_gravity_assist.is_some() {
                 return;
             }
 
@@ -7478,56 +7561,136 @@ mod tests {
     // "starting point" tick stays anchored to the time the grid was
     // built, so closing and reopening the planner shows a stale ΔV
     // for "Depart Now" cells.  Fix: invalidate the cached grid once
-    // the sim has advanced past `PORKCHOP_STALENESS_THRESHOLD_S` so
-    // the next frame rebuilds it against the current epoch.
+    // the sim has advanced past `PORKCHOP_STALENESS_REAL_S × time_scale`
+    // so the next frame rebuilds it against the current epoch.
+    //
+    // Second user report: at high `time_scale` (1 day/s or faster) the
+    // sim advances so fast that the threshold fires immediately after
+    // the player clicks a cell, snapping the selection back to the
+    // auto-picked cheapest cell.  The threshold is now scaled by
+    // `time_scale` so the rebuild fires after a fixed *real-time*
+    // interval regardless of how fast the sim is running.
+
+    /// 1 hr/s — the default speed.
+    const DEFAULT_TIME_SCALE: f64 = 3_600.0;
+    /// 1 day/s — the next step on the speed ladder.
+    const DAY_PER_S_TIME_SCALE: f64 = 86_400.0;
+    /// 1 yr/s — extreme speed, 31,557,600 sim seconds per real second.
+    const YEAR_PER_S_TIME_SCALE: f64 = 31_557_600.0;
 
     #[test]
-    fn porkchop_staleness_returns_true_after_threshold() {
-        // Built 4 days ago, sim time has advanced 4 days past that
-        // build: clearly past the 3-day threshold.
+    fn porkchop_staleness_returns_true_after_threshold_at_1_hr_per_s() {
+        // Built 4 days ago at 1 hr/s: 4 × 86_400 = 345_600 sim
+        // seconds elapsed since build, threshold is 72 × 3_600 =
+        // 259_200 sim seconds = 3 days.  Past threshold.
         let built = 0.0;
         let elapsed = 4.0 * 86_400.0;
-        assert!(super::porkchop_grid_is_stale(Some(built), elapsed));
+        assert!(super::porkchop_grid_is_stale(
+            Some(built),
+            elapsed,
+            DEFAULT_TIME_SCALE
+        ));
     }
 
     #[test]
-    fn porkchop_staleness_returns_false_within_threshold() {
-        // Built 1 day ago: inside the 3-day threshold.
+    fn porkchop_staleness_returns_false_within_threshold_at_1_hr_per_s() {
+        // Built 1 day ago at 1 hr/s: inside the 3-day threshold.
         let built = 1_000.0;
         let elapsed = built + 1.0 * 86_400.0;
-        assert!(!super::porkchop_grid_is_stale(Some(built), elapsed));
+        assert!(!super::porkchop_grid_is_stale(
+            Some(built),
+            elapsed,
+            DEFAULT_TIME_SCALE
+        ));
     }
 
     #[test]
     fn porkchop_staleness_returns_false_at_threshold_boundary() {
         // Exactly at the threshold — should NOT invalidate (the
-        // comparator is strict `>`, not `>=`, so a grid built exactly
-        // 3 days ago is still considered fresh).
+        // comparator is strict `>`, not `>=`).
         let built = 0.0;
         let elapsed = 3.0 * 86_400.0;
         assert!(
-            !super::porkchop_grid_is_stale(Some(built), elapsed),
-            "exactly 3 days = exactly at threshold = not stale"
+            !super::porkchop_grid_is_stale(Some(built), elapsed, DEFAULT_TIME_SCALE),
+            "exactly 3 days at 1 hr/s = exactly at threshold = not stale"
         );
     }
 
     #[test]
     fn porkchop_staleness_returns_false_when_no_build_epoch() {
         // No grid has ever been built — the deferred-build path
-        // handles that, not the staleness path.  We must NOT
-        // misreport a stale grid when no build epoch exists.
-        assert!(!super::porkchop_grid_is_stale(None, 1.0e9));
+        // handles that, not the staleness path.
+        assert!(!super::porkchop_grid_is_stale(
+            None,
+            1.0e9,
+            DEFAULT_TIME_SCALE
+        ));
     }
 
     #[test]
     fn porkchop_staleness_handles_time_reversal() {
         // If the player uses a debug command to rewind time, `elapsed`
         // can land *before* `built`.  The `abs()` guard means we
-        // still recognise staleness in that direction (the build is
-        // 4 days in the future relative to `elapsed`, which is just
-        // as stale as 4 days in the past).
+        // still recognise staleness in that direction.
         let built = 4.0 * 86_400.0;
         let elapsed = 0.0;
-        assert!(super::porkchop_grid_is_stale(Some(built), elapsed));
+        assert!(super::porkchop_grid_is_stale(
+            Some(built),
+            elapsed,
+            DEFAULT_TIME_SCALE
+        ));
+    }
+
+    #[test]
+    fn porkchop_staleness_scales_with_time_scale_at_1_day_per_s() {
+        // At 1 day/s the per-frame sim delta is ~23 minutes, so the
+        // threshold (72 real seconds × 86_400 sim/real = 6.22 million
+        // sim seconds ≈ 72 days) gives plenty of headroom for clicks
+        // to stick even though the sim is moving 24× faster than
+        // the default.
+        let built = 0.0;
+        // 1 day after build: well inside the 72-day threshold.
+        let elapsed = 86_400.0;
+        assert!(!super::porkchop_grid_is_stale(
+            Some(built),
+            elapsed,
+            DAY_PER_S_TIME_SCALE
+        ));
+        // 100 days after build: clearly past the 72-day threshold.
+        let elapsed = 100.0 * 86_400.0;
+        assert!(super::porkchop_grid_is_stale(
+            Some(built),
+            elapsed,
+            DAY_PER_S_TIME_SCALE
+        ));
+    }
+
+    #[test]
+    fn porkchop_staleness_scales_with_time_scale_at_1_yr_per_s() {
+        // At 1 yr/s the per-frame sim delta is ~5.83 days.  Without
+        // the `time_scale` scaling the threshold would fire on the
+        // very next frame after the player clicks, snapping the
+        // selection back to the cheapest cell.  With the scaling,
+        // the threshold grows to ~72 years of sim time — well
+        // beyond any reasonable play session, so clicks stick.
+        let built = 0.0;
+        // 1 year after build: well inside the 72-year threshold.
+        let elapsed = 365.25 * 86_400.0;
+        assert!(!super::porkchop_grid_is_stale(
+            Some(built),
+            elapsed,
+            YEAR_PER_S_TIME_SCALE
+        ));
+    }
+
+    #[test]
+    fn porkchop_staleness_paused_time_uses_default_threshold() {
+        // TimeScale::scale can be 0.0 when paused.  We treat that as
+        // 1.0 (no scaling) so a paused game doesn't get an infinite
+        // threshold; the staleness still fires after the default
+        // 72 real seconds of pause.
+        let built = 0.0;
+        let elapsed = 80.0; // 80 real seconds since build
+        assert!(super::porkchop_grid_is_stale(Some(built), elapsed, 0.0));
     }
 }

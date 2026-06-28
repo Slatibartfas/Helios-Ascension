@@ -1,16 +1,16 @@
 # Helios-Ascension
 A 4X grand strategy game with realistic orbital mechanics and a big focus on resource management, logistics and research. Climb the Kardashev scale starting at 0.7 and expand your civilization across the stars!
 
-## Current Status: v0.4.0 - Building & Logistics Overhaul ✨
+## Current Status: v0.5.0 - Exploration & Progression 🟡 IN FLIGHT
 
-The building system has been reworked to 2026-world-production scale, resources are now stored **per body** (no more global pool), freighters and private shipping companies carry materials between colonies, and you can build modular ships in the native Bevy shipbuilding workspace. Late-game logistics hardening is in flight as 0.4.x patches (see `ROADMAP.md`).
+The v0.4.0 building & logistics overhaul shipped — **52 building types** with per-body resource stockpiles, player- and AI-driven freighters, and a native Bevy shipbuilding workspace. The v0.5.0 survey rework is **mostly shipped**: the eight-dimension discovery model, six RON-driven data files, a 9-mission roster, anomaly confidence, and the dossier `SURVEY` tab are live on `main`. The notification / event system, the personnel data layer, and the transfer-planner porkchop plot & Lagrange transfers all shipped in May–June 2026. The Personnel panel UI is the last remaining v0.5 surface. See `ROADMAP.md` for the per-item status and the path to v1.0.
 
 ## Features
 
 ### Core Game Systems
 
 - **Colony Management**: Establish and manage colonies across the solar system
-  - **51 building types** across 8 categories (Infrastructure, Industry, Logistics, Power, Population, Research, Financial, Military)
+  - **52 building types** across 8 categories (Infrastructure, Industry, Logistics, Power, Population, Research, Financial, Military)
   - Each building has meaningful civilisation-scale output (e.g. Housing Complex = 25M residents, Farm = 1,000 Mt/yr food for ~10M people) — calibrated so a single Earth building ≈ the 2026 world production total for its dominant resource
   - **Building tiers with upgrade paths**, **synergies** between related buildings, and **atmosphere-availability** filtering for cross-atmosphere buildings
   - Construction cards show green effect lines so players know exactly what each building does
@@ -18,15 +18,17 @@ The building system has been reworked to 2026-world-production scale, resources 
   - Workforce allocation and efficiency management
   - Population growth and housing systems
   - Building maintenance and operating costs (4–6 distinct resources per building, audited)
+  - **Orbital Survey Station** (v0.5.0): continuous low-yield survey of the host body with tiered mining-yield bonus (5/10/15% at tier 1/2/3)
 
 - **Economy & Resources**: Deep resource management with real scarcity
-  - **37 resource types**: Volatiles, gases, construction materials, precious metals, fissiles, and specialty materials
+  - **38 resource types**: Volatiles, atmospheric gases, construction & specialty metals, fissiles, fusion fuels, anti-matter, computronium, and metamaterials (late-game)
   - **Per-body resource stockpiles** — every colonised body, ship, and station has its own local stockpile; the UI shows aggregated system-wide totals for visibility, but construction and consumption draw locally
   - Mining operations to extract resources from celestial bodies
   - **Resource request system** with priority tiers (Emergency → Construction → Maintenance → Trade)
   - **Per-colony minimum stockpile editor** with in-transit ETA — defaults O₂ = 200 Mt, Water = 100 Mt on Life Support bodies
+  - **Per-trip freight cap** — a fleet's cargo capacity caps a single delivery; remainder is left on the queue for the next trip
   - Treasury management with income and expenses
-  - Energy grid with power generation (solar, fission, fusion) and distribution
+  - Energy grid with power generation (solar, fission, fusion, breeder, thorium, wind, hydro, geothermal, fossil) and distribution
 
 - **Logistics & Shipping**: Move materials between bodies
   - **Player-directed freight** — assign a Freighter fleet to a resource request from the Fleet panel; arrival auto-delivers and closes the request
@@ -41,15 +43,16 @@ The building system has been reworked to 2026-world-production scale, resources 
   - **6 propulsion types**: Chemical (450 s Isp), Nuclear Thermal (900 s), Ion Drive (5 000 s), Nuclear Pulse (10 000 s), Fusion Torch (50 000 s), Antimatter Drive (1 000 000 s)
   - Realistic Tsiolkovsky rocket-equation Δv and fuel calculations per ship
   - **3 transfer options** per route: efficient Hohmann, moderate, and fast burns
+  - **Porkchop plot planner** (v0.5.0): Δv / phase-angle grid with interactive cursor, synodic-period sweep, deferred-build cache for non-click entries, and tooltip-driven hover/selection
   - Transfer window planner: live synodic-period countdown and phase-angle display
   - Phased departure planning — adjust departure time to hit the optimal window
   - **Gravity-assist flyby candidates** automatically computed for each heliocentric transfer
-  - **Lagrange-point targeting** (L4/L5 for any planet, Earth-Sun L1/L2/L3)
+  - **Lagrange-point targeting** (L4/L5 for any planet, Sun–planet L1/L2/L3) with interactive star-approach parking-radius picker
   - Fleet intercept planning with configurable passing distance and encounter speed
   - Mid-transit course-correction with abort-burn fuel deduction
   - Refuelling from planetary stockpiles
   - Visual trajectory arcs, orbit rings, selection reticules, and starmap icons
-  - Initial Earth-orbit frigate fleet spawned at game start
+  - **5-ship Day-1 constellation** + **4 historical probes** (Voyager 1/2, Parker Solar Probe, New Horizons) spawned at the 2026-01-01 JPL epoch
 
 - **Research & Technology**: Unlock new capabilities through scientific advancement
   - **15 technology categories**: Electronics, Military, SpaceTechnology, Biology, Physics, Energy, Sociology, Construction, Propulsion, Materials, Sensors, Weapons, DefensiveSystems, LifeSupport, Industry
@@ -57,8 +60,34 @@ The building system has been reworked to 2026-world-production scale, resources 
   - Research projects progressing with research points (RP)
   - Engineering projects for component and ship-module families
   - Tech modifiers affecting construction costs and productivity
+  - **9 v0.5.0 survey / personnel / geology techs** (Survey Methodology, Planetary Geology, Geophysics, Field Science Operations, Cryogenic Sampling, Deep Seismic Array, Roving Autonomy, Sample Return Architecture, Interstellar Probe)
+  - **Tier-1 paid research_cost** (GRA-127 rebalance): early-game techs cost real RP, no free starts
 
-- **Comprehensive Solar System Simulation**: 
+- **Survey & Exploration (v0.5.0)**: Multi-instrument discovery campaigns
+  - **Eight-dimension discovery model** (Orbital mechanics, Atmosphere, Surface features, Mineral classes, Mineral deposits, Subsurface structure, Habitability, Anomalies) — each with tier 0–5 and a confidence score
+  - **9-mission roster** (flyby probe, orbital satellite, remote sensing, atmospheric probe, surface lander, rover, seismic survey, drill core, sample return) dispatched from the dossier `SURVEY` tab
+  - **17 RON-driven instruments** plus **9 hardcoded anomaly types** (water-ice deposit, hydrated silicates, methane plume, tholin signature, magnetic anomaly, radioactive hotspot, fossil microbe signature, cryovolcanic feature, unidentified reflectance)
+  - **Anomaly confidence model** with verification follow-up, media-event coolness, and 10–60 sim-day timers
+  - **Failure modes and recovery missions** (probe loss, rover stuck, drill bit stuck, solar storm, crew injury) with per-mission RON templates
+  - **Landing-site evaluation** — per-site terrain, resource, and risk profile (PR-D)
+  - **Continuous orbital survey station** (PR-E) — mining-yield bonus 5/10/15% at tier 1/2/3
+  - **Confidence decay** (0.5%/sim-year without measurements) rewards ongoing presence over one-shot missions
+
+- **Personnel (v0.5.0, data layer shipped; UI pending)**
+  - **Scientist component** with **8 specialties** (Geology, Atmospherics, Biology, Geophysics, …) and **3 seniority tiers** (Junior, Senior, Principal)
+  - Specialty → analysis-job multiplier (matched ×1.5, mismatched ×0.7); seniority → throughput & quality
+  - **Seniority promotion** driven by completed analysis jobs
+  - **Personnel cap** gated by tech (`scientific_administration`), soft-capped with 5%/scientist penalty
+  - **University** building produces scientists (~1 junior per 5 sim-years); **PersonnelRoster** UI is the last v0.5 surface
+
+- **Notifications & Event System (v0.5.0, shipped)**
+  - **Toast-style HUD overlay** (top-right) with auto-dismiss + click-dismiss + pause-on-event
+  - **2-second coalesce window** deduplicates rapid-fire identical events
+  - **Per-category settings** (Survey, Construction, Research, …) in a dedicated settings panel
+  - **Click-to-focus dispatcher** jumps the player to the relevant context (body, fleet, project)
+  - **Bridges** auto-emit notifications for survey findings, construction completion, and research unlocks
+
+- **Comprehensive Solar System Simulation**:
   - **377 celestial bodies** with realistic astronomical data from NASA/IAU sources
   - Complete planetary systems:
     - All 8 planets with accurate properties
@@ -77,23 +106,27 @@ The building system has been reworked to 2026-world-production scale, resources 
   - Complete coverage from Mercury to the outer solar system
 
 - **Interstellar Navigation**: Explore nearby star systems
-  - **60 nearest star systems** from real astronomical catalogs
+  - **60+ nearest star systems** from real astronomical catalogs (NASA Exoplanet Archive)
   - Starmap view for interstellar navigation
   - Real star data including spectral types, masses, luminosities, and metallicities
+  - **Confirmed exoplanets** module (`src/astronomy/exoplanets.rs`) — 5 000+ confirmed planets within 50 pc ingested from `Exoplanets_NASA.csv`; procedural fallback for systems without confirmed planets
   - Procedural system generation for visited stars
+  - **Interstellar probe** tech (tier 5) unlocks flyby of bodies in other star systems
 
 ### User Interface
 
 - **Comprehensive UI Panels**:
-  - Survey Panel: Body selection, resources, population, mineral deposits
-  - Construction Panel: Building management and construction queues
-  - Research Panel: Technology tree browser and project selection
+  - Dossier Panel (Survey tab + Construction tab + Resource ledger + Landing-site dossier + 8-dimension SURVEY ledger): per-body data
+  - Construction Panel: Building management and construction queues, **yield chip & depletion timeline**, atmospheric-availability filter
+  - Research Panel: Technology tree browser, project selection, **engineering unlocks**
   - Economy Panel: Financial overview and resource tracking
-  - Starmap Panel: Interstellar navigation and system selection
-  - Fleet Panel: Full fleet management — spawn fleets, select transfer options, gravity assists, Lagrange-point routing, refuel, abort maneuvers, **and assign a fleet to a resource request**
+  - **Logistics Panel** (top-level): open `ResourceRequest`s, in-transit shipments, shipping-company registry, per-colony minimum-stockpile editor
+  - Starmap Panel: Interstellar navigation and system selection, **system-wide SURVEY %**
+  - Fleet Panel: Full fleet management — spawn fleets, select transfer options, **porkchop plot planner**, gravity assists, **Lagrange-point routing (L1–L5 + star-approach parking-radius picker)**, refuel, abort maneuvers, **assign a fleet to a resource request**, and **4 historical probes**
   - Shipbuilding Panel: Native Bevy workspace for hull design, engineering-linked component selection, construction queueing, archive review, and **freighter template selection**
-  - Economy subpanel: **Private Shipping overview** — list of companies, active routes, treasury, in-transit shipments
-  
+  - **Notifications overlay**: top-right toast panel + dedicated settings modal
+  - **Personnel Panel** (UI pending; data layer shipped): scientist roster, analysis-queue assignment, seniority & specialty filters
+
 - **Time Control**: Variable simulation speed (1 day/s to 1 year/s)
 - **Debug Inspector**: Integrated inspector using bevy_inspector_egui for runtime entity inspection
 
@@ -105,7 +138,7 @@ The building system has been reworked to 2026-world-production scale, resources 
   - Correct layer ordering: surface → night lights → cloud deck → scattering shell
 - **High-Performance Foundation**: Built with Bevy 0.18 engine with optimized compilation profiles
 - **Modular Plugin Architecture**: Extensible plugin system for game systems
-- **Advanced Camera Controls**: 
+- **Advanced Camera Controls**:
   - WASD for movement
   - Q/E for vertical movement
   - Right-click drag for camera rotation
@@ -196,21 +229,21 @@ helios_ascension/
 ├── src/
 │   ├── main.rs              # Application entry point
 │   ├── lib.rs               # Library root
-│   ├── astronomy/           # Orbital mechanics & coordinate systems
-│   ├── colony/              # Colony management & buildings
-│   ├── economy/             # Resources, budget & energy grid
-│   ├── fleets/              # Fleet management, orbital mechanics & transfer planning
+│   ├── game_state.rs        # Top-level state machine (GameMenu, AppState, Personnel menu stub)
+│   ├── astronomy/           # Orbital mechanics, ephemeris, exoplanets, nearby stars, Lagrange helpers
+│   ├── colony/              # Colony management, buildings, construction, founding flow
+│   ├── economy/             # Resources, budget, energy grid, logistics, AI shipping companies, mining
+│   ├── fleets/              # Fleet management, orbital mechanics, porkchop, Lagrange transfers, historical probes
+│   ├── personnel/           # Scientists (data layer shipped; UI pending)
 │   ├── research/            # Technology tree, engineering, and unlock catalogs
 │   ├── shipbuilding/        # Data-driven hulls, modules, projects, refit, and slipways
-│   ├── plugins/             # Bevy plugin modules
-│   │   ├── camera.rs        # Camera control system
-│   │   ├── solar_system.rs  # Celestial body simulation
-│   │   ├── starmap.rs       # Interstellar navigation
-│   │   └── ...
-│   └── ui/                  # User interface panels, including the native shipbuilding workspace
+│   ├── ships/               # Hull templates, migration shims
+│   ├── survey/              # v0.5.0 survey rework: 8-dimension state, missions, anomalies, instruments
+│   ├── plugins/             # Bevy plugin modules (camera, solar_system, starmap, music, …)
+│   └── ui/                  # All UI panels (dossier, construction, research, economy, fleets, shipbuilding, notifications, transfer_planner, porkchop, theme tokens)
 ├── assets/
-│   ├── data/                # Game data (buildings, tech tree, etc.)
-│   └── textures/            # Textures and visual assets
+│   ├── data/                # RON data: buildings, tech, ships, freighter templates, notifications, porkchop config, survey/
+│   └── textures/            # Textures and visual assets (celestial bodies, UI)
 ├── tests/                   # Integration tests
 ├── Cargo.toml               # Project configuration
 └── README.md                # This file
@@ -222,14 +255,17 @@ The game uses a modular plugin architecture built on Bevy's ECS (Entity Componen
 
 - **CameraPlugin**: 3D camera movement and automatic view transitions
 - **SolarSystemPlugin**: Manages celestial bodies and orbital mechanics
-- **AstronomyPlugin**: High-precision Keplerian orbital mechanics
-- **ColonyPlugin**: Colony management with 51 building types (tiers, synergies, 4–6-resource maintenance)
-- **EconomyPlugin**: Per-body resource stockpiles, production, consumption, budget tracking, **resource request lifecycle, private shipping company AI, auto-freight dispatch**
-- **ResearchPlugin**: Technology tree progression plus engineering targets used by ship module families
-- **FleetPlugin**: Fleet management, orbital transfer planning, gravity assists, trajectory rendering, **manual freight assignment**
+- **AstronomyPlugin**: High-precision Keplerian orbital mechanics, ephemeris, **exoplanet ingestion**, nearby-stars catalog
+- **ColonyPlugin**: Colony management with **52 building types** (tiers, synergies, 4–6-resource maintenance, atmosphere availability)
+- **EconomyPlugin**: Per-body resource stockpiles, production, consumption, budget tracking, **resource request lifecycle, private shipping company AI, auto-freight dispatch, per-trip cargo-cap**
+- **ResearchPlugin**: Technology tree progression plus engineering targets used by ship module families; **GRA-127 tier-1 paid research_cost**
+- **SurveyPlugin** (v0.5.0): 8-dimension `SurveyState`, 9-mission roster, anomaly confidence, failure modes, recovery missions, orbital survey station
+- **PersonnelPlugin** (v0.5.0): Scientist data layer (specialty, seniority, hire, promote) — UI panel pending
+- **NotificationsPlugin** (v0.5.0): toast panel, settings modal, event bridges, coalesce, click-to-focus
+- **FleetPlugin**: Fleet management, orbital transfer planning, gravity assists, **porkchop plot**, **Lagrange-point routing**, **star-approach parking-radius picker**, trajectory rendering, **manual freight assignment**, **historical probes**
 - **ShipbuildingPlugin**: Canonical hull/module data, construction queues, design summaries, **freighter template system + legacy `standard_freighter` migration shim**
-- **UIPlugin**: Dashboard with time controls and interactive panels, including the native shipbuilding workspace and the **per-body resource bar with in-transit indicator**
-- **StarmapPlugin**: Interstellar navigation and system selection
+- **UIPlugin**: Dashboard with time controls and interactive panels (theme tokens, layout primitives, tab strip, focus rings), including the native shipbuilding workspace, the dossier SURVEY ledger, the per-body resource bar with in-transit indicator, the notifications overlay, and the transfer-planner porkchop
+- **StarmapPlugin**: Interstellar navigation, system icons, visibility toggle, **interstellar probe** support
 
 ## Controls
 
@@ -310,9 +346,17 @@ Helios Ascension is designed to be data-driven and moddable without touching Rus
 📖 **See [docs/RESEARCH_MODDING.md](docs/RESEARCH_MODDING.md)** for the full technology modding guide, including all modifier types, component definitions, and balancing guidelines.
 
 ### Buildings
-- ✅ **Data-driven buildings**: All **51** building types defined in `assets/data/buildings.ron`
+- ✅ **Data-driven buildings**: All **52** building types defined in `assets/data/buildings.ron`
 - ✅ **Custom buildings**: Add new construction options with resource costs, maintenance resources, atmosphere requirements, tiers, and synergy flags
 - ✅ **No code change needed** for new building types — add a RON entry, restart, and the building appears in the Construction panel
+
+### Survey (v0.5.0)
+- ✅ **8 RON-driven discovery dimensions** in `assets/data/survey/dimensions.ron`
+- ✅ **17 instruments** in `assets/data/survey/instruments.ron` (passive sensors, hyperspectral imagers, deep drills, sample-return capsules, …)
+- ✅ **9 hardcoded anomalies + `ModderAnomalyDef` RON path** for additions
+- ✅ **9-mission roster** (flyby, orbital, lander, rover, seismic, drill, sample return, …) in `assets/data/survey/missions.ron`
+- ✅ **Recovery-mission templates** for failure modes in `assets/data/survey/recovery_missions.ron`
+- ✅ **Mining-efficiency curve** in `assets/data/survey/mining_efficiency.ron` — gates yield by `(resource class, dimension, tier)`
 
 ## Development
 

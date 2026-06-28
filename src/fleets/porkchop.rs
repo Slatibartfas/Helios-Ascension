@@ -309,36 +309,47 @@ fn solve_cell(
             // ΔV₁ is the burn from the origin body's parking-orbit speed up
             // to the transfer-ellipse departure speed.  We approximate the
             // total as |v_dep| + |v_arr|, where:
-            //   * |v_dep| = (v1 − v_circ_dep) if v1 > v_circ_dep (transfer
-            //     ellipse moves *faster* than the parking orbit at r1,
-            //     e.g. perihelion of a Hohmann); 0 otherwise (rare).
-            //   * |v_arr| = (v_circ_arr − v2) if v_circ_arr > v2 (parking
-            //     at the destination is *faster* than the transfer ellipse
-            //     at aphelion, e.g. Hohmann arrival at Mars); 0 otherwise
-            //     (a faster-than-circular arrival — i.e. we're braking into
-            //     a sub-circular parking orbit, which the planner handles
-            //     as a separate `max_delta_v_ms` budget).
+            //   * |v_dep| = |v1 − v_circ_dep|.  For an *outward* Hohmann
+            //     (e.g. Earth→Mars) v1 > v_circ_dep (prograde boost at
+            //     perihelion); for an *inward* Hohmann (e.g. Earth→Mercury)
+            //     v1 < v_circ_dep (retrograde burn at aphelion — the
+            //     transfer ellipse's aphelion is Earth's orbit).  Both
+            //     directions require a real burn, so we use `.abs()` rather
+            //     than clamping to zero.  The previous `.max(0.0)` formula
+            //     produced 0 km/s porkchop cells for every inner-planet
+            //     transfer (Earth→Venus, Earth→Mercury), because the
+            //     retrograde-departure case was indistinguishable from
+            //     "no burn required".
+            //   * |v_arr| = |v_circ_arr − v2|.  Symmetric to dep_burn:
+            //     outward transfers brake into the parking orbit (v_circ >
+            //     v2), inward transfers boost into the parking orbit from
+            //     a faster-than-circular arrival (v2 > v_circ).  Both need
+            //     a real burn, so we use `.abs()`.
             // The two are added because they happen at opposite ends of the
             // transfer arc — total ΔV is the per-burn magnitude sum, the
             // standard porkchop convention.
             let r2_m = (dest_pos_au * super::orbital_mechanics::AU_IN_METERS).length();
             let v_circ_arr_ms = (inputs.system_gm / r2_m).sqrt();
             let v2_speed_ms = v2_ms.length();
-            // dep_burn: how much we must accelerate from the parking
-            // orbit at r1 to the transfer ellipse.  For Hohmann (where
-            // v1 > v_circ) this is positive; for an arrival from a
-            // sub-circular transfer (rare) it is clamped to 0.
-            let dep_burn_ms = (v1_speed_ms - v_circ_ms).max(0.0);
-            // arr_burn: how much we must brake from the transfer ellipse
-            // to the destination's circular parking orbit.  For Hohmann
-            // (where v2 < v_circ) this is positive; for an arrival from
-            // a super-circular transfer (e.g. hyperbolic) it is clamped
-            // to 0 — the planner handles that case via the destination
-            // orbit's own `max_delta_v_ms` budget.
-            let arr_burn_ms = (v_circ_arr_ms - v2_speed_ms).max(0.0);
+            // dep_burn: how much we must change speed from the parking
+            // orbit at r1 to the transfer ellipse.  Sign of (v1 − v_circ)
+            // indicates burn direction (prograde vs retrograde), magnitude
+            // is the ΔV required.  `.abs()` so inner-planet transfers
+            // (where the Lambert solver returns v1 < v_circ) show the
+            // correct retrograde burn instead of 0 km/s.
+            let dep_burn_ms = (v1_speed_ms - v_circ_ms).abs();
+            // arr_burn: how much we must change speed from the transfer
+            // ellipse to the destination's circular parking orbit.
+            // Symmetric to dep_burn: outer planets brake (v_circ > v2),
+            // inner planets retrofire at perihelion to circularise from
+            // a faster-than-circular arrival (v2 > v_circ).
+            let arr_burn_ms = (v_circ_arr_ms - v2_speed_ms).abs();
             // v_inf_arrival: the *hyperbolic excess* at the destination
             // (the speed the spacecraft is moving *above* circular
-            // orbital speed at r2).  Always ≥ 0; 0 for Hohmann arrivals.
+            // orbital speed at r2).  Only positive when v2 > v_circ_arr;
+            // for inward-Hohmann arrivals the entire delta-v is a real
+            // brake burn (captured by `arr_burn_ms` above), not an
+            // unbrakeable hyperbolic excess.
             let v_inf_arrival_ms = (v2_speed_ms - v_circ_arr_ms).max(0.0);
             let total = dep_burn_ms + arr_burn_ms;
             PorkchopCell {
@@ -621,6 +632,74 @@ mod tests {
         let inputs = make_inputs(earth_orbit(), mars_orbit(), "interplanetary");
         let grid = build_porkchop_grid(&cfg, &inputs);
         assert_eq!(grid.cells.len(), grid.resolution.0 * grid.resolution.1);
+    }
+
+    /// Inner-planet transfers (e.g. Earth→Mercury) used to render every
+    /// feasible cell with `total_dv_ms = 0` because the burn formulas
+    /// clamped the magnitude with `.max(0.0)`.  For an inward Hohmann
+    /// the Lambert solver returns v1 < v_circ_dep (retrograde departure
+    /// burn) and v2 > v_circ_arr (prograde arrival brake from a faster-
+    /// than-circular arrival), so both `(v1 − v_circ).max(0)` and
+    /// `(v_circ − v2).max(0)` evaluated to 0.  The colormap then
+    /// rendered every cell at the green ("0 km/s") end of the gradient
+    /// and the planner reported "ΔV = 0.00 km/s" in every cell tooltip.
+    ///
+    /// The fix replaces `.max(0.0)` with `.abs()` so the burn magnitude
+    /// is captured regardless of direction.  This test locks in the
+    /// contract: an Earth→Mercury porkchop must contain at least one
+    /// feasible cell with ΔV strictly positive and within an order of
+    /// magnitude of the canonical ~7.7 km/s figure (the canonical Hohmann
+    /// for Earth→Mercury is larger than Earth→Venus because Mercury's
+    /// orbit is much deeper; the actual porkchop minimum lands somewhere
+    /// in 5–10 km/s depending on the sampled phase).
+    #[test]
+    fn porkchop_inner_planet_cells_have_nonzero_dv() {
+        use crate::astronomy::KeplerOrbit;
+        fn mercury_orbit() -> KeplerOrbit {
+            let n = 2.0 * std::f64::consts::PI / (87.969 * SECONDS_PER_DAY);
+            KeplerOrbit {
+                eccentricity: 0.2056,
+                semi_major_axis: 0.387,
+                inclination: 0.0,
+                longitude_ascending_node: 0.0,
+                argument_of_periapsis: 0.0,
+                mean_anomaly_epoch: 0.0,
+                mean_motion: n,
+            }
+        }
+        let cfg = PorkchopConfig::default();
+        let inputs = make_inputs(earth_orbit(), mercury_orbit(), "interplanetary");
+        let grid = build_porkchop_grid(&cfg, &inputs);
+        let feasible: Vec<&PorkchopCell> =
+            grid.cells.iter().filter(|c| c.feasible).collect();
+        assert!(
+            !feasible.is_empty(),
+            "Earth→Mercury porkchop must contain feasible cells"
+        );
+        // Regression: every feasible cell must report a finite, strictly
+        // positive total ΔV.  The bug produced total_dv_ms = 0 for every
+        // inner-planet cell, which made the porkchop look like a free
+        // transfer.
+        for cell in &feasible {
+            assert!(
+                cell.total_dv_ms > 0.0 && cell.total_dv_ms.is_finite(),
+                "feasible inner-planet cell must have positive finite ΔV, got {}",
+                cell.total_dv_ms
+            );
+        }
+        // Sanity: the cheapest feasible cell should sit in the
+        // 1–15 km/s range — anywhere outside that band on a 40×30
+        // Earth→Mercury grid points at a math regression (e.g. the
+        // colormap being mapped against an unphysical unit).
+        let min_dv = feasible
+            .iter()
+            .map(|c| c.total_dv_ms)
+            .fold(f64::INFINITY, f64::min);
+        let min_dv_km_s = min_dv / 1000.0;
+        assert!(
+            (1.0..15.0).contains(&min_dv_km_s),
+            "Earth→Mercury cheapest-cell ΔV = {min_dv_km_s:.2} km/s, expected within 1–15 km/s"
+        );
     }
 }
 

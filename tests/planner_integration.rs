@@ -611,8 +611,8 @@ fn course_correction_redirects_mid_flight() {
 // ── Test 8: GRA-154 H-1 — porkchop cell → PlannedTransfer wiring ────────────
 //
 // The transfer planner renders a porkchop plot (GRA-152 H-1) and lets the
-// player click a feasible cell.  The new "🚀 Execute Porkchop Transfer"
-// button (GRA-154 H-1, in `src/ui/transfer_planner.rs`) builds a synthetic
+// player click a feasible cell.  The new "🚀 Execute Transfer" button
+// (GRA-154 H-1, in `src/ui/transfer_planner.rs`) builds a synthetic
 // `TransferOption` from the cell's Lambert-solved values and feeds it
 // through `build_planned_transfer` so the click commits a real
 // `PlannedTransfer` to the action queue.  This test exercises the contract:
@@ -656,7 +656,7 @@ fn porkchop_cell_builds_planned_transfer_for_earth_to_mars() {
     // Synthetic TransferOption shaped like a PorkchopCell: a Lambert-solved
     // conic is provided via `transfer_orbit_override`, all ΔV components
     // are split into dep + arr halves, the label is the canonical
-    // "Porkchop Cell" used by the new "Execute Porkchop Transfer" button.
+    // "Porkchop Cell" used by the new "Execute Transfer" button.
     let n = 2.0 * std::f64::consts::PI / (365.25 * 86_400.0);
     let porkchop_option = TransferOption {
         label: "Porkchop Cell",

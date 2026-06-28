@@ -119,6 +119,47 @@ Factor out as `porkchop_grid_is_stale(built_at, elapsed) -> bool`
 so the boundary (3-day exact, time-reversal, no-build) is
 unit-testable without spinning up a Bevy world.
 
+**Porkchop grid staleness across target_body changes.** Same
+stale-cache class as above, but a different axis: the deferred-build
+path only runs when `porkchop_grid.is_none()`.  Entry points that
+set `target_body` *without* firing the planner's click handlers
+(the 3D-scene right-click handler in `astronomy/selection.rs`,
+hotkeys, automation) leave the previous destination's grid in
+place.  Fix: add `porkchop_built_for: Option<Entity>` and compare
+it against `target_body` in the staleness check — if they differ,
+invalidate so the deferred-build path rebuilds against the new
+destination on the same frame.
+
+**Out-of-budget cells froze the trajectory preview.** The
+synthetic-option rebuild originally required
+`cell.total_dv_ms <= fleet_max_dv` to populate `planned_transfer`,
+but the Execute button already had its own `can_execute` budget
+guard.  The result was: clicking a red (out-of-budget) cell left
+`planned_transfer = None`, so the 3D preview arc disappeared
+and the player read it as "trajectory doesn't update".  Loosened
+the preview guard to `cell.feasible && finite ΔV`; the Execute
+button still rejects out-of-budget cells at commit time.  The
+preview is the player's primary way to compare cells, so any
+feasible click should produce a ghost arc.
+
+**High-speed click reverts to cheapest cell.** When the player
+runs at 1 day/s or faster, the per-frame sim-time delta exceeds
+the original 3-day staleness threshold (~16 ms × 86,400 ≈ 23 min
+at 1 day/s; ~5.83 days at 1 yr/s).  Within one frame of clicking
+a cell, the staleness invalidates `porkchop_grid` and clears
+`selected_porkchop_cell`.  The next frame's `porkchop_panel`
+sees `selected = None` and auto-picks `grid.min_cell`, snapping
+the player's selection back to the cheapest cell.
+
+Fix: scale the staleness threshold by `TimeScale::scale` so the
+rebuild fires after a fixed *real-time* interval regardless of
+simulation speed.  Threshold is now `PORKCHOP_STALENESS_REAL_S ×
+max(time_scale, 1.0)` = `72 × 3_600 = 259_200 sim seconds` at 1 hr/s
+(unchanged), but `72 × 86_400 ≈ 6.22M sim seconds ≈ 72 days` at
+1 day/s, and `72 × 31_557_600 ≈ 2.27G sim seconds ≈ 72 years` at
+1 yr/s.  Paused games (scale = 0) treat the threshold as 1.0 so
+they don't get an infinite grace period.
+
 Tests added:
 - `relative_colormap_stretches_onto_grid_range` — asserts the first/last
   finite stop land on the grid's ΔV range and the sampled endpoints

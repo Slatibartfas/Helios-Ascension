@@ -4,7 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Helios Ascension is a 4X grand strategy game built with Rust and Bevy 0.18, featuring realistic orbital mechanics, colony management, fleet operations, and a technology tree. The game simulates 377+ celestial bodies with accurate astronomical data.
+Helios Ascension is a 4X grand strategy game built with Rust and Bevy 0.18, featuring realistic orbital mechanics, colony management, fleet operations, and a technology tree. The game simulates 377+ solar-system bodies plus 5 000+ confirmed exoplanets across 60+ nearby star systems with accurate astronomical data.
+
+The current release is **v0.5.0 (Exploration & Progression, 🟡 IN FLIGHT)** — the building & logistics overhaul is shipped (52 building types, per-body resource stockpiles, private shipping companies), the survey rework is shipped (eight-dimension model, 9-mission roster, anomaly confidence, recovery missions), the notification/event system is shipped (toast panel, settings, event bridges, click-to-focus), the transfer planner is hardened (porkchop plot, Lagrange routing, star-approach parking-radius picker), and the personnel data layer is shipped (scientists with specialty & seniority). The remaining v0.5 surface is the Personnel Roster UI panel. See `ROADMAP.md` for the per-item status.
 
 ## Commands
 
@@ -39,25 +41,31 @@ The project uses a **plugin-based architecture** with Bevy's ECS:
 
 ```
 src/
-├── astronomy/       # Orbital mechanics, Kepler orbits, selection, ephemeris
+├── astronomy/       # Orbital mechanics, Kepler orbits, ephemeris, exoplanets, nearby stars, Lagrange helpers
 ├── colony/          # Buildings, construction, population growth
-├── economy/         # Resources, mining, budget, energy grid
-├── fleets/         # Ships, maneuvers, Hohmann transfers
-├── research/       # Technology tree, engineering, unlock catalogs
-├── shipbuilding/   # Hull/module data, construction projects, refit, slipways
-├── plugins/        # Camera, music, solar_system, atmosphere, visual effects
-├── ui/             # Dashboard, research panels, and native shipbuilding workspace
-└── render/         # Skybox, backdrop
+├── economy/         # Resources, mining, budget, energy grid, logistics, shipping-company AI
+├── fleets/          # Ships, maneuvers, Hohmann transfers, porkchop, Lagrange transfers, historical probes
+├── personnel/       # Scientists (v0.5.0 data layer; UI pending)
+├── research/        # Technology tree, engineering, unlock catalogs
+├── shipbuilding/    # Hull/module data, construction projects, refit, slipways
+├── ships/           # Hull templates, migration shims (legacy `standard_freighter`)
+├── survey/          # v0.5.0 survey rework: 8-dimension state, missions, anomalies, instruments
+├── plugins/         # Camera, music, solar_system, atmosphere, visual effects
+├── ui/              # All UI panels (dossier, construction, research, economy, fleets, shipbuilding, notifications, transfer_planner, porkchop)
+└── render/          # Skybox, backdrop
 ```
 
 ### Key Systems
 
-- **Astronomy**: KeplerOrbit propagation, comet tails, Lagrange points, starmap
-- **Colony**: 47 building types across 8 categories, construction queue, population
-- **Economy**: 37 resource types, mining operations, energy grid, global budget
-- **Fleets**: 7 ship classes, 6 propulsion types, orbital mechanics with gravity assists
-- **Research**: 15 technology categories, prerequisite chains, modifiers
-- **UI**: Egui-based panels with SimulationTime-driven updates
+- **Astronomy**: KeplerOrbit propagation, comet tails, Lagrange points, starmap, **exoplanet ingestion (5 000+ confirmed planets)**, **JPL-epoch mean-anomaly computation**
+- **Colony**: **52 building types** across 8 categories, construction queue, population
+- **Economy**: **38 resource types**, mining operations, energy grid, per-body stockpiles, **localized logistics**, **shipping-company AI**
+- **Fleets**: 7 ship classes, 6 propulsion types, Hohmann transfers, **porkchop plot planner**, **Lagrange routing (L1–L5)**, **star-approach parking-radius picker**, gravity assists, **historical probes**
+- **Research**: 15 technology categories, prerequisite chains, modifiers, **9 v0.5.0 survey / personnel / geology techs**, **tier-1 paid research_cost rebalance**
+- **Survey (v0.5.0)**: 8-dimension model, 17 instruments, 9-mission roster, **6 RON data files**, anomaly confidence, failure modes, recovery missions, **continuous orbital survey station**
+- **Personnel (v0.5.0)**: **Scientists with 8 specialties, 3 seniority tiers, hire & promotion** (data layer shipped; Personnel Roster UI pending)
+- **Notifications (v0.5.0)**: toast panel, **per-category settings**, **event bridges**, **2-second coalesce**, **click-to-focus**, **pause-on-event**
+- **UI**: Egui-based panels with SimulationTime-driven updates, **theme tokens (CI-linted)**, **layout primitives (Tab, focus rings, spacing scale)**
 
 ### Simulation Time (CRITICAL)
 
@@ -111,12 +119,25 @@ Resources in Helios are **physical** — they live on a specific body and have t
 
 ### Data-Driven Design
 
+The modding surface is intentionally broad. All gameplay surfaces are RON-driven unless noted:
+
 - Buildings: `assets/data/buildings.ron`
 - Technologies: `assets/data/technologies.ron`
 - Ship hulls: `assets/data/ship_hulls.ron`
 - Ship modules: `assets/data/ship_modules.ron`
 - Solar system: `assets/data/solar_system.ron`
 - Stars: `assets/data/nearest_stars_raw.json`
+- Exoplanets: `assets/data/Exoplanets_NASA.csv` (NASA Exoplanet Archive ingestion in `src/astronomy/exoplanets.rs`)
+- Freighter templates: `assets/data/freighter_templates.ron`
+- Notifications: `assets/data/notifications.ron`
+- Porkchop config: `assets/data/porkchop_config.ron`
+- Survey (v0.5.0): `assets/data/survey/{dimensions,instruments,anomalies,tiers,mining_efficiency,missions,recovery_missions}.ron`
+
+See `docs/MODDING.md` and `docs/RESEARCH_MODDING.md` for the full surface.
+
+### Per-Trip Freight Cap (GRA-119)
+
+A fleet's cargo capacity caps a single delivery. When a `ResourceRequest` exceeds the fleet's capacity, the request is split across multiple trips: the fleet picks up `min(request.amount, fleet.cargo)`, delivers it, then loops for the remainder. This prevents a single overloaded freighter from "consuming" a request in one go and lets players see the in-transit progress. See `src/economy/auto_freight.rs`.
 
 ### Shipbuilding Progression
 
@@ -131,9 +152,26 @@ The fleet system uses:
 - `FleetOrbit`: Circular parking orbit, angle advances at 1 rev/40s real time
 - `ActiveManeuver`: Keplerian transfer arc, propagated analytically each frame
 - `PendingFleetActions`: Thread-safe action queue for spawn/transfer/cancel
-- Transfer planning: Hohmann transfers, gravity assists, phased departures
+- Transfer planning: Hohmann transfers, gravity assists, phased departures, **porkchop plot planner (GRA-152 → GRA-162)**, **Lagrange-point transfers (L1–L5, GRA-154 → GRA-156)**, **star-approach parking-radius picker (GRA-161)**
+- **Historical probes** (GRA-131, GRA-162): 4 fixed entities (Voyager 1, Voyager 2, Parker Solar Probe, New Horizons) spawned at the 2026-01-01 JPL epoch
 
 Delta-v calculation uses Tsiolkovsky rocket equation: Δv = Isp × g₀ × ln(m_wet / m_dry)
+
+## Notifications & Event Bus (v0.5.0, GRA-135 → GRA-142)
+
+Notifications are the player-facing event bus. Survey / Construction / Research bridges write `NotificationEvent` messages; the spawn system attaches an `ActiveNotification` component; the tick system auto-dismisses and triggers `pause_on_event` (wired to `TimeScale::pause()`); the coalesce system deduplicates within a 2-second window; the click_handler dispatches a `context_link` (body / fleet / project) to the relevant panel.
+
+The flow is:
+
+```text
+Bridge system  →  Messages<NotificationEvent>  →  spawn system  →  ActiveNotification
+                                                                       ↓
+                                                          tick / coalesce / click_handler
+                                                                       ↓
+                                                            render (top-right toast panel)
+```
+
+Per-category overrides live in `NotificationSettings` (resource) and the dedicated `ui_notifications_settings_panel` modal. See `src/ui/notifications/` and the `assets/data/notifications.ron` data file.
 
 ## Development Notes
 

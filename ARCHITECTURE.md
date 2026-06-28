@@ -88,13 +88,13 @@ Manages colonies, buildings, and construction.
 - `update_colony_resources`: Updates resource production/consumption
 - `population_growth`: Simulates population changes using food-factor × housing-utilisation × logistics
 
-**Buildings (47 types across 8 categories):**
+**Buildings (52 types across 8 categories):**
 - **Infrastructure**: Housing, HabitatDome, UndergroundHabitat, LifeSupport, WaterTreatmentPlant, DesalinationPlant, RecyclingCenter
 - **Industry**: Mine, Refinery, Factory, AtmosphericProcessor, ChemicalPlant, HydrocarbonExtractor, DeepDrill, LaserDrill, StripMine, SemiconductorFab, PharmaceuticalPlant
 - **Logistics**: MassDriver, OrbitalLift, CargoTerminal, Warehouse
-- **Power**: SolarPower, WindFarm, HydroelectricDam, GeothermalPlant, CoalPowerPlant, NaturalGasPlant, FissionReactor, FusionReactor
-- **Population**: AgriDome, Farm, Greenhouse, AquacultureFacility, MedicalCenter
-- **Research**: ResearchLab, EngineeringBay, AiCluster, DataCenter
+- **Power**: SolarPower, WindFarm, HydroelectricDam, GeothermalPlant, CoalPowerPlant, NaturalGasPlant, FissionReactor, FusionReactor, DTFusionReactor, DHe3FusionReactor, ThoriumReactor, BreederReactor
+- **Population**: AgriDome, Farm, Greenhouse, AquacultureFacility, MedicalCenter, PharmaceuticalPlant
+- **Research**: ResearchLab, EngineeringBay, AiCluster, DataCenter, OrbitalSurveyStation
 - **Financial**: CommercialHub, FinancialCenter, TradePort
 - **Military**: Shipyard, MissileSilo, LaunchSite, SpacePort, GroundDefenseBattery
 
@@ -142,7 +142,7 @@ Handles resources, budgets, and energy systems.
 - `EnergyGrid`: Power generation and consumption
 
 **Resources:**
-- `ResourceType`: Enum defining 20 resource types (Water, Hydrogen, Ammonia, Methane, Nitrogen, Oxygen, CarbonDioxide, Argon, Iron, Aluminum, Titanium, Silicates, Helium3, Uranium, Thorium, Gold, Silver, Platinum, Copper, RareEarths)
+- `ResourceType`: Enum defining 38 resource types (Volatiles: Water, Hydrogen, Ammonia, Methane, Phosphorus, Food; Atmospheric gases: Nitrogen, Oxygen, CarbonDioxide, Argon; Construction metals: Iron, Aluminum, Titanium, Silicates, Nickel, Tungsten, Carbon, Chromium, Magnesium; Fusion fuels: Helium3, Deuterium, Tritium; Fissiles: Uranium, Thorium, Plutonium; Precious metals: Gold, Silver, Platinum; Specialty: Copper, RareEarths, Lithium, Sulfur, Cobalt, Fluorine, Polymers; Late-game: Antimatter, ExoticMatter, Metamaterials, Computronium)
 
 **Systems:**
 - `generate_mineral_deposits`: Creates procedural deposits on bodies at startup
@@ -150,14 +150,15 @@ Handles resources, budgets, and energy systems.
 - `update_budget`: Tracks financial flows
 - `energy_management`: Balances power generation and consumption
 
-**Resource Types (20, defined in `economy::types::ResourceType`):**
-- Volatiles: Water, Hydrogen, Ammonia, Methane
+**Resource Types (38, defined in `economy::types::ResourceType`):**
+- Volatiles: Water, Hydrogen, Ammonia, Methane, Phosphorus, Food
 - Atmospheric Gases: Nitrogen, Oxygen, CarbonDioxide, Argon
-- Construction Materials: Iron, Aluminum, Titanium, Silicates
-- Fusion Fuel: Helium3
-- Fissiles: Uranium, Thorium
+- Construction Materials: Iron, Aluminum, Titanium, Silicates, Nickel, Tungsten, Carbon, Chromium, Magnesium
+- Fusion Fuels: Helium3, Deuterium, Tritium
+- Fissiles: Uranium, Thorium, Plutonium
 - Precious Metals: Gold, Silver, Platinum
-- Specialty Materials: Copper, RareEarths
+- Specialty Materials: Copper, RareEarths, Lithium, Sulfur, Cobalt, Fluorine, Polymers
+- Late-game: Antimatter, ExoticMatter, Metamaterials, Computronium
 
 #### 6. ResearchPlugin (`src/research/`)
 Technology progression and engineering projects.
@@ -297,12 +298,28 @@ Fleet spawning, orbital transfer planning, trajectory propagation, and visualisa
 **Ship Classes (7):**
 Courier, Frigate, Destroyer, Cruiser, ResearchVessel, Freighter, Station
 
-**Propulsion Types (5):**
+**Propulsion Types (6):**
 - Chemical (450 s Isp) — high thrust, low efficiency
 - NuclearThermal (900 s Isp)
 - IonDrive (5 000 s Isp) — low thrust, very high efficiency
 - NuclearPulse (10 000 s Isp)
 - FusionTorch (50 000 s Isp) — high thrust and high efficiency
+- AntimatterDrive (1 000 000 s Isp) — late-game, requires antimatter fuel
+
+**Porkchop Plot Planner (`src/fleets/porkchop.rs`, GRA-152):**
+- Δv / phase-angle grid computed from synodic-period sweep of departure & arrival windows
+- Interactive cursor with hover & selection wired to `FleetUiState.porkchop_grid`
+- Deferred-build cache so non-click entries can build the grid on demand
+- Now + synodic-period anchor for time-progressive updates
+
+**Lagrange-Point Transfers (`src/astronomy/lagrange.rs` + `src/fleets/`):**
+- L4 / L5 for any planet; L1 / L2 / L3 for Sun–planet pairs
+- Destination state-mutation contract (GRA-160) — single Hohmann fallback when L4 is empty
+- Interactive star-approach parking-radius picker (GRA-161) for cross-system transfers
+
+**Historical Probes (`src/fleets/historical_probes.rs`, GRA-131):**
+- 4 historical probes (Voyager 1, Voyager 2, Parker Solar Probe, New Horizons) spawned at the 2026-01-01 JPL epoch
+- Surfaced in the Fleet panel via `feat(ui): expose 4 historical probes in fleet panel` (GRA-162)
 
 **Orbital Mechanics (`src/fleets/orbital_mechanics.rs`):**
 - `hohmann_transfer()`: Minimum-energy co-planar transfer between circular orbits
@@ -339,6 +356,40 @@ let positions = calculate_positions_at_timestamp(start_ts);
 
 *Note:* The current implementation uses simplified moon/dwarf-planet models; for higher precision use JPL Horizons data and expand the ephemeris module accordingly.
 
+#### Exoplanets & Nearby Stars (v0.4.x → v0.5.0)
+
+`src/astronomy/exoplanets.rs` ingests `assets/data/Exoplanets_NASA.csv` (5 000+ confirmed planets within 50 pc / ~163 ly from the NASA Exoplanet Archive). `src/astronomy/nearby_stars.rs` provides the 60+ nearest star systems from `assets/data/nearest_stars_raw.json`. Systems with confirmed planets get real `ConfirmedPlanet` entries; systems without get a procedural fallback via `src/astronomy/procedural.rs`. The `interstellar_probe` tech (tier 5, added in GRA-106) unlocks flyby of bodies in other star systems as the v0.5 → v0.6 hand-off.
+
+#### SurveyPlugin (`src/survey/`, v0.5.0)
+
+Replaces the legacy 3-tier `SurveyLevel` enum with an eight-dimension discovery model. Sub-modules: `components.rs` (per-body `SurveyState`), `data.rs` (RON loader for the 6 `assets/data/survey/*.ron` files), `systems.rs` (mission dispatch, anomaly detection, recovery missions, continuous-orbital-station yield bonus), `events.rs` (mission lifecycle events), `visibility.rs` (UI surfacing), `types.rs` (dimension / instrument / mission / anomaly types).
+
+**State model** — `SurveyState` on every body, with eight dimensions (Orbital mechanics, Atmosphere, Surface features, Mineral classes, Mineral deposits, Subsurface structure, Habitability, Anomalies). Each dimension has a tier (0–5) and a confidence score (0.0–1.0). Confidence decays 0.5% per sim-year without new measurements.
+
+**Mission lifecycle** — Flyby, Orbital satellite, Remote sensing pass, Atmospheric probe, Surface lander, Rover, Seismic survey, Drill core sample, Sample return. Each mission is dispatched from the dossier SURVEY tab, runs against a target body, and progresses over sim-years with mission-gate hazards (GRA-120).
+
+**Anomalies** — 9 hardcoded anomaly types + a `ModderAnomalyDef` RON path. Each has a `coolness` weight (independent of gameplay effect), a 10–60 sim-day follow-up timer, and a confidence model with verification. Anomalies trigger follow-up missions, research projects, or building unlocks.
+
+**Failure modes & recovery** (PR-G / GRA-85) — Probe loss (5%), Rover stuck (8%), Drill bit stuck (10%), Solar storm (2%), Crew injury (2%). Each failure mode spawns a recovery mission template in `recovery_missions.ron`.
+
+**Continuous orbital survey station** (PR-E / GRA-83) — `OrbitalSurveyStation` building provides per-body 5/10/15% mining-yield bonus at survey tier 1/2/3.
+
+**Landing sites** (PR-D / GRA-82) — Tier 2+ on Surface features AND Mineral deposits unlocks per-site evaluation: latitude / longitude, terrain rating (slope, regolith, radiation), resource estimate triplet, risk profile.
+
+#### PersonnelPlugin (`src/personnel/`, v0.5.0)
+
+**Data layer (shipped):** `Scientist` component with **8 specialties** (Geology, Atmospherics, Biology, Geophysics, …) and **3 seniority tiers** (Junior, Senior, Principal). `hire_scientists` system runs from `University` buildings. `seniority_promotion` system upgrades scientists as they complete analysis jobs. Specialty → analysis multiplier (matched ×1.5, mismatched ×0.7); seniority → throughput and quality (Junior 1.0× / 0.8×, Senior 1.5× / 1.0×, Principal 2.0× / 1.2× + 10% anomaly find).
+
+**UI layer (pending):** `GameMenu::Personnel` is a stub at `src/game_state.rs`; the `Personnel` menu is filled out as the scientist roster & assignments panel — the design contract is in `docs/UI.md` §8.3 (Preview).
+
+**Cap model:** soft cap gated by tech (`scientific_administration`) — early game 3 scientists, mid game 20, late game 200. Exceeding the cap applies a 5%-per-scientist penalty.
+
+#### NotificationsPlugin (`src/ui/notifications/`, v0.5.0)
+
+Player-facing event bus. Sub-modules: `components.rs` (per-toast `ActiveNotification`, action queues), `data.rs` (RON loader for `assets/data/notifications.ron`), `events.rs` (`NotificationEvent` Bevy `Message` + `NotificationContextLink`), `settings.rs` (`NotificationSettings` per-category overrides), `ui_settings.rs` (settings modal), `systems/` (tick / coalesce / click_handler / render / bridges).
+
+**Flow:** Survey / Construction / Research bridges write to `Messages<NotificationEvent>` → spawn system attaches an `ActiveNotification` → tick system auto-dismisses / pauses → coalesce system deduplicates within a 2 s window (PR-D / GRA-138) → click_handler dispatches to the context (PR-G / GRA-141) → settings panel (PR-E / GRA-139) per-category overrides.
+
 ## ECS Architecture
 
 The game uses Bevy's Entity Component System (ECS) architecture:
@@ -372,12 +423,12 @@ Functions that operate on entities with specific components:
 ## Future Architecture Plans
 
 ### Upcoming Features
-1. **Interstellar Travel**: Ship movement between star systems
-2. **Ship Construction Pipeline**: Shipyard-to-fleet construction queue
-3. **Combat System**: Space battles and defense
-4. **Diplomacy**: AI factions and relations
-5. **Terraforming**: Long-term planetary modification
-6. **Advanced Ship Design**: Modular spacecraft construction
+1. **Interstellar Travel (v0.6)**: Ship movement between star systems; the `interstellar_probe` tech (GRA-106) is already on `main`, and the exoplanet ingestion (`src/astronomy/exoplanets.rs`) supplies 5 000+ confirmed targets
+2. **Combat System (v0.6 → v0.7)**: Space battles and defense; the `GroundDefenseBattery` and `MissileSilo` buildings are scaffolded for ground-side combat
+3. **Diplomacy & AI Factions (v0.6)**: Multi-faction competition, alliances, treaties, and victory conditions
+4. **Terraforming (v0.7 → v0.8)**: Long-term planetary modification; hooks in `BuildingType::category()` and `OrbitalSurveyStation` continuous-yield bonus
+5. **Save / Load (v1.0)**: Persistence layer; currently the game is single-session; B0001 postmortem (GRA-51) and the LocalStockpile data layer are pre-requisites
+6. **Inter-system logistics (0.4.x → 0.5.x follow-up)**: Convoys between stars, capacity market, Mega/Gigaton freighter hulls — design spec at `docs/design/LOGISTICS_LATE_GAME.md` and `docs/design/MEGA_GIGATON_FREIGHTER_TIERS.md`
 
 ### Data-Driven Design
 Future systems will use data files (RON/JSON) for configuration:
@@ -392,47 +443,61 @@ Future systems will use data files (RON/JSON) for configuration:
 src/
 ├── main.rs              # Entry point, app setup
 ├── lib.rs               # Library root
-├── astronomy/           # Orbital mechanics & coordinate systems
+├── game_state.rs        # Top-level state machine (GameMenu, AppState, Personnel menu stub)
+├── astronomy/           # Orbital mechanics, ephemeris, exoplanets, nearby stars, Lagrange helpers
 │   ├── components.rs    # SpaceCoordinates, KeplerOrbit, OrbitPath
 │   ├── systems.rs       # Orbit propagation, rendering, selection
+│   ├── ephemeris.rs     # J2000-based mean-anomaly computation for custom start dates
+│   ├── exoplanets.rs    # NASA Exoplanet Archive ingestion (5 000+ confirmed planets)
+│   ├── nearby_stars.rs  # 60+ nearest star systems from `nearest_stars_raw.json`
+│   ├── procedural.rs    # Procedural fallback for systems without confirmed planets
+│   ├── lagrange.rs      # L1/L2/L3/L4/L5 computation helpers
+│   ├── selection.rs     # Body click / hover / range-pick dispatch
 │   └── mod.rs           # AstronomyPlugin
-├── economy/             # Resource & budget systems
-│   ├── components.rs    # PlanetResources, MineralDeposit
-│   ├── budget.rs        # GlobalBudget, EnergyGrid
-│   ├── generation.rs    # Procedural resource generation
-│   └── types.rs         # ResourceType definitions
-├── fleets/              # Fleet management & orbital transfer
-│   ├── components.rs    # Fleet, FleetOrbit, ActiveManeuver, PlannedTransfer
-│   ├── orbital_mechanics.rs # Hohmann transfers, transfer windows, gravity assists
-│   ├── systems.rs       # Fleet position, maneuver execution, visualisation
-│   ├── types.rs         # ShipClass, PropulsionType
-│   └── mod.rs           # FleetPlugin
-├── shipbuilding/        # Modular hull/module data, ship construction queues, refit, slipways
-│   ├── components.rs    # ShipDesignDraft, ShipConstructionProject, pending actions
-│   ├── data.rs          # Hull and module definitions + design summaries
-│   ├── refit.rs         # Design upgrade and refit logic (technology gating, module replacement)
-│   ├── slipway.rs       # Construction capacity and slipway helpers
-│   ├── systems.rs       # Queue validation and shipyard throughput progression
-│   ├── types.rs         # ShipModuleCategory (21 variants), HullSizeTier, ConstructionMode, ShipDesignTemplate
-│   └── mod.rs           # ShipbuildingPlugin
-├── plugins/             # Game systems
+├── colony/              # Colony management, buildings, construction, founding flow
+├── economy/             # Resources, budget, energy grid, logistics, AI shipping companies, mining
+├── fleets/              # Fleet management, orbital mechanics, porkchop, Lagrange transfers, historical probes
+├── personnel/           # Scientists (v0.5.0 data layer; UI panel pending)
+├── research/            # Technology tree, engineering, and unlock catalogs
+├── shipbuilding/        # Data-driven hulls, modules, projects, refit, and slipways
+├── ships/               # Hull templates, migration shims (legacy `standard_freighter`)
+├── survey/              # v0.5.0 survey rework: 8-dimension state, missions, anomalies, instruments
+├── plugins/             # Bevy plugin modules
 │   ├── camera.rs        # Camera movement, anchoring & ViewMode
 │   ├── solar_system.rs  # Body spawning, rotation, billboards
 │   ├── solar_system_data.rs # RON data loader
 │   ├── starmap.rs       # Starmap view (system icons, visibility toggle)
+│   ├── atmosphere.rs    # Atmospheric scattering shader (Rayleigh + Mie)
+│   ├── music.rs         # Background music playlist (CC-BY, Scott Buckley)
+│   ├── comet_vfx.rs     # Comet tails
+│   ├── ocean.rs         # Ocean material
+│   ├── star_materials.rs # Stellar materials
+│   ├── system_populator.rs # RON-driven body + economy + colony bootstrap
 │   └── visual_effects.rs    # Bloom, starfield, night materials
 ├── render/              # Rendering utilities
-│   └── backdrop.rs      # Skybox background
-└── ui/                  # User interface
-    ├── mod.rs                 # UIPlugin, shared constants, overlay systems, re-exports
+└── ui/                  # All UI panels
+    ├── mod.rs                 # UIPlugin, theme tokens, overlay systems, re-exports
     ├── time.rs                # SimulationTime, TimeScale, time helpers
+    ├── theme.rs               # Color32 / spacing / focus-ring tokens (CI-linted)
     ├── icons.rs               # MenuIcons, ResearchIcons, icon loading/processing
-    ├── resources_bar.rs       # Top resource bar UI
+    ├── resources_bar.rs       # Top resource bar UI with in-transit indicator
     ├── dashboard.rs           # Main dashboard, time controls, star system panel
+    ├── dossier_panel.rs       # Per-body dossier (Survey + Construction + Resource ledger)
     ├── research_panel.rs      # Research/engineering UI and tech tree
-    ├── construction_panel.rs  # Construction queue UI
-    ├── economy_panel.rs       # Economy/budget UI
-    ├── fleets_panel.rs        # Fleet management, transfer planner, FleetUiState
+    ├── construction_panel.rs  # Construction queue UI with yield chip & depletion timeline
+    ├── economy_panel.rs       # Economy/budget UI + Logistics subpanel
+    ├── fleets_panel.rs        # Fleet management, transfer planner, FleetUiState, historical probes
+    ├── transfer_planner.rs    # Transfer-window planner (Hohmann / moderate / fast)
+    ├── porkchop_panel.rs      # Porkchop plot (GRA-152) with interactive cursor
+    ├── shipbuilding_workspace.rs  # Native Bevy UI shipbuilding workspace
+    ├── shipbuilding_state.rs  # Shared shipbuilding UI state
+    ├── shipbuilding_tooltip.rs # Slot hover tooltips
+    ├── notifications/         # v0.5.0 notifications (toast panel, settings, bridges)
+    ├── settings.rs            # Top-menu settings + screenshot slots
+    ├── cursors.rs             # Cursor sprite management
+    ├── tab.rs                 # Tab-strip primitives
+    ├── tech_tree.rs           # Tech tree visualisation
+    ├── screenshot.rs / screenshot_state.rs # Shift+F12 screenshot capture
     └── interaction.rs         # Selection management
 ```
 

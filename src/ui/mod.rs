@@ -230,6 +230,15 @@ pub struct FleetUiState {
     /// of the Efficient / Moderate / Fast `selectable_label` block.  When
     /// `None`, the legacy 3-option row is rendered.  GRA-152 (H-1).
     pub porkchop_grid: Option<crate::fleets::porkchop::PorkchopGrid>,
+    /// Target body entity the cached porkchop grid was built for.
+    /// Compared against `target_body` each frame so the planner
+    /// invalidates the cache when the player switches destinations
+    /// (e.g. via the 3D-scene right-click path, which mutates
+    /// `target_body` without going through the planner's per-frame
+    /// deferred-build logic).  Without this field the planner would
+    /// keep rendering the *previous* destination's grid after the
+    /// player right-clicked a new body.
+    pub porkchop_built_for: Option<Entity>,
     /// Simulation-time epoch the cached porkchop grid was built at.  The
     /// grid's `t_dep = 0` column reflects the planet positions at *this*
     /// epoch, so as `SimulationTime` advances the cached ΔV values become
@@ -281,6 +290,7 @@ impl FleetUiState {
         self.departure_offset_days = 0.0;
         self.computed_options.clear();
         self.porkchop_grid = None;
+        self.porkchop_built_for = None;
         self.porkchop_built_at_s = None;
         self.selected_porkchop_cell = None;
         self.planned_transfer = None;
@@ -331,6 +341,7 @@ impl FleetUiState {
         // (e.g. Earth→Mars) panel does not render with the Lagrange
         // picker selected.  The planner re-builds on its next tick.
         self.porkchop_grid = None;
+        self.porkchop_built_for = None;
         self.porkchop_built_at_s = None;
         self.selected_porkchop_cell = None;
     }
