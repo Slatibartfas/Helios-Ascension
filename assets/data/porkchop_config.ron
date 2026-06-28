@@ -31,7 +31,10 @@
 //      must be ≤ 5000 (sub-second recompute on a 4-core host).
 //   2. `colormap` must contain ≥ 2 stops; the first stop's
 //      ΔV must be `0.0`; the last stop's ΔV is treated as
-//      `+∞` (use `f64::INFINITY` in RON).
+//      `+∞` (use `inf` — RON 0.8 accepts `inf` / `+inf` / `-inf` /
+//      `NaN` literals; the previous `f64::INFINITY` Rust-style
+//      syntax silently failed to parse and the loader fell back to
+//      `PorkchopConfig::default()` at runtime).
 //   3. `category_overrides` are matched top-down, first hit wins;
 //      a single override must be self-consistent (resolution ×
 //      resolution ≤ 5000, tof_min_factor > 0, tof_min < tof_max).
@@ -81,6 +84,17 @@
     // A body's transfer category is derived from the (origin,
     // destination) pair in the planner; the Coder's
     // `classify_transfer_category` returns the match key.
+    //
+    // Every override MUST define the full `PorkchopCategoryOverride`
+    // schema (see `src/fleets/components.rs`):
+    //   t_dep_window_days, tof_min_hohmann_factor, tof_max_hohmann_factor,
+    //   tof_floor_days, tof_ceiling_years, resolution_t_dep, resolution_tof,
+    //   c3_ceiling_km2_s2.
+    // None of these fields carry `#[serde(default)]`, so a missing
+    // value aborts deserialisation and the loader falls back to
+    // `PorkchopConfig::default()` at runtime — silent loss of every
+    // category override.  `tests/data::porkchop_config_ron_loads_cleanly`
+    // is the strict CI gate that catches this regression.
     category_overrides: [
         // Interstellar: blow out the grid so the player can see
         // the geological-timescale basin. The 500-yr cap from
@@ -92,9 +106,11 @@
             t_dep_window_days: 730.0,           // 2 yr
             tof_min_hohmann_factor: 0.2,
             tof_max_hohmann_factor: 5.0,
+            tof_floor_days: 30.0,               // ≪ Hohmann time for any interstellar leg; floor is purely a sanity guard
             tof_ceiling_years: 100.0,
             resolution_t_dep: 60,
             resolution_tof: 50,
+            c3_ceiling_km2_s2: 400.0,
         ),
         // Moon transfers: tight window, fine grid. Short TOFs and
         // small distances → cheap Lambert solves, can afford more
@@ -107,9 +123,10 @@
             tof_min_hohmann_factor: 0.5,
             tof_max_hohmann_factor: 1.8,
             tof_floor_days: 0.5,
-            tof_ceiling_days: 60.0,
+            tof_ceiling_years: 0.165,           // ≈ 60 days (was mis-named `tof_ceiling_days`; serde silently ignored it)
             resolution_t_dep: 50,
             resolution_tof: 40,
+            c3_ceiling_km2_s2: 400.0,
         ),
         // Star approach (any body → star): the round-trip
         // Hohmann equivalent is years, so a wide window and a
@@ -122,9 +139,11 @@
             t_dep_window_days: 365.0,
             tof_min_hohmann_factor: 0.3,
             tof_max_hohmann_factor: 3.0,
+            tof_floor_days: 10.0,               // ≈ Oberth window: anything shorter is a sub-orbital burn
             tof_ceiling_years: 5.0,
             resolution_t_dep: 50,
             resolution_tof: 40,
+            c3_ceiling_km2_s2: 400.0,
         ),
     ],
 
@@ -143,7 +162,7 @@
         (delta_v_km_s: 4.0,                    rgba: (220, 200,  60, 220)),
         (delta_v_km_s: 8.0,                    rgba: (230, 140,  40, 220)),
         (delta_v_km_s: 15.0,                   rgba: (220,  60,  60, 220)),
-        (delta_v_km_s: f64::INFINITY,          rgba: ( 60,  60,  60, 180)),
+        (delta_v_km_s: inf,                    rgba: ( 60,  60,  60, 180)),
     ],
     // Iso-ΔV contour lines drawn on top of the grid, in km/s.
     // The minimum (cheapest cell) contour is always drawn; the

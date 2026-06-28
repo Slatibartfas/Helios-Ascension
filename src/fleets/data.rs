@@ -158,4 +158,50 @@ mod tests {
         let v = cfg.validate().unwrap_err();
         assert!(v.iter().any(|s| s.contains("5000")));
     }
+
+    /// Strict load of the actual `assets/data/porkchop_config.ron` file.
+    /// Catches RON-side regressions (missing fields, typos, unknown
+    /// values) at `cargo test` time so they don't slip into runtime as
+    /// a startup-only `error!` log and a silent fall-through to
+    /// `PorkchopConfig::default()`.  The loader itself stays tolerant
+    /// (debug builds shouldn't panic on a bad RON), but this test is
+    /// the hard gate: a broken file fails the test suite.
+    #[test]
+    fn porkchop_config_ron_loads_cleanly() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("assets/data/porkchop_config.ron");
+        let contents = std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("read {path:?}: {e}"));
+        let cfg: PorkchopConfig = ron::from_str(&contents)
+            .unwrap_or_else(|e| panic!("porkchop_config.ron failed to parse: {e}"));
+        // Validation must also pass — covers the case where RON deserializes
+        // but a per-override invariant (e.g. tof_min > tof_max, resolution
+        // product > 5000) is violated.
+        if let Err(violations) = cfg.validate() {
+            panic!("porkchop_config.ron failed validation: {violations:#?}");
+        }
+        // Sanity: every override must define the fields the planner reads
+        // at runtime.  This is implicit in the struct's serde contract
+        // (no `#[serde(default)]` on those fields), but we re-assert here
+        // so a future struct change that adds a default would not silently
+        // hide a missing RON field — the file should always be
+        // self-contained.
+        for ov in &cfg.category_overrides {
+            assert!(
+                ov.tof_floor_days.is_finite() && ov.tof_floor_days >= 0.0,
+                "override `{}` must define a finite tof_floor_days",
+                ov.match_key
+            );
+            assert!(
+                ov.tof_ceiling_years.is_finite() && ov.tof_ceiling_years > 0.0,
+                "override `{}` must define a positive tof_ceiling_years",
+                ov.match_key
+            );
+            assert!(
+                ov.c3_ceiling_km2_s2.is_finite() && ov.c3_ceiling_km2_s2 > 0.0,
+                "override `{}` must define a positive c3_ceiling_km2_s2",
+                ov.match_key
+            );
+        }
+    }
 }

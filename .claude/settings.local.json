@@ -15,7 +15,12 @@
       "WebFetch(domain:api.github.com)",
       "WebFetch(domain:raw.githubusercontent.com)",
       "Bash(cargo test:*)",
-      "Bash(grep -c \"^\\\\s*\\(\\\\s*$\" assets/data/technologies.ron)"
+      "Bash(grep -c \"^\\\\s*\\(\\\\s*$\" assets/data/technologies.ron)",
+      "Bash(cat > *)",
+      "Bash(cargo test *)"
+    ],
+    "additionalDirectories": [
+      "\\tmp"
     ]
   }
 }
