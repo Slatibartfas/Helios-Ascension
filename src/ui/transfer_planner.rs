@@ -1147,6 +1147,49 @@ pub(super) fn render_transfer_planner(
                     category,
                     elapsed,
                 ));
+                // Re-anchor `selected_porkchop_cell` after rotation:
+                // search the new buffer for the cell whose
+                // `(abs_t_dep, abs_tof)` is closest to the recorded
+                // anchors, and update `(sc, sr)` so the user's
+                // selection stays on the same physical cell across
+                // rotations.  Without this the same `(sc, sr)` lands
+                // on a different abs t_dep in the new buffer and
+                // the selected cell's ΔV appears to "jump" by 1-3 km/s
+                // every rotation.
+                if let (Some(abs_t_dep), Some(abs_tof)) = (
+                    fleet_ui_state.selected_abs_t_dep_s,
+                    fleet_ui_state.selected_abs_tof_s,
+                ) {
+                    if let Some(new_grid) = fleet_ui_state.porkchop_grid.as_ref() {
+                        let (cols_b, rows_b) = new_grid.resolution;
+                        if cols_b > 0 && rows_b > 0 {
+                            let col_step = (new_grid.t_dep_bounds_s.1
+                                - new_grid.t_dep_bounds_s.0)
+                                / cols_b as f64;
+                            let tof_step = (new_grid.tof_bounds_s.1
+                                - new_grid.tof_bounds_s.0)
+                                / rows_b as f64;
+                            let mut best: Option<(usize, usize, f64)> = None;
+                            for r in 0..rows_b {
+                                for c in 0..cols_b {
+                                    let cell_t_dep = new_grid.t_dep_bounds_s.0
+                                        + (c as f64) * col_step;
+                                    let cell_tof = new_grid.tof_bounds_s.0
+                                        + (r as f64) * tof_step;
+                                    let dt = (cell_t_dep - abs_t_dep).abs();
+                                    let dtof = (cell_tof - abs_tof).abs();
+                                    let err = dt + dtof * 0.01;
+                                    if best.is_none() || err < best.unwrap().2 {
+                                        best = Some((c, r, err));
+                                    }
+                                }
+                            }
+                            if let Some((c, r, _)) = best {
+                                fleet_ui_state.selected_porkchop_cell = Some((c, r));
+                            }
+                        }
+                    }
+                }
                 // Stamp the build epoch so the staleness check above
                 // can decide when the grid needs refreshing.
                 fleet_ui_state.porkchop_built_at_s = Some(elapsed);
@@ -4808,6 +4851,44 @@ pub(super) fn render_transfer_planner(
                 );
                 ui.add_space(4.0);
                 if let Some((sc, sr)) = fleet_ui_state.selected_porkchop_cell {
+                    // Capture absolute (t_dep, tof) of the selected
+                    // cell so the post-rotation re-anchor in the
+                    // build block above can find the same physical
+                    // cell in the new buffer.  Only update when the
+                    // (sc, sr) has actually changed (i.e. the user
+                    // clicked a new cell or the planner just re-anchored
+                    // to a matching (sc, sr) and we're back to the
+                    // first frame of the next rotation cycle).
+                    if let Some(cell) = grid.cells.get(sr * grid.resolution.0 + sc) {
+                        let (cols_buf, rows_buf) = grid.resolution;
+                        if cols_buf > 0 {
+                            let col_step = (grid.t_dep_bounds_s.1
+                                - grid.t_dep_bounds_s.0)
+                                / cols_buf as f64;
+                            let abs_t_dep =
+                                grid.t_dep_bounds_s.0 + (sc as f64) * col_step;
+                            let abs_tof = cell.tof_s;
+                            // Detect "we just re-anchored" by checking
+                            // if the recorded abs t_dep already
+                            // matches the current (sc, sr) within
+                            // half a col_step.  If so, the (sc, sr)
+                            // we have IS the re-anchored one — don't
+                            // overwrite the recorded abs t_dep with
+                            // a slightly different value (the new
+                            // buffer's grid resolution might not
+                            // align exactly with the old).
+                            let current_matches_recorded = match fleet_ui_state
+                                .selected_abs_t_dep_s
+                            {
+                                Some(prev) => (prev - abs_t_dep).abs() < col_step * 0.5,
+                                None => false,
+                            };
+                            if !current_matches_recorded {
+                                fleet_ui_state.selected_abs_t_dep_s = Some(abs_t_dep);
+                                fleet_ui_state.selected_abs_tof_s = Some(abs_tof);
+                            }
+                        }
+                    }
                     if let Some(cell) = grid.cells.get(sr * grid.resolution.0 + sc) {
                         if cell.feasible {
                             // v0.5.0 follow-up: the legacy 3-option row

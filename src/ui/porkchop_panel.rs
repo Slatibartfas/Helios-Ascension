@@ -359,6 +359,12 @@ pub fn porkchop_panel(
             let cell = &grid.cells[hr * cols + hc];
             if cell.feasible {
                 *selected = Some((hc, hr));
+                // The current panel call has no access to
+                // `FleetUiState`; the absolute-coord anchor is
+                // written by the planner when it consumes the
+                // selected cell.  The planner reads
+                // `grid.t_dep_bounds_s` to compute the abs t_dep
+                // from `(hc, hr)` once the user commits the click.
             }
         }
         let cell = &grid.cells[hr * cols + hc];

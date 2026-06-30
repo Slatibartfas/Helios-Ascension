@@ -257,6 +257,16 @@ pub struct FleetUiState {
     pub porkchop_last_real_build_s: Option<f64>,
     /// `(col, row)` index of the player-selected cell in `porkchop_grid`.
     pub selected_porkchop_cell: Option<(usize, usize)>,
+    /// Absolute (t_dep, tof) coordinates of the selected cell, captured
+    /// at the moment the user picked the cell.  When the rotating
+    /// buffer rebuilds, the planner searches the new buffer for a
+    /// cell at the same abs_t_dep / tof and re-anchors
+    /// `selected_porkchop_cell` to that (col, row).  Without this the
+    /// same (col, row) lands on a different abs_t_dep in the new
+    /// buffer and the selection's ΔV appears to "jump" by 1-3 km/s
+    /// every rotation.  `None` when no selection is active.
+    pub selected_abs_t_dep_s: Option<f64>,
+    pub selected_abs_tof_s: Option<f64>,
     /// Fully assembled transfer plan ready for execution (if any).
     pub planned_transfer: Option<PlannedTransfer>,
     /// Whether the floating Transfer Planner popup window is open.
@@ -303,6 +313,8 @@ impl FleetUiState {
         self.porkchop_built_at_s = None;
         self.porkchop_last_real_build_s = None;
         self.selected_porkchop_cell = None;
+        self.selected_abs_t_dep_s = None;
+        self.selected_abs_tof_s = None;
         self.planned_transfer = None;
         self.selected_option = 0;
         self.gravity_assist_candidates.clear();
@@ -355,6 +367,8 @@ impl FleetUiState {
         self.porkchop_built_at_s = None;
         self.porkchop_last_real_build_s = None;
         self.selected_porkchop_cell = None;
+        self.selected_abs_t_dep_s = None;
+        self.selected_abs_tof_s = None;
     }
 }
 
