@@ -4,5 +4,7 @@
         "cargo check": true,
         "cargo build": true,
         "cargo clippy": true
-    }
+    },
+    "python.defaultInterpreterPath": null,
+    "python.terminal.activateEnvironment": false
 }
