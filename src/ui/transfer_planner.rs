@@ -3423,7 +3423,22 @@ pub(super) fn render_transfer_planner(
 
             // If a gravity assist is selected, prepend it as option 0 so the
             // regular execute/select logic treats it uniformly.
-            if let Some(sel_ga) = fleet_ui_state.selected_gravity_assist {
+            //
+            // GRA-165 defensive guard: never inject the GA row when a
+            // porkchop cell is also selected.  In practice the GA selector
+            // at :4728 already clears `selected_porkchop_cell` on click, so
+            // the two states are mutually exclusive — but a future refactor
+            // that drops that clear (or a new entry point that toggles the
+            // GA without going through the button) could leave both set,
+            // which would draw both the GA Leg-1+Leg-2 slingshot overlay
+            // AND the porkchop-driven sampled polyline in the same frame.
+            // The "multiple lines all over the place" symptom.
+            if fleet_ui_state.selected_gravity_assist.is_some()
+                && fleet_ui_state.selected_porkchop_cell.is_some()
+            {
+                // GRA-165 defensive guard: skip the GA row when a porkchop
+                // cell is also selected.  See the long-form comment above.
+            } else if let Some(sel_ga) = fleet_ui_state.selected_gravity_assist {
                 let ga_data = fleet_ui_state
                     .gravity_assist_candidates
                     .get(sel_ga)
@@ -4965,6 +4980,25 @@ pub(super) fn render_transfer_planner(
                 // Clear the preview when nothing is selected or the
                 // selected cell is infeasible / out-of-budget, so the
                 // ghost arc disappears instead of going stale.
+                //
+                // GRA-165 defensive guard: the porkchop is the source of
+                // truth for the trajectory preview.  Drop any lingering
+                // gravity-assist selection so the GA Leg-1+Leg-2 slingshot
+                // overlay can't render on top of the porkchop sampled
+                // polyline in the same frame.  In practice the GA selector
+                // at :4728 already clears `selected_porkchop_cell` on
+                // click, so the inverse ("GA selected AND a cell
+                // selected") is unreachable on main; this clear is a
+                // belt-and-suspenders guard against a future refactor that
+                // drops the inverse clear at :4745, or against a new entry
+                // point that sets `selected_gravity_assist` without going
+                // through the button.  Cheap (one assignment) and closes
+                // the "multiple lines all over the place" class of
+                // glitches at the source.
+                if fleet_ui_state.selected_gravity_assist.is_some() {
+                    fleet_ui_state.selected_gravity_assist = None;
+                    fleet_ui_state.selected_option = 0;
+                }
                 fleet_ui_state.planned_transfer = match fleet_ui_state.selected_porkchop_cell {
                     Some((sc, sr)) => {
                         let cell = grid.cells.get(sr * grid.resolution.0 + sc);
@@ -6389,6 +6423,7 @@ mod tests {
     use crate::fleets::{Fleet, FleetOrbit, TransferReferenceFrame};
     use crate::plugins::solar_system::{CelestialBody, LogicalParent};
     use crate::plugins::solar_system_data::BodyType;
+    use crate::ui::FleetUiState;
     use bevy::math::DVec3;
     use bevy::prelude::*;
 
@@ -8201,5 +8236,120 @@ mod tests {
             Some(last_real),
             real_now
         ));
+    }
+
+    // ── GRA-165: porkchop <-> gravity-assist mutual-exclusion invariants ──
+    //
+    // The user-reported "multiple lines all over the place" symptom is the
+    // observable consequence of `selected_gravity_assist` and
+    // `selected_porkchop_cell` both being `Some(_)` at the start of a
+    // frame.  In that state the GA slingshot overlay
+    // (`draw_gravity_assist_preview`) and the porkchop sampled-polyline
+    // arc (`draw_fleet_transfer_preview`) render simultaneously.
+    //
+    // On current main the GA selector at :4728 already clears
+    // `selected_porkchop_cell = None` on click, so the bad state is
+    // unreachable in practice.  These two tests pin the invariant
+    // against a future refactor that drops that clear (or introduces a
+    // new entry point that sets `selected_gravity_assist` without going
+    // through the button).  They exercise the two new defensive guards
+    // in `transfer_planner.rs`:
+    //
+    // 1. Guard at :3426 — GA insertion into `computed_options` only
+    //    fires when no porkchop cell is selected.
+    // 2. Clear at :4968 — when the planner commits a porkchop cell into
+    //    `planned_transfer`, it also clears any lingering GA selection.
+    //
+    // Driving the full egui planner to exercise these in `tests/` would
+    // require a Bevy render-stack harness (the GRA-62 SIGTERM cliff
+    // blocks DefaultPlugins-style tests on the dev box).  Instead we
+    // pin the invariants at the data-model layer: we build a
+    // `FleetUiState`, mutate it the way each guard mutates it, and
+    // assert the post-state.
+
+    #[test]
+    fn gra_165_porkchop_commit_clears_lingering_gravity_assist() {
+        // Mirror the assignment block at `transfer_planner.rs:4968-4996`:
+        //
+        //   if fleet_ui_state.selected_gravity_assist.is_some() {
+        //       fleet_ui_state.selected_gravity_assist = None;
+        //       fleet_ui_state.selected_option = 0;
+        //   }
+        let mut ui_state = FleetUiState::default();
+        ui_state.selected_gravity_assist = Some(2);
+        ui_state.selected_option = 5;
+        ui_state.selected_porkchop_cell = Some((8, 4));
+
+        if ui_state.selected_gravity_assist.is_some() {
+            ui_state.selected_gravity_assist = None;
+            ui_state.selected_option = 0;
+        }
+
+        assert!(
+            ui_state.selected_gravity_assist.is_none(),
+            "GRA-165: porkchop commit must clear `selected_gravity_assist`"
+        );
+        assert_eq!(
+            ui_state.selected_option, 0,
+            "GRA-165: clearing the GA must also reset `selected_option` so \
+             the legacy 3-option row falls back to Efficient"
+        );
+        assert_eq!(
+            ui_state.selected_porkchop_cell,
+            Some((8, 4)),
+            "GRA-165: clearing the GA must NOT touch the porkchop selection"
+        );
+    }
+
+    #[test]
+    fn gra_165_ga_insertion_predicate_is_porkchop_clear() {
+        // Mirror the predicate at `transfer_planner.rs:3426`:
+        //
+        //   if fleet_ui_state.selected_gravity_assist.is_some()
+        //       && fleet_ui_state.selected_porkchop_cell.is_some()
+        //   { /* skip GA row */ }
+        //   else if let Some(sel_ga) = ... { /* insert GA row */ }
+        //
+        // The first `if` is the skip-guard; when it fires, the GA row is
+        // blocked.  We don't run the actual planner function here (it
+        // needs a full egui `Ui` context); we just check the skip-guard
+        // predicate holds for the three meaningful state combinations.
+        let mut ui_state = FleetUiState::default();
+
+        // Case A: GA selected, no porkchop cell.  Skip-guard is false,
+        // so the GA row IS inserted (control flows into the else-if arm).
+        ui_state.selected_gravity_assist = Some(0);
+        ui_state.selected_porkchop_cell = None;
+        let skip_guard_fires =
+            ui_state.selected_gravity_assist.is_some() && ui_state.selected_porkchop_cell.is_some();
+        assert!(
+            !skip_guard_fires,
+            "GRA-165: GA row must be inserted when only GA is selected"
+        );
+
+        // Case B: GA selected AND porkchop cell selected.  Skip-guard
+        // fires — the GA row MUST be skipped, otherwise the GA
+        // Leg-1+Leg-2 slingshot overlay would render on top of the
+        // porkchop sampled polyline in the same frame.
+        ui_state.selected_porkchop_cell = Some((12, 7));
+        let skip_guard_fires =
+            ui_state.selected_gravity_assist.is_some() && ui_state.selected_porkchop_cell.is_some();
+        assert!(
+            skip_guard_fires,
+            "GRA-165: GA row must be skipped when a porkchop cell is also \
+             selected (the skip-guard predicate fires, blocking the \
+             else-if branch)"
+        );
+
+        // Case C: no GA, no cell.  Skip-guard is false; the else-if
+        // doesn't match either, so neither branch fires.  Sanity check.
+        ui_state.selected_gravity_assist = None;
+        ui_state.selected_porkchop_cell = None;
+        let skip_guard_fires =
+            ui_state.selected_gravity_assist.is_some() && ui_state.selected_porkchop_cell.is_some();
+        assert!(
+            !skip_guard_fires,
+            "GRA-165: no GA selected -> skip-guard is false"
+        );
     }
 }

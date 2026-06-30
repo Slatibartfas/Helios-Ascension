@@ -4034,8 +4034,11 @@ pub fn draw_fleet_transfer_preview(
 /// - A bright yellow cross marker is drawn at the predicted flyby intercept.
 /// - A ghost-body circle is drawn at the predicted destination position.
 ///
-/// The regular amber preview arc (`draw_fleet_transfer_preview`) continues to
-/// be drawn; this system adds the two-colour slingshot overlay on top.
+/// The regular amber preview arc (`draw_fleet_transfer_preview`) is **not**
+/// drawn when a gravity assist is selected — that function returns early
+/// at the top of its body (see the `selected_gravity_assist.is_some()`
+/// guard near line 3388) so it doesn't double-draw on top of this
+/// overlay.  Only the two-colour slingshot overlay appears.
 pub fn draw_gravity_assist_preview(
     mut gizmos: Gizmos,
     fleet_query: Query<(Entity, Option<&FleetOrbit>, Option<&ActiveManeuver>), With<Fleet>>,
