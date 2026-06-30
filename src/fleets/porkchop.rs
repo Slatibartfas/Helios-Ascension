@@ -797,11 +797,16 @@ pub fn build_rotating_buffer_for_body_target(
     // Resolve the per-category params, then quadruple
     // `t_dep_window_days` and double `resolution_t_dep` so the
     // buffer has 2× the columns of the visible planner surface
-    // over a 4× t_dep span.  Resolution does NOT scale with
+    // over an 8× t_dep span.  Resolution does NOT scale with
     // window size (to keep per-cell ΔV detail constant), so the
-    // rebuild cost is ~2× the non-rotating build.
+    // rebuild cost is ~4× the non-rotating build.  The 8× buffer
+    // means the cells slide through the *entire* visible window +
+    // one full visible window of "future" before the planner
+    // rotates — the user sees a full ~W of ΔV motion before the
+    // next rebuild, not the half-window pass they were getting
+    // with the 4× buffer.
     let mut params = cfg.resolve(category);
-    params.t_dep_window_days *= 4.0;
+    params.t_dep_window_days *= 8.0;
     params.resolution_t_dep = (params.resolution_t_dep * 2).max(8);
     let inputs = PorkchopInputs {
         origin_name,
@@ -909,8 +914,8 @@ mod planner_wiring_tests {
         let baseline_width = baseline.t_dep_bounds_s.1 - baseline.t_dep_bounds_s.0;
         let buffer_width = buffer.t_dep_bounds_s.1 - buffer.t_dep_bounds_s.0;
         assert!(
-            (buffer_width - 4.0 * baseline_width).abs() < 1.0,
-            "buffer width {buffer_width} should be ≈ 4× baseline {baseline_width}"
+            (buffer_width - 8.0 * baseline_width).abs() < 1.0,
+            "buffer width {buffer_width} should be ≈ 8× baseline {baseline_width}"
         );
         // Buffer has 2× the columns so each visible column keeps
         // baseline's per-column ΔV resolution.

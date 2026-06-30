@@ -2221,6 +2221,19 @@ pub fn draw_fleet_trajectories(
 
                 let sampled_dest = if center_is_star { dp_absolute } else { dp };
 
+                // Use `mean_motion * sim_elapsed` as the orbit's
+                // start mean_anomaly so the trajectory begins at the
+                // planet's current mean_anomaly.  The orbit's
+                // `mean_anomaly_epoch` was set to the planet's
+                // mean_anomaly at the time the orbit was built
+                // (which may be many sim-minutes ago), so using it
+                // directly here would draw the orbit at the OLD
+                // planet position — half an orbit or more off from
+                // the planet's current position, especially at 1
+                // yr/s where the planet completes a full orbit per
+                // real second.
+                let start_mean_anomaly = maneuver.transfer_orbit.mean_motion
+                    * sim_elapsed;
                 let visual_points = if center_is_star {
                     build_visual_sampled_transfer_polyline_moving_center(
                         &maneuver.transfer_orbit,
@@ -2233,7 +2246,7 @@ pub fn draw_fleet_trajectories(
                         &body_query,
                         &kepler_query,
                         &amp_query,
-                        maneuver.transfer_orbit.mean_anomaly_epoch,
+                        start_mean_anomaly,
                         maneuver.transfer_orbit.mean_motion
                             * (maneuver.arrival_time - maneuver.departure_time),
                         128,
@@ -2252,7 +2265,7 @@ pub fn draw_fleet_trajectories(
                         dest_ring_r,
                         is_course_correction,
                         is_inward,
-                        maneuver.transfer_orbit.mean_anomaly_epoch,
+                        start_mean_anomaly,
                         maneuver.transfer_orbit.mean_motion
                             * (maneuver.arrival_time - maneuver.departure_time),
                         128,
@@ -2404,9 +2417,12 @@ pub fn draw_fleet_trajectories(
             let total_ma_travel = maneuver.transfer_orbit.mean_motion
                 * (maneuver.arrival_time - maneuver.departure_time);
 
-            // Start exactly at the fleet's current Keplerian position on the arc.
-            let ma_start =
-                maneuver.transfer_orbit.mean_anomaly_epoch + total_ma_travel * progress_t as f64;
+            // Start exactly at the planet's current mean_anomaly
+            // (not the orbit's mean_anomaly_epoch, which was set
+            // when the orbit was built and may be many sim-minutes
+            // stale by the time we render the trajectory).
+            let ma_start = maneuver.transfer_orbit.mean_motion * sim_elapsed
+                + total_ma_travel * progress_t as f64;
             let orbit_start = orbit_position_from_mean_anomaly(&maneuver.transfer_orbit, ma_start);
             let world_start = center_pos + orbit_start - origin_offset;
             let mut prev: Option<Vec3> = Some(Vec3::new(
@@ -2421,8 +2437,11 @@ pub fn draw_fleet_trajectories(
                     continue;
                 }
 
-                let mean_anomaly =
-                    maneuver.transfer_orbit.mean_anomaly_epoch + total_ma_travel * frac;
+                // Use the planet's current mean_anomaly as the
+                // orbit's start, not the orbit's mean_anomaly_epoch
+                // (which was set when the orbit was built).
+                let mean_anomaly = maneuver.transfer_orbit.mean_motion * sim_elapsed
+                    + total_ma_travel * frac;
                 let orbit_pos =
                     orbit_position_from_mean_anomaly(&maneuver.transfer_orbit, mean_anomaly);
                 let world_au = center_pos + orbit_pos - origin_offset;
@@ -3110,6 +3129,15 @@ pub fn update_fleet_transforms(
 
                     let sampled_dest = if center_is_star { dp_absolute } else { dp };
 
+                    // Use `mean_motion * elapsed` as the orbit's
+                    // start mean_anomaly so the trajectory begins
+                    // at the planet's current mean_anomaly.  The
+                    // orbit's `mean_anomaly_epoch` was set at the
+                    // time the orbit was built (which may be many
+                    // sim-minutes ago), so using it directly would
+                    // draw the orbit at the OLD planet position.
+                    let start_mean_anomaly = maneuver.transfer_orbit.mean_motion
+                        * elapsed;
                     let visual_points = if center_is_star {
                         build_visual_sampled_transfer_polyline_moving_center(
                             &maneuver.transfer_orbit,
@@ -3122,7 +3150,7 @@ pub fn update_fleet_transforms(
                             &body_query,
                             &kepler_query,
                             &amp_query,
-                            maneuver.transfer_orbit.mean_anomaly_epoch,
+                            start_mean_anomaly,
                             maneuver.transfer_orbit.mean_motion
                                 * (maneuver.arrival_time - maneuver.departure_time),
                             128,
