@@ -259,13 +259,11 @@ fn solve_cell(
     // positions as the player advances the clock.
     let origin_pos_au = orbit_position_from_mean_anomaly(
         &inputs.origin_orbit,
-        inputs.origin_orbit.mean_anomaly_epoch
-            + inputs.origin_orbit.mean_motion * t_dep_abs,
+        inputs.origin_orbit.mean_anomaly_epoch + inputs.origin_orbit.mean_motion * t_dep_abs,
     );
     let dest_pos_au = orbit_position_from_mean_anomaly(
         &inputs.dest_orbit,
-        inputs.dest_orbit.mean_anomaly_epoch
-            + inputs.dest_orbit.mean_motion * t_arr_abs,
+        inputs.dest_orbit.mean_anomaly_epoch + inputs.dest_orbit.mean_motion * t_arr_abs,
     );
 
     if tof_s > MAX_CURVED_CROSS_STAR_TRANSFER_TIME_S {
@@ -676,8 +674,7 @@ mod tests {
         let cfg = PorkchopConfig::default();
         let inputs = make_inputs(earth_orbit(), mercury_orbit(), "interplanetary");
         let grid = build_porkchop_grid(&cfg, &inputs);
-        let feasible: Vec<&PorkchopCell> =
-            grid.cells.iter().filter(|c| c.feasible).collect();
+        let feasible: Vec<&PorkchopCell> = grid.cells.iter().filter(|c| c.feasible).collect();
         assert!(
             !feasible.is_empty(),
             "Earth→Mercury porkchop must contain feasible cells"

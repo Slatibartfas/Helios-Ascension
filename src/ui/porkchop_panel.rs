@@ -115,8 +115,7 @@ pub fn porkchop_panel(
     // populated as the pointer moves freely *and* makes `clicked()`
     // fire on a normal left-click.
     let desired_size = Vec2::new(ui.available_width().max(320.0), 240.0);
-    let (resp, painter) =
-        ui.allocate_painter(desired_size, Sense::click() | Sense::hover());
+    let (resp, painter) = ui.allocate_painter(desired_size, Sense::click() | Sense::hover());
     let plot_rect = resp.rect;
 
     // Background
@@ -393,28 +392,18 @@ pub fn porkchop_panel(
 /// is trying to inspect (this was the second bug: the tooltip
 /// disappeared when hovering the bottom rows because it anchored
 /// below the cursor and got clipped by the panel edge).
-fn draw_cell_tooltip(
-    painter: &egui::Painter,
-    cursor: Pos2,
-    plot_rect: Rect,
-    cell: &PorkchopCell,
-) {
+fn draw_cell_tooltip(painter: &egui::Painter, cursor: Pos2, plot_rect: Rect, cell: &PorkchopCell) {
     let tooltip = format_cell_tooltip(cell);
     let font = egui::FontId::proportional(11.0);
     let pad = Vec2::new(6.0, 4.0);
     let galley = painter.layout_no_wrap(tooltip.clone(), font.clone(), theme::TEXT);
-    let tooltip_size = Vec2::new(
-        galley.size().x + pad.x * 2.0,
-        galley.size().y + pad.y * 2.0,
-    );
+    let tooltip_size = Vec2::new(galley.size().x + pad.x * 2.0, galley.size().y + pad.y * 2.0);
     // Default anchor: down-and-right of the cursor.  Flip above the
     // cursor when there's more room up there than below, so the
     // tooltip stays visible for cells in the bottom rows.
     let below_room = plot_rect.bottom() - cursor.y;
     let above_room = cursor.y - plot_rect.top();
-    let anchor = if below_room < tooltip_size.y + 12.0
-        && above_room > tooltip_size.y + 12.0
-    {
+    let anchor = if below_room < tooltip_size.y + 12.0 && above_room > tooltip_size.y + 12.0 {
         cursor + Vec2::new(10.0, -tooltip_size.y - 10.0)
     } else {
         cursor + Vec2::new(10.0, 10.0)

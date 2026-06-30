@@ -547,7 +547,11 @@ pub fn should_build_porkchop_for_destination(
     )>,
     dest_entity: Entity,
 ) -> bool {
-    match body_query.get(dest_entity).ok().map(|(_, b, _, _, _)| b.body_type) {
+    match body_query
+        .get(dest_entity)
+        .ok()
+        .map(|(_, b, _, _, _)| b.body_type)
+    {
         Some(BodyType::Moon) | Some(BodyType::Ring) => false,
         // Stars, planets, comets, asteroids all have (or resolve to)
         // heliocentric orbits, so the porkchop math is the right tool.
@@ -1163,19 +1167,16 @@ pub(super) fn render_transfer_planner(
                     if let Some(new_grid) = fleet_ui_state.porkchop_grid.as_ref() {
                         let (cols_b, rows_b) = new_grid.resolution;
                         if cols_b > 0 && rows_b > 0 {
-                            let col_step = (new_grid.t_dep_bounds_s.1
-                                - new_grid.t_dep_bounds_s.0)
+                            let col_step = (new_grid.t_dep_bounds_s.1 - new_grid.t_dep_bounds_s.0)
                                 / cols_b as f64;
-                            let tof_step = (new_grid.tof_bounds_s.1
-                                - new_grid.tof_bounds_s.0)
-                                / rows_b as f64;
+                            let tof_step =
+                                (new_grid.tof_bounds_s.1 - new_grid.tof_bounds_s.0) / rows_b as f64;
                             let mut best: Option<(usize, usize, f64)> = None;
                             for r in 0..rows_b {
                                 for c in 0..cols_b {
-                                    let cell_t_dep = new_grid.t_dep_bounds_s.0
-                                        + (c as f64) * col_step;
-                                    let cell_tof = new_grid.tof_bounds_s.0
-                                        + (r as f64) * tof_step;
+                                    let cell_t_dep =
+                                        new_grid.t_dep_bounds_s.0 + (c as f64) * col_step;
+                                    let cell_tof = new_grid.tof_bounds_s.0 + (r as f64) * tof_step;
                                     let dt = (cell_t_dep - abs_t_dep).abs();
                                     let dtof = (cell_tof - abs_tof).abs();
                                     let err = dt + dtof * 0.01;
@@ -3851,9 +3852,8 @@ pub(super) fn render_transfer_planner(
                     // Departure boxes.  Fall through to the
                     // post-window section.
                 } else {
-
-                // ── Transfer Window (left) + Planned Departure (right) side by side ──
-                ui.horizontal_top(|ui| {
+                    // ── Transfer Window (left) + Planned Departure (right) side by side ──
+                    ui.horizontal_top(|ui| {
                 // Left: Transfer Window box
                 ui.group(|ui| {
                     ui.vertical(|ui| {
@@ -4324,7 +4324,7 @@ pub(super) fn render_transfer_planner(
             // porkchop is shown — the porkchop's own button is the
             // single commit path.
             if fleet_ui_state.porkchop_grid.is_none() {
-            ui.horizontal(|ui| {
+                ui.horizontal(|ui| {
                 let insufficient = !sel_option.transfer_time_s.is_finite()
                     || (sel_option.is_thrust_limited
                         && (is_interstellar || is_inter_star_body_transfer)
@@ -4875,13 +4875,11 @@ pub(super) fn render_transfer_planner(
                     // to a matching (sc, sr) and we're back to the
                     // first frame of the next rotation cycle).
                     if let Some(cell) = grid.cells.get(sr * grid.resolution.0 + sc) {
-                        let (cols_buf, rows_buf) = grid.resolution;
+                        let (cols_buf, _rows_buf) = grid.resolution;
                         if cols_buf > 0 {
-                            let col_step = (grid.t_dep_bounds_s.1
-                                - grid.t_dep_bounds_s.0)
-                                / cols_buf as f64;
-                            let abs_t_dep =
-                                grid.t_dep_bounds_s.0 + (sc as f64) * col_step;
+                            let col_step =
+                                (grid.t_dep_bounds_s.1 - grid.t_dep_bounds_s.0) / cols_buf as f64;
+                            let abs_t_dep = grid.t_dep_bounds_s.0 + (sc as f64) * col_step;
                             let abs_tof = cell.tof_s;
                             // Detect "we just re-anchored" by checking
                             // if the recorded abs t_dep already
@@ -4892,8 +4890,7 @@ pub(super) fn render_transfer_planner(
                             // a slightly different value (the new
                             // buffer's grid resolution might not
                             // align exactly with the old).
-                            let current_matches_recorded = match fleet_ui_state
-                                .selected_abs_t_dep_s
+                            let current_matches_recorded = match fleet_ui_state.selected_abs_t_dep_s
                             {
                                 Some(prev) => (prev - abs_t_dep).abs() < col_step * 0.5,
                                 None => false,
@@ -4914,8 +4911,7 @@ pub(super) fn render_transfer_planner(
                             // cell, so the player can compare fuel
                             // budgets between cells without leaving
                             // the panel.
-                            let fuel_cost =
-                                fleet.total_fuel_cost_for_dv(cell.total_dv_ms);
+                            let fuel_cost = fleet.total_fuel_cost_for_dv(cell.total_dv_ms);
                             let fuel_pct = if fleet_wet_mass > 0.0 {
                                 (fuel_cost / fleet_wet_mass * 100.0) as u32
                             } else {
@@ -5019,10 +5015,11 @@ pub(super) fn render_transfer_planner(
                             // 3D arc look frozen whenever the player
                             // hovered over a red cell, which read as
                             // "trajectory never updates".
-                            (Some(cell), Some(target_entity)) if cell.feasible
-                                && cell.total_dv_ms.is_finite()
-                                && cell.delta_v1_ms.is_finite()
-                                && cell.delta_v2_ms.is_finite() =>
+                            (Some(cell), Some(target_entity))
+                                if cell.feasible
+                                    && cell.total_dv_ms.is_finite()
+                                    && cell.delta_v1_ms.is_finite()
+                                    && cell.delta_v2_ms.is_finite() =>
                             {
                                 let (cell_sma_au, cell_ecc) = cell
                                     .transfer_orbit
@@ -5067,8 +5064,7 @@ pub(super) fn render_transfer_planner(
                                 // trajectory whose t_dep drifts by
                                 // `shift_s` every time the buffer
                                 // rebuilds.
-                                let planned_departure_time_s =
-                                    grid.t_dep_bounds_s.0 + cell.t_dep_s;
+                                let planned_departure_time_s = grid.t_dep_bounds_s.0 + cell.t_dep_s;
                                 // Sync `departure_offset_days` so the
                                 // side-panel "Arrives:" timestamp and
                                 // `waiting_orbit_count` reflect the
@@ -5157,22 +5153,23 @@ pub(super) fn render_transfer_planner(
                                 .as_ref()
                                 .map(|o| (o.semi_major_axis, o.eccentricity))
                                 .unwrap_or((0.0, 0.0));
-                            let synthetic_option = crate::fleets::orbital_mechanics::TransferOption {
-                                label: "Porkchop Cell",
-                                total_delta_v_ms: cell.total_dv_ms,
-                                delta_v1_ms: cell.delta_v1_ms,
-                                delta_v2_ms: cell.delta_v2_ms,
-                                transfer_time_s: cell.tof_s,
-                                sma_au: cell_sma_au,
-                                eccentricity: cell_ecc,
-                                energy_multiplier: 1.0,
-                                burn_time_s: 0.0,
-                                plane_change_dv_ms: 0.0,
-                                is_thrust_limited: false,
-                                // `cell.transfer_orbit` is `Option<KeplerOrbit>`
-                                // (Copy); pass by value instead of cloning.
-                                transfer_orbit_override: cell.transfer_orbit,
-                            };
+                            let synthetic_option =
+                                crate::fleets::orbital_mechanics::TransferOption {
+                                    label: "Porkchop Cell",
+                                    total_delta_v_ms: cell.total_dv_ms,
+                                    delta_v1_ms: cell.delta_v1_ms,
+                                    delta_v2_ms: cell.delta_v2_ms,
+                                    transfer_time_s: cell.tof_s,
+                                    sma_au: cell_sma_au,
+                                    eccentricity: cell_ecc,
+                                    energy_multiplier: 1.0,
+                                    burn_time_s: 0.0,
+                                    plane_change_dv_ms: 0.0,
+                                    is_thrust_limited: false,
+                                    // `cell.transfer_orbit` is `Option<KeplerOrbit>`
+                                    // (Copy); pass by value instead of cloning.
+                                    transfer_orbit_override: cell.transfer_orbit,
+                                };
                             // Porkchop grids are only built for body
                             // targets (planets/moons) — never stars —
                             // so the star-approach override is always
@@ -7972,7 +7969,7 @@ mod tests {
     /// would need to thread the same constant pair through, which
     /// would obscure the sim-time semantics the tests actually
     /// exercise.
-    fn real_floor_satisfied(time_scale: f64) -> (f64, f64) {
+    fn real_floor_satisfied(_time_scale: f64) -> (f64, f64) {
         // Comfortably past the 5-real-second floor so the comparator
         // is robust to the >=/strict-greater-than boundary changes.
         let real_now = super::PORKCHOP_STALENESS_REAL_FLOOR_S * 100.0;
@@ -8275,10 +8272,12 @@ mod tests {
         //       fleet_ui_state.selected_gravity_assist = None;
         //       fleet_ui_state.selected_option = 0;
         //   }
-        let mut ui_state = FleetUiState::default();
-        ui_state.selected_gravity_assist = Some(2);
-        ui_state.selected_option = 5;
-        ui_state.selected_porkchop_cell = Some((8, 4));
+        let mut ui_state = FleetUiState {
+            selected_gravity_assist: Some(2),
+            selected_option: 5,
+            selected_porkchop_cell: Some((8, 4)),
+            ..Default::default()
+        };
 
         if ui_state.selected_gravity_assist.is_some() {
             ui_state.selected_gravity_assist = None;
@@ -8314,12 +8313,11 @@ mod tests {
         // blocked.  We don't run the actual planner function here (it
         // needs a full egui `Ui` context); we just check the skip-guard
         // predicate holds for the three meaningful state combinations.
-        let mut ui_state = FleetUiState::default();
-
-        // Case A: GA selected, no porkchop cell.  Skip-guard is false,
-        // so the GA row IS inserted (control flows into the else-if arm).
-        ui_state.selected_gravity_assist = Some(0);
-        ui_state.selected_porkchop_cell = None;
+        let mut ui_state = FleetUiState {
+            selected_gravity_assist: Some(0),
+            selected_porkchop_cell: None,
+            ..Default::default()
+        };
         let skip_guard_fires =
             ui_state.selected_gravity_assist.is_some() && ui_state.selected_porkchop_cell.is_some();
         assert!(
