@@ -97,6 +97,16 @@ pub fn porkchop_panel(
     // at the right edge are still part of the scroll math (the
     // scroll continues smoothly) but the planner only paints
     // `visible_cols` cells across the panel.
+    //
+    // GRA-169: the buffer spans `[sim_time_s, sim_time_s +
+    // buffer_width]` (anchored at the player's clock at rebuild,
+    // GRA-169 Part A).  The visible window shows the leftmost
+    // `visible_cols` cells, which advance leftward by
+    // `shift_s / col_step_s` cells as the player's clock
+    // advances.  On rotation (Part B) the planner keeps the old
+    // grid in `porkchop_grid` while the deferred build solves a
+    // new buffer (~360 ms), then atomically swaps — no blank
+    // frame and no L/R snap.
     let visible_cols = (cols / 2).saturating_sub(1).max(1);
     let t_dep_min = grid.t_dep_bounds_s.0;
     let t_dep_max = grid.t_dep_bounds_s.1;
@@ -277,13 +287,20 @@ pub fn porkchop_panel(
     let label_size = 10.0;
     let font_id = egui::FontId::proportional(label_size);
     // X-axis: 5 ticks.  The label shows "Now" instead of "+0 d" for
-    // the t_dep = 0 tick so the player can see at a glance that the
-    // leftmost column is "depart immediately" rather than the
-    // optimal-window departure date.
+    // the t_dep = sim_time_s tick so the player can see at a glance
+    // that the leftmost column is "depart immediately" rather than
+    // the optimal-window departure date.
+    //
+    // GRA-169 (Part A): `t_dep_min`/`t_dep_max` are absolute
+    // (anchored at `sim_time_s`), so we report the *relative*
+    // offset (`frac * (t_dep_max - t_dep_min)`) in the tick label.
+    // Without this the labels would all read "+7882 d" (i.e. the
+    // absolute sim epoch in days) instead of the useful "Now / +30 d
+    // / +60 d" series.
     for i in 0..=4 {
         let frac = i as f64 / 4.0;
-        let t_dep_s = t_dep_min + frac * (t_dep_max - t_dep_min);
-        let days = t_dep_s / SECONDS_PER_DAY;
+        let t_dep_rel_s = frac * (t_dep_max - t_dep_min);
+        let days = t_dep_rel_s / SECONDS_PER_DAY;
         let x = grid_rect.left() + (frac as f32) * grid_rect.width();
         let label = if days.abs() < 0.5 {
             "Now".to_owned()

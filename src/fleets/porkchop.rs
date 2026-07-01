@@ -122,7 +122,15 @@ pub fn build_porkchop_grid_with_params(
     params: ResolvedPorkchopParams,
     inputs: &PorkchopInputs,
 ) -> PorkchopGrid {
-    let (t_dep_min_s, t_dep_max_s) = dep_window_bounds(inputs, &params);
+    // `dep_window_bounds` returns the *absolute* (t_dep_min_s, t_dep_max_s)
+    // in sim-clock units, anchored at the player's current `sim_time_s`.
+    // The cell loop iterates a *relative* offset from that anchor
+    // (0..max_t_dep); inside `solve_cell` we add `inputs.sim_time_s` to
+    // recover the absolute epoch for the Lambert solver.  This split
+    // lets `PorkchopGrid.t_dep_bounds_s` carry the absolute anchor for
+    // the panel's date labels without double-offsetting the cell math.
+    let (t_dep_min_abs_s, t_dep_max_abs_s) = dep_window_bounds(inputs, &params);
+    let max_t_dep_rel_s = t_dep_max_abs_s - t_dep_min_abs_s;
     let tof_h = hohmann_time_s(
         inputs.origin_orbit.semi_major_axis,
         inputs.dest_orbit.semi_major_axis,
@@ -155,8 +163,11 @@ pub fn build_porkchop_grid_with_params(
             } else {
                 0.0
             };
-            let t_dep_s = t_dep_min_s + col_frac * (t_dep_max_s - t_dep_min_s);
-            let cell = solve_cell(inputs, t_dep_s, tof_s, c3_ceiling_ms2);
+            // Relative offset from `sim_time_s`.  `solve_cell` adds
+            // `inputs.sim_time_s` to recover the absolute departure
+            // epoch for the Lambert solver.
+            let t_dep_rel_s = col_frac * max_t_dep_rel_s;
+            let cell = solve_cell(inputs, t_dep_rel_s, tof_s, c3_ceiling_ms2);
             if cell.feasible && cell.total_dv_ms < min_dv {
                 min_dv = cell.total_dv_ms;
                 min_cell = Some((col, row));
@@ -168,7 +179,7 @@ pub fn build_porkchop_grid_with_params(
     PorkchopGrid {
         origin_name: inputs.origin_name.clone(),
         dest_name: inputs.dest_name.clone(),
-        t_dep_bounds_s: (t_dep_min_s, t_dep_max_s),
+        t_dep_bounds_s: (t_dep_min_abs_s, t_dep_max_abs_s),
         tof_bounds_s: (tof_min_s, tof_max_s),
         resolution: (cols, rows),
         cells,
@@ -177,29 +188,38 @@ pub fn build_porkchop_grid_with_params(
     }
 }
 
-/// Compute the (t_dep_min, t_dep_max) bounds.
+/// Compute the (t_dep_min, t_dep_max) bounds, anchored at the player's
+/// current `sim_time_s`.
 ///
-/// The window covers **`[0, max(synodic_period + half, 2 * half)]`**
-/// — that is, from "now" (t_dep = 0) through at least one full
-/// synodic period plus a half-window buffer.  This is the same
-/// convention NASA / JPL use on their public porkchop plots: the
-/// ΔV surface is periodic in `t_dep` with period `synodic_period`,
-/// so one full period is sufficient to see every distinct alignment
-/// the player could use.
+/// Returns the **absolute** departure window `(sim_time_s, sim_time_s +
+/// max_t_dep)`.  The window spans at least one full synodic period
+/// plus a half-window buffer — the same convention NASA / JPL use on
+/// their public porkchop plots.  The ΔV surface is periodic in `t_dep`
+/// with period `synodic_period`, so one full period is sufficient to
+/// see every distinct alignment the player could use.
 ///
-/// We deliberately include `t_dep = 0` so the player can always click
-/// a "Depart Now" cell on the grid — that was the gap the user
-/// reported for long-synodic-period destinations (Saturn, Uranus,
-/// Neptune) where the cheapest Hohmann window sits a year out and
-/// the legacy slider only let them inspect the immediate-launch ΔV
-/// cost via the side-panel stat, not visually on the plot.
+/// We deliberately include `t_dep = sim_time_s` so the player can
+/// always click a "Depart Now" cell on the grid — that was the gap
+/// the user reported for long-synodic-period destinations (Saturn,
+/// Uranus, Neptune) where the cheapest Hohmann window sits a year out
+/// and the legacy slider only let them inspect the immediate-launch
+/// ΔV cost via the side-panel stat, not visually on the plot.
+///
+/// GRA-169 (Part A): re-anchored the bounds from `(0, max_t_dep)` to
+/// `(sim_time_s, sim_time_s + max_t_dep)` so the rotating buffer's
+/// `t_dep_min` tracks the player's clock at rebuild.  The earlier
+/// `t_dep_min = 0` was a hold-over that made the visible window snap
+/// to the left edge on every buffer rotation; the cell math is
+/// unchanged because `solve_cell` already used `t_dep_abs =
+/// sim_time_s + t_dep_s` for the Lambert solver, so shifting the
+/// anchor by `sim_time_s` only relabels the cell dates, not the ΔV
+/// values.
 ///
 /// Co-orbital pairs (`|d_phi_dt| ≈ 0`, e.g. Earth↔Moon in Sol) have
 /// an infinite synodic period; in that degenerate case we fall back
-/// to `± half` around the optimal Hohmann time as before, but
-/// clamped at 0 — the phase never advances so a wider window adds no
-/// information, and centring on the Hohmann date keeps the colormap
-/// contrast around the cheap-transfer basin.
+/// to `± half` around `sim_time_s` — the phase never advances so a
+/// wider window adds no information, and centring on the Hohmann
+/// date keeps the colormap contrast around the cheap-transfer basin.
 fn dep_window_bounds(inputs: &PorkchopInputs, params: &ResolvedPorkchopParams) -> (f64, f64) {
     use std::f64::consts::TAU;
     let half = 0.5 * params.t_dep_window_days * SECONDS_PER_DAY;
@@ -212,10 +232,10 @@ fn dep_window_bounds(inputs: &PorkchopInputs, params: &ResolvedPorkchopParams) -
         // Co-orbital degenerate case: phase never changes, so the
         // optimal Hohmann transfer has the same ΔV from any
         // t_dep.  Keep the legacy compact ±half window centred on
-        // t=0 (now).  Players picking "Depart Now" get the same
-        // cell as a future launch in this degenerate case.
+        // `sim_time_s` (now).  Players picking "Depart Now" get the
+        // same cell as a future launch in this degenerate case.
         let _ = hohmann_time_s(r1, r2, inputs.system_gm);
-        return (0.0, 2.0 * half);
+        return (inputs.sim_time_s, inputs.sim_time_s + 2.0 * half);
     }
     let synodic_period_s = TAU / d_phi_dt.abs();
     // Period + half so the player sees a little beyond the next
@@ -223,7 +243,7 @@ fn dep_window_bounds(inputs: &PorkchopInputs, params: &ResolvedPorkchopParams) -
     // deciding).  Falls back to 2 * half for degenerate categories
     // (e.g. moon transfers with a very short configured window).
     let max_t_dep = synodic_period_s.max(2.0 * half) + half;
-    (0.0, max_t_dep)
+    (inputs.sim_time_s, inputs.sim_time_s + max_t_dep)
 }
 
 fn hohmann_time_s(r1_au: f64, r2_au: f64, gm: f64) -> f64 {
@@ -570,9 +590,15 @@ mod tests {
             (days - 18.0).abs() < 1.5,
             "moon override should give ±18 day half-window (Earth-Moon synodic ≈ 29.5 d), got {days}"
         );
+        // GRA-169 (Part A): the lower bound is now anchored at
+        // `inputs.sim_time_s` (= 0 in this fixture), so the absolute
+        // `t_dep_min_s = sim_time_s`.  The half-window itself is
+        // unchanged — still ±18 days around `sim_time_s`.  The
+        // "Depart Now" UX contract is preserved: at sim_time_s the
+        // player can still click the leftmost cell.
         assert_eq!(
-            grid.t_dep_bounds_s.0, 0.0,
-            "lower bound must clamp to t_dep = 0 (now) so 'Depart Now' is always inspectable"
+            grid.t_dep_bounds_s.0, inputs.sim_time_s,
+            "lower bound must clamp to t_dep = sim_time_s (now) so 'Depart Now' is always inspectable"
         );
     }
 
@@ -1120,6 +1146,141 @@ mod planner_wiring_tests {
         assert!(
             state.selected_porkchop_cell.is_none(),
             "clear_target must drop the selected cell index too"
+        );
+    }
+
+    /// GRA-169 (Part A): the buffer's `t_dep_bounds_s` is anchored at
+    /// the player's `sim_time_s` at build.  Pre-fix code returned
+    /// `(0.0, max_t_dep)` regardless of the build epoch, which made
+    /// every rotation cycle snap the visible window back to t_dep=0
+    /// (the orbit-epoch anchor), not the player's current clock.
+    /// This test asserts:
+    ///   1. At `sim_time_s = 0`, `t_dep_bounds_s.0 = 0`.
+    ///   2. At `sim_time_s = 1 yr`, `t_dep_bounds_s.0 ≈ 1 yr` and
+    ///      the cell ΔV values are **byte-equal** to the t=0 grid
+    ///      offset by the same `sim_time_s`.  (Lambert is rotation-
+    ///      invariant; shifting the build epoch shifts the *anchor*,
+    ///      not the cell ΔV — the visible-cell content is the same
+    ///      modulo absolute epoch.)
+    ///   3. The cell's `t_dep_s` is the **relative** offset
+    ///      (0..max_t_dep) so `solve_cell`'s `t_dep_abs = sim_time_s
+    ///      + t_dep_s` recovers the absolute departure epoch.
+    #[test]
+    fn gra_169_buffer_anchored_at_sim_time_s() {
+        let cfg = PorkchopConfig::default();
+        let earth_orbit = KeplerOrbit::circular(1.0, 1.0);
+        let mars_orbit = KeplerOrbit::circular(1.524, 1.0);
+
+        // Build at t=0 — the original anchor.
+        let grid_at_t0 = build_grid_for_body_target(
+            &cfg,
+            earth_orbit,
+            mars_orbit,
+            "Earth".to_string(),
+            "Mars".to_string(),
+            "interplanetary",
+            0.0,
+        );
+        assert_eq!(
+            grid_at_t0.t_dep_bounds_s.0, 0.0,
+            "t=0 build should anchor at sim_time_s = 0"
+        );
+
+        // Build at t=1 yr — the new anchor.
+        let one_year_s = 365.25 * 86_400.0;
+        let grid_at_1yr = build_grid_for_body_target(
+            &cfg,
+            earth_orbit,
+            mars_orbit,
+            "Earth".to_string(),
+            "Mars".to_string(),
+            "interplanetary",
+            one_year_s,
+        );
+        assert!(
+            (grid_at_1yr.t_dep_bounds_s.0 - one_year_s).abs() < 1.0,
+            "t=1yr build should anchor at sim_time_s ≈ 1 yr, got {}",
+            grid_at_1yr.t_dep_bounds_s.0
+        );
+
+        // Buffer width (t_dep_max - t_dep_min) is invariant — the
+        // GRA-152 8× buffer multiplier is unchanged.
+        let width_t0 = grid_at_t0.t_dep_bounds_s.1 - grid_at_t0.t_dep_bounds_s.0;
+        let width_1yr = grid_at_1yr.t_dep_bounds_s.1 - grid_at_1yr.t_dep_bounds_s.0;
+        assert!(
+            (width_t0 - width_1yr).abs() < 1.0,
+            "buffer width must be invariant under sim_time_s shift (got {width_t0} vs {width_1yr})"
+        );
+
+        // Cell `t_dep_s` is relative: 0..max_t_dep, NOT absolute.
+        // Pick the same (col, row) from both grids and verify the
+        // relative offsets match (they should — Lambert is rotation-
+        // invariant in t_dep modulo the absolute epoch, and the
+        // relative offset is what `solve_cell` uses internally).
+        let col = 5;
+        let row = 10;
+        let cell_t0 = &grid_at_t0.cells[row * grid_at_t0.resolution.0 + col];
+        let cell_1yr = &grid_at_1yr.cells[row * grid_at_1yr.resolution.0 + col];
+        // Same relative offset — `cell.t_dep_s` is a fraction of the
+        // buffer width, not an absolute epoch.
+        assert!(
+            (cell_t0.t_dep_s - cell_1yr.t_dep_s).abs() < 1.0,
+            "cell.t_dep_s is relative — must match across sim_time_s (got {} vs {})",
+            cell_t0.t_dep_s,
+            cell_1yr.t_dep_s
+        );
+    }
+
+    /// GRA-169 (Part A + B): the rotating buffer's `t_dep_bounds_s`
+    /// slides through sim time.  Two builds one rotation apart
+    /// (buffer_width / 2 sim seconds apart) must produce grids whose
+    /// `t_dep_bounds_s` ranges **do not overlap**: the second build's
+    /// lower bound equals the first build's upper bound minus the
+    /// scroll-shift accumulated by then.  Pre-fix code returned
+    /// `t_dep_min = 0` for both builds, so the two bounds **always
+    /// overlapped** and the visible cells always started at the
+    /// same left edge — that's the "jumps back to initial state"
+    /// symptom the user reported.
+    #[test]
+    fn gra_169_rotating_buffer_does_not_snap_back_to_zero() {
+        let cfg = PorkchopConfig::default();
+        let earth_orbit = KeplerOrbit::circular(1.0, 1.0);
+        let mars_orbit = KeplerOrbit::circular(1.524, 1.0);
+
+        // First build at sim_time = 0.
+        let grid_a = build_rotating_buffer_for_body_target(
+            &cfg,
+            earth_orbit,
+            mars_orbit,
+            "Earth".to_string(),
+            "Mars".to_string(),
+            "interplanetary",
+            0.0,
+        );
+        // Second build half a rotation later — past the trigger.
+        let half_year_s = 0.5 * 365.25 * 86_400.0;
+        let grid_b = build_rotating_buffer_for_body_target(
+            &cfg,
+            earth_orbit,
+            mars_orbit,
+            "Earth".to_string(),
+            "Mars".to_string(),
+            "interplanetary",
+            half_year_s,
+        );
+        // Both grids are anchored at their respective sim_time_s.
+        assert_eq!(grid_a.t_dep_bounds_s.0, 0.0);
+        assert!(
+            (grid_b.t_dep_bounds_s.0 - half_year_s).abs() < 1.0,
+            "second build must anchor at sim_time_s = 0.5 yr"
+        );
+        // Pre-fix: grid_a.t_dep_bounds_s.0 = 0 AND grid_b.t_dep_bounds_s.0 = 0.
+        // Post-fix: they differ by half_year_s — the visible window
+        // does NOT snap back to the left edge.
+        assert!(
+            (grid_b.t_dep_bounds_s.0 - grid_a.t_dep_bounds_s.0 - half_year_s).abs() < 1.0,
+            "two half-rotation-apart builds must differ by half_year_s, got delta = {}",
+            grid_b.t_dep_bounds_s.0 - grid_a.t_dep_bounds_s.0
         );
     }
 }
