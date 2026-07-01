@@ -23,7 +23,9 @@ use helios_ascension::fleets::orbital_mechanics::TransferOption;
 use helios_ascension::fleets::TransferReferenceFrame;
 use helios_ascension::plugins::solar_system::{CelestialBody, LogicalParent};
 use helios_ascension::plugins::solar_system_data::BodyType;
-use helios_ascension::ui::transfer_planner::{build_planned_transfer, should_build_porkchop_for_destination};
+use helios_ascension::ui::transfer_planner::{
+    build_planned_transfer, should_build_porkchop_for_destination,
+};
 
 // ── Test helpers ──────────────────────────────────────────────────────────────
 

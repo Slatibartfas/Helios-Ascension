@@ -2232,8 +2232,7 @@ pub fn draw_fleet_trajectories(
                 // the planet's current position, especially at 1
                 // yr/s where the planet completes a full orbit per
                 // real second.
-                let start_mean_anomaly = maneuver.transfer_orbit.mean_motion
-                    * sim_elapsed;
+                let start_mean_anomaly = maneuver.transfer_orbit.mean_motion * sim_elapsed;
                 let visual_points = if center_is_star {
                     build_visual_sampled_transfer_polyline_moving_center(
                         &maneuver.transfer_orbit,
@@ -2440,8 +2439,8 @@ pub fn draw_fleet_trajectories(
                 // Use the planet's current mean_anomaly as the
                 // orbit's start, not the orbit's mean_anomaly_epoch
                 // (which was set when the orbit was built).
-                let mean_anomaly = maneuver.transfer_orbit.mean_motion * sim_elapsed
-                    + total_ma_travel * frac;
+                let mean_anomaly =
+                    maneuver.transfer_orbit.mean_motion * sim_elapsed + total_ma_travel * frac;
                 let orbit_pos =
                     orbit_position_from_mean_anomaly(&maneuver.transfer_orbit, mean_anomaly);
                 let world_au = center_pos + orbit_pos - origin_offset;
@@ -3136,8 +3135,7 @@ pub fn update_fleet_transforms(
                     // time the orbit was built (which may be many
                     // sim-minutes ago), so using it directly would
                     // draw the orbit at the OLD planet position.
-                    let start_mean_anomaly = maneuver.transfer_orbit.mean_motion
-                        * elapsed;
+                    let start_mean_anomaly = maneuver.transfer_orbit.mean_motion * elapsed;
                     let visual_points = if center_is_star {
                         build_visual_sampled_transfer_polyline_moving_center(
                             &maneuver.transfer_orbit,
@@ -4034,8 +4032,11 @@ pub fn draw_fleet_transfer_preview(
 /// - A bright yellow cross marker is drawn at the predicted flyby intercept.
 /// - A ghost-body circle is drawn at the predicted destination position.
 ///
-/// The regular amber preview arc (`draw_fleet_transfer_preview`) continues to
-/// be drawn; this system adds the two-colour slingshot overlay on top.
+/// The regular amber preview arc (`draw_fleet_transfer_preview`) is **not**
+/// drawn when a gravity assist is selected — that function returns early
+/// at the top of its body (see the `selected_gravity_assist.is_some()`
+/// guard near line 3388) so it doesn't double-draw on top of this
+/// overlay.  Only the two-colour slingshot overlay appears.
 pub fn draw_gravity_assist_preview(
     mut gizmos: Gizmos,
     fleet_query: Query<(Entity, Option<&FleetOrbit>, Option<&ActiveManeuver>), With<Fleet>>,

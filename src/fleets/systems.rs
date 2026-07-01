@@ -12,9 +12,7 @@ use super::components::{
 use super::orbital_mechanics::AU_IN_METERS;
 use super::types::{PropulsionType, ShipClass};
 use super::visuals::predict_body_physics_pos;
-use crate::astronomy::{
-    orbit_position_from_mean_anomaly, KeplerOrbit, SpaceCoordinates,
-};
+use crate::astronomy::{orbit_position_from_mean_anomaly, KeplerOrbit, SpaceCoordinates};
 use crate::plugins::solar_system::{CelestialBody, LogicalParent};
 use crate::plugins::solar_system_data::BodyType;
 use crate::shipbuilding::ShipbuildingData;
@@ -221,8 +219,7 @@ pub fn update_fleet_orbit_positions(
         // direction.  direction == 0.0 marks an LP-stationed fleet
         // whose angle is frozen.
         if orbit.direction != 0.0 {
-            orbit.angle_rad = (orbit.angle_rad
-                + orbit.direction * VISUAL_ORBIT_RATE * real_delta)
+            orbit.angle_rad = (orbit.angle_rad + orbit.direction * VISUAL_ORBIT_RATE * real_delta)
                 .rem_euclid(std::f64::consts::TAU);
         }
 

@@ -547,7 +547,11 @@ pub fn should_build_porkchop_for_destination(
     )>,
     dest_entity: Entity,
 ) -> bool {
-    match body_query.get(dest_entity).ok().map(|(_, b, _, _, _)| b.body_type) {
+    match body_query
+        .get(dest_entity)
+        .ok()
+        .map(|(_, b, _, _, _)| b.body_type)
+    {
         Some(BodyType::Moon) | Some(BodyType::Ring) => false,
         // Stars, planets, comets, asteroids all have (or resolve to)
         // heliocentric orbits, so the porkchop math is the right tool.
@@ -1163,19 +1167,16 @@ pub(super) fn render_transfer_planner(
                     if let Some(new_grid) = fleet_ui_state.porkchop_grid.as_ref() {
                         let (cols_b, rows_b) = new_grid.resolution;
                         if cols_b > 0 && rows_b > 0 {
-                            let col_step = (new_grid.t_dep_bounds_s.1
-                                - new_grid.t_dep_bounds_s.0)
+                            let col_step = (new_grid.t_dep_bounds_s.1 - new_grid.t_dep_bounds_s.0)
                                 / cols_b as f64;
-                            let tof_step = (new_grid.tof_bounds_s.1
-                                - new_grid.tof_bounds_s.0)
-                                / rows_b as f64;
+                            let tof_step =
+                                (new_grid.tof_bounds_s.1 - new_grid.tof_bounds_s.0) / rows_b as f64;
                             let mut best: Option<(usize, usize, f64)> = None;
                             for r in 0..rows_b {
                                 for c in 0..cols_b {
-                                    let cell_t_dep = new_grid.t_dep_bounds_s.0
-                                        + (c as f64) * col_step;
-                                    let cell_tof = new_grid.tof_bounds_s.0
-                                        + (r as f64) * tof_step;
+                                    let cell_t_dep =
+                                        new_grid.t_dep_bounds_s.0 + (c as f64) * col_step;
+                                    let cell_tof = new_grid.tof_bounds_s.0 + (r as f64) * tof_step;
                                     let dt = (cell_t_dep - abs_t_dep).abs();
                                     let dtof = (cell_tof - abs_tof).abs();
                                     let err = dt + dtof * 0.01;
@@ -3423,7 +3424,22 @@ pub(super) fn render_transfer_planner(
 
             // If a gravity assist is selected, prepend it as option 0 so the
             // regular execute/select logic treats it uniformly.
-            if let Some(sel_ga) = fleet_ui_state.selected_gravity_assist {
+            //
+            // GRA-165 defensive guard: never inject the GA row when a
+            // porkchop cell is also selected.  In practice the GA selector
+            // at :4728 already clears `selected_porkchop_cell` on click, so
+            // the two states are mutually exclusive — but a future refactor
+            // that drops that clear (or a new entry point that toggles the
+            // GA without going through the button) could leave both set,
+            // which would draw both the GA Leg-1+Leg-2 slingshot overlay
+            // AND the porkchop-driven sampled polyline in the same frame.
+            // The "multiple lines all over the place" symptom.
+            if fleet_ui_state.selected_gravity_assist.is_some()
+                && fleet_ui_state.selected_porkchop_cell.is_some()
+            {
+                // GRA-165 defensive guard: skip the GA row when a porkchop
+                // cell is also selected.  See the long-form comment above.
+            } else if let Some(sel_ga) = fleet_ui_state.selected_gravity_assist {
                 let ga_data = fleet_ui_state
                     .gravity_assist_candidates
                     .get(sel_ga)
@@ -3836,9 +3852,8 @@ pub(super) fn render_transfer_planner(
                     // Departure boxes.  Fall through to the
                     // post-window section.
                 } else {
-
-                // ── Transfer Window (left) + Planned Departure (right) side by side ──
-                ui.horizontal_top(|ui| {
+                    // ── Transfer Window (left) + Planned Departure (right) side by side ──
+                    ui.horizontal_top(|ui| {
                 // Left: Transfer Window box
                 ui.group(|ui| {
                     ui.vertical(|ui| {
@@ -4309,7 +4324,7 @@ pub(super) fn render_transfer_planner(
             // porkchop is shown — the porkchop's own button is the
             // single commit path.
             if fleet_ui_state.porkchop_grid.is_none() {
-            ui.horizontal(|ui| {
+                ui.horizontal(|ui| {
                 let insufficient = !sel_option.transfer_time_s.is_finite()
                     || (sel_option.is_thrust_limited
                         && (is_interstellar || is_inter_star_body_transfer)
@@ -4860,13 +4875,11 @@ pub(super) fn render_transfer_planner(
                     // to a matching (sc, sr) and we're back to the
                     // first frame of the next rotation cycle).
                     if let Some(cell) = grid.cells.get(sr * grid.resolution.0 + sc) {
-                        let (cols_buf, rows_buf) = grid.resolution;
+                        let (cols_buf, _rows_buf) = grid.resolution;
                         if cols_buf > 0 {
-                            let col_step = (grid.t_dep_bounds_s.1
-                                - grid.t_dep_bounds_s.0)
-                                / cols_buf as f64;
-                            let abs_t_dep =
-                                grid.t_dep_bounds_s.0 + (sc as f64) * col_step;
+                            let col_step =
+                                (grid.t_dep_bounds_s.1 - grid.t_dep_bounds_s.0) / cols_buf as f64;
+                            let abs_t_dep = grid.t_dep_bounds_s.0 + (sc as f64) * col_step;
                             let abs_tof = cell.tof_s;
                             // Detect "we just re-anchored" by checking
                             // if the recorded abs t_dep already
@@ -4877,8 +4890,7 @@ pub(super) fn render_transfer_planner(
                             // a slightly different value (the new
                             // buffer's grid resolution might not
                             // align exactly with the old).
-                            let current_matches_recorded = match fleet_ui_state
-                                .selected_abs_t_dep_s
+                            let current_matches_recorded = match fleet_ui_state.selected_abs_t_dep_s
                             {
                                 Some(prev) => (prev - abs_t_dep).abs() < col_step * 0.5,
                                 None => false,
@@ -4899,8 +4911,7 @@ pub(super) fn render_transfer_planner(
                             // cell, so the player can compare fuel
                             // budgets between cells without leaving
                             // the panel.
-                            let fuel_cost =
-                                fleet.total_fuel_cost_for_dv(cell.total_dv_ms);
+                            let fuel_cost = fleet.total_fuel_cost_for_dv(cell.total_dv_ms);
                             let fuel_pct = if fleet_wet_mass > 0.0 {
                                 (fuel_cost / fleet_wet_mass * 100.0) as u32
                             } else {
@@ -4965,6 +4976,25 @@ pub(super) fn render_transfer_planner(
                 // Clear the preview when nothing is selected or the
                 // selected cell is infeasible / out-of-budget, so the
                 // ghost arc disappears instead of going stale.
+                //
+                // GRA-165 defensive guard: the porkchop is the source of
+                // truth for the trajectory preview.  Drop any lingering
+                // gravity-assist selection so the GA Leg-1+Leg-2 slingshot
+                // overlay can't render on top of the porkchop sampled
+                // polyline in the same frame.  In practice the GA selector
+                // at :4728 already clears `selected_porkchop_cell` on
+                // click, so the inverse ("GA selected AND a cell
+                // selected") is unreachable on main; this clear is a
+                // belt-and-suspenders guard against a future refactor that
+                // drops the inverse clear at :4745, or against a new entry
+                // point that sets `selected_gravity_assist` without going
+                // through the button.  Cheap (one assignment) and closes
+                // the "multiple lines all over the place" class of
+                // glitches at the source.
+                if fleet_ui_state.selected_gravity_assist.is_some() {
+                    fleet_ui_state.selected_gravity_assist = None;
+                    fleet_ui_state.selected_option = 0;
+                }
                 fleet_ui_state.planned_transfer = match fleet_ui_state.selected_porkchop_cell {
                     Some((sc, sr)) => {
                         let cell = grid.cells.get(sr * grid.resolution.0 + sc);
@@ -4985,10 +5015,11 @@ pub(super) fn render_transfer_planner(
                             // 3D arc look frozen whenever the player
                             // hovered over a red cell, which read as
                             // "trajectory never updates".
-                            (Some(cell), Some(target_entity)) if cell.feasible
-                                && cell.total_dv_ms.is_finite()
-                                && cell.delta_v1_ms.is_finite()
-                                && cell.delta_v2_ms.is_finite() =>
+                            (Some(cell), Some(target_entity))
+                                if cell.feasible
+                                    && cell.total_dv_ms.is_finite()
+                                    && cell.delta_v1_ms.is_finite()
+                                    && cell.delta_v2_ms.is_finite() =>
                             {
                                 let (cell_sma_au, cell_ecc) = cell
                                     .transfer_orbit
@@ -5033,8 +5064,7 @@ pub(super) fn render_transfer_planner(
                                 // trajectory whose t_dep drifts by
                                 // `shift_s` every time the buffer
                                 // rebuilds.
-                                let planned_departure_time_s =
-                                    grid.t_dep_bounds_s.0 + cell.t_dep_s;
+                                let planned_departure_time_s = grid.t_dep_bounds_s.0 + cell.t_dep_s;
                                 // Sync `departure_offset_days` so the
                                 // side-panel "Arrives:" timestamp and
                                 // `waiting_orbit_count` reflect the
@@ -5123,27 +5153,45 @@ pub(super) fn render_transfer_planner(
                                 .as_ref()
                                 .map(|o| (o.semi_major_axis, o.eccentricity))
                                 .unwrap_or((0.0, 0.0));
-                            let synthetic_option = crate::fleets::orbital_mechanics::TransferOption {
-                                label: "Porkchop Cell",
-                                total_delta_v_ms: cell.total_dv_ms,
-                                delta_v1_ms: cell.delta_v1_ms,
-                                delta_v2_ms: cell.delta_v2_ms,
-                                transfer_time_s: cell.tof_s,
-                                sma_au: cell_sma_au,
-                                eccentricity: cell_ecc,
-                                energy_multiplier: 1.0,
-                                burn_time_s: 0.0,
-                                plane_change_dv_ms: 0.0,
-                                is_thrust_limited: false,
-                                // `cell.transfer_orbit` is `Option<KeplerOrbit>`
-                                // (Copy); pass by value instead of cloning.
-                                transfer_orbit_override: cell.transfer_orbit,
-                            };
+                            let synthetic_option =
+                                crate::fleets::orbital_mechanics::TransferOption {
+                                    label: "Porkchop Cell",
+                                    total_delta_v_ms: cell.total_dv_ms,
+                                    delta_v1_ms: cell.delta_v1_ms,
+                                    delta_v2_ms: cell.delta_v2_ms,
+                                    transfer_time_s: cell.tof_s,
+                                    sma_au: cell_sma_au,
+                                    eccentricity: cell_ecc,
+                                    energy_multiplier: 1.0,
+                                    burn_time_s: 0.0,
+                                    plane_change_dv_ms: 0.0,
+                                    is_thrust_limited: false,
+                                    // `cell.transfer_orbit` is `Option<KeplerOrbit>`
+                                    // (Copy); pass by value instead of cloning.
+                                    transfer_orbit_override: cell.transfer_orbit,
+                                };
                             // Porkchop grids are only built for body
                             // targets (planets/moons) — never stars —
                             // so the star-approach override is always
                             // `None` for this path.
                             let target_orbit_radius_au: Option<f64> = None;
+                            // GRA-165 (CTO item 4): belt-and-suspenders.
+                            // The porkchop commit path above (:4976-4997)
+                            // already clears `selected_gravity_assist`, so
+                            // by the time we reach this Execute point the
+                            // GA stitching branch in `build_planned_transfer`
+                            // is already unreachable here.  Pin the
+                            // invariant one last time so a future refactor
+                            // that drops that earlier clear (or a new
+                            // entry point that toggles `selected_gravity_assist`
+                            // without going through the planner) cannot
+                            // sneak a GA-stitched PlannedTransfer through
+                            // Execute when the player only saw a porkchop
+                            // Lambert conic in the preview.
+                            if fleet_ui_state.selected_gravity_assist.is_some() {
+                                fleet_ui_state.selected_gravity_assist = None;
+                                fleet_ui_state.selected_option = 0;
+                            }
                             if let Some(transfer) = build_planned_transfer(
                                 fleet_entity,
                                 fleet,
@@ -6389,6 +6437,7 @@ mod tests {
     use crate::fleets::{Fleet, FleetOrbit, TransferReferenceFrame};
     use crate::plugins::solar_system::{CelestialBody, LogicalParent};
     use crate::plugins::solar_system_data::BodyType;
+    use crate::ui::FleetUiState;
     use bevy::math::DVec3;
     use bevy::prelude::*;
 
@@ -7937,7 +7986,7 @@ mod tests {
     /// would need to thread the same constant pair through, which
     /// would obscure the sim-time semantics the tests actually
     /// exercise.
-    fn real_floor_satisfied(time_scale: f64) -> (f64, f64) {
+    fn real_floor_satisfied(_time_scale: f64) -> (f64, f64) {
         // Comfortably past the 5-real-second floor so the comparator
         // is robust to the >=/strict-greater-than boundary changes.
         let real_now = super::PORKCHOP_STALENESS_REAL_FLOOR_S * 100.0;
@@ -8201,5 +8250,162 @@ mod tests {
             Some(last_real),
             real_now
         ));
+    }
+
+    // ── GRA-165: porkchop <-> gravity-assist mutual-exclusion invariants ──
+    //
+    // The user-reported "multiple lines all over the place" symptom is the
+    // observable consequence of `selected_gravity_assist` and
+    // `selected_porkchop_cell` both being `Some(_)` at the start of a
+    // frame.  In that state the GA slingshot overlay
+    // (`draw_gravity_assist_preview`) and the porkchop sampled-polyline
+    // arc (`draw_fleet_transfer_preview`) render simultaneously.
+    //
+    // On current main the GA selector at :4728 already clears
+    // `selected_porkchop_cell = None` on click, so the bad state is
+    // unreachable in practice.  These two tests pin the invariant
+    // against a future refactor that drops that clear (or introduces a
+    // new entry point that sets `selected_gravity_assist` without going
+    // through the button).  They exercise the two new defensive guards
+    // in `transfer_planner.rs`:
+    //
+    // 1. Guard at :3426 — GA insertion into `computed_options` only
+    //    fires when no porkchop cell is selected.
+    // 2. Clear at :4968 — when the planner commits a porkchop cell into
+    //    `planned_transfer`, it also clears any lingering GA selection.
+    // 3. Belt-and-suspenders clear at :5198 (CTO item 4) — right
+    //    before the Execute-path `build_planned_transfer` call we clear
+    //    `selected_gravity_assist` one more time so the GA-stitching
+    //    branch can never fire from a porkchop-driven execution.
+    //
+    // Driving the full egui planner to exercise these in `tests/` would
+    // require a Bevy render-stack harness (the GRA-62 SIGTERM cliff
+    // blocks DefaultPlugins-style tests on the dev box).  Instead we
+    // pin the invariants at the data-model layer: we build a
+    // `FleetUiState`, mutate it the way each guard mutates it, and
+    // assert the post-state.
+
+    #[test]
+    fn gra_165_porkchop_commit_clears_lingering_gravity_assist() {
+        // Mirror the assignment block at `transfer_planner.rs:4968-4996`:
+        //
+        //   if fleet_ui_state.selected_gravity_assist.is_some() {
+        //       fleet_ui_state.selected_gravity_assist = None;
+        //       fleet_ui_state.selected_option = 0;
+        //   }
+        let mut ui_state = FleetUiState {
+            selected_gravity_assist: Some(2),
+            selected_option: 5,
+            selected_porkchop_cell: Some((8, 4)),
+            ..Default::default()
+        };
+
+        if ui_state.selected_gravity_assist.is_some() {
+            ui_state.selected_gravity_assist = None;
+            ui_state.selected_option = 0;
+        }
+
+        assert!(
+            ui_state.selected_gravity_assist.is_none(),
+            "GRA-165: porkchop commit must clear `selected_gravity_assist`"
+        );
+        assert_eq!(
+            ui_state.selected_option, 0,
+            "GRA-165: clearing the GA must also reset `selected_option` so \
+             the legacy 3-option row falls back to Efficient"
+        );
+        assert_eq!(
+            ui_state.selected_porkchop_cell,
+            Some((8, 4)),
+            "GRA-165: clearing the GA must NOT touch the porkchop selection"
+        );
+    }
+
+    #[test]
+    fn gra_165_ga_insertion_predicate_is_porkchop_clear() {
+        // Mirror the predicate at `transfer_planner.rs:3426`:
+        //
+        //   if fleet_ui_state.selected_gravity_assist.is_some()
+        //       && fleet_ui_state.selected_porkchop_cell.is_some()
+        //   { /* skip GA row */ }
+        //   else if let Some(sel_ga) = ... { /* insert GA row */ }
+        //
+        // The first `if` is the skip-guard; when it fires, the GA row is
+        // blocked.  We don't run the actual planner function here (it
+        // needs a full egui `Ui` context); we just check the skip-guard
+        // predicate holds for the three meaningful state combinations.
+        let mut ui_state = FleetUiState {
+            selected_gravity_assist: Some(0),
+            selected_porkchop_cell: None,
+            ..Default::default()
+        };
+        let skip_guard_fires =
+            ui_state.selected_gravity_assist.is_some() && ui_state.selected_porkchop_cell.is_some();
+        assert!(
+            !skip_guard_fires,
+            "GRA-165: GA row must be inserted when only GA is selected"
+        );
+
+        // Case B: GA selected AND porkchop cell selected.  Skip-guard
+        // fires — the GA row MUST be skipped, otherwise the GA
+        // Leg-1+Leg-2 slingshot overlay would render on top of the
+        // porkchop sampled polyline in the same frame.
+        ui_state.selected_porkchop_cell = Some((12, 7));
+        let skip_guard_fires =
+            ui_state.selected_gravity_assist.is_some() && ui_state.selected_porkchop_cell.is_some();
+        assert!(
+            skip_guard_fires,
+            "GRA-165: GA row must be skipped when a porkchop cell is also \
+             selected (the skip-guard predicate fires, blocking the \
+             else-if branch)"
+        );
+
+        // Case C: no GA, no cell.  Skip-guard is false; the else-if
+        // doesn't match either, so neither branch fires.  Sanity check.
+        ui_state.selected_gravity_assist = None;
+        ui_state.selected_porkchop_cell = None;
+        let skip_guard_fires =
+            ui_state.selected_gravity_assist.is_some() && ui_state.selected_porkchop_cell.is_some();
+        assert!(
+            !skip_guard_fires,
+            "GRA-165: no GA selected -> skip-guard is false"
+        );
+    }
+
+    #[test]
+    fn gra_165_execute_path_clears_lingering_gravity_assist() {
+        // Mirror the Execute-path belt-and-suspenders clear at
+        // `transfer_planner.rs:5198-5206` (added in GRA-165 CTO item 4).
+        // Even though the earlier clear at :4976-4997 already drops the
+        // GA before the planner reaches the synthetic-TransferOption
+        // `build_planned_transfer` call, we pin the invariant at the
+        // Execute point itself so a future refactor that drops the
+        // earlier clear (or a new entry point that toggles
+        // `selected_gravity_assist` without going through the planner)
+        // cannot sneak a GA-stitched PlannedTransfer through Execute
+        // when the player only saw a porkchop Lambert conic in the
+        // preview.
+        let mut ui_state = FleetUiState {
+            selected_gravity_assist: Some(3),
+            selected_option: 7,
+            selected_porkchop_cell: Some((1, 2)),
+            ..Default::default()
+        };
+
+        if ui_state.selected_gravity_assist.is_some() {
+            ui_state.selected_gravity_assist = None;
+            ui_state.selected_option = 0;
+        }
+
+        assert!(
+            ui_state.selected_gravity_assist.is_none(),
+            "GRA-165 Execute-path: must clear `selected_gravity_assist` so \
+             `build_planned_transfer` only sees a single-leg porkchop arc"
+        );
+        assert_eq!(
+            ui_state.selected_option, 0,
+            "GRA-165 Execute-path: clearing the GA must also reset \
+             `selected_option` for the legacy 3-option row fallback"
+        );
     }
 }

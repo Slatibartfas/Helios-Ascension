@@ -170,8 +170,8 @@ mod tests {
     fn porkchop_config_ron_loads_cleanly() {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("assets/data/porkchop_config.ron");
-        let contents = std::fs::read_to_string(&path)
-            .unwrap_or_else(|e| panic!("read {path:?}: {e}"));
+        let contents =
+            std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {path:?}: {e}"));
         let cfg: PorkchopConfig = ron::from_str(&contents)
             .unwrap_or_else(|e| panic!("porkchop_config.ron failed to parse: {e}"));
         // Validation must also pass — covers the case where RON deserializes
