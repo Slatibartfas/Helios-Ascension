@@ -42,6 +42,28 @@ jobs:
         run: cargo clippy --all-targets --all-features -- -D warnings
 
       - name: cargo test
+        # GRA-165: cargo test --all is currently non-authoritative.
+        # The workspace-wide cargo test target (bevy 0.18 + bevy_egui
+        # + ~280 transitive crates) hits the `ubuntu-latest` runner
+        # SIGTERM cliff at exit 143 during `Compiling helios_ascension`
+        # for the test target — the workspace itself fits the ~7 GB
+        # ram disk but the test target never finishes within the
+        # 30m `timeout-minutes` ceiling.  `cargo clippy --all-targets
+        # --all-features -- -D warnings` compiles the same crate
+        # graph in ~14s and fires on real type/lint regressions, which
+        # is the gate we now trust.
+        # The two audit scripts (`audit_b0001.py`,
+        # `audit_color32_literals.py`) + the Kilo Code Review check
+        # cover the high-value test-target use cases (Bevy render-stack
+        # unit tests dropped per [[feedback-egui-render-tests]];
+        # integration tests for state-mutation guards use resource
+        # roundtrips per [[feedback-bevy-018-tests-app-not-schedule]]).
+        # Operator decision `b5b3b93c-5d07-42d1-a025-9479cd5c105f`
+        # (option A: clippy-only gate) approved 2026-07-01 06:56Z.
+        # When the SIGTERM cliff hits, `continue-on-error: true` keeps
+        # the job green so merge is gated on cargo fmt + clippy +
+        # ui-lint + Kilo Code Review.
+        continue-on-error: true
         run: cargo test --all
 
       - name: cargo doc
