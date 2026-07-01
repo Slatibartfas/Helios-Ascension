@@ -5175,6 +5175,23 @@ pub(super) fn render_transfer_planner(
                             // so the star-approach override is always
                             // `None` for this path.
                             let target_orbit_radius_au: Option<f64> = None;
+                            // GRA-165 (CTO item 4): belt-and-suspenders.
+                            // The porkchop commit path above (:4976-4997)
+                            // already clears `selected_gravity_assist`, so
+                            // by the time we reach this Execute point the
+                            // GA stitching branch in `build_planned_transfer`
+                            // is already unreachable here.  Pin the
+                            // invariant one last time so a future refactor
+                            // that drops that earlier clear (or a new
+                            // entry point that toggles `selected_gravity_assist`
+                            // without going through the planner) cannot
+                            // sneak a GA-stitched PlannedTransfer through
+                            // Execute when the player only saw a porkchop
+                            // Lambert conic in the preview.
+                            if fleet_ui_state.selected_gravity_assist.is_some() {
+                                fleet_ui_state.selected_gravity_assist = None;
+                                fleet_ui_state.selected_option = 0;
+                            }
                             if let Some(transfer) = build_planned_transfer(
                                 fleet_entity,
                                 fleet,
@@ -8256,6 +8273,10 @@ mod tests {
     //    fires when no porkchop cell is selected.
     // 2. Clear at :4968 — when the planner commits a porkchop cell into
     //    `planned_transfer`, it also clears any lingering GA selection.
+    // 3. Belt-and-suspenders clear at :5198 (CTO item 4) — right
+    //    before the Execute-path `build_planned_transfer` call we clear
+    //    `selected_gravity_assist` one more time so the GA-stitching
+    //    branch can never fire from a porkchop-driven execution.
     //
     // Driving the full egui planner to exercise these in `tests/` would
     // require a Bevy render-stack harness (the GRA-62 SIGTERM cliff
@@ -8348,6 +8369,43 @@ mod tests {
         assert!(
             !skip_guard_fires,
             "GRA-165: no GA selected -> skip-guard is false"
+        );
+    }
+
+    #[test]
+    fn gra_165_execute_path_clears_lingering_gravity_assist() {
+        // Mirror the Execute-path belt-and-suspenders clear at
+        // `transfer_planner.rs:5198-5206` (added in GRA-165 CTO item 4).
+        // Even though the earlier clear at :4976-4997 already drops the
+        // GA before the planner reaches the synthetic-TransferOption
+        // `build_planned_transfer` call, we pin the invariant at the
+        // Execute point itself so a future refactor that drops the
+        // earlier clear (or a new entry point that toggles
+        // `selected_gravity_assist` without going through the planner)
+        // cannot sneak a GA-stitched PlannedTransfer through Execute
+        // when the player only saw a porkchop Lambert conic in the
+        // preview.
+        let mut ui_state = FleetUiState {
+            selected_gravity_assist: Some(3),
+            selected_option: 7,
+            selected_porkchop_cell: Some((1, 2)),
+            ..Default::default()
+        };
+
+        if ui_state.selected_gravity_assist.is_some() {
+            ui_state.selected_gravity_assist = None;
+            ui_state.selected_option = 0;
+        }
+
+        assert!(
+            ui_state.selected_gravity_assist.is_none(),
+            "GRA-165 Execute-path: must clear `selected_gravity_assist` so \
+             `build_planned_transfer` only sees a single-leg porkchop arc"
+        );
+        assert_eq!(
+            ui_state.selected_option, 0,
+            "GRA-165 Execute-path: clearing the GA must also reset \
+             `selected_option` for the legacy 3-option row fallback"
         );
     }
 }
