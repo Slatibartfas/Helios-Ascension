@@ -5013,6 +5013,29 @@ pub(super) fn render_transfer_planner(
                         }
                     }
                 }
+                //
+                // GRA-165 defensive guard: the porkchop is the source of
+                // truth for the trajectory preview.  Drop any lingering
+                // gravity-assist selection so the GA Leg-1+Leg-2 slingshot
+                // overlay can't render on top of the porkchop sampled
+                // polyline in the same frame.  In practice the GA selector
+                // already clears `selected_porkchop_cell` on click, so the
+                // inverse ("GA selected AND a cell selected") is
+                // unreachable on main; this clear is a belt-and-suspenders
+                // guard against a future refactor that drops the inverse
+                // clear, or against a new entry point that sets
+                // `selected_gravity_assist` without going through the
+                // button.  Cheap (one assignment) and closes the "multiple
+                // lines all over the place" class of glitches at the
+                // source.
+                //
+                // The corresponding GA-injection-side guard lives further
+                // up in this function; PR #192 / `5049b4f` restored that
+                // half.  This clear is the porkchop-side half.
+                if fleet_ui_state.selected_gravity_assist.is_some() {
+                    fleet_ui_state.selected_gravity_assist = None;
+                    fleet_ui_state.selected_option = 0;
+                }
                 // GRA-154 H-2: drive the trajectory preview from the
                 // selected porkchop cell.  The PorkchopPanel sets
                 // `selected_porkchop_cell` on click; this block
