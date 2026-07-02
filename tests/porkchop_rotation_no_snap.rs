@@ -192,8 +192,10 @@ fn gra_169_part_b_clear_target_resets_pending_rebuild_flag() {
     // new pending-rebuild flag — otherwise switching fleets could
     // strand a stale flag from the previous destination's buffer
     // rotation cycle.
-    let mut state = FleetUiState::default();
-    state.porkchop_grid_pending_rebuild = true;
+    let mut state = FleetUiState {
+        porkchop_grid_pending_rebuild: true,
+        ..Default::default()
+    };
     state.clear_target();
     assert!(
         !state.porkchop_grid_pending_rebuild,
@@ -229,9 +231,11 @@ fn gra_169_part_b_pending_rebuild_keeps_grid_visible() {
         0.0,
     );
 
-    let mut state = FleetUiState::default();
-    state.porkchop_grid = Some(grid);
-    state.porkchop_grid_pending_rebuild = true;
+    let mut state = FleetUiState {
+        porkchop_grid: Some(grid),
+        porkchop_grid_pending_rebuild: true,
+        ..Default::default()
+    };
     // Contract: grid stays Some while the flag is set.
     assert!(
         state.porkchop_grid.is_some(),
