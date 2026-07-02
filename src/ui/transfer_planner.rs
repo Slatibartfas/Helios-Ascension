@@ -3486,7 +3486,22 @@ pub(super) fn render_transfer_planner(
 
             // If a gravity assist is selected, prepend it as option 0 so the
             // regular execute/select logic treats it uniformly.
-            if let Some(sel_ga) = fleet_ui_state.selected_gravity_assist {
+            //
+            // GRA-165 defensive guard: never inject the GA row when a
+            // porkchop cell is also selected.  In practice the GA selector
+            // at :4728 already clears `selected_porkchop_cell` on click, so
+            // the two states are mutually exclusive — but a future refactor
+            // that drops that clear (or a new entry point that toggles the
+            // GA without going through the button) could leave both set,
+            // which would draw both the GA Leg-1+Leg-2 slingshot overlay
+            // AND the porkchop-driven sampled polyline in the same frame.
+            // The "multiple lines all over the place" symptom.
+            if fleet_ui_state.selected_gravity_assist.is_some()
+                && fleet_ui_state.selected_porkchop_cell.is_some()
+            {
+                // GRA-165 defensive guard: skip the GA row when a porkchop
+                // cell is also selected.  See the long-form comment above.
+            } else if let Some(sel_ga) = fleet_ui_state.selected_gravity_assist {
                 let ga_data = fleet_ui_state
                     .gravity_assist_candidates
                     .get(sel_ga)
