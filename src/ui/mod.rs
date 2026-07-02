@@ -304,9 +304,7 @@ pub struct FleetUiState {
     /// rotation trigger cleared `porkchop_grid = None` synchronously,
     /// which rendered a one-frame "Empty porkchop grid (0×0)"
     /// fallback that the user perceived as a leftward snap.
-    /// Defaults to `false`; the field is `serde`d so existing saves
-    /// load cleanly without a migration.
-    #[serde(default)]
+    /// Defaults to `false`.
     pub porkchop_grid_pending_rebuild: bool,
 }
 

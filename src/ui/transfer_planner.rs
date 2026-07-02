@@ -4922,7 +4922,7 @@ pub(super) fn render_transfer_planner(
                     // to a matching (sc, sr) and we're back to the
                     // first frame of the next rotation cycle).
                     if let Some(cell) = grid.cells.get(sr * grid.resolution.0 + sc) {
-                        let (cols_buf, rows_buf) = grid.resolution;
+                        let (cols_buf, _rows_buf) = grid.resolution;
                         if cols_buf > 0 {
                             let col_step =
                                 (grid.t_dep_bounds_s.1 - grid.t_dep_bounds_s.0) / cols_buf as f64;
@@ -7996,7 +7996,7 @@ mod tests {
     /// would need to thread the same constant pair through, which
     /// would obscure the sim-time semantics the tests actually
     /// exercise.
-    fn real_floor_satisfied(time_scale: f64) -> (f64, f64) {
+    fn real_floor_satisfied(_time_scale: f64) -> (f64, f64) {
         // Comfortably past the 5-real-second floor so the comparator
         // is robust to the >=/strict-greater-than boundary changes.
         let real_now = super::PORKCHOP_STALENESS_REAL_FLOOR_S * 100.0;
