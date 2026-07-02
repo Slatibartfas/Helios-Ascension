@@ -9,11 +9,12 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: -D warnings
+  CARGO_BUILD_JOBS: "2"
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -52,6 +53,10 @@ jobs:
         # --all-features -- -D warnings` compiles the same crate
         # graph in ~14s and fires on real type/lint regressions, which
         # is the gate we now trust.
+        # GRA-191: bumped `timeout-minutes: 30 → 60` and added
+        # `CARGO_BUILD_JOBS: "2"` so the cargo-test final-link step
+        # has headroom on the free `ubuntu-latest` runner (see
+        # [[cargo-test-30-min-runner-timeout]]).
         # The two audit scripts (`audit_b0001.py`,
         # `audit_color32_literals.py`) + the Kilo Code Review check
         # cover the high-value test-target use cases (Bevy render-stack
@@ -78,7 +83,7 @@ jobs:
 
   ui-lint:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@v4
