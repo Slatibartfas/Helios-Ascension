@@ -55,7 +55,7 @@ pub fn ui_load_game_subview(
             ui.add_space(theme::Spacing::xl);
             ui.label(
                 egui::RichText::new("Load Mission")
-                    .font(egui::TextStyle::Heading::resolve_font(&ctx.style()))
+                    .font(theme::title())
                     .color(theme::ACCENT)
                     .size(28.0),
             );
@@ -226,12 +226,12 @@ mod tests {
 
     #[test]
     fn format_playtime_hours_minutes() {
-        assert_eq!(format_playtime(3 * 3600.0 + 12 * 60.0 + 45.0), "3h 12m");
+        assert_eq!(format_playtime(3.0 * 3600.0 + 12.0 * 60.0 + 45.0), "3h 12m");
     }
 
     #[test]
     fn format_playtime_minutes_seconds() {
-        assert_eq!(format_playtime(12 * 60.0 + 45.0), "12m 45s");
+        assert_eq!(format_playtime(12.0 * 60.0 + 45.0), "12m 45s");
     }
 
     #[test]
@@ -255,7 +255,7 @@ mod tests {
         let header = SaveHeader {
             version: Some("0.5.0".into()),
             saved_at: Some("2026-07-03T22:00:00Z".into()),
-            playtime_s: Some(3 * 3600.0 + 12 * 60.0),
+            playtime_s: Some(3.0 * 3600.0 + 12.0 * 60.0),
             seed: Some(42),
         };
         let label = save_row_label(&header);

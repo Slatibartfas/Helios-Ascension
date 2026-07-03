@@ -107,7 +107,7 @@ pub fn ui_settings_subview(
             ui.add_space(theme::Spacing::xl);
             ui.label(
                 egui::RichText::new("Settings")
-                    .font(egui::TextStyle::Heading::resolve_font(&ctx.style()))
+                    .font(theme::title())
                     .color(theme::ACCENT)
                     .size(28.0),
             );

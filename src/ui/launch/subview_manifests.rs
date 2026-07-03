@@ -72,9 +72,11 @@ impl DifficultyPreset {
 }
 
 /// Schema-mirror for `assets/data/difficulty_presets.ron`.
-#[derive(Resource, Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Resource, Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DifficultyPresetsManifest {
+    #[serde(default)]
     pub presets: Vec<DifficultyPreset>,
+    #[serde(default)]
     pub curated_seeds: Vec<u64>,
 }
 
