@@ -125,7 +125,7 @@ fn roundtrip_world_with_components_and_resources() {
     assert!(!ron_text.is_empty(), "snapshot RON must not be empty");
 
     // 3. Restore into a fresh world with the same registrations.
-    let restored =
+    let mut restored =
         restore_world(&ron_text, build_world_with_test_types).expect("restore must succeed");
 
     // 4. Verify each reflectively-registered type survived.

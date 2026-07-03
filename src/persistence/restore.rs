@@ -80,6 +80,7 @@ impl std::error::Error for RestoreError {}
 /// Outcome of a successful restore — the populated [`World`] plus the
 /// parsed [`SaveMetadata`] so the caller can update UI / playtime
 /// trackers without re-parsing the envelope.
+#[derive(Debug)]
 pub struct RestoredWorld {
     pub world: World,
     pub metadata: SaveMetadata,
