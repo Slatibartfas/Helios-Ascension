@@ -190,6 +190,31 @@ pub struct GravityAssistEntry {
     pub flyby_entity: Entity,
 }
 
+/// Per-fleet transfer-planner mode selector (GRA-167, GRA-164-C).
+///
+/// Default is `Auto` so existing behaviour (porkchop-or-legacy-by-destination)
+/// is preserved.  `Porkchop` and `Legacy` let the player override the
+/// decision explicitly — closing GRA-164 issues #5 and #7 (legacy mode is
+/// always reachable; direct Hohmann burn is selectable again).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, Default)]
+pub enum PlannerMode {
+    /// Current behaviour: defer to the destination's porkchop/legacy
+    /// decision (moon + GA + ring → legacy; everything else → porkchop
+    /// when a solver applies).
+    #[default]
+    Auto,
+    /// Always render the porkchop grid; force `porkchop_grid = Some(_)`.
+    /// Even moon + ring destinations get a local-frame Lambert solve
+    /// when one applies (Earth→Moon via `local_moon`, etc.).
+    Porkchop,
+    /// Always render the legacy 3-option row + Execute button; force
+    /// `porkchop_grid = None`.  Closes issue #5 (GA users get an
+    /// explicit "use legacy mode" choice) and issue #7 (direct
+    /// Hohmann burn is reachable again because the
+    /// Execute-button-when-grid-Some guard flips off in Legacy mode).
+    Legacy,
+}
+
 /// Per-frame UI state for the Fleets panel.
 ///
 /// Persists selected fleet and planned transfer between frames.
@@ -242,6 +267,17 @@ pub struct FleetUiState {
     /// Simulation-time epoch the cached porkchop grid was built at.  The
     /// grid's `t_dep = 0` column reflects the planet positions at *this*
     /// epoch, so as `SimulationTime` advances the cached ΔV values become
+    /// Per-fleet transfer-planner mode selector.  GRA-167 (GRA-164-C).
+    /// `Auto` preserves the existing porkchop-or-legacy decision tree
+    /// (moon + GA → legacy, everything else → porkchop when solvable).
+    /// `Porkchop` forces the grid to render even for moon + ring
+    /// destinations that the auto branch would route to legacy.
+    /// `Legacy` always renders the legacy 3-option row + Execute
+    /// button and never builds a porkchop grid — closing issue #5
+    /// (GA users get an explicit "use legacy mode" choice) and
+    /// issue #7 (direct Hohmann burn is reachable again because the
+    /// Execute-button-when-grid-Some guard flips off in Legacy mode).
+    pub planner_mode: PlannerMode,
     /// stale.  The planner rebuilds the grid once the staleness crosses
     /// a configurable threshold (see `PORKCHOP_STALENESS_THRESHOLD_S`
     /// below).  `None` when no grid is cached.
@@ -333,6 +369,9 @@ impl FleetUiState {
         self.selected_gravity_assist = None;
         self.editing_fleet_name = None;
         self.waiting_orbit_count = 0;
+        // GRA-167: reset the planner mode to Auto so a new target
+        // doesn't carry over a stale Porkchop/Legacy preference.
+        self.planner_mode = PlannerMode::default();
     }
 
     /// Clear multi-selection state.
@@ -1639,7 +1678,7 @@ mod tests {
     // field-reassign shape.
     #![allow(clippy::field_reassign_with_default)]
 
-    use super::{ui_lp_click_handler, FleetUiState, LagrangeTarget};
+    use super::{ui_lp_click_handler, FleetUiState, LagrangeTarget, PlannerMode};
     use crate::astronomy::components::LpMarkerInfo;
     use crate::fleets::orbital_mechanics::TransferOption;
     use crate::ui::LastLpClick;
@@ -1807,5 +1846,45 @@ mod tests {
             world.resource::<LastLpClick>().info.is_none(),
             "LastLpClick must be consumed by the handler"
         );
+    }
+
+    /// GRA-167: default `FleetUiState` has `planner_mode = Auto` so the
+    /// existing porkchop-or-legacy-by-destination behaviour is preserved.
+    #[test]
+    fn fleet_ui_state_default_planner_mode_is_auto() {
+        let state = FleetUiState::default();
+        assert_eq!(state.planner_mode, PlannerMode::Auto);
+        // Porkchop grid is None by default (no target selected).
+        assert!(state.porkchop_grid.is_none());
+        assert!(state.selected_porkchop_cell.is_none());
+    }
+
+    /// GRA-167: `clear_target` resets `planner_mode` to `Auto`.  This
+    /// ensures that selecting Porkchop for one transfer doesn't carry
+    /// over to the next target the player picks.
+    #[test]
+    fn clear_target_resets_planner_mode_to_auto() {
+        let mut state = FleetUiState::default();
+        state.planner_mode = PlannerMode::Porkchop;
+        state.porkchop_grid = None; // can't construct a real PorkchopGrid here
+        state.selected_porkchop_cell = Some((2, 3));
+        state.clear_target();
+        assert_eq!(state.planner_mode, PlannerMode::Auto);
+        assert!(state.porkchop_grid.is_none());
+        assert!(state.selected_porkchop_cell.is_none());
+    }
+
+    /// GRA-167: `PlannerMode` serde round-trip preserves the variant.
+    #[test]
+    fn planner_mode_serde_roundtrip() {
+        for mode in [
+            PlannerMode::Auto,
+            PlannerMode::Porkchop,
+            PlannerMode::Legacy,
+        ] {
+            let json = serde_json::to_string(&mode).expect("serialize");
+            let back: PlannerMode = serde_json::from_str(&json).expect("deserialize");
+            assert_eq!(mode, back, "roundtrip failed for {mode:?}");
+        }
     }
 }
