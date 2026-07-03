@@ -223,8 +223,8 @@ mod tests {
             .expect("snapshot must succeed");
 
         // Restore into a fresh world with the same registrations.
-        let mut restored = restore_world(&ron_text, build_test_world)
-            .expect("restore must succeed");
+        let mut restored =
+            restore_world(&ron_text, build_test_world).expect("restore must succeed");
 
         // Verify the resource came back.
         let res = restored
@@ -255,10 +255,7 @@ mod tests {
     #[test]
     fn parse_error_on_garbage() {
         let result = restore_world("this is not ron", build_test_world);
-        assert!(matches!(
-            result,
-            Err(RestoreError::Parse(_))
-        ));
+        assert!(matches!(result, Err(RestoreError::Parse(_))));
     }
 
     #[test]
@@ -280,9 +277,6 @@ mod tests {
         };
         let ron_text = ron::to_string(&envelope).expect("serialize envelope");
         let result = restore_world(&ron_text, build_test_world);
-        assert!(matches!(
-            result,
-            Err(RestoreError::VersionTooOld { .. })
-        ));
+        assert!(matches!(result, Err(RestoreError::VersionTooOld { .. })));
     }
 }
