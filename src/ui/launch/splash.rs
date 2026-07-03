@@ -30,7 +30,7 @@ use bevy_egui::egui::{self, ColorImage, TextureHandle, TextureOptions};
 use bevy_egui::EguiContexts;
 
 use super::manifest::LaunchUiManifest;
-use super::{LaunchState, LaunchSystemSet};
+use super::LaunchState;
 
 /// Real-time elapsed since the splash screen first appeared (seconds).
 ///
@@ -162,10 +162,7 @@ pub fn apply_dismiss(launch_state: &mut LaunchState, splash_timer_secs: &mut f32
 /// True when the player has pressed any keyboard key or any mouse
 /// button. We use `just_pressed` (not `pressed`) so holding a key down
 /// doesn't repeatedly fire the dismiss.
-fn first_input(
-    contexts: &mut EguiContexts,
-    keyboard_input: &Res<ButtonInput<KeyCode>>,
-) -> bool {
+fn first_input(contexts: &mut EguiContexts, keyboard_input: &Res<ButtonInput<KeyCode>>) -> bool {
     if keyboard_input.get_just_pressed().next().is_some() {
         return true;
     }
@@ -327,6 +324,10 @@ mod tests {
             "splash image path must be rooted under assets/ (got {:?})",
             p
         );
-        assert!(p.ends_with(".png"), "splash image must be PNG (got {:?})", p);
+        assert!(
+            p.ends_with(".png"),
+            "splash image must be PNG (got {:?})",
+            p
+        );
     }
 }

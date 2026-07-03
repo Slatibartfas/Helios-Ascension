@@ -153,10 +153,7 @@ impl Plugin for LaunchPlugin {
                 Update,
                 (LaunchSystemSet::Splash, LaunchSystemSet::Menu).chain(),
             )
-            .configure_sets(
-                EguiPrimaryContextPass,
-                LaunchSystemSet::Splash,
-            )
+            .configure_sets(EguiPrimaryContextPass, LaunchSystemSet::Splash)
             .add_systems(
                 EguiPrimaryContextPass,
                 ui_splash_system.in_set(LaunchSystemSet::Splash),
