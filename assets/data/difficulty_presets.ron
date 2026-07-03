@@ -1,0 +1,73 @@
+// === GRA-310: Difficulty presets (LGD-owned content) ===
+// Preset list for the New Game subview. Each preset is fully data-driven;
+// the Coder loads this once at boot, builds a `Vec<DifficultyPreset>` in
+// memory, and surfaces it on the New Game subview. No Rust recompile when
+// LGD rebalances or adds a preset.
+//
+// Loader rules (Coder implements in src/ui/launch/manifest.rs):
+//   1. ids are unique, kebab-case, lowercase.
+//   2. recommended_seed_strategy is one of:
+//        - "Random"        — subview auto-rolls a fresh seed on Start
+//        - "UserInput"     — subview shows the seed input field, prefilled
+//        - "CuratedList"   — subview picks from a Coder-side curated table
+//                             (LGD owns the picks; Coder wires the picker UI)
+//   3. At most one preset may use CuratedList in v0.5.x; the Coder enforces.
+//   4. The "custom" preset is special: it never carries numeric balance
+//      modifiers in v0.5.x. It only exposes the seed input and (future)
+//      sliders. Modifiers default to "standard" until sliders land.
+//   5. Display order in the UI is the array order below. Do not sort by id.
+//
+// Names follow project tone: technical, neutral, slightly dry. No marketing
+// flourishes. Each description states what the player should expect in
+// observable mechanics, not in feelings.
+
+(
+    presets: [
+        (
+            id: "casual",
+            display_name: "Cadet",
+            description: "Generous resource yields, slower logistics decay, and reduced mission attrition. Recommended for first-time commanders learning the construction and research loops.",
+            recommended_seed_strategy: "Random",
+            // Balance modifiers are reserved for v0.6.x once a balance pass
+            // ships. v0.5.x uses hard-coded defaults in the simulation; this
+            // preset only flips the seed_strategy and copy.
+            balance_modifiers: None,
+        ),
+        (
+            id: "standard",
+            display_name: "Mission Controller",
+            description: "Default baseline. Resource yields, attrition, and tech pacing are tuned for a single commander over a 6-12 hour campaign. Use a user-supplied seed to share a specific start.",
+            recommended_seed_strategy: "UserInput",
+            balance_modifiers: None,
+        ),
+        (
+            id: "hard",
+            display_name: "Hard Vacuum",
+            description: "Tighter logistics tolerances, slower tech pacing, and harsher attrition. Missions fail under small oversights. Seeds are drawn from a curated list of known-tractable starts to keep the difficulty fair.",
+            recommended_seed_strategy: "CuratedList",
+            balance_modifiers: None,
+        ),
+        (
+            id: "custom",
+            display_name: "Custom",
+            description: "Exposes the underlying knobs for commanders who want to set their own seed and, in a later release, override individual balance sliders. Until sliders land, this preset runs at standard balance with a user-supplied seed.",
+            recommended_seed_strategy: "UserInput",
+            balance_modifiers: None,
+        ),
+    ],
+
+    // Curated seed table for the Hard Vacuum preset. v0.5.x ships with
+    // three entries; LGD can append more without Rust recompile. The
+    // Coder exposes these as a picker UI under the Hard Vacuum card.
+    // Each entry is a 13-digit decimal u64 in the user-facing range.
+    //
+    // Selection criterion: seed must produce a Sol-system disposition
+    // (Earth + Venus + Mars + Mercury all reachable, no hostile Lagrange
+    // traps at start) and a stable asteroid belt shape. Verified manually
+    // by LGD on 2026-07-03; QA spot-checks one per release.
+    curated_seeds: [
+        4729103856017,
+        5830172946102,
+        6193485720938,
+    ],
+)

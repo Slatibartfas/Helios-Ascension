@@ -1,0 +1,62 @@
+// === GRA-310: Launch UI manifest (LGD-owned content) ===
+// Pairs with the LaunchPlugin skeleton on GRA-311/PR-A.
+// Schema fixed by GRA-309 §3.2; this file is LGD copy + numeric tweaks only.
+// Loader rules (Coder implements in src/ui/launch/manifest.rs):
+//   1. logo_splashscreen and logo_clean must resolve under `assets/`
+//      (paths are forward-slash relative).
+//   2. splash_min_duration_s <= splash_max_duration_s; both > 0.
+//   3. build_label_format is a template; recognized placeholders are
+//      {version} and {sha}. Unknown placeholders are left literal.
+//   4. version, when None, falls back to env!("CARGO_PKG_VERSION") at load time.
+//   5. show_sha_in_release, when true, overrides the cfg!(debug_assertions)
+//      default (false in release, true in debug).
+
+(
+    // Splash screen timings (seconds). min = guaranteed on-screen duration;
+    // max = hard cap regardless of user input. Esc/Space/Enter/click dismiss
+    // any time after min. LGD defaults: min=1.5, max=3.0 (matches GRA-309 §2).
+    splash_min_duration_s: 1.5,
+    splash_max_duration_s: 3.0,
+
+    // If true, the Continue menu button stays disabled until SaveIndex
+    // reports at least one valid save. Default true: keeps the menu honest.
+    continue_disabled_until_save_exists: true,
+
+    // Debug kill-switch. When true, splash is skipped entirely and the
+    // app boots into MainMenu. Coder exposes a CLI flag (--skip-splash)
+    // that toggles this at startup; QA uses it for headless screenshots.
+    force_skip_splash: false,
+
+    // Asset paths under assets/. Verified to exist:
+    //   assets/logo/logo_splashscreen.png  (1124x800 RGBA, with backdrop)
+    //   assets/logo/logo_large.png         (clean, no backdrop)
+    logo_splashscreen: "logo/logo_splashscreen.png",
+    logo_clean:        "logo/logo_large.png",
+
+    // Main menu footer template. Placeholders:
+    //   {version} — Cargo.toml package version, or the `version` field below
+    //               when set (lets LGD override the displayed version).
+    //   {sha}     — short git SHA, only emitted in debug builds by default
+    //               (see show_sha_in_release). Release builds show
+    //               "v0.4.0" without the build suffix.
+    // Two spaces between bullet and "build" preserve visual breathing room
+    // under Inter-Regular at 12 px.
+    build_label_format: "v{version}  •  build {sha}",
+
+    // When None, the loader substitutes env!("CARGO_PKG_VERSION") at load
+    // time. LGD keeps this None so the displayed version never drifts from
+    // Cargo.toml. Set to Some("0.4.0-rc1") only for a one-off release
+    // candidate that hasn't bumped Cargo.toml yet.
+    version: None,
+
+    // Build-suffix visibility policy. Matches GRA-309 §9 Q3 recommendation:
+    // sha is QA-useful in debug, distracting in release. Default false →
+    // debug-only via cfg!(debug_assertions). Setting this true forces sha
+    // visible in release builds (e.g. for a playtest build).
+    show_sha_in_release: false,
+
+    // Convenience: the default-selected preset on first launch (no save).
+    // Must match an id in assets/data/difficulty_presets.ron.
+    // LGD default: "standard" (Mission Controller).
+    default_preset_id: "standard",
+)
