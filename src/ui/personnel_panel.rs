@@ -863,7 +863,7 @@ fn draw_hire_dialog(
                     egui::ComboBox::from_id_salt("hire_specialty")
                         .selected_text(prev.display_name())
                         .show_ui(ui, |ui| {
-                            for specialty in all_specialties() {
+                            for specialty in all_specialties().iter().copied() {
                                 ui.selectable_value(
                                     &mut ui_state.hire_specialty,
                                     specialty,
@@ -1013,7 +1013,11 @@ fn auto_assign_idle_scientists(
         // Bevy 0.18 requires that we re-insert the whole component to
         // apply the mutation (we hold an immutable borrow), so we
         // clone the snapshot, mutate the clone, and queue the insert.
-        if let Some((_body, mut state)) = body_query.iter().find(|(e, _)| *e == body_entity) {
+        let mut state = body_query
+            .iter()
+            .find(|(e, _)| *e == body_entity)
+            .map(|(_, s)| s.clone());
+        if let Some(state) = state.as_mut() {
             if let Some(mission) = state
                 .active_missions
                 .iter_mut()
@@ -1021,6 +1025,8 @@ fn auto_assign_idle_scientists(
             {
                 mission.assigned_scientists.push(scientist.id);
             }
+        }
+        if let Some(state) = state {
             commands.entity(body_entity).insert(state);
         }
 
@@ -1138,7 +1144,7 @@ mod tests {
 
     #[test]
     fn specialty_chip_color_covers_all_eight_variants() {
-        for specialty in all_specialties() {
+        for specialty in all_specialties().iter().copied() {
             // Just exercise the dispatcher so a future enum variant
             // added without updating the match forces a compile error.
             let _ = specialty_chip_color(specialty);
