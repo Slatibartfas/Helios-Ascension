@@ -428,8 +428,10 @@ mod tests {
 
     #[test]
     fn build_footer_label_substitutes_version() {
-        let mut m = LaunchUiManifest::default();
-        m.version = Some("0.5.0-rc1".to_string());
+        let m = LaunchUiManifest {
+            version: Some("0.5.0-rc1".to_string()),
+            ..Default::default()
+        };
         let label = build_footer_label(&m);
         assert!(
             label.contains("0.5.0-rc1"),
