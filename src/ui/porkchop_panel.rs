@@ -163,12 +163,17 @@ pub fn porkchop_panel(
 
     // 1. Cells (coloured rects).  Each buffer column `c` has its
     // left edge at `x = (c - scroll) * cell_w` in the visible
-    // window.  We draw any cell whose left edge is at most
-    // one cell-width outside the visible window so the player
-    // sees cells smoothly scrolling on and off the left edge.
-    // The continuous-scroll x position is used directly so the
-    // motion is sub-cell resolution with no boundary snap.
+    // window.  We draw every cell whose left edge lies within
+    // the visible window so the user sees cells scrolling
+    // smoothly across the panel, then wrap the cell draw in
+    // `painter.with_clip_rect(grid_rect)` so any cell that
+    // straddles the panel boundary is HARD-CLIPPED at the
+    // edge rather than spilling outside.  Without the clip
+    // rect the user sees cells extending past the panel
+    // border during rotation, which reads as a left/right
+    // "jiggle" of the boundary itself.
     let visible_w = visible_cols as f32 * cell_w;
+    let cell_clip = painter.with_clip_rect(grid_rect);
     for c in 0..cols as i32 {
         let x = grid_rect.left() + (c as f32 - scroll) * cell_w;
         if x + cell_w < grid_rect.left() || x > grid_rect.left() + visible_w {
@@ -181,7 +186,7 @@ pub fn porkchop_panel(
                 Vec2::new(cell_w, cell_h),
             );
             let color = cell_color(cell, &color_stops, grid_dv_range, fleet_max_dv_ms);
-            painter.rect_filled(rect, 0.0, color);
+            cell_clip.rect_filled(rect, 0.0, color);
         }
     }
 
