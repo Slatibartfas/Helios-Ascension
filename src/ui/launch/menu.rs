@@ -39,7 +39,8 @@
 //!   from [`LaunchUiManifest::menu`] (LGD-owned, RON-driven).
 
 use bevy::prelude::*;
-use bevy_egui::egui::{self, EguiContexts};
+use bevy_egui::egui;
+use bevy_egui::EguiContexts;
 
 use super::manifest::LaunchUiManifest;
 use super::{LaunchState, PendingLaunchActions, SaveIndex};
