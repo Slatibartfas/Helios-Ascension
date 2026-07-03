@@ -295,6 +295,17 @@ pub struct FleetUiState {
     /// departure (0 = depart immediately or no target selected).  Updated each frame
     /// by `draw_fleet_transfer_preview` and consumed by the Transfer Planner UI.
     pub waiting_orbit_count: u32,
+    /// GRA-169 (Part B): set when the rotating buffer's rotation
+    /// cycle fires but the new grid has not yet been built.  When
+    /// `true`, the planner keeps rendering the *old* grid (the cached
+    /// `porkchop_grid`) and the per-frame deferred-build block runs
+    /// alongside to swap the new grid in atomically once the
+    /// ~360 ms Lambert solve finishes.  Without this flag the
+    /// rotation trigger cleared `porkchop_grid = None` synchronously,
+    /// which rendered a one-frame "Empty porkchop grid (0×0)"
+    /// fallback that the user perceived as a leftward snap.
+    /// Defaults to `false`.
+    pub porkchop_grid_pending_rebuild: bool,
 }
 
 impl FleetUiState {
@@ -312,6 +323,7 @@ impl FleetUiState {
         self.porkchop_built_for = None;
         self.porkchop_built_at_s = None;
         self.porkchop_last_real_build_s = None;
+        self.porkchop_grid_pending_rebuild = false;
         self.selected_porkchop_cell = None;
         self.selected_abs_t_dep_s = None;
         self.selected_abs_tof_s = None;
