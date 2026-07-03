@@ -29,14 +29,18 @@ mod tests {
 
     #[test]
     fn format_version_constants_are_internally_consistent() {
-        assert!(
-            FORMAT_VERSION >= MIN_SUPPORTED_VERSION,
-            "current format must satisfy the minimum-supported invariant"
-        );
+        const {
+            assert!(
+                FORMAT_VERSION >= MIN_SUPPORTED_VERSION,
+                "current format must satisfy the minimum-supported invariant"
+            );
+        }
     }
 
     #[test]
     fn format_version_is_non_zero() {
-        assert!(FORMAT_VERSION >= 1);
+        const {
+            assert!(FORMAT_VERSION >= 1);
+        }
     }
 }
