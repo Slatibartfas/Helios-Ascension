@@ -36,6 +36,15 @@
 //!
 //! PR-A does NOT touch the disk — the save panel in PR-B will add the
 //! `write-to-tmp-then-rename` pattern. PR-A only produces a RON string.
+//!
+//! # Bevy 0.18 `SceneDeserializer` import gotcha
+//!
+//! `bevy_scene::serde::SceneDeserializer` only exposes `.deserialize(...)`
+//! via the `serde::de::DeserializeSeed` trait — there is no inherent method.
+//! Any caller of the restore path MUST `use serde::de::DeserializeSeed;`
+//! alongside the `use bevy_scene::serde::SceneDeserializer;`. PR-B and PR-C
+//! will both reach into this module; the import lives at module scope to
+//! avoid per-call-site duplication.
 
 use bevy::prelude::*;
 
