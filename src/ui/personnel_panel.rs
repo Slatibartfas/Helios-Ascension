@@ -191,7 +191,7 @@ pub(super) fn ui_personnel_panel(
     active_menu: Res<ActiveMenu>,
     mut ui_state: ResMut<PersonnelUiState>,
     scientist_query: Query<(Entity, &Scientist)>,
-    body_query: Query<(Entity, &mut SurveyState)>,
+    mut body_query: Query<(Entity, &mut SurveyState)>,
     mut commands: Commands,
     sim_time: Res<super::time::SimulationTime>,
 ) {
