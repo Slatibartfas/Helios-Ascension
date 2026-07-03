@@ -1023,7 +1023,7 @@ fn auto_assign_idle_scientists(
     // Phase 2: push the scientist id onto the matching mission on
     // each target body. We mutate via `get_mut` — no clone.
     for assignment in &pending {
-        if let Ok((_, state)) = body_query.get_mut(assignment.body_entity) {
+        if let Ok((_, mut state)) = body_query.get_mut(assignment.body_entity) {
             if let Some(mission) = state
                 .active_missions
                 .iter_mut()
