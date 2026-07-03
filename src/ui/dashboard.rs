@@ -950,6 +950,7 @@ pub(super) fn ui_dashboard(
         || active_menu.current == GameMenu::Economy
         || active_menu.current == GameMenu::Fleets
         || active_menu.current == GameMenu::Shipbuilding
+        || active_menu.current == GameMenu::Personnel
     {
         return;
     }
@@ -1247,7 +1248,8 @@ pub(super) fn ui_dashboard(
                             ui.label("Economic overview and private sector management will be shown here.");
                         }
                         GameMenu::Personnel => {
-                            ui.label("Officers, managers, and personnel assignments will be shown here.");
+                            // Handled by ui_personnel_panel system
+                            ui.label("Personnel panel is open in the main view.");
                         }
                         GameMenu::Intel => {
                             ui.label("Intelligence reports on enemy factions will be shown here.");
