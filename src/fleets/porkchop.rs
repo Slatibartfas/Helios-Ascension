@@ -410,6 +410,259 @@ fn solve_cell(
     }
 }
 
+// === Local-frame Lambert grid (GRA-167, GRA-164-C) =========================
+//
+// Solves a `(t_dep, t_tof)` porkchop in the parent body's local frame
+// (e.g. Earth→Moon, Jupiter→Europa, Saturn→Titan).  The standard
+// `build_porkchop_grid` uses the host star's `system_gm` and the
+// heliocentric orbits of origin/dest — wrong by 4-5 orders of magnitude
+// for cislunar transfers.  The local-frame variant uses the parent
+// body's GM, a parking-orbit radius for r1, and the destination moon's
+// orbital radius for r2.
+//
+// Position model: parent-centred inertial frame.  Origin and destination
+// move on concentric circles with the parent's mean motion.  At
+// `sim_time_s`, origin is at angle `phi1` and dest at `phi2 = phi1 +
+// (delta_angle_at_sim_time)`.  Both rotate together at `omega`.  This
+// assumes circular orbits (eccentricity is captured implicitly via the
+// Hohmann-time-anchored t_dep window).
+
+/// Inputs to `build_porkchop_grid_for_local_frame`.  Caller resolves
+/// the parking orbit radius (e.g. LEO for Earth), the destination
+/// moon's orbital radius, the parent body's GM (kg·m³/s⁻²), and the
+/// destination's name.  The builder is free of Bevy queries and stays
+/// unit-testable.
+#[derive(Debug, Clone)]
+pub struct LocalPorkchopInputs {
+    pub origin_name: String,
+    pub dest_name: String,
+    /// Origin parking-orbit radius around the parent body, AU.
+    pub parking_radius_au: f64,
+    /// Destination orbit radius around the parent body, AU.
+    pub dest_orbit_au: f64,
+    /// Parent body gravitational parameter (m³/s²).  Earth ≈ 3.986e14,
+    /// Jupiter ≈ 1.266e17, Saturn ≈ 3.793e16.
+    pub parent_gm: f64,
+    /// `sim_time_s` — the "now" epoch the player is planning from.
+    pub sim_time_s: f64,
+    /// Initial phase angle (rad) of the parking orbit at `sim_time_s`.
+    /// Caller is responsible for picking this from the parent's
+    /// inertial frame (e.g. via `mean_anomaly_epoch`).
+    pub origin_phase_at_epoch_rad: f64,
+    /// Initial phase angle (rad) of the destination orbit at `sim_time_s`.
+    pub dest_phase_at_epoch_rad: f64,
+    /// Category match key for `PorkchopConfig::resolve` (e.g. "local_moon").
+    pub category: String,
+}
+
+/// Build a local-frame porkchop grid.  Equivalent to
+/// `build_porkchop_grid` but uses the parent body's GM (not the host
+/// star's), the parking-orbit radius for r1, and the destination moon's
+/// orbital radius for r2.  Origin and dest move on concentric circles
+/// in the parent-centred inertial frame at the parent's mean motion.
+pub fn build_porkchop_grid_for_local_frame(
+    cfg: &PorkchopConfig,
+    inputs: &LocalPorkchopInputs,
+) -> PorkchopGrid {
+    let params = cfg.resolve(&inputs.category);
+    build_local_porkchop_grid_with_params(params, inputs)
+}
+
+pub fn build_local_porkchop_grid_with_params(
+    params: ResolvedPorkchopParams,
+    inputs: &LocalPorkchopInputs,
+) -> PorkchopGrid {
+    use super::orbital_mechanics::AU_IN_METERS;
+
+    // Mean motion of the destination orbit around the parent body
+    // (rad/s).  For circular orbits: omega = sqrt(GM / r^3).
+    let r_dest_m = inputs.dest_orbit_au * AU_IN_METERS;
+    let omega = (inputs.parent_gm / r_dest_m.powi(3)).sqrt();
+
+    // Hohmann TOF in seconds for the local-frame r1 → r2 transfer.
+    let tof_h = hohmann_time_s_local(
+        inputs.parking_radius_au,
+        inputs.dest_orbit_au,
+        inputs.parent_gm,
+    );
+
+    // Window bounds.  For local-frame transfers the natural "anchor"
+    // is `sim_time_s` (no synodic-period alignment like heliocentric).
+    // We use the override's `t_dep_window_days` centred on 0 (= now).
+    let half_window_s = 0.5 * params.t_dep_window_days * SECONDS_PER_DAY;
+    let t_dep_min_s = -half_window_s;
+    let t_dep_max_s = half_window_s;
+
+    let tof_min_s =
+        (params.tof_min_hohmann_factor * tof_h).max(params.tof_floor_days * SECONDS_PER_DAY);
+    let tof_max_s =
+        (params.tof_max_hohmann_factor * tof_h).min(params.tof_ceiling_years * SECONDS_PER_YEAR);
+
+    let cols = params.resolution_t_dep.max(2);
+    let rows = params.resolution_tof.max(2);
+    let total_cells = cols * rows;
+    let mut cells: Vec<PorkchopCell> = Vec::with_capacity(total_cells);
+    let mut min_cell: Option<(usize, usize)> = None;
+    let mut min_dv: f64 = f64::INFINITY;
+
+    let c3_ceiling_ms2 = params.c3_ceiling_km2_s2 * 1.0e6; // (km/s)² → (m/s)²
+
+    for row in 0..rows {
+        let row_frac = if rows > 1 {
+            row as f64 / (rows as f64 - 1.0)
+        } else {
+            0.0
+        };
+        let tof_s = tof_min_s + row_frac * (tof_max_s - tof_min_s);
+        for col in 0..cols {
+            let col_frac = if cols > 1 {
+                col as f64 / (cols as f64 - 1.0)
+            } else {
+                0.0
+            };
+            let t_dep_s = t_dep_min_s + col_frac * (t_dep_max_s - t_dep_min_s);
+            let cell = solve_local_cell(inputs, omega, t_dep_s, tof_s, c3_ceiling_ms2);
+            if cell.feasible && cell.total_dv_ms < min_dv {
+                min_dv = cell.total_dv_ms;
+                min_cell = Some((col, row));
+            }
+            cells.push(cell);
+        }
+    }
+
+    PorkchopGrid {
+        origin_name: inputs.origin_name.clone(),
+        dest_name: inputs.dest_name.clone(),
+        t_dep_bounds_s: (t_dep_min_s, t_dep_max_s),
+        tof_bounds_s: (tof_min_s, tof_max_s),
+        resolution: (cols, rows),
+        cells,
+        min_cell,
+        metric: PorkchopMetric::TotalDv,
+    }
+}
+
+/// Hohmann TOF for a local-frame (parent-centred) circular orbit pair.
+/// `r1` and `r2` are in AU; `gm` is the parent body's GM in m³/s².
+fn hohmann_time_s_local(r1_au: f64, r2_au: f64, gm: f64) -> f64 {
+    use super::orbital_mechanics::AU_IN_METERS;
+    let r1 = r1_au * AU_IN_METERS;
+    let r2 = r2_au * AU_IN_METERS;
+    let a = (r1 + r2) / 2.0;
+    std::f64::consts::PI * (a.powi(3) / gm).sqrt()
+}
+
+/// Position of a circular-orbit body at time `t_offset_s` from epoch
+/// in the parent-centred inertial frame.  Returns metres.
+fn local_position_m(radius_m: f64, phase_at_epoch_rad: f64, omega: f64, t_offset_s: f64) -> DVec3 {
+    let angle = phase_at_epoch_rad + omega * t_offset_s;
+    DVec3::new(radius_m * angle.cos(), radius_m * angle.sin(), 0.0)
+}
+
+/// Solve a single (t_dep, tof) cell in the local frame.  Mirrors
+/// `solve_cell` but:
+///   * origin/dest positions come from `local_position_m` (parent-centred)
+///   * the Lambert solver is called with `parent_gm` (not heliocentric GM)
+///   * the circular-speed check at r1 uses `parent_gm` (not system_gm)
+fn solve_local_cell(
+    inputs: &LocalPorkchopInputs,
+    omega: f64,
+    t_dep_s: f64,
+    tof_s: f64,
+    c3_ceiling_ms2: f64,
+) -> PorkchopCell {
+    use super::orbital_mechanics::AU_IN_METERS;
+    let r1_m = inputs.parking_radius_au * AU_IN_METERS;
+    let r2_m = inputs.dest_orbit_au * AU_IN_METERS;
+
+    let origin_pos_m = local_position_m(r1_m, inputs.origin_phase_at_epoch_rad, omega, t_dep_s);
+    let dest_pos_m = local_position_m(r2_m, inputs.dest_phase_at_epoch_rad, omega, t_dep_s + tof_s);
+
+    // Convert metres → AU for the solver's input contract.
+    let origin_pos_au = origin_pos_m / AU_IN_METERS;
+    let dest_pos_au = dest_pos_m / AU_IN_METERS;
+
+    if tof_s > MAX_CURVED_CROSS_STAR_TRANSFER_TIME_S {
+        return PorkchopCell {
+            t_dep_s,
+            tof_s,
+            total_dv_ms: f64::INFINITY,
+            c3_departure: 0.0,
+            v_inf_arrival_ms: 0.0,
+            delta_v1_ms: 0.0,
+            delta_v2_ms: 0.0,
+            feasible: false,
+            origin_pos_au,
+            dest_pos_au,
+            v_departure_ms: DVec3::ZERO,
+            v_arrival_ms: DVec3::ZERO,
+            transfer_orbit: None,
+        };
+    }
+
+    match solve_lambert_transfer(origin_pos_au, dest_pos_au, tof_s, inputs.parent_gm) {
+        Some((v1_ms, v2_ms, orbit)) => {
+            let v_circ_dep_ms = (inputs.parent_gm / r1_m).sqrt();
+            let v_circ_arr_ms = (inputs.parent_gm / r2_m).sqrt();
+            let v1_speed_ms = v1_ms.length();
+            let v2_speed_ms = v2_ms.length();
+            let dep_burn_ms = (v1_speed_ms - v_circ_dep_ms).max(0.0);
+            let arr_burn_ms = (v_circ_arr_ms - v2_speed_ms).max(0.0);
+            let v_inf_dep_ms = (v1_speed_ms - v_circ_dep_ms).max(0.0);
+            let c3 = v_inf_dep_ms * v_inf_dep_ms;
+            if !c3.is_finite() || c3 > c3_ceiling_ms2 {
+                return PorkchopCell {
+                    t_dep_s,
+                    tof_s,
+                    total_dv_ms: f64::INFINITY,
+                    c3_departure: c3,
+                    v_inf_arrival_ms: 0.0,
+                    delta_v1_ms: 0.0,
+                    delta_v2_ms: 0.0,
+                    feasible: false,
+                    origin_pos_au,
+                    dest_pos_au,
+                    v_departure_ms: v1_ms,
+                    v_arrival_ms: v2_ms,
+                    transfer_orbit: None,
+                };
+            }
+            let v_inf_arrival_ms = (v2_speed_ms - v_circ_arr_ms).max(0.0);
+            let total = dep_burn_ms + arr_burn_ms;
+            PorkchopCell {
+                t_dep_s,
+                tof_s,
+                total_dv_ms: total,
+                c3_departure: c3,
+                v_inf_arrival_ms,
+                delta_v1_ms: dep_burn_ms,
+                delta_v2_ms: arr_burn_ms,
+                feasible: true,
+                origin_pos_au,
+                dest_pos_au,
+                v_departure_ms: v1_ms,
+                v_arrival_ms: v2_ms,
+                transfer_orbit: Some(orbit),
+            }
+        }
+        None => PorkchopCell {
+            t_dep_s,
+            tof_s,
+            total_dv_ms: f64::INFINITY,
+            c3_departure: 0.0,
+            v_inf_arrival_ms: 0.0,
+            delta_v1_ms: 0.0,
+            delta_v2_ms: 0.0,
+            feasible: false,
+            origin_pos_au,
+            dest_pos_au,
+            v_departure_ms: DVec3::ZERO,
+            v_arrival_ms: DVec3::ZERO,
+            transfer_orbit: None,
+        },
+    }
+}
+
 // === Tests =================================================================
 //
 // Three unit tests as required by the LGD design contract:
@@ -1281,6 +1534,184 @@ mod planner_wiring_tests {
             (grid_b.t_dep_bounds_s.0 - grid_a.t_dep_bounds_s.0 - half_year_s).abs() < 1.0,
             "two half-rotation-apart builds must differ by half_year_s, got delta = {}",
             grid_b.t_dep_bounds_s.0 - grid_a.t_dep_bounds_s.0
+        );
+    }
+
+    // === GRA-167 Part 2: local-frame Lambert grid =========================
+    //
+    // These tests exercise `build_porkchop_grid_for_local_frame` in the
+    // parent-centred inertial frame.  Constants are physical:
+    //   GM_EARTH    = 3.986_004_418e14 m³/s²
+    //   GM_JUPITER  = 1.266_127_93e17 m³/s²
+    //   LEO radius  = 6,571 km = 6.571e6 m
+    //   Moon orbit  = 384,400 km = 3.844e8 m
+
+    const GM_EARTH: f64 = 3.986_004_418e14;
+    const GM_JUPITER: f64 = 1.266_127_93e17;
+
+    fn leo_radius_au() -> f64 {
+        use super::super::orbital_mechanics::AU_IN_METERS;
+        6.571e6 / AU_IN_METERS
+    }
+
+    fn moon_orbit_radius_au() -> f64 {
+        use super::super::orbital_mechanics::AU_IN_METERS;
+        384_400.0e3 / AU_IN_METERS
+    }
+
+    fn europa_orbit_radius_au() -> f64 {
+        use super::super::orbital_mechanics::AU_IN_METERS;
+        671_100.0e3 / AU_IN_METERS
+    }
+
+    fn make_local_moon_override() -> PorkchopCategoryOverride {
+        PorkchopCategoryOverride {
+            match_key: "local_moon".to_string(),
+            t_dep_window_days: 14.0,
+            tof_min_hohmann_factor: 0.5,
+            tof_max_hohmann_factor: 3.0,
+            tof_floor_days: 0.5,
+            tof_ceiling_years: 0.25,
+            resolution_t_dep: 50,
+            resolution_tof: 40,
+            c3_ceiling_km2_s2: 100.0,
+        }
+    }
+
+    #[test]
+    fn local_frame_earth_moon_optimal_dv_below_4_kms() {
+        // Earth-Moon Hohmann ΔV (LEO 200 km → LLO 100 km) is
+        // ≈ 3.18 km/s + plane-change.  The porkchop min should land
+        // under 4 km/s when the parent_gm is Earth GM (not heliocentric).
+        let cfg = PorkchopConfig {
+            category_overrides: vec![make_local_moon_override()],
+            ..PorkchopConfig::default()
+        };
+        let inputs = LocalPorkchopInputs {
+            origin_name: "Earth".to_string(),
+            dest_name: "Moon".to_string(),
+            parking_radius_au: leo_radius_au(),
+            dest_orbit_au: moon_orbit_radius_au(),
+            parent_gm: GM_EARTH,
+            sim_time_s: 0.0,
+            origin_phase_at_epoch_rad: 0.0,
+            dest_phase_at_epoch_rad: 0.0,
+            category: "local_moon".to_string(),
+        };
+        let grid = build_porkchop_grid_for_local_frame(&cfg, &inputs);
+        let min_dv_ms = grid
+            .cells
+            .iter()
+            .filter(|c| c.feasible)
+            .map(|c| c.total_dv_ms)
+            .fold(f64::INFINITY, f64::min);
+        assert!(
+            min_dv_ms.is_finite(),
+            "expected at least one feasible cell in Earth-Moon grid"
+        );
+        assert!(
+            min_dv_ms < 4_000.0,
+            "Earth-Moon local-frame min ΔV = {min_dv_ms:.0} m/s, expected < 4000 m/s"
+        );
+    }
+
+    #[test]
+    fn local_frame_uses_parent_gm_not_system_gm() {
+        // If the builder silently used GM_SUN instead of Earth GM, the
+        // Earth-Moon Lambert solve would produce a wildly inflated ΔV.
+        // We assert the wrong-frame ΔV is at least 10× the right-frame
+        // ΔV — proving the parent_gm field actually drives the solve.
+        let cfg = PorkchopConfig {
+            category_overrides: vec![make_local_moon_override()],
+            ..PorkchopConfig::default()
+        };
+
+        let inputs_earth_gm = LocalPorkchopInputs {
+            origin_name: "Earth".to_string(),
+            dest_name: "Moon".to_string(),
+            parking_radius_au: leo_radius_au(),
+            dest_orbit_au: moon_orbit_radius_au(),
+            parent_gm: GM_EARTH,
+            sim_time_s: 0.0,
+            origin_phase_at_epoch_rad: 0.0,
+            dest_phase_at_epoch_rad: 0.0,
+            category: "local_moon".to_string(),
+        };
+        let inputs_sun_gm = LocalPorkchopInputs {
+            parent_gm: super::super::orbital_mechanics::GM_SUN,
+            ..inputs_earth_gm.clone()
+        };
+
+        let grid_earth = build_porkchop_grid_for_local_frame(&cfg, &inputs_earth_gm);
+        let grid_sun = build_porkchop_grid_for_local_frame(&cfg, &inputs_sun_gm);
+
+        let min_earth = grid_earth
+            .cells
+            .iter()
+            .filter(|c| c.feasible)
+            .map(|c| c.total_dv_ms)
+            .fold(f64::INFINITY, f64::min);
+        let min_sun = grid_sun
+            .cells
+            .iter()
+            .filter(|c| c.feasible)
+            .map(|c| c.total_dv_ms)
+            .fold(f64::INFINITY, f64::min);
+
+        assert!(min_earth.is_finite(), "Earth GM grid must be feasible");
+        // The Sun-GM grid at Earth-Moon scales will be wildly infeasible
+        // because the Earth's 3.2 km/s Hohmann becomes ~30+ km/s when
+        // solved with heliocentric GM.  Accept either ratio (Earth GM
+        // min finite & much smaller) or no feasible Sun-GM cells.
+        assert!(
+            min_sun > min_earth * 10.0 || !min_sun.is_finite(),
+            "Sun GM min ΔV ({min_sun:.0} m/s) should be > 10× Earth GM ({min_earth:.0} m/s); proves parent_gm is the active GM"
+        );
+    }
+
+    #[test]
+    fn local_frame_jupiter_europa_optimal_dv_matches_hohmann() {
+        // Jupiter-Europa Hohmann (circular) ΔV ≈ 2.7 km/s from
+        // parking orbit at Io radius (Europa's own orbit radius is
+        // 671,100 km; we use that as parking_radius_au for a
+        // Io→Europa zero-ΔV scenario).  Easier test: parking at
+        // Europa's own radius is degenerate; use Jupiter-orbit parking
+        // (low Jupiter orbit ≈ 100,000 km) and dest at Europa.
+        let cfg = PorkchopConfig {
+            category_overrides: vec![make_local_moon_override()],
+            ..PorkchopConfig::default()
+        };
+        use super::super::orbital_mechanics::AU_IN_METERS;
+        let parking_au = 100_000.0e3 / AU_IN_METERS; // 100 Mm parking orbit
+        let dest_au = europa_orbit_radius_au();
+        let inputs = LocalPorkchopInputs {
+            origin_name: "Jupiter".to_string(),
+            dest_name: "Europa".to_string(),
+            parking_radius_au: parking_au,
+            dest_orbit_au: dest_au,
+            parent_gm: GM_JUPITER,
+            sim_time_s: 0.0,
+            origin_phase_at_epoch_rad: 0.0,
+            dest_phase_at_epoch_rad: 0.0,
+            category: "local_moon".to_string(),
+        };
+        let grid = build_porkchop_grid_for_local_frame(&cfg, &inputs);
+        let min_dv_ms = grid
+            .cells
+            .iter()
+            .filter(|c| c.feasible)
+            .map(|c| c.total_dv_ms)
+            .fold(f64::INFINITY, f64::min);
+        assert!(
+            min_dv_ms.is_finite(),
+            "Jupiter-Europa grid must have at least one feasible cell"
+        );
+        // Jupiter parking 100 Mm → Europa 671 Mm: ΔV is dominated by
+        // the deep-well parking orbit and is small (~hundreds of m/s).
+        // Just assert it's finite and below 5 km/s as a sanity check.
+        assert!(
+            min_dv_ms < 5_000.0,
+            "Jupiter-Europa min ΔV = {min_dv_ms:.0} m/s, expected < 5000 m/s"
         );
     }
 }

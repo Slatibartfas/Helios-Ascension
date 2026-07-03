@@ -917,6 +917,140 @@ fn checked_arrival_timestamp(current_timestamp: i64, total_eta_s: f64) -> Option
     current_timestamp.checked_add(eta_seconds as i64)
 }
 
+/// GRA-167 Part 2 dispatch: build a local-frame porkchop grid for
+/// `(origin_body, target_entity)` when the planner frame is
+/// `BodyLocal(parent_entity)` and `parent_entity` is a planet.  The
+/// standard heliocentric solver does not apply because:
+///   * The parking orbit (e.g. Earth LEO) and the destination orbit
+///     (e.g. Moon orbit) are local to the parent, not the host star.
+///   * The dominant GM is the parent's GM, not the host star's GM.
+///
+/// Returns `Some(grid)` when:
+///   * `parent_entity` has a `CelestialBody.mass` for GM computation.
+///   * `target_entity` has a `KeplerOrbit.semi_major_axis` (in AU)
+///     for the destination orbit radius.
+///   * `origin_body` is parented to `parent_entity` (so its orbit is
+///     local-frame, not heliocentric) and has a positive `semi_major_axis`.
+///   * The Hohmann-midtpoint Lambert probe returns `Some(_)` (catches
+///     degenerate inputs without building the full grid).
+///
+/// On any resolution failure returns `None` so the caller keeps
+/// `porkchop_grid = None` and the legacy 3-option row renders.
+fn try_build_local_porkchop(
+    parent_entity: Entity,
+    target_entity: Entity,
+    origin_body: Entity,
+    sim_time_s: f64,
+    body_query: &Query<(
+        Entity,
+        &CelestialBody,
+        &SpaceCoordinates,
+        Option<&KeplerOrbit>,
+        Option<&LogicalParent>,
+    )>,
+    porkchop_config: &crate::fleets::PorkchopConfig,
+) -> Option<crate::fleets::porkchop::PorkchopGrid> {
+    use crate::fleets::orbital_mechanics::{solve_lambert_transfer, AU_IN_METERS, G_CONST};
+    use crate::fleets::porkchop::{build_porkchop_grid_for_local_frame, LocalPorkchopInputs};
+
+    // Resolve parent GM from mass (kg) — RON gives the source of truth.
+    let (parent_name, parent_gm) = {
+        let (_, body, _, _, _) = body_query.get(parent_entity).ok()?;
+        if body.body_type == BodyType::Star {
+            // Stellar parent — the existing heliocentric solver applies.
+            return None;
+        }
+        let mass = body.mass;
+        if mass <= 0.0 {
+            return None;
+        }
+        (body.name.clone(), G_CONST * mass)
+    };
+
+    // Destination orbit radius (AU) from KeplerOrbit.semi_major_axis.
+    let (dest_name, dest_orbit_au, dest_mean_anomaly_epoch, dest_mean_motion) = {
+        let (_, body, _, ko, _) = body_query.get(target_entity).ok()?;
+        let ko = ko?;
+        (
+            body.name.clone(),
+            ko.semi_major_axis,
+            ko.mean_anomaly_epoch,
+            ko.mean_motion,
+        )
+    };
+
+    // Parking orbit radius for the fleet (AU).  Use the origin body's
+    // local-frame KeplerOrbit.semi_major_axis only if the origin body's
+    // parent is the parent_entity.  For planet-parked fleets whose
+    // KeplerOrbit is heliocentric, return None — the heliocentric SMA
+    // is the wrong frame for a local-frame Lambert solve.
+    let parking_radius_au = {
+        let (_, _, _, origin_ko, _) = body_query.get(origin_body).ok()?;
+        let origin_ko = origin_ko?;
+        let origin_parent = body_query
+            .get(origin_body)
+            .ok()
+            .and_then(|(_, _, _, _, lp)| lp)
+            .map(|lp| lp.0);
+        if origin_parent != Some(parent_entity) {
+            return None;
+        }
+        origin_ko.semi_major_axis
+    };
+
+    if parking_radius_au <= 0.0 || dest_orbit_au <= 0.0 {
+        return None;
+    }
+
+    // Phase angles at sim_time_s in the parent-centred inertial frame.
+    // Both parking orbit and destination orbit are in the parent's
+    // frame, so their mean_motion is around the parent.
+    let origin_phase = {
+        let (_, _, _, origin_ko, _) = body_query.get(origin_body).ok()?;
+        let origin_ko = origin_ko?;
+        origin_ko.mean_anomaly_epoch + origin_ko.mean_motion * sim_time_s
+    };
+    let dest_phase = dest_mean_anomaly_epoch + dest_mean_motion * sim_time_s;
+
+    // Hohmann-time smoke test (1 Lambert probe) — catches degenerate
+    // inputs without building the full grid.
+    let r1_m = parking_radius_au * AU_IN_METERS;
+    let r2_m = dest_orbit_au * AU_IN_METERS;
+    let a = (r1_m + r2_m) / 2.0;
+    let tof_h = std::f64::consts::PI * (a.powi(3) / parent_gm).sqrt();
+    let r1_pos = bevy::math::DVec3::new(
+        parking_radius_au * origin_phase.cos(),
+        parking_radius_au * origin_phase.sin(),
+        0.0,
+    );
+    let r2_pos = bevy::math::DVec3::new(
+        dest_orbit_au * dest_phase.cos(),
+        dest_orbit_au * dest_phase.sin(),
+        0.0,
+    );
+    if solve_lambert_transfer(r1_pos, r2_pos, tof_h, parent_gm).is_none() {
+        return None;
+    }
+
+    let inputs = LocalPorkchopInputs {
+        origin_name: parent_name.clone(),
+        dest_name: dest_name.clone(),
+        parking_radius_au,
+        dest_orbit_au,
+        parent_gm,
+        sim_time_s,
+        origin_phase_at_epoch_rad: origin_phase,
+        dest_phase_at_epoch_rad: dest_phase,
+        category: "local_moon".to_string(),
+    };
+
+    Some(build_porkchop_grid_for_local_frame(
+        porkchop_config,
+        &inputs,
+    ))
+}
+
+
 pub(super) fn render_transfer_planner(
     ui: &mut egui::Ui,
     fleet_entity: Entity,
@@ -1006,6 +1140,52 @@ pub(super) fn render_transfer_planner(
         );
     }
     ui.separator();
+
+    // ── Planner mode toggle (GRA-167, GRA-164-C) ─────────────────────────────
+    // Three-way RadioButton group: Porkchop / Legacy / Auto.  Default Auto
+    // preserves the existing porkchop-or-legacy-by-destination decision
+    // tree.  Porkchop forces the grid to render even for moon/ring
+    // destinations (Earth→Moon uses the local-frame Lambert solver).
+    // Legacy always renders the legacy 3-option row + Execute button.
+    ui.horizontal(|ui| {
+        ui.label(
+            egui::RichText::new("Mode:")
+                .size(11.0)
+                .strong()
+                .color(theme::TEXT_DIM),
+        );
+        let prev_mode = fleet_ui_state.planner_mode;
+        ui.selectable_value(
+            &mut fleet_ui_state.planner_mode,
+            PlannerMode::Auto,
+            egui::RichText::new("Auto").size(11.0),
+        )
+        .on_hover_text(
+            "Defer to the destination's porkchop/legacy choice (moon + GA → legacy; everything else → porkchop).",
+        );
+        ui.selectable_value(
+            &mut fleet_ui_state.planner_mode,
+            PlannerMode::Porkchop,
+            egui::RichText::new("Porkchop").size(11.0),
+        )
+        .on_hover_text("Always render the porkchop grid; force a solver (local-frame Lambert for moons).");
+        ui.selectable_value(
+            &mut fleet_ui_state.planner_mode,
+            PlannerMode::Legacy,
+            egui::RichText::new("Legacy").size(11.0),
+        )
+        .on_hover_text(
+            "Always render the legacy 3-option row + Execute button. Use for gravity assists or direct Hohmann burns.",
+        );
+        if fleet_ui_state.planner_mode != prev_mode {
+            // Mode changed → drop the cached grid so the next frame
+            // rebuilds under the new policy.  Resetting the cell
+            // selection prevents the UI from referencing a stale
+            // `(col, row)` from the previous grid resolution.
+            fleet_ui_state.porkchop_grid = None;
+            fleet_ui_state.selected_porkchop_cell = None;
+        }
+    });
 
     // ── GRA-159 deferred porkchop build ─────────────────────────────────────
     // The porkchop grid is normally built by the Body/Ring click handlers in
@@ -3547,6 +3727,56 @@ pub(super) fn render_transfer_planner(
                         transfer_orbit_override: None,
                     };
                     fleet_ui_state.computed_options.insert(0, ga_option);
+
+            // ── GRA-167 dispatch: build (or skip) the porkchop grid ─────────
+            // The body-target block above populates `computed_options` for
+            // the legacy 3-option row.  Here we decide whether to *also*
+            // cache a porkchop grid on `FleetUiState` for the panel.
+            //
+            // Policy (planner_mode):
+            //   * Legacy    → force `porkchop_grid = None` always.  The
+            //     legacy row + Execute button render below (issue #7).
+            //   * Auto      → for moon/ring targets with a `BodyLocal`
+            //     frame, build a local-frame Lambert grid.  For
+            //     everything else, leave the grid None (existing
+            //     behaviour — heliocentric/stellar grids remain a
+            //     Coder-side TODO per GRA-153).
+            //   * Porkchop  → same as Auto but unconditionally; the
+            //     player override path always attempts a local-frame
+            //     solve when the parent body has GM data.
+            match fleet_ui_state.planner_mode {
+                PlannerMode::Legacy => {
+                    fleet_ui_state.porkchop_grid = None;
+                    fleet_ui_state.selected_porkchop_cell = None;
+                }
+                PlannerMode::Auto | PlannerMode::Porkchop => {
+                    if let PlannerTransferFrame::BodyLocal(parent_entity) = planner_frame {
+                        if let Some(grid) = try_build_local_porkchop(
+                            parent_entity,
+                            target_entity,
+                            orbit.body,
+                            elapsed,
+                            body_query,
+                            porkchop_config,
+                        ) {
+                            fleet_ui_state.porkchop_grid = Some(grid);
+                            fleet_ui_state.selected_porkchop_cell = None;
+                        } else {
+                            // Local-frame solve not applicable (e.g. ring
+                            // targets without KeplerOrbit).  Keep grid None
+                            // so the legacy row renders.
+                            fleet_ui_state.porkchop_grid = None;
+                            fleet_ui_state.selected_porkchop_cell = None;
+                        }
+                    } else {
+                        // StellarLocal / SystemBarycentric: heliocentric
+                        // grid is the Coder's TODO on GRA-153.  Keep grid
+                        // None so the legacy row renders.
+                        fleet_ui_state.porkchop_grid = None;
+                        fleet_ui_state.selected_porkchop_cell = None;
+                    }
+                }
+            }
                 }
             }
         } else if let Some(ref lp) = lp_target_snap {
