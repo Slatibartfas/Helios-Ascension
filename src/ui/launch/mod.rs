@@ -4,20 +4,18 @@
 //! Design parent: GRA-309 (`docs/design/gra-309-splash-and-main-menu.md`,
 //! comment id `1abbb963-e10a-460f-a24b-f0ae41cf5137`).
 //!
-//! PR-A (GRA-311, this PR) is the **skeleton**: types, plugin, RON
-//! manifest loader, [`PersistentSettings`] + userdata helpers, and
-//! the read-only [`SaveIndex`] stub. No rendering systems land here —
-//! those follow in:
-//!
-//! - **PR-B / GRA-312** — splash rendering + auto-dismiss + transition
-//!   to `LaunchState::MainMenu`.
-//! - **PR-C / GRA-313** — main menu shell + 5 buttons + key bindings.
-//! - **PR-D / GRA-314** — subviews (New / Load / Settings).
+//! PR-A (GRA-311) shipped the **skeleton**: types, plugin, RON manifest
+//! loader, [`PersistentSettings`] + userdata helpers, and the read-only
+//! [`SaveIndex`] stub. PR-B / GRA-316 will own splash rendering + the
+//! `Splash → MainMenu` transition; this PR-C (GRA-317) owns the main
+//! menu shell; PR-D / GRA-318 will own subview content (New / Load /
+//! Settings) and the `LoadGame → InGame` transition.
 //!
 //! Per [[feedback-egui-render-tests]], no egui render tests are added
-//! here — the PR-A test plan is type/IO round-trips only.
+//! here — the PR-A / PR-C test plans are type/IO round-trips only.
 
 pub mod manifest;
+pub mod menu;
 pub mod save_index;
 pub mod splash;
 pub mod userdata;
@@ -27,6 +25,7 @@ use bevy_egui::EguiPrimaryContextPass;
 use std::path::PathBuf;
 
 pub use manifest::{load_launch_ui_manifest, LaunchUiManifest};
+pub use menu::main_menu_render_system;
 pub use save_index::{SaveHeader, SaveIndex, SaveSummary, SAVES_SUBDIR};
 pub use splash::{ui_splash_system, SplashImage, SplashTimer};
 pub use userdata::{
@@ -111,8 +110,12 @@ pub struct NewGameRequest {
 ///
 /// `Splash` runs while `LaunchState == Splash`; `Menu` runs while
 /// `LaunchState` is `MainMenu`, `NewGame`, `LoadGame`, or `Settings`.
-/// PR-A registers the sets but ships no systems inside them — the
-/// render systems land in PR-B / PR-C / PR-D.
+/// PR-A registered the sets on `Update` for forward-compatibility.
+/// PR-B (GRA-316) added an `EguiPrimaryContextPass` registration for
+/// `LaunchSystemSet::Splash`; PR-C (GRA-317) does the same for
+/// `LaunchSystemSet::Menu` so the egui `main_menu_render_system` can
+/// write to the active egui context (the in-game tooltip hard-rule,
+/// CLAUDE.md "Egui Scheduling").
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum LaunchSystemSet {
     /// Splash rendering + auto-dismiss logic. PR-B.
@@ -125,10 +128,10 @@ pub enum LaunchSystemSet {
 ///
 /// PR-A registered the resources, the manifest loader, the
 /// `PersistentSettings` reader, and the `SaveIndex` scanner. PR-B
-/// (GRA-312) adds the splash render system, the `SplashTimer` /
-/// `SplashImage` resources, and reconfigures `LaunchSystemSet::Splash`
-/// for `EguiPrimaryContextPass` (per `helios-architecture` — egui
-/// systems must run in the primary context pass, not `Update`).
+/// (GRA-316) layered the splash render + `EguiPrimaryContextPass`
+/// binding for `LaunchSystemSet::Splash` on top. PR-C (GRA-317) does
+/// the same for `LaunchSystemSet::Menu` (the main menu shell; PR-D /
+/// GRA-318 will reuse the registration for the subview content).
 pub struct LaunchPlugin;
 
 impl Plugin for LaunchPlugin {
@@ -145,18 +148,24 @@ impl Plugin for LaunchPlugin {
             // Startup so the menu has its list before the first
             // frame draws.
             .add_systems(Startup, load_save_index_system)
-            // PR-B: reserve the splash set in `Update` as well so
-            // other systems (e.g. PR-C's input polling) can join
-            // without re-importing the schedule type. The splash
-            // render itself lives in `EguiPrimaryContextPass`.
+// PR-A reserved the set chain in `Update` so other systems
+            // can join without re-importing the schedule type. PR-B
+            // extended the `Splash` set into `EguiPrimaryContextPass`
+            // for the egui render path; PR-C mirrors that for `Menu`.
             .configure_sets(
                 Update,
                 (LaunchSystemSet::Splash, LaunchSystemSet::Menu).chain(),
             )
-            .configure_sets(EguiPrimaryContextPass, LaunchSystemSet::Splash)
+.configure_sets(
+                EguiPrimaryContextPass,
+                (LaunchSystemSet::Splash, LaunchSystemSet::Menu),
+            )
             .add_systems(
                 EguiPrimaryContextPass,
-                ui_splash_system.in_set(LaunchSystemSet::Splash),
+                (
+                    ui_splash_system.in_set(LaunchSystemSet::Splash),
+                    main_menu_render_system.in_set(LaunchSystemSet::Menu),
+                ),
             );
     }
 }

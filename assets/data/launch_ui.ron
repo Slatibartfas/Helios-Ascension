@@ -59,4 +59,32 @@
     // Must match an id in assets/data/difficulty_presets.ron.
     // LGD default: "standard" (Mission Controller).
     default_preset_id: "standard",
+
+    // Main menu button copy (GRA-309 §3.4 / GRA-317 PR-C).
+    // Each field maps to one of the 5 buttons in the central action grid:
+    //   continue → resume the most-recent valid save (GRA-314 SaveIndex)
+    //   new_game → opens the New Game subview (PR-D)
+    //   load_game → opens the Load Game list (PR-D)
+    //   settings → opens the Settings tabs (PR-D)
+    //   quit     → exits the application
+    // Loader rules (manifest.rs):
+    //   * any field may be empty; the loader falls back to the
+    //     hard-coded English defaults in LaunchMenuCopy::default so a
+    //     partially-edited RON never breaks the menu.
+    //   * shortcut_hint is a one-key label ("1", "Esc") rendered on the
+    //     right side of the button using theme::kbd_shortcut_label.
+    // LGD owns the visible copy; this block is the data-driven surface
+    // so re-skinning or localizing the menu does not require a recompile.
+    menu: (
+        continue_label:   "Continue",
+        continue_shortcut: "1",
+        new_game_label:   "New Game",
+        new_game_shortcut: "2",
+        load_game_label:  "Load Game",
+        load_game_shortcut: "3",
+        settings_label:   "Settings",
+        settings_shortcut: "4",
+        quit_label:       "Quit",
+        quit_shortcut:    "Esc",
+    ),
 )
