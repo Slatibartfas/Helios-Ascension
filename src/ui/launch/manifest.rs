@@ -181,16 +181,20 @@ mod tests {
 
     #[test]
     fn resolved_version_uses_explicit_override() {
-        let mut m = LaunchUiManifest::default();
-        m.version = Some("0.4.0-rc1".to_string());
+        let m = LaunchUiManifest {
+            version: Some("0.4.0-rc1".to_string()),
+            ..Default::default()
+        };
         assert_eq!(m.resolved_version(), "0.4.0-rc1");
     }
 
     #[test]
     fn validate_rejects_min_greater_than_max() {
-        let mut m = LaunchUiManifest::default();
-        m.splash_min_duration_s = 5.0;
-        m.splash_max_duration_s = 2.0;
+        let m = LaunchUiManifest {
+            splash_min_duration_s: 5.0,
+            splash_max_duration_s: 2.0,
+            ..Default::default()
+        };
         let v = m.validate().unwrap_err();
         assert!(
             v.iter().any(|s| s.contains("splash_min_duration_s")),
@@ -201,9 +205,11 @@ mod tests {
 
     #[test]
     fn validate_rejects_zero_durations() {
-        let mut m = LaunchUiManifest::default();
-        m.splash_min_duration_s = 0.0;
-        m.splash_max_duration_s = 0.0;
+        let m = LaunchUiManifest {
+            splash_min_duration_s: 0.0,
+            splash_max_duration_s: 0.0,
+            ..Default::default()
+        };
         let v = m.validate().unwrap_err();
         assert!(v.iter().any(|s| s.contains("> 0")));
     }

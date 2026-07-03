@@ -212,13 +212,14 @@ mod tests {
     #[test]
     fn persistent_settings_round_trip() {
         let dir = fresh_temp_dir("rt");
-        let mut original = PersistentSettings::default();
-        original.master_volume = 0.42;
-        original.music_volume = 0.0;
-        original.sfx_volume = 0.95;
-        original.fullscreen = true;
-        original.ui_scale = 1.25;
-        original.tutorial_enabled = true;
+        let original = PersistentSettings {
+            master_volume: 0.42,
+            music_volume: 0.0,
+            sfx_volume: 0.95,
+            fullscreen: true,
+            ui_scale: 1.25,
+            tutorial_enabled: true,
+        };
 
         let written_path = save_persistent_settings_to(&dir, &original)
             .expect("save must succeed in a writable temp dir");
@@ -252,8 +253,10 @@ mod tests {
     fn save_creates_missing_directory() {
         let dir = fresh_temp_dir("create");
         let nested = dir.join("nested").join("deeper");
-        let mut s = PersistentSettings::default();
-        s.master_volume = 0.5;
+        let s = PersistentSettings {
+            master_volume: 0.5,
+            ..Default::default()
+        };
         let result = save_persistent_settings_to(&nested, &s);
         assert!(result.is_ok(), "save must create nested dirs");
         assert!(settings_path_in(&nested).exists());
