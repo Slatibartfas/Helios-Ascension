@@ -294,21 +294,14 @@ impl Default for SettingsStructure {
 }
 
 /// Schema-mirror for `assets/data/seed_copy.ron`.
-#[derive(Resource, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Resource, Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct SeedCopyManifest {
+    #[serde(default)]
     pub seed: SeedFieldCopy,
+    #[serde(default)]
     pub new_game_subview: NewGameSubviewCopy,
+    #[serde(default)]
     pub settings_structure: SettingsStructure,
-}
-
-impl Default for SeedCopyManifest {
-    fn default() -> Self {
-        Self {
-            seed: SeedFieldCopy::default(),
-            new_game_subview: NewGameSubviewCopy::default(),
-            settings_structure: SettingsStructure::default(),
-        }
-    }
 }
 
 impl SeedCopyManifest {

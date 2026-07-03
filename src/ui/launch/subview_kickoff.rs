@@ -266,8 +266,10 @@ mod tests {
     #[test]
     fn resolve_returns_no_action_when_only_quit_is_set() {
         // Quit is owned by the app-exit surface, not kickoff.
-        let mut actions = PendingLaunchActions::default();
-        actions.quit = true;
+        let actions = PendingLaunchActions {
+            quit: true,
+            ..Default::default()
+        };
         let index = SaveIndex::empty();
         let outcome = resolve_kickoff(LaunchState::InGame, &actions, &index);
         assert_eq!(outcome, KickoffOutcome::NoAction);
@@ -298,9 +300,11 @@ mod tests {
 
     #[test]
     fn resolve_load_save_uses_queued_path_with_subview_source() {
-        let mut actions = PendingLaunchActions::default();
         let path = PathBuf::from("/tmp/save_alpha.ron");
-        actions.load_save = Some(path.clone());
+        let actions = PendingLaunchActions {
+            load_save: Some(path.clone()),
+            ..Default::default()
+        };
         let outcome = resolve_kickoff(LaunchState::InGame, &actions, &SaveIndex::empty());
         assert_eq!(
             outcome,
@@ -330,8 +334,10 @@ mod tests {
             header: crate::ui::launch::save_index::SaveHeader::default(),
         });
 
-        let mut actions = PendingLaunchActions::default();
-        actions.continue_recent = true;
+        let actions = PendingLaunchActions {
+            continue_recent: true,
+            ..Default::default()
+        };
 
         let outcome = resolve_kickoff(LaunchState::InGame, &actions, &index);
         // First valid entry by index order — Broken entries are
@@ -351,12 +357,14 @@ mod tests {
         // Empty SaveIndex + queue has Continue AND a fresh game —
         // Continue can't find a save, so we fall through to the
         // New Game request.
-        let mut actions = PendingLaunchActions::default();
-        actions.start_new_game = Some(NewGameRequest {
-            seed: 0,
-            preset: "casual".into(),
-        });
-        actions.continue_recent = true;
+        let actions = PendingLaunchActions {
+            start_new_game: Some(NewGameRequest {
+                seed: 0,
+                preset: "casual".into(),
+            }),
+            continue_recent: true,
+            ..Default::default()
+        };
 
         let outcome = resolve_kickoff(LaunchState::InGame, &actions, &SaveIndex::empty());
         assert_eq!(
@@ -377,9 +385,11 @@ mod tests {
             path: PathBuf::from("/tmp/old.ron"),
             header: crate::ui::launch::save_index::SaveHeader::default(),
         });
-        let mut actions = PendingLaunchActions::default();
-        actions.continue_recent = true;
-        actions.load_save = Some(PathBuf::from("/tmp/explicit.ron"));
+        let actions = PendingLaunchActions {
+            continue_recent: true,
+            load_save: Some(PathBuf::from("/tmp/explicit.ron")),
+            ..Default::default()
+        };
 
         let outcome = resolve_kickoff(LaunchState::InGame, &actions, &index);
         assert_eq!(
@@ -458,13 +468,15 @@ mod tests {
 
         *world.resource_mut::<LaunchState>() = LaunchState::InGame;
 
-        let mut actions = PendingLaunchActions::default();
-        actions.start_new_game = Some(NewGameRequest {
-            seed: 42,
-            preset: "standard".into(),
-        });
-        actions.continue_recent = true;
-        actions.load_save = Some(PathBuf::from("/tmp/x.ron"));
+        let actions = PendingLaunchActions {
+            start_new_game: Some(NewGameRequest {
+                seed: 42,
+                preset: "standard".into(),
+            }),
+            continue_recent: true,
+            load_save: Some(PathBuf::from("/tmp/x.ron")),
+            ..Default::default()
+        };
         world.insert_resource(actions);
 
         // Simulate the system: clear `continue_recent` and

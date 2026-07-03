@@ -378,12 +378,14 @@ mod tests {
         use crate::ui::launch::userdata::{
             load_persistent_settings_from, save_persistent_settings_to,
         };
-        let mut settings = PersistentSettings::default();
-        settings.master_volume = 0.42;
-        settings.music_volume = 0.0;
-        settings.fullscreen = true;
-        settings.ui_scale = 1.3;
-        settings.tutorial_enabled = true;
+        let settings = PersistentSettings {
+            master_volume: 0.42,
+            music_volume: 0.0,
+            fullscreen: true,
+            ui_scale: 1.3,
+            tutorial_enabled: true,
+            ..Default::default()
+        };
 
         let dir = std::env::temp_dir().join(format!(
             "helios-settings-rt-{}-{}",
