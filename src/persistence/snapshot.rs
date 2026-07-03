@@ -190,7 +190,7 @@ mod tests {
 
     #[test]
     fn snapshot_requires_type_registry() {
-        let mut world = World::new();
+        let world = World::new();
         // Deliberately do NOT insert AppTypeRegistry.
         let err = snapshot_world(&world, SaveMetadata::new_now(0, 0, "test"))
             .expect_err("missing AppTypeRegistry must error");

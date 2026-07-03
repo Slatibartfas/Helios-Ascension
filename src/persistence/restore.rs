@@ -27,7 +27,6 @@ use bevy_scene::serde::SceneDeserializer;
 use bevy_scene::DynamicScene;
 use std::fmt;
 
-use super::format_version::FORMAT_VERSION;
 use super::migrate::run_migrations;
 use super::snapshot::{SaveFile, SaveMetadata};
 
@@ -133,9 +132,11 @@ where
     //    RON string; feed it through Bevy's SceneDeserializer.
     let ron_deserializer = ron::Deserializer::from_str(&migrated_body.data)
         .map_err(|e| RestoreError::Scene(format!("ron deserializer init: {e}")))?;
-    let scene: DynamicScene = SceneDeserializer::new(&registry_locked)
-        .deserialize(ron_deserializer)
-        .map_err(|e| RestoreError::Scene(e.to_string()))?;
+    let scene: DynamicScene = SceneDeserializer {
+        type_registry: &registry_locked,
+    }
+    .deserialize(ron_deserializer)
+    .map_err(|e| RestoreError::Scene(e.to_string()))?;
 
     // 5. Write the scene into the world.
     let mut entity_map = EntityHashMap::default();
@@ -222,7 +223,8 @@ mod tests {
             .expect("snapshot must succeed");
 
         // Restore into a fresh world with the same registrations.
-        let restored = restore_world(&ron_text, build_test_world).expect("restore must succeed");
+        let mut restored = restore_world(&ron_text, build_test_world)
+            .expect("restore must succeed");
 
         // Verify the resource came back.
         let res = restored
@@ -252,9 +254,11 @@ mod tests {
 
     #[test]
     fn parse_error_on_garbage() {
-        let err = restore_world("this is not ron", build_test_world)
-            .expect_err("garbage must fail to parse");
-        assert!(matches!(err, RestoreError::Parse(_)));
+        let result = restore_world("this is not ron", build_test_world);
+        assert!(matches!(
+            result,
+            Err(RestoreError::Parse(_))
+        ));
     }
 
     #[test]
@@ -275,7 +279,10 @@ mod tests {
             body,
         };
         let ron_text = ron::to_string(&envelope).expect("serialize envelope");
-        let err = restore_world(&ron_text, build_test_world).expect_err("v0 must be rejected");
-        assert!(matches!(err, RestoreError::VersionTooOld { .. }));
+        let result = restore_world(&ron_text, build_test_world);
+        assert!(matches!(
+            result,
+            Err(RestoreError::VersionTooOld { .. })
+        ));
     }
 }
