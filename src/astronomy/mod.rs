@@ -11,6 +11,7 @@
 use bevy::prelude::*;
 use bevy_egui::EguiPrimaryContextPass;
 
+pub mod asteroids;
 pub mod components;
 pub mod ephemeris;
 pub mod exoplanets;
@@ -54,6 +55,7 @@ pub struct AstronomyPlugin;
 impl Plugin for AstronomyPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(nearby_stars::NearbyStarsPlugin)
+            .add_plugins(asteroids::AsteroidRegistryPlugin)
             .init_resource::<LagrangePointMarkers>()
             .init_resource::<LastLpClick>()
             .add_systems(
