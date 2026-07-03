@@ -25,6 +25,7 @@ use bevy::ecs::entity::EntityHashMap;
 use bevy::prelude::*;
 use bevy_scene::serde::SceneDeserializer;
 use bevy_scene::DynamicScene;
+use serde::de::DeserializeSeed;
 use std::fmt;
 
 use super::migrate::run_migrations;
