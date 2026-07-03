@@ -1405,13 +1405,26 @@ pub(super) fn render_transfer_planner(
                             (new_grid.t_dep_bounds_s.1 - new_grid.t_dep_bounds_s.0) / cols_b as f64;
                         let tof_step =
                             (new_grid.tof_bounds_s.1 - new_grid.tof_bounds_s.0) / rows_b as f64;
+                        // The grid's t_dep_bounds_s.0 is a nominal
+                        // anchor at 0.0 — the *absolute* t_dep of cell c
+                        // is `elapsed + c * col_step` (the planet-position
+                        // fix in `solve_cell` uses `inputs.sim_time_s +
+                        // t_dep_s` for the orbit propagation). Use
+                        // `elapsed` as the offset, NOT
+                        // `new_grid.t_dep_bounds_s.0` (= 0), or the
+                        // re-anchor finds a cell whose t_dep is off
+                        // by `elapsed` and the cell content (planet
+                        // position, Lambert ΔV) silently differs from
+                        // the cell the user actually clicked.
+                        let t_dep_min_abs = elapsed;
+                        let t_of_min_abs = new_grid.tof_bounds_s.0;
                         let mut best: Option<(usize, usize, f64)> = None;
                         for r in 0..rows_b {
                             for c in 0..cols_b {
-                                let cell_t_dep = new_grid.t_dep_bounds_s.0 + (c as f64) * col_step;
-                                let cell_tof = new_grid.tof_bounds_s.0 + (r as f64) * tof_step;
-                                let dt = (cell_t_dep - abs_t_dep).abs();
-                                let dtof = (cell_tof - abs_tof).abs();
+                                let cell_t_dep_abs = t_dep_min_abs + (c as f64) * col_step;
+                                let cell_t_of = t_of_min_abs + (r as f64) * tof_step;
+                                let dt = (cell_t_dep_abs - abs_t_dep).abs();
+                                let dtof = (cell_t_of - abs_tof).abs();
                                 let err = dt + dtof * 0.01;
                                 if best.is_none() || err < best.unwrap().2 {
                                     best = Some((c, r, err));
