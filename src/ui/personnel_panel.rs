@@ -249,7 +249,7 @@ pub(super) fn ui_personnel_panel(
     // most in v0.5.0) so the logic reads from a consistent point.
     if ui_state.auto_assign_enabled {
         let sim_time = sim_time.elapsed_seconds();
-        auto_assign_idle_scientists(sim_time, &scientist_query, &body_query, &mut commands);
+        auto_assign_idle_scientists(sim_time, &scientist_query, &mut body_query, &mut commands);
     }
 }
 
@@ -960,12 +960,24 @@ fn draw_settings_dialog(ctx: &egui::Context, ui_state: &mut PersonnelUiState) {
 fn auto_assign_idle_scientists(
     sim_time: f64,
     scientist_query: &Query<(Entity, &Scientist)>,
-    body_query: &Query<(Entity, &mut SurveyState)>,
+    body_query: &mut Query<(Entity, &mut SurveyState)>,
     commands: &mut Commands,
 ) {
-    // Collect unstaffed missions per body. A mission is "unstaffed"
-    // when `assigned_scientists` is empty. We attach the body entity
-    // alongside the method so the assignment lookup can match.
+    // Two-phase auto-assign to satisfy the borrow checker:
+    //
+    //   Phase 1 (read-only): collect the unstaffed missions and the
+    //   eligible idle scientists, then decide which (scientist,
+    //   body, method) triples to assign.
+    //
+    //   Phase 2 (mutate): apply those assignments without cloning
+    //   SurveyState. We mutate via `get_mut` (one in-place Vec::push
+    //   per mission).
+    //
+    // We can't do this in a single loop because Bevy 0.18's
+    // `Query::get_mut` requires `&mut self`, which conflicts with
+    // holding `scientist_query.iter()` alive across the body.
+
+    // Phase 1a: unstaffed missions per body.
     let mut unstaffed: Vec<(Entity, crate::survey::SurveyMethod)> = Vec::new();
     for (body_entity, state) in body_query.iter() {
         for mission in &state.active_missions {
@@ -975,49 +987,66 @@ fn auto_assign_idle_scientists(
         }
     }
 
+    // Phase 1b: pick (scientist, body, method) assignments. Greedy —
+    // first eligible scientist gets the first matching unstaffed
+    // mission; the mission is removed from the pool after the pick
+    // so we don't double-assign within the same pass.
+    struct PendingAssignment {
+        scientist_entity: Entity,
+        scientist_id: ScientistId,
+        body_entity: Entity,
+        method: crate::survey::SurveyMethod,
+    }
+    let mut pending: Vec<PendingAssignment> = Vec::new();
     for (scientist_entity, scientist) in scientist_query.iter() {
         // Skip non-idle or injured scientists — both blockers must
         // hold before a scientist is eligible for routing.
         if !scientist.is_idle() || scientist.is_injured(sim_time) {
             continue;
         }
-
-        // First match wins. Greedy is fine here — the v0.5.0 roster
-        // is small (single-digit scientists in playtests) and the
-        // design contract defers optimal routing to v0.6.
-        let candidate = unstaffed
+        let Some((body_entity, method)) = unstaffed
             .iter()
             .find(|(_, m)| scientist.specialty.matches_method(*m))
-            .copied();
-        let Some((body_entity, method)) = candidate else {
+            .copied()
+        else {
             continue;
         };
+        unstaffed.retain(|(e, m)| !(*e == body_entity && *m == method));
+        pending.push(PendingAssignment {
+            scientist_entity,
+            scientist_id: scientist.id,
+            body_entity,
+            method,
+        });
+    }
 
-        // Mutate the body's SurveyState in place via the shared &
-        // mutable query. This is the per-frame system query, so we
-        // can use `get_mut` directly without cloning the whole
-        // component (which holds `HashMap`s and large `Vec`s).
-        if let Ok((_, state)) = body_query.get_mut(body_entity) {
+    // Phase 2: push the scientist id onto the matching mission on
+    // each target body. We mutate via `get_mut` — no clone.
+    for assignment in &pending {
+        if let Ok((_, state)) = body_query.get_mut(assignment.body_entity) {
             if let Some(mission) = state
                 .active_missions
                 .iter_mut()
-                .find(|m| m.method == method && m.assigned_scientists.is_empty())
+                .find(|m| m.method == assignment.method && m.assigned_scientists.is_empty())
             {
-                mission.assigned_scientists.push(scientist.id);
+                mission.assigned_scientists.push(assignment.scientist_id);
             }
         }
+    }
 
-        // Mark the scientist as assigned to this body. The
-        // mutation lands on the next schedule tick.
-        commands.entity(scientist_entity).insert(Scientist {
-            assigned_body: Some(body_entity),
-            ..scientist.clone()
-        });
-
-        // Drop this mission from the candidate list so we don't
-        // double-assign a different scientist to it within the
-        // same auto-assign pass.
-        unstaffed.retain(|(e, m)| !(*e == body_entity && *m == method));
+    // Re-mark the scientists as assigned. Each call to `commands.entity
+    // ().insert` is independent, so we batch them after the body
+    // mutations to avoid interleaving commands with the body_query
+    // borrow.
+    for assignment in &pending {
+        if let Ok((_, scientist)) = scientist_query.get(assignment.scientist_entity) {
+            commands
+                .entity(assignment.scientist_entity)
+                .insert(Scientist {
+                    assigned_body: Some(assignment.body_entity),
+                    ..scientist.clone()
+                });
+        }
     }
 }
 
