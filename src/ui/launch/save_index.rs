@@ -40,7 +40,7 @@ pub const SAVES_SUBDIR: &str = "saves";
 /// predate the addition of a given field. A save is "valid" if its
 /// header parses without error, even when fields are missing — the
 /// menu just shows `Unknown` in the UI.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct SaveHeader {
     #[serde(default)]
     pub version: Option<String>,

@@ -66,7 +66,7 @@ impl LaunchState {
 /// shape is intentionally narrow in PR-A — PR-C (main menu shell) and
 /// PR-D (subviews) will be the only writers, so the PR-A skeleton
 /// can stay minimal.
-#[derive(Resource, Debug, Default)]
+#[derive(Resource, Debug, Default, PartialEq)]
 pub struct PendingLaunchActions {
     pub start_new_game: Option<NewGameRequest>,
     pub continue_recent: bool,
