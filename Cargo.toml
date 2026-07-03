@@ -25,6 +25,8 @@ bevy = { version = "0.18", features = [
     "bevy_text",
     "bevy_ui",
     "bevy_audio",
+    "bevy_scene",
+    "serialize",
     "mp3",
     "x11",
     "wayland",
