@@ -53,7 +53,11 @@ pub enum RosterSortField {
 }
 
 impl RosterSortField {
-    /// Label shown in the column header.
+    /// Label shown in the column header. Used by the column-header
+    /// buttons; `#[allow(dead_code)]` because the column-button code
+    /// uses inline `RichText::new("NAME")` etc. and never calls this
+    /// helper directly — it stays for future i18n hooks.
+    #[allow(dead_code)]
     pub fn label(self) -> &'static str {
         match self {
             RosterSortField::Seniority => "SENIORITY",
@@ -170,6 +174,7 @@ impl Default for PersonnelUiState {
 impl PersonnelUiState {
     /// Reset every field to the constructor defaults. Used by tests
     /// that drive the panel through a fresh `App`.
+    #[allow(dead_code)] // invoked by tests; not referenced from the lib path.
     pub fn reset(&mut self) {
         *self = Self::default();
     }
@@ -450,7 +455,7 @@ fn draw_summary(ui: &mut egui::Ui, roster: &[ScientistSnapshot]) {
 fn draw_roster_table(
     ui: &mut egui::Ui,
     ui_state: &mut PersonnelUiState,
-    roster: &mut Vec<ScientistSnapshot>,
+    roster: &mut [ScientistSnapshot],
 ) {
     ui.label(
         egui::RichText::new("ROSTER")
@@ -657,9 +662,7 @@ fn draw_roster_row(ui: &mut egui::Ui, snapshot: &ScientistSnapshot) {
 #[derive(Debug, Clone)]
 struct ActiveAssignment {
     mission_name: String,
-    method_label: &'static str,
     scientist_name: String,
-    scientist_id: ScientistId,
     /// Multiplier applied to the mission's throughput (1.5× match,
     /// 0.7× mismatch).
     multiplier: f32,
@@ -670,7 +673,6 @@ fn collect_active_assignments(
     body_query: &Query<(Entity, &SurveyState)>,
     roster: &[ScientistSnapshot],
 ) -> Vec<ActiveAssignment> {
-    use crate::survey::SurveyMethod;
     use std::collections::HashMap;
 
     let mut by_id: HashMap<ScientistId, &ScientistSnapshot> = HashMap::new();
@@ -688,7 +690,6 @@ fn collect_active_assignments(
                 let Some(snapshot) = by_id.get(scientist_id) else {
                     continue;
                 };
-                let method = survey_method_label(mission.method);
                 let matched = snapshot.specialty.matches_method(mission.method);
                 let multiplier = if matched {
                     snapshot.specialty.match_multiplier()
@@ -697,9 +698,7 @@ fn collect_active_assignments(
                 };
                 assignments.push(ActiveAssignment {
                     mission_name: mission.name.clone(),
-                    method_label: method,
                     scientist_name: snapshot.short_name.clone(),
-                    scientist_id: *scientist_id,
                     multiplier,
                     matched,
                 });
@@ -707,21 +706,6 @@ fn collect_active_assignments(
         }
     }
     assignments
-}
-
-fn survey_method_label(method: crate::survey::SurveyMethod) -> &'static str {
-    use crate::survey::SurveyMethod;
-    match method {
-        SurveyMethod::Orbital => "Orbital",
-        SurveyMethod::Flyby => "Flyby",
-        SurveyMethod::AtmosphericProbe => "Atmospheric Probe",
-        SurveyMethod::RemoteSensing => "Remote Sensing",
-        SurveyMethod::Seismic => "Seismic",
-        SurveyMethod::SurfaceLander => "Surface Lander",
-        SurveyMethod::Rover => "Rover",
-        SurveyMethod::Drill => "Drill",
-        SurveyMethod::SampleReturn => "Sample Return",
-    }
 }
 
 fn specialty_chip_color(specialty: ScientistSpecialty) -> egui::Color32 {
@@ -1130,11 +1114,17 @@ mod tests {
 
     #[test]
     fn ui_state_reset_returns_to_defaults() {
-        let mut state = PersonnelUiState::default();
-        state.sort_field = RosterSortField::Name;
-        state.sort_descending = false;
-        state.page = 5;
-        state.auto_assign_enabled = true;
+        // Mutate four fields off the default, then call `reset()` to
+        // prove the helper restores every field. `let mut state = …`
+        // (rather than `field reassign with default`) keeps clippy
+        // happy on the initial `PersonnelUiState::default()`.
+        let mut state = PersonnelUiState {
+            sort_field: RosterSortField::Name,
+            sort_descending: false,
+            page: 5,
+            auto_assign_enabled: true,
+            ..PersonnelUiState::default()
+        };
         state.reset();
         assert_eq!(state.sort_field, RosterSortField::Seniority);
         assert!(state.sort_descending);
