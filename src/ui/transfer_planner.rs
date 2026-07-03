@@ -1050,7 +1050,6 @@ fn try_build_local_porkchop(
     ))
 }
 
-
 pub(super) fn render_transfer_planner(
     ui: &mut egui::Ui,
     fleet_entity: Entity,
@@ -3728,55 +3727,55 @@ pub(super) fn render_transfer_planner(
                     };
                     fleet_ui_state.computed_options.insert(0, ga_option);
 
-            // ── GRA-167 dispatch: build (or skip) the porkchop grid ─────────
-            // The body-target block above populates `computed_options` for
-            // the legacy 3-option row.  Here we decide whether to *also*
-            // cache a porkchop grid on `FleetUiState` for the panel.
-            //
-            // Policy (planner_mode):
-            //   * Legacy    → force `porkchop_grid = None` always.  The
-            //     legacy row + Execute button render below (issue #7).
-            //   * Auto      → for moon/ring targets with a `BodyLocal`
-            //     frame, build a local-frame Lambert grid.  For
-            //     everything else, leave the grid None (existing
-            //     behaviour — heliocentric/stellar grids remain a
-            //     Coder-side TODO per GRA-153).
-            //   * Porkchop  → same as Auto but unconditionally; the
-            //     player override path always attempts a local-frame
-            //     solve when the parent body has GM data.
-            match fleet_ui_state.planner_mode {
-                PlannerMode::Legacy => {
-                    fleet_ui_state.porkchop_grid = None;
-                    fleet_ui_state.selected_porkchop_cell = None;
-                }
-                PlannerMode::Auto | PlannerMode::Porkchop => {
-                    if let PlannerTransferFrame::BodyLocal(parent_entity) = planner_frame {
-                        if let Some(grid) = try_build_local_porkchop(
-                            parent_entity,
-                            target_entity,
-                            orbit.body,
-                            elapsed,
-                            body_query,
-                            porkchop_config,
-                        ) {
-                            fleet_ui_state.porkchop_grid = Some(grid);
-                            fleet_ui_state.selected_porkchop_cell = None;
-                        } else {
-                            // Local-frame solve not applicable (e.g. ring
-                            // targets without KeplerOrbit).  Keep grid None
-                            // so the legacy row renders.
+                    // ── GRA-167 dispatch: build (or skip) the porkchop grid ─────────
+                    // The body-target block above populates `computed_options` for
+                    // the legacy 3-option row.  Here we decide whether to *also*
+                    // cache a porkchop grid on `FleetUiState` for the panel.
+                    //
+                    // Policy (planner_mode):
+                    //   * Legacy    → force `porkchop_grid = None` always.  The
+                    //     legacy row + Execute button render below (issue #7).
+                    //   * Auto      → for moon/ring targets with a `BodyLocal`
+                    //     frame, build a local-frame Lambert grid.  For
+                    //     everything else, leave the grid None (existing
+                    //     behaviour — heliocentric/stellar grids remain a
+                    //     Coder-side TODO per GRA-153).
+                    //   * Porkchop  → same as Auto but unconditionally; the
+                    //     player override path always attempts a local-frame
+                    //     solve when the parent body has GM data.
+                    match fleet_ui_state.planner_mode {
+                        PlannerMode::Legacy => {
                             fleet_ui_state.porkchop_grid = None;
                             fleet_ui_state.selected_porkchop_cell = None;
                         }
-                    } else {
-                        // StellarLocal / SystemBarycentric: heliocentric
-                        // grid is the Coder's TODO on GRA-153.  Keep grid
-                        // None so the legacy row renders.
-                        fleet_ui_state.porkchop_grid = None;
-                        fleet_ui_state.selected_porkchop_cell = None;
+                        PlannerMode::Auto | PlannerMode::Porkchop => {
+                            if let PlannerTransferFrame::BodyLocal(parent_entity) = planner_frame {
+                                if let Some(grid) = try_build_local_porkchop(
+                                    parent_entity,
+                                    target_entity,
+                                    orbit.body,
+                                    elapsed,
+                                    body_query,
+                                    porkchop_config,
+                                ) {
+                                    fleet_ui_state.porkchop_grid = Some(grid);
+                                    fleet_ui_state.selected_porkchop_cell = None;
+                                } else {
+                                    // Local-frame solve not applicable (e.g. ring
+                                    // targets without KeplerOrbit).  Keep grid None
+                                    // so the legacy row renders.
+                                    fleet_ui_state.porkchop_grid = None;
+                                    fleet_ui_state.selected_porkchop_cell = None;
+                                }
+                            } else {
+                                // StellarLocal / SystemBarycentric: heliocentric
+                                // grid is the Coder's TODO on GRA-153.  Keep grid
+                                // None so the legacy row renders.
+                                fleet_ui_state.porkchop_grid = None;
+                                fleet_ui_state.selected_porkchop_cell = None;
+                            }
+                        }
                     }
-                }
-            }
                 }
             }
         } else if let Some(ref lp) = lp_target_snap {
