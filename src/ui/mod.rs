@@ -30,6 +30,7 @@ mod economy_panel;
 mod fleets_panel;
 pub mod icons;
 pub mod notifications;
+mod personnel_panel;
 mod porkchop_panel;
 mod research_panel;
 mod resources_bar;
@@ -56,6 +57,7 @@ use fleets_panel::{
     ShippingCompanyFilter,
 };
 use icons::{load_menu_icons, load_research_icons, process_menu_icons, process_research_icons};
+use personnel_panel::ui_personnel_panel;
 use research_panel::ui_research_panels;
 use resources_bar::ui_resources_bar;
 use shipbuilding_workspace::ShipbuildingWorkspacePlugin;
@@ -577,6 +579,7 @@ impl Plugin for UIPlugin {
             .init_resource::<ExpandedLedgerGroups>()
             .init_resource::<construction_panel::ConstructionUiState>()
             .init_resource::<shipbuilding_state::ShipbuildingUiState>()
+            .init_resource::<personnel_panel::PersonnelUiState>()
             // ActiveMenu is now initialized in GameStatePlugin
             // to allow access in camera/starmap plugins
             // Load menu icons at startup
@@ -643,6 +646,10 @@ impl Plugin for UIPlugin {
             .add_systems(
                 EguiPrimaryContextPass,
                 ui_fleets_panel.in_set(UiSystemSet::MainPanels),
+            )
+            .add_systems(
+                EguiPrimaryContextPass,
+                ui_personnel_panel.in_set(UiSystemSet::MainPanels),
             )
             .add_systems(
                 EguiPrimaryContextPass,
