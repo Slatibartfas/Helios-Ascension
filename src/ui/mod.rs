@@ -1847,11 +1847,6 @@ mod tests {
             "LastLpClick must be consumed by the handler"
         );
     }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
 
     /// GRA-167: default `FleetUiState` has `planner_mode = Auto` so the
     /// existing porkchop-or-legacy-by-destination behaviour is preserved.

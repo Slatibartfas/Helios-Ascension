@@ -1028,9 +1028,7 @@ fn try_build_local_porkchop(
         dest_orbit_au * dest_phase.sin(),
         0.0,
     );
-    if solve_lambert_transfer(r1_pos, r2_pos, tof_h, parent_gm).is_none() {
-        return None;
-    }
+    solve_lambert_transfer(r1_pos, r2_pos, tof_h, parent_gm)?;
 
     let inputs = LocalPorkchopInputs {
         origin_name: parent_name.clone(),

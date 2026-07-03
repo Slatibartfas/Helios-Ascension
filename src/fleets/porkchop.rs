@@ -1564,8 +1564,8 @@ mod planner_wiring_tests {
         671_100.0e3 / AU_IN_METERS
     }
 
-    fn make_local_moon_override() -> PorkchopCategoryOverride {
-        PorkchopCategoryOverride {
+    fn make_local_moon_override() -> crate::fleets::components::PorkchopCategoryOverride {
+        crate::fleets::components::PorkchopCategoryOverride {
             match_key: "local_moon".to_string(),
             t_dep_window_days: 14.0,
             tof_min_hohmann_factor: 0.5,
