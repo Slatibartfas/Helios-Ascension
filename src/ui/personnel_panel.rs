@@ -191,7 +191,7 @@ pub(super) fn ui_personnel_panel(
     active_menu: Res<ActiveMenu>,
     mut ui_state: ResMut<PersonnelUiState>,
     scientist_query: Query<(Entity, &Scientist)>,
-    body_query: Query<(Entity, &SurveyState)>,
+    body_query: Query<(Entity, &mut SurveyState)>,
     mut commands: Commands,
     sim_time: Res<super::time::SimulationTime>,
 ) {
@@ -248,7 +248,8 @@ pub(super) fn ui_personnel_panel(
     // snapshot the live roster again (cheap; a dozen scientists at
     // most in v0.5.0) so the logic reads from a consistent point.
     if ui_state.auto_assign_enabled {
-        auto_assign_idle_scientists(&scientist_query, &body_query, &mut commands);
+        let sim_time = sim_time.elapsed_seconds();
+        auto_assign_idle_scientists(sim_time, &scientist_query, &body_query, &mut commands);
     }
 }
 
@@ -670,7 +671,7 @@ struct ActiveAssignment {
 }
 
 fn collect_active_assignments(
-    body_query: &Query<(Entity, &SurveyState)>,
+    body_query: &Query<(Entity, &mut SurveyState)>,
     roster: &[ScientistSnapshot],
 ) -> Vec<ActiveAssignment> {
     use std::collections::HashMap;
@@ -957,12 +958,11 @@ fn draw_settings_dialog(ctx: &egui::Context, ui_state: &mut PersonnelUiState) {
 /// must respect `Scientist::is_injured` and not reassign a scientist
 /// who is recovering).
 fn auto_assign_idle_scientists(
+    sim_time: f64,
     scientist_query: &Query<(Entity, &Scientist)>,
-    body_query: &Query<(Entity, &SurveyState)>,
+    body_query: &Query<(Entity, &mut SurveyState)>,
     commands: &mut Commands,
 ) {
-    let sim_time = 0.0_f64; // placeholder; injury checks below use the snapshot-time captured in the render pass.
-
     // Collect unstaffed missions per body. A mission is "unstaffed"
     // when `assigned_scientists` is empty. We attach the body entity
     // alongside the method so the assignment lookup can match.
@@ -993,15 +993,11 @@ fn auto_assign_idle_scientists(
             continue;
         };
 
-        // Find the body's current SurveyState via the immutable query.
-        // Bevy 0.18 requires that we re-insert the whole component to
-        // apply the mutation (we hold an immutable borrow), so we
-        // clone the snapshot, mutate the clone, and queue the insert.
-        let mut state = body_query
-            .iter()
-            .find(|(e, _)| *e == body_entity)
-            .map(|(_, s)| s.clone());
-        if let Some(state) = state.as_mut() {
+        // Mutate the body's SurveyState in place via the shared &
+        // mutable query. This is the per-frame system query, so we
+        // can use `get_mut` directly without cloning the whole
+        // component (which holds `HashMap`s and large `Vec`s).
+        if let Ok((_, state)) = body_query.get_mut(body_entity) {
             if let Some(mission) = state
                 .active_missions
                 .iter_mut()
@@ -1009,9 +1005,6 @@ fn auto_assign_idle_scientists(
             {
                 mission.assigned_scientists.push(scientist.id);
             }
-        }
-        if let Some(state) = state {
-            commands.entity(body_entity).insert(state);
         }
 
         // Mark the scientist as assigned to this body. The
