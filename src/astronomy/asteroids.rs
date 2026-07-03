@@ -298,7 +298,7 @@ pub fn auto_terraforming_rule(
 
 /// Per-invariance loader errors. Each variant carries enough context
 /// for a useful `error!` log line.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum AsteroidLoadError {
     UnknownBody(String),
     WrongBodyType {
@@ -434,6 +434,7 @@ fn resource_name(r: ResourceType) -> &'static str {
         ResourceType::Antimatter => "Antimatter",
         ResourceType::ExoticMatter => "ExoticMatter",
         ResourceType::Metamaterials => "Metamaterials",
+        ResourceType::Computronium => "Computronium",
     }
 }
 
