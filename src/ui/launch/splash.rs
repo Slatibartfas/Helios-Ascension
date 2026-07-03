@@ -114,11 +114,11 @@ pub fn ui_splash_system(
 
     // ── 3. Dismiss check ───────────────────────────────────────────────
     if elapsed >= max_s {
-        apply_dismiss(&mut *launch_state, &mut splash_timer.0);
+        apply_dismiss(&mut launch_state, &mut splash_timer.0);
         return;
     }
     if elapsed >= min_s && first_input(&mut contexts, &keyboard_input) {
-        apply_dismiss(&mut *launch_state, &mut splash_timer.0);
+        apply_dismiss(&mut launch_state, &mut splash_timer.0);
         return;
     }
 
