@@ -1,0 +1,142 @@
+// === GRA-310: Seed + main-menu UX copy (LGD-owned content) ===
+// All user-facing strings for the New Game subview and the main menu
+// buttons + footer live here. Coder wires the labels to widgets by key;
+// LGD edits copy without touching Rust.
+//
+// Loader rules (Coder implements in src/ui/launch/manifest.rs):
+//   1. The Coder falls back to these literal strings if the file is
+//      missing, so a deleted file never bricks the menu.
+//   2. seed.max_length is enforced client-side; oversized input is
+//      truncated before parse. The Coder also rejects leading zeros
+//      and signs (no "-", no "+", no ".", no "e") per the project's
+//      seed-grammar rule (decimal u64 only, no scientific notation).
+//   3. seed.errors.* keys are exhaustive: every UI-visible error must
+//      have a matching entry. The Coder logs a warning at startup if
+//      any key is missing so LGD catches typos at QA time.
+
+(
+    // --- Seed input field copy -----------------------------------------
+    seed: (
+        // Field label, rendered above the text input.
+        label: "Mission Seed",
+
+        // Placeholder text inside the empty input. 13 underscores visually
+        // suggest "13 digits" without stating it; the helper text below
+        // does the explaining.
+        placeholder: "_____________",
+
+        // Helper text under the field. Plain prose, no second-person.
+        // Sentence case, no trailing period (UI convention).
+        helper_text: "13-digit numeric seed. Leave blank for a random start",
+
+        // Sub-label rendered below the parsed u64 once the input parses.
+        // The Coder inserts the parsed value into the placeholder; if the
+        // input is empty or unparseable, the sub-label is hidden.
+        parsed_sublabel_template: "Parsed: {value}",
+
+        // Validation errors. Each key is a stable identifier the Coder
+        // matches against parse outcomes; the value is the user-facing
+        // message. Add new keys here, never hard-code strings in Rust.
+        errors: (
+            // Input parses to a u64 outside the project's [1, 10^13) range.
+            out_of_range: "Seed must be a whole number between 1 and 9,999,999,999,999",
+            // Input contains a forbidden character: sign, decimal, letter,
+            // whitespace, scientific-notation marker.
+            invalid_characters: "Digits only \u{2014} no signs, decimals, or letters",
+            // Input parses to 0. The project rejects 0 to keep the parsed
+            // u64 distinguishable from "field empty".
+            zero: "Seed cannot be zero",
+            // Input parses to a value but exceeds the 13-digit cap.
+            too_long: "Seed is limited to 13 digits",
+        ),
+
+        // Max input length, enforced client-side. Matches the 13-digit
+        // display convention and the upper bound on the curated seed table.
+        max_length: 13,
+    ),
+
+    // --- New Game subview chrome ---------------------------------------
+    new_game_subview: (
+        title: "New Mission",
+        back_button_label: "Back",
+        start_button_label: "Begin",
+        // Section header above the preset list.
+        preset_section_label: "Select Difficulty",
+        // Section header above the seed input. Hidden when the selected
+        // preset's recommended_seed_strategy is Random and the field is
+        // auto-filled by the Coder.
+        seed_section_label: "Seed",
+    ),
+
+    // --- Main menu buttons (GRA-309 §2) --------------------------------
+    // The Coder uses these strings as the visible labels on the menu
+    // buttons. Keyboard shortcuts (N/L/S/Q/C) come from GRA-309 §2 and
+    // are not repeated here.
+    main_menu_buttons: [
+        (
+            id: "continue",
+            label: "Continue",
+            // When true, the button is disabled until SaveIndex reports
+            // at least one valid save. Pairs with
+            // launch_ui.ron.continue_disabled_until_save_exists; the Coder
+            // wires them in series so the policy is auditable in one place.
+            disabled_until_save_exists: true,
+        ),
+        (
+            id: "new_game",
+            label: "New Game",
+            disabled_until_save_exists: false,
+        ),
+        (
+            id: "load_game",
+            label: "Load Game",
+            disabled_until_save_exists: true,
+        ),
+        (
+            id: "settings",
+            label: "Settings",
+            disabled_until_save_exists: false,
+        ),
+        (
+            id: "quit",
+            label: "Quit",
+            disabled_until_save_exists: false,
+        ),
+    ],
+
+    // --- Settings subview structure (GRA-309 §9 Q4) ---------------------
+    // LGD picks: 3 tabs for v1. Rationale: Graphics + Gameplay share
+    // vertical space poorly (one is dropdown-heavy, the other is
+    // slider-heavy); a single scrollable page would push the audio
+    // mixer to the bottom and bury it. Three tabs keep the audio
+    // mixer one click from entry.
+    //
+    // The Coder reads settings_structure and renders accordingly.
+    // When kind == "tabs", the labels list below is shown left-to-right.
+    settings_structure: (
+        kind: "tabs",
+        labels: [
+            (
+                id: "audio",
+                label: "Audio",
+            ),
+            (
+                id: "graphics",
+                label: "Graphics",
+            ),
+            (
+                id: "gameplay",
+                label: "Gameplay",
+            ),
+        ],
+    ),
+
+    // --- Splash screen copy --------------------------------------------
+    // Centered tagline under the logo. One line, ≤ 32 characters.
+    // Press-any-key hint shown after splash_min_duration_s has elapsed
+    // and the user has not yet dismissed.
+    splash: (
+        tagline: "Helios Ascension",
+        press_any_key_hint: "Press any key to continue",
+    ),
+)
