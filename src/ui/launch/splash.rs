@@ -50,7 +50,7 @@ pub struct SplashTimer(pub f32);
 ///
 /// Wrapped in `Option` so the loader is deferred until the egui context
 /// is available (it lives in `EguiPrimaryContextPass`).
-#[derive(Resource, Debug, Default)]
+#[derive(Resource, Default)]
 pub struct SplashImage(pub Option<TextureHandle>);
 
 /// Public-facing system: render the splash, advance the timer, dismiss
@@ -63,7 +63,11 @@ pub struct SplashImage(pub Option<TextureHandle>);
 pub fn ui_splash_system(
     mut contexts: EguiContexts,
     mut launch_state: ResMut<LaunchState>,
-    manifest: Res<LaunchUiManifest>,
+    // `Option<Res<T>>` is the Bevy 0.18 idiom for "may not exist yet".
+    // The manifest loader runs at Startup before the first
+    // `EguiPrimaryContextPass` tick, but tests that skip Startup
+    // won't have the resource inserted.
+    manifest: Option<Res<LaunchUiManifest>>,
     keyboard_input: Res<ButtonInput<KeyCode>>,
     real_time: Res<Time<Real>>,
     mut splash_timer: ResMut<SplashTimer>,
@@ -83,7 +87,7 @@ pub fn ui_splash_system(
         splash_timer.0 = 0.0;
         return;
     }
-    let Some(manifest) = manifest.as_ref() else {
+    let Some(manifest) = manifest.as_deref() else {
         return;
     };
 
@@ -127,7 +131,7 @@ pub fn ui_splash_system(
         .frame(
             egui::Frame::default()
                 .fill(crate::ui::theme::BG)
-                .inner_margin(egui::Margin::same(0.0)),
+                .inner_margin(egui::Margin::ZERO),
         )
         .show(ctx, |ui| {
             ui.centered_and_justified(|ui| {
@@ -256,12 +260,12 @@ mod tests {
     #[test]
     fn manual_advance_past_max_duration_dismisses() {
         let mut state = LaunchState::Splash;
-        let mut timer = 0.0_f32;
+        // Tick the timer manually (NOT via real time).
+        let mut timer: f32;
         let manifest = LaunchUiManifest::default();
         let max_s = manifest.splash_max_seconds();
         assert!(max_s > 0.0, "manifest default must have a positive max");
 
-        // Tick the timer manually (NOT via real time).
         timer = max_s + 0.1;
 
         // Apply the same check the system applies.
@@ -279,8 +283,8 @@ mod tests {
     /// leaving state and timer untouched.
     #[test]
     fn dismiss_helper_unreachable_when_state_past_splash() {
-        let mut state = LaunchState::MainMenu;
-        let mut timer = 2.5_f32;
+        let state = LaunchState::MainMenu;
+        let timer: f32 = 2.5;
         // No apply_dismiss call — the system's `*launch_state != Splash`
         // guard prevents the helper from being reached.
         assert_eq!(state, LaunchState::MainMenu);
