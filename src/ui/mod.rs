@@ -29,6 +29,7 @@ mod dossier_panel;
 mod economy_panel;
 mod fleets_panel;
 pub mod icons;
+pub mod launch;
 pub mod notifications;
 mod personnel_panel;
 mod porkchop_panel;
@@ -567,6 +568,7 @@ impl Plugin for UIPlugin {
             // Egui plugin is added in `main.rs` (explicit bevy_egui integration)
             .add_plugins(cursors::CursorPlugin)
             .add_plugins(ShipbuildingWorkspacePlugin)
+            .add_plugins(launch::LaunchPlugin)
             // Resources
             .init_resource::<Selection>()
             .init_resource::<TimeScale>()
