@@ -1678,7 +1678,7 @@ mod tests {
     // field-reassign shape.
     #![allow(clippy::field_reassign_with_default)]
 
-    use super::{ui_lp_click_handler, FleetUiState, LagrangeTarget};
+    use super::{ui_lp_click_handler, FleetUiState, LagrangeTarget, PlannerMode};
     use crate::astronomy::components::LpMarkerInfo;
     use crate::fleets::orbital_mechanics::TransferOption;
     use crate::ui::LastLpClick;
