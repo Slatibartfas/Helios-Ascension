@@ -130,13 +130,17 @@ where
     let registry_locked = registry.read();
 
     // 4. Decode the body back into a DynamicScene. PR-A's body is a
-    //    RON string; feed it through Bevy's SceneDeserializer.
-    let ron_deserializer = ron::Deserializer::from_str(&migrated_body.data)
+    //    RON string; feed it through Bevy's SceneDeserializer. The
+    //    Bevy 0.18 SceneDeserializer is a `DeserializeSeed`, and the
+    //    seed's `deserialize` takes the underlying deserializer by
+    //    `&mut D` (ron's `Deserializer` mutates its cursor as it walks
+    //    the input), so we hold it in a `mut` binding here.
+    let mut ron_deserializer = ron::Deserializer::from_str(&migrated_body.data)
         .map_err(|e| RestoreError::Scene(format!("ron deserializer init: {e}")))?;
     let scene: DynamicScene = SceneDeserializer {
         type_registry: &registry_locked,
     }
-    .deserialize(ron_deserializer)
+    .deserialize(&mut ron_deserializer)
     .map_err(|e| RestoreError::Scene(e.to_string()))?;
 
     // 5. Write the scene into the world.
