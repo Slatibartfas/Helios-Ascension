@@ -1,15 +1,16 @@
 //! Loader for `assets/data/launch_ui.ron`.
 //!
 //! The manifest holds splash timings, asset paths, build-label format,
-//! and the default preset id (GRA-309 §3.2). LGD-owned content; the
-//! Rust types here are the wire shape so copy / timings can change
-//! without recompilation. Schema lives in `assets/data/launch_ui.ron`;
-//! this file only mirrors it.
+//! the default preset id (GRA-309 §3.2), and the main-menu button copy
+//! (GRA-309 §3.4 / GRA-317 PR-C). LGD-owned content; the Rust types
+//! here are the wire shape so copy / timings can change without
+//! recompilation. Schema lives in `assets/data/launch_ui.ron`; this
+//! file only mirrors it.
 //!
 //! PR-A (GRA-311) registers the loader at Startup and inserts the
-//! resulting [`LaunchUiManifest`] resource. PR-B / PR-C / PR-D will
-//! consume the resource for splash rendering, menu wiring, and the
-//! new-game subview. PR-A itself does not touch the manifest values.
+//! resulting [`LaunchUiManifest`] resource. PR-B / PR-C / PR-D consume
+//! the resource for splash rendering, menu wiring, and the new-game
+//! subview. PR-A itself does not touch the manifest values.
 
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -18,7 +19,11 @@ use std::fs;
 /// Schema-mirror for `assets/data/launch_ui.ron`.
 ///
 /// All fields match the GRA-309 §3.2 schema and the LGD content shipped
-/// in GRA-310 (PR #196). Loader rules from the RON header:
+/// in GRA-310 (PR #196). The `menu` block was added by GRA-317 PR-C so
+/// the main menu shell can read button copy + shortcut hints from the
+/// RON manifest instead of hard-coding English literals.
+///
+/// Loader rules from the RON header:
 ///
 /// 1. `logo_splashscreen` and `logo_clean` resolve under `assets/`
 ///    (forward-slash relative).
@@ -28,6 +33,10 @@ use std::fs;
 /// 4. `version`, when `None`, falls back to `env!("CARGO_PKG_VERSION")`.
 /// 5. `show_sha_in_release`, when `true`, overrides the
 ///    `cfg!(debug_assertions)` default for `{sha}` visibility.
+/// 6. `menu.{continue,new_game,load_game,settings,quit}_label` /
+///    `*_shortcut` may be empty — the `LaunchMenuCopy::resolved_*`
+///    helpers fall back to the hard-coded English defaults so a
+///    partially-edited RON never renders an empty button.
 #[derive(Resource, Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LaunchUiManifest {
     pub splash_min_duration_s: f32,
@@ -42,6 +51,153 @@ pub struct LaunchUiManifest {
     #[serde(default)]
     pub show_sha_in_release: bool,
     pub default_preset_id: String,
+    #[serde(default)]
+    pub menu: LaunchMenuCopy,
+}
+
+/// One row of the main menu action grid (GRA-309 §3.4 / GRA-317 PR-C).
+///
+/// `label` is the visible button text; `shortcut` is the keycap-style
+/// hint rendered on the right side of the button (e.g. `1`, `Esc`).
+/// Both are user-visible copy owned by LGD via the
+/// `assets/data/launch_ui.ron` `menu` block; the
+/// [`LaunchMenuCopy::resolved_*`] helpers substitute the hard-coded
+/// English defaults when a RON field is empty (loader rule 6).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LaunchMenuCopy {
+    #[serde(default)]
+    pub continue_label: String,
+    #[serde(default)]
+    pub continue_shortcut: String,
+    #[serde(default)]
+    pub new_game_label: String,
+    #[serde(default)]
+    pub new_game_shortcut: String,
+    #[serde(default)]
+    pub load_game_label: String,
+    #[serde(default)]
+    pub load_game_shortcut: String,
+    #[serde(default)]
+    pub settings_label: String,
+    #[serde(default)]
+    pub settings_shortcut: String,
+    #[serde(default)]
+    pub quit_label: String,
+    #[serde(default)]
+    pub quit_shortcut: String,
+}
+
+impl Default for LaunchMenuCopy {
+    fn default() -> Self {
+        Self {
+            continue_label: "Continue".to_string(),
+            continue_shortcut: "1".to_string(),
+            new_game_label: "New Game".to_string(),
+            new_game_shortcut: "2".to_string(),
+            load_game_label: "Load Game".to_string(),
+            load_game_shortcut: "3".to_string(),
+            settings_label: "Settings".to_string(),
+            settings_shortcut: "4".to_string(),
+            quit_label: "Quit".to_string(),
+            quit_shortcut: "Esc".to_string(),
+        }
+    }
+}
+
+impl LaunchMenuCopy {
+    /// Hard-coded English fallbacks (loader rule 6).
+    pub const DEFAULT_CONTINUE_LABEL: &'static str = "Continue";
+    pub const DEFAULT_CONTINUE_SHORTCUT: &'static str = "1";
+    pub const DEFAULT_NEW_GAME_LABEL: &'static str = "New Game";
+    pub const DEFAULT_NEW_GAME_SHORTCUT: &'static str = "2";
+    pub const DEFAULT_LOAD_GAME_LABEL: &'static str = "Load Game";
+    pub const DEFAULT_LOAD_GAME_SHORTCUT: &'static str = "3";
+    pub const DEFAULT_SETTINGS_LABEL: &'static str = "Settings";
+    pub const DEFAULT_SETTINGS_SHORTCUT: &'static str = "4";
+    pub const DEFAULT_QUIT_LABEL: &'static str = "Quit";
+    pub const DEFAULT_QUIT_SHORTCUT: &'static str = "Esc";
+
+    /// Resolved Continue button label.
+    pub fn resolved_continue_label(&self) -> &str {
+        if self.continue_label.is_empty() {
+            Self::DEFAULT_CONTINUE_LABEL
+        } else {
+            &self.continue_label
+        }
+    }
+
+    /// Resolved Continue shortcut hint.
+    pub fn resolved_continue_shortcut(&self) -> &str {
+        if self.continue_shortcut.is_empty() {
+            Self::DEFAULT_CONTINUE_SHORTCUT
+        } else {
+            &self.continue_shortcut
+        }
+    }
+
+    pub fn resolved_new_game_label(&self) -> &str {
+        if self.new_game_label.is_empty() {
+            Self::DEFAULT_NEW_GAME_LABEL
+        } else {
+            &self.new_game_label
+        }
+    }
+
+    pub fn resolved_new_game_shortcut(&self) -> &str {
+        if self.new_game_shortcut.is_empty() {
+            Self::DEFAULT_NEW_GAME_SHORTCUT
+        } else {
+            &self.new_game_shortcut
+        }
+    }
+
+    pub fn resolved_load_game_label(&self) -> &str {
+        if self.load_game_label.is_empty() {
+            Self::DEFAULT_LOAD_GAME_LABEL
+        } else {
+            &self.load_game_label
+        }
+    }
+
+    pub fn resolved_load_game_shortcut(&self) -> &str {
+        if self.load_game_shortcut.is_empty() {
+            Self::DEFAULT_LOAD_GAME_SHORTCUT
+        } else {
+            &self.load_game_shortcut
+        }
+    }
+
+    pub fn resolved_settings_label(&self) -> &str {
+        if self.settings_label.is_empty() {
+            Self::DEFAULT_SETTINGS_LABEL
+        } else {
+            &self.settings_label
+        }
+    }
+
+    pub fn resolved_settings_shortcut(&self) -> &str {
+        if self.settings_shortcut.is_empty() {
+            Self::DEFAULT_SETTINGS_SHORTCUT
+        } else {
+            &self.settings_shortcut
+        }
+    }
+
+    pub fn resolved_quit_label(&self) -> &str {
+        if self.quit_label.is_empty() {
+            Self::DEFAULT_QUIT_LABEL
+        } else {
+            &self.quit_label
+        }
+    }
+
+    pub fn resolved_quit_shortcut(&self) -> &str {
+        if self.quit_shortcut.is_empty() {
+            Self::DEFAULT_QUIT_SHORTCUT
+        } else {
+            &self.quit_shortcut
+        }
+    }
 }
 
 impl Default for LaunchUiManifest {
@@ -57,6 +213,7 @@ impl Default for LaunchUiManifest {
             version: None,
             show_sha_in_release: false,
             default_preset_id: "standard".to_string(),
+            menu: LaunchMenuCopy::default(),
         }
     }
 }
@@ -212,5 +369,56 @@ mod tests {
         };
         let v = m.validate().unwrap_err();
         assert!(v.iter().any(|s| s.contains("> 0")));
+    }
+
+    #[test]
+    fn menu_copy_defaults_resolve_to_english_strings() {
+        let m = LaunchMenuCopy::default();
+        assert_eq!(m.resolved_continue_label(), "Continue");
+        assert_eq!(m.resolved_continue_shortcut(), "1");
+        assert_eq!(m.resolved_new_game_label(), "New Game");
+        assert_eq!(m.resolved_new_game_shortcut(), "2");
+        assert_eq!(m.resolved_load_game_label(), "Load Game");
+        assert_eq!(m.resolved_load_game_shortcut(), "3");
+        assert_eq!(m.resolved_settings_label(), "Settings");
+        assert_eq!(m.resolved_settings_shortcut(), "4");
+        assert_eq!(m.resolved_quit_label(), "Quit");
+        assert_eq!(m.resolved_quit_shortcut(), "Esc");
+    }
+
+    #[test]
+    fn menu_copy_uses_ron_value_when_non_empty() {
+        let m = LaunchMenuCopy {
+            continue_label: "Reprendre".to_string(),
+            continue_shortcut: "C".to_string(),
+            quit_label: "Quitter".to_string(),
+            ..Default::default()
+        };
+        assert_eq!(m.resolved_continue_label(), "Reprendre");
+        assert_eq!(m.resolved_continue_shortcut(), "C");
+        assert_eq!(m.resolved_quit_label(), "Quitter");
+        // Untouched fields still resolve to the English defaults.
+        assert_eq!(m.resolved_new_game_label(), "New Game");
+        assert_eq!(m.resolved_settings_shortcut(), "4");
+    }
+
+    #[test]
+    fn menu_copy_empty_field_falls_back_to_english_default() {
+        let m = LaunchMenuCopy {
+            continue_label: String::new(),
+            continue_shortcut: String::new(),
+            quit_label: String::new(),
+            ..Default::default()
+        };
+        assert_eq!(m.resolved_continue_label(), "Continue");
+        assert_eq!(m.resolved_continue_shortcut(), "1");
+        assert_eq!(m.resolved_quit_label(), "Quit");
+    }
+
+    #[test]
+    fn default_manifest_includes_menu_copy() {
+        let m = LaunchUiManifest::default();
+        // Struct-update form requires the menu field to round-trip via Default.
+        assert_eq!(m.menu.resolved_continue_label(), "Continue");
     }
 }
