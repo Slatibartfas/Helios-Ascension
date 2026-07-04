@@ -3886,141 +3886,77 @@ pub fn draw_fleet_transfer_preview(
         op.length_squared() > dp.length_squared()
     };
 
-    if reference_frame.is_barycentric() && !is_kinematic {
-        let barycentric_preview = planned_transfer
-            .filter(|transfer| transfer.reference_frame.is_barycentric())
-            .map(|transfer| {
-                (
-                    &transfer.transfer_orbit,
-                    transfer.duration_s,
-                    transfer.departure_velocity_ms,
-                    transfer.arrival_velocity_ms,
-                )
+    // Unified heliocentric / star-centered Bezier preview.
+//
+// Covers both:
+//   * `Barycentric(star)` interplanetary / interstellar transfers (the
+//     textbook reference frame), and
+//   * `Body(star)` same-star heliocentric transfers (the GRA-326
+//     dispatcher uses this for Earth→Mars / Earth→Jupiter porkchop
+//     selections where the orbit center is the star but the reference
+//     frame is local).
+//
+// Both use the same `compute_barycentric_visual_arc` geometry, which
+// interpolates between the predicted launch (`op`) and arrival (`dp`)
+// positions with Lambert-derived tangent directions when available.
+// The result is a smooth Bezier that is continuous across buffer
+// rebuilds (the predicted positions advance smoothly with the sim
+// clock; no snap, no snake).
+//
+// The previous code routed `Body(star)` same-star transfers through
+// `preview_center_is_star`, which drew the actual transfer-orbit
+// polyline. That polyline couldn't track the planet's current mean
+// anomaly across buffer rotations, so it snapped on each rebuild.
+// The replacement keeps one unified Bezier for both reference-frame
+// flavours and drops the orbit-polyline branch entirely.
+if !is_kinematic
+    && !is_course_correction
+    && matches!(
+        reference_frame,
+        TransferReferenceFrame::SystemBarycentric | TransferReferenceFrame::Body(_)
+    )
+    && same_star_orbit_preview
+{
+    let unified_preview = planned_transfer
+        .map(|transfer| {
+            (
+                &transfer.transfer_orbit,
+                transfer.duration_s,
+                transfer.departure_velocity_ms,
+                transfer.arrival_velocity_ms,
+            )
+        })
+        .or_else(|| {
+            selected_option.and_then(|opt| {
+                opt.transfer_orbit_override
+                    .as_ref()
+                    .map(|orbit| (orbit, travel_time_s, None, None))
             })
-            .or_else(|| {
-                selected_option.and_then(|opt| {
-                    opt.transfer_orbit_override
-                        .as_ref()
-                        .map(|orbit| (orbit, travel_time_s, None, None))
-                })
-            });
+        });
 
-        if let Some((orbit, preview_duration_s, departure_velocity_ms, arrival_velocity_ms)) =
-            barycentric_preview
-        {
-            let total_ma_travel = orbit.mean_motion * preview_duration_s;
-            let geo = compute_barycentric_visual_arc(
-                orbit,
-                op,
-                dp,
-                total_ma_travel,
-                departure_velocity_ms,
-                arrival_velocity_ms,
-            );
+    if let Some((orbit, preview_duration_s, departure_velocity_ms, arrival_velocity_ms)) =
+        unified_preview
+    {
+        let total_ma_travel = orbit.mean_motion * preview_duration_s;
+        let geo = compute_barycentric_visual_arc(
+            orbit,
+            op,
+            dp_absolute,
+            total_ma_travel,
+            departure_velocity_ms,
+            arrival_velocity_ms,
+        );
 
-            draw_dashed_curve(
-                &mut gizmos,
-                |t| geo.eval(t),
-                24,
-                |f| Color::srgba(1.0, 0.75, 0.15, 0.70 - 0.35 * f),
-            );
-            draw_ghost_body(&mut gizmos, dp, dest_ring_r, dest_visual_r, false);
-            return;
-        }
-
-        // Avoid a one-frame fallback to the legacy Bezier preview while the
-        // barycentric transfer option state is still being populated.
+        draw_dashed_curve(
+            &mut gizmos,
+            |t| geo.eval(t),
+            24,
+            |f| Color::srgba(1.0, 0.75, 0.15, 0.70 - 0.35 * f),
+        );
+        draw_ghost_body(&mut gizmos, dp_absolute, dest_ring_r, dest_visual_r, false);
         return;
     }
-
-    let preview_center_is_star = same_star_orbit_preview;
-
-    if preview_center_is_star {
-        if let Some(pt) = planned_transfer {
-            let total_ma_travel = pt.transfer_orbit.mean_motion * pt.duration_s;
-            if should_use_exact_endpoint_bezier(pt.reference_frame)
-                && pt.departure_velocity_ms.is_some()
-                && pt.arrival_velocity_ms.is_some()
-                && pt.start_position_au.is_some()
-                && pt.end_position_au.is_some()
-            {
-                let geo = compute_barycentric_visual_arc(
-                    &pt.transfer_orbit,
-                    op,
-                    dp_absolute,
-                    total_ma_travel,
-                    pt.departure_velocity_ms,
-                    pt.arrival_velocity_ms,
-                );
-                draw_dashed_curve(
-                    &mut gizmos,
-                    |t| geo.eval(t),
-                    24,
-                    |f| Color::srgba(1.0, 0.75, 0.15, 0.70 - 0.35 * f),
-                );
-                draw_ghost_body(&mut gizmos, dp_absolute, dest_ring_r, dest_visual_r, false);
-                return;
-            }
-            // Rebase the orbit's mean_anomaly_epoch to the current
-            // sim time so the trajectory stays at the planet's
-            // current position.  The orbit was constructed by
-            // `build_planned_transfer` at the buffer's build time
-            // (cell.transfer_orbit.mean_anomaly_epoch corresponds to
-            // mean_anomaly at sim time `grid.t_dep_bounds_s.0 +
-            // cell.t_dep_s`), so `pt.transfer_orbit.mean_anomaly_epoch`
-            // by itself is anchored at the buffer's build time and
-            // goes stale as the sim advances — the trajectory visually
-            // "stays" while the planet moves on, especially at 1 yr/s
-            // where one frame's worth of staleness is a full orbit.
-            //
-            // The polyline samples at sim times `current_sim_s +
-            // cell.t_dep_s + frac * duration_s` (center predicted at
-            // each sample).  The orbit's mean_anomaly_epoch matches
-            // the buffer's build epoch `grid.t_dep_bounds_s.0 +
-            // cell.t_dep_s`, so the rebased start mean_anomaly is
-            //
-            //     mean_anomaly_epoch + mean_motion * (current_sim_s - grid.t_dep_bounds_s.0)
-            //
-            // — `cell.t_dep_s` cancels between the polyline's center
-            // time and the orbit's epoch time, leaving only the
-            // since-buffer-build shift.
-            //
-            // For the legacy (non-porkchop) path the orbit's
-            // `mean_anomaly_epoch` is a 0/π outward/inward flag, not
-            // a Lambert-derived phase; `ui.porkchop_grid` is `None`
-            // so the shift becomes `current_sim_s - 0 =
-            // current_sim_s`, which gives the orbit's natural mean
-            // motion at the current sim time.  The legacy path's
-            // departure_offset_s mismatch is unrelated to this fix.
-            let orbit_epoch_sim_s = fleet_ui_state
-                .porkchop_grid
-                .as_ref()
-                .map(|g| g.t_dep_bounds_s.0)
-                .unwrap_or(0.0);
-            let preview_start_mean_anomaly = pt.transfer_orbit.mean_anomaly_epoch
-                + pt.transfer_orbit.mean_motion * (current_sim_s - orbit_epoch_sim_s);
-            let visual_points = build_visual_sampled_transfer_polyline_moving_center(
-                &pt.transfer_orbit,
-                pt.orbit_center,
-                current_sim_s,
-                departure_s,
-                pt.duration_s,
-                real_secs,
-                sim_scale,
-                &body_query,
-                &kepler_query,
-                &amp_query,
-                preview_start_mean_anomaly,
-                total_ma_travel,
-                160,
-            );
-            draw_sampled_transfer_orbit(&mut gizmos, &visual_points, 0.0, |f| {
-                Color::srgba(1.0, 0.75, 0.15, 0.70 - 0.35 * f)
-            });
-            draw_ghost_body(&mut gizmos, dp_absolute, dest_ring_r, dest_visual_r, false);
-            return;
-        }
-    }
+}
 
     // Shared geometry — identical curve to transit gizmo and fleet dot.
     let geo = if reference_frame.is_barycentric() && is_kinematic {
