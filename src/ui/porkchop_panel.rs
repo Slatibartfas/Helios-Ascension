@@ -258,17 +258,11 @@ pub fn porkchop_panel(
     // The highlight is a thin semi-transparent white outline so it
     // reads against every colormap band (green, yellow, red, greyed).
     if let Some((hc, hr)) = hover_cell {
-        if Some((hc, hr)) != *selected
-            && hr >= rendered_row_first
-            && hr <= rendered_row_last
-        {
+        if Some((hc, hr)) != *selected && hr >= rendered_row_first && hr <= rendered_row_last {
             let x = grid_rect.left() + (hc as f32 - scroll) * cell_w;
             if x + cell_w >= grid_rect.left() && x <= grid_rect.left() + visible_w {
                 let y = orig_row_to_view_y(hr);
-                let rect = Rect::from_min_size(
-                    Pos2::new(x, y),
-                    Vec2::new(cell_w, cell_h),
-                );
+                let rect = Rect::from_min_size(Pos2::new(x, y), Vec2::new(cell_w, cell_h));
                 painter.rect_stroke(
                     rect,
                     0.0,
@@ -308,10 +302,7 @@ pub fn porkchop_panel(
             // still place the rect inside the clip so the egui
             // painter doesn't emit a spurious zero-sized stroke.
             let y = orig_row_to_view_y(sr);
-            let rect = Rect::from_min_size(
-                Pos2::new(x, y),
-                Vec2::new(cell_w, cell_h),
-            );
+            let rect = Rect::from_min_size(Pos2::new(x, y), Vec2::new(cell_w, cell_h));
             painter.rect_stroke(
                 rect,
                 0.0,

@@ -1348,8 +1348,8 @@ mod tests {
         // tof_min + (4/9) × 900 d = 100 + 400 = 500 d.  Margin
         // = 0.1 × 900 = 90 d.  Sum = 590 d, well below the
         // configured 1000 d ceiling.
-        let expected_upper_tof_s = tof_min + (4.0_f64 / 9.0) * (tof_max - tof_min)
-            + 0.1 * (tof_max - tof_min);
+        let expected_upper_tof_s =
+            tof_min + (4.0_f64 / 9.0) * (tof_max - tof_min) + 0.1 * (tof_max - tof_min);
         assert!(
             (hi - expected_upper_tof_s).abs() < 1.0,
             "rendered upper bound ({hi} s) should sit at row-4 TOF + 10% margin ({expected_upper_tof_s} s)"
