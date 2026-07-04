@@ -150,59 +150,6 @@ impl TierReveal {
             TierLabel::PlanetaryBulk => SurveyLevel::CoreSample,
         }
     }
-
-    /// All three rows dimmed (used by atmospheric deposits and the
-    /// no-`SurveyState` branch). Megatons/concentration stay `None`.
-    fn dimmed_triple() -> [TierReveal; 3] {
-        [
-            TierReveal {
-                gate: Self::gate_for(TierLabel::ProvenCrustal),
-                megatons: None,
-                concentration: None,
-                revealed: false,
-            },
-            TierReveal {
-                gate: Self::gate_for(TierLabel::DeepDeposits),
-                megatons: None,
-                concentration: None,
-                revealed: false,
-            },
-            TierReveal {
-                gate: Self::gate_for(TierLabel::PlanetaryBulk),
-                megatons: None,
-                concentration: None,
-                revealed: false,
-            },
-        ]
-    }
-
-    /// All three rows revealed. Megatons/concentration remain `None`
-    /// because asteroid composition fractions are the deposit unit,
-    /// not megatons — the dossier reads `revealed: true` and renders
-    /// the per-asteroid composition from
-    /// `crate::astronomy::asteroids::AsteroidData`.
-    fn revealed_triple() -> [TierReveal; 3] {
-        [
-            TierReveal {
-                gate: Self::gate_for(TierLabel::ProvenCrustal),
-                megatons: None,
-                concentration: None,
-                revealed: true,
-            },
-            TierReveal {
-                gate: Self::gate_for(TierLabel::DeepDeposits),
-                megatons: None,
-                concentration: None,
-                revealed: true,
-            },
-            TierReveal {
-                gate: Self::gate_for(TierLabel::PlanetaryBulk),
-                megatons: None,
-                concentration: None,
-                revealed: true,
-            },
-        ]
-    }
 }
 
 /// Threshold (in megatons) below which a `ResourceReserve` field
@@ -230,7 +177,7 @@ impl MineralDeposit {
     ///   `state.drill_missions_completed >= 1` (see
     ///   [`SurveyState::planetary_bulk_unlocked`]).
     pub fn tier_breakdown(&self, state: Option<&SurveyState>) -> [TierReveal; 3] {
-        tier_breakdown_for_reserve(self.reserve, self.is_atmospheric, state, None)
+        tier_breakdown_for_reserve(self.reserve, self.is_atmospheric, state)
     }
 
     /// Convenience: label and display info for a tier, given the
@@ -252,27 +199,58 @@ pub fn tier_breakdown_for_reserve(
     reserve: ResourceReserve,
     is_atmospheric: bool,
     state: Option<&SurveyState>,
-    asteroid_class: Option<crate::plugins::solar_system_data::AsteroidClass>,
 ) -> [TierReveal; 3] {
-    let dimmed = TierReveal::dimmed_triple();
-    // GRA-321 — asteroids don't carry the per-tier `ResourceReserve`
-    // layout; surface all three rows revealed so the dossier renders
-    // the per-asteroid composition breakdown from `AsteroidData`.
-    if asteroid_class.is_some() {
-        return TierReveal::revealed_triple();
-    }
     // Atmospheric deposits don't carry the per-tier mineral
     // `ResourceReserve` layout — the dossier collapses the 3 rows
     // to dimmed placeholders with the threshold text visible.
     if is_atmospheric {
-        return dimmed;
+        return [
+            TierReveal {
+                gate: TierReveal::gate_for(TierLabel::ProvenCrustal),
+                megatons: None,
+                concentration: None,
+                revealed: false,
+            },
+            TierReveal {
+                gate: TierReveal::gate_for(TierLabel::DeepDeposits),
+                megatons: None,
+                concentration: None,
+                revealed: false,
+            },
+            TierReveal {
+                gate: TierReveal::gate_for(TierLabel::PlanetaryBulk),
+                megatons: None,
+                concentration: None,
+                revealed: false,
+            },
+        ];
     }
+
     // No SurveyState (Phase 1 migration window, or a brand-new body
     // whose SurveyState hasn't been inserted yet). All three rows
     // collapse to dimmed placeholders. The render fn still surfaces
     // the threshold text so the player sees what to survey.
     let Some(state) = state else {
-        return dimmed;
+        return [
+            TierReveal {
+                gate: TierReveal::gate_for(TierLabel::ProvenCrustal),
+                megatons: None,
+                concentration: None,
+                revealed: false,
+            },
+            TierReveal {
+                gate: TierReveal::gate_for(TierLabel::DeepDeposits),
+                megatons: None,
+                concentration: None,
+                revealed: false,
+            },
+            TierReveal {
+                gate: TierReveal::gate_for(TierLabel::PlanetaryBulk),
+                megatons: None,
+                concentration: None,
+                revealed: false,
+            },
+        ];
     };
 
     // Snapshot the dimension tiers once. `DimensionFidelity::tier`
