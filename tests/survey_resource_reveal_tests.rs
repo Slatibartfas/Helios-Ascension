@@ -427,7 +427,7 @@ fn tier_breakdown_for_reserve_is_pure() {
     // ECS state.
     let reserve = reserve_with(100.0, 200.0, 300.0);
     let state = state_with(2, 5, 1);
-    let a = tier_breakdown_for_reserve(reserve, false, Some(&state), None);
-    let b = tier_breakdown_for_reserve(reserve, false, Some(&state), None);
+    let a = tier_breakdown_for_reserve(reserve, false, Some(&state));
+    let b = tier_breakdown_for_reserve(reserve, false, Some(&state));
     assert_eq!(a, b);
 }
