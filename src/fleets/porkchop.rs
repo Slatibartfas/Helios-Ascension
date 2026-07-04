@@ -1409,7 +1409,7 @@ mod tests {
         }
         let cfg = PorkchopConfig::default();
         for (name, dest) in &[("Mars", mars_orbit()), ("Jupiter", jupiter_orbit())] {
-            let inputs = make_inputs(earth_orbit(), dest.clone(), "interplanetary");
+            let inputs = make_inputs(earth_orbit(), *dest, "interplanetary");
             let grid = build_porkchop_grid(&cfg, &inputs);
             let configured = grid.tof_bounds_s;
             let rendered = grid.rendered_tof_bounds_s;
