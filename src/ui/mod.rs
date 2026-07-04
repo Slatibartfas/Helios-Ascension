@@ -106,12 +106,21 @@ use crate::research::{
     ResearchState, ResearchTeam, ResearchTeamCapacity, TechCategory, TechEditData, TechModifierDef,
     TechTreeEditState, TechnologiesData, Technology,
 };
+use crate::ui::launch::LaunchState;
 
 /// Minimum supported window dimensions before showing the low-resolution warning.
 /// The UI is now intended to remain usable at 1280×720, even though larger
 /// windows still provide a better strategic overview.
 const MIN_WINDOW_WIDTH: f32 = 1280.0;
 const MIN_WINDOW_HEIGHT: f32 = 720.0;
+
+/// `run_if` predicate (GRA-329 PR-E): only true once the launch flow
+/// has handed control to the simulation. Wraps every in-game chrome
+/// system so the splash + main menu render without the top menu bar,
+/// dossier, fleet panels, or overlays drawn behind them.
+fn in_game_chrome(launch_state: Res<LaunchState>) -> bool {
+    launch_state.is_in_game()
+}
 
 /// Tracks which ledger category groups are currently expanded in the bodies panel.
 /// Cleared at the start of each `ui_dashboard` frame, then repopulated as the
@@ -623,39 +632,56 @@ impl Plugin for UIPlugin {
                 EguiPrimaryContextPass,
                 (ui_resources_bar, ui_top_menu_bar, ui_time_controls)
                     .chain()
-                    .in_set(UiSystemSet::TopBar),
+                    .in_set(UiSystemSet::TopBar)
+                    .run_if(in_game_chrome),
             )
             .add_systems(
                 EguiPrimaryContextPass,
-                ui_dashboard.in_set(UiSystemSet::MainPanels),
+                ui_dashboard
+                    .in_set(UiSystemSet::MainPanels)
+                    .run_if(in_game_chrome),
             )
             .add_systems(
                 EguiPrimaryContextPass,
-                dossier_panel::ui_planet_dossier.in_set(UiSystemSet::MainPanels),
+                dossier_panel::ui_planet_dossier
+                    .in_set(UiSystemSet::MainPanels)
+                    .run_if(in_game_chrome),
             )
             .add_systems(
                 EguiPrimaryContextPass,
-                ui_research_panels.in_set(UiSystemSet::MainPanels),
+                ui_research_panels
+                    .in_set(UiSystemSet::MainPanels)
+                    .run_if(in_game_chrome),
             )
             .add_systems(
                 EguiPrimaryContextPass,
-                ui_construction_panels.in_set(UiSystemSet::MainPanels),
+                ui_construction_panels
+                    .in_set(UiSystemSet::MainPanels)
+                    .run_if(in_game_chrome),
             )
             .add_systems(
                 EguiPrimaryContextPass,
-                ui_economy_panels.in_set(UiSystemSet::MainPanels),
+                ui_economy_panels
+                    .in_set(UiSystemSet::MainPanels)
+                    .run_if(in_game_chrome),
             )
             .add_systems(
                 EguiPrimaryContextPass,
-                ui_fleets_panel.in_set(UiSystemSet::MainPanels),
+                ui_fleets_panel
+                    .in_set(UiSystemSet::MainPanels)
+                    .run_if(in_game_chrome),
             )
             .add_systems(
                 EguiPrimaryContextPass,
-                ui_personnel_panel.in_set(UiSystemSet::MainPanels),
+                ui_personnel_panel
+                    .in_set(UiSystemSet::MainPanels)
+                    .run_if(in_game_chrome),
             )
             .add_systems(
                 EguiPrimaryContextPass,
-                ui_fleet_action_bar.in_set(UiSystemSet::MainPanels),
+                ui_fleet_action_bar
+                    .in_set(UiSystemSet::MainPanels)
+                    .run_if(in_game_chrome),
             )
             .add_systems(
                 EguiPrimaryContextPass,
@@ -667,7 +693,8 @@ impl Plugin for UIPlugin {
                     ui_transfer_planner_popup,
                     ui_lp_click_handler,
                 )
-                    .in_set(UiSystemSet::Overlays),
+                    .in_set(UiSystemSet::Overlays)
+                    .run_if(in_game_chrome),
             )
             // UI utility systems
             .add_systems(
@@ -687,7 +714,9 @@ impl Plugin for UIPlugin {
             // Must run in Update (inside egui's frame), not PostUpdate (context is closed).
             .add_systems(
                 EguiPrimaryContextPass,
-                capture_egui_panel_bounds.after(UiSystemSet::Overlays),
+                capture_egui_panel_bounds
+                    .after(UiSystemSet::Overlays)
+                    .run_if(in_game_chrome),
             )
             // Notifications toast panel (GRA-136 PR-B). Paints in
             // `EguiPrimaryContextPass`; the chain above
