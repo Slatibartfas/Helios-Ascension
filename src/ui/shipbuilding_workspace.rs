@@ -5226,6 +5226,7 @@ mod keyboard_navigation_tests {
             resource_costs: Vec::new(),
             slot_layout: slots,
             tags: Vec::new(),
+            interstellar_capability: None,
         }
     }
 

@@ -692,6 +692,7 @@ mod tests {
                     },
                 ],
                 tags: vec![],
+                interstellar_capability: None,
             },
         );
         let mk_module = |id: &str, size: &str, cargo: f64, cost: f64| ShipModuleDefinition {
