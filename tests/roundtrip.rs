@@ -107,8 +107,8 @@ fn roundtrip_world_with_components_and_resources() {
     });
 
     // ── Colony + Economy + Survey ──
-    let mut amounts = HashMap::new();
-    amounts.insert(ResourceType::Iron, 1_000_000.0);
+    let mut stockpiles = HashMap::new();
+    stockpiles.insert(ResourceType::Iron, 1_000_000.0);
     let _colony_entity = world.spawn((
         Colony {
             name: "Earth".to_string(),
@@ -117,7 +117,7 @@ fn roundtrip_world_with_components_and_resources() {
             buildings: HashMap::new(),
             development: ColonyDevelopment::default(),
         },
-        LocalStockpile { amounts },
+        LocalStockpile { stockpiles },
         MinimumStockpile::default(),
         SurveyState::default(),
     ));
@@ -127,7 +127,6 @@ fn roundtrip_world_with_components_and_resources() {
         name: "Earth Survey Fleet".to_string(),
         role: Default::default(),
         ships: Vec::new(),
-        current_speed_km_s: 0.0,
     });
 
     // ── Research ──
@@ -179,7 +178,7 @@ fn roundtrip_world_with_components_and_resources() {
         .next()
         .expect("LocalStockpile");
     assert_eq!(
-        stockpile.amounts.get(&ResourceType::Iron).copied(),
+        stockpile.stockpiles.get(&ResourceType::Iron).copied(),
         Some(1_000_000.0)
     );
 
@@ -230,7 +229,6 @@ fn snapshot_populated_world_is_non_empty() {
         name: "Probe".to_string(),
         role: Default::default(),
         ships: Vec::new(),
-        current_speed_km_s: 0.0,
     });
     world.spawn(ResearchProject {
         tech_id: "solar_power".to_string(),
