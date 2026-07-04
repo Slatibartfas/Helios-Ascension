@@ -118,6 +118,21 @@ impl Plugin for PersistencePlugin {
             // ── Economy (covers LocalStockpile + MinimumStockpile) ──
             .register_type::<crate::economy::LocalStockpile>()
             .register_type::<crate::economy::MinimumStockpile>()
+            // ── Enum keys / fields transitively referenced by the
+            //    registered Components above. The `#[reflect(...)]`
+            //    attribute on each enum's `#[derive]` is not enough —
+            //    `register_type` is what binds the type into
+            //    `AppTypeRegistry`, which `DynamicScene::from_world`
+            //    walks to discover what to serialise. Without these,
+            //    every `HashMap<ResourceType, _>` and every enum-typed
+            //    field is silently dropped from snapshots. (Kilo
+            //    CRITICAL on PR #207, CTO HOLD comment 4882357170.) ──
+            .register_type::<crate::economy::ResourceType>()
+            .register_type::<crate::economy::ResourcePhase>()
+            .register_type::<crate::colony::BuildingType>()
+            .register_type::<crate::survey::SurveyDimension>()
+            .register_type::<crate::fleets::FleetRole>()
+            .register_type::<crate::fleets::TransferReferenceFrame>()
             // ── Fleets (covers Fleet + transfer action queue) ───────
             .register_type::<crate::fleets::Fleet>()
             .register_type::<crate::fleets::FleetOrbit>()
