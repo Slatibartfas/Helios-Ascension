@@ -2216,7 +2216,7 @@ pub(super) fn ui_transfer_planner_popup(
     current_system: Res<CurrentStarSystem>,
     nearby_stars: Res<NearbyStarsData>,
     porkchop_config: Res<crate::fleets::PorkchopConfig>,
-// GRA-343 (GRA-328b): interstellar propulsion policy
+    // GRA-343 (GRA-328b): interstellar propulsion policy
     // (phase tolerance + ΔV margin) loaded at Startup from
     // `assets/data/interstellar_propulsion.ron`.  Consumed by
     // `try_build_cross_system_hohmann` to gate the cross-system
@@ -2323,7 +2323,7 @@ pub(super) fn ui_transfer_planner_popup(
                         sim_time.current_timestamp(),
                         course_correction_sc,
                         &porkchop_config,
-// GRA-343: pass the interstellar propulsion policy
+                        // GRA-343: pass the interstellar propulsion policy
                         // through to the planner so the cross-system Hohmann
                         // solver can gate the commit on phase tolerance +
                         // ΔV margin predicates.
