@@ -55,12 +55,12 @@ src/fleets/visuals.rs:3629  |f| Color::srgba(1.0, 0.75, 0.15, 0.70 - 0.35 * f),
 src/fleets/visuals.rs:3634  let fleet_color = Color::srgba(1.0, 0.4, 0.1, 0.9);
 src/fleets/visuals.rs:3925  |f| Color::srgba(1.0, 0.75, 0.15, 0.70 - 0.35 * f),
 src/fleets/visuals.rs:3959  |f| Color::srgba(1.0, 0.75, 0.15, 0.70 - 0.35 * f),
-src/fleets/visuals.rs:3980  Color::srgba(1.0, 0.75, 0.15, 0.70 - 0.35 * f)
-src/fleets/visuals.rs:4008  |f| Color::srgba(1.0, 0.75, 0.15, 0.70 - 0.35 * f),
-src/fleets/visuals.rs:4015  |f| Color::srgba(1.0, 0.75, 0.15, 0.70 - 0.35 * f),
-src/fleets/visuals.rs:4167  Color::srgba(0.3, 1.0, 0.4, 0.80 - 0.35 * f)
-src/fleets/visuals.rs:4172  Color::srgba(1.0, 0.3, 0.8, 0.80 - 0.35 * f)
-src/fleets/visuals.rs:4177  let node_color = Color::srgba(1.0, 1.0, 0.3, 0.9);
+src/fleets/visuals.rs:4018  Color::srgba(1.0, 0.75, 0.15, 0.70 - 0.35 * f)
+src/fleets/visuals.rs:4046  |f| Color::srgba(1.0, 0.75, 0.15, 0.70 - 0.35 * f),
+src/fleets/visuals.rs:4053  |f| Color::srgba(1.0, 0.75, 0.15, 0.70 - 0.35 * f),
+src/fleets/visuals.rs:4205  Color::srgba(0.3, 1.0, 0.4, 0.80 - 0.35 * f)
+src/fleets/visuals.rs:4210  Color::srgba(1.0, 0.3, 0.8, 0.80 - 0.35 * f)
+src/fleets/visuals.rs:4215  let node_color = Color::srgba(1.0, 1.0, 0.3, 0.9);
 src/main.rs:123  color: Color::srgb(0.7, 0.75, 1.0), // Cool blue-white starlight tint
 src/main.rs:134  color: Color::srgb(0.6, 0.65, 0.8), // Slightly cool galactic tint
 src/main.rs:146  commands.insert_resource(ClearColor(Color::srgb(0.01, 0.01, 0.02)));
