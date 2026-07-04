@@ -1012,7 +1012,7 @@
             resource_costs: [(Copper, 0.00005), (RareEarths, 0.000015), (Polymers, 0.00003)],
             attribute_values: [("flex_space", 0.5), ("sensor_range_au", 0.08)],
             tags: ["utility", "ewar"],
-            tier: 1,
+            tier: 3,
         ),
         (
             id: "utility_medlab_small",
@@ -1100,7 +1100,7 @@
             resource_costs: [(Copper, 0.00004), (RareEarths, 0.00001), (Titanium, 0.00002)],
             attribute_values: [("ordnance_capacity_t", 0.5)],
             tags: ["weapon", "beam"],
-            tier: 1,
+            tier: 3,
         ),
         (
             id: "weapon_laser_medium",
@@ -1122,7 +1122,7 @@
             resource_costs: [(Copper, 0.00016), (RareEarths, 0.00005), (Titanium, 0.00008)],
             attribute_values: [("ordnance_capacity_t", 4.0)],
             tags: ["weapon", "beam"],
-            tier: 1,
+            tier: 3,
         ),
         // === BRIDGE MODULES ===
         (
