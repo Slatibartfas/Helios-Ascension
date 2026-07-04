@@ -4062,7 +4062,7 @@ pub(super) fn render_transfer_planner(
         }
 
         // ── Interstellar transfer computation ───────────────────────────────
-        if let Some((system_id, sys_name, distance_ly)) = star_system_snap {
+        if let Some((system_id, ref sys_name, distance_ly)) = star_system_snap {
             use crate::fleets::orbital_mechanics::{TransferOption, AU_IN_METERS};
             // 1 ly = 63 241.077 AU
             const AU_PER_LY: f64 = 63_241.077;
