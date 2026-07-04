@@ -272,7 +272,9 @@ impl MineralDeposit {
 }
 
 /// Component that tracks the survey level of a celestial body
-#[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default, Reflect)]
+#[derive(
+    Component, Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default, Reflect,
+)]
 #[reflect(Component)]
 pub enum SurveyLevel {
     #[default]

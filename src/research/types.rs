@@ -5,7 +5,9 @@ use serde::{Deserialize, Serialize};
 pub type TechnologyId = String;
 
 /// Technology categories for organization in the tech tree
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, Reflect)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, Reflect,
+)]
 pub enum TechCategory {
     Electronics,
     Military,

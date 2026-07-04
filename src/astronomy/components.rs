@@ -401,7 +401,9 @@ pub struct LastLpClick {
 }
 
 /// The type of liquid ocean on a celestial body.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize, Reflect)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize, Reflect,
+)]
 pub enum OceanType {
     /// Liquid water (Earth, potentially Mars in the past)
     Water,

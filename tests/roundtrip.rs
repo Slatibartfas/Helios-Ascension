@@ -21,13 +21,11 @@ use bevy::prelude::*;
 use helios_ascension::astronomy::{
     KeplerOrbit, NearbyStarsData, Selected, SpaceCoordinates, StarSystemData,
 };
-use helios_ascension::colony::{
-    Colony, ColonyDevelopment, ColonyTier, PendingConstructionActions,
-};
+use helios_ascension::colony::{Colony, ColonyDevelopment, ColonyTier, PendingConstructionActions};
 use helios_ascension::economy::{LocalStockpile, MinimumStockpile, ResourceType};
 use helios_ascension::fleets::{ActiveManeuver, Fleet, FleetOrbit};
-use helios_ascension::personnel::Scientist;
 use helios_ascension::persistence::{restore_world, snapshot_world_with_registry, SaveMetadata};
+use helios_ascension::personnel::Scientist;
 use helios_ascension::research::{ResearchProject, ResearchState, TechCategory};
 use helios_ascension::shipbuilding::{RefitProject, ShipConstructionProject};
 use helios_ascension::survey::SurveyState;
@@ -115,9 +113,7 @@ fn roundtrip_world_with_components_and_resources() {
             buildings: HashMap::new(),
             development: ColonyDevelopment::default(),
         },
-        LocalStockpile {
-            amounts,
-        },
+        LocalStockpile { amounts },
         MinimumStockpile::default(),
         SurveyState::default(),
     ));
@@ -157,7 +153,10 @@ fn roundtrip_world_with_components_and_resources() {
     // Astronomy
     let mut orbit_q = restored.world.query::<&KeplerOrbit>();
     let orbits: Vec<&KeplerOrbit> = orbit_q.iter(&restored.world).collect();
-    assert!(orbits.len() >= 2, "at least 2 KeplerOrbit entities expected");
+    assert!(
+        orbits.len() >= 2,
+        "at least 2 KeplerOrbit entities expected"
+    );
     let earth_orbit = orbits
         .iter()
         .find(|o| (o.semi_major_axis - 1.0).abs() < 1e-9)
@@ -242,8 +241,8 @@ fn snapshot_populated_world_is_non_empty() {
 
     let metadata = SaveMetadata::new_now(42, 0, "0.5.0");
     let registry = world.resource::<AppTypeRegistry>().clone();
-    let ron_text = snapshot_world_with_registry(&world, &registry, metadata)
-        .expect("snapshot must succeed");
+    let ron_text =
+        snapshot_world_with_registry(&world, &registry, metadata).expect("snapshot must succeed");
     assert!(!ron_text.is_empty(), "snapshot RON must not be empty");
     for needle in &[
         "KeplerOrbit",
@@ -273,8 +272,7 @@ fn roundtrip_preserves_empty_world() {
     let ron_text = snapshot_world_with_registry(&world, &registry, metadata)
         .expect("empty world snapshot must succeed");
 
-    let restored = restore_world(&ron_text, build_world)
-        .expect("empty world restore must succeed");
+    let restored = restore_world(&ron_text, build_world).expect("empty world restore must succeed");
 
     let research = restored
         .world
