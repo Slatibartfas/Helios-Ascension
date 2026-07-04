@@ -4111,7 +4111,7 @@ pub(super) fn render_transfer_planner(
             if needs_rebuild {
                 if let Some(grid) = try_build_cross_system_hohmann(
                     system_id,
-                    &sys_name,
+                    sys_name,
                     distance_ly,
                     nearby_stars,
                     elapsed,
