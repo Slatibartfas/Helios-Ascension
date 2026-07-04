@@ -686,7 +686,7 @@ pub fn handle_body_hover(
     let hover_is_body = new_hover.is_some();
     // Use crosshair only while the transfer planner popup is open.
     // A selected fleet that is merely being inspected (no active planning) keeps the default cursor.
-    let planner_mode_active = fleet_ui_state.show_transfer_popup;
+    let planner_open = fleet_ui_state.show_transfer_popup;
     let currently_hovered: Vec<Entity> = hovered_query.iter().collect();
 
     // Remove Hovered from entities no longer under the cursor
@@ -705,7 +705,7 @@ pub fn handle_body_hover(
 
     if let Ok(ctx) = egui_contexts.ctx_mut() {
         ctx.output_mut(|o| {
-            o.cursor_icon = if planner_mode_active {
+            o.cursor_icon = if planner_open {
                 bevy_egui::egui::CursorIcon::Crosshair
             } else if hover_is_body {
                 bevy_egui::egui::CursorIcon::PointingHand
