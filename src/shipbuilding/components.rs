@@ -8,7 +8,7 @@ use crate::economy::ResourceType;
 use crate::fleets::{PropulsionType, ShipClass};
 
 /// Module choice for a specific hull slot.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Reflect)]
 pub struct ShipModuleSelection {
     pub slot_id: String,
     pub module_id: String,
