@@ -20,9 +20,7 @@ fn load_shipbuilding_data_for_test() -> ShipbuildingData {
         .insert_resource(SimulationTime::new())
         .add_plugins(ShipbuildingPlugin);
     app.update();
-    app.world()
-        .resource::<ShipbuildingData>()
-        .clone()
+    app.world().resource::<ShipbuildingData>().clone()
 }
 
 #[test]

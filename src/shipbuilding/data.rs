@@ -262,7 +262,10 @@ impl ShipbuildingData {
             true,
         );
         let premium = if with_interstellar {
-            hull.interstellar_capability.as_ref().map(|c| c.bp_premium).unwrap_or(1.0)
+            hull.interstellar_capability
+                .as_ref()
+                .map(|c| c.bp_premium)
+                .unwrap_or(1.0)
         } else {
             1.0
         };
