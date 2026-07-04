@@ -19,10 +19,11 @@
 //!
 //! - Runs in `Update`, **not** `EguiPrimaryContextPass` — pure
 //!   resource mutation, no egui context required.
-//! - Avoids `Res<T>` + `ResMut<T>` on the same system param by
-//!   deref'ing the `ResMut` up front (Bevy 0.18 forbids the two
-//!   borrows in the same system — see CLAUDE.md "Bevy 0.18
-//!   resource conflicts").
+//! - One-frame lag is acceptable: the egui menu render writes to
+//!   `PendingLaunchActions` in `EguiPrimaryContextPass`; the next
+//!   frame's `Update` consumer reads + clears it; the chrome gate
+//!   in `EguiPrimaryContextPass` of that next frame sees
+//!   `LaunchState::InGame` and the chrome appears.
 
 use bevy::app::AppExit;
 use bevy::prelude::*;
@@ -38,9 +39,12 @@ pub struct PendingLoadSave(pub std::path::PathBuf);
 /// Bevy system: consume `PendingLaunchActions` and advance
 /// `LaunchState` accordingly. Clears the queue on consumption.
 ///
-/// Runs in `Update` after the egui render pass so the menu button
-/// press is reflected on the very next frame. Idempotent: an empty
-/// queue is a no-op.
+/// Runs in `Update` (which executes before `EguiPrimaryContextPass`
+/// in Bevy 0.18's schedule order) so the menu button press from
+/// the previous frame's egui pass is reflected next frame. The
+/// chrome `run_if(in_game_chrome)` predicate evaluates against
+/// the new `LaunchState::InGame` value in the same frame the
+/// consumer fires. Idempotent: an empty queue is a no-op.
 pub fn consume_launch_actions_system(
     mut launch_state: ResMut<LaunchState>,
     mut actions: ResMut<PendingLaunchActions>,
