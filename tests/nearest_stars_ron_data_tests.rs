@@ -10,9 +10,10 @@
 use bevy::prelude::*;
 
 use helios_ascension::astronomy::{
-    advance_position, hill_sphere_au, NearbyStarsPlugin, StarSystemsEphemeris,
-    EPOCH_BEACON_GAME_START_SIM_S, GM_SUN,
+    advance_position, hill_sphere_au, nearby_stars::NearbyStarsPlugin, StarSystemsEphemeris,
+    EPOCH_BEACON_GAME_START_SIM_S,
 };
+use helios_ascension::fleets::GM_SUN;
 
 fn load_catalog_for_test() -> StarSystemsEphemeris {
     let mut app = App::new();
