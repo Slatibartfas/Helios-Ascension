@@ -124,8 +124,7 @@ pub struct ShipDesignAssignment {
 }
 
 /// UI-originated shipbuilding actions to be processed in the update schedule.
-#[derive(Resource, Debug, Clone, Default, Reflect)]
-#[reflect(Resource)]
+#[derive(Resource, Debug, Clone, Default)]
 pub struct PendingShipbuildingActions {
     pub queue_projects: Vec<QueueShipConstructionAction>,
     pub queue_refits: Vec<QueueRefitAction>,

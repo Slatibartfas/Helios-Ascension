@@ -122,7 +122,6 @@ impl Plugin for PersistencePlugin {
             .register_type::<crate::fleets::Fleet>()
             .register_type::<crate::fleets::FleetOrbit>()
             .register_type::<crate::fleets::ActiveManeuver>()
-            .register_type::<crate::fleets::PendingFleetActions>()
             // ── Research (covers projects + ResearchState resource) ─
             .register_type::<crate::research::ResearchProject>()
             .register_type::<crate::research::ResearchState>()

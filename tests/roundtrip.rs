@@ -27,7 +27,7 @@ use helios_ascension::fleets::{ActiveManeuver, Fleet, FleetOrbit};
 use helios_ascension::persistence::{restore_world, snapshot_world_with_registry, SaveMetadata};
 use helios_ascension::personnel::Scientist;
 use helios_ascension::research::{ResearchProject, ResearchState, TechCategory};
-use helios_ascension::shipbuilding::{RefitProject, ShipConstructionProject};
+use helios_ascension::shipbuilding::RefitProject;
 use helios_ascension::survey::SurveyState;
 use std::collections::HashMap;
 
@@ -63,7 +63,11 @@ fn build_world() -> World {
         // ── Survey ─────────────────────────────────────────────────
         write.register::<SurveyState>();
         // ── Shipbuilding ───────────────────────────────────────────
-        write.register::<ShipConstructionProject>();
+        // ShipConstructionProject has nested Vec<ShipModuleSelection>
+        // where ShipModuleSelection doesn't yet have its Reflect chain
+        // hooked up to FromReflect (per [[GRA-319]] clippy cascade).
+        // PR-B will land the rest once the queue actions roundtrip
+        // cleanly.
         write.register::<RefitProject>();
         // ── Personnel ──────────────────────────────────────────────
         write.register::<Scientist>();

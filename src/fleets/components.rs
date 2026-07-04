@@ -684,7 +684,7 @@ pub struct AbortToOriginAction {
 /// all serialise cleanly.  `StartTransferAction::transfer` carries
 /// `#[reflect(ignore)]` so a save restores the queue but loses the in-flight
 /// plan; the planner rebuilds it on reload.
-#[derive(Debug, Clone, Default, Reflect)]
+#[derive(Debug, Clone, Reflect)]
 pub struct PlannedTransfer {
     /// Origin body entity.
     pub origin_body: Entity,
