@@ -2317,6 +2317,27 @@ mod tests {
             scientist_ids: vec![99],
         });
 
+        // Bevy 0.18 `Messages<E>` uses a double-buffer; in
+        // production the `Messages::update_system` that runs at
+        // the top of each frame swaps the buffers so the
+        // dispatcher's `update_drain` call sees the events that
+        // were written in the prior frame. This test calls
+        // `dispatch_survey_mission` directly with no frame
+        // boundary in between, so we must simulate that swap
+        // here — otherwise the dispatcher's `update_drain` would
+        // drain the empty buffer and the dispatch would be
+        // silently dropped before reaching the per-scientist
+        // gate, and the `assert!(state.active_missions.is_empty())`
+        // below would pass vacuously (true for the wrong reason).
+        //
+        // GRA-145 (QA weekly escalation from GRA-120 / c0f0717):
+        // this is the sibling fix to the one applied to
+        // `mixed_injured_healthy_team_is_dropped_not_partial_dispatched`.
+        // Do NOT remove the `.update()` call.
+        world
+            .resource_mut::<Messages<DispatchSurveyMission>>()
+            .update();
+
         // Run the dispatch system.
         dispatch_survey_mission(&mut world);
 
