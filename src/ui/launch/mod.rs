@@ -6,19 +6,27 @@
 //!
 //! PR-A (GRA-311) shipped the **skeleton**: types, plugin, RON manifest
 //! loader, [`PersistentSettings`] + userdata helpers, and the read-only
-//! [`SaveIndex`] stub. PR-B / GRA-316 will own splash rendering + the
-//! `Splash → MainMenu` transition; this PR-C (GRA-317) owns the main
-//! menu shell; PR-D / GRA-318 will own subview content (New / Load /
-//! Settings) and the `LoadGame → InGame` transition.
+//! [`SaveIndex`] stub. PR-B / GRA-316 owns splash rendering + the
+//! `Splash → MainMenu` transition; PR-C (GRA-317) owns the main menu
+//! shell. PR-D (GRA-318) wires the three subviews (New / Load /
+//! Settings) and the `kickoff_world_system` that consumes
+//! `PendingLaunchActions` once `LaunchState` reaches `InGame`.
 //!
 //! Per [[feedback-egui-render-tests]], no egui render tests are added
-//! here — the PR-A / PR-C test plans are type/IO round-trips only.
+//! here — the PR-A / PR-C / PR-D test plans are type/IO round-trips
+//! only.
 
 pub mod manifest;
 pub mod menu;
 pub mod save_index;
 pub mod splash;
 pub mod userdata;
+
+pub mod subview_kickoff;
+pub mod subview_load_game;
+pub mod subview_manifests;
+pub mod subview_new_game;
+pub mod subview_settings;
 
 use bevy::prelude::*;
 use bevy_egui::EguiPrimaryContextPass;
@@ -28,6 +36,7 @@ pub use manifest::{load_launch_ui_manifest, LaunchUiManifest};
 pub use menu::main_menu_render_system;
 pub use save_index::{SaveHeader, SaveIndex, SaveSummary, SAVES_SUBDIR};
 pub use splash::{ui_splash_system, SplashImage, SplashTimer};
+pub use subview_manifests::{load_difficulty_presets_manifest, load_seed_copy_manifest};
 pub use userdata::{
     load_persistent_settings_from, resolve_userdata_dir, save_persistent_settings_to,
     PersistentSettings, SETTINGS_FILE_NAME,
@@ -115,23 +124,27 @@ pub struct NewGameRequest {
 /// `LaunchSystemSet::Splash`; PR-C (GRA-317) does the same for
 /// `LaunchSystemSet::Menu` so the egui `main_menu_render_system` can
 /// write to the active egui context (the in-game tooltip hard-rule,
-/// CLAUDE.md "Egui Scheduling").
+/// CLAUDE.md "Egui Scheduling"). PR-D (GRA-318) reuses the `Menu`
+/// registration for the three subview render systems + the
+/// `kickoff_world_system`.
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum LaunchSystemSet {
     /// Splash rendering + auto-dismiss logic. PR-B.
     Splash,
-    /// Main menu + subview rendering + key bindings. PR-C / PR-D.
+    /// Main menu + subview rendering + key bindings + kickoff
+    /// transition. PR-C / PR-D.
     Menu,
 }
 
 /// Plugin that wires the launch-flow skeleton into Bevy.
 ///
-/// PR-A registered the resources, the manifest loader, the
+/// PR-A registered resources, the manifest loader, the
 /// `PersistentSettings` reader, and the `SaveIndex` scanner. PR-B
 /// (GRA-316) layered the splash render + `EguiPrimaryContextPass`
-/// binding for `LaunchSystemSet::Splash` on top. PR-C (GRA-317) does
-/// the same for `LaunchSystemSet::Menu` (the main menu shell; PR-D /
-/// GRA-318 will reuse the registration for the subview content).
+/// binding for `LaunchSystemSet::Splash` on top. PR-C (GRA-317) did
+/// the same for `LaunchSystemSet::Menu` (the main menu shell). PR-D
+/// (GRA-318) wires the three subview render systems and the
+/// `kickoff_world_system` into the same set.
 pub struct LaunchPlugin;
 
 impl Plugin for LaunchPlugin {
@@ -141,9 +154,15 @@ impl Plugin for LaunchPlugin {
             .init_resource::<PersistentSettings>()
             .init_resource::<SplashTimer>()
             .init_resource::<SplashImage>()
-            // RON manifest from assets/data/launch_ui.ron (LGD-owned
-            // content per GRA-310).
+            // RON manifests from assets/data/launch_*.ron (LGD-owned
+            // content per GRA-310). Order matters: launch_ui must
+            // load before the menu render reads it; the preset +
+            // seed_copy manifests must load before the subview
+            // render systems read them. Bevy's `Startup` schedule
+            // respects insertion order.
             .add_systems(Startup, load_launch_ui_manifest)
+            .add_systems(Startup, load_difficulty_presets_manifest)
+            .add_systems(Startup, load_seed_copy_manifest)
             // Save index scanner — reads the saves directory at
             // Startup so the menu has its list before the first
             // frame draws.
@@ -152,6 +171,10 @@ impl Plugin for LaunchPlugin {
             // can join without re-importing the schedule type. PR-B
             // extended the `Splash` set into `EguiPrimaryContextPass`
             // for the egui render path; PR-C mirrors that for `Menu`.
+            // PR-D places the kickoff on the same pass because the
+            // queue is mutated by the egui subviews in the same pass
+            // and the kickoff must observe the latest values within
+            // the frame.
             .configure_sets(
                 Update,
                 (LaunchSystemSet::Splash, LaunchSystemSet::Menu).chain(),
@@ -167,6 +190,16 @@ impl Plugin for LaunchPlugin {
                     main_menu_render_system.in_set(LaunchSystemSet::Menu),
                 ),
             );
+
+        // PR-D subviews: each owns its render system + the resource
+        // it needs and registers them on `EguiPrimaryContextPass`
+        // inside `LaunchSystemSet::Menu`. The render systems gate
+        // themselves on `LaunchState` so the `NewGame` subview
+        // no-ops when the player is on `LoadGame`.
+        subview_new_game::register_new_game_subview(app);
+        subview_load_game::register_load_game_subview(app);
+        subview_settings::register_settings_subview(app);
+        subview_kickoff::register_kickoff_system(app);
     }
 }
 
