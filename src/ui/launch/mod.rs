@@ -148,7 +148,7 @@ impl Plugin for LaunchPlugin {
             // Startup so the menu has its list before the first
             // frame draws.
             .add_systems(Startup, load_save_index_system)
-// PR-A reserved the set chain in `Update` so other systems
+            // PR-A reserved the set chain in `Update` so other systems
             // can join without re-importing the schedule type. PR-B
             // extended the `Splash` set into `EguiPrimaryContextPass`
             // for the egui render path; PR-C mirrors that for `Menu`.
@@ -156,7 +156,7 @@ impl Plugin for LaunchPlugin {
                 Update,
                 (LaunchSystemSet::Splash, LaunchSystemSet::Menu).chain(),
             )
-.configure_sets(
+            .configure_sets(
                 EguiPrimaryContextPass,
                 (LaunchSystemSet::Splash, LaunchSystemSet::Menu),
             )
