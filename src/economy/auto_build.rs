@@ -569,6 +569,7 @@ mod tests {
                     },
                 ],
                 tags: vec![],
+                interstellar_capability: None,
             },
         );
         data.modules.insert(

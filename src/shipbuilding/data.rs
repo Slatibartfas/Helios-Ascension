@@ -36,6 +36,22 @@ fn default_progression_tier() -> u8 {
     1
 }
 
+/// Per-hull cross-system capability hint (GRA-333).
+///
+/// `bp_premium` is a pure economic modifier applied to `effective_hull_build_points`
+/// when the player opts into the interstellar build preset in the transfer planner.
+/// It does **not** change ΔV — ΔV is always computed per-fleet from fitted drive
+/// modules via `Fleet::max_delta_v_ms()` (`src/fleets/components.rs`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InterstellarCapability {
+    /// Whether the hull's `slot_layout` must include at least one Large
+    /// FlightSystems slot to be considered cross-system-capable.
+    pub needs_torch_slot: bool,
+    /// BP multiplier applied when the planner passes `with_interstellar: true`.
+    /// Range `[1.0, 2.0]`. Bounded by `hull_interstellar_capability_bp_premium_bounded`.
+    pub bp_premium: f64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ShipHullDefinition {
     pub id: String,
@@ -64,6 +80,10 @@ pub struct ShipHullDefinition {
     pub slot_layout: Vec<HullSlotDefinition>,
     #[serde(default)]
     pub tags: Vec<String>,
+    /// Optional cross-system capability hint (GRA-333). `None` means the hull
+    /// is not in scope for the transfer planner's cross-system row.
+    #[serde(default)]
+    pub interstellar_capability: Option<InterstellarCapability>,
 }
 
 impl ShipHullDefinition {
@@ -226,13 +246,27 @@ pub struct ShipbuildingData {
 }
 
 impl ShipbuildingData {
-    pub fn effective_hull_build_points(&self, hull: &ShipHullDefinition) -> f64 {
-        scale_build_points(
+    /// Effective build points for a hull, optionally with the interstellar premium
+    /// applied (GRA-333). When `with_interstellar` is true and the hull has an
+    /// `interstellar_capability` set, the result is multiplied by `bp_premium`.
+    /// Intra-system callers pass `false` and get the legacy base BP back.
+    pub fn effective_hull_build_points(
+        &self,
+        hull: &ShipHullDefinition,
+        with_interstellar: bool,
+    ) -> f64 {
+        let base = scale_build_points(
             hull.base_build_points,
             hull.base_dry_mass_t,
             hull.tier,
             true,
-        )
+        );
+        let premium = if with_interstellar {
+            hull.interstellar_capability.as_ref().map(|c| c.bp_premium).unwrap_or(1.0)
+        } else {
+            1.0
+        };
+        base * premium
     }
 
     pub fn effective_module_build_points(&self, module: &ShipModuleDefinition) -> f64 {
@@ -343,7 +377,7 @@ impl ShipbuildingData {
         let mut summary = ShipDesignSummary {
             hull_name: hull.display_name.clone(),
             ship_class: hull.class,
-            build_points: self.effective_hull_build_points(hull),
+            build_points: self.effective_hull_build_points(hull, false),
             dry_mass_t: hull.base_dry_mass_t,
             launch_mass_t: hull.base_dry_mass_t,
             resource_costs: self.effective_hull_resource_costs(hull),
@@ -660,6 +694,7 @@ mod tests {
                     rotation_deg: None,
                 }],
                 tags: Vec::new(),
+                interstellar_capability: None,
             },
         );
         data.modules.insert(
@@ -730,6 +765,7 @@ mod tests {
             resource_costs: Vec::new(),
             slot_layout: Vec::new(),
             tags: Vec::new(),
+            interstellar_capability: None,
         };
 
         assert!(!hull.supports_construction_mode(ConstructionMode::SurfaceLaunch));
