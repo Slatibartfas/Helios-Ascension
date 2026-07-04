@@ -664,7 +664,7 @@ impl FailureKind {
 /// `roll_typed_mission_outcome` (PR-G) iterates these instead of
 /// consulting the hardcoded `MissionFailureReason::probability`
 /// table.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Reflect)]
 pub struct FailureMode {
     /// Which kind of failure this is. The kind's payload
     /// (recovery mission id, confidence penalty, etc.) is read
