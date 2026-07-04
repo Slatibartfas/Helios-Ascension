@@ -5369,8 +5369,16 @@ pub(super) fn render_transfer_planner(
                                 // current sim time, producing a
                                 // trajectory whose t_dep drifts by
                                 // `shift_s` every time the buffer
-                                // rebuilds.
-                                let planned_departure_time_s = grid.t_dep_bounds_s.0 + cell.t_dep_s;
+                                // rebuilds.  Note: `grid.t_dep_bounds_s.0`
+                                // is 0 in the rotating-buffer build (a
+                                // nominal anchor — the *absolute* t_dep
+                                // is `elapsed + t_dep_s`, the same as
+                                // before the fix), so reading it would
+                                // underflow the trajectory by `elapsed`
+                                // seconds.  Use `elapsed + t_dep_s` so
+                                // the trajectory stays at the user's
+                                // chosen cell across rotations.
+                                let planned_departure_time_s = elapsed + cell.t_dep_s;
                                 // Sync `departure_offset_days` so the
                                 // side-panel "Arrives:" timestamp and
                                 // `waiting_orbit_count` reflect the

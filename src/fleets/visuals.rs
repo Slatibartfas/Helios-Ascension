@@ -3961,6 +3961,44 @@ pub fn draw_fleet_transfer_preview(
                 draw_ghost_body(&mut gizmos, dp_absolute, dest_ring_r, dest_visual_r, false);
                 return;
             }
+            // Rebase the orbit's mean_anomaly_epoch to the current
+            // sim time so the trajectory stays at the planet's
+            // current position.  The orbit was constructed by
+            // `build_planned_transfer` at the buffer's build time
+            // (cell.transfer_orbit.mean_anomaly_epoch corresponds to
+            // mean_anomaly at sim time `grid.t_dep_bounds_s.0 +
+            // cell.t_dep_s`), so `pt.transfer_orbit.mean_anomaly_epoch`
+            // by itself is anchored at the buffer's build time and
+            // goes stale as the sim advances — the trajectory visually
+            // "stays" while the planet moves on, especially at 1 yr/s
+            // where one frame's worth of staleness is a full orbit.
+            //
+            // The polyline samples at sim times `current_sim_s +
+            // cell.t_dep_s + frac * duration_s` (center predicted at
+            // each sample).  The orbit's mean_anomaly_epoch matches
+            // the buffer's build epoch `grid.t_dep_bounds_s.0 +
+            // cell.t_dep_s`, so the rebased start mean_anomaly is
+            //
+            //     mean_anomaly_epoch + mean_motion * (current_sim_s - grid.t_dep_bounds_s.0)
+            //
+            // — `cell.t_dep_s` cancels between the polyline's center
+            // time and the orbit's epoch time, leaving only the
+            // since-buffer-build shift.
+            //
+            // For the legacy (non-porkchop) path the orbit's
+            // `mean_anomaly_epoch` is a 0/π outward/inward flag, not
+            // a Lambert-derived phase; `ui.porkchop_grid` is `None`
+            // so the shift becomes `current_sim_s - 0 =
+            // current_sim_s`, which gives the orbit's natural mean
+            // motion at the current sim time.  The legacy path's
+            // departure_offset_s mismatch is unrelated to this fix.
+            let orbit_epoch_sim_s = fleet_ui_state
+                .porkchop_grid
+                .as_ref()
+                .map(|g| g.t_dep_bounds_s.0)
+                .unwrap_or(0.0);
+            let preview_start_mean_anomaly = pt.transfer_orbit.mean_anomaly_epoch
+                + pt.transfer_orbit.mean_motion * (current_sim_s - orbit_epoch_sim_s);
             let visual_points = build_visual_sampled_transfer_polyline_moving_center(
                 &pt.transfer_orbit,
                 pt.orbit_center,
@@ -3972,7 +4010,7 @@ pub fn draw_fleet_transfer_preview(
                 &body_query,
                 &kepler_query,
                 &amp_query,
-                pt.transfer_orbit.mean_anomaly_epoch,
+                preview_start_mean_anomaly,
                 total_ma_travel,
                 160,
             );
