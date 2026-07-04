@@ -524,8 +524,7 @@ impl ActiveManeuver {
 
 /// Resource holding fleet management actions queued by the UI, to be executed
 /// in the `Update` schedule where ECS mutation is safe.
-#[derive(Resource, Default, Reflect)]
-#[reflect(Resource)]
+#[derive(Resource, Default)]
 pub struct PendingFleetActions {
     /// Requests to spawn new fleets from a launch site.
     pub spawn_fleets: Vec<SpawnFleetAction>,
@@ -647,12 +646,11 @@ pub struct SpawnFleetAction {
 }
 
 /// Request to start a previously computed orbital transfer.
-#[derive(Debug, Clone, Reflect)]
+#[derive(Debug, Clone)]
 pub struct StartTransferAction {
     /// The fleet entity that should perform the transfer.
     pub fleet: Entity,
     /// Fully computed transfer details.
-    #[reflect(ignore)]
     pub transfer: PlannedTransfer,
     /// Fuel (tonnes) to deduct immediately as an abort/correction burn penalty.
     /// Zero for transfers from a stable orbit; non-zero for mid-transit course corrections.
