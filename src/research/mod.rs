@@ -18,7 +18,7 @@ pub mod types;
 
 pub use components::{
     ComponentDesign, EngineeringFacility, EngineeringProject, ResearchBuilding, ResearchProject,
-    ResearchTeam, ResearchTeamCapacity,
+    ResearchTeam, ResearchTeamCapacity, TechModifier,
 };
 pub use data::{load_technologies, TechnologiesData};
 pub use events::ResearchEvent;
@@ -27,7 +27,9 @@ pub use systems::{
     check_unlocked_technologies, initialize_baseline_engineering, initialize_baseline_technology,
     update_research_points, ResearchState,
 };
-pub use types::{ModifierType, TechCategory, TechModifierDef, Technology, TechnologyId};
+pub use types::{
+    ComponentDefinition, ModifierType, TechCategory, TechModifierDef, Technology, TechnologyId,
+};
 
 /// Debug settings for research system
 #[derive(Resource, Debug, Clone, Default, Reflect)]

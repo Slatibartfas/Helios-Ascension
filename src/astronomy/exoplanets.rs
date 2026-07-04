@@ -200,7 +200,8 @@ impl ConfirmedPlanet {
 
 /// Marker component indicating this planet is a confirmed exoplanet (real data)
 /// as opposed to a procedurally generated planet
-#[derive(Component, Debug, Clone, Copy)]
+#[derive(Component, Debug, Clone, Copy, Reflect)]
+#[reflect(Component)]
 pub struct RealPlanet;
 
 #[cfg(test)]

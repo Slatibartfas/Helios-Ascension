@@ -22,13 +22,15 @@ pub mod systems;
 
 pub use components::{
     calculate_general_colony_cost, infer_ocean_properties, AtmosphereComposition, AtmosphericGas,
-    CometTail, Destroyed, FloatingOrigin, Hovered, KeplerOrbit, LagrangePointMarkers, LastLpClick,
-    LocalOrbitAmplification, LpMarkerInfo, OceanProperties, OceanType, OrbitCenter, OrbitPath,
-    Selected, SpaceCoordinates, StellarProperties, SurfaceTemperature,
+    CometTail, CurrentStarSystem, Destroyed, FloatingOrigin, HoverMarker, Hovered,
+    HyperbolicTrajectory, KeplerOrbit, LagrangePointMarkers, LastLpClick, LocalOrbitAmplification,
+    LpMarkerInfo, MarkerDot, MarkerOwner, OceanProperties, OceanType, OrbitCenter, OrbitPath,
+    Selected, SelectionMarker, SpaceCoordinates, StellarProperties, SurfaceTemperature, SystemId,
 };
 pub use ephemeris::{calculate_position_for_body, calculate_positions_at_timestamp};
 pub use exoplanets::{ConfirmedPlanet, RealPlanet};
 pub use lagrange::{draw_lagrange_point_rings, handle_lp_hover};
+pub use nearby_stars::{BinaryOrbitData, NearbyStarsData, PlanetData, StarData, StarSystemData};
 pub use procedural::{
     calculate_frost_line, generate_procedural_atmosphere, map_star_to_system_architecture,
     map_star_to_system_architecture_with_orbit_limits, AsteroidBelt, BinaryCompanionContext,

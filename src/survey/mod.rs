@@ -31,11 +31,12 @@ pub use components::{
     MIN_SITES_PER_BODY,
 };
 pub use data::{
-    load_mission_templates, load_recovery_missions, AnalysisQueueIndex, MiningEfficiencyRegistry,
-    MiningEfficiencyRow, ModderAnomalyDef, ModderDimensionDef, RecoveryMission,
-    RecoveryMissionKind, RecoveryMissionRegistry, ScientistSummary, SurveyAnomalyRegistry,
-    SurveyDimensionRegistry, SurveyInstrumentDef, SurveyInstrumentRegistry, SurveyMissionTemplate,
-    SurveyMissionTemplates, SurveyMissionTemplatesFile,
+    load_mission_templates, load_recovery_missions, AnalysisJobRef, AnalysisQueueIndex, AnomalyDef,
+    AnomalyEffect, MiningEfficiencyRegistry, MiningEfficiencyRow, ModderAnomalyDef,
+    ModderDimensionDef, ReasonTag, RecoveryMission, RecoveryMissionKind, RecoveryMissionRegistry,
+    ScientistSummary, SurveyAnomalyRegistry, SurveyDimensionRegistry, SurveyInstrumentDef,
+    SurveyInstrumentRegistry, SurveyMissionTemplate, SurveyMissionTemplates,
+    SurveyMissionTemplatesFile,
 };
 pub use events::{
     AbortSurveyMission, DismissFailedMission, DismissSurveyMission, DispatchSurveyMission,
@@ -49,10 +50,11 @@ pub use systems::{
     INJURY_DURATION_DAYS,
 };
 pub use types::{
-    axis_advance_rate_for_tier, mining_yield_delta_for_tier, AnomalyType, FailureKind, FailureMode,
-    MissionFailureReason, MissionStatus, SurveyDimension, SurveyMethod, CONFIDENCE_DECAY_PER_YEAR,
-    DEFAULT_INJURY_DURATION_DAYS, DEFAULT_SOLAR_STORM_PENALTY, INITIAL_CONFIDENCE, MAX_TIER,
-    STALE_CONFIDENCE, SURVEY_DAYS_PER_YEAR, WARNING_CONFIDENCE,
+    axis_advance_rate_for_tier, mining_yield_delta_for_tier, AnomalyState, AnomalyType,
+    EvidenceKind, EvidencePoint, FailureKind, FailureMode, MissionFailureReason, MissionStatus,
+    SurveyDimension, SurveyMethod, CONFIDENCE_DECAY_PER_YEAR, DEFAULT_INJURY_DURATION_DAYS,
+    DEFAULT_SOLAR_STORM_PENALTY, INITIAL_CONFIDENCE, MAX_TIER, STALE_CONFIDENCE,
+    SURVEY_DAYS_PER_YEAR, WARNING_CONFIDENCE,
 };
 pub use visibility::{estimate_with_fidelity, is_stale, DepositEstimate, DepositVisibility};
 
