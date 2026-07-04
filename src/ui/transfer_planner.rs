@@ -2,6 +2,13 @@ use super::time::format_timestamp_date_time;
 use super::*;
 use crate::fleets::orbital_mechanics::calculate_cross_star_ballistic_options;
 use crate::fleets::porkchop::{build_grid_for_body_target, build_rotating_buffer_for_body_target};
+// GRA-343: explicit import — `super::*` does not bring the new
+// resource type from `crate::fleets` into this module's namespace
+// for fn-signature type aliases.  CrossSystemGrid / CrossSystemCell
+// ARE pulled in via `super::*` (they're declared in `super::mod`),
+// but `InterstellarPropulsionPolicy` is re-exported through
+// `crate::fleets` and needs the explicit path.
+use crate::fleets::InterstellarPropulsionPolicy;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PlannerTransferFrame {
