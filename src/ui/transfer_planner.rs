@@ -1143,13 +1143,13 @@ fn try_build_cross_system_hohmann(
     // ── ΔV budget.  At ballistic Hohmann speeds across multi-light-
     // year distances, the actual ΔV required is dominated by the
     // hyperbolic escape at the origin and capture at the
-    // destination.  Use `12 km/s` per AU-of-distance as a
-    // conservative analytical estimate: this is the canonical
-    // "1 km/s per AU of departure" rule for deep-space missions
-    // (GRA-154 L-4 / GRA-328a fallback).  For 4.37 ly (Alpha Centauri)
-    // that yields ≈ 52 km/s, matching the order of magnitude a
-    // nuclear-pulse or fusion-torch drive would need.
-    let dv_required_ms = 1_000.0 * (1.0 + distance_au * 1.0);
+    // destination.  Use `12 km/s per light-year of distance` as a
+    // conservative analytical estimate (GRA-154 L-4 / GRA-328a
+    // fallback scaled to interstellar distances).  For 4.37 ly
+    // (Alpha Centauri) that yields ≈ 53 km/s, matching the order
+    // of magnitude a nuclear-pulse or fusion-torch drive would
+    // need.
+    let dv_required_ms = 1_000.0 * (1.0 + (distance_ly as f64) * 12.0);
 
     // ── Margin check.  If the fleet cannot meet the human margin,
     // the cell is rendered as "infeasible" with the reason in the
