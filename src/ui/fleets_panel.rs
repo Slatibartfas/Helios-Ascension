@@ -2222,6 +2222,11 @@ pub(super) fn ui_transfer_planner_popup(
     // `try_build_cross_system_hohmann` to gate the cross-system
     // Hohmann commit on the human-vs-AI margin predicates.
     interstellar_policy: Res<crate::fleets::InterstellarPropulsionPolicy>,
+    // Ship hull definitions registry (GRA-333).  Used to read the active
+    // fleet's hull's `interstellar_capability` field so the interstellar
+    // entries can be gated when the hull is not in scope for cross-system
+    // transfers.  GRA-328c.
+    shipbuilding_data: Res<crate::shipbuilding::ShipbuildingData>,
     real_time: Res<Time<Real>>,
 ) {
     if !fleet_ui_state.show_transfer_popup {
@@ -2323,6 +2328,8 @@ pub(super) fn ui_transfer_planner_popup(
                         // solver can gate the commit on phase tolerance +
                         // ΔV margin predicates.
                         &interstellar_policy,
+                        // GRA-328c: ship hull registry for the parent-star gate.
+                        &shipbuilding_data,
                         real_now_s,
                     );
                 });
