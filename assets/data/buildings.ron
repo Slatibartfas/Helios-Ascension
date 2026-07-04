@@ -77,7 +77,14 @@
                 // Authoritative value lives in `Colony::housing_capacity` at
                 // src/colony/components.rs:264 (50,000,000 per HabitatDome).
                 // This RON entry is human-readable documentation; the helper
-                // does not read it.  See GRA-127 / Phase B-1.
+                // does not read it.  See GRA-127 / Phase B-1, GRA-133, GRA-338.
+                //
+                // Tier role: large pressurised arcology (above Housing Complex,
+                // below true megacity).  At this scale Earth needs ~165 Habitat
+                // Domes to reach its 8.2B seed.  Combined with the Housing
+                // Complex count the player manages tens to low-hundreds of
+                // residential buildings per body — never the thousands-of-clicks
+                // count GRA-338 explicitly rules out (operator guideline).
                 (modifier_type: "HousingCapacity", value: 4000000000.0),
             ],
             power_demand_mw: 150.0,
@@ -109,7 +116,13 @@
                 // 8.2B seed, matching the calibration target from GRA-22a
                 // (one colony building ≈ 1/300 of world population).  This
                 // RON entry is human-readable documentation; the helper does
-                // not read it.  See GRA-127 / Phase B-1.
+                // not read it.  See GRA-127 / Phase B-1, GRA-133, GRA-338.
+                //
+                // Tier role: the workhorse city-block residential complex.
+                // Cross-reference: docs/COLONIES.md has the same tier curve
+                // (HabitatDome / Housing / UndergroundHabitat) in tabular form.
+                // Modders changing this value should also update the
+                // authoritative helper and the docs/COLONIES.md row.
                 (modifier_type: "HousingCapacity", value: 800000000.0),
             ],
             power_demand_mw: 50.0,
@@ -140,7 +153,13 @@
                 // Authoritative value lives in `Colony::housing_capacity` at
                 // src/colony/components.rs:264 (30,000,000 per UndergroundHabitat).
                 // This RON entry is human-readable documentation; the helper
-                // does not read it.  See GRA-127 / Phase B-1.
+                // does not read it.  See GRA-127 / Phase B-1, GRA-133, GRA-338.
+                //
+                // Tier role: buried habitat for airless / hostile bodies
+                // (Moon, Mars underground, Mercury, asteroid interiors).  At
+                // this scale a body seeded to 1B needs ~33 UndergroundHabitats.
+                // Modders changing this value should also update the
+                // authoritative helper and the docs/COLONIES.md row.
                 (modifier_type: "HousingCapacity", value: 2000000000.0),
             ],
             available_atmospheres: [None],
