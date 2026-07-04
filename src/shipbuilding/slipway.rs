@@ -1,4 +1,4 @@
-use bevy::prelude::Component;
+use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
 /// A single construction berth at a shipyard.
