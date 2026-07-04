@@ -696,6 +696,70 @@ This is the canonical "add a new exploration lever" recipe. It exercises every f
 
 No Rust recompile. The RON loader picks up the new entries on next launch.
 
+## Multi-Star Ephemeris (v0.6, GRA-328c)
+
+The transfer planner computes inter-system trajectories from
+`assets/data/nearest_stars.ron`. The file ships with 60 systems derived
+from `assets/data/nearest_stars_raw.json`. The schema is open-ended
+(`Vec<StarSystemEphemeris>`) — modders can append entries without a
+Rust recompile, no schema bump, no migration.
+
+### Authoring fields
+
+```ron
+(
+    system_id: "Alpha Centauri",
+    display_name: "Alpha Centauri",
+    spectral_type: "G2V",
+    mass_sol: 2.129,
+    pos_ly_galactic: (-1.5477, -1.1846, -3.7728),
+    velocity_kms: (-23.2, 0.7, 0.4),
+)
+```
+
+| Field | Meaning |
+|---|---|
+| `system_id` | Stable string id. Matches `nearest_stars_raw.json::system_name`. **Required.** |
+| `display_name` | Human-friendly name. **Required.** |
+| `spectral_type` | Free-form (`"G2V"`, `"M5.5Ve"`). UI hint only. **Required.** |
+| `mass_sol` | Total stellar mass of the system, solar masses. Source of truth for μ. **Required.** |
+| `pos_ly_galactic` | Position at epoch, Galactic Cartesian J2000, light-years. Sol is at the origin. **Required.** |
+| `velocity_kms` | Heliocentric space velocity at epoch, km/s. Default `[0.0, 0.0, 0.0]` for systems without measured Gaia DR3 proper motions. Linear extrapolation is the v0.6 contract. **Required** (use zeros if unknown). |
+
+### Recipe: adding a 61st star
+
+1. Append a new entry to `assets/data/nearest_stars.ron` following the
+   shape above. Pick a unique `system_id` not already present.
+2. (Optional) Add planet / star records for the new system to
+   `assets/data/nearest_stars_raw.json`. The JSON is the *content* file;
+   the RON is the *transfer-math* source of truth. The two stay
+   decoupled — only the `system_id` string needs to match.
+3. Save and relaunch. No Rust recompile. The new system appears in the
+   transfer planner's "Interstellar" picker.
+
+### Recipe: updating an existing entry's velocity
+
+The `[f64; 3]` `velocity_kms` triple is the heliocentric space velocity
+in km/s. For high-proper-motion stars, get the value from a recent
+Gaia DR3 release. Leave at `(0.0, 0.0, 0.0)` for systems without
+published proper motions — the linear-extrapolation contract is
+correct to ~1% over the game-relevant horizon.
+
+### Constraints
+
+- `system_id` is unique. Duplicates log a warning at load; the first
+  occurrence wins.
+- `mass_sol = 0` is allowed (a system of brown-dwarf remnants) but the
+  derived `μ = 0` and the `hill_sphere_au` helper will return 0; this
+  is intentional — degenerate input → degenerate output.
+- The catalog frame has Sol at the origin. All positions and velocities
+  are absolute Galactic Cartesian, **not** RA/Dec.
+- The starmap renderer at `src/astronomy/nearby_stars.rs:140-442` reads
+  its own hardcoded `NEARBY_STARS_POSITIONS` table — the two surfaces
+  can grow independently. A system that's in `nearest_stars.ron` but
+  not in `NEARBY_STARS_POSITIONS` will be a valid transfer target but
+  invisible on the starmap until the operator backfills the table.
+
 ## Conclusion
 
 The texture override system is already built into Helios Ascension! You can:

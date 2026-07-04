@@ -19,6 +19,7 @@ pub mod lagrange;
 pub mod nearby_stars;
 pub mod procedural;
 pub mod selection;
+pub mod star_epoch;
 pub mod systems;
 
 pub use components::{
@@ -43,6 +44,11 @@ pub use selection::{
     handle_body_hover, handle_body_selection, remove_ring_highlight, restore_suppressed_markers,
     scale_markers_with_zoom, spawn_hover_markers, spawn_selection_markers,
     zoom_camera_to_anchored_body, RingHighlight,
+};
+pub use star_epoch::{
+    advance_position, heliocentric_to_galactic, hill_sphere_au, system_barycenter,
+    StarSystemEphemeris, StarSystemsEphemeris, AU_IN_LY, EPOCH_BEACON_GAME_START_SIM_S,
+    SOL_HILL_SPHERE_AU,
 };
 pub use systems::{
     capped_visual_speed, check_natural_destruction, draw_orbit_paths, fade_destroyed_bodies,

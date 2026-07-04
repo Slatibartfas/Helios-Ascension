@@ -1225,13 +1225,18 @@ pub(super) fn render_transfer_planner(
     // from the real location instead of the stand-in orbit body's SMA.
     course_correction_sc: Option<bevy::math::DVec3>,
     porkchop_config: &crate::fleets::PorkchopConfig,
-    // GRA-343 (GRA-328b): interstellar propulsion policy (phase
+// GRA-343 (GRA-328b): interstellar propulsion policy (phase
     // tolerance + ΔV margin) loaded at Startup from
     // `assets/data/interstellar_propulsion.ron`.  Consumed by
     // `try_build_cross_system_hohmann` to gate the cross-system
     // Hohmann commit on `meets_human_margin` / `meets_ai_margin`
     // and the corresponding phase-tolerance predicates.
     interstellar_policy: &InterstellarPropulsionPolicy,
+    // Ship hull definitions registry (GRA-333).  Used to read the active
+    // fleet's hull's `interstellar_capability` field so the interstellar
+    // entries can be gated when the hull is not in scope for cross-system
+    // transfers.  GRA-328c.
+    shipbuilding_data: &crate::shipbuilding::ShipbuildingData,
     // Wall-clock (real-time) seconds since Bevy startup.  Used as the
     // real-time floor in `porkchop_grid_is_stale`: at high `time_scale`
     // (1 yr/s) the sim-time cap (`PORKCHOP_STALENESS_MAX_SIM_S`) would
@@ -1243,6 +1248,24 @@ pub(super) fn render_transfer_planner(
     // has elapsed, regardless of how much sim time has passed.
     real_now_s: f64,
 ) {
+    // GRA-328c: gate interstellar entries on the fleet's hull
+    // `interstellar_capability`.  A fleet whose every ship is in a hull with
+    // `None` cannot select a cross-system target.  All-ships-capable or
+    // hull-unknown (legacy ships) are allowed through — pre-GRA-333 saves
+    // keep working unchanged.  Computed once per planner tick so the
+    // tooltip / label logic stays consistent across the row.
+    let fleet_has_interstellar_capability =
+        fleet
+            .ships
+            .iter()
+            .any(|ship| match ship.hull_id.as_deref() {
+                Some(hull_id) => shipbuilding_data
+                    .get_hull(hull_id)
+                    .map(|h| h.interstellar_capability.is_some())
+                    .unwrap_or(true),
+                None => true,
+            });
+
     // `is_course_correction` is true only when the fleet has actively departed
     // (elapsed >= departure_time).  Waiting-to-depart fleets still have an
     // ActiveManeuver but should show the normal Transfer Planner, not Course Correction.
@@ -2662,27 +2685,51 @@ pub(super) fn render_transfer_planner(
                                         .as_ref()
                                         .map(|(id, _, _)| *id == *system_id)
                                         .unwrap_or(false);
-                                    // One-line hover tooltip explaining the
-                                    // ✨ marker and the multi-year / multi-century
-                                    // travel time implication (GRA-154 M-2).
-                                    let tooltip = format!(
-                                        "Interstellar transfer to {raw_name} ({ly:.2} ly). \
-                                         Plan multi-year / multi-century trajectories — \
-                                         this is a barycentric route, not a parking orbit.",
-                                        raw_name = name.trim_start_matches('✨').trim(),
-                                        ly = distance_ly,
-                                    );
-                                    if ui
+                                    // GRA-328c: parent-star transition gate.
+                                    // When the fleet has no ship with
+                                    // `interstellar_capability` set on its hull,
+                                    // render the row as a dimmed, non-clickable
+                                    // badge and surface the requirement in the
+                                    // hover tooltip.  Selecting an interstellar
+                                    // target requires at least one hull
+                                    // declaring the capability (GRA-333 contract).
+                                    let gate_refused = !fleet_has_interstellar_capability;
+                                    let label_color = if gate_refused {
+                                        theme::TEXT_DIM
+                                    } else {
+                                        theme::GRAVITY_ASSIST
+                                    };
+                                    let raw_name = name.trim_start_matches('✨').trim();
+                                    let tooltip = if gate_refused {
+                                        format!(
+                                            "Interstellar transfer to {raw_name} ({ly:.2} ly) — \
+                                             locked.  This fleet has no ship with an interstellar-capable \
+                                             hull (GRA-333).  Build a torch cruiser, outer-system tanker, \
+                                             cycler, long-range survey ship, or interstellar precursor to unlock.",
+                                            ly = distance_ly,
+                                        )
+                                    } else {
+                                        format!(
+                                            "Interstellar transfer to {raw_name} ({ly:.2} ly). \
+                                             Plan multi-year / multi-century trajectories — \
+                                             this is a barycentric route, not a parking orbit.",
+                                            ly = distance_ly,
+                                        )
+                                    };
+                                    let row_response = ui
                                         .selectable_label(
                                             is_sel,
                                             egui::RichText::new(format!("  {name}"))
                                                 .size(12.0)
-                                                .color(theme::GRAVITY_ASSIST),
+                                                .color(label_color),
                                         )
-                                        .on_hover_text(&tooltip)
-                                        .clicked()
-                                        && !is_sel
-                                    {
+                                        .on_hover_text(&tooltip);
+                                    // GRA-328c: refuse the click when the gate
+                                    // is closed (no interstellar-capable hull on
+                                    // any ship in the fleet).  `selectable_label`
+                                    // can't be disabled, so we ignore the
+                                    // click event ourselves.
+                                    if row_response.clicked() && !is_sel && !gate_refused {
                                         fleet_ui_state.target_star_system =
                                             Some((*system_id, name.clone(), *distance_ly));
                                         fleet_ui_state.target_body = None;

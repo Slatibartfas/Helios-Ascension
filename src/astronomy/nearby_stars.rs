@@ -1,3 +1,4 @@
+use super::star_epoch::{load_star_systems_ephemeris, StarSystemsEphemeris};
 use bevy::prelude::*;
 use serde::Deserialize;
 use std::fs;
@@ -8,7 +9,11 @@ pub struct NearbyStarsPlugin;
 impl Plugin for NearbyStarsPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<NearbyStarsData>()
-            .add_systems(Startup, load_nearby_stars_data);
+            .init_resource::<StarSystemsEphemeris>()
+            .add_systems(
+                Startup,
+                (load_nearby_stars_data, load_star_systems_ephemeris),
+            );
     }
 }
 
