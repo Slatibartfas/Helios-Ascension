@@ -1,0 +1,64 @@
+name: preflight-conflict
+
+# GRA-338: required pre-flight merge check vs main.
+# Two complementary inner steps:
+#   1. `git merge-base --is-ancestor origin/main HEAD`
+#      Catches PR #212 / GRA-328b class "all CI green but
+#      mergeable=CONFLICTING" where the branch was forked from a stale main.
+#   2. `git merge-tree --write-tree origin/main HEAD` (4-arg, Git >=2.38)
+#      Catches real same-line textual conflicts even when the branch
+#      has been rebased onto current main.
+# Operator workflow on failure:
+#   git fetch origin main && git rebase origin/main &&
+#   git push --force-with-lease=refs/heads/<branch>:<expected-sha>.
+
+on:
+  pull_request:
+    branches: [main]
+    types:
+      - opened
+      - synchronize
+      - reopened
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Fetch origin/main
+        run: git fetch origin main --depth=1
+
+      - name: Check 1 - is origin/main an ancestor of HEAD?
+        id: ancestor
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if git merge-base --is-ancestor origin/main "$HEAD_SHA"; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::origin/main is an ancestor of $HEAD_SHA -- branch is current."
+          else
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            ahead=$(git rev-list --count HEAD^0..origin/main)
+            echo "::error::origin/main is not an ancestor of $HEAD_SHA. Branch is stale: $ahead commit(s) ahead on main not in this branch. Coder: rebase onto origin/main and force-push (use --force-with-lease=<branch>:<expected-sha>, not bare --force)."
+          fi
+
+      - name: Check 2 - does the three-way merge produce a textual conflict?
+        if: steps.ancestor.outputs.ok == 'true'
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if git merge-tree --write-tree origin/main "$HEAD_SHA"; then
+            echo "::notice::Three-way merge vs origin/main resolved cleanly."
+          else
+            echo "::error::Three-way merge vs origin/main produces a textual conflict. Coder: resolve the conflicts locally, re-run the merge, force-push, and GitHub will recompute mergeable."
+            exit 1
+          fi
