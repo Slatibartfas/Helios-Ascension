@@ -43,7 +43,7 @@ use bevy_egui::egui;
 use bevy_egui::EguiContexts;
 
 use super::manifest::LaunchUiManifest;
-use super::{LaunchState, PendingLaunchActions, SaveIndex};
+use super::{LaunchState, NewGameRequest, PendingLaunchActions, SaveIndex};
 use crate::ui::theme;
 
 /// Fixed minimum width of the action grid column.
@@ -218,13 +218,25 @@ fn render_action_grid(
     ui.add_space(theme::Spacing::sm);
 
     // New Game — subview routing for PR-C; PR-D fills the form.
+    // PR-E (GRA-329) adds a hot-path on MainMenu: clicking New Game
+    // here queues a default `start_new_game` request so the
+    // transition consumer flips LaunchState to InGame immediately.
+    // The full form (seed input + preset dropdown) lands in PR-D' v2
+    // and replaces this hot-path on top.
     let new_game_label = if launch_state == LaunchState::NewGame {
         "Back"
     } else {
         copy.resolved_new_game_label()
     };
     if render_menu_button(ui, new_game_label, copy.resolved_new_game_shortcut(), true).clicked() {
-        toggle_subview(next_launch_state, launch_state, LaunchState::NewGame);
+        if launch_state == LaunchState::MainMenu {
+            pending_actions.start_new_game = Some(NewGameRequest {
+                seed: 0,
+                preset: "standard".to_string(),
+            });
+        } else {
+            toggle_subview(next_launch_state, launch_state, LaunchState::NewGame);
+        }
     }
 
     ui.add_space(theme::Spacing::sm);

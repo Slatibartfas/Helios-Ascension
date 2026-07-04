@@ -12,6 +12,10 @@
 //! Settings) and the `kickoff_world_system` that consumes
 //! `PendingLaunchActions` once `LaunchState` reaches `InGame`.
 //!
+//! PR-E (GRA-329) layers the action-consumer system that actually
+//! advances `LaunchState` to `InGame`, fires `AppExit` for `quit`,
+//! and publishes the load-save path into [`PendingLoadSave`].
+//!
 //! Per [[feedback-egui-render-tests]], no egui render tests are added
 //! here — the PR-A / PR-C / PR-D test plans are type/IO round-trips
 //! only.
@@ -20,6 +24,7 @@ pub mod manifest;
 pub mod menu;
 pub mod save_index;
 pub mod splash;
+pub mod transitions;
 pub mod userdata;
 
 pub mod subview_kickoff;
@@ -37,6 +42,7 @@ pub use menu::main_menu_render_system;
 pub use save_index::{SaveHeader, SaveIndex, SaveSummary, SAVES_SUBDIR};
 pub use splash::{ui_splash_system, SplashImage, SplashTimer};
 pub use subview_manifests::{load_difficulty_presets_manifest, load_seed_copy_manifest};
+pub use transitions::{consume_launch_actions_system, PendingLoadSave};
 pub use userdata::{
     load_persistent_settings_from, resolve_userdata_dir, save_persistent_settings_to,
     PersistentSettings, SETTINGS_FILE_NAME,
@@ -151,9 +157,16 @@ impl Plugin for LaunchPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<LaunchState>()
             .init_resource::<PendingLaunchActions>()
+            .init_resource::<PendingLoadSave>()
             .init_resource::<PersistentSettings>()
             .init_resource::<SplashTimer>()
             .init_resource::<SplashImage>()
+            // PR-E (GRA-329) writes `AppExit` via `MessageWriter`.
+            // Bevy 0.18 split Events → Messages; `AppExit` is a
+            // Message, so register it explicitly to avoid the
+            // "Message not initialized" panic documented in
+            // [[feedback-bevy-018-add-message-when-adding-writer]].
+            .add_message::<bevy::app::AppExit>()
             // RON manifests from assets/data/launch_*.ron (LGD-owned
             // content per GRA-310). Order matters: launch_ui must
             // load before the menu render reads it; the preset +
@@ -200,6 +213,14 @@ impl Plugin for LaunchPlugin {
         subview_load_game::register_load_game_subview(app);
         subview_settings::register_settings_subview(app);
         subview_kickoff::register_kickoff_system(app);
+
+        // PR-E (GRA-329): action consumer runs in `Update` (not in
+        // `EguiPrimaryContextPass`) — pure resource mutation, no
+        // egui context required. Pairs with PR-D's
+        // `kickoff_world_system`: this consumer advances
+        // `LaunchState` to `InGame`; PR-D's kickoff runs *after*
+        // `InGame` and decides what world to spin up.
+        app.add_systems(Update, consume_launch_actions_system);
     }
 }
 
