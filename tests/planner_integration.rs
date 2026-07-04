@@ -24,7 +24,7 @@ use helios_ascension::fleets::TransferReferenceFrame;
 use helios_ascension::plugins::solar_system::{CelestialBody, LogicalParent};
 use helios_ascension::plugins::solar_system_data::BodyType;
 use helios_ascension::ui::transfer_planner::{
-    build_planned_transfer, should_build_porkchop_for_destination,
+    build_planned_transfer, heliocentric_orbit_for_body, should_build_porkchop_for_destination,
 };
 
 // ── Test helpers ──────────────────────────────────────────────────────────────
@@ -811,5 +811,97 @@ fn should_build_porkchop_rejects_moon_and_ring_destinations() {
     assert!(
         should_build_porkchop_for_destination(&body_query, sol),
         "Sol is a star → planner must build porkchop"
+    );
+}
+
+// ── Test 10: GRA-328a heliocentric dispatch end-to-end ────────────────────────
+//
+// The dispatcher guard (`should_build_porkchop_for_destination`) plus the
+// per-body heliocentric-orbit resolver (`heliocentric_orbit_for_body`) plus
+// the pure porkchop builder (`fleets::porkchop::build_grid_for_body_target`)
+// together compose the planet-to-planet dispatch wired at
+// `src/ui/transfer_planner.rs:1290-1353` (GRA-159 / GRA-169 Part B).
+//
+// Test 9 above verifies the per-body guard.  This test pins the full
+// composition: the same calls the planner runs when `target_body` is
+// set on a planet target.  If any future refactor regresses one of the
+// three pieces (e.g. drops the `heliocentric_orbit_for_body` walk-up
+// for moons, or returns `None` from `build_grid_for_body_target` for a
+// sane planet→planet pair), this test catches it before the panel
+// renders an empty grid.
+#[test]
+fn gra_328a_heliocentric_dispatch_yields_a_grid_for_planet_to_planet() {
+    use helios_ascension::fleets::porkchop::{
+        build_grid_for_body_target, classify_body_transfer_category,
+    };
+    use helios_ascension::fleets::PorkchopConfig;
+
+    let mut world = World::new();
+    let sol = world
+        .spawn((
+            test_body("Sol", BodyType::Star, 1.989e30, 696_000.0, 40.0),
+            SpaceCoordinates::new(DVec3::ZERO),
+            SystemId(0),
+        ))
+        .id();
+    let earth = world
+        .spawn((
+            test_body("Earth", BodyType::Planet, 5.97e24, 6_371.0, 12.0),
+            SpaceCoordinates::new(DVec3::new(1.0, 0.0, 0.0)),
+            KeplerOrbit::circular(1.0, 1.991e-7),
+            LogicalParent(sol),
+            SystemId(0),
+        ))
+        .id();
+    let mars = world
+        .spawn((
+            test_body("Mars", BodyType::Planet, 6.4e23, 3_390.0, 7.0),
+            SpaceCoordinates::new(DVec3::new(1.524, 0.0, 0.0)),
+            KeplerOrbit::circular(1.524, 1.06e-7),
+            LogicalParent(sol),
+            SystemId(0),
+        ))
+        .id();
+
+    let mut body_query_state = world.query::<(
+        Entity,
+        &CelestialBody,
+        &SpaceCoordinates,
+        Option<&KeplerOrbit>,
+        Option<&LogicalParent>,
+    )>();
+    let body_query = body_query_state.query(&world);
+
+    // Mirror the dispatch path the planner uses for an Earth→Mars
+    // selection:
+    //   1. `should_build_porkchop_for_destination(mars)` → true.
+    //   2. `heliocentric_orbit_for_body(earth)` and `..._for_body(mars)`
+    //      resolve heliocentric KeplerOrbits (Mars and Earth both own
+    //      their own heliocentric orbit, so each returns its own orbit
+    //      rather than walking up to Sol).
+    //   3. `classify_body_transfer_category(Planet, earth, earth)` →
+    //      "interplanetary" (both parented to Sol but BodyType is Planet,
+    //      so the parent-equality check is irrelevant).
+    //   4. `build_grid_for_body_target(cfg, ...)` produces a real grid.
+    assert!(should_build_porkchop_for_destination(&body_query, mars));
+    let origin_orbit = heliocentric_orbit_for_body(earth, &body_query)
+        .expect("Earth (Planet, heliocentric) must resolve to its own orbit");
+    let dest_orbit = heliocentric_orbit_for_body(mars, &body_query)
+        .expect("Mars (Planet, heliocentric) must resolve to its own orbit");
+    let category = classify_body_transfer_category(BodyType::Planet, Some(sol), Some(sol));
+    let cfg = PorkchopConfig::default();
+    let grid = build_grid_for_body_target(
+        &cfg,
+        origin_orbit,
+        dest_orbit,
+        "Earth".to_string(),
+        "Mars".to_string(),
+        category,
+        0.0,
+    );
+    assert_eq!(grid.cells.len(), grid.resolution.0 * grid.resolution.1);
+    assert!(
+        grid.cells.iter().any(|c| c.feasible),
+        "Earth→Mars heliocentric dispatch must yield at least one feasible cell"
     );
 }
