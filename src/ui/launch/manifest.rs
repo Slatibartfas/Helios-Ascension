@@ -73,6 +73,54 @@ impl LaunchUiManifest {
         }
     }
 
+    /// Returns the configured splash asset path (`logo_splashscreen`)
+    /// prefixed with `assets/`, falling back to the hardcoded default
+    /// when the manifest field is empty or whitespace-only. The
+    /// fallback path is the same one PR-A uses in
+    /// [`LaunchUiManifest::default`].
+    pub fn splash_image_path(&self) -> String {
+        let trimmed = self.logo_splashscreen.trim();
+        if trimmed.is_empty() {
+            return "assets/logo/logo_splashscreen.png".to_string();
+        }
+        if trimmed.starts_with("assets/") {
+            trimmed.to_string()
+        } else {
+            format!("assets/{}", trimmed)
+        }
+    }
+
+    /// Returns the configured clean (no-backdrop) logo path
+    /// (`logo_clean`) prefixed with `assets/`, falling back to the
+    /// hardcoded default when the manifest field is empty. PR-B uses
+    /// this when the splashscreen PNG fails to load (e.g. corrupt
+    /// alpha channel on certain drivers).
+    pub fn clean_image_path(&self) -> String {
+        let trimmed = self.logo_clean.trim();
+        if trimmed.is_empty() {
+            return "assets/logo/logo_large.png".to_string();
+        }
+        if trimmed.starts_with("assets/") {
+            trimmed.to_string()
+        } else {
+            format!("assets/{}", trimmed)
+        }
+    }
+
+    /// Minimum on-screen duration (s). First-input dismissal is
+    /// ignored before this elapses, so the splash is always visible
+    /// long enough for the player to register the brand.
+    pub fn splash_min_seconds(&self) -> f32 {
+        self.splash_min_duration_s.max(0.0)
+    }
+
+    /// Hard cap (s). If the player hasn't dismissed by this point the
+    /// splash force-transitions to `MainMenu`. Mirrors the LGD copy
+    /// in `assets/data/launch_ui.ron` (`splash_max_duration_s = 3.0`).
+    pub fn splash_max_seconds(&self) -> f32 {
+        self.splash_max_duration_s.max(self.splash_min_duration_s)
+    }
+
     /// GRA-309 §3.2 loader rule 2: `splash_min_duration_s <= splash_max_duration_s`.
     /// Both must be > 0 for the splash to make sense. Returns a list of
     /// human-readable violations; the loader still inserts the resource
@@ -212,5 +260,65 @@ mod tests {
         };
         let v = m.validate().unwrap_err();
         assert!(v.iter().any(|s| s.contains("> 0")));
+    }
+
+    #[test]
+    fn splash_image_path_uses_configured_value() {
+        let m = LaunchUiManifest {
+            logo_splashscreen: "logo/splashscreen.png".to_string(),
+            ..Default::default()
+        };
+        assert_eq!(m.splash_image_path(), "assets/logo/splashscreen.png");
+    }
+
+    #[test]
+    fn splash_image_path_passes_through_already_prefixed() {
+        let m = LaunchUiManifest {
+            logo_splashscreen: "assets/custom/logo.png".to_string(),
+            ..Default::default()
+        };
+        assert_eq!(m.splash_image_path(), "assets/custom/logo.png");
+    }
+
+    #[test]
+    fn splash_image_path_falls_back_when_empty() {
+        let m = LaunchUiManifest {
+            logo_splashscreen: "".to_string(),
+            ..Default::default()
+        };
+        assert_eq!(m.splash_image_path(), "assets/logo/logo_splashscreen.png");
+    }
+
+    #[test]
+    fn clean_image_path_falls_back_when_empty() {
+        let m = LaunchUiManifest {
+            logo_clean: "  ".to_string(),
+            ..Default::default()
+        };
+        assert_eq!(m.clean_image_path(), "assets/logo/logo_large.png");
+    }
+
+    #[test]
+    fn splash_seconds_clamp_negative_inputs() {
+        let m = LaunchUiManifest {
+            splash_min_duration_s: -1.0,
+            splash_max_duration_s: 5.0,
+            ..Default::default()
+        };
+        assert_eq!(m.splash_min_seconds(), 0.0);
+        // max gets re-pinned above the clamped min, so still 5.0
+        assert_eq!(m.splash_max_seconds(), 5.0);
+    }
+
+    #[test]
+    fn splash_max_seconds_pinned_at_least_min() {
+        // Inverted values should still leave max >= min so the
+        // auto-dismiss loop in PR-B can't underflow.
+        let m = LaunchUiManifest {
+            splash_min_duration_s: 5.0,
+            splash_max_duration_s: 1.0,
+            ..Default::default()
+        };
+        assert!(m.splash_max_seconds() >= m.splash_min_seconds());
     }
 }

@@ -19,13 +19,16 @@
 
 pub mod manifest;
 pub mod save_index;
+pub mod splash;
 pub mod userdata;
 
 use bevy::prelude::*;
+use bevy_egui::EguiPrimaryContextPass;
 use std::path::PathBuf;
 
 pub use manifest::{load_launch_ui_manifest, LaunchUiManifest};
 pub use save_index::{SaveHeader, SaveIndex, SaveSummary, SAVES_SUBDIR};
+pub use splash::{ui_splash_system, SplashImage, SplashTimer};
 pub use userdata::{
     load_persistent_settings_from, resolve_userdata_dir, save_persistent_settings_to,
     PersistentSettings, SETTINGS_FILE_NAME,
@@ -120,9 +123,12 @@ pub enum LaunchSystemSet {
 
 /// Plugin that wires the launch-flow skeleton into Bevy.
 ///
-/// PR-A only registers resources, the manifest loader, the
-/// `PersistentSettings` reader, and the `SaveIndex` scanner. No
-/// rendering systems are added — those land in later PRs.
+/// PR-A registered the resources, the manifest loader, the
+/// `PersistentSettings` reader, and the `SaveIndex` scanner. PR-B
+/// (GRA-312) adds the splash render system, the `SplashTimer` /
+/// `SplashImage` resources, and reconfigures `LaunchSystemSet::Splash`
+/// for `EguiPrimaryContextPass` (per `helios-architecture` — egui
+/// systems must run in the primary context pass, not `Update`).
 pub struct LaunchPlugin;
 
 impl Plugin for LaunchPlugin {
@@ -130,6 +136,8 @@ impl Plugin for LaunchPlugin {
         app.init_resource::<LaunchState>()
             .init_resource::<PendingLaunchActions>()
             .init_resource::<PersistentSettings>()
+            .init_resource::<SplashTimer>()
+            .init_resource::<SplashImage>()
             // RON manifest from assets/data/launch_ui.ron (LGD-owned
             // content per GRA-310).
             .add_systems(Startup, load_launch_ui_manifest)
@@ -137,11 +145,18 @@ impl Plugin for LaunchPlugin {
             // Startup so the menu has its list before the first
             // frame draws.
             .add_systems(Startup, load_save_index_system)
-            // System sets are empty in PR-A but reserved for PR-B/C/D
-            // so the names are stable across PRs.
+            // PR-B: reserve the splash set in `Update` as well so
+            // other systems (e.g. PR-C's input polling) can join
+            // without re-importing the schedule type. The splash
+            // render itself lives in `EguiPrimaryContextPass`.
             .configure_sets(
                 Update,
                 (LaunchSystemSet::Splash, LaunchSystemSet::Menu).chain(),
+            )
+            .configure_sets(EguiPrimaryContextPass, LaunchSystemSet::Splash)
+            .add_systems(
+                EguiPrimaryContextPass,
+                ui_splash_system.in_set(LaunchSystemSet::Splash),
             );
     }
 }
