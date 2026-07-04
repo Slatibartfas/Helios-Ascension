@@ -146,19 +146,63 @@ pub fn porkchop_panel(
         ),
     );
     let cell_w = grid_rect.width() / visible_cols as f32;
-    let cell_h = grid_rect.height() / rows as f32;
+
+    // Adaptive Y-axis: trim the rows the panel renders to the
+    // `rendered_tof_bounds_s` sub-range set by the grid builder.
+    // For long-distance transfers (Saturn, Uranus, interstellar) the
+    // configured `tof_max` is 1.4-5 yr but the Lambert solver
+    // becomes infeasible for `tof > ~1.5× Hohmann` at most phases,
+    // so most of the upper rows render grey.  The adaptive trim maps
+    // only the populated rows onto the panel's vertical extent, so
+    // the colormap band fills the screen instead of the bottom third.
+    //
+    // `rendered_row_range` is the half-open `[first, last]` index
+    // range into the original grid's rows.  Row indices below `first`
+    // (smallest TOFs) are not rendered; rows above `last` (largest
+    // TOFs) are not rendered.  The panel uses `n_view_rows = last -
+    // first` for the cell-height math so the populated region
+    // stretches vertically.  The Y-axis labels interpolate between
+    // the configured `tof_bounds_s` at the trimmed endpoints so the
+    // tick labels still read in days/years.
+    //
+    // Falls back to the full row range when `rendered_tof_bounds_s`
+    // is degenerate (zero-width or outside the configured range) so
+    // the panel renders the same as the pre-adaptive version.
+    let tof_min_s = grid.tof_bounds_s.0;
+    let tof_max_s = grid.tof_bounds_s.1;
+    let rendered_tof_min_s = grid.rendered_tof_bounds_s.0;
+    let rendered_tof_max_s = grid.rendered_tof_bounds_s.1;
+    let tof_to_row = |tof_s: f64| -> usize {
+        if rows > 1 && tof_max_s > tof_min_s {
+            let frac = ((tof_s - tof_min_s) / (tof_max_s - tof_min_s)).clamp(0.0, 1.0);
+            (frac * (rows as f64 - 1.0)).round() as usize
+        } else {
+            0
+        }
+    };
+    let rendered_row_first = tof_to_row(rendered_tof_min_s).min(rows.saturating_sub(1));
+    let rendered_row_last = tof_to_row(rendered_tof_max_s)
+        .max(rendered_row_first)
+        .min(rows.saturating_sub(1));
+    let n_view_rows = (rendered_row_last - rendered_row_first + 1).max(1);
+    let cell_h = grid_rect.height() / n_view_rows as f32;
 
     // Compute the (col, row) of the cell currently under the cursor.
     // The cursor's visible col is `cursor_x / cell_w + scroll`; the
-    // buffer col is that value floored.
+    // buffer col is that value floored.  The visible row index is
+    // `cursor_y / cell_h` in the rendered Y-axis (which spans the
+    // populated row sub-range); we map it back to the original
+    // `grid.cells` row index for the hover / click handlers.
     let hover_cell: Option<(usize, usize)> = resp
         .hover_pos()
         .filter(|pos| grid_rect.contains(*pos))
         .map(|pos| {
             let col_f = (pos.x - grid_rect.left()) / cell_w + scroll;
             let col = col_f.max(0.0) as usize;
-            let row = ((pos.y - grid_rect.top()) / cell_h) as usize;
-            (col.min(cols - 1), row.min(rows - 1))
+            let view_row = ((pos.y - grid_rect.top()) / cell_h) as usize;
+            let view_row = view_row.min(n_view_rows - 1);
+            let orig_row = (rendered_row_first + view_row).min(rows - 1);
+            (col.min(cols - 1), orig_row)
         });
 
     // 1. Cells (coloured rects).  Each buffer column `c` has its
@@ -174,15 +218,34 @@ pub fn porkchop_panel(
     // "jiggle" of the boundary itself.
     let visible_w = visible_cols as f32 * cell_w;
     let cell_clip = painter.with_clip_rect(grid_rect);
+    // Map an original row index to its Y pixel position in the
+    // rendered Y-axis.  Rows below `rendered_row_first` map above the
+    // panel top (never rendered); rows above `rendered_row_last` map
+    // below the panel bottom (never rendered).
+    let orig_row_to_view_y = |orig_row: usize| -> f32 {
+        if orig_row < rendered_row_first {
+            return grid_rect.top() - cell_h;
+        }
+        let view_row = orig_row - rendered_row_first;
+        if view_row >= n_view_rows {
+            return grid_rect.bottom() + cell_h;
+        }
+        grid_rect.top() + view_row as f32 * cell_h
+    };
     for c in 0..cols as i32 {
         let x = grid_rect.left() + (c as f32 - scroll) * cell_w;
         if x + cell_w < grid_rect.left() || x > grid_rect.left() + visible_w {
             continue;
         }
-        for row in 0..rows {
-            let cell = &grid.cells[row * cols + c as usize];
+        // Iterate only the rendered row sub-range.  Cells outside the
+        // rendered range would render outside `grid_rect` anyway
+        // (clipped) but skipping them is cheaper and keeps the colormap
+        // band focused on the populated region.
+        for orig_row in rendered_row_first..=rendered_row_last {
+            let view_row = orig_row - rendered_row_first;
+            let cell = &grid.cells[orig_row * cols + c as usize];
             let rect = Rect::from_min_size(
-                Pos2::new(x, grid_rect.top() + row as f32 * cell_h),
+                Pos2::new(x, grid_rect.top() + view_row as f32 * cell_h),
                 Vec2::new(cell_w, cell_h),
             );
             let color = cell_color(cell, &color_stops, grid_dv_range, fleet_max_dv_ms);
@@ -195,11 +258,15 @@ pub fn porkchop_panel(
     // The highlight is a thin semi-transparent white outline so it
     // reads against every colormap band (green, yellow, red, greyed).
     if let Some((hc, hr)) = hover_cell {
-        if Some((hc, hr)) != *selected {
+        if Some((hc, hr)) != *selected
+            && hr >= rendered_row_first
+            && hr <= rendered_row_last
+        {
             let x = grid_rect.left() + (hc as f32 - scroll) * cell_w;
             if x + cell_w >= grid_rect.left() && x <= grid_rect.left() + visible_w {
+                let y = orig_row_to_view_y(hr);
                 let rect = Rect::from_min_size(
-                    Pos2::new(x, grid_rect.top() + hr as f32 * cell_h),
+                    Pos2::new(x, y),
                     Vec2::new(cell_w, cell_h),
                 );
                 painter.rect_stroke(
@@ -233,8 +300,16 @@ pub fn porkchop_panel(
             } else {
                 grid_rect.left() + x_f
             };
+            // Selection rows outside the rendered range draw outside
+            // the panel rect and get clipped — the visual effect is
+            // that the outline disappears, which is the correct
+            // behaviour (the player picked a row that's no longer
+            // visible because the adaptive trim clipped it).  We
+            // still place the rect inside the clip so the egui
+            // painter doesn't emit a spurious zero-sized stroke.
+            let y = orig_row_to_view_y(sr);
             let rect = Rect::from_min_size(
-                Pos2::new(x, grid_rect.top() + sr as f32 * cell_h),
+                Pos2::new(x, y),
                 Vec2::new(cell_w, cell_h),
             );
             painter.rect_stroke(
@@ -247,6 +322,11 @@ pub fn porkchop_panel(
     }
 
     // 3. Grid lines
+    // We draw `n_view_rows + 1` horizontal lines (top, between every
+    // rendered row, bottom) so the cell-grid lines align with the
+    // rendered cells.  Drawing the original `rows + 1` lines would
+    // either over-paint inside the panel or hide the trim boundary
+    // entirely.
     for col in 0..=cols {
         let x = grid_rect.left() + col as f32 * cell_w;
         painter.line_segment(
@@ -257,8 +337,8 @@ pub fn porkchop_panel(
             Stroke::new(0.5, Color32::from_white_alpha(20)),
         );
     }
-    for row in 0..=rows {
-        let y = grid_rect.top() + row as f32 * cell_h;
+    for view_row in 0..=n_view_rows {
+        let y = grid_rect.top() + view_row as f32 * cell_h;
         painter.line_segment(
             [
                 Pos2::new(grid_rect.left(), y),
@@ -332,11 +412,21 @@ pub fn porkchop_panel(
     // side — frac=0 (tof_min) at the top, frac=1 (tof_max) at the
     // bottom — matching the standard NASA / JPL porkchop convention
     // (short trips at the top, long trips at the bottom).
-    let tof_min = grid.tof_bounds_s.0;
-    let tof_max = grid.tof_bounds_s.1;
+    //
+    // With the adaptive Y-axis trim, labels interpolate between the
+    // **rendered** TOF bounds (`rendered_tof_bounds_s`), not the
+    // configured bounds.  Without this, a Saturn-class porkchop with
+    // rendered bounds [60 d, 240 d] would label its top tick "1.4 yr"
+    // (the configured max) even though no row above 240 d renders.
+    // The player reads the label as "options exist up there" and
+    // sweeps the cursor into the empty top region, which produces no
+    // hover tooltip and no click feedback.  Anchoring labels to the
+    // rendered bounds keeps the ticks in sync with the visible cells.
+    let label_tof_min = rendered_tof_min_s;
+    let label_tof_max = rendered_tof_max_s;
     for i in 0..=3 {
         let frac = i as f64 / 3.0;
-        let tof_s = tof_min + frac * (tof_max - tof_min);
+        let tof_s = label_tof_min + frac * (label_tof_max - label_tof_min);
         let tof_label = if tof_s > SECONDS_PER_YEAR {
             format!("{:.1} yr", tof_s / SECONDS_PER_YEAR)
         } else {

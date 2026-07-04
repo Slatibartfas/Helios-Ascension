@@ -77,18 +77,21 @@
         tof_max_hohmann_factor: 5.0,
         tof_floor_days: 5.0,
         tof_ceiling_years: 10.0,
-        // Resolution: 40 cols (t_dep) × 50 rows (tof) = 2000 cells.
-        // Bumped from 30 rows so the wider 5.0× TOF range still
-        // has useful per-row detail: at Earth→Mars (Hohmann ≈ 258 d)
-        // each row now spans (1290 − 103) / 50 ≈ 23.7 d, comparable
-        // to the previous (645 − 103) / 30 ≈ 18.1 d.  2000 cells
-        // is well within the 5000-cell budget enforced by
-        // `porkchop_config.ron` validator rule #1, and the rebuild
-        // budget at 0.3 ms/cell is ~600 ms worst-case — still under
-        // 1 s on a 4-core host, matching the rebuild cadence the
-        // 1 yr/s staleness cap targets.
-        resolution_t_dep: 40,
-        resolution_tof: 50,
+        // Resolution: 60 cols (t_dep) × 60 rows (tof) = 3600 cells.
+        // Bumped from 40 × 50 = 2000 cells because the wider 5.0× TOF
+        // range and the per-column ΔV resolution were both
+        // under-sampled for long-distance transfers.  With the
+        // adaptive Y-axis trim (see `rendered_tof_bounds_s`) the
+        // populated region of a Saturn-class porkchop spans ~30
+        // rendered rows of the 60 solved rows, so the per-cell TOF
+        // resolution on the cheap-transfer basin is now ~12 d at
+        // Saturn (~30 d at 40 × 50).  3600 cells is well within the
+        // 5000-cell budget enforced by validator rule #1, and the
+        // rebuild cost at ~0.3 ms/cell is ~1.1 s worst case — still
+        // inside the 3-day staleness window so the deferred build
+        // path doesn't visibly lag at 1 yr/s sim speed.
+        resolution_t_dep: 60,
+        resolution_tof: 60,
         // C3 ceiling (km²/s²) above which a cell is rendered as
         // red "infeasible" and is not selectable. Picked to
         // match the helios theme's RED palette transition; the
@@ -125,15 +128,18 @@
             tof_max_hohmann_factor: 5.0,
             tof_floor_days: 30.0,               // ≪ Hohmann time for any interstellar leg; floor is purely a sanity guard
             tof_ceiling_years: 100.0,
-            resolution_t_dep: 60,
-            resolution_tof: 50,
+            resolution_t_dep: 70,
+            resolution_tof: 60,
             c3_ceiling_km2_s2: 400.0,
         ),
         // Moon transfers: tight window, fine grid. Short TOFs and
         // small distances → cheap Lambert solves, can afford more
         // cells. The 14-day window is roughly one lunar orbital
         // period; the player can always pan to a new window if the
-        // cheapest cell is off-grid.
+        // cheapest cell is off-grid. Bumped from 50×40 to 70×50
+        // (3500 cells) so the cheap-transfer basin is sampled finely
+        // enough to land near the optimal Hohmann phase on every
+        // build. Below the 5000-cell ceiling.
         (
             match_key: "moon",
             t_dep_window_days: 14.0,
@@ -141,8 +147,8 @@
             tof_max_hohmann_factor: 1.8,
             tof_floor_days: 0.5,
             tof_ceiling_years: 0.165,           // ≈ 60 days (was mis-named `tof_ceiling_days`; serde silently ignored it)
-            resolution_t_dep: 50,
-            resolution_tof: 40,
+            resolution_t_dep: 70,
+            resolution_tof: 50,
             c3_ceiling_km2_s2: 400.0,
         ),
         // Star approach (any body → star): the round-trip
@@ -150,7 +156,8 @@
         // generous TOF range are warranted. The 365-day window
         // is the synodic period scale for a typical body-star
         // configuration; the 5-yr ceiling catches realistic
-        // solar Oberth transfers.
+        // solar Oberth transfers. Bumped from 50×40 to 60×50
+        // (3000 cells) for higher basin resolution.
         (
             match_key: "star_approach",
             t_dep_window_days: 365.0,
@@ -158,8 +165,8 @@
             tof_max_hohmann_factor: 3.0,
             tof_floor_days: 10.0,               // ≈ Oberth window: anything shorter is a sub-orbital burn
             tof_ceiling_years: 5.0,
-            resolution_t_dep: 50,
-            resolution_tof: 40,
+            resolution_t_dep: 60,
+            resolution_tof: 50,
             c3_ceiling_km2_s2: 400.0,
         ),
     ],

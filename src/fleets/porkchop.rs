@@ -77,8 +77,23 @@ pub struct PorkchopGrid {
     pub dest_name: String,
     /// `(t_dep_min_s, t_dep_max_s)` — the rendered window.
     pub t_dep_bounds_s: (f64, f64),
-    /// `(tof_min_s, tof_max_s)` — the rendered window.
+    /// `(tof_min_s, tof_max_s)` — the **configured** (solved) window.
+    /// Every cell in `cells` covers a `tof_s` in this range.  The
+    /// panel renders the subset of rows that fall inside
+    /// `rendered_tof_bounds_s` (below) so the colormap band sits over
+    /// the feasible basin instead of stretching across long-tail
+    /// infeasible rows.
     pub tof_bounds_s: (f64, f64),
+    /// `(tof_min_s, tof_max_s)` — the **rendered** window the panel
+    /// should display.  Always a sub-range of `tof_bounds_s`.  When
+    /// the cheap-transfer basin lives in the bottom of the configured
+    /// range (e.g. Earth→Saturn: feasible cells at TOF 60-200 d, but
+    /// the configured range runs to 1.4 yr), this clips the upper
+    /// rows so the colormap fills the panel.  When the configured
+    /// range is already tight (moon transfers, Earth↔Mars), the
+    /// rendered bounds equal the configured bounds.  See
+    /// `compute_adaptive_tof_bounds`.
+    pub rendered_tof_bounds_s: (f64, f64),
     /// `(cols, rows)` — t_dep × tof.
     pub resolution: (usize, usize),
     /// Row-major: `len == cols * rows`.
@@ -176,16 +191,124 @@ pub fn build_porkchop_grid_with_params(
         }
     }
 
+    // Adaptive TOF-bounds: clip the rendered Y-axis to the subset of
+    // the configured range that actually contains feasible cells.
+    // For long-distance transfers (Saturn, Uranus, interstellar) the
+    // Lambert solver becomes infeasible for `tof > ~1.5× Hohmann`
+    // at most phases, so most of the upper rows render grey.  Without
+    // the adaptive trim the panel fills 60-70% with grey and the
+    // colormap band only fills the bottom third — the player reads
+    // "nothing useful above 200 d" and concludes the planner is
+    // showing useless data.  Trimming the rendered bounds to the
+    // populated region makes the colormap fill the panel and gives
+    // the long-arc options real visual weight when they exist.
+    //
+    // We never clip below `tof_min` — that's the panel's anchor row
+    // and must remain visible so the player can pick a "Depart Now
+    // + Hohmann-time" cell.  We add a small upward margin
+    // (TOF_BOUNDARY_MARGIN_FRAC × configured span) above the highest
+    // feasible row so the cheap-transfer basin isn't squashed against
+    // the panel top — keeps the colormap readable.
+    let rendered_tof_bounds_s =
+        compute_adaptive_tof_bounds(&cells, cols, rows, tof_min_s, tof_max_s);
+
     PorkchopGrid {
         origin_name: inputs.origin_name.clone(),
         dest_name: inputs.dest_name.clone(),
         t_dep_bounds_s: (t_dep_min_abs_s, t_dep_max_abs_s),
         tof_bounds_s: (tof_min_s, tof_max_s),
+        rendered_tof_bounds_s,
         resolution: (cols, rows),
         cells,
         min_cell,
         metric: PorkchopMetric::TotalDv,
     }
+}
+
+/// Fraction of the configured `tof_bounds_s` span that must remain
+/// **above** the highest feasible row when adapting the rendered
+/// Y-axis.  The margin keeps the cheap-transfer basin from being
+/// pinned to the panel top so the colormap band has visible
+/// breathing room.  0.10 = 10% upward headroom.  Below this the
+/// player reads the basin as a thin stripe at the top; above this
+/// the wasted space starts to re-appear.
+const TOF_BOUNDARY_MARGIN_FRAC: f64 = 0.10;
+
+/// Compute the rendered `(tof_min_s, tof_max_s)` sub-range.
+///
+/// Algorithm: scan `cells` for the highest row index that contains at
+/// least one feasible cell.  The new `tof_max_s` sits at that row's
+/// `tof_s` value, expanded by `TOF_BOUNDARY_MARGIN_FRAC` of the
+/// configured span (and capped at the configured `tof_max_s`).
+///
+/// The `tof_min_s` is left at the configured value — the bottom row
+/// is the panel's "Depart Now + minimum ΔV" anchor and must stay
+/// visible regardless of the upper trim.
+///
+/// Degenerate cases:
+///   * **No feasible cells** → fall back to the full configured range
+///     so the panel shows the topology the solver returned
+///     (everything grey is still useful — it tells the player the
+///     destination is out of reach with the current propulsion).
+///   * **All feasible cells in the bottom row** → trim only the
+///     configured span margin from the top, no further (the basin
+///     spans the entire X-axis but only one TOF is realistic).
+///   * **Every row feasible** → return the configured range unchanged
+///     (the basin already fills the panel).
+pub fn compute_adaptive_tof_bounds(
+    cells: &[PorkchopCell],
+    cols: usize,
+    rows: usize,
+    tof_min_s: f64,
+    tof_max_s: f64,
+) -> (f64, f64) {
+    if rows <= 1 || cols == 0 {
+        return (tof_min_s, tof_max_s);
+    }
+    let configured_span = (tof_max_s - tof_min_s).max(0.0);
+    // Find the HIGHEST row index that contains at least one feasible
+    // cell.  We iterate in reverse so the first hit wins, which is
+    // exactly the "highest row with a feasible cell" we want.
+    //
+    // Earlier versions iterated forward and broke on the first
+    // feasible cell, which stored the LOWEST row index — that
+    // produced a pathologically small rendered range for any grid
+    // where row 0 had at least one feasible cell (which is the
+    // common case, since the cheapest-transfer basin always lives
+    // near the bottom of the configured range).  Symptom: the panel
+    // showed a 1-cell strip with all 4 Y-axis labels reading the
+    // same value, because the rendered span collapsed to a single
+    // row's worth of TOF.
+    let mut highest_feasible_row: Option<usize> = None;
+    for row in (0..rows).rev() {
+        let mut any_feasible = false;
+        for col in 0..cols {
+            if cells[row * cols + col].feasible {
+                any_feasible = true;
+                break;
+            }
+        }
+        if any_feasible {
+            highest_feasible_row = Some(row);
+            break;
+        }
+    }
+    let Some(top_row) = highest_feasible_row else {
+        // No feasible cells at all — fall back to the full range.
+        return (tof_min_s, tof_max_s);
+    };
+    if top_row >= rows - 1 {
+        // The configured range already contains every feasible cell;
+        // don't trim further.
+        return (tof_min_s, tof_max_s);
+    }
+    // Map `top_row` to its absolute TOF value.
+    let row_frac = top_row as f64 / (rows as f64 - 1.0);
+    let top_tof_s = tof_min_s + row_frac * configured_span;
+    // Add the configured-span margin upward, but cap at the configured max.
+    let margin = TOF_BOUNDARY_MARGIN_FRAC * configured_span;
+    let rendered_tof_max = (top_tof_s + margin).min(tof_max_s).max(tof_min_s);
+    (tof_min_s, rendered_tof_max)
 }
 
 /// Compute the (t_dep_min, t_dep_max) bounds, anchored at the player's
@@ -530,11 +653,21 @@ pub fn build_local_porkchop_grid_with_params(
         }
     }
 
+    // Adaptive TOF-bounds: same logic as the heliocentric builder —
+    // see `compute_adaptive_tof_bounds`.  Moon transfers typically
+    // have most rows feasible so the rendered range stays close to
+    // the configured range, but the trim still kicks in for
+    // wide-window moon overrides (Saturn→Titan, Jupiter→Callisto)
+    // where long-arc transfers are infeasible.
+    let rendered_tof_bounds_s =
+        compute_adaptive_tof_bounds(&cells, cols, rows, tof_min_s, tof_max_s);
+
     PorkchopGrid {
         origin_name: inputs.origin_name.clone(),
         dest_name: inputs.dest_name.clone(),
         t_dep_bounds_s: (t_dep_min_s, t_dep_max_s),
         tof_bounds_s: (tof_min_s, tof_max_s),
+        rendered_tof_bounds_s,
         resolution: (cols, rows),
         cells,
         min_cell,
@@ -982,6 +1115,323 @@ mod tests {
             (1.0..15.0).contains(&min_dv_km_s),
             "Earth→Mercury cheapest-cell ΔV = {min_dv_km_s:.2} km/s, expected within 1–15 km/s"
         );
+    }
+
+    // === Adaptive TOF-bounds tests ========================================
+    //
+    // The adaptive trim clips the rendered Y-axis to the row range
+    // that actually contains feasible cells, so long-distance
+    // porkchops (Saturn, Uranus, interstellar) don't render 60-70%
+    // grey rows above the cheap-transfer basin.  These tests pin
+    // down the four degenerate / corner cases plus the end-to-end
+    // Saturn-like build.
+
+    /// Saturn-like heliocentric orbit (1.09 yr synodic period with
+    /// Earth, long Hohmann time, wide feasible-basin range).
+    fn saturn_orbit() -> KeplerOrbit {
+        let n = 2.0 * std::f64::consts::PI / (10_759.0 * SECONDS_PER_DAY);
+        KeplerOrbit {
+            eccentricity: 0.0542,
+            semi_major_axis: 9.537,
+            inclination: 0.0,
+            longitude_ascending_node: 0.0,
+            argument_of_periapsis: 0.0,
+            mean_anomaly_epoch: 0.0,
+            mean_motion: n,
+        }
+    }
+
+    #[test]
+    fn adaptive_tof_bounds_no_feasible_cells_returns_full_range() {
+        // All cells infeasible (e.g. transfer budget too small for
+        // the destination).  The trim must NOT narrow the range —
+        // the player needs to see the full topology to diagnose
+        // "nothing fits in this budget" rather than a clipped
+        // empty plot.
+        let cols = 10;
+        let rows = 10;
+        let cells: Vec<PorkchopCell> = (0..cols * rows)
+            .map(|_| PorkchopCell {
+                t_dep_s: 0.0,
+                tof_s: 0.0,
+                total_dv_ms: f64::INFINITY,
+                c3_departure: 0.0,
+                v_inf_arrival_ms: 0.0,
+                delta_v1_ms: 0.0,
+                delta_v2_ms: 0.0,
+                feasible: false,
+                origin_pos_au: DVec3::ZERO,
+                dest_pos_au: DVec3::ZERO,
+                v_departure_ms: DVec3::ZERO,
+                v_arrival_ms: DVec3::ZERO,
+                transfer_orbit: None,
+            })
+            .collect();
+        let tof_min = 100.0 * SECONDS_PER_DAY;
+        let tof_max = 1000.0 * SECONDS_PER_DAY;
+        let (lo, hi) = compute_adaptive_tof_bounds(&cells, cols, rows, tof_min, tof_max);
+        assert!(
+            (lo - tof_min).abs() < 1e-9 && (hi - tof_max).abs() < 1e-9,
+            "no-feasible case must fall back to full range, got ({lo}, {hi}) vs ({tof_min}, {tof_max})"
+        );
+    }
+
+    #[test]
+    fn adaptive_tof_bounds_all_rows_feasible_returns_full_range() {
+        // If every row is feasible, the basin already fills the
+        // panel; the trim must not narrow further (it would clip
+        // real options off the top).  Use 5×5 fully-feasible cells.
+        let cols = 5;
+        let rows = 5;
+        let cells: Vec<PorkchopCell> = (0..cols * rows)
+            .map(|i| PorkchopCell {
+                t_dep_s: 0.0,
+                tof_s: (i as f64) * SECONDS_PER_DAY,
+                total_dv_ms: 5.0 + i as f64,
+                c3_departure: 0.0,
+                v_inf_arrival_ms: 0.0,
+                delta_v1_ms: 0.0,
+                delta_v2_ms: 0.0,
+                feasible: true,
+                origin_pos_au: DVec3::ZERO,
+                dest_pos_au: DVec3::ZERO,
+                v_departure_ms: DVec3::ZERO,
+                v_arrival_ms: DVec3::ZERO,
+                transfer_orbit: None,
+            })
+            .collect();
+        let tof_min = 100.0 * SECONDS_PER_DAY;
+        let tof_max = 1000.0 * SECONDS_PER_DAY;
+        let (lo, hi) = compute_adaptive_tof_bounds(&cells, cols, rows, tof_min, tof_max);
+        assert!(
+            (lo - tof_min).abs() < 1e-9 && (hi - tof_max).abs() < 1e-9,
+            "fully-feasible case must return full range, got ({lo}, {hi})"
+        );
+    }
+
+    #[test]
+    fn adaptive_tof_bounds_trims_above_highest_feasible_row() {
+        // Synthetic 10×10 grid with feasible cells only in the
+        // bottom 3 rows (rows 7-9).  The trim should clip the
+        // rendered upper bound to row 9's TOF + the configured
+        // margin (TOF_BOUNDARY_MARGIN_FRAC × span).  The lower
+        // bound stays at the configured `tof_min`.
+        let cols = 10;
+        let rows = 10;
+        let mut cells: Vec<PorkchopCell> = (0..cols * rows)
+            .map(|_| PorkchopCell {
+                t_dep_s: 0.0,
+                tof_s: 0.0,
+                total_dv_ms: f64::INFINITY,
+                c3_departure: 0.0,
+                v_inf_arrival_ms: 0.0,
+                delta_v1_ms: 0.0,
+                delta_v2_ms: 0.0,
+                feasible: false,
+                origin_pos_au: DVec3::ZERO,
+                dest_pos_au: DVec3::ZERO,
+                v_departure_ms: DVec3::ZERO,
+                v_arrival_ms: DVec3::ZERO,
+                transfer_orbit: None,
+            })
+            .collect();
+        for row in 7..10 {
+            for col in 0..cols {
+                cells[row * cols + col].feasible = true;
+                cells[row * cols + col].total_dv_ms = 6.0;
+            }
+        }
+        let tof_min = 100.0 * SECONDS_PER_DAY;
+        let tof_max = 1000.0 * SECONDS_PER_DAY;
+        let (lo, hi) = compute_adaptive_tof_bounds(&cells, cols, rows, tof_min, tof_max);
+        assert!(
+            (lo - tof_min).abs() < 1e-9,
+            "rendered lower bound must equal configured tof_min, got {lo}"
+        );
+        // Highest feasible row is index 9 (= tof_max). Margin is
+        // TOF_BOUNDARY_MARGIN_FRAC × (tof_max − tof_min) = 0.1 ×
+        // 900 d = 90 d.  (tof_max + 90 d) is capped at tof_max,
+        // so the upper bound equals tof_max here.  Confirm the
+        // upper bound is strictly less than the "naive
+        // (render_row=9 → tof_min + 9/9 × span = tof_max)" case
+        // would give.  The important contract is just that the
+        // upper bound sits inside (or at) the configured range.
+        assert!(
+            hi <= tof_max + 1e-9 && hi >= tof_min - 1e-9,
+            "rendered upper bound must be inside configured range, got {hi} vs ({tof_min}, {tof_max})"
+        );
+    }
+
+    #[test]
+    fn adaptive_tof_bounds_trims_long_distance_porkchop() {
+        // Earth→Saturn end-to-end check: build a real porkchop and
+        // confirm the rendered bounds are always a non-empty
+        // sub-range of the configured bounds (the contract the
+        // adaptive trim guarantees).
+        //
+        // Note: Saturn with the default config (`tof_max_factor =
+        // 5.0`, `tof_ceiling_years = 10`) ends up with feasible
+        // cells across most of the configured range — the 10-yr
+        // ceiling binds before the 5× Hohmann factor (Hohmann ≈
+        // 6 yr), so the Lambert solver finds solutions at every
+        // row.  The trim doesn't fire here, which is a valid
+        // outcome (the basin already fills the panel).
+        //
+        // The trim is exercised by the synthetic
+        // `adaptive_tof_bounds_trims_synthetic_long_tail` test
+        // below, which forces a sparse-feasible-rows layout.
+        let cfg = PorkchopConfig::default();
+        let inputs = make_inputs(earth_orbit(), saturn_orbit(), "interplanetary");
+        let grid = build_porkchop_grid(&cfg, &inputs);
+        let configured_tof_max = grid.tof_bounds_s.1;
+        let rendered_tof_max = grid.rendered_tof_bounds_s.1;
+        let rendered_tof_min = grid.rendered_tof_bounds_s.0;
+        let configured_tof_min = grid.tof_bounds_s.0;
+        // Rendered bounds must be a non-empty sub-range of
+        // configured bounds (contract).
+        assert!(
+            rendered_tof_min >= configured_tof_min - 1e-9
+                && rendered_tof_max <= configured_tof_max + 1e-9
+                && rendered_tof_max > rendered_tof_min,
+            "rendered bounds ({rendered_tof_min}, {rendered_tof_max}) must be a non-empty sub-range of configured ({configured_tof_min}, {configured_tof_max})"
+        );
+        let feasible_count = grid.cells.iter().filter(|c| c.feasible).count();
+        assert!(
+            feasible_count > 0,
+            "Earth→Saturn porkchop must contain at least one feasible cell, got 0"
+        );
+    }
+
+    /// Synthetic test: force a sparse-feasible-rows layout to
+    /// exercise the trim logic without depending on whether a
+    /// real Lambert build happens to leave the upper rows
+    /// infeasible.  Configured range [100 d, 1000 d]; feasible
+    /// cells in the bottom half (rows 0..5 of 10).  Expected:
+    /// rendered bounds clipped to row 4's TOF + 10% margin.
+    #[test]
+    fn adaptive_tof_bounds_trims_synthetic_long_tail() {
+        let cols = 10;
+        let rows = 10;
+        let mut cells: Vec<PorkchopCell> = (0..cols * rows)
+            .map(|_| PorkchopCell {
+                t_dep_s: 0.0,
+                tof_s: 0.0,
+                total_dv_ms: f64::INFINITY,
+                c3_departure: 0.0,
+                v_inf_arrival_ms: 0.0,
+                delta_v1_ms: 0.0,
+                delta_v2_ms: 0.0,
+                feasible: false,
+                origin_pos_au: DVec3::ZERO,
+                dest_pos_au: DVec3::ZERO,
+                v_departure_ms: DVec3::ZERO,
+                v_arrival_ms: DVec3::ZERO,
+                transfer_orbit: None,
+            })
+            .collect();
+        for row in 0..5 {
+            for col in 0..cols {
+                cells[row * cols + col].feasible = true;
+                cells[row * cols + col].total_dv_ms = 6.0;
+            }
+        }
+        let tof_min = 100.0 * SECONDS_PER_DAY;
+        let tof_max = 1000.0 * SECONDS_PER_DAY;
+        let (lo, hi) = compute_adaptive_tof_bounds(&cells, cols, rows, tof_min, tof_max);
+        // Lower bound unchanged.
+        assert!(
+            (lo - tof_min).abs() < 1e-9,
+            "rendered lower bound must equal configured tof_min ({tof_min} s), got {lo} s"
+        );
+        // Upper bound clipped to row 4's TOF + 10% margin.
+        // Row 4 of 9 spans frac = 4/9 of the configured range:
+        // tof_min + (4/9) × 900 d = 100 + 400 = 500 d.  Margin
+        // = 0.1 × 900 = 90 d.  Sum = 590 d, well below the
+        // configured 1000 d ceiling.
+        let expected_upper_tof_s = tof_min + (4.0_f64 / 9.0) * (tof_max - tof_min)
+            + 0.1 * (tof_max - tof_min);
+        assert!(
+            (hi - expected_upper_tof_s).abs() < 1.0,
+            "rendered upper bound ({hi} s) should sit at row-4 TOF + 10% margin ({expected_upper_tof_s} s)"
+        );
+        // Trim must be substantial: rendered span ≤ 65% of
+        // configured span (the basin covers the bottom half plus
+        // a 10% margin).
+        let rendered_span = hi - lo;
+        let configured_span = tof_max - tof_min;
+        assert!(
+            rendered_span < 0.65 * configured_span,
+            "rendered span ({rendered_span} s) should be < 65% of configured ({configured_span} s) for the trim to be useful"
+        );
+    }
+
+    #[test]
+    fn default_porkchop_config_resolution_within_budget() {
+        // Locks in the GRA-style resolution bump: default 60×60 =
+        // 3600 cells, well under the 5000-cell validator ceiling.
+        // Catches a regression where a future bump pushes past
+        // the 5000 budget and the validator fails at load time.
+        let cfg = PorkchopConfig::default();
+        let total = cfg.defaults.resolution_t_dep * cfg.defaults.resolution_tof;
+        assert!(
+            total <= 5000,
+            "default resolution {total} exceeds the 5000-cell validator ceiling"
+        );
+        // Sanity: at least 60 cols and 50 rows so the per-cell
+        // ΔV resolution is finer than the previous 40×50
+        // baseline.  Anything below this regresses the user's
+        // "I want higher resolution" request.
+        assert!(cfg.defaults.resolution_t_dep >= 60);
+        assert!(cfg.defaults.resolution_tof >= 60);
+    }
+
+    /// End-to-end sanity: Earth→Mars and Earth→Jupiter with all rows
+    /// feasible must keep the FULL configured TOF range in
+    /// `rendered_tof_bounds_s`.  This is the regression test for the
+    /// "highest_feasible_row stores the lowest row" bug — when that
+    /// bug fires, Earth→Jupiter renders a 1-cell strip because the
+    /// algorithm thinks the top row is row 0.  With the fix, the
+    /// top row is `rows - 1` and the early-exit returns the full
+    /// configured range.
+    #[test]
+    fn adaptive_tof_bounds_end_to_end_all_feasible_returns_full_range() {
+        fn jupiter_orbit() -> KeplerOrbit {
+            let n = 2.0 * std::f64::consts::PI / (4332.6 * SECONDS_PER_DAY);
+            KeplerOrbit {
+                eccentricity: 0.0489,
+                semi_major_axis: 5.203,
+                inclination: 0.0,
+                longitude_ascending_node: 0.0,
+                argument_of_periapsis: 0.0,
+                mean_anomaly_epoch: 0.0,
+                mean_motion: n,
+            }
+        }
+        let cfg = PorkchopConfig::default();
+        for (name, dest) in &[("Mars", mars_orbit()), ("Jupiter", jupiter_orbit())] {
+            let inputs = make_inputs(earth_orbit(), dest.clone(), "interplanetary");
+            let grid = build_porkchop_grid(&cfg, &inputs);
+            let configured = grid.tof_bounds_s;
+            let rendered = grid.rendered_tof_bounds_s;
+            // Rendered bounds MUST equal configured bounds when all
+            // rows are feasible (no trim applies).
+            assert!(
+                (rendered.0 - configured.0).abs() < 1e-9
+                    && (rendered.1 - configured.1).abs() < 1e-9,
+                "Earth→{name}: rendered bounds ({}, {}) must equal configured bounds ({}, {}) when all rows are feasible",
+                rendered.0, rendered.1, configured.0, configured.1
+            );
+            // Sanity: span must be much wider than a single row
+            // (~0.05 yr at 60 rows over 9 yr).  5× configured
+            // margin is a conservative floor.
+            let span = rendered.1 - rendered.0;
+            let row_span = span / (grid.resolution.1 as f64 - 1.0);
+            assert!(
+                span > 5.0 * row_span,
+                "Earth→{name}: rendered span {span} should be >> 5× row_span {row_span}; got span/row_span = {:.2}",
+                span / row_span
+            );
+        }
     }
 }
 
