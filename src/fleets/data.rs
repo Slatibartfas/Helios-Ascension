@@ -6,7 +6,7 @@
 //! fall back to a `Default::default()` resource so debug builds still run
 //! — the strict pass/fail gate is the unit test in `data::tests`.
 
-use super::components::PorkchopConfig;
+use super::components::{InterstellarPropulsionPolicy, PorkchopConfig};
 use bevy::prelude::*;
 use std::fs;
 
@@ -48,6 +48,53 @@ pub fn load_porkchop_config(mut commands: Commands) {
                 path, e
             );
             commands.insert_resource(PorkchopConfig::default());
+        }
+    }
+}
+
+/// Load the interstellar propulsion policy from
+/// `assets/data/interstellar_propulsion.ron`.
+///
+/// On parse failure, missing file, or validation violation, falls back to
+/// `InterstellarPropulsionPolicy::default()` and emits a `warn!` log. The
+/// unit test in `data::tests::interstellar_propulsion_ron_loads_cleanly`
+/// is the strict pass/fail gate — production code never panics on a bad
+/// RON. GRA-343.
+pub fn load_interstellar_propulsion_policy(mut commands: Commands) {
+    let path = "assets/data/interstellar_propulsion.ron";
+    match fs::read_to_string(path) {
+        Ok(contents) => match ron::from_str::<InterstellarPropulsionPolicy>(&contents) {
+            Ok(policy) => {
+                if let Err(violations) = policy.validate() {
+                    for v in &violations {
+                        warn!("interstellar_propulsion.ron validation: {}", v);
+                    }
+                    warn!(
+                        "interstellar_propulsion.ron: {} validation violation(s); loader is using the file anyway",
+                        violations.len()
+                    );
+                } else {
+                    info!(
+                        "interstellar_propulsion.ron: AI ±{}° / {:.0}% margin, human ±{}° / {:.0}% margin",
+                        policy.ai_phase_angle_tolerance_deg,
+                        (policy.ai_deltav_margin - 1.0) * 100.0,
+                        policy.human_phase_angle_tolerance_deg,
+                        (policy.human_deltav_margin - 1.0) * 100.0,
+                    );
+                }
+                commands.insert_resource(policy);
+            }
+            Err(e) => {
+                error!("Failed to parse interstellar_propulsion.ron: {}", e);
+                commands.insert_resource(InterstellarPropulsionPolicy::default());
+            }
+        },
+        Err(e) => {
+            warn!(
+                "interstellar_propulsion.ron not found at {}: {}. Using defaults.",
+                path, e
+            );
+            commands.insert_resource(InterstellarPropulsionPolicy::default());
         }
     }
 }

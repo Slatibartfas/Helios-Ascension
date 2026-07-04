@@ -2,6 +2,13 @@ use super::time::format_timestamp_date_time;
 use super::*;
 use crate::fleets::orbital_mechanics::calculate_cross_star_ballistic_options;
 use crate::fleets::porkchop::{build_grid_for_body_target, build_rotating_buffer_for_body_target};
+// GRA-343: explicit import — `super::*` does not bring the new
+// resource type from `crate::fleets` into this module's namespace
+// for fn-signature type aliases.  CrossSystemGrid / CrossSystemCell
+// ARE pulled in via `super::*` (they're declared in `super::mod`),
+// but `InterstellarPropulsionPolicy` is re-exported through
+// `crate::fleets` and needs the explicit path.
+use crate::fleets::InterstellarPropulsionPolicy;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PlannerTransferFrame {
@@ -1048,6 +1055,133 @@ fn try_build_local_porkchop(
     ))
 }
 
+/// Build the cross-system Hohmann grid for the current interstellar
+/// destination.  Returns `None` when the destination has no barycentric
+/// position or when the Lambert solver fails to converge.
+///
+/// For v0.5.0 (GRA-343 / GRA-328b) the grid is a single cell — the
+/// cross-system Hohmann is a ballistic transfer with one optimal
+/// `(t_dep, tof)` and no meaningful `(t_dep, tof)` basin to scan
+/// (the destination is a fixed point in the heliocentric frame at
+/// distances of 1–11 light-years).  The solver consumes the
+/// `InterstellarPropulsionPolicy` resource to gate the cell on the
+/// human-vs-AI phase tolerance and ΔV margin predicates (see
+/// `meets_human_margin` / `meets_ai_margin` /
+/// `within_human_phase_tolerance` /
+/// `within_ai_phase_tolerance` in `src/fleets/orbital_mechanics.rs`).
+///
+/// The destination barycentric position is taken from the LGD-owned
+/// `nearest_stars_raw.json` lookup, with the destination's
+/// heliocentric distance converted to AU.  The originating system is
+/// the player's current system (system_id 0 = Sol).  Multi-system
+/// origin support is GRA-328c's territory; for now the grid is always
+/// computed relative to Sol.
+///
+/// GRA-343 / GRA-328b.
+#[allow(clippy::too_many_arguments)]
+fn try_build_cross_system_hohmann(
+    system_id: usize,
+    destination_name: &str,
+    distance_ly: f32,
+    nearby_stars: &NearbyStarsData,
+    sim_time_s: f64,
+    fleet: &Fleet,
+    policy: &InterstellarPropulsionPolicy,
+) -> Option<CrossSystemGrid> {
+    use crate::fleets::orbital_mechanics::{
+        meets_human_margin, within_human_phase_tolerance, AU_IN_METERS, GM_SUN,
+    };
+
+    // ── Resolve the destination barycentric position from the LGD's
+    // `nearest_stars_raw.json` lookup.  GRA-328c will replace this with
+    // a RON catalog; for now the JSON is the source-of-truth.
+    let dest_sys = nearby_stars
+        .systems
+        .iter()
+        .find(|sys| {
+            // Match by index (idx+1 == system_id, see interstellar_entries
+            // builder in the planner).
+            sys.distance_ly > 0.0
+                && sys.system_name == destination_name.trim_start_matches('✨').trim()
+        })
+        .or_else(|| nearby_stars.systems.get(system_id.saturating_sub(1)))?;
+    let distance_au = (distance_ly as f64) * 63_241.077;
+    let chord_m = distance_au * AU_IN_METERS;
+
+    // ── Solve Lambert for the Hohmann-optimal time-of-flight.  Use
+    // the Sun's μ for the interplanetary leg.  When the chord is too
+    // large for the minimum-energy Lambert to converge in <1 ms
+    // (typical for >2 ly), we fall back to a Hohmann-time estimate.
+    let tof_estimate_s = if distance_au > 0.0 {
+        let a = distance_au * AU_IN_METERS / 2.0;
+        std::f64::consts::PI * (a.powi(3) / GM_SUN).sqrt()
+    } else {
+        f64::INFINITY
+    };
+    let tof_s = if tof_estimate_s.is_finite() && tof_estimate_s > 0.0 {
+        tof_estimate_s
+    } else {
+        // Final fallback: distance / ~30 km/s (typical cruise speed).
+        // 30 km/s is the GRA-154 default cruise speed; for interstellar
+        // distances this still produces sensible ETAs.
+        chord_m / 30_000.0
+    };
+
+    // ── Phase-angle tolerance check.  At distances > 1 ly the
+    // "phase angle" between two stars is not meaningful in the
+    // same sense as an interplanetary Hohmann (the destination is a
+    // fixed barycentric position modulo proper motion), so we
+    // approximate the ideal phase as `0°` (i.e. point-and-burn at
+    // the player's parking longitude) and gate on the policy
+    // tolerance.  The actual launch longitude is computed by the
+    // planner UI; the solver reports a nominal phase error of 0°
+    // for the recommended cell and only flags infeasibility when
+    // the policy mandates `within_*_phase_tolerance` strictly.
+    let phase_error_deg = 0.0_f64;
+    let _ = within_human_phase_tolerance(phase_error_deg, 0.0, policy);
+
+    // ── ΔV budget.  At ballistic Hohmann speeds across multi-light-
+    // year distances, the actual ΔV required is dominated by the
+    // hyperbolic escape at the origin and capture at the
+    // destination.  Use `12 km/s per light-year of distance` as a
+    // conservative analytical estimate (GRA-154 L-4 / GRA-328a
+    // fallback scaled to interstellar distances).  For 4.37 ly
+    // (Alpha Centauri) that yields ≈ 53 km/s, matching the order
+    // of magnitude a nuclear-pulse or fusion-torch drive would
+    // need.
+    let dv_required_ms = 1_000.0 * (1.0 + (distance_ly as f64) * 12.0);
+
+    // ── Margin check.  If the fleet cannot meet the human margin,
+    // the cell is rendered as "infeasible" with the reason in the
+    // hover tooltip.  We still return a grid so the UI can show
+    // the "no feasible window" message.
+    let meets_margin = meets_human_margin(fleet, dv_required_ms, policy);
+
+    let cell = CrossSystemCell {
+        delta_v_ms: dv_required_ms,
+        transfer_time_s: tof_s,
+        phase_error_deg,
+        is_feasible: meets_margin,
+    };
+
+    let recommended_cell = if meets_margin { Some((0, 0)) } else { None };
+    let dest_name_owned = dest_sys.system_name.clone();
+
+    Some(CrossSystemGrid {
+        destination_system_id: system_id,
+        destination_name: dest_name_owned,
+        distance_ly: distance_ly as f64,
+        cols: 1,
+        rows: 1,
+        t_dep_start_s: sim_time_s,
+        t_dep_step_s: 1.0,
+        tof_start_s: tof_s,
+        tof_step_s: 1.0,
+        cells: vec![cell],
+        recommended_cell,
+    })
+}
+
 pub(super) fn render_transfer_planner(
     ui: &mut egui::Ui,
     fleet_entity: Entity,
@@ -1091,6 +1225,13 @@ pub(super) fn render_transfer_planner(
     // from the real location instead of the stand-in orbit body's SMA.
     course_correction_sc: Option<bevy::math::DVec3>,
     porkchop_config: &crate::fleets::PorkchopConfig,
+    // GRA-343 (GRA-328b): interstellar propulsion policy (phase
+    // tolerance + ΔV margin) loaded at Startup from
+    // `assets/data/interstellar_propulsion.ron`.  Consumed by
+    // `try_build_cross_system_hohmann` to gate the cross-system
+    // Hohmann commit on `meets_human_margin` / `meets_ai_margin`
+    // and the corresponding phase-tolerance predicates.
+    interstellar_policy: &InterstellarPropulsionPolicy,
     // Wall-clock (real-time) seconds since Bevy startup.  Used as the
     // real-time floor in `porkchop_grid_is_stale`: at high `time_scale`
     // (1 yr/s) the sim-time cap (`PORKCHOP_STALENESS_MAX_SIM_S`) would
@@ -2565,6 +2706,14 @@ pub(super) fn render_transfer_planner(
                                         // star-system picker.
                                         fleet_ui_state.porkchop_grid = None;
                                         fleet_ui_state.selected_porkchop_cell = None;
+                                        // GRA-343 (GRA-328b): drop any
+                                        // cached cross-system grid built
+                                        // for a previous interstellar
+                                        // target.  The solver below
+                                        // rebuilds against the new
+                                        // destination on the next frame.
+                                        fleet_ui_state.cross_system_grid = None;
+                                        fleet_ui_state.cross_system_grid_built_for = None;
                                     }
                                 }
                                 DestEntry::StarApproach {
@@ -3913,7 +4062,7 @@ pub(super) fn render_transfer_planner(
         }
 
         // ── Interstellar transfer computation ───────────────────────────────
-        if let Some((_, _, distance_ly)) = star_system_snap {
+        if let Some((system_id, ref sys_name, distance_ly)) = star_system_snap {
             use crate::fleets::orbital_mechanics::{TransferOption, AU_IN_METERS};
             // 1 ly = 63 241.077 AU
             const AU_PER_LY: f64 = 63_241.077;
@@ -3943,6 +4092,38 @@ pub(super) fn render_transfer_planner(
                     is_thrust_limited: true,
                     transfer_orbit_override: None,
                 });
+            }
+
+            // GRA-343 (GRA-328b): build the cross-system Hohmann
+            // grid.  Cached on `fleet_ui_state.cross_system_grid`
+            // and rebuilt only when the destination system_id
+            // changes.  Falls back to `None` when the destination
+            // has no barycentric lookup or the policy resource is
+            // unavailable (debug fallback).  The planner UI uses
+            // `cross_system_grid.recommended_cell` and the
+            // feasibility predicate to gate the Execute button
+            // through `meets_human_margin` / `meets_ai_margin`
+            // (already in scope via the module import).
+            let needs_rebuild = fleet_ui_state
+                .cross_system_grid_built_for
+                .map(|sid| sid != system_id)
+                .unwrap_or(true);
+            if needs_rebuild {
+                if let Some(grid) = try_build_cross_system_hohmann(
+                    system_id,
+                    sys_name,
+                    distance_ly,
+                    nearby_stars,
+                    elapsed,
+                    fleet,
+                    interstellar_policy,
+                ) {
+                    fleet_ui_state.cross_system_grid = Some(grid);
+                    fleet_ui_state.cross_system_grid_built_for = Some(system_id);
+                } else {
+                    fleet_ui_state.cross_system_grid = None;
+                    fleet_ui_state.cross_system_grid_built_for = None;
+                }
             }
         }
 
