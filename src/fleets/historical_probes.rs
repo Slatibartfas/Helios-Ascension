@@ -112,7 +112,8 @@ const AU_KM: f64 = 1.495_978_707_00e8;
 /// independent: a future "new game" flow that wants to reset the
 /// historical-probe marker (e.g. for save-scum prevention) does not need to
 /// also drop the Day-1 fleet.
-#[derive(Resource, Debug, Clone, Copy, Default)]
+#[derive(Resource, Debug, Clone, Copy, Default, Reflect)]
+#[reflect(Resource)]
 pub struct HistoricalProbesSpawned;
 
 /// Per-probe scan-state.  The key is the probe `kind`; the value is the
@@ -124,7 +125,8 @@ pub struct HistoricalProbesSpawned;
 /// entry for a kind, no further bonus is added.  This means save/load can
 /// restore the same `HistoricalProbeScanState` and the player cannot
 /// re-trigger the bonus by save-scumming.  GRA-131.
-#[derive(Resource, Debug, Clone, Default)]
+#[derive(Resource, Debug, Clone, Default, Reflect)]
+#[reflect(Resource)]
 pub struct HistoricalProbeScanState {
     /// sim_day of first scan per probe.
     pub scanned: HashMap<HistoricalProbeKind, u64>,

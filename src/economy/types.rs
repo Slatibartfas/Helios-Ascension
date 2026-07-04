@@ -5,7 +5,7 @@ use std::fmt;
 ///
 /// Determined by surface temperature and pressure of the host body.
 /// Affects extraction difficulty, accessibility bonuses, and visual representation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default, Reflect)]
 pub enum ResourcePhase {
     /// Solid / frozen state (default for most deposits)
     #[default]
@@ -147,7 +147,7 @@ pub fn determine_resource_phase(
 
 /// Resource types in the Helios Ascension economy
 /// Categorized by their geological and industrial properties
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Reflect)]
 pub enum ResourceType {
     // Volatiles - Found beyond the frost line (>2.5 AU)
     Water,

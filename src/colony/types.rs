@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 
 /// Types of buildings that can be constructed on a colony
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Reflect)]
 pub enum BuildingType {
     // Infrastructure - Basic colony infrastructure
     /// Converts local volatiles into breathable atmosphere
@@ -719,7 +719,7 @@ impl fmt::Display for BuildingType {
 }
 
 /// Categories for grouping buildings in the UI
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Reflect)]
 pub enum BuildingCategory {
     Infrastructure,
     Industry,

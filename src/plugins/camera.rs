@@ -47,7 +47,8 @@ pub fn starmap_transition_radius(bounding_radius_au: f64) -> f32 {
 ///
 /// - `System` — normal solar-system view with orbits, planets, moons.
 /// - `Starmap` — zoomed-out galaxy/sector view showing star systems as icons.
-#[derive(Resource, Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Resource, Debug, Clone, Copy, PartialEq, Eq, Default, Reflect)]
+#[reflect(Resource)]
 pub enum ViewMode {
     #[default]
     System,
@@ -60,14 +61,21 @@ pub enum ViewMode {
 /// Used by `orbit_camera_controls` to detect when the pointer is over an anchored
 /// panel (SidePanel, TopBottomPanel) — these panels don't show up in
 /// `ctx.is_pointer_over_area()`, which only detects floating windows.
-#[derive(Resource, Default)]
+///
+/// `available_rect` is `egui::Rect` — not Reflect-friendly by itself, so the
+/// field is `#[reflect(ignore)]` and the resource's snapshot comes back with
+/// `None`. The next frame's UI pass repopulates it.
+#[derive(Resource, Default, Reflect)]
+#[reflect(Resource)]
 pub struct EguiPanelBounds {
+    #[reflect(ignore)]
     pub available_rect: Option<egui::Rect>,
 }
 
 /// Saved camera radius from before entering a full-screen menu.
 /// Restored when returning to Survey/Starmap view.
-#[derive(Resource, Default)]
+#[derive(Resource, Default, Reflect)]
+#[reflect(Resource)]
 pub struct SavedSurveyRadius(pub Option<f32>);
 
 pub struct CameraPlugin;
@@ -98,13 +106,16 @@ impl Plugin for CameraPlugin {
     }
 }
 
-#[derive(Component)]
+#[derive(Component, Reflect)]
+#[reflect(Component)]
 pub struct GameCamera;
 
-#[derive(Component)]
+#[derive(Component, Reflect)]
+#[reflect(Component)]
 pub struct CameraAnchor(pub Option<Entity>);
 
-#[derive(Component)]
+#[derive(Component, Reflect)]
+#[reflect(Component)]
 pub struct OrbitCamera {
     pub radius: f32,
     pub pitch: f32,

@@ -32,7 +32,7 @@ const HISTORY_ARCHIVE_STEP_SECONDS: f64 = 365.25 * 86_400.0;
 /// `orbital_scan` etc.) loadable. The old fields are gone, but
 /// defaults let the deserializer fill in zeros instead of erroring
 /// out.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, Reflect)]
 pub struct SurveyHistoryStats {
     #[serde(default)]
     pub total_bodies: u32,
@@ -95,7 +95,7 @@ enum Band {
     B75To100,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Reflect)]
 pub struct SimulationHistorySample {
     pub sim_seconds: f64,
     pub total_population: f64,
@@ -140,7 +140,8 @@ impl SimulationHistorySample {
     }
 }
 
-#[derive(Resource, Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Resource, Debug, Clone, Serialize, Deserialize, Default, Reflect)]
+#[reflect(Resource)]
 pub struct SimulationHistory {
     #[serde(default)]
     pub samples: Vec<SimulationHistorySample>,

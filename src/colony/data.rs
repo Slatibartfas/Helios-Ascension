@@ -25,7 +25,7 @@ pub const POPULATION_SCALE_MULTIPLIER: f64 = 100.0;
 /// is `true`; `None` matches a body with no atmosphere (vacuum /
 /// trace gases only).  Buildings that should be buildable on every
 /// kind of body include both variants.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Reflect)]
 pub enum AtmosphereKind {
     Breathable,
     None,
@@ -35,7 +35,7 @@ pub enum AtmosphereKind {
 pub type ResourceCostEntry = (String, f64);
 
 /// A building modifier entry from data file
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Reflect)]
 pub struct BuildingModifierDef {
     /// Type of modifier (matches ModifierType variant names)
     pub modifier_type: String,
@@ -47,7 +47,7 @@ pub struct BuildingModifierDef {
 /// `line` matches `requires_line`, the listed `effect` gets a flat additive
 /// `bonus` (e.g. `0.10` = +10%).  Civ-VI-style adjacency, data-only —
 /// activated/deactivated purely by colony composition at recompute time.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Reflect)]
 pub struct SynergyRule {
     /// Line of buildings that must be present in the colony (e.g. "Refinery").
     /// Counted across the *colony*, not the same line as the building that
@@ -65,7 +65,7 @@ pub struct SynergyRule {
 }
 
 /// A building definition loaded from the data file
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Reflect)]
 pub struct BuildingDefinition {
     /// ID that maps to a BuildingType variant (e.g. "Mine", "DeepDrill")
     pub id: String,
@@ -165,7 +165,8 @@ fn default_population_scale_multiplier() -> f64 {
 }
 
 /// Resource that holds all building definitions loaded from data files
-#[derive(Resource, Debug, Clone, Default)]
+#[derive(Resource, Debug, Clone, Default, Reflect)]
+#[reflect(Resource)]
 pub struct BuildingsData {
     /// Building definitions indexed by BuildingType
     pub definitions: HashMap<BuildingType, BuildingDefinition>,

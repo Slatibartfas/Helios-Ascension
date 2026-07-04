@@ -17,11 +17,13 @@ impl Plugin for OceanPlugin {
 }
 
 /// Marker inserted on a body entity once its ocean shell has been spawned.
-#[derive(Component, Debug, Clone, Copy)]
+#[derive(Component, Debug, Clone, Copy, Reflect)]
+#[reflect(Component)]
 pub struct HasOceanShell;
 
 /// Marker component for the ocean shell child entity.
-#[derive(Component, Debug, Clone, Copy)]
+#[derive(Component, Debug, Clone, Copy, Reflect)]
+#[reflect(Component)]
 pub struct OceanShell {
     pub body_entity: Entity,
 }

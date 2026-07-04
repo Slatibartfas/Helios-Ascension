@@ -1,9 +1,10 @@
 //! Ship class and propulsion type definitions for the fleet system.
 
+use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
 /// Roles that can be assigned to a fleet, changing its icon and primary purpose.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Reflect)]
 pub enum FleetRole {
     /// Default role for unassigned fleets
     #[default]
@@ -47,7 +48,7 @@ impl FleetRole {
 }
 
 /// Classes of ships that can be built and flown.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Reflect)]
 pub enum ShipClass {
     /// Small, fast courier for urgent cargo and personnel transfer
     Courier,
@@ -67,7 +68,7 @@ pub enum ShipClass {
 
 /// Coarse 3-bucket classification used by [`Settings::show_all_fleet_trajectories`]
 /// to filter the system-map trajectory overlay (GRA-154 M-7).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect)]
 pub enum FleetClass {
     Freighter,
     Combat,
@@ -142,7 +143,7 @@ impl ShipClass {
 }
 
 /// Propulsion technologies available for ships.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Reflect)]
 pub enum PropulsionType {
     /// Chemical rockets — high thrust, low specific impulse (~450 s)
     Chemical,

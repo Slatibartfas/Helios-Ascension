@@ -10,7 +10,8 @@ use crate::survey::ContinuousStationBonus;
 use crate::ui::SimulationTime;
 use bevy::prelude::*;
 
-#[derive(Component, Debug, Clone)]
+#[derive(Component, Debug, Clone, Reflect)]
+#[reflect(Component)]
 pub struct MiningOperation {
     pub resource_type: ResourceType,
     /// Base extraction rate in Megatons per year

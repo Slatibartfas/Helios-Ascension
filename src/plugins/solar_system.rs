@@ -174,7 +174,8 @@ fn update_atmosphere_shell(
     }
 }
 
-#[derive(Component)]
+#[derive(Component, Reflect)]
+#[reflect(Component)]
 pub struct CelestialBody {
     #[allow(dead_code)]
     pub name: String,
@@ -216,48 +217,60 @@ impl CelestialBody {
 }
 
 /// Logical parent for UI hierarchy, separate from spatial transform parenting
-#[derive(Component, Copy, Clone)]
+#[derive(Component, Copy, Clone, Reflect)]
+#[reflect(Component)]
 pub struct LogicalParent(pub Entity);
 
-#[derive(Component)]
+#[derive(Component, Reflect)]
+#[reflect(Component)]
 pub struct Star;
 
-#[derive(Component)]
+#[derive(Component, Reflect)]
+#[reflect(Component)]
 pub struct Planet;
 
-#[derive(Component)]
+#[derive(Component, Reflect)]
+#[reflect(Component)]
 pub struct DwarfPlanet;
 
-#[derive(Component)]
+#[derive(Component, Reflect)]
+#[reflect(Component)]
 pub struct Moon;
 
-#[derive(Component)]
+#[derive(Component, Reflect)]
+#[reflect(Component)]
 pub struct Asteroid;
 
-#[derive(Component)]
+#[derive(Component, Reflect)]
+#[reflect(Component)]
 pub struct Comet;
 
-#[derive(Component)]
+#[derive(Component, Reflect)]
+#[reflect(Component)]
 pub struct GasGiant;
 
-#[derive(Component)]
+#[derive(Component, Reflect)]
+#[reflect(Component)]
 pub struct Ring;
 
 /// Marker component for entities that cannot be clicked/ray-picked in the 3-D view.
 /// They remain selectable via the ledger panel.
-#[derive(Component)]
+#[derive(Component, Reflect)]
+#[reflect(Component)]
 pub struct ClickExcluded;
 
 /// Axial tilt (obliquity) and north-pole direction of a celestial body.
 /// `obliquity` is the angle between the spin axis and the ecliptic normal (radians).
 /// `north_pole_ra` is the right-ascension direction the north pole tilts toward (radians).
-#[derive(Component)]
+#[derive(Component, Reflect)]
+#[reflect(Component)]
 pub struct AxialTilt {
     pub obliquity: f32,
     pub north_pole_ra: f32,
 }
 
-#[derive(Component)]
+#[derive(Component, Reflect)]
+#[reflect(Component)]
 pub struct RotationSpeed(pub f32);
 
 // Constants moved to solar_system_data.rs

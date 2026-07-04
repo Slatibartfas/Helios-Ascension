@@ -30,7 +30,7 @@ use crate::personnel::types::{ScientistId, ScientistSpecialty, SeniorityTier};
 /// negative." A scientist whose specialty does not match the
 /// template's method contributes 0 to the bonus — the heuristic
 /// never penalises a player for not having a specialist on station.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Reflect)]
 pub struct ScientistSummary {
     pub id: ScientistId,
     pub specialty: ScientistSpecialty,
@@ -55,7 +55,7 @@ pub struct ScientistSummary {
 /// 4. `TierGap { from_tier, to_tier }` — a tier-gap win on the
 ///    primary dim.
 /// 5. `BestFit` — fallback (zero score, zero gap).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Reflect)]
 pub enum ReasonTag {
     /// A scientist on the roster matches this template's method and
     /// is at high seniority (i.e. contributes a non-zero roster
@@ -84,7 +84,8 @@ pub enum ReasonTag {
 /// [`SurveyDimension::ALL`] are always known to the binary. The
 /// registry exists so modders can add a ninth dimension
 /// (e.g. "Magnetosphere") without recompiling Rust.
-#[derive(Resource, Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Resource, Debug, Clone, Default, Serialize, Deserialize, Reflect)]
+#[reflect(Resource)]
 pub struct SurveyDimensionRegistry {
     /// Modder-added dimensions, keyed by RON id. The eight hardcoded
     /// dimensions are always available even if not in this map.
@@ -92,7 +93,7 @@ pub struct SurveyDimensionRegistry {
 }
 
 /// One modder-defined survey dimension.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Reflect)]
 pub struct ModderDimensionDef {
     /// Stable RON id (e.g. "Magnetosphere").
     pub id: String,
@@ -104,7 +105,8 @@ pub struct ModderDimensionDef {
 
 /// Registry of survey instruments. Loaded from
 /// `assets/data/survey/instruments.ron` (PR-B).
-#[derive(Resource, Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Resource, Debug, Clone, Default, Serialize, Deserialize, Reflect)]
+#[reflect(Resource)]
 pub struct SurveyInstrumentRegistry {
     /// Instrument definitions, keyed by RON id (e.g.
     /// "phased_array_radar"). Empty in PR-A.
@@ -114,7 +116,7 @@ pub struct SurveyInstrumentRegistry {
 /// One survey instrument — corresponds to a single RON row in
 /// `assets/data/survey/instruments.ron`. See SURVEY_REWORK.md §5 for
 /// the full schema; PR-B writes the rows.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Reflect)]
 pub struct SurveyInstrumentDef {
     pub id: String,
     pub display_name: String,
@@ -135,7 +137,8 @@ pub struct SurveyInstrumentDef {
 
 /// Registry of survey mission templates. Loaded from
 /// `assets/data/survey/missions.ron` (PR-B).
-#[derive(Resource, Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Resource, Debug, Clone, Default, Serialize, Deserialize, Reflect)]
+#[reflect(Resource)]
 pub struct SurveyMissionTemplates {
     /// Mission templates, keyed by RON id. Empty in PR-A.
     pub templates: HashMap<String, SurveyMissionTemplate>,
@@ -143,7 +146,7 @@ pub struct SurveyMissionTemplates {
 
 /// One survey mission template — a single "send probe" click. See
 /// SURVEY_REWORK.md §5 (Mission templates).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Reflect)]
 pub struct SurveyMissionTemplate {
     pub id: String,
     pub display_name: String,
@@ -248,7 +251,8 @@ impl SurveyMissionTemplate {
 /// Holds the 19 hardcoded rows (keyed by `AnomalyType::ron_id`) plus
 /// any modder-added rows. The merged view is in `all`; the halves
 /// are kept separate for save-load diffability.
-#[derive(Resource, Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Resource, Debug, Clone, Default, Serialize, Deserialize, Reflect)]
+#[reflect(Resource)]
 pub struct SurveyAnomalyRegistry {
     /// Hardcoded rows keyed by `AnomalyType::ron_id`. Populated by
     /// `load_anomalies` from `assets/data/survey/anomalies.ron`.
@@ -311,7 +315,7 @@ impl SurveyAnomalyRegistry {
 /// appending rows to the `modder_anomalies` array in
 /// `anomalies.ron`; the loader turns them into `AnomalyDef` rows
 /// in `SurveyAnomalyRegistry::all`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Reflect)]
 pub struct ModderAnomalyDef {
     pub id: String,
     pub display_name: String,
@@ -326,7 +330,7 @@ pub struct ModderAnomalyDef {
 /// Effect a verified anomaly has on the game. Modders and LGD pick
 /// one variant per anomaly. The Coder routes the effect to the right
 /// subsystem (research, buildings, events) at activation time.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, Reflect)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum AnomalyEffect {
     /// Anomaly activates nothing — a flavor-only discovery.
@@ -352,7 +356,7 @@ pub enum AnomalyEffect {
 /// Drives the per-tick detection roll (axes + threshold +
 /// false_positive_rate) and the confidence ramp
 /// (activation_threshold + evidence_methods + per-method specificity).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Reflect)]
 pub struct AnomalyDef {
     /// Stable RON id, matches `AnomalyType::ron_id` for hardcoded
     /// types or a free-form slug for modder-added ones.
@@ -413,7 +417,8 @@ impl AnomalyDef {
 ///
 /// Powers SURVEY_REWORK.md §11 (Resource Reveal Matrix). The default
 /// curve is hardcoded below so the app starts without the RON file.
-#[derive(Resource, Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Resource, Debug, Clone, Default, Serialize, Deserialize, Reflect)]
+#[reflect(Resource)]
 pub struct MiningEfficiencyRegistry {
     /// Mining efficiency rows, keyed by RON id (e.g.
     /// "proven_crustal_min_deposits_t2"). Empty in PR-A.
@@ -421,7 +426,7 @@ pub struct MiningEfficiencyRegistry {
 }
 
 /// One row in the mining efficiency curve.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Reflect)]
 pub struct MiningEfficiencyRow {
     pub id: String,
     /// Resource class tag (matches a tag in `solar_system.ron`'s
@@ -446,7 +451,8 @@ pub struct MiningEfficiencyRow {
 /// memory only; rebuilt from `Vec<AnalysisJob>` on save-load.
 ///
 /// Empty in PR-A — the analysis queue (PR-C) populates this.
-#[derive(Resource, Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Resource, Debug, Clone, Default, Serialize, Deserialize, Reflect)]
+#[reflect(Resource)]
 pub struct AnalysisQueueIndex {
     /// Active jobs, keyed by job id.
     pub jobs_by_id: HashMap<u64, AnalysisJobRef>,
@@ -458,7 +464,7 @@ pub struct AnalysisQueueIndex {
 
 /// Lightweight handle into an [`AnalysisJob`](super::components::AnalysisJob)
 /// stored elsewhere (e.g. on a body's [`SurveyState`]).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Reflect)]
 pub struct AnalysisJobRef {
     pub job_id: u64,
     pub body: Entity,
@@ -470,7 +476,7 @@ pub struct AnalysisJobRef {
 use std::fs;
 
 /// Top-level shape of `assets/data/survey/anomalies.ron`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Reflect)]
 struct AnomaliesFile {
     hardcoded: Vec<AnomalyDef>,
     #[serde(default)]
@@ -575,7 +581,7 @@ pub fn load_mission_templates(mut commands: Commands) {
 /// the issue body's three recovery kinds
 /// (`equipment_recovery`, `crew_extraction`,
 /// `data_relay_replacement`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Reflect)]
 #[serde(rename_all = "snake_case")]
 pub enum RecoveryMissionKind {
     /// Send a retrieval ship / rover to recover stuck equipment
@@ -628,7 +634,7 @@ impl RecoveryMissionKind {
 ///
 /// Loaded from `assets/data/survey/recovery_missions.ron` via
 /// [`load_recovery_missions`].
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Reflect)]
 pub struct RecoveryMission {
     pub id: String,
     pub display_name: String,
@@ -665,7 +671,8 @@ pub struct RecoveryMission {
 /// auto-spawns a recovery mission, and the dossier UI uses
 /// the same registry to populate the "DISPATCH RECOVERY"
 /// button.
-#[derive(Resource, Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Resource, Debug, Clone, Default, Serialize, Deserialize, Reflect)]
+#[reflect(Resource)]
 pub struct RecoveryMissionRegistry {
     /// Recovery mission definitions, keyed by RON id. Empty
     /// until `load_recovery_missions` runs.

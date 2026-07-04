@@ -22,7 +22,8 @@ use crate::ui::SimulationTime;
 /// Snapshot of "years remaining at the current draw" for every consumed
 /// resource on every colony.  Written by [`compute_depletion_timeline`] and
 /// read by the construction-panel UI (GRA-22d).
-#[derive(Resource, Debug, Clone, Default)]
+#[derive(Resource, Debug, Clone, Default, Reflect)]
+#[reflect(Resource)]
 pub struct DepletionTimeline {
     /// `colony_entity → resource → years_remaining`.
     /// Missing entries mean either no draw or no local stockpile to deplete.
@@ -36,7 +37,8 @@ pub struct DepletionTimeline {
 ///
 /// Read by gameplay systems (mining, construction) and by the
 /// construction-panel UI (GRA-22d "Synergies active" badge).
-#[derive(Resource, Debug, Clone, Default)]
+#[derive(Resource, Debug, Clone, Default, Reflect)]
+#[reflect(Resource)]
 pub struct ColonySynergies {
     /// `colony_entity → SynergyState`.
     pub by_colony: HashMap<Entity, SynergyState>,
@@ -44,7 +46,7 @@ pub struct ColonySynergies {
 
 /// Additive bonuses per effect name for a single colony.  Multiple
 /// bonuses on the same effect from different buildings sum.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Reflect)]
 pub struct SynergyState {
     /// `effect_name → additive_bonus`.  E.g. `+0.10` mining efficiency.
     pub bonuses: HashMap<String, f64>,

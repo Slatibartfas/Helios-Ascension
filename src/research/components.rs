@@ -4,21 +4,24 @@ use serde::{Deserialize, Serialize};
 use super::types::{ModifierType, TechCategory, TechnologyId};
 
 /// Component for entities that generate research points
-#[derive(Component, Debug, Clone, Serialize, Deserialize)]
+#[derive(Component, Debug, Clone, Serialize, Deserialize, Reflect)]
+#[reflect(Component)]
 pub struct ResearchBuilding {
     /// Research points generated per second
     pub points_per_second: f64,
 }
 
 /// Component for entities that generate engineering points
-#[derive(Component, Debug, Clone, Serialize, Deserialize)]
+#[derive(Component, Debug, Clone, Serialize, Deserialize, Reflect)]
+#[reflect(Component)]
 pub struct EngineeringFacility {
     /// Engineering points generated per second
     pub points_per_second: f64,
 }
 
 /// Resource tracking research team capacity (placeholder for full team system)
-#[derive(Resource, Debug, Clone)]
+#[derive(Resource, Debug, Clone, Reflect)]
+#[reflect(Resource)]
 pub struct ResearchTeamCapacity {
     /// Maximum number of concurrent research projects
     pub max_research_teams: usize,
@@ -36,7 +39,8 @@ impl Default for ResearchTeamCapacity {
 }
 
 /// Component for an active research project
-#[derive(Component, Debug, Clone)]
+#[derive(Component, Debug, Clone, Reflect)]
+#[reflect(Component)]
 pub struct ResearchProject {
     /// Technology being researched
     pub tech_id: TechnologyId,
@@ -80,7 +84,8 @@ impl ResearchProject {
 }
 
 /// Component for an active engineering project
-#[derive(Component, Debug, Clone)]
+#[derive(Component, Debug, Clone, Reflect)]
+#[reflect(Component)]
 pub struct EngineeringProject {
     /// Component design being engineered
     pub component_id: String,
@@ -118,7 +123,8 @@ impl EngineeringProject {
 }
 
 /// Component for a research or engineering team
-#[derive(Component, Debug, Clone)]
+#[derive(Component, Debug, Clone, Reflect)]
+#[reflect(Component)]
 pub struct ResearchTeam {
     /// Team name
     pub name: String,
@@ -175,7 +181,8 @@ impl ResearchTeam {
 }
 
 /// Component for a completed component design
-#[derive(Component, Debug, Clone)]
+#[derive(Component, Debug, Clone, Reflect)]
+#[reflect(Component)]
 pub struct ComponentDesign {
     /// Component identifier
     pub id: String,
@@ -186,7 +193,8 @@ pub struct ComponentDesign {
 }
 
 /// Component that stores active technology modifiers
-#[derive(Component, Debug, Clone)]
+#[derive(Component, Debug, Clone, Reflect)]
+#[reflect(Component)]
 pub struct TechModifier {
     /// Type of modifier
     pub modifier_type: ModifierType,

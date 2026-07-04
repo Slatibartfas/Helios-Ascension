@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 /// A single construction berth at a shipyard.
 /// One slipway can build one ship at a time.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Reflect)]
 pub struct Slipway {
     /// 0-indexed within the shipyard
     pub id: u32,
@@ -45,7 +45,8 @@ impl Slipway {
 }
 
 /// Per-colony shipyard facility with multiple slipways.
-#[derive(Component, Debug, Clone, Serialize, Deserialize)]
+#[derive(Component, Debug, Clone, Serialize, Deserialize, Reflect)]
+#[reflect(Component)]
 pub struct ShipyardFacility {
     /// All slipways at this facility
     pub slipways: Vec<Slipway>,

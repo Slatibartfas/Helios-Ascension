@@ -13,7 +13,8 @@ impl Plugin for AtmospherePlugin {
 }
 
 /// Global settings that control atmospheric scattering rendering.
-#[derive(Resource, Debug, Clone)]
+#[derive(Resource, Debug, Clone, Reflect)]
+#[reflect(Resource)]
 pub struct AtmosphereSettings {
     /// Master toggle for atmospheric scattering.
     pub enabled: bool,
@@ -36,12 +37,14 @@ impl Default for AtmosphereSettings {
 
 /// Marker inserted on a body entity once its atmosphere scattering shell has been spawned.
 /// Prevents duplicate shells and lets reactive systems know a shell already exists.
-#[derive(Component, Debug, Clone, Copy)]
+#[derive(Component, Debug, Clone, Copy, Reflect)]
+#[reflect(Component)]
 pub struct HasAtmosphereShell;
 
 /// Marker component for the atmosphere shell child entity.
 /// Stores the parent body entity so systems can look up body-specific data.
-#[derive(Component, Debug, Clone, Copy)]
+#[derive(Component, Debug, Clone, Copy, Reflect)]
+#[reflect(Component)]
 pub struct AtmosphereShell {
     pub body_entity: Entity,
 }

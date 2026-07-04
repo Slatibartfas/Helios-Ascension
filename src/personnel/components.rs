@@ -12,7 +12,8 @@ use super::types::{ScientistId, ScientistSpecialty, SeniorityTier};
 /// `current_analysis` and updates `lifetime_data_processed` /
 /// `lifetime_anomalies_flagged` on job completion. PR-B (GRA-80)
 /// adds the survey-mission assignment and injury fields.
-#[derive(Debug, Clone, Component, Serialize, Deserialize)]
+#[derive(Debug, Clone, Component, Serialize, Deserialize, Reflect)]
+#[reflect(Component)]
 pub struct Scientist {
     /// Stable id, used by the analysis queue to index this scientist
     /// in [`AnalysisQueueIndex`](crate::survey::data::AnalysisQueueIndex).

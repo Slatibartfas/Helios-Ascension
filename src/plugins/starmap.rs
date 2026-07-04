@@ -40,7 +40,8 @@ const FALLBACK_BOUNDING_RADIUS_AU: f64 = 50.0;
 
 /// Resource storing metadata about each star system, primarily their bounding radius.
 /// This is used to calculate dynamic zoom thresholds.
-#[derive(Resource, Default)]
+#[derive(Resource, Default, Reflect)]
+#[reflect(Resource)]
 pub struct SystemMetadata {
     /// Map from SystemId to bounding radius in AU
     pub bounding_radii: HashMap<usize, f64>,
@@ -66,7 +67,8 @@ impl SystemMetadata {
 /// The value is set at spawn time via [`classify_exoplanet`] and can be used by
 /// any system that wants to know what visual archetype a body belongs to
 /// (e.g. `"jungle"`, `"ice_giant"`, `"lava"`).
-#[derive(Component, Debug, Clone)]
+#[derive(Component, Debug, Clone, Reflect)]
+#[reflect(Component)]
 pub struct PlanetCategory(pub String);
 
 // ── Planet Texture Manifest ──────────────────────────────────────────────────
@@ -77,7 +79,8 @@ pub struct PlanetCategory(pub String);
 /// or reorder texture paths in any existing category list without changing Rust
 /// code.  Introducing brand-new categories requires also updating the
 /// `classify_exoplanet` function so those categories are selected.
-#[derive(Resource, Debug, Clone, Serialize, Deserialize)]
+#[derive(Resource, Debug, Clone, Serialize, Deserialize, Reflect)]
+#[reflect(Resource)]
 pub struct PlanetTextureManifest {
     /// Map from category name (e.g. `"jungle"`, `"lava"`) to an ordered list
     /// of texture paths relative to the `assets/` directory.
@@ -259,7 +262,8 @@ impl Plugin for StarmapPlugin {
 // ── Components ──────────────────────────────────────────────────────────────
 
 /// Marker for starmap-level star system icons.
-#[derive(Component)]
+#[derive(Component, Reflect)]
+#[reflect(Component)]
 pub struct StarSystemIcon {
     /// Unique ID of the system (index in the stars array)
     pub id: usize,
@@ -273,15 +277,18 @@ pub struct StarSystemIcon {
 }
 
 /// Tag for the Sol system's starmap icon (spawned once at startup).
-#[derive(Component)]
+#[derive(Component, Reflect)]
+#[reflect(Component)]
 pub struct SolSystemIcon;
 
 /// Marker for a star system that is currently hovered by the mouse
-#[derive(Component)]
+#[derive(Component, Reflect)]
+#[reflect(Component)]
 pub struct HoveredStarSystem;
 
 /// Marker for the currently selected/anchored star system in starmap view.
-#[derive(Component)]
+#[derive(Component, Reflect)]
+#[reflect(Component)]
 pub struct SelectedStarSystem;
 
 // ── Startup ─────────────────────────────────────────────────────────────────

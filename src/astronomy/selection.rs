@@ -41,7 +41,8 @@ const ORBIT_CLICK_SAMPLES: u32 = 64;
 
 /// Stored on a ring entity when it gains a selection/hover highlight so we can
 /// restore the original emissive when the highlight ends.
-#[derive(Component, Debug, Clone)]
+#[derive(Component, Debug, Clone, Reflect)]
+#[reflect(Component)]
 pub struct RingHighlight {
     /// Original base color before we modified it.
     pub original_base_color: Color,

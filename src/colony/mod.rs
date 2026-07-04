@@ -36,7 +36,8 @@ pub use systems::{
 pub use types::{BuildingCategory, BuildingType};
 
 /// Debug settings for construction system (toggled with F12 on Construction menu)
-#[derive(Resource, Debug, Clone, Default)]
+#[derive(Resource, Debug, Clone, Default, Reflect)]
+#[reflect(Resource)]
 pub struct ConstructionDebugSettings {
     /// Whether debug mode is enabled
     pub enabled: bool,
@@ -53,7 +54,8 @@ pub struct ConstructionDebugSettings {
 // ──────────────────────────────────────────────────────────────────────────────
 
 /// In-memory edit state for the building editor debug panel.
-#[derive(Resource, Debug, Clone, Default)]
+#[derive(Resource, Debug, Clone, Default, Reflect)]
+#[reflect(Resource)]
 pub struct BuildingEditState {
     /// Building currently open in the "Edit" dialog
     pub editing: Option<BuildingEditData>,
@@ -64,7 +66,7 @@ pub struct BuildingEditState {
 }
 
 /// Editable copy of a `BuildingDefinition` for the editor dialog.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Reflect)]
 pub struct BuildingEditData {
     /// The `BuildingType` enum key (can't be changed at runtime)
     pub building_type: BuildingType,

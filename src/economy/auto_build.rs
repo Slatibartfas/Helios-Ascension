@@ -50,7 +50,7 @@ use crate::ui::SimulationTime;
 /// per-company via the Logistics tab.  Companies without a `home_body`
 /// (e.g. the seeded default companies) can never auto-build regardless of
 /// this policy.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Reflect)]
 pub enum CompanyBuildPolicy {
     /// No auto-build.  Player must use the existing colony construction UI.
     #[default]
@@ -83,7 +83,8 @@ pub struct FreighterBuildNoDesignAvailable {
 
 /// Per-company throttling so we don't spam the event log + notification UI
 /// every tick for the same unfulfilled build.
-#[derive(Resource, Default, Debug)]
+#[derive(Resource, Default, Debug, Reflect)]
+#[reflect(Resource)]
 pub struct AutoBuildNotificationState {
     /// `(company_idx, last_complained_sim_seconds)` map.
     last_complained: HashMap<usize, f64>,

@@ -56,6 +56,41 @@ impl Plugin for AstronomyPlugin {
         app.add_plugins(nearby_stars::NearbyStarsPlugin)
             .init_resource::<LagrangePointMarkers>()
             .init_resource::<LastLpClick>()
+            // GRA-319: register every simulation-state type with the
+            // Bevy AppTypeRegistry so DynamicScene::from_world can pick
+            // it up.  Without these calls, snapshot/restore silently
+            // drops the component/resource.
+            .register_type::<SpaceCoordinates>()
+            .register_type::<FloatingOrigin>()
+            .register_type::<CurrentStarSystem>()
+            .register_type::<SystemId>()
+            .register_type::<OrbitCenter>()
+            .register_type::<KeplerOrbit>()
+            .register_type::<HyperbolicTrajectory>()
+            .register_type::<OrbitPath>()
+            .register_type::<Selected>()
+            .register_type::<Hovered>()
+            .register_type::<Destroyed>()
+            .register_type::<CometTail>()
+            .register_type::<LocalOrbitAmplification>()
+            .register_type::<SelectionMarker>()
+            .register_type::<HoverMarker>()
+            .register_type::<MarkerOwner>()
+            .register_type::<MarkerDot>()
+            .register_type::<LpMarkerInfo>()
+            .register_type::<OceanType>()
+            .register_type::<OceanProperties>()
+            .register_type::<SurfaceTemperature>()
+            .register_type::<StellarProperties>()
+            .register_type::<AtmosphericGas>()
+            .register_type::<AtmosphereComposition>()
+            .register_type::<RealPlanet>()
+            .register_type::<NearbyStarsData>()
+            .register_type::<StarSystemData>()
+            .register_type::<StarData>()
+            .register_type::<PlanetData>()
+            .register_type::<BinaryOrbitData>()
+            .register_type::<RingHighlight>()
             .add_systems(
                 Update,
                 (

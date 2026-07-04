@@ -8,7 +8,8 @@ use crate::shipbuilding::ShipbuildingData;
 use super::types::{ComponentDefinition, Technology, TechnologyId};
 
 /// Resource that holds all technology definitions loaded from data files
-#[derive(Resource, Debug, Clone, Default)]
+#[derive(Resource, Debug, Clone, Default, Reflect)]
+#[reflect(Resource)]
 pub struct TechnologiesData {
     /// All technologies indexed by ID
     pub technologies: HashMap<TechnologyId, Technology>,

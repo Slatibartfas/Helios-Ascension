@@ -47,7 +47,7 @@ use crate::ui::SimulationTime;
 ///
 /// `Manual` companies do nothing on their own; the player must take
 /// deliveries via the fleet panel's manual-assign path.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Reflect)]
 pub enum CompanyAIPolicy {
     /// No automated freight.  The player (or another AI company) must
     /// assign freighters manually.
@@ -91,7 +91,8 @@ pub struct FreighterNoDesignAvailable {
 
 /// Per-`ResourceRequest` throttling so we don't spam the event log +
 /// notification UI every tick for the same unfulfilled request.
-#[derive(Resource, Default, Debug)]
+#[derive(Resource, Default, Debug, Reflect)]
+#[reflect(Resource)]
 pub struct AutoFreightNotificationState {
     /// `(request_id, last_complained_sim_seconds)` map.
     last_complained: HashMap<u64, f64>,

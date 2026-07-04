@@ -6,7 +6,7 @@ use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
 /// Summary information about a single ship within a fleet.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Reflect)]
 pub struct ShipInfo {
     /// Name of the ship.
     pub name: String,
@@ -113,7 +113,8 @@ impl ShipInfo {
 }
 
 /// Authoritative ship entity used by construction, assignment, and fleet caching.
-#[derive(Component, Debug, Clone)]
+#[derive(Component, Debug, Clone, Reflect)]
+#[reflect(Component)]
 pub struct ShipInstance {
     /// Full ship performance and mass data.
     pub info: ShipInfo,
@@ -156,7 +157,8 @@ impl ShipInstance {
 }
 
 /// A named collection of ships orbiting (or transferring between) celestial bodies.
-#[derive(Component, Debug, Clone)]
+#[derive(Component, Debug, Clone, Reflect)]
+#[reflect(Component)]
 pub struct Fleet {
     /// Display name for this fleet.
     pub name: String,
@@ -345,7 +347,8 @@ impl Fleet {
 /// Stable circular parking orbit for a fleet around a celestial body.
 ///
 /// Updated each frame by `update_fleet_orbit_positions`.
-#[derive(Component, Debug, Clone, Copy)]
+#[derive(Component, Debug, Clone, Copy, Reflect)]
+#[reflect(Component)]
 pub struct FleetOrbit {
     /// The celestial body this fleet orbits.
     pub body: Entity,
@@ -378,7 +381,7 @@ impl FleetOrbit {
 /// While present on an entity, `update_fleet_maneuver_positions` drives the
 /// fleet's `SpaceCoordinates` along the transfer ellipse each frame.
 /// `complete_fleet_maneuvers` removes this component when `arrival_time` is reached.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Reflect)]
 pub enum TransferReferenceFrame {
     /// The transfer is expressed relative to a real body entity.
     Body(Entity),
@@ -399,7 +402,8 @@ impl TransferReferenceFrame {
     }
 }
 
-#[derive(Component, Debug, Clone)]
+#[derive(Component, Debug, Clone, Reflect)]
+#[reflect(Component)]
 pub struct ActiveManeuver {
     /// Keplerian orbit describing the transfer arc.
     ///
@@ -520,7 +524,8 @@ impl ActiveManeuver {
 
 /// Resource holding fleet management actions queued by the UI, to be executed
 /// in the `Update` schedule where ECS mutation is safe.
-#[derive(Resource, Default)]
+#[derive(Resource, Default, Reflect)]
+#[reflect(Resource)]
 pub struct PendingFleetActions {
     /// Requests to spawn new fleets from a launch site.
     pub spawn_fleets: Vec<SpawnFleetAction>,
@@ -566,7 +571,7 @@ pub struct PendingFleetActions {
 /// Merge two or more fleets: all ships from `source_fleets` are moved into
 /// `target_fleet` (which keeps its name), and the source fleet entities are
 /// despawned once empty.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Reflect)]
 pub struct MergeFleetAction {
     /// Fleets whose ships will be moved out and despawned.
     pub source_fleets: Vec<Entity>,
@@ -575,7 +580,7 @@ pub struct MergeFleetAction {
 }
 
 /// Request to transfer ships between fleets.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Reflect)]
 pub struct TransferShipsAction {
     /// The source fleet entity.
     pub source_fleet: Entity,
@@ -586,7 +591,7 @@ pub struct TransferShipsAction {
 }
 
 /// Request to assign ship entities to a fleet without going through fleet-local indices.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Reflect)]
 pub struct AssignShipsAction {
     /// Ship entities to update.
     pub ship_entities: Vec<Entity>,
@@ -603,7 +608,7 @@ pub struct AssignShipsAction {
 /// pairing, deducts the request amount from the source `LocalStockpile`
 /// (first-fit-largest), and flips the request to `InTransit` with the fleet's
 /// Hohmann round-trip ETA.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Reflect)]
 pub struct AssignLogisticsRequestAction {
     /// The freighter fleet entity (must be in orbit at the request's destination).
     pub fleet: Entity,
@@ -612,7 +617,7 @@ pub struct AssignLogisticsRequestAction {
 }
 
 /// Request to create a fleet and attach specific ships to it immediately.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Reflect)]
 pub struct CreateFleetFromShipsAction {
     /// Display name for the new fleet.
     pub name: String,
@@ -627,7 +632,7 @@ pub struct CreateFleetFromShipsAction {
 }
 
 /// Request to spawn a new fleet in orbit around a body.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Reflect)]
 pub struct SpawnFleetAction {
     /// Display name for the new fleet.
     pub name: String,
@@ -642,11 +647,12 @@ pub struct SpawnFleetAction {
 }
 
 /// Request to start a previously computed orbital transfer.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Reflect)]
 pub struct StartTransferAction {
     /// The fleet entity that should perform the transfer.
     pub fleet: Entity,
     /// Fully computed transfer details.
+    #[reflect(ignore)]
     pub transfer: PlannedTransfer,
     /// Fuel (tonnes) to deduct immediately as an abort/correction burn penalty.
     /// Zero for transfers from a stable orbit; non-zero for mid-transit course corrections.
@@ -663,7 +669,7 @@ pub struct StartTransferAction {
 /// `ActiveManeuver`, deducts the abort fuel cost, and replaces the maneuver
 /// with a fresh return-to-origin transfer — preserving the fleet entity, its
 /// ships' `assigned_fleet` membership, and the visible render position.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Reflect)]
 pub struct AbortToOriginAction {
     /// The fleet entity that should abort its current maneuver.
     pub fleet: Entity,
@@ -672,7 +678,13 @@ pub struct AbortToOriginAction {
 }
 
 /// A fully computed transfer plan, ready to be turned into an `ActiveManeuver`.
-#[derive(Debug, Clone)]
+///
+/// `option_label` is intentionally `&'static str` — it identifies a static
+/// catalog entry (e.g. `"Hohmann"`, `"GA"`).  The other lifetime-free fields
+/// all serialise cleanly.  `StartTransferAction::transfer` carries
+/// `#[reflect(ignore)]` so a save restores the queue but loses the in-flight
+/// plan; the planner rebuilds it on reload.
+#[derive(Debug, Clone, Reflect)]
 pub struct PlannedTransfer {
     /// Origin body entity.
     pub origin_body: Entity,
@@ -695,6 +707,8 @@ pub struct PlannedTransfer {
     /// Estimated propellant consumed (tonnes).
     pub fuel_cost_t: f32,
     /// Label identifying which transfer option was chosen.
+    /// `&'static str` — not Reflect-friendly by itself; the planner
+    /// rebuilds the label on reload.
     pub option_label: &'static str,
     /// Pre-computed departure position (AU) for kinematic/direct transfers.
     /// When set, `process_fleet_actions` uses this instead of predicting from `origin_body`.
@@ -729,7 +743,8 @@ pub struct PlannedTransfer {
 /// pins a single JPL Horizons state vector used at spawn time and
 /// drives the per-probe science bonus (`+0.5 RP` once per save, gated on
 /// `SimulationTime` so the bonus never applies to player save-scumming).
-#[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect)]
+#[reflect(Component)]
 pub enum HistoricalProbeKind {
     /// Voyager 1 — hyperbolic escape trajectory, ~169.5 AU heliocentric at 2026-01-01.
     Voyager1,
@@ -766,13 +781,20 @@ impl HistoricalProbeKind {
 /// appear in the player fleet list, never accept transfer orders, and
 /// do not consume construction materials — they are background
 /// science assets only.
-#[derive(Component, Debug, Clone, Copy)]
+///
+/// `name` and `agency` are `&'static str` catalog references and are
+/// intentionally not part of the reflected shape (`#[reflect(ignore)]`);
+/// the spawner rebuilds them from `HistoricalProbeKind` after reload.
+#[derive(Component, Debug, Clone, Copy, Reflect)]
+#[reflect(Component)]
 pub struct HistoricalProbe {
     /// Which historical probe this entity represents.
     pub kind: HistoricalProbeKind,
     /// Display name (e.g. "Voyager 1").
+    #[reflect(ignore)]
     pub name: &'static str,
     /// Launching space agency (e.g. "NASA").
+    #[reflect(ignore)]
     pub agency: &'static str,
     /// Calendar year the probe launched (UTC).
     pub launch_year: u16,
@@ -791,7 +813,8 @@ pub struct HistoricalProbe {
 /// Default grid bounds for a transfer (used when no per-category override
 /// matches).  All times are in seconds; distances are in AU; C3 is in
 /// (km/s)².  The defaults match the LGD RON file's `defaults` block.
-#[derive(Debug, Clone, Serialize, Deserialize, Resource)]
+#[derive(Debug, Clone, Serialize, Deserialize, Resource, Reflect)]
+#[reflect(Resource)]
 pub struct PorkchopConfig {
     pub defaults: PorkchopGridDefaults,
     #[serde(default)]
@@ -804,7 +827,7 @@ pub struct PorkchopConfig {
 
 /// Conservative defaults used when no `PorkchopCategoryOverride` matches.
 /// Times are seconds; distances are AU; C3 is (km/s)².
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Reflect)]
 pub struct PorkchopGridDefaults {
     /// ±`t_dep_window_days / 2` around the optimal Hohmann window.
     pub t_dep_window_days: f64,
@@ -820,7 +843,7 @@ pub struct PorkchopGridDefaults {
 /// Per-category override.  Matched top-down against
 /// `PorkchopMetric` transfer category, first hit wins.  Unknown
 /// `match_key`s fall through to `defaults`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Reflect)]
 pub struct PorkchopCategoryOverride {
     pub match_key: String,
     pub t_dep_window_days: f64,
@@ -836,7 +859,7 @@ pub struct PorkchopCategoryOverride {
 /// One stop in the porkchop ΔV → RGBA colormap.  Linear interpolation
 /// between adjacent stops.  The last stop's `delta_v_km_s` is treated as
 /// the +∞ sentinel and is used to colour infeasible cells.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Reflect)]
 pub struct PorkchopColorStop {
     pub delta_v_km_s: f64,
     pub rgba: (u8, u8, u8, u8),

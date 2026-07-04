@@ -7,6 +7,7 @@
 //! breaking saved data because every survey state is keyed by string IDs
 //! once it leaves the binary.
 
+use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
@@ -15,7 +16,7 @@ use std::fmt;
 /// Each dimension represents an independent axis of "what we know about a
 /// body". A body is fully surveyed when every dimension is at tier 5 with
 /// confidence ≥ 0.8.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Reflect)]
 pub enum SurveyDimension {
     OrbitalMech,
     Atmosphere,
@@ -109,7 +110,7 @@ impl fmt::Display for SurveyDimension {
 /// Methods are how a player invests time and instruments to advance
 /// dimensions. Each method is bounded to a subset of dimensions by the
 /// tier matrix in `assets/data/survey/tiers.ron`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Reflect)]
 pub enum SurveyMethod {
     Flyby,
     Orbital,
@@ -160,7 +161,7 @@ impl SurveyMethod {
 /// a gameplay effect (research unlock, building unlock, or event chain).
 /// PR-C extends the r1 set with 6 additional terrestrial anomalies and
 /// 4 gas-giant anomalies; the full set is now 19 types.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Reflect)]
 pub enum AnomalyType {
     // ── r1 terrestrial anomalies (9 from PR-A) ──────────────────────
     WaterIceDeposit,
@@ -339,7 +340,7 @@ pub fn mining_yield_delta_for_tier(tier: u8) -> f32 {
 /// confidence below the re-roll flag. `Dormant` is reserved for
 /// anomalies that lose confidence and won't be re-rolled until new
 /// evidence arrives.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Reflect)]
 pub enum AnomalyState {
     Suspected,
     Verified,
@@ -361,7 +362,7 @@ impl AnomalyState {
 
 /// One piece of evidence that contributed to a detected anomaly's
 /// confidence. PR-C's confidence model is the sum over these.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Reflect)]
 pub struct EvidencePoint {
     /// What produced the evidence.
     pub kind: EvidenceKind,
@@ -377,7 +378,7 @@ pub struct EvidencePoint {
 }
 
 /// Source of one piece of evidence.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Reflect)]
 pub enum EvidenceKind {
     /// Routine data-point collection (per-tick dimension check).
     DataPoint,
@@ -450,7 +451,7 @@ pub fn default_method_specificity(method: SurveyMethod) -> f32 {
 /// [`advance_survey_missions`](crate::survey::systems) tick system.
 /// `Aborted` is set by the abort handler in PR-B; further statuses
 /// (e.g. `Analyzing`) land with PR-C's analysis queue.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default, Reflect)]
 pub enum MissionStatus {
     /// Mission has been dispatched but the probe/rover has not yet
     /// started its timeline. The duration is 0 in this state — used
@@ -503,7 +504,7 @@ impl MissionStatus {
 
 /// The reason a mission ended in `Failed`. Mirrors
 /// [`SurveyEvent::MissionFailed`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Reflect)]
 pub enum MissionFailureReason {
     /// A probe or atmospheric probe was lost (5% on probe-using
     /// methods). No data is returned; the probe entity is consumed.
@@ -568,7 +569,7 @@ impl MissionFailureReason {
 /// duration. `ProbeLoss` carries no payload because the recovery
 /// is a fresh dispatch of the same mission template, not a
 /// specialised recovery template.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Reflect)]
 #[serde(rename_all = "snake_case")]
 pub enum FailureKind {
     /// A probe or atmospheric probe was lost. No data; the

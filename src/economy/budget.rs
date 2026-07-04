@@ -12,7 +12,8 @@ use crate::plugins::camera::ViewMode;
 /// and research/engineering points for display in the resource bar.
 ///
 /// Rates are stored as "amount per 30-day month" (2,592,000 seconds).
-#[derive(Resource, Debug, Clone, Default)]
+#[derive(Resource, Debug, Clone, Default, Reflect)]
+#[reflect(Resource)]
 pub struct ResourceRateTracker {
     /// Monthly production rate per resource type (Mt/month) — global total
     pub resource_rates: HashMap<ResourceType, f64>,
@@ -33,7 +34,7 @@ pub const SECONDS_PER_MONTH: f64 = 2_592_000.0;
 /// Seconds in one year (365.25 × 86400)
 pub const SECONDS_PER_YEAR: f64 = 31_557_600.0;
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, Reflect)]
 pub struct ColonyPowerTotals {
     pub produced_watts: f64,
     pub consumed_watts: f64,
@@ -118,7 +119,8 @@ impl ResourceRateTracker {
 
 /// Global economic budget and resource management
 /// Tracks civilization-wide stockpiles and power generation
-#[derive(Resource, Debug, Clone, Serialize, Deserialize)]
+#[derive(Resource, Debug, Clone, Serialize, Deserialize, Reflect)]
+#[reflect(Resource)]
 pub struct GlobalBudget {
     /// Global stockpiles of each resource type (in arbitrary units)
     pub stockpiles: HashMap<ResourceType, f64>,
@@ -406,7 +408,7 @@ impl Default for GlobalBudget {
 }
 
 /// Energy grid status tracking power generation and consumption
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Reflect)]
 pub struct EnergyGrid {
     /// Total power produced (in Watts)
     pub produced: f64,
@@ -514,7 +516,8 @@ pub fn format_currency(mc: f64) -> String {
 ///
 /// The resource bar and construction affordability checks read from this
 /// resource so the displayed numbers match the player's current context.
-#[derive(Resource, Debug, Clone, Default)]
+#[derive(Resource, Debug, Clone, Default, Reflect)]
+#[reflect(Resource)]
 pub struct ContextualStockpile {
     /// Aggregated stockpiles for the current view context (Mt).
     pub stockpiles: HashMap<ResourceType, f64>,

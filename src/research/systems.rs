@@ -18,7 +18,8 @@ use super::PendingResearchActions;
 const STARTING_TECH_IDS: &[&str] = &["solar_power", "chemical_spaceframes"];
 
 /// Resource that tracks global research state
-#[derive(Resource, Debug, Clone, Default)]
+#[derive(Resource, Debug, Clone, Default, Reflect)]
+#[reflect(Resource)]
 pub struct ResearchState {
     /// Technologies that have been unlocked
     pub unlocked_technologies: HashSet<TechnologyId>,

@@ -12,7 +12,7 @@ use crate::research::ResearchState;
 pub type ResourceCostEntry = (ResourceType, f64);
 pub type AttributeEntry = (String, f64);
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Reflect)]
 pub struct HullSlotDefinition {
     pub slot_id: String,
     pub category: ShipModuleCategory,
@@ -42,7 +42,7 @@ fn default_progression_tier() -> u8 {
 /// when the player opts into the interstellar build preset in the transfer planner.
 /// It does **not** change ΔV — ΔV is always computed per-fleet from fitted drive
 /// modules via `Fleet::max_delta_v_ms()` (`src/fleets/components.rs`).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Reflect)]
 pub struct InterstellarCapability {
     /// Whether the hull's `slot_layout` must include at least one Large
     /// FlightSystems slot to be considered cross-system-capable.
@@ -52,7 +52,7 @@ pub struct InterstellarCapability {
     pub bp_premium: f64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Reflect)]
 pub struct ShipHullDefinition {
     pub id: String,
     pub display_name: String,
@@ -110,7 +110,7 @@ impl ShipHullDefinition {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Reflect)]
 pub struct ShipModuleDefinition {
     pub id: String,
     pub display_name: String,
@@ -239,7 +239,8 @@ impl ShipDesignSummary {
     }
 }
 
-#[derive(Resource, Debug, Clone, Default)]
+#[derive(Resource, Debug, Clone, Default, Reflect)]
+#[reflect(Resource)]
 pub struct ShipbuildingData {
     pub hulls: HashMap<String, ShipHullDefinition>,
     pub modules: HashMap<String, ShipModuleDefinition>,
@@ -493,7 +494,8 @@ fn scale_resource_costs(costs: &[ResourceCostEntry], tier: u8) -> Vec<ResourceCo
 
 /// Global library of ship design templates (designs / classes).
 /// Loaded/saved with game state. Separate from hull/module definition data.
-#[derive(Resource, Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Resource, Debug, Clone, Default, Serialize, Deserialize, Reflect)]
+#[reflect(Resource)]
 pub struct ShipDesignLibrary {
     pub templates: HashMap<uuid::Uuid, crate::shipbuilding::ShipDesignTemplate>,
 }
