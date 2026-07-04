@@ -130,7 +130,7 @@ mod tests {
         app.update();
 
         let messages = app.world().resource::<Messages<AppExit>>();
-        assert!(messages.len() >= 1);
+        assert!(!messages.is_empty());
         assert_eq!(*app.world().resource::<LaunchState>(), LaunchState::Splash);
         assert!(!app.world().resource::<PendingLaunchActions>().has_any());
     }
