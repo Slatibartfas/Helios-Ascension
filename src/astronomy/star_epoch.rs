@@ -75,7 +75,7 @@ pub struct StarSystemEphemeris {
 /// The `Vec` is open-ended (no cap) and is the storage backing the `HashMap`.
 /// Consumers must always go through `by_name[system_id]`; ordinal access is
 /// forbidden by project convention to keep the catalog modder-extendable.
-#[derive(Debug, Clone, Resource)]
+#[derive(Debug, Clone, Default, Resource)]
 pub struct StarSystemsEphemeris {
     pub systems: Vec<StarSystemEphemeris>,
     pub by_name: HashMap<String, usize>,
