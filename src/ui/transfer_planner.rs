@@ -1138,51 +1138,16 @@ pub(super) fn render_transfer_planner(
     }
     ui.separator();
 
-    // ── Planner mode toggle (GRA-167, GRA-164-C) ─────────────────────────────
-    // Three-way RadioButton group: Porkchop / Legacy / Auto.  Default Auto
-    // preserves the existing porkchop-or-legacy-by-destination decision
-    // tree.  Porkchop forces the grid to render even for moon/ring
-    // destinations (Earth→Moon uses the local-frame Lambert solver).
-    // Legacy always renders the legacy 3-option row + Execute button.
-    ui.horizontal(|ui| {
-        ui.label(
-            egui::RichText::new("Mode:")
-                .size(11.0)
-                .strong()
-                .color(theme::TEXT_DIM),
-        );
-        let prev_mode = fleet_ui_state.planner_mode;
-        ui.selectable_value(
-            &mut fleet_ui_state.planner_mode,
-            PlannerMode::Auto,
-            egui::RichText::new("Auto").size(11.0),
-        )
-        .on_hover_text(
-            "Defer to the destination's porkchop/legacy choice (moon + GA → legacy; everything else → porkchop).",
-        );
-        ui.selectable_value(
-            &mut fleet_ui_state.planner_mode,
-            PlannerMode::Porkchop,
-            egui::RichText::new("Porkchop").size(11.0),
-        )
-        .on_hover_text("Always render the porkchop grid; force a solver (local-frame Lambert for moons).");
-        ui.selectable_value(
-            &mut fleet_ui_state.planner_mode,
-            PlannerMode::Legacy,
-            egui::RichText::new("Legacy").size(11.0),
-        )
-        .on_hover_text(
-            "Always render the legacy 3-option row + Execute button. Use for gravity assists or direct Hohmann burns.",
-        );
-        if fleet_ui_state.planner_mode != prev_mode {
-            // Mode changed → drop the cached grid so the next frame
-            // rebuilds under the new policy.  Resetting the cell
-            // selection prevents the UI from referencing a stale
-            // `(col, row)` from the previous grid resolution.
-            fleet_ui_state.porkchop_grid = None;
-            fleet_ui_state.selected_porkchop_cell = None;
-        }
-    });
+    // ── GRA-326 Phase 2: planner auto-decides ──────────────────────────────
+    // The three-way Auto/Porkchop/Legacy RadioButton group was removed —
+    // the player shouldn't have to pick a transfer tool, the planner
+    // should always surface the best option.  Per-destination policy
+    // lives in the dispatcher below: local-frame Lambert for moon/ring
+    // parents, legacy 3-option row for Lagrange / GA / star-approach /
+    // fleet targets (where a heliocentric solver doesn't apply yet —
+    // GRA-153 follow-up).  Porkchop grids remain visible on bodies where
+    // a local-frame solver applies; the legacy row keeps appearing for
+    // anything else.
 
     // ── GRA-159 deferred porkchop build ─────────────────────────────────────
     // The porkchop grid is normally built by the Body/Ring click handlers in
@@ -3738,54 +3703,42 @@ pub(super) fn render_transfer_planner(
                     };
                     fleet_ui_state.computed_options.insert(0, ga_option);
 
-                    // ── GRA-167 dispatch: build (or skip) the porkchop grid ─────────
+                    // ── GRA-326 Phase 2 dispatch: build (or skip) the porkchop grid ─
                     // The body-target block above populates `computed_options` for
                     // the legacy 3-option row.  Here we decide whether to *also*
                     // cache a porkchop grid on `FleetUiState` for the panel.
                     //
-                    // Policy (planner_mode):
-                    //   * Legacy    → force `porkchop_grid = None` always.  The
-                    //     legacy row + Execute button render below (issue #7).
-                    //   * Auto      → for moon/ring targets with a `BodyLocal`
-                    //     frame, build a local-frame Lambert grid.  For
-                    //     everything else, leave the grid None (existing
-                    //     behaviour — heliocentric/stellar grids remain a
-                    //     Coder-side TODO per GRA-153).
-                    //   * Porkchop  → same as Auto but unconditionally; the
-                    //     player override path always attempts a local-frame
-                    //     solve when the parent body has GM data.
-                    match fleet_ui_state.planner_mode {
-                        PlannerMode::Legacy => {
+                    // Policy (auto-only, post-GRA-326 Phase 2):
+                    //   * BodyLocal frame → build a local-frame Lambert grid when
+                    //     the parent body has GM data; otherwise leave the grid
+                    //     None so the legacy row renders.
+                    //   * StellarLocal / SystemBarycentric → heliocentric grid
+                    //     is the Coder-side TODO on GRA-153.  Leave the grid
+                    //     None so the legacy row renders.
+                    if let PlannerTransferFrame::BodyLocal(parent_entity) = planner_frame {
+                        if let Some(grid) = try_build_local_porkchop(
+                            parent_entity,
+                            target_entity,
+                            orbit.body,
+                            elapsed,
+                            body_query,
+                            porkchop_config,
+                        ) {
+                            fleet_ui_state.porkchop_grid = Some(grid);
+                            fleet_ui_state.selected_porkchop_cell = None;
+                        } else {
+                            // Local-frame solve not applicable (e.g. ring targets
+                            // without KeplerOrbit).  Keep grid None so the legacy
+                            // row renders.
                             fleet_ui_state.porkchop_grid = None;
                             fleet_ui_state.selected_porkchop_cell = None;
                         }
-                        PlannerMode::Auto | PlannerMode::Porkchop => {
-                            if let PlannerTransferFrame::BodyLocal(parent_entity) = planner_frame {
-                                if let Some(grid) = try_build_local_porkchop(
-                                    parent_entity,
-                                    target_entity,
-                                    orbit.body,
-                                    elapsed,
-                                    body_query,
-                                    porkchop_config,
-                                ) {
-                                    fleet_ui_state.porkchop_grid = Some(grid);
-                                    fleet_ui_state.selected_porkchop_cell = None;
-                                } else {
-                                    // Local-frame solve not applicable (e.g. ring
-                                    // targets without KeplerOrbit).  Keep grid None
-                                    // so the legacy row renders.
-                                    fleet_ui_state.porkchop_grid = None;
-                                    fleet_ui_state.selected_porkchop_cell = None;
-                                }
-                            } else {
-                                // StellarLocal / SystemBarycentric: heliocentric
-                                // grid is the Coder's TODO on GRA-153.  Keep grid
-                                // None so the legacy row renders.
-                                fleet_ui_state.porkchop_grid = None;
-                                fleet_ui_state.selected_porkchop_cell = None;
-                            }
-                        }
+                    } else {
+                        // StellarLocal / SystemBarycentric: heliocentric grid is
+                        // the Coder's TODO on GRA-153.  Keep grid None so the
+                        // legacy row renders.
+                        fleet_ui_state.porkchop_grid = None;
+                        fleet_ui_state.selected_porkchop_cell = None;
                     }
                 }
             }
