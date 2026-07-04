@@ -1,10 +1,13 @@
+use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
 /// Unique identifier for a technology
 pub type TechnologyId = String;
 
 /// Technology categories for organization in the tech tree
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, Reflect,
+)]
 pub enum TechCategory {
     Electronics,
     Military,
@@ -89,7 +92,7 @@ impl TechCategory {
 }
 
 /// A technology in the tech tree
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Reflect)]
 pub struct Technology {
     /// Unique identifier
     pub id: TechnologyId,
@@ -114,7 +117,7 @@ pub struct Technology {
 }
 
 /// Definition of a technology modifier (from data file)
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Reflect)]
 pub struct TechModifierDef {
     /// Type of modifier
     pub modifier_type: ModifierType,
@@ -123,7 +126,7 @@ pub struct TechModifierDef {
 }
 
 /// Type of modifier a technology can provide
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Reflect)]
 pub enum ModifierType {
     /// Increase research point generation (%)
     ResearchSpeed,
@@ -186,7 +189,7 @@ impl ModifierType {
 }
 
 /// Component design that requires engineering after research
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Reflect)]
 pub struct ComponentDefinition {
     /// Unique identifier
     pub id: String,

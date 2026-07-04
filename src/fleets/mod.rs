@@ -23,6 +23,7 @@ pub use components::{
     MergeFleetAction, PendingFleetActions, PlannedTransfer, PorkchopCategoryOverride,
     PorkchopColorStop, PorkchopConfig, PorkchopGridDefaults, ResolvedPorkchopParams, ShipInfo,
     ShipInstance, SpawnFleetAction, StartTransferAction, TransferReferenceFrame,
+    TransferShipsAction,
 };
 pub use historical_probes::{HistoricalProbeScanState, HistoricalProbesSpawned};
 pub use orbital_mechanics::{

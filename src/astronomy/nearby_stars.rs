@@ -12,7 +12,8 @@ impl Plugin for NearbyStarsPlugin {
     }
 }
 
-#[derive(Resource, Default)]
+#[derive(Resource, Default, Reflect)]
+#[reflect(Resource)]
 pub struct NearbyStarsData {
     pub systems: Vec<StarSystemData>,
 }
@@ -35,7 +36,7 @@ impl NearbyStarsData {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Reflect)]
 pub struct StarSystemData {
     pub system_name: String,
     pub distance_ly: f32,
@@ -45,7 +46,7 @@ pub struct StarSystemData {
     pub binary_orbits: Vec<BinaryOrbitData>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Reflect)]
 pub struct StarData {
     pub name: String,
     pub spectral_type: String,
@@ -62,7 +63,7 @@ pub struct StarData {
     pub planets: Vec<PlanetData>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Reflect)]
 pub struct PlanetData {
     pub name: String,
     pub mass_earth: f32,
@@ -79,7 +80,7 @@ pub struct PlanetData {
 }
 
 /// Binary star orbital relationship
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Reflect)]
 pub struct BinaryOrbitData {
     /// Name/label for this orbital pair
     pub label: String,
@@ -130,6 +131,9 @@ pub fn load_nearby_stars_data(mut stars_data: ResMut<NearbyStarsData>) {
 
 #[derive(Debug, Clone)]
 pub struct StarPositionData {
+    // `&'static str` is not Reflect-friendly; this table is purely a compile-time
+    // lookup for star IDs → names, never persisted across save/load, so the fields
+    // stay excluded from the reflect pipeline by not having a `Reflect` derive.
     pub name: &'static str,
     pub pos_ly: [f64; 3],            // x, y, z in Light Years
     pub spectral_type: &'static str, // For color

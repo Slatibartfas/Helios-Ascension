@@ -5,13 +5,14 @@
 //! add a new specialty by adding a variant here + a row to
 //! `personnel_specialties.ron` (PR-C).
 
+use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
 /// The eight scientist specialties defined by SURVEY_REWORK.md §8.
 /// Modders can add a new specialty by adding a variant here + a row
 /// in `assets/data/personnel_specialties.ron`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Reflect)]
 pub enum ScientistSpecialty {
     Geology,
     Atmospherics,
@@ -120,7 +121,7 @@ impl fmt::Display for ScientistSpecialty {
 /// - **Senior** — 1.5× throughput, 1.0× confidence multiplier
 /// - **Principal** — 2.0× throughput, 1.2× confidence multiplier,
 ///   +10% chance of finding anomalies
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Reflect)]
 pub enum SeniorityTier {
     Junior,
     Senior,

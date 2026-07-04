@@ -6,7 +6,8 @@ use crate::economy::ResourceType;
 /// A refit project: replacing components on an existing ship with a new design.
 /// Refits on the same hull cost only 20% of removed BP + 100% of added BP.
 /// Refits to a different hull require full reconstruction (not a RefitProject).
-#[derive(Component, Debug, Clone, Serialize, Deserialize)]
+#[derive(Component, Debug, Clone, Serialize, Deserialize, Reflect)]
+#[reflect(Component)]
 pub struct RefitProject {
     /// The ship entity being refit
     pub ship_entity: Entity,

@@ -4,7 +4,8 @@ use bevy::prelude::*;
 /// High-precision spatial coordinates using double-precision floating point.
 /// This represents the "true" position of an object in the universe.
 /// Using DVec3 (f64) allows for much larger coordinate ranges without precision loss.
-#[derive(Component, Debug, Clone, Copy, Default)]
+#[derive(Component, Debug, Clone, Copy, Default, Reflect)]
+#[reflect(Component)]
 pub struct SpaceCoordinates {
     /// Position in 3D space using double-precision (f64)
     pub position: DVec3,
@@ -12,23 +13,27 @@ pub struct SpaceCoordinates {
 
 /// Resource defining the center of the rendering coordinate system in Universe space (AU).
 /// Used to implement the "floating origin" to avoid f32 jitter at large distances.
-#[derive(Resource, Default, Debug, Clone, Copy)]
+#[derive(Resource, Default, Debug, Clone, Copy, Reflect)]
+#[reflect(Resource)]
 pub struct FloatingOrigin {
     pub position: DVec3,
 }
 
 /// Resource tracking the currently loaded star system (0 = Sol).
-#[derive(Resource, Default, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Resource, Default, Debug, Clone, Copy, PartialEq, Eq, Reflect)]
+#[reflect(Resource)]
 pub struct CurrentStarSystem(pub usize);
 
 /// Component identifying which star system a celestial body belongs to.
-#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Reflect)]
+#[reflect(Component)]
 pub struct SystemId(pub usize);
 
 /// Component referencing the entity that this body orbits around.
 /// Without this component, orbits are computed relative to the universe origin (0,0,0).
 /// With it, the orbit position is offset by the parent entity's SpaceCoordinates.
-#[derive(Component, Debug, Clone, Copy)]
+#[derive(Component, Debug, Clone, Copy, Reflect)]
+#[reflect(Component)]
 pub struct OrbitCenter(pub Entity);
 
 impl SpaceCoordinates {
@@ -47,7 +52,8 @@ impl SpaceCoordinates {
 
 /// Keplerian orbital elements for realistic orbital mechanics.
 /// All angular measurements are in radians, distances in Astronomical Units (AU).
-#[derive(Component, Debug, Clone, Copy)]
+#[derive(Component, Debug, Clone, Copy, Reflect)]
+#[reflect(Component)]
 pub struct KeplerOrbit {
     /// Eccentricity (e) - shape of the orbit (0 = circle, 0-1 = ellipse, 1 = parabola, >1 = hyperbola)
     pub eccentricity: f64,
@@ -149,7 +155,8 @@ impl Default for KeplerOrbit {
 /// it to compute position; the orbit-path renderer uses `asymptote_velocity_kms`
 /// and `periapsis_distance_au` to draw a partial hyperbola (periapsis → 200 AU,
 /// fading tail).  GRA-131.
-#[derive(Component, Debug, Clone, Copy)]
+#[derive(Component, Debug, Clone, Copy, Reflect)]
+#[reflect(Component)]
 pub struct HyperbolicTrajectory {
     /// Hyperbolic excess speed v∞ = sqrt(-μ/a), in km/s.  `a` is negative for
     /// hyperbolics.  Used by the orbit-path renderer for HUD readouts.
@@ -204,7 +211,8 @@ impl HyperbolicTrajectory {
 
 /// Component that marks an entity as having a visible orbit path
 /// Used for orbit visualization
-#[derive(Component, Debug, Clone, Copy)]
+#[derive(Component, Debug, Clone, Copy, Reflect)]
+#[reflect(Component)]
 pub struct OrbitPath {
     /// Color of the orbit line
     pub color: Color,
@@ -260,19 +268,22 @@ impl Default for OrbitPath {
 
 /// Marker component for selected celestial bodies
 /// Selected bodies always have their orbits visible
-#[derive(Component, Debug, Clone, Copy, Default)]
+#[derive(Component, Debug, Clone, Copy, Default, Reflect)]
+#[reflect(Component)]
 pub struct Selected;
 
 /// Marker component for hovered celestial bodies
 /// Hovered bodies show a glowing ring and name label
-#[derive(Component, Debug, Clone, Copy, Default)]
+#[derive(Component, Debug, Clone, Copy, Default, Reflect)]
+#[reflect(Component)]
 pub struct Hovered;
 
 /// Marker component for destroyed/disintegrated celestial bodies.
 /// Used for bodies that have been destroyed by natural causes (e.g., ISON solar disintegration),
 /// mining operations, weapons, orbital decay, etc.
 /// Bodies with this component will be despawned after a brief fade-out period.
-#[derive(Component, Debug, Clone, Copy)]
+#[derive(Component, Debug, Clone, Copy, Reflect)]
+#[reflect(Component)]
 pub struct Destroyed {
     /// Time (in seconds) when the body was destroyed
     pub destruction_time: f64,
@@ -299,7 +310,8 @@ impl Destroyed {
 
 /// Marker component for comet tail mesh entities.
 /// Used to track and update dynamically generated 3D tail meshes.
-#[derive(Component, Debug, Clone, Copy)]
+#[derive(Component, Debug, Clone, Copy, Reflect)]
+#[reflect(Component)]
 pub struct CometTail {
     /// The entity of the parent comet
     pub comet_entity: Entity,
@@ -313,23 +325,28 @@ pub struct CometTail {
 /// All moons of the same parent share the same factor to preserve relative spacing.
 /// At system-wide zoom levels this is paired with LOD visibility — moons are hidden
 /// when the camera is far from the parent, and revealed with amplified orbits when close.
-#[derive(Component, Debug, Clone, Copy)]
+#[derive(Component, Debug, Clone, Copy, Reflect)]
+#[reflect(Component)]
 pub struct LocalOrbitAmplification(pub f32);
 
 /// Marker component for a glossy selection ring mesh.
-#[derive(Component, Debug, Clone, Copy)]
+#[derive(Component, Debug, Clone, Copy, Reflect)]
+#[reflect(Component)]
 pub struct SelectionMarker;
 
 /// Marker component for a glossy hover ring mesh.
-#[derive(Component, Debug, Clone, Copy)]
+#[derive(Component, Debug, Clone, Copy, Reflect)]
+#[reflect(Component)]
 pub struct HoverMarker;
 
 /// Associates a marker entity with its owning celestial body.
-#[derive(Component, Debug, Clone, Copy)]
+#[derive(Component, Debug, Clone, Copy, Reflect)]
+#[reflect(Component)]
 pub struct MarkerOwner(pub Entity);
 
 /// Animated bright dot that moves around a marker ring.
-#[derive(Component, Debug, Clone, Copy)]
+#[derive(Component, Debug, Clone, Copy, Reflect)]
+#[reflect(Component)]
 pub struct MarkerDot {
     pub angle: f32,
     pub angular_speed: f32,
@@ -341,7 +358,7 @@ pub struct MarkerDot {
 /// Per-frame data for one rendered Lagrange-point marker.
 /// Stored in [`LagrangePointMarkers`] so hover / selection systems can reference
 /// LP positions without needing the full rendering system.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Reflect)]
 pub struct LpMarkerInfo {
     /// World-space render position of this marker.
     pub render_pos: bevy::math::Vec3,
@@ -366,7 +383,8 @@ pub struct LpMarkerInfo {
 /// Cleared at the start of the system and re-filled with the current frame's
 /// LP marker positions.  Used by hover-detection and selection systems that
 /// run after rendering.
-#[derive(Resource, Default)]
+#[derive(Resource, Default, Reflect)]
+#[reflect(Resource)]
 pub struct LagrangePointMarkers {
     /// All LP markers drawn this frame.
     pub markers: Vec<LpMarkerInfo>,
@@ -376,13 +394,16 @@ pub struct LagrangePointMarkers {
 
 /// Resource set by [`handle_lp_hover`] when the player left-clicks on a
 /// Lagrange-point marker.  UI systems consume & clear this each frame.
-#[derive(Resource, Default)]
+#[derive(Resource, Default, Reflect)]
+#[reflect(Resource)]
 pub struct LastLpClick {
     pub info: Option<LpMarkerInfo>,
 }
 
 /// The type of liquid ocean on a celestial body.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize, Reflect,
+)]
 pub enum OceanType {
     /// Liquid water (Earth, potentially Mars in the past)
     Water,
@@ -401,7 +422,8 @@ pub enum OceanType {
 /// Attached to any body that has a significant liquid surface or subsurface
 /// ocean. Used for visuals (ocean shell), resource phase logic, and colony
 /// habitability modifiers.
-#[derive(Component, Debug, Clone, Copy)]
+#[derive(Component, Debug, Clone, Copy, Reflect)]
+#[reflect(Component)]
 pub struct OceanProperties {
     /// What liquid the ocean is made of.
     pub ocean_type: OceanType,
@@ -481,7 +503,8 @@ pub fn infer_ocean_properties(
 
 /// Component for the surface temperature of a celestial body.
 /// This exists for all solid bodies, regardless of whether they have an atmosphere.
-#[derive(Component, Debug, Clone, Copy, Default)]
+#[derive(Component, Debug, Clone, Copy, Default, Reflect)]
+#[reflect(Component)]
 pub struct SurfaceTemperature {
     pub average_celsius: f32,
     pub min_celsius: f32,
@@ -490,7 +513,8 @@ pub struct SurfaceTemperature {
 
 /// Component storing stellar properties for stars.
 /// Used for calculating illumination, temperature, and habitability of orbiting bodies.
-#[derive(Component, Debug, Clone, Copy)]
+#[derive(Component, Debug, Clone, Copy, Reflect)]
+#[reflect(Component)]
 pub struct StellarProperties {
     /// Luminosity relative to Sol (L☉)
     /// Sol = 1.0
@@ -518,7 +542,7 @@ impl StellarProperties {
 }
 
 /// Represents a gas component in an atmosphere
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Reflect)]
 pub struct AtmosphericGas {
     /// Name of the gas
     pub name: String,
@@ -538,7 +562,8 @@ impl AtmosphericGas {
 
 /// Component representing a celestial body's atmosphere
 /// Based on real data from NASA for solar system bodies
-#[derive(Component, Debug, Clone)]
+#[derive(Component, Debug, Clone, Reflect)]
+#[reflect(Component)]
 pub struct AtmosphereComposition {
     /// Surface pressure in millibars (1 bar = 1000 millibars)
     /// Earth's surface pressure is approximately 1013 millibars

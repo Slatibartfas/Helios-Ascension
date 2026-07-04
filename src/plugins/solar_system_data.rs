@@ -3,7 +3,7 @@ use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
 /// Type of celestial body
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Reflect)]
 pub enum BodyType {
     Star,
     Planet,
@@ -18,7 +18,7 @@ pub enum BodyType {
 
 /// Spectral/compositional class for asteroids
 /// Based on scientific taxonomy from JPL, Asterank, and asteroid surveys
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Reflect)]
 pub enum AsteroidClass {
     /// Carbonaceous (dark, carbon-rich) - ~75% of asteroids
     /// High volatiles: Water, Hydrogen, Ammonia, Methane

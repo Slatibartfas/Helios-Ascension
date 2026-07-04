@@ -3,11 +3,11 @@
 # Regenerate with: python3 scripts/audit_bevy_color_literals.py --emit-baseline
 # Move entries out as they're promoted to src/ui/theme.rs Color constants.
 
-src/astronomy/components.rs:257  Self::new(Color::srgba(0.5, 0.5, 0.5, 0.3))
+src/astronomy/components.rs:265  Self::new(Color::srgba(0.5, 0.5, 0.5, 0.3))
 src/astronomy/lagrange.rs:136  Color::srgba(1.0, 1.0, 0.3, 1.0) // bright yellow when hovered
 src/astronomy/lagrange.rs:138  Color::srgba(0.50, 0.80, 1.0, 0.90) // default blue-cyan
-src/astronomy/selection.rs:1101  Color::srgb(0.3, 0.65, 0.85)
-src/astronomy/selection.rs:1104  Color::srgb(0.5, 0.9, 1.0)
+src/astronomy/selection.rs:1102  Color::srgb(0.3, 0.65, 0.85)
+src/astronomy/selection.rs:1105  Color::srgb(0.5, 0.9, 1.0)
 src/astronomy/systems.rs:888  let segment_color = Color::srgba(
 src/astronomy/systems.rs:999  let segment_color = Color::srgba(
 src/astronomy/systems.rs:1060  let color = Color::srgba(
@@ -64,64 +64,64 @@ src/fleets/visuals.rs:4215  let node_color = Color::srgba(1.0, 1.0, 0.3, 0.9);
 src/main.rs:123  color: Color::srgb(0.7, 0.75, 1.0), // Cool blue-white starlight tint
 src/main.rs:134  color: Color::srgb(0.6, 0.65, 0.8), // Slightly cool galactic tint
 src/main.rs:146  commands.insert_resource(ClearColor(Color::srgb(0.01, 0.01, 0.02)));
-src/plugins/solar_system.rs:354  Color::srgb(
-src/plugins/solar_system.rs:363  Color::srgb(
-src/plugins/solar_system.rs:372  Color::srgb(
-src/plugins/solar_system.rs:381  Color::srgb(
-src/plugins/solar_system.rs:390  Color::srgb(
-src/plugins/solar_system.rs:399  Color::srgb(
-src/plugins/solar_system.rs:408  Color::srgb(
-src/plugins/solar_system.rs:424  Color::srgb(brightness * 0.85, brightness * 0.90, brightness * 1.0)
-src/plugins/solar_system.rs:429  Color::srgb(brightness * 1.1, brightness * 0.85, brightness * 0.65)
-src/plugins/solar_system.rs:434  Color::srgb(brightness * 1.0, brightness * 0.95, brightness * 0.85)
-src/plugins/solar_system.rs:439  Color::srgb(brightness * 1.2, brightness * 0.75, brightness * 0.6)
-src/plugins/solar_system.rs:445  Color::srgb(brightness + tint, brightness, brightness - tint * 0.5)
-src/plugins/solar_system.rs:452  Color::srgb(
-src/plugins/solar_system.rs:466  Color::srgb(brightness * 0.95, brightness * 0.95, brightness * 1.0)
-src/plugins/solar_system.rs:471  Color::srgb(
-src/plugins/solar_system.rs:480  Color::srgb(brightness, brightness * 0.97, brightness * 0.95)
-src/plugins/solar_system.rs:485  Color::srgb(brightness * 0.9, brightness * 0.92, brightness * 1.05)
-src/plugins/solar_system.rs:490  Color::srgb(brightness * 1.05, brightness * 0.92, brightness * 0.8)
-src/plugins/solar_system.rs:496  Color::srgb(
-src/plugins/solar_system.rs:736  let base_color = Color::srgb(body_data.color.0, body_data.color.1, body_data.color.2);
-src/plugins/solar_system.rs:739  (Color::srgb(1.0, 1.0, 1.0), 0.7, 0.0)
-src/plugins/solar_system.rs:1573  (Color::srgba(1.0, 0.82, 0.5, 0.82), true)
-src/plugins/solar_system.rs:1577  (Color::srgba(0.4, 0.75, 1.0, 0.85), true)
-src/plugins/solar_system.rs:1581  (Color::srgba(0.25, 0.45, 0.75, 0.7), false)
-src/plugins/solar_system.rs:1585  (Color::srgba(0.65, 0.65, 0.65, 0.5), true)
-src/plugins/solar_system.rs:1590  (Color::srgba(0.3, 0.55, 0.22, 0.45), false)
-src/plugins/solar_system.rs:1594  (Color::srgba(1.0, 0.8, 0.3, 0.65), false)
-src/plugins/solar_system.rs:1596  BodyType::Ring => (Color::srgba(0.0, 0.0, 0.0, 0.0), false),
+src/plugins/solar_system.rs:367  Color::srgb(
+src/plugins/solar_system.rs:376  Color::srgb(
+src/plugins/solar_system.rs:385  Color::srgb(
+src/plugins/solar_system.rs:394  Color::srgb(
+src/plugins/solar_system.rs:403  Color::srgb(
+src/plugins/solar_system.rs:412  Color::srgb(
+src/plugins/solar_system.rs:421  Color::srgb(
+src/plugins/solar_system.rs:437  Color::srgb(brightness * 0.85, brightness * 0.90, brightness * 1.0)
+src/plugins/solar_system.rs:442  Color::srgb(brightness * 1.1, brightness * 0.85, brightness * 0.65)
+src/plugins/solar_system.rs:447  Color::srgb(brightness * 1.0, brightness * 0.95, brightness * 0.85)
+src/plugins/solar_system.rs:452  Color::srgb(brightness * 1.2, brightness * 0.75, brightness * 0.6)
+src/plugins/solar_system.rs:458  Color::srgb(brightness + tint, brightness, brightness - tint * 0.5)
+src/plugins/solar_system.rs:465  Color::srgb(
+src/plugins/solar_system.rs:479  Color::srgb(brightness * 0.95, brightness * 0.95, brightness * 1.0)
+src/plugins/solar_system.rs:484  Color::srgb(
+src/plugins/solar_system.rs:493  Color::srgb(brightness, brightness * 0.97, brightness * 0.95)
+src/plugins/solar_system.rs:498  Color::srgb(brightness * 0.9, brightness * 0.92, brightness * 1.05)
+src/plugins/solar_system.rs:503  Color::srgb(brightness * 1.05, brightness * 0.92, brightness * 0.8)
+src/plugins/solar_system.rs:509  Color::srgb(
+src/plugins/solar_system.rs:749  let base_color = Color::srgb(body_data.color.0, body_data.color.1, body_data.color.2);
+src/plugins/solar_system.rs:752  (Color::srgb(1.0, 1.0, 1.0), 0.7, 0.0)
+src/plugins/solar_system.rs:1586  (Color::srgba(1.0, 0.82, 0.5, 0.82), true)
+src/plugins/solar_system.rs:1590  (Color::srgba(0.4, 0.75, 1.0, 0.85), true)
+src/plugins/solar_system.rs:1594  (Color::srgba(0.25, 0.45, 0.75, 0.7), false)
+src/plugins/solar_system.rs:1598  (Color::srgba(0.65, 0.65, 0.65, 0.5), true)
+src/plugins/solar_system.rs:1603  (Color::srgba(0.3, 0.55, 0.22, 0.45), false)
+src/plugins/solar_system.rs:1607  (Color::srgba(1.0, 0.8, 0.3, 0.65), false)
+src/plugins/solar_system.rs:1609  BodyType::Ring => (Color::srgba(0.0, 0.0, 0.0, 0.0), false),
 src/plugins/solar_system_data.rs:350  Color::srgb(
-src/plugins/starmap.rs:348  base_color: Color::srgb(1.0, 0.95, 0.7),
-src/plugins/starmap.rs:405  base_color: Color::srgb(r, g, b),
-src/plugins/starmap.rs:599  Color::srgb(base, base * 0.95, base * 0.88),
-src/plugins/starmap.rs:607  Color::srgb(base, base * 0.96, base * 0.92),
-src/plugins/starmap.rs:615  Color::srgb(base, base * 0.98, base * 0.94),
-src/plugins/starmap.rs:623  Color::srgb(base, base * 0.96, base * 0.92),
-src/plugins/starmap.rs:631  Color::srgb(base, base, base),
-src/plugins/starmap.rs:639  Color::srgb(base * 0.98, base, base * 0.97),
-src/plugins/starmap.rs:647  Color::srgb(base * 0.96, base * 0.98, base),
-src/plugins/starmap.rs:655  Color::srgb(base * 0.98, base * 0.99, base),
-src/plugins/starmap.rs:663  Color::srgb(base * 0.99, base * 0.99, base),
-src/plugins/starmap.rs:671  Color::srgb(base, base, base),
-src/plugins/starmap.rs:679  Color::srgb(base, base * 0.98, base * 0.96),
-src/plugins/starmap.rs:687  Color::srgb(base, base * 0.98, base * 0.95),
-src/plugins/starmap.rs:695  Color::srgb(base * 0.97, base * 0.99, base),
-src/plugins/starmap.rs:703  Color::srgb(b, (b * 0.95).min(1.0), (b * 0.90).min(1.0)),
-src/plugins/starmap.rs:711  Color::srgb(base, base, base),
-src/plugins/starmap.rs:719  Color::srgb(base, base * 0.98, base * 0.96),
-src/plugins/starmap.rs:727  Color::srgb(base * 0.98, base, base * 0.97),
-src/plugins/starmap.rs:735  Color::srgb(base * 0.99, base * 0.99, base),
-src/plugins/starmap.rs:743  Color::srgb(base * 0.98, base * 0.99, base),
-src/plugins/starmap.rs:751  Color::srgb(base, base * 0.98, base * 0.95),
-src/plugins/starmap.rs:759  Color::srgb(base * 0.97, base, base * 0.96),
-src/plugins/starmap.rs:838  Color::srgb(1.0, 0.95, 0.8) // Default yellow star
-src/plugins/starmap.rs:841  BodyType::Planet | BodyType::DwarfPlanet => Color::srgb(0.5, 0.5, 0.7),
-src/plugins/starmap.rs:842  BodyType::GasGiant => Color::srgb(0.9, 0.8, 0.6),
-src/plugins/starmap.rs:843  BodyType::Moon => Color::srgb(0.6, 0.6, 0.6),
-src/plugins/starmap.rs:844  BodyType::Asteroid => Color::srgb(0.4, 0.4, 0.3),
-src/plugins/starmap.rs:845  BodyType::Comet => Color::srgb(0.7, 0.8, 0.9),
+src/plugins/starmap.rs:355  base_color: Color::srgb(1.0, 0.95, 0.7),
+src/plugins/starmap.rs:412  base_color: Color::srgb(r, g, b),
+src/plugins/starmap.rs:606  Color::srgb(base, base * 0.95, base * 0.88),
+src/plugins/starmap.rs:614  Color::srgb(base, base * 0.96, base * 0.92),
+src/plugins/starmap.rs:622  Color::srgb(base, base * 0.98, base * 0.94),
+src/plugins/starmap.rs:630  Color::srgb(base, base * 0.96, base * 0.92),
+src/plugins/starmap.rs:638  Color::srgb(base, base, base),
+src/plugins/starmap.rs:646  Color::srgb(base * 0.98, base, base * 0.97),
+src/plugins/starmap.rs:654  Color::srgb(base * 0.96, base * 0.98, base),
+src/plugins/starmap.rs:662  Color::srgb(base * 0.98, base * 0.99, base),
+src/plugins/starmap.rs:670  Color::srgb(base * 0.99, base * 0.99, base),
+src/plugins/starmap.rs:678  Color::srgb(base, base, base),
+src/plugins/starmap.rs:686  Color::srgb(base, base * 0.98, base * 0.96),
+src/plugins/starmap.rs:694  Color::srgb(base, base * 0.98, base * 0.95),
+src/plugins/starmap.rs:702  Color::srgb(base * 0.97, base * 0.99, base),
+src/plugins/starmap.rs:710  Color::srgb(b, (b * 0.95).min(1.0), (b * 0.90).min(1.0)),
+src/plugins/starmap.rs:718  Color::srgb(base, base, base),
+src/plugins/starmap.rs:726  Color::srgb(base, base * 0.98, base * 0.96),
+src/plugins/starmap.rs:734  Color::srgb(base * 0.98, base, base * 0.97),
+src/plugins/starmap.rs:742  Color::srgb(base * 0.99, base * 0.99, base),
+src/plugins/starmap.rs:750  Color::srgb(base * 0.98, base * 0.99, base),
+src/plugins/starmap.rs:758  Color::srgb(base, base * 0.98, base * 0.95),
+src/plugins/starmap.rs:766  Color::srgb(base * 0.97, base, base * 0.96),
+src/plugins/starmap.rs:845  Color::srgb(1.0, 0.95, 0.8) // Default yellow star
+src/plugins/starmap.rs:848  BodyType::Planet | BodyType::DwarfPlanet => Color::srgb(0.5, 0.5, 0.7),
+src/plugins/starmap.rs:849  BodyType::GasGiant => Color::srgb(0.9, 0.8, 0.6),
+src/plugins/starmap.rs:850  BodyType::Moon => Color::srgb(0.6, 0.6, 0.6),
+src/plugins/starmap.rs:851  BodyType::Asteroid => Color::srgb(0.4, 0.4, 0.3),
+src/plugins/starmap.rs:852  BodyType::Comet => Color::srgb(0.7, 0.8, 0.9),
 src/plugins/system_populator.rs:1570  Color::srgba(1.0, 0.85, 0.4, 0.55),
 src/plugins/system_populator.rs:1735  OrbitPath::new(Color::srgba(0.4, 0.75, 1.0, 0.85)), // Lighter blue — planets
 src/plugins/system_populator.rs:1879  OrbitPath::new(Color::srgba(0.4, 0.75, 1.0, 0.85)), // Lighter blue — planets

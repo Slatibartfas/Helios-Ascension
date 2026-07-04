@@ -78,7 +78,7 @@ pub const DEFAULT_MAX_ACTIVE_BUILDS: u32 = 2;
 // ── Data structures ───────────────────────────────────────────────────────────
 
 /// A private autonomous freight operator.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Reflect)]
 pub struct ShippingCompany {
     /// Display name shown in the Logistics panel.
     pub name: String,
@@ -220,7 +220,8 @@ impl ShippingCompany {
 }
 
 /// Global resource holding all private shipping companies.
-#[derive(Resource)]
+#[derive(Resource, Reflect)]
+#[reflect(Resource)]
 pub struct ShippingCompanies {
     pub companies: Vec<ShippingCompany>,
 }

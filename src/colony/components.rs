@@ -21,7 +21,7 @@ pub const CIVILISATION_YIELD_MULTIPLIER: f64 = 1.00;
 /// Drives the colony's `yield_multiplier`: production, population growth,
 /// and maintenance all scale by this factor.  Tier upgrades are the player's
 /// "this is no longer a tent city" decision.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Reflect)]
 pub enum ColonyTier {
     /// A handful of pressurised buildings on a hostile world (×0.10).
     Outpost,
@@ -62,7 +62,7 @@ impl ColonyTier {
 /// the base RON rate, with tech modifiers, and with any future maintenance
 /// modifiers.  Type is `f64` to absorb the 2026 world production realism bar
 /// (per GRA-23 + GRA-24 operator note).
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Reflect)]
 pub struct ColonyDevelopment {
     /// Current development tier.
     pub tier: ColonyTier,
@@ -86,7 +86,8 @@ impl Default for ColonyDevelopment {
 }
 
 /// Marker component for a colonised celestial body
-#[derive(Component, Debug, Clone, Serialize, Deserialize)]
+#[derive(Component, Debug, Clone, Serialize, Deserialize, Reflect)]
+#[reflect(Component)]
 pub struct Colony {
     /// Colony name (defaults to body name)
     pub name: String,
@@ -423,7 +424,8 @@ impl Colony {
 }
 
 /// An entry in the construction queue for a colony
-#[derive(Component, Debug, Clone, Serialize, Deserialize)]
+#[derive(Component, Debug, Clone, Serialize, Deserialize, Reflect)]
+#[reflect(Component)]
 pub struct ConstructionProject {
     /// The type of building being constructed
     pub building_type: BuildingType,
@@ -473,7 +475,8 @@ impl ConstructionProject {
 }
 
 /// Resource that holds pending construction actions from the UI
-#[derive(Resource, Debug, Clone, Default)]
+#[derive(Resource, Debug, Clone, Default, Reflect)]
+#[reflect(Resource)]
 pub struct PendingConstructionActions {
     /// (colony_entity, building_type) pairs to start constructing
     pub start_construction: Vec<(Entity, BuildingType)>,
@@ -484,7 +487,7 @@ pub struct PendingConstructionActions {
 }
 
 /// Parameters carried from the UI when the player clicks "Establish Outpost".
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Reflect)]
 pub struct EstablishOutpostRequest {
     /// The celestial-body entity to colonise.
     pub body_entity: Entity,
@@ -499,7 +502,8 @@ pub struct EstablishOutpostRequest {
 /// atmosphere) and/or recycle water.
 ///
 /// Attached by `process_construction_actions` when an outpost is established.
-#[derive(Component, Debug, Clone)]
+#[derive(Component, Debug, Clone, Reflect)]
+#[reflect(Component)]
 pub struct ColonyEnvironmentCosts {
     /// Oxygen consumed per person per year (Mt).
     /// Set to 0.0 when the body has a breathable atmosphere.

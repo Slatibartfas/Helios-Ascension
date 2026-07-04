@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use super::types::{ResourcePhase, ResourceType};
 
 /// Source category for power generation
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Reflect)]
 pub enum PowerSourceType {
     Planet,
     Station,
@@ -25,7 +25,8 @@ impl std::fmt::Display for PowerSourceType {
 }
 
 /// Component that generates power
-#[derive(Component, Debug, Clone, Serialize, Deserialize)]
+#[derive(Component, Debug, Clone, Serialize, Deserialize, Reflect)]
+#[reflect(Component)]
 pub struct PowerGenerator {
     /// Power output in Watts
     pub output: f64,
@@ -35,7 +36,8 @@ pub struct PowerGenerator {
 
 /// Component that marks a star and defines its system properties
 /// Used for multi-star system support with different frost lines
-#[derive(Component, Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Component, Debug, Clone, Copy, Serialize, Deserialize, Reflect)]
+#[reflect(Component)]
 pub struct StarSystem {
     /// Frost line distance in Astronomical Units for this star
     /// Beyond this distance, volatiles become more common
@@ -127,7 +129,8 @@ impl Default for StarSystem {
 }
 
 /// Population component for celestial bodies, ships, and stations
-#[derive(Component, Debug, Clone, Serialize, Deserialize)]
+#[derive(Component, Debug, Clone, Serialize, Deserialize, Reflect)]
+#[reflect(Component)]
 pub struct Population {
     /// Total population count
     pub count: f64,
@@ -140,7 +143,7 @@ impl Default for Population {
 }
 
 /// Stellar spectral classification
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Reflect)]
 pub enum SpectralClass {
     O, // Blue, very hot, luminous
     B, // Blue-white, hot
@@ -153,7 +156,8 @@ pub enum SpectralClass {
 
 /// Component that tracks which body (usually a star) this body orbits
 /// Essential for multi-star system support
-#[derive(Component, Debug, Clone, Copy)]
+#[derive(Component, Debug, Clone, Copy, Reflect)]
+#[reflect(Component)]
 pub struct OrbitsBody {
     /// Entity of the parent body being orbited
     pub parent: Entity,
@@ -166,7 +170,7 @@ impl OrbitsBody {
 }
 
 /// Represents the tiered reserves of a resource
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Default, Reflect)]
 pub struct ResourceReserve {
     /// Accessible now, limited scale (Megatons)
     pub proven_crustal: f64,
@@ -196,7 +200,8 @@ impl ResourceReserve {
 
 /// Represents a mineral deposit on a celestial body
 /// Contains information about the quantity and ease of extraction
-#[derive(Component, Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Component, Debug, Clone, Copy, Serialize, Deserialize, Reflect)]
+#[reflect(Component)]
 pub struct MineralDeposit {
     /// tiered reserve data replacing simple abundance
     pub reserve: ResourceReserve,
@@ -267,7 +272,10 @@ impl MineralDeposit {
 }
 
 /// Component that tracks the survey level of a celestial body
-#[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(
+    Component, Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default, Reflect,
+)]
+#[reflect(Component)]
 pub enum SurveyLevel {
     #[default]
     Unsurveyed,
@@ -296,7 +304,8 @@ impl Default for MineralDeposit {
 }
 
 /// Component that stores all resource deposits on a planet or moon
-#[derive(Component, Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Component, Debug, Clone, Serialize, Deserialize, Default, Reflect)]
+#[reflect(Component)]
 pub struct PlanetResources {
     /// Map of resource type to its deposit information
     pub deposits: HashMap<ResourceType, MineralDeposit>,
@@ -498,7 +507,8 @@ mod tests {
 /// current view scope:
 ///  - **System view** → sum all bodies in `CurrentStarSystem`
 ///  - **Starmap view** → sum all bodies across every star system
-#[derive(Component, Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Component, Debug, Clone, Serialize, Deserialize, Default, Reflect)]
+#[reflect(Component)]
 pub struct LocalStockpile {
     /// Resource inventory (Megatons)
     pub stockpiles: HashMap<ResourceType, f64>,

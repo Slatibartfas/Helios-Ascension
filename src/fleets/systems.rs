@@ -1119,7 +1119,8 @@ pub fn process_fleet_actions(
 /// the constellation.  When a future "fresh save" / "new game" path lands it
 /// must remove this resource (and the existing Day-1 fleet entities) before
 /// the next `PostStartup` tick.  GRA-128.
-#[derive(Resource, Debug, Clone, Copy, Default)]
+#[derive(Resource, Debug, Clone, Copy, Default, Reflect)]
+#[reflect(Resource)]
 pub struct DayOneFleetSpawned;
 
 /// Resolve a `ShipHullDefinition`'s dry mass from the `ShipbuildingData`

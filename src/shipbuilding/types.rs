@@ -1,3 +1,4 @@
+use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
 /// High-level category for a ship module slot or component.
@@ -21,7 +22,7 @@ use serde::{Deserialize, Serialize};
 ///   - ConstructionISRU: Gantries, mining heads, habitat modules, processors
 ///   - ElectronicWarfare: Jammers, decoys, cloaking, signal masking
 ///   - SpecialScience: Gravimeters, particle detectors, deep telescopes
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Reflect)]
 pub enum ShipModuleCategory {
     // Core operations
     FlightSystems,
@@ -151,7 +152,7 @@ impl ShipModuleCategory {
 ///   Large Craft  — 10,000–50,000 t  (destroyers, light cruisers)
 ///   Capital Ship — > 50,000 t  (cruisers, battleships, carriers)
 ///   Station      — orbital stations (constructed in place, no launch needed)
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Reflect)]
 pub enum HullSizeTier {
     SmallCraft,
     MediumCraft,
@@ -190,7 +191,7 @@ impl HullSizeTier {
 }
 
 /// Construction path for a ship or station design.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default, Reflect)]
 pub enum ConstructionMode {
     /// Fabricate on a planetary body, then await launch capacity to reach orbit.
     #[default]
@@ -221,7 +222,7 @@ impl ConstructionMode {
 
 /// Immutable design template — a "class" in Aurora/DW terminology.
 /// Stored in ShipDesignLibrary and referenced by construction projects.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Reflect)]
 pub struct ShipDesignTemplate {
     /// Stable UUID for versioning and linking
     pub id: uuid::Uuid,

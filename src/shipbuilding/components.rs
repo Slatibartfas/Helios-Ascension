@@ -8,7 +8,7 @@ use crate::economy::ResourceType;
 use crate::fleets::{PropulsionType, ShipClass};
 
 /// Module choice for a specific hull slot.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Reflect)]
 pub struct ShipModuleSelection {
     pub slot_id: String,
     pub module_id: String,
@@ -112,11 +112,13 @@ impl ShipConstructionProject {
 }
 
 /// Marker for fleets that should behave as stations once fleet spawning is wired in.
-#[derive(Component, Debug, Clone, Copy, Default)]
+#[derive(Component, Debug, Clone, Copy, Default, Reflect)]
+#[reflect(Component)]
 pub struct OrbitalStation;
 
 /// Stable linkage between a constructed ship and the design template it currently uses.
-#[derive(Component, Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Component, Debug, Clone, Copy, Serialize, Deserialize, Reflect)]
+#[reflect(Component)]
 pub struct ShipDesignAssignment {
     pub template_id: uuid::Uuid,
 }
@@ -130,7 +132,8 @@ pub struct PendingShipbuildingActions {
 }
 
 /// Rolling per-build-site launch capacity measured in tonnes to orbit.
-#[derive(Resource, Debug, Clone, Default)]
+#[derive(Resource, Debug, Clone, Default, Reflect)]
+#[reflect(Resource)]
 pub struct LaunchCapacityState {
     pub available_mass_t: HashMap<Entity, f64>,
 }

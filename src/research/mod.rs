@@ -18,7 +18,7 @@ pub mod types;
 
 pub use components::{
     ComponentDesign, EngineeringFacility, EngineeringProject, ResearchBuilding, ResearchProject,
-    ResearchTeam, ResearchTeamCapacity,
+    ResearchTeam, ResearchTeamCapacity, TechModifier,
 };
 pub use data::{load_technologies, TechnologiesData};
 pub use events::ResearchEvent;
@@ -27,10 +27,13 @@ pub use systems::{
     check_unlocked_technologies, initialize_baseline_engineering, initialize_baseline_technology,
     update_research_points, ResearchState,
 };
-pub use types::{ModifierType, TechCategory, TechModifierDef, Technology, TechnologyId};
+pub use types::{
+    ComponentDefinition, ModifierType, TechCategory, TechModifierDef, Technology, TechnologyId,
+};
 
 /// Debug settings for research system
-#[derive(Resource, Debug, Clone, Default)]
+#[derive(Resource, Debug, Clone, Default, Reflect)]
+#[reflect(Resource)]
 pub struct ResearchDebugSettings {
     /// Whether debug mode is enabled
     pub enabled: bool,
@@ -51,7 +54,8 @@ pub struct ResearchDebugSettings {
 }
 
 /// State for the tech tree debug editing UI (context menus, edit dialogs)
-#[derive(Resource, Debug, Clone, Default)]
+#[derive(Resource, Debug, Clone, Default, Reflect)]
+#[reflect(Resource)]
 pub struct TechTreeEditState {
     /// Whether the "Edit Technology" window is open
     pub editing: Option<TechEditData>,
@@ -66,7 +70,7 @@ pub struct TechTreeEditState {
 }
 
 /// Context menu state
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Reflect)]
 pub struct ContextMenuState {
     /// Screen position where the context menu was opened
     pub pos: (f32, f32),
@@ -75,7 +79,7 @@ pub struct ContextMenuState {
 }
 
 /// Editable copy of a technology's fields for the edit/add dialog
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Reflect)]
 pub struct TechEditData {
     /// Original ID (for edits), empty for new techs
     pub original_id: String,
@@ -138,7 +142,8 @@ impl TechEditData {
 }
 
 /// Collects research start requests from the UI to be processed by a Bevy system.
-#[derive(Resource, Debug, Clone, Default)]
+#[derive(Resource, Debug, Clone, Default, Reflect)]
+#[reflect(Resource)]
 pub struct PendingResearchActions {
     /// Tech IDs that the user wants to begin researching.
     pub start_research: Vec<TechnologyId>,

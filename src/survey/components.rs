@@ -27,7 +27,7 @@ use crate::personnel::types::ScientistId;
 /// its own tier (0–5) with its own confidence (0.0–1.0). Confidence rises
 /// with more measurements and falls with time (see
 /// [`CONFIDENCE_DECAY_PER_YEAR`](super::types::CONFIDENCE_DECAY_PER_YEAR)).
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Reflect)]
 pub struct DimensionFidelity {
     /// Resolution tier for this dimension. 0 = unknown, 5 = fully
     /// characterized. Tier semantics are dimension-specific and live in
@@ -108,7 +108,8 @@ impl DimensionFidelity {
 /// - a sim-time stamp for confidence decay scheduling
 /// - the cumulative science investment (for the dossier "Science
 ///   Points" readout and the system summary)
-#[derive(Debug, Clone, Component, Serialize, Deserialize)]
+#[derive(Debug, Clone, Component, Serialize, Deserialize, Reflect)]
+#[reflect(Component)]
 pub struct SurveyState {
     /// Per-dimension fidelity. Dimensions not present in the map are
     /// treated as [`DimensionFidelity::UNKNOWN`] (tier 0, confidence
@@ -805,7 +806,7 @@ impl SurveyState {
 /// PR-A defined the struct for shape stability; PR-B (GRA-80) wires
 /// the lifecycle, progress, and scientist-team fields. PR-C adds
 /// the [`AnalysisJob`] enqueue on completion.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Reflect)]
 pub struct ActiveSurveyMission {
     /// Stable id so the UI can correlate a row in the "Active Missions"
     /// list with the underlying mission.
@@ -936,7 +937,7 @@ impl ActiveSurveyMission {
 /// While a job is unassigned, the underlying data sits unprocessed.
 /// When a scientist is assigned, the job's `progress` advances at a
 /// rate determined by the scientist's seniority × specialty match.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Reflect)]
 pub struct AnalysisJob {
     /// Stable id (also used by [`Scientist::current_analysis`](
     /// crate::personnel::components::Scientist::current_analysis)).
@@ -970,7 +971,7 @@ pub struct AnalysisJob {
 /// per-anomaly `activation_threshold`, an `evidence: Vec<EvidencePoint>`
 /// trail, `retry_pressure` (the player leaning in with more missions),
 /// and a `last_updated_sim_time` stamp for retry-pressure decay.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Reflect)]
 pub struct DetectedAnomaly {
     /// Anomaly type. Modders add new types via `anomalies.ron`.
     pub anomaly_type: AnomalyType,
@@ -1035,7 +1036,7 @@ pub const MAX_FAILED_MISSION_NOTIFICATIONS: usize = 5;
 /// stays readable after a save/load that drops the original
 /// `ActiveSurveyMission` (which moves to terminal `Failed`
 /// state and may be reaped by a follow-up retention sweep).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Reflect)]
 pub struct FailedMissionRecord {
     /// Mission id (matches the original `ActiveSurveyMission::id`
     /// that finalised in `Failed`).
@@ -1085,7 +1086,7 @@ pub const MAX_SITES_PER_BODY: usize = 5;
 /// [`LandingSite::composite_score`]; the dossier surfaces both the
 /// composite and the per-axis bars so the player can see why a site
 /// ranks where it does.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Reflect)]
 pub struct SiteScores {
     /// Surface slope (1.0 = flat, 0.0 = impassable cliffs).
     pub slope: f32,
@@ -1134,7 +1135,7 @@ impl SiteScores {
 
 /// Plain-old-data record of the composite weights. Kept separate from
 /// [`SiteScores`] so the const initializer can be a public constant.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Reflect)]
 pub struct SiteScoreWeights {
     pub slope: f32,
     pub roughness: f32,
@@ -1153,7 +1154,7 @@ pub struct SiteScoreWeights {
 /// composite ranking of *known* sites stays stable. Re-survey work
 /// would land in a follow-up PR (likely PR-F "mining yield" /
 /// dossier refresh).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Reflect)]
 pub struct LandingSite {
     /// Stable id (unique per body, but not globally). Index into the
     /// parent [`SurveyState::landing_sites`] vec, kept explicit so
@@ -1187,7 +1188,7 @@ impl LandingSite {
 /// A candidate extraction site on an asteroid. Same data shape as
 /// [`LandingSite`] but with a different default
 /// `feasible_for` list (mining equipment, mass-driver pads).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Reflect)]
 pub struct ExtractionSite {
     /// See [`LandingSite::id`].
     pub id: u32,
@@ -1223,7 +1224,8 @@ pub struct ExtractionSite {
 /// station at Mars does *not* boost Phobos axes, and a station at
 /// Phobos does *not* bonus Mars mines. (See CTO recipe §1 and
 /// SURVEY_REWORK.md §Progressive Survey Levels.)
-#[derive(Component, Debug, Clone, Serialize, Deserialize)]
+#[derive(Component, Debug, Clone, Serialize, Deserialize, Reflect)]
+#[reflect(Component)]
 pub struct ContinuousSurveyStation {
     /// The body this station orbits. The station ticks axes on
     /// *only* this body's `SurveyState`; mining bonus applies to
@@ -1257,7 +1259,8 @@ pub struct ContinuousSurveyStation {
 /// `Entity` is referenced by zero or more `ContinuousSurveyStation`
 /// components (typically zero or one in early gameplay, more in
 /// late game).
-#[derive(Component, Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Component, Debug, Clone, Default, Serialize, Deserialize, Reflect)]
+#[reflect(Component)]
 pub struct ContinuousStationBonus {
     /// Combined axis-advance rate across all dimensions, per
     /// sim-year. Sum of every station's

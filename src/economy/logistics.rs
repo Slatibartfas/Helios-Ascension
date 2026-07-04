@@ -33,7 +33,7 @@ use crate::ui::SimulationTime;
 /// Priority tier for resource requests.
 ///
 /// Higher-priority requests are fulfilled first by shipping companies.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Reflect)]
 pub enum RequestPriority {
     /// Surplus/profitable rebalancing — lowest priority.
     Trade = 0,
@@ -59,7 +59,7 @@ impl std::fmt::Display for RequestPriority {
 // ── State ─────────────────────────────────────────────────────────────────────
 
 /// Lifecycle state of a resource request.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Reflect)]
 pub enum RequestState {
     /// No freighter assigned yet.
     Pending,
@@ -88,7 +88,7 @@ impl std::fmt::Display for RequestState {
 // ── ResourceRequest ───────────────────────────────────────────────────────────
 
 /// A request for a specific resource to be delivered to a body.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Reflect)]
 pub struct ResourceRequest {
     /// Unique identifier.
     pub id: u64,
@@ -151,7 +151,8 @@ impl ResourceRequest {
 /// Requests are retained after delivery/expiry for a short window so that the
 /// Logistics UI can show recent history; entries older than `HISTORY_KEEP_S`
 /// are pruned.
-#[derive(Resource, Default)]
+#[derive(Resource, Default, Reflect)]
+#[reflect(Resource)]
 pub struct PendingResourceRequests {
     pub requests: Vec<ResourceRequest>,
     next_id: u64,
@@ -222,7 +223,8 @@ impl PendingResourceRequests {
 /// When the `LocalStockpile` for a body falls below a configured threshold a
 /// Maintenance-priority `ResourceRequest` is automatically created so that
 /// private freighters (or the player) keep the stockpile topped up.
-#[derive(Component, Default, Clone, Debug)]
+#[derive(Component, Default, Clone, Debug, Reflect)]
+#[reflect(Component)]
 pub struct MinimumStockpile {
     /// Minimum stockpile per resource type (Megatons).
     pub thresholds: HashMap<ResourceType, f64>,
