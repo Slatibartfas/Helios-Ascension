@@ -60,7 +60,7 @@ pub fn consume_launch_actions_system(
         && actions.load_save.is_none()
         && !actions.continue_recent
     {
-        app_exit.write(AppExit);
+        app_exit.write(AppExit::Success);
         actions.clear();
         return;
     }
