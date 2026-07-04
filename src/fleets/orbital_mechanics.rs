@@ -3,6 +3,7 @@
 //! Provides Hohmann transfer computations, multi-option transfer planning,
 //! and the Tsiolkovsky rocket equation for fuel estimation.
 
+use super::components::{Fleet, InterstellarPropulsionPolicy};
 use crate::astronomy::{orbit_position_from_mean_anomaly, KeplerOrbit};
 use bevy::math::DVec3;
 
@@ -1878,6 +1879,84 @@ pub fn format_duration(seconds: f64) -> String {
     } else {
         format!("{:.2} yr", days / 365.25)
     }
+}
+
+// === Interstellar ΔV margin gates — GRA-343 (GRA-328b) =======================
+//
+// Two thin predicate helpers that gate the cross-system Hohmann commit:
+// the player's Execute button stays disabled until
+// `fleet.max_delta_v_ms() >= dv_required_ms * margin` for the active
+// control source (AI planner vs human player). The constants live in the
+// `InterstellarPropulsionPolicy` resource loaded at Startup from
+// `assets/data/interstellar_propulsion.ron` (see `data::load_interstellar
+// _propulsion_policy`); the helpers are pure functions over that policy
+// and a `Fleet` reference so the planner UI can call them inline without
+// holding a `Res<InterstellarPropulsionPolicy>`.
+
+/// Returns `true` if the fleet has enough ΔV (with the AI safety margin)
+/// to complete a transfer that costs `dv_required_ms`.
+///
+/// The AI planner uses a conservative 20% reserve (per GRA-331); the
+/// predicate is `fleet.max_delta_v_ms() >= dv_required_ms * margin`.
+/// Returns `false` when the fleet is empty (ΔV capacity is 0) or when
+/// the margin itself is non-finite — both are conservative defaults
+/// that surface as a red "LowDvMargin" warning in the planner UI and
+/// disable the commit button.
+pub fn meets_ai_margin(
+    fleet: &Fleet,
+    dv_required_ms: f64,
+    policy: &InterstellarPropulsionPolicy,
+) -> bool {
+    if !dv_required_ms.is_finite() || dv_required_ms <= 0.0 {
+        return false;
+    }
+    if !policy.ai_deltav_margin.is_finite() || policy.ai_deltav_margin < 1.0 {
+        return false;
+    }
+    fleet.max_delta_v_ms() >= dv_required_ms * policy.ai_deltav_margin
+}
+
+/// Returns `true` if the fleet has enough ΔV (with the human player
+/// margin) to complete a transfer that costs `dv_required_ms`.
+///
+/// Human launches use a tighter 5% reserve (per GRA-331) because the
+/// player can manually accept the warning via the confirmation UI; the
+/// AI planner refuses any transfer it cannot budget for. Same
+/// conservative behavior as `meets_ai_margin` on non-finite inputs.
+pub fn meets_human_margin(
+    fleet: &Fleet,
+    dv_required_ms: f64,
+    policy: &InterstellarPropulsionPolicy,
+) -> bool {
+    if !dv_required_ms.is_finite() || dv_required_ms <= 0.0 {
+        return false;
+    }
+    if !policy.human_deltav_margin.is_finite() || policy.human_deltav_margin < 1.0 {
+        return false;
+    }
+    fleet.max_delta_v_ms() >= dv_required_ms * policy.human_deltav_margin
+}
+
+/// Phase-angle predicate: `true` if the actual phase is within the AI
+/// tolerance of the ideal Hohmann phase angle (degrees). Used by the
+/// cross-system solver to gate the cell on the AI commit path.
+pub fn within_ai_phase_tolerance(
+    actual_phase_deg: f64,
+    ideal_phase_deg: f64,
+    policy: &InterstellarPropulsionPolicy,
+) -> bool {
+    let diff = (actual_phase_deg - ideal_phase_deg).abs();
+    diff <= policy.ai_phase_angle_tolerance_deg
+}
+
+/// Phase-angle predicate for human-controlled launches (wider tolerance).
+pub fn within_human_phase_tolerance(
+    actual_phase_deg: f64,
+    ideal_phase_deg: f64,
+    policy: &InterstellarPropulsionPolicy,
+) -> bool {
+    let diff = (actual_phase_deg - ideal_phase_deg).abs();
+    diff <= policy.human_phase_angle_tolerance_deg
 }
 
 #[cfg(test)]

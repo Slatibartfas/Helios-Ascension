@@ -955,3 +955,117 @@ pub struct ResolvedPorkchopParams {
     pub resolution_tof: usize,
     pub c3_ceiling_km2_s2: f64,
 }
+
+// === Interstellar propulsion policy — GRA-343 (GRA-328b) =====================
+//
+// Phase-angle tolerance + ΔV margin for cross-system Hohmann transfers
+// (Sol → non-Sol star systems). The GRA-331 LGD contract fixes:
+//   * AI planner   — ±15° phase tolerance, 20% ΔV margin.
+//   * Human player — ±45° phase tolerance,  5% ΔV margin.
+//
+// Loaded once at Startup from `assets/data/interstellar_propulsion.ron`
+// by `load_interstellar_propulsion_policy` in `src/fleets/data.rs`. The
+// RON is the source of truth; this struct is the in-memory shape and the
+// resource the planner reads via `Res<InterstellarPropulsionPolicy>`.
+// Modders edit the RON — no Rust recompile required (per the GRA-343
+// acceptance criteria #2).
+//
+// All four fields are required (no `#[serde(default)]`); a missing key
+// aborts deserialisation and the loader falls back to
+// `InterstellarPropulsionPolicy::default()`. The strict
+// `tests/data::interstellar_propulsion_ron_loads_cleanly` test is the
+// hard CI gate that catches RON typos before they hit runtime.
+#[derive(Debug, Clone, Serialize, Deserialize, Resource)]
+pub struct InterstellarPropulsionPolicy {
+    /// Phase-angle tolerance (degrees) for AI-controlled launch windows.
+    ///
+    /// The solver compares `|actual_phase - ideal_phase|` against this
+    /// tolerance and refuses to commit a transfer that lands outside the
+    /// cone. Default `15.0` per the GRA-331 LGD contract; modders who want
+    /// a more aggressive AI planner can raise this.
+    pub ai_phase_angle_tolerance_deg: f64,
+    /// Phase-angle tolerance (degrees) for human-controlled launch windows.
+    ///
+    /// Wider than the AI default so the player has meaningful agency over
+    /// when to launch; the margin check still gates the worst ±90°+
+    /// geometries. Default `45.0` per the GRA-331 LGD contract.
+    pub human_phase_angle_tolerance_deg: f64,
+    /// ΔV margin factor for AI-controlled launches.
+    ///
+    /// The solver gates the commit on `fleet.max_delta_v_ms() >=
+    /// dv_required * ai_deltav_margin`. Default `1.20` (20% reserve per
+    /// the GRA-331 LGD contract). Lowering this tightens AI launch
+    /// permissions but risks the planner committing a transfer the
+    /// fleet cannot complete.
+    pub ai_deltav_margin: f64,
+    /// ΔV margin factor for human-controlled launches.
+    ///
+    /// Tighter than the AI default (`1.05`) because the player can
+    /// manually accept the warning via the confirmation UI; the AI
+    /// planner refuses any transfer it cannot budget for. Default `1.05`
+    /// per the GRA-331 LGD contract.
+    pub human_deltav_margin: f64,
+}
+
+impl Default for InterstellarPropulsionPolicy {
+    /// Mirrors `assets/data/interstellar_propulsion.ron` defaults. Keep
+    /// these in sync — the loader falls back to `Default::default()` if
+    /// the RON file fails to parse, so any change here also needs the
+    /// corresponding RON edit. The strict
+    /// `tests/data::interstellar_propulsion_ron_loads_cleanly` test is
+    /// the CI gate that keeps the two paths aligned.
+    fn default() -> Self {
+        Self {
+            ai_phase_angle_tolerance_deg: 15.0,
+            human_phase_angle_tolerance_deg: 45.0,
+            ai_deltav_margin: 1.20,
+            human_deltav_margin: 1.05,
+        }
+    }
+}
+
+impl InterstellarPropulsionPolicy {
+    /// Conservative validator: returns `Err(violations)` if any of the
+    /// four policy values are non-finite, non-positive, or implausibly
+    /// extreme. The loader runs this and logs warnings on failure but
+    /// still inserts the resource (debug builds shouldn't panic on a bad
+    /// RON); the strict RON-load test is the hard gate.
+    pub fn validate(&self) -> Result<(), Vec<String>> {
+        let mut violations = Vec::new();
+        if !self.ai_phase_angle_tolerance_deg.is_finite()
+            || self.ai_phase_angle_tolerance_deg <= 0.0
+            || self.ai_phase_angle_tolerance_deg > 180.0
+        {
+            violations.push(format!(
+                "ai_phase_angle_tolerance_deg must be in (0, 180] (got {})",
+                self.ai_phase_angle_tolerance_deg
+            ));
+        }
+        if !self.human_phase_angle_tolerance_deg.is_finite()
+            || self.human_phase_angle_tolerance_deg <= 0.0
+            || self.human_phase_angle_tolerance_deg > 180.0
+        {
+            violations.push(format!(
+                "human_phase_angle_tolerance_deg must be in (0, 180] (got {})",
+                self.human_phase_angle_tolerance_deg
+            ));
+        }
+        if !self.ai_deltav_margin.is_finite() || self.ai_deltav_margin < 1.0 {
+            violations.push(format!(
+                "ai_deltav_margin must be ≥ 1.0 (got {})",
+                self.ai_deltav_margin
+            ));
+        }
+        if !self.human_deltav_margin.is_finite() || self.human_deltav_margin < 1.0 {
+            violations.push(format!(
+                "human_deltav_margin must be ≥ 1.0 (got {})",
+                self.human_deltav_margin
+            ));
+        }
+        if violations.is_empty() {
+            Ok(())
+        } else {
+            Err(violations)
+        }
+    }
+}

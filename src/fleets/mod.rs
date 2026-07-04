@@ -20,10 +20,10 @@ pub mod visuals;
 pub use components::{
     AbortToOriginAction, ActiveManeuver, AssignLogisticsRequestAction, AssignShipsAction,
     CreateFleetFromShipsAction, Fleet, FleetOrbit, HistoricalProbe, HistoricalProbeKind,
-    MergeFleetAction, PendingFleetActions, PlannedTransfer, PorkchopCategoryOverride,
-    PorkchopColorStop, PorkchopConfig, PorkchopGridDefaults, ResolvedPorkchopParams, ShipInfo,
-    ShipInstance, SpawnFleetAction, StartTransferAction, TransferReferenceFrame,
-    TransferShipsAction,
+    InterstellarPropulsionPolicy, MergeFleetAction, PendingFleetActions, PlannedTransfer,
+    PorkchopCategoryOverride, PorkchopColorStop, PorkchopConfig, PorkchopGridDefaults,
+    ResolvedPorkchopParams, ShipInfo, ShipInstance, SpawnFleetAction, StartTransferAction,
+    TransferReferenceFrame, TransferShipsAction,
 };
 pub use historical_probes::{HistoricalProbeScanState, HistoricalProbesSpawned};
 pub use orbital_mechanics::{
@@ -44,7 +44,14 @@ pub struct FleetPlugin;
 impl Plugin for FleetPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<PendingFleetActions>()
-            .add_systems(Startup, data::load_porkchop_config)
+            .add_systems(
+                Startup,
+                (
+                    data::load_porkchop_config,
+                    // GRA-343: interstellar propulsion policy (phase tolerance + ΔV margin)
+                    data::load_interstellar_propulsion_policy,
+                ),
+            )
             .add_systems(
                 PostStartup,
                 (

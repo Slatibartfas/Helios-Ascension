@@ -1,0 +1,48 @@
+// === Interstellar Propulsion Policy — GRA-343 (GRA-328b) =====================
+//
+// Phase-angle tolerances and ΔV margins for cross-system Hohmann transfers
+// to non-Sol star systems. The GRA-331 LGD contract fixes these defaults:
+//
+//   AI planner   — ±15° phase tolerance, 20% ΔV margin.
+//   Human player — ±45° phase tolerance,  5% ΔV margin.
+//
+// The two margins form the gating predicate for the Execute button on
+// cross-system transfers. Below the configured margin the solver logs a
+// `LowDvMargin` event and refuses to commit the transfer (see
+// `Fleet::meets_ai_margin` / `meets_human_margin` in
+// `src/fleets/orbital_mechanics.rs`). The phase-angle check is enforced at
+// solution time inside `try_build_cross_system_hohmann`
+// (`src/ui/transfer_planner.rs`).
+//
+// Modders can:
+//   * widen tolerances to make AI launches easier (`human_` → ±60° etc.)
+//   * tighten margins to make player launches stricter (`human_` → 1.10)
+//   * alter the AI defaults to give the planning system more slack
+//
+// Schema lives entirely in this file: the planner reads
+// `InterstellarPropulsionPolicy` once at Startup (mirroring the
+// `PorkchopConfig` loader in `src/fleets/data.rs`). All four fields carry
+// no `#[serde(default)]` — a missing value aborts deserialisation and the
+// loader falls back to `InterstellarPropulsionPolicy::default()`, so the
+// strict `tests/data::interstellar_propulsion_ron_loads_cleanly` test is
+// the hard CI gate that catches typos and missing keys.
+(
+    // Phase-angle tolerance (degrees) used by the AI-controlled launch path.
+    // At ±15° the planner has a narrow launch window but the solver is
+    // willing to spend the extra ΔV to hit the slot. Modders who want a more
+    // forgiving AI can raise this to ±25° without touching Rust.
+    ai_phase_angle_tolerance_deg: 15.0,
+    // Phase-angle tolerance (degrees) for the human-controlled launch path.
+    // Wider (±45°) so the player has meaningful agency; the planner still
+    // rejects the worst ±90°+ geometries via the margin check.
+    human_phase_angle_tolerance_deg: 45.0,
+    // ΔV margin required for AI-controlled launches. The solver computes
+    // `dv_required = total_delta_v_ms`; the commit is gated on
+    // `fleet.max_delta_v_ms() >= dv_required * 1.20`.
+    ai_deltav_margin: 1.20,
+    // ΔV margin required for human-controlled launches. Tighter (5%) than
+    // the AI default because the player can manually accept the risk via
+    // the warning UI; the AI planner refuses to commit a transfer that
+    // will exceed its ΔV budget by more than 5%.
+    human_deltav_margin: 1.05,
+)

@@ -318,6 +318,85 @@ pub struct FleetUiState {
     /// fallback that the user perceived as a leftward snap.
     /// Defaults to `false`.
     pub porkchop_grid_pending_rebuild: bool,
+    /// GRA-343 (GRA-328b): cached cross-system Hohmann grid for the
+    /// current `(system_id)` target.  Populated by
+    /// `try_build_cross_system_hohmann` in `transfer_planner.rs` when
+    /// the player clicks an interstellar destination in the planner;
+    /// `None` for all body/Lagrange/star-approach targets.  The grid
+    /// is a small `(cols × rows) ΔV matrix` keyed by `(t_dep, tof)`,
+    /// with the cheapest cell as the recommended Hohmann transfer.
+    /// Cleared on target switch and on `clear_target`.  Modders
+    /// control the resolution and per-category tolerances through
+    /// `assets/data/interstellar_propulsion.ron` plus the existing
+    /// `porkchop_config.ron` "interstellar" override.
+    pub cross_system_grid: Option<CrossSystemGrid>,
+    /// System_id the cached `cross_system_grid` was built for, so the
+    /// planner invalidates the cache when the player switches stars.
+    /// Mirrors the role of `porkchop_built_for` for body targets.
+    pub cross_system_grid_built_for: Option<usize>,
+}
+
+/// One cell in the cross-system Hohmann grid (GRA-343 / GRA-328b).
+///
+/// Cheap cells (low ΔV) are the recommended Hohmann transfers; the
+/// planner surfaces the cell with the lowest total ΔV as the default
+/// selection.  `is_feasible` is `false` when the Lambert solver
+/// returned no solution (too long a TOF, ill-conditioned geometry);
+/// such cells are rendered in the dark "infeasible" colour from
+/// `porkchop_config.ron`.
+#[derive(Debug, Clone, Copy)]
+pub struct CrossSystemCell {
+    /// ΔV required for this (t_dep, tof) cell (m/s).
+    pub delta_v_ms: f64,
+    /// Transfer time-of-flight (s) for this cell.
+    pub transfer_time_s: f64,
+    /// Phase-angle error in degrees at the chosen t_dep
+    /// (`|actual_phase - ideal_phase|`).  Cells whose phase error is
+    /// outside the policy tolerance are still selectable but the
+    /// commit is gated on the phase check.
+    pub phase_error_deg: f64,
+    /// False when the Lambert solver returned no solution for this
+    /// cell (too long a TOF, ill-conditioned geometry).  The planner
+    /// renders these cells in the dark "infeasible" colour.
+    pub is_feasible: bool,
+}
+
+/// Cross-system Hohmann grid (GRA-343 / GRA-328b).
+///
+/// A small `(cols × rows) ΔV matrix` keyed by `(t_dep, tof)` for one
+/// `(origin system_id, destination system_id)` pair.  The grid is
+/// cached on `FleetUiState.cross_system_grid` and rebuilt when the
+/// player picks a new interstellar target or the staleness timer
+/// fires.
+#[derive(Debug, Clone)]
+pub struct CrossSystemGrid {
+    /// Destination system_id (matches the 1-based idx used in
+    /// `DestEntry::StarSystem`).  The origin is implicit (the
+    /// fleet's current system, also stored as
+    /// `cross_system_grid_built_for`'s sibling on `FleetUiState`).
+    pub destination_system_id: usize,
+    /// Display name (e.g. "Alpha Centauri A").
+    pub destination_name: String,
+    /// Distance to destination (light-years).
+    pub distance_ly: f64,
+    /// Number of columns (t_dep samples).
+    pub cols: usize,
+    /// Number of rows (tof samples).
+    pub rows: usize,
+    /// First departure epoch (simulation seconds since world start).
+    pub t_dep_start_s: f64,
+    /// Per-column step (s).
+    pub t_dep_step_s: f64,
+    /// First TOF (s).
+    pub tof_start_s: f64,
+    /// Per-row step (s).
+    pub tof_step_s: f64,
+    /// Flat `cols × rows` row-major cell array.
+    pub cells: Vec<CrossSystemCell>,
+    /// `(col, row)` index of the cheapest feasible cell, or `None`
+    /// when no cell was feasible (the planner renders a "No feasible
+    /// interstellar window" message instead of the grid).
+    pub recommended_cell: Option<(usize, usize)>,
 }
 
 impl FleetUiState {
@@ -345,6 +424,10 @@ impl FleetUiState {
         self.selected_gravity_assist = None;
         self.editing_fleet_name = None;
         self.waiting_orbit_count = 0;
+        // GRA-343 (GRA-328b): clear cross-system Hohmann cache so a
+        // previous star pick does not bleed into the next target.
+        self.cross_system_grid = None;
+        self.cross_system_grid_built_for = None;
     }
 
     /// Clear multi-selection state.
