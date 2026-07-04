@@ -18,6 +18,10 @@
 # Contains mutation testing data
 **/mutants.out*/
 
+# Python bytecode caches (audit_bevy_color_literals.py → .pyc)
+**/__pycache__/
+*.pyc
+
 # Local Claude settings file
 .claude/settings.local.json
 

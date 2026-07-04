@@ -10,6 +10,7 @@ pub mod colony;
 pub mod economy;
 pub mod fleets;
 pub mod game_state;
+pub mod persistence;
 pub mod personnel;
 pub mod plugins;
 pub mod render;
@@ -24,6 +25,7 @@ use colony::ColonyPlugin;
 use economy::EconomyPlugin;
 use fleets::FleetPlugin;
 use game_state::GameStatePlugin;
+use persistence::PersistencePlugin;
 use personnel::PersonnelPlugin;
 use plugins::{
     atmosphere::AtmospherePlugin, camera::CameraPlugin, music::MusicPlugin,
@@ -87,6 +89,7 @@ fn main() {
         .add_plugins(ShipbuildingPlugin)
         .add_plugins(SystemPopulatorPlugin)
         .add_plugins(UIPlugin)
+        .add_plugins(PersistencePlugin)
         .add_plugins(MusicPlugin)
         // Systems
         .add_systems(Startup, setup)
