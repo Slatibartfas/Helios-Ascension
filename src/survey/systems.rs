@@ -2344,7 +2344,41 @@ mod tests {
         // The dispatch must be dropped because the scientist is
         // injured; the body's mission list is still empty.
         let state = world.get::<SurveyState>(body).unwrap();
-        assert!(state.active_missions.is_empty());
+        assert!(
+            state.active_missions.is_empty(),
+            "expected the dispatch to be dropped because the scientist is injured; got {:?} active missions",
+            state.active_missions.len(),
+        );
+
+        // GRA-145 (the missing assertion half of the vacuous-pass
+        // fix): also assert the dispatcher emitted exactly one
+        // `MissionLaunchBlocked { reason: ScientistInjured }`
+        // event. Mirrors the pattern in
+        // `mixed_injured_healthy_team_is_dropped_not_partial_dispatched`.
+        //
+        // `Messages::drain` empties both double-buffer halves; see
+        // the rationale on `mixed_injured_healthy_team_*` below.
+        let events: Vec<_> = {
+            let mut buf = world.resource_mut::<Messages<SurveyEvent>>();
+            buf.drain().collect()
+        };
+        let blocked: Vec<_> = events
+            .iter()
+            .filter_map(|e| match e {
+                SurveyEvent::MissionLaunchBlocked { reason, .. } => Some(*reason),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            blocked.len(),
+            1,
+            "expected exactly one MissionLaunchBlocked event; got {blocked:?}",
+        );
+        assert!(
+            matches!(blocked[0], MissionLaunchReason::ScientistInjured),
+            "expected reason=ScientistInjured; got {:?}",
+            blocked[0],
+        );
     }
 
     #[test]
