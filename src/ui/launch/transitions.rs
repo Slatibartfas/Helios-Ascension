@@ -69,10 +69,7 @@ pub fn consume_launch_actions_system(
         pending_load_save.0 = path;
     }
 
-    actions.continue_recent = false;
-    actions.start_new_game = None;
-    actions.load_save = None;
-    actions.quit = false;
+    actions.clear();
     *launch_state = LaunchState::InGame;
 }
 
