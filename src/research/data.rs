@@ -49,6 +49,16 @@ impl TechnologiesData {
         }
     }
 
+    /// Pure gate: can a technology at `tech_tier` unlock a ship module at `module_tier`?
+    ///
+    /// Rule: a module is available iff the unlocking tech's tier is at least the
+    /// module's tier. Tiers are 1-based; `tech_tier == 0` is treated as no tech and
+    /// cannot unlock any module. Executable documentation of the tier-cap rule
+    /// from the GRA-349 audit contract; production wiring is a separate PR.
+    pub fn is_module_available_for_module_tier(tech_tier: u32, module_tier: u8) -> bool {
+        tech_tier >= module_tier as u32
+    }
+
     fn unlocking_tech_for_component(&self, component_id: &str) -> Option<String> {
         self.technologies.values().find_map(|tech| {
             if tech.unlocks_components.iter().any(|id| id == component_id)
@@ -261,6 +271,21 @@ mod tests {
 
         let unlocked = vec!["tech1".to_string()];
         assert!(data.check_prerequisites("tech2", &unlocked));
+    }
+
+    #[test]
+    fn test_is_module_available_for_module_tier() {
+        // GRA-349 audit contract §5 child 7 — executable documentation of
+        // the tier-cap rule. A module is available iff the unlocking tech's
+        // tier is at least the module's tier. Production wiring of this gate
+        // into merge_ship_modules_as_components is a separate PR (GRA-349 backlog).
+        assert!(!TechnologiesData::is_module_available_for_module_tier(3, 5));
+        assert!(TechnologiesData::is_module_available_for_module_tier(6, 6));
+        assert!(TechnologiesData::is_module_available_for_module_tier(7, 6));
+        assert!(TechnologiesData::is_module_available_for_module_tier(1, 1));
+        assert!(!TechnologiesData::is_module_available_for_module_tier(0, 1));
+        assert!(TechnologiesData::is_module_available_for_module_tier(5, 4));
+        assert!(TechnologiesData::is_module_available_for_module_tier(5, 1));
     }
 
     fn stub_module(id: &str, tier: u8, required_tech: Option<&str>) -> ShipModuleDefinition {
