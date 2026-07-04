@@ -473,7 +473,7 @@ fn is_inter_star_transfer(
 /// heliocentric `KeplerOrbit` for these body types.  `Star` keeps its
 /// barycentric convention; `Planet` (and any other non-Moon/Ring body)
 /// keeps its own heliocentric `KeplerOrbit` if present.
-pub(crate) fn heliocentric_orbit_for_body(
+pub fn heliocentric_orbit_for_body(
     body: Entity,
     body_query: &Query<(
         Entity,
@@ -3703,18 +3703,29 @@ pub(super) fn render_transfer_planner(
                     };
                     fleet_ui_state.computed_options.insert(0, ga_option);
 
-                    // ── GRA-326 Phase 2 dispatch: build (or skip) the porkchop grid ─
-                    // The body-target block above populates `computed_options` for
-                    // the legacy 3-option row.  Here we decide whether to *also*
-                    // cache a porkchop grid on `FleetUiState` for the panel.
+                    // ── GRA-328a dispatch: build (or clear) the porkchop grid ─
+                    // The body-target block above populates `computed_options`
+                    // for the GA-selected row (GRA-154/GRA-165 keep the
+                    // porkchop grid suppressed whenever a flyby is chosen so
+                    // the assist preview doesn't overlap the panel).
                     //
-                    // Policy (auto-only, post-GRA-326 Phase 2):
-                    //   * BodyLocal frame → build a local-frame Lambert grid when
-                    //     the parent body has GM data; otherwise leave the grid
-                    //     None so the legacy row renders.
-                    //   * StellarLocal / SystemBarycentric → heliocentric grid
-                    //     is the Coder-side TODO on GRA-153.  Leave the grid
-                    //     None so the legacy row renders.
+                    // Policy:
+                    //   * BodyLocal frame → build a local-frame Lambert grid
+                    //     when the parent body has GM data; otherwise leave
+                    //     the grid None so the legacy row renders.
+                    //   * StellarLocal / SystemBarycentric → the heliocentric
+                    //     grid is built upstream at lines 1290-1353 via the
+                    //     per-frame deferred-build dispatcher (the rotating
+                    //     buffer from GRA-169 Part B).  Because a GA is
+                    //     currently selected we suppress the grid here per
+                    //     the GRA-154/GRA-165 defensive guard.
+                    //
+                    // GRA-328a follow-up: the previous comment in this slot
+                    // referenced "TODO per GRA-153" — that deferral was
+                    // closed by GRA-159 (PR #186) and GRA-326 (PR #205); the
+                    // planner now builds heliocentric grids on planet-to-
+                    // planet and planet-to-star destinations via the
+                    // rotating-buffer dispatcher, not through this branch.
                     if let PlannerTransferFrame::BodyLocal(parent_entity) = planner_frame {
                         if let Some(grid) = try_build_local_porkchop(
                             parent_entity,
@@ -3734,9 +3745,10 @@ pub(super) fn render_transfer_planner(
                             fleet_ui_state.selected_porkchop_cell = None;
                         }
                     } else {
-                        // StellarLocal / SystemBarycentric: heliocentric grid is
-                        // the Coder's TODO on GRA-153.  Keep grid None so the
-                        // legacy row renders.
+                        // StellarLocal / SystemBarycentric with a GA selected:
+                        // suppress the (already-built) heliocentric grid per
+                        // the GRA-154/GRA-165 defensive guard so the GA
+                        // overlay renders without the panel.
                         fleet_ui_state.porkchop_grid = None;
                         fleet_ui_state.selected_porkchop_cell = None;
                     }
