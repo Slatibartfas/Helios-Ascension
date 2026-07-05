@@ -255,7 +255,10 @@ where
         Ok(s) => s,
         Err(e) => {
             emit_restore_failed(world, path, &format!("read failed: {e}"));
-            return Err(GameSetupError::Io(format!("read {p}: {e}", p = path.display())));
+            return Err(GameSetupError::Io(format!(
+                "read {p}: {e}",
+                p = path.display()
+            )));
         }
     };
 
