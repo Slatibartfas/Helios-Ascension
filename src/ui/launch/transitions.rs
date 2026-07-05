@@ -76,7 +76,7 @@ pub fn consume_launch_actions_system(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ui::launch::{LaunchState, NewGameRequest, PendingLaunchActions};
+    use crate::ui::launch::{LaunchState, NewGameParams, NewGameRequest, PendingLaunchActions};
     use bevy::MinimalPlugins;
 
     fn fresh_app() -> App {
@@ -109,6 +109,7 @@ mod tests {
         app.world_mut()
             .resource_mut::<PendingLaunchActions>()
             .start_new_game = Some(NewGameRequest {
+            params: NewGameParams::default(),
             seed: 0,
             preset: "standard".into(),
         });

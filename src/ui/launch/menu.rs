@@ -43,7 +43,7 @@ use bevy_egui::egui;
 use bevy_egui::EguiContexts;
 
 use super::manifest::LaunchUiManifest;
-use super::{LaunchState, NewGameRequest, PendingLaunchActions, SaveIndex};
+use super::{LaunchState, NewGameParams, NewGameRequest, PendingLaunchActions, SaveIndex};
 use crate::ui::theme;
 
 /// Fixed minimum width of the action grid column.
@@ -231,6 +231,7 @@ fn render_action_grid(
     if render_menu_button(ui, new_game_label, copy.resolved_new_game_shortcut(), true).clicked() {
         if launch_state == LaunchState::MainMenu {
             pending_actions.start_new_game = Some(NewGameRequest {
+                params: NewGameParams::default(),
                 seed: 0,
                 preset: "standard".to_string(),
             });
