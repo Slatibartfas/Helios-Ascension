@@ -1389,12 +1389,12 @@ mod tests {
     }
 
     /// Synthetic regression test for the trim.  Configured range
-    /// [100 d, 1000 d]; feasible cells in the top half (rows 0..5
-    /// of 10) — the cheap-transfer basin for the cheapest
-    /// Hohmann-like arc.  The remaining rows are infeasible.
-    /// Trim should clip the rendered upper bound to row 4's TOF
-    /// + 10% margin so the empty rows above don't waste panel
-    /// space.
+    /// is `[100 d, 1000 d]`; feasible cells live in the top half
+    /// (rows `0..5` of `10`) — the cheap-transfer basin for the
+    /// cheapest Hohmann-like arc.  The remaining rows are
+    /// infeasible.  Trim should clip the rendered upper bound to
+    /// row 4's TOF plus a 10% margin so the empty rows above
+    /// don't waste panel space.
     #[test]
     fn adaptive_tof_bounds_trims_sparse_feasible_top() {
         let cols = 10;
