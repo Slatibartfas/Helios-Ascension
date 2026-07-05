@@ -25,7 +25,7 @@ use colony::ColonyPlugin;
 use economy::EconomyPlugin;
 use fleets::FleetPlugin;
 use game_state::GameStatePlugin;
-use persistence::{PersistencePlugin, SaveLoadPlugin};
+use persistence::{GameSetupPlugin, PersistencePlugin, SaveLoadPlugin};
 use personnel::PersonnelPlugin;
 use plugins::{
     atmosphere::AtmospherePlugin, camera::CameraPlugin, music::MusicPlugin,
@@ -91,6 +91,7 @@ fn main() {
         .add_plugins(UIPlugin)
         .add_plugins(PersistencePlugin)
         .add_plugins(SaveLoadPlugin)
+        .add_plugins(GameSetupPlugin)
         .add_plugins(MusicPlugin)
         // Systems
         .add_systems(Startup, setup)

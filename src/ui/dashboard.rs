@@ -906,7 +906,7 @@ pub(super) fn format_rate_monthly(value: f64) -> (String, egui::Color32) {
 
 /// Main UI dashboard system
 #[allow(clippy::too_many_arguments)]
-pub(super) fn ui_dashboard(
+pub(crate) fn ui_dashboard(
     mut commands: Commands,
     mut contexts: EguiContexts,
     // budget: Res<GlobalBudget>, // Moved to ui_resources_bar
@@ -1220,8 +1220,23 @@ pub(super) fn ui_dashboard(
                                 // TODO: Implement quit
                                 info!("Quit clicked");
                             }
+                            // GRA-358 PR-C: Save Game routes through
+                            // the Save Panel subview. We capture the
+                            // current `LaunchState` so the panel's
+                            // Back button returns here (to InGame,
+                            // not MainMenu). The egui render system
+                            // already has a `Commands` param so we
+                            // use `insert_resource` to flag the
+                            // request without growing the parameter
+                            // list. `consume_in_game_save_request_system`
+                            // runs after `ui_dashboard` in
+                            // `EguiPrimaryContextPass` and does the
+                            // actual state flip.
                             if ui.button("💾 Save Game").clicked() {
-                                info!("Save clicked");
+                                info!("Save clicked — opening Save Panel subview");
+                                commands.insert_resource(
+                                    crate::ui::launch::PendingInGameSaveRequest { open_panel: true },
+                                );
                             }
                             if ui.button("📂 Load Game").clicked() {
                                 info!("Load clicked");

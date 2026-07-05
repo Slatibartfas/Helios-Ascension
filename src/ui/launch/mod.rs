@@ -31,6 +31,7 @@ pub mod subview_kickoff;
 pub mod subview_load_game;
 pub mod subview_manifests;
 pub mod subview_new_game;
+pub mod subview_save_game;
 pub mod subview_settings;
 
 use bevy::prelude::*;
@@ -39,9 +40,13 @@ use std::path::PathBuf;
 
 pub use manifest::{load_launch_ui_manifest, LaunchUiManifest};
 pub use menu::main_menu_render_system;
-pub use save_index::{SaveHeader, SaveIndex, SaveSummary, SAVES_SUBDIR};
+pub use save_index::{SaveHeader, SaveIndex, SaveIndexState, SaveSummary, SAVES_SUBDIR};
 pub use splash::{ui_splash_system, SplashImage, SplashTimer};
 pub use subview_manifests::{load_difficulty_presets_manifest, load_seed_copy_manifest};
+pub use subview_save_game::{
+    consume_in_game_save_request_system, consume_save_actions_system, register_save_panel_subview,
+    ui_save_panel_subview, PendingInGameSaveRequest, PendingSaveActions, PendingSavePanelReturn,
+};
 pub use transitions::{consume_launch_actions_system, PendingLoadSave};
 pub use userdata::{
     load_persistent_settings_from, resolve_userdata_dir, save_persistent_settings_to,
@@ -61,6 +66,12 @@ pub use crate::persistence::params::{
 ///
 /// PR-A inserts this resource at Startup; PR-B writes the transition
 /// systems that move between variants.
+///
+/// GRA-358 PR-C adds `SaveGame` — a menu-side subview the player
+/// reaches from the main menu's Save shortcut or from the in-game
+/// top menu's "Save" entry while in InGame. The state shares the
+/// `LaunchSystemSet::Menu` set with the other subviews; the render
+/// system gates itself on the state.
 #[derive(Resource, Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum LaunchState {
     #[default]
@@ -69,6 +80,7 @@ pub enum LaunchState {
     NewGame,
     LoadGame,
     Settings,
+    SaveGame,
     InGame,
 }
 
@@ -232,6 +244,7 @@ impl Plugin for LaunchPlugin {
         subview_new_game::register_new_game_subview(app);
         subview_load_game::register_load_game_subview(app);
         subview_settings::register_settings_subview(app);
+        subview_save_game::register_save_panel_subview(app);
         subview_kickoff::register_kickoff_system(app);
 
         // PR-E (GRA-329): action consumer runs in `Update` (not in
@@ -283,6 +296,7 @@ mod tests {
         assert!(!LaunchState::NewGame.is_in_game());
         assert!(!LaunchState::LoadGame.is_in_game());
         assert!(!LaunchState::Settings.is_in_game());
+        assert!(!LaunchState::SaveGame.is_in_game());
         assert!(LaunchState::InGame.is_in_game());
     }
 

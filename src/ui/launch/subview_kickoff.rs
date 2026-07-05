@@ -1,4 +1,4 @@
-//! World-kickoff transition (GRA-318 PR-D).
+//! World-kickoff transition (GRA-318 PR-D + GRA-358 PR-C).
 //!
 //! Owns the `LaunchState::InGame` transition: once the player has
 //! confirmed an action via one of the PR-D subviews (Begin /
@@ -6,23 +6,23 @@
 //! request, and this module turns the request into a world-state
 //! decision.
 //!
-//! Scope (per GRA-318 issue body + GRA-309 §3.3):
+//! Scope (per GRA-318 / GRA-358):
 //!
 //! - On `LaunchState::InGame` and `PendingLaunchActions::has_any()`,
 //!   consume the action and decide what world to spin up:
-//!   - `start_new_game` → fresh world; the actual `play_new_game`
-//!     constructor lives in the wider `GameSetup` flow planned for
-//!     `src/plugins/solar_system.rs` (TBD; PR-D only logs the seed
-//!     and preset and clears the queue).
-//!   - `load_save` → restore the named save; the actual `restore_save`
-//!     constructor will plug into `src/persistence::restore_world`
-//!     once GRA-314 lands.
+//!   - `start_new_game` → invoke
+//!     [`crate::persistence::play_new_game`] to build the fresh
+//!     world and emit a [`crate::persistence::NewGameCommitted`]
+//!     message.
+//!   - `load_save` → invoke
+//!     [`crate::persistence::restore_save`]. Failures surface as a
+//!     toast via the GRA-137 notification bridge.
 //!   - `continue_recent` → take the first valid entry from
-//!     [`SaveIndex`] (most-recent by sort order set in
-//!     `SaveIndex::scan`) and route it through `load_save`.
-//! - The [`resolve_kickoff`] helper is a pure function on `&mut World`
+//!     [`SaveIndex`] and route it through `load_save`.
+//! - The [`resolve_kickoff`] helper is a pure function on resources
 //!   so tests can drive it without a Bevy schedule / egui context.
-//!   The [`kickoff_world_system`] is the thin Bevy adapter.
+//!   The [`kickoff_world_system`] is the thin Bevy adapter that
+//!   calls into the [`crate::persistence::game_setup`] constructors.
 //!
 //! Constraints:
 //!
@@ -31,20 +31,13 @@
 //! - Quitting (`PendingLaunchActions::quit`) is intentionally NOT
 //!   handled here — that route is owned by the menu shell (`PR-C`)
 //!   and the app-exit surface, not by the kickoff.
-//!
-//! ## Future work (out of GRA-318 scope)
-//!
-//! - Wire `play_new_game(seed, preset)` into `solar_system.rs:1990`
-//!   once the GameSetup contract is signed off (CTO sign-off needed
-//!   before the kickoff calls a real constructor).
-//! - Wire `restore_save` into `src/persistence::restore_world` once
-//!   GRA-314 lands.
 
 use bevy::prelude::*;
 use bevy_egui::EguiPrimaryContextPass;
 
 use super::save_index::{SaveIndex, SaveSummary};
-use super::{LaunchState, NewGameRequest, PendingLaunchActions};
+use super::{LaunchState, LaunchSystemSet, NewGameRequest, PendingLaunchActions};
+use crate::persistence::{play_new_game, restore_save};
 
 /// Outcome of one kickoff decision. The Bevy system logs at the
 /// `info!` level and clears the action queue on success; the
@@ -156,7 +149,8 @@ fn most_recent_valid_save(index: &SaveIndex) -> Option<std::path::PathBuf> {
 }
 
 /// Bevy system: consume `PendingLaunchActions` once `LaunchState`
-/// reaches `InGame`, log the decision, and clear the queue.
+/// reaches `InGame`, invoke the [`crate::persistence`] constructors,
+/// and clear the queue.
 ///
 /// Schedule: [`EguiPrimaryContextPass`] — placed there because the
 /// queue and `LaunchState` are mutated from egui subviews in the
@@ -164,60 +158,62 @@ fn most_recent_valid_save(index: &SaveIndex) -> Option<std::path::PathBuf> {
 /// the same frame. The system is also a no-op for any other state
 /// so it does not conflict with splash or in-game UI ordering.
 ///
-/// The real world-state installation (`play_new_game`,
-/// `restore_save`) is deliberately **not** invoked here; that hook
-/// belongs to a future GameSetup integration. See module docs.
-pub fn kickoff_world_system(
-    launch_state: Res<LaunchState>,
-    mut actions: ResMut<PendingLaunchActions>,
-    save_index: Res<SaveIndex>,
-) {
-    let outcome = resolve_kickoff(*launch_state, &actions, &save_index);
-    match &outcome {
+/// GRA-358 PR-C: this system is now an *exclusive* system (`&mut World`)
+/// because [`play_new_game`] / [`restore_save`] mutate multiple
+/// resources via `&mut World`, and Bevy 0.18 forbids holding
+/// `&mut World` alongside `Res` / `ResMut` in the same system
+/// (they conflict at the SystemParam-borrow level). We pull each
+/// resource via `world.resource()` / `world.resource_mut()` instead.
+///
+/// On `LoadSave`, failure paths emit a `persistence.restore_failed`
+/// toast via the GRA-137 notification bridges.
+pub fn kickoff_world_system(world: &mut World) {
+    let launch_state = *world.resource::<LaunchState>();
+    let actions = world.resource::<PendingLaunchActions>();
+    let save_index = world.resource::<SaveIndex>();
+    let outcome = resolve_kickoff(launch_state, actions, save_index);
+
+    match outcome {
         KickoffOutcome::StartNewGame { request } => {
-            let resolved_seed = if request.seed == 0 {
-                // 0 is the auto-roll sentinel (`NewGameRequest`
-                // rejects 0 in `parse_seed_input`); preserve the
-                // sentinel here so the future auto-roll knows to
-                // draw a fresh seed. The log line tells the operator
-                // that the kickoff intentionally carried a zero.
-                info!(
-                    "kickoff: StartNewGame (preset={}, seed=AUTO)",
-                    request.preset
-                );
-                0
-            } else {
-                info!(
-                    "kickoff: StartNewGame (preset={}, seed={})",
-                    request.preset, request.seed
-                );
-                request.seed
-            };
-            actions.start_new_game = Some(NewGameRequest {
-                params: request.params.clone(),
-                seed: resolved_seed,
-                preset: request.preset.clone(),
-            });
+            info!(
+                "kickoff: StartNewGame (preset={preset}, seed={seed})",
+                preset = request.preset,
+                seed = request.seed
+            );
+            match play_new_game(world, request) {
+                Ok(seed) => info!("kickoff: play_new_game committed (seed={seed})"),
+                Err(e) => warn!("kickoff: play_new_game failed: {e}"),
+            }
             // Clear sibling actions so a stale Continue / Load
             // queue doesn't double-fire on the next decision cycle.
+            let mut actions = world.resource_mut::<PendingLaunchActions>();
             actions.continue_recent = false;
             actions.load_save = None;
-            // NOTE: leaving `start_new_game` populated so the
-            // future GameSetup integration can pick it up. The
-            // queue clear is the GameSetup's job once it consumes
-            // the request.
+            actions.start_new_game = None;
         }
         KickoffOutcome::LoadSave { path, source } => {
             info!(
-                "kickoff: LoadSave (source={:?}, path={})",
-                source,
-                path.display()
+                "kickoff: LoadSave (source={source:?}, path={p})",
+                source = source,
+                p = path.display()
             );
+            match restore_save(
+                world,
+                &path,
+                crate::persistence::game_setup::build_minimal_world_for_restore,
+            ) {
+                Ok(()) => info!("kickoff: restore_save committed"),
+                Err(e) => {
+                    // `restore_save` already wrote a
+                    // `persistence.restore_failed` toast; the log
+                    // here is the operator-level trail.
+                    warn!("kickoff: restore_save failed: {e}");
+                }
+            }
+            let mut actions = world.resource_mut::<PendingLaunchActions>();
             actions.continue_recent = false;
             actions.start_new_game = None;
-            // `load_save` is left populated for the future
-            // persistence integration to consume; mirroring
-            // `StartNewGame`.
+            actions.load_save = None;
         }
         KickoffOutcome::NoAction => {
             // No-op. We do not clear `quit` because the app-exit
@@ -226,14 +222,26 @@ pub fn kickoff_world_system(
     }
 }
 
-/// Register the kickoff system in [`super::LaunchSystemSet::Menu`]
-/// on the [`EguiPrimaryContextPass`] schedule. Reuses the same set
-/// chain as the subview render systems so the kickoff runs after
-/// the subviews have written to the queue within the same frame.
+/// Register the kickoff system on [`EguiPrimaryContextPass`].
+///
+/// GRA-358 PR-C: the system takes `&mut World` (it calls into the
+/// [`crate::persistence`] constructors which mutate many resources).
+/// Bevy 0.18 exclusive systems can't chain `.in_set(...)`, so the
+/// order vs the subview render systems is enforced via
+/// `.after(LaunchSystemSet::Menu)` (the set all subview render
+/// systems belong to). The exclusive-system `.after(...)` pattern is
+/// already used by `tick_autosave_timer` in
+/// [`crate::persistence::plugin`].
+///
+/// Earlier versions of this PR used `.after((subview_a, subview_b, ..))`
+/// — that hits Bevy 0.18's `IntoSystemSet` blanket impl, which is not
+/// implemented for tuples. The set form is also more honest: the
+/// kickoff observes *any* subview decision, not the four named
+/// callers specifically.
 pub fn register_kickoff_system(app: &mut App) {
     app.add_systems(
         EguiPrimaryContextPass,
-        kickoff_world_system.in_set(super::LaunchSystemSet::Menu),
+        kickoff_world_system.after(LaunchSystemSet::Menu),
     );
 }
 
