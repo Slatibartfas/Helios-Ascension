@@ -255,7 +255,7 @@ where
         Ok(s) => s,
         Err(e) => {
             emit_restore_failed(world, path, &format!("read failed: {e}"));
-            return Err(GameSetupError::Io(format!("read {}: {e}", path.display())));
+            return Err(GameSetupError::Io(format!("read {p}: {e}", p = path.display())));
         }
     };
 
@@ -294,7 +294,7 @@ fn emit_restore_failed(world: &mut World, path: &Path, detail: &str) {
         severity: crate::ui::notifications::events::NotificationSeverity::Critical,
         title: "Save could not be loaded".to_string(),
         body: format!("{detail} — the save file has not been modified."),
-        dedup_key: Some(format!("restore_failed:{}", path.display())),
+        dedup_key: Some(format!("restore_failed:{p}", p = path.display())),
         auto_dismiss_s: Some(8.0),
         sticky: false,
         context_link: NotificationContextLink::None,
@@ -330,7 +330,7 @@ pub fn write_save_to_path(world: &World, path: &Path) -> Result<(), GameSetupErr
 
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)
-            .map_err(|e| GameSetupError::Io(format!("mkdir {}: {e}", parent.display())))?;
+            .map_err(|e| GameSetupError::Io(format!("mkdir {p}: {e}", p = parent.display())))?;
     }
 
     write_save_atomic(path, &ron).map_err(|e| GameSetupError::Io(e.to_string()))?;
