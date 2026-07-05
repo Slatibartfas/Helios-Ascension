@@ -59,9 +59,9 @@ src/fleets/visuals.rs:3989  |f| Color::srgba(1.0, 0.75, 0.15, 0.70 - 0.35 * f),
 src/fleets/visuals.rs:4141  Color::srgba(0.3, 1.0, 0.4, 0.80 - 0.35 * f)
 src/fleets/visuals.rs:4146  Color::srgba(1.0, 0.3, 0.8, 0.80 - 0.35 * f)
 src/fleets/visuals.rs:4151  let node_color = Color::srgba(1.0, 1.0, 0.3, 0.9);
-src/main.rs:123  color: Color::srgb(0.7, 0.75, 1.0), // Cool blue-white starlight tint
-src/main.rs:134  color: Color::srgb(0.6, 0.65, 0.8), // Slightly cool galactic tint
-src/main.rs:146  commands.insert_resource(ClearColor(Color::srgb(0.01, 0.01, 0.02)));
+src/main.rs:124  color: Color::srgb(0.7, 0.75, 1.0), // Cool blue-white starlight tint
+src/main.rs:135  color: Color::srgb(0.6, 0.65, 0.8), // Slightly cool galactic tint
+src/main.rs:147  commands.insert_resource(ClearColor(Color::srgb(0.01, 0.01, 0.02)));
 src/plugins/solar_system.rs:367  Color::srgb(
 src/plugins/solar_system.rs:376  Color::srgb(
 src/plugins/solar_system.rs:385  Color::srgb(

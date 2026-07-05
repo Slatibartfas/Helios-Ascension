@@ -1,15 +1,18 @@
 //! Save / Load plugin — Bevy world-state persistence for Helios Ascension.
 //!
-//! GRA-314 PR-A. PR-A ships:
+//! GRA-314 / GRA-358 PR-A + PR-B. The persistence module is split
+//! across two PRs:
 //!
-//! - [`PersistencePlugin`] — registers [`AppTypeRegistry`] (PR-A safety net,
-//!   production plugin registrations in PR-B/C/D add their own component
-//!   registrations via `app.register_type::<T>()`).
-//! - [`snapshot::snapshot_world`] — serialise the live world to a RON string.
-//! - [`restore::restore_world`] — deserialise a RON string into a fresh
-//!   [`World`].
-//! - [`migrate::run_migrations`] — version-aware forward migrator chain.
-//! - [`format_version::FORMAT_VERSION`] — `1` in PR-A.
+//! - **PR-A** (shipped) — [`PersistencePlugin`] (register
+//!   [`AppTypeRegistry`] + cross-plugin reflection coverage),
+//!   [`snapshot::snapshot_world`], [`restore::restore_world`],
+//!   [`migrate::run_migrations`], [`format_version::FORMAT_VERSION`],
+//!   and the [`params::NewGameParams`] loader.
+//! - **PR-B** (this PR) — [`SaveLoadPlugin`] registers
+//!   [`crate::persistence::playtime::PlaytimeTracker`] +
+//!   [`crate::persistence::autosave::AutosaveTimer`] and schedules
+//!   the two `Update` ticks; [`crate::persistence::io`] provides the
+//!   atomic-write helper [`crate::persistence::io::write_save_atomic`].
 //!
 //! # R2 (Reflection coverage gap)
 //!
@@ -34,8 +37,10 @@
 //!
 //! # R4 (atomic on-disk write)
 //!
-//! PR-A does NOT touch the disk — the save panel in PR-B will add the
-//! `write-to-tmp-then-rename` pattern. PR-A only produces a RON string.
+//! PR-A does NOT touch the disk. PR-B adds
+//! [`crate::persistence::io::write_save_atomic`] (write-to-tmp-then-rename
+//! with `fsync`). The autosave consumer is the first caller; PR-C
+//! (Save Panel UI) will reuse the same helper.
 //!
 //! # Bevy 0.18 `SceneDeserializer` import gotcha
 //!
@@ -48,16 +53,26 @@
 
 use bevy::prelude::*;
 
+pub mod autosave;
 pub mod format_version;
+pub mod io;
 pub mod migrate;
+pub mod params;
+pub mod playtime;
+pub mod plugin;
 pub mod restore;
 pub mod snapshot;
 
-pub mod params;
-
+pub use autosave::{
+    prune_old_autosaves, tick_autosave_timer, AutosaveTimer, AUTOSAVE_PREFIX, AUTOSAVE_SUFFIX,
+    DEFAULT_AUTOSAVE_INTERVAL_S, DEFAULT_ROLLING_COUNT,
+};
 pub use format_version::{FORMAT_VERSION, MIN_SUPPORTED_VERSION};
+pub use io::{write_save_atomic, SaveIoError};
 pub use migrate::{Body, MigrateError, SchemaKind};
 pub use params::{load_new_game_params_defaults, NewGameParams, NewGameParamsDefaults};
+pub use playtime::{tick_playtime_tracker, PlaytimeTracker};
+pub use plugin::SaveLoadPlugin;
 pub use restore::{restore_world, RestoreError, RestoredWorld};
 pub use snapshot::{
     snapshot_world, snapshot_world_with_registry, SaveFile, SaveMetadata, SnapshotError,
