@@ -53,8 +53,11 @@ pub mod migrate;
 pub mod restore;
 pub mod snapshot;
 
+pub mod params;
+
 pub use format_version::{FORMAT_VERSION, MIN_SUPPORTED_VERSION};
 pub use migrate::{Body, MigrateError, SchemaKind};
+pub use params::{load_new_game_params_defaults, NewGameParams, NewGameParamsDefaults};
 pub use restore::{restore_world, RestoreError, RestoredWorld};
 pub use snapshot::{
     snapshot_world, snapshot_world_with_registry, SaveFile, SaveMetadata, SnapshotError,
@@ -87,6 +90,15 @@ impl Plugin for PersistencePlugin {
         if !app.world().contains_resource::<AppTypeRegistry>() {
             app.init_resource::<AppTypeRegistry>();
         }
+
+        // GRA-358 PR-A: register NewGameParams so save/load snapshots
+        // can capture the player's procedural-gen knobs. The type is
+        // a Resource today (held in `PendingLaunchActions::start_new_game`);
+        // a follow-up PR may attach it to a "world config" Component,
+        // at which point the registration here is enough — `Reflect`
+        // covers both. The world-spawn layer is out of PR-A scope.
+        app.register_type::<NewGameParams>();
+        app.register_type::<NewGameParamsDefaults>();
 
         // GRA-319: cross-plugin reflection coverage for save/load.
         //

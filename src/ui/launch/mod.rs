@@ -48,6 +48,10 @@ pub use userdata::{
     PersistentSettings, SETTINGS_FILE_NAME,
 };
 
+pub use crate::persistence::params::{
+    load_new_game_params_defaults, NewGameParams, NewGameParamsDefaults,
+};
+
 /// Top-level launch-flow state machine (GRA-309 §3.3).
 ///
 /// Default is `Splash` — the app boots into the splash screen and a
@@ -115,8 +119,16 @@ impl PendingLaunchActions {
 /// subview from a [`crate::ui::launch::userdata::PersistentSettings`]
 /// snapshot and the selected preset id (LGD-owned
 /// `assets/data/difficulty_presets.ron`).
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// GRA-358 PR-A added `params: NewGameParams` (star count, AI faction
+/// count, artifacts toggle, starting tech tier, initial game speed)
+/// alongside the existing `seed` + `preset`. The kickoff world-spawn
+/// path (a follow-up PR) reads `params` to drive procedural
+/// generation; the seed remains the canonical RNG seed and the
+/// preset remains the difficulty identity.
+#[derive(Debug, Clone, PartialEq)]
 pub struct NewGameRequest {
+    pub params: NewGameParams,
     pub seed: u64,
     pub preset: String,
 }
@@ -176,6 +188,14 @@ impl Plugin for LaunchPlugin {
             .add_systems(Startup, load_launch_ui_manifest)
             .add_systems(Startup, load_difficulty_presets_manifest)
             .add_systems(Startup, load_seed_copy_manifest)
+            // GRA-358 PR-A: new_game_params defaults (LGD-authored
+            // RON; see assets/data/new_game_params.ron). The loader
+            // inserts the `NewGameParamsDefaults` resource before
+            // the New Game subview first renders so the slider
+            // defaults and the soft star-count ceiling are
+            // available. The loader is registered last because it
+            // does not gate any of the earlier manifests' content.
+            .add_systems(Startup, load_new_game_params_defaults)
             // Save index scanner — reads the saves directory at
             // Startup so the menu has its list before the first
             // frame draws.
@@ -276,6 +296,7 @@ mod tests {
     fn pending_launch_actions_clear_resets_every_field() {
         let mut actions = PendingLaunchActions {
             start_new_game: Some(NewGameRequest {
+                params: NewGameParams::default(),
                 seed: 42,
                 preset: "standard".to_string(),
             }),
@@ -292,14 +313,17 @@ mod tests {
     #[test]
     fn new_game_request_is_comparable() {
         let a = NewGameRequest {
+            params: NewGameParams::default(),
             seed: 1,
             preset: "casual".to_string(),
         };
         let b = NewGameRequest {
+            params: NewGameParams::default(),
             seed: 1,
             preset: "casual".to_string(),
         };
         let c = NewGameRequest {
+            params: NewGameParams::default(),
             seed: 2,
             preset: "casual".to_string(),
         };

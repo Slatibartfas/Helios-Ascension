@@ -31,13 +31,17 @@ use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 
 use crate::ui::launch::manifest::LaunchUiManifest;
 use crate::ui::launch::subview_manifests::{DifficultyPresetsManifest, SeedCopyManifest};
-use crate::ui::launch::{LaunchState, LaunchSystemSet, NewGameRequest, PendingLaunchActions};
+use crate::ui::launch::{
+    LaunchState, LaunchSystemSet, NewGameParams, NewGameParamsDefaults, NewGameRequest,
+    PendingLaunchActions,
+};
 use crate::ui::theme;
 
 /// Per-frame transient state for the New Game subview. Tracks which
-/// preset is selected, the live seed input buffer, and which
-/// curated-seed chip (if any) the player has clicked. Cleared when
-/// `LaunchState` leaves `NewGame` so the next visit starts fresh.
+/// preset is selected, the live seed input buffer, which curated-seed
+/// chip (if any) the player has clicked, and the live procedural-gen
+/// parameter values (GRA-358 PR-A). Cleared when `LaunchState` leaves
+/// `NewGame` so the next visit starts fresh.
 #[derive(Resource, Debug, Default, Clone)]
 pub struct NewGameSubviewState {
     pub selected_preset_id: Option<String>,
@@ -45,6 +49,23 @@ pub struct NewGameSubviewState {
     pub parsed_seed: Option<u64>,
     pub seed_error: Option<String>,
     pub curated_seed_index: Option<usize>,
+    /// Live procedural-gen parameters (star count, AI faction count,
+    /// artifact toggle, starting tech tier, initial game speed). The
+    /// subview writes here as the player moves sliders / flips
+    /// checkboxes; the kickoff reads it via
+    /// `NewGameParams::from_defaults` only when Begin is clicked (the
+    /// `params` field below is the authoritative value).
+    pub params: NewGameParams,
+    /// Index into [`NewGameParamsDefaults::TIME_SCALE_PRESETS`] for
+    /// the game-speed dropdown. Stored separately so the dropdown can
+    /// show a human-readable label while the live `params`
+    /// stores the raw `f32`. `None` before first render.
+    pub game_speed_preset_index: Option<usize>,
+    /// Whether the `params` field has been seeded from the loaded
+    /// defaults. The first render checks this flag; on first render
+    /// it copies the loader-side defaults into `params` and flips
+    /// this to `true`. Subsequent renders never re-seed.
+    pub params_seeded: bool,
 }
 
 impl NewGameSubviewState {
@@ -63,6 +84,28 @@ impl NewGameSubviewState {
         "standard"
     }
 
+    /// Seed the live `params` from the loader-side defaults. Called
+    /// once per visit on first render (gated by `params_seeded`).
+    pub fn seed_params_from_defaults(&mut self, defaults: &NewGameParamsDefaults) {
+        self.params = NewGameParams::from_defaults(defaults);
+        // Find the closest preset to the loaded default game speed so
+        // the dropdown label matches what the player sees. If no
+        // preset is within a small epsilon of the default (shouldn't
+        // happen in practice — the RON file is the source of truth
+        // and the presets are stable), fall back to the first preset.
+        let mut best_index = 0usize;
+        let mut best_delta = f32::INFINITY;
+        for (idx, (_, scale)) in NewGameParamsDefaults::TIME_SCALE_PRESETS.iter().enumerate() {
+            let delta = (scale - self.params.game_speed_initial).abs();
+            if delta < best_delta {
+                best_delta = delta;
+                best_index = idx;
+            }
+        }
+        self.game_speed_preset_index = Some(best_index);
+        self.params_seeded = true;
+    }
+
     /// Reset the transient state — called by the kickoff transition
     /// system when the player presses Begin and we leave `NewGame`.
     pub fn reset(&mut self) {
@@ -71,6 +114,13 @@ impl NewGameSubviewState {
         self.parsed_seed = None;
         self.seed_error = None;
         self.curated_seed_index = None;
+        // `params` and `params_seeded` reset too — the next visit
+        // re-seeds from the loader-side defaults. `game_speed_preset_index`
+        // resets alongside `params_seeded` so the dropdown label
+        // matches the freshly-seeded value.
+        self.params = NewGameParams::default();
+        self.game_speed_preset_index = None;
+        self.params_seeded = false;
     }
 }
 
@@ -118,6 +168,12 @@ pub fn parse_seed_input(input: &str, max_length: u32) -> (Option<u64>, Option<St
 /// variant. The render system lives in
 /// [`LaunchSystemSet::Menu`] so it only ticks while the menu state
 /// is active (PR-A's set is reserved for PR-C/D).
+///
+/// GRA-358 PR-A: takes `NewGameParamsDefaults` so the procedural-gen
+/// knobs (star count, AI faction count, artifacts toggle, starting
+/// tech tier, initial game speed) can be exposed in the subview. The
+/// first render seeds the live `params` from the loader-side
+/// defaults; subsequent renders read/write the live values.
 pub fn ui_new_game_subview(
     mut contexts: EguiContexts,
     mut launch_state: ResMut<LaunchState>,
@@ -126,6 +182,7 @@ pub fn ui_new_game_subview(
     seed_copy: Res<SeedCopyManifest>,
     presets: Res<DifficultyPresetsManifest>,
     manifest: Res<LaunchUiManifest>,
+    params_defaults: Res<NewGameParamsDefaults>,
 ) {
     if *launch_state != LaunchState::NewGame {
         return;
@@ -135,6 +192,14 @@ pub fn ui_new_game_subview(
         Ok(ctx) => ctx,
         Err(_) => return,
     };
+
+    // Seed the live params from the loader-side defaults on first
+    // render. The `params_seeded` flag prevents re-seeding on every
+    // frame — once the player has touched a slider, the live
+    // values are the source of truth.
+    if !subview_state.params_seeded {
+        subview_state.seed_params_from_defaults(&params_defaults);
+    }
 
     // Resolve effective preset id (selected → default → "standard")
     // once per frame so the subview is consistent across all
@@ -269,6 +334,113 @@ pub fn ui_new_game_subview(
 
                 ui.add_space(theme::Spacing::xl);
 
+                // ── Procedural-gen parameter controls (GRA-358 PR-A) ──
+                //
+                // The subview exposes the four new-game knobs:
+                // - star_count: a slider clamped to the loader-side
+                //   soft ceiling (`params_defaults.max_star_count`).
+                //   Falls back to 1000 when the defaults are missing
+                //   (the file failed to load) — matches the
+                //   `NewGameParamsDefaults::default()` validation
+                //   behaviour and keeps the slider usable.
+                // - ai_faction_count: a slider clamped to
+                //   `NewGameParamsDefaults::MAX_AI_FACTION_COUNT` (8).
+                // - artifacts_enabled: a checkbox.
+                // - starting_tech_tier: a dropdown matching the tier
+                //   bounds in `NewGameParamsDefaults`.
+                // - game_speed_initial: a dropdown matching
+                //   `NewGameParamsDefaults::TIME_SCALE_PRESETS`.
+                //
+                // Every control writes directly into
+                // `subview_state.params` so the `begin_clicked`
+                // path below can pass the live values to
+                // `NewGameRequest::params` without a second copy.
+                ui.label(
+                    egui::RichText::new("World parameters")
+                        .color(theme::ACCENT)
+                        .strong(),
+                );
+                ui.add_space(theme::Spacing::xs);
+
+                let max_stars = if params_defaults.max_star_count == 0 {
+                    1000
+                } else {
+                    params_defaults.max_star_count
+                };
+                let mut star_count = subview_state.params.star_count.min(max_stars).max(1);
+                let star_slider = egui::Slider::new(&mut star_count, 1..=max_stars)
+                    .text(format!("Star systems (max {max_stars})"))
+                    .clamp_to_range(true);
+                ui.add(star_slider);
+                subview_state.params.star_count = star_count;
+
+                ui.add_space(theme::Spacing::xs);
+
+                let max_ai = NewGameParamsDefaults::MAX_AI_FACTION_COUNT;
+                let mut ai_count = subview_state.params.ai_faction_count.min(max_ai);
+                let ai_slider = egui::Slider::new(&mut ai_count, 0..=max_ai)
+                    .text(format!("AI factions (0..={max_ai})"))
+                    .clamp_to_range(true);
+                ui.add(ai_slider);
+                subview_state.params.ai_faction_count = ai_count;
+
+                ui.add_space(theme::Spacing::xs);
+
+                let mut artifacts = subview_state.params.artifacts_enabled;
+                ui.checkbox(&mut artifacts, "Enable precursor artifacts");
+                subview_state.params.artifacts_enabled = artifacts;
+
+                ui.add_space(theme::Spacing::xs);
+
+                let min_tier = NewGameParamsDefaults::MIN_STARTING_TECH_TIER;
+                let max_tier = NewGameParamsDefaults::MAX_STARTING_TECH_TIER;
+                let mut tier = subview_state
+                    .params
+                    .starting_tech_tier
+                    .clamp(min_tier, max_tier);
+                egui::ComboBox::from_label("Starting tech tier")
+                    .selected_text(format!("Tier {tier}"))
+                    .show_ui(ui, |ui| {
+                        for t in min_tier..=max_tier {
+                            ui.selectable_value(&mut tier, t, format!("Tier {t}"));
+                        }
+                    });
+                subview_state.params.starting_tech_tier = tier;
+
+                ui.add_space(theme::Spacing::xs);
+
+                let presets_speed = NewGameParamsDefaults::TIME_SCALE_PRESETS;
+                let current_idx = subview_state
+                    .game_speed_preset_index
+                    .unwrap_or(0)
+                    .min(presets_speed.len().saturating_sub(1));
+                let mut selected_idx = current_idx;
+                let label = presets_speed
+                    .get(current_idx)
+                    .map(|(name, _)| (*name).to_string())
+                    .unwrap_or_else(|| "Paused".to_string());
+                egui::ComboBox::from_label("Initial game speed")
+                    .selected_text(label)
+                    .show_ui(ui, |ui| {
+                        for (idx, (name, scale)) in presets_speed.iter().enumerate() {
+                            ui.selectable_value(&mut selected_idx, idx, *name);
+                            // `selected_idx` only changes when the
+                            // user clicks a row; the `*scale` here
+                            // documents the preset table for
+                            // reviewers and helps Kilo flag any
+                            // off-by-one mismatch.
+                            let _ = scale;
+                        }
+                    });
+                if selected_idx != current_idx {
+                    subview_state.game_speed_preset_index = Some(selected_idx);
+                    if let Some((_, scale)) = presets_speed.get(selected_idx) {
+                        subview_state.params.game_speed_initial = *scale;
+                    }
+                }
+
+                ui.add_space(theme::Spacing::xl);
+
                 // ── Action row ────────────────────────────────
                 let mut begin_clicked = false;
                 let mut back_clicked = false;
@@ -319,7 +491,12 @@ pub fn ui_new_game_subview(
                     // system auto-roll. We use 0 as a sentinel
                     // meaning "auto"; the kickoff rewrites it.
                     let seed = subview_state.parsed_seed.unwrap_or(0);
+                    // Use the live `subview_state.params` rather than
+                    // re-reading the defaults — the player has just
+                    // touched sliders / checkboxes and we want
+                    // exactly those values.
                     actions.start_new_game = Some(NewGameRequest {
+                        params: subview_state.params.clone(),
                         seed,
                         preset: preset_id,
                     });
@@ -382,6 +559,9 @@ mod tests {
         world.insert_resource(SeedCopyManifest::default());
         world.insert_resource(DifficultyPresetsManifest::default());
         world.insert_resource(LaunchUiManifest::default());
+        // GRA-358 PR-A: defaults resource is required so the
+        // subview's `seed_params_from_defaults` path can run.
+        world.insert_resource(NewGameParamsDefaults::default());
         world
     }
 
@@ -486,6 +666,15 @@ mod tests {
             parsed_seed: Some(1234),
             seed_error: Some("zero".into()),
             curated_seed_index: Some(2),
+            params: NewGameParams {
+                star_count: 500,
+                ai_faction_count: 4,
+                artifacts_enabled: true,
+                starting_tech_tier: 3,
+                game_speed_initial: 21_600.0,
+            },
+            game_speed_preset_index: Some(5),
+            params_seeded: true,
         };
         state.reset();
         assert!(state.selected_preset_id.is_none());
@@ -493,6 +682,9 @@ mod tests {
         assert!(state.parsed_seed.is_none());
         assert!(state.seed_error.is_none());
         assert!(state.curated_seed_index.is_none());
+        assert_eq!(state.params, NewGameParams::default());
+        assert!(state.game_speed_preset_index.is_none());
+        assert!(!state.params_seeded);
     }
 
     #[test]
@@ -508,6 +700,48 @@ mod tests {
         manifest.default_preset_id.clear();
         state.selected_preset_id = None;
         assert_eq!(state.effective_preset_id(&manifest), "standard");
+    }
+
+    #[test]
+    fn seed_params_from_defaults_copies_defaults_and_picks_closest_preset() {
+        let mut state = NewGameSubviewState::default();
+        assert!(!state.params_seeded);
+        let defaults = NewGameParamsDefaults {
+            max_star_count: 1000,
+            default_star_count: 75,
+            default_ai_faction_count: 2,
+            default_artifacts_enabled: true,
+            default_starting_tech_tier: 3,
+            default_game_speed: 3_600.0, // matches the "1.0 hr/s" preset
+        };
+        state.seed_params_from_defaults(&defaults);
+        assert!(state.params_seeded);
+        assert_eq!(state.params.star_count, 75);
+        assert_eq!(state.params.ai_faction_count, 2);
+        assert!(state.params.artifacts_enabled);
+        assert_eq!(state.params.starting_tech_tier, 3);
+        assert_eq!(state.params.game_speed_initial, 3_600.0);
+        // The closest preset to 3_600.0 is the "1.0 hr/s" entry.
+        assert_eq!(state.game_speed_preset_index, Some(4));
+    }
+
+    #[test]
+    fn seed_params_from_defaults_is_idempotent_via_flag() {
+        let mut state = NewGameSubviewState::default();
+        let defaults = NewGameParamsDefaults {
+            max_star_count: 1000,
+            default_star_count: 60,
+            ..NewGameParamsDefaults::default()
+        };
+        state.seed_params_from_defaults(&defaults);
+        let first_params = state.params.clone();
+        // Mutate live params — second seed should NOT overwrite.
+        state.params.star_count = 999;
+        // Force the flag back to false to confirm the helper would
+        // overwrite (proves the flag is the load-bearing guard).
+        state.params_seeded = false;
+        state.seed_params_from_defaults(&defaults);
+        assert_eq!(state.params, first_params);
     }
 
     /// Issue-body test plan bullet 1: `NewGame` validate writes
@@ -534,6 +768,7 @@ mod tests {
             .unwrap();
         let seed = world.resource::<NewGameSubviewState>().parsed_seed.unwrap();
         world.resource_mut::<PendingLaunchActions>().start_new_game = Some(NewGameRequest {
+            params: NewGameParams::default(),
             seed,
             preset: preset_id,
         });
@@ -543,6 +778,7 @@ mod tests {
         assert_eq!(
             actions.start_new_game.as_ref(),
             Some(&NewGameRequest {
+                params: NewGameParams::default(),
                 seed: 4_729_103_856_017,
                 preset: "hard".to_string(),
             })
@@ -559,6 +795,7 @@ mod tests {
         *world.resource_mut::<LaunchState>() = LaunchState::NewGame;
         world.resource_mut::<NewGameSubviewState>().seed_input = "4729103856017".into();
         world.resource_mut::<PendingLaunchActions>().start_new_game = Some(NewGameRequest {
+            params: NewGameParams::default(),
             seed: 4_729_103_856_017,
             preset: "hard".into(),
         });

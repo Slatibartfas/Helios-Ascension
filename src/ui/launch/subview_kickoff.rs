@@ -44,7 +44,7 @@ use bevy::prelude::*;
 use bevy_egui::EguiPrimaryContextPass;
 
 use super::save_index::{SaveIndex, SaveSummary};
-use super::{LaunchState, NewGameRequest, PendingLaunchActions};
+use super::{LaunchState, NewGameParams, NewGameRequest, PendingLaunchActions};
 
 /// Outcome of one kickoff decision. The Bevy system logs at the
 /// `info!` level and clears the action queue on success; the
@@ -194,6 +194,7 @@ pub fn kickoff_world_system(
                 request.seed
             };
             actions.start_new_game = Some(NewGameRequest {
+                params: request.params.clone(),
                 seed: resolved_seed,
                 preset: request.preset.clone(),
             });
@@ -245,6 +246,7 @@ mod tests {
     fn resolve_returns_no_action_when_state_is_not_in_game() {
         let actions = PendingLaunchActions {
             start_new_game: Some(NewGameRequest {
+                params: NewGameParams::default(),
                 seed: 42,
                 preset: "standard".into(),
             }),
@@ -278,6 +280,7 @@ mod tests {
     #[test]
     fn resolve_start_new_game_uses_queued_request() {
         let request = NewGameRequest {
+            params: NewGameParams::default(),
             seed: 4729103856017,
             preset: "standard".into(),
         };
@@ -291,6 +294,7 @@ mod tests {
             outcome,
             KickoffOutcome::StartNewGame {
                 request: NewGameRequest {
+                    params: NewGameParams::default(),
                     seed: 4729103856017,
                     preset: "standard".into()
                 }
@@ -359,6 +363,7 @@ mod tests {
         // New Game request.
         let actions = PendingLaunchActions {
             start_new_game: Some(NewGameRequest {
+                params: NewGameParams::default(),
                 seed: 0,
                 preset: "casual".into(),
             }),
@@ -371,6 +376,7 @@ mod tests {
             outcome,
             KickoffOutcome::StartNewGame {
                 request: NewGameRequest {
+                    params: NewGameParams::default(),
                     seed: 0,
                     preset: "casual".into(),
                 }
@@ -405,6 +411,7 @@ mod tests {
     fn resolve_seed_zero_is_preserved_as_auto_sentinel() {
         let actions = PendingLaunchActions {
             start_new_game: Some(NewGameRequest {
+                params: NewGameParams::default(),
                 seed: 0,
                 preset: "casual".into(),
             }),
@@ -470,6 +477,7 @@ mod tests {
 
         let actions = PendingLaunchActions {
             start_new_game: Some(NewGameRequest {
+                params: NewGameParams::default(),
                 seed: 42,
                 preset: "standard".into(),
             }),

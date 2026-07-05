@@ -28,7 +28,7 @@
 use bevy::app::AppExit;
 use bevy::prelude::*;
 
-use super::{LaunchState, PendingLaunchActions};
+use super::{LaunchState, NewGameParams, NewGameRequest, PendingLaunchActions};
 
 /// One-shot resource holding the path the player selected in the
 /// Load Game flow. Populated by the transition consumer; consumed
@@ -109,6 +109,7 @@ mod tests {
         app.world_mut()
             .resource_mut::<PendingLaunchActions>()
             .start_new_game = Some(NewGameRequest {
+            params: NewGameParams::default(),
             seed: 0,
             preset: "standard".into(),
         });
