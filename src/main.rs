@@ -25,7 +25,7 @@ use colony::ColonyPlugin;
 use economy::EconomyPlugin;
 use fleets::FleetPlugin;
 use game_state::GameStatePlugin;
-use persistence::{PersistencePlugin, SaveLoadPlugin};
+use persistence::{GameSetupPlugin, PersistencePlugin, SaveLoadPlugin};
 use personnel::PersonnelPlugin;
 use plugins::{
     atmosphere::AtmospherePlugin, camera::CameraPlugin, music::MusicPlugin,

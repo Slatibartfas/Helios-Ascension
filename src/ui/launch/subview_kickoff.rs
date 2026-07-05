@@ -176,8 +176,9 @@ pub fn kickoff_world_system(world: &mut World) {
     match outcome {
         KickoffOutcome::StartNewGame { request } => {
             info!(
-                "kickoff: StartNewGame (preset={}, seed={})",
-                request.preset, request.seed
+                "kickoff: StartNewGame (preset={preset}, seed={seed})",
+                preset = request.preset,
+                seed = request.seed
             );
             match play_new_game(world, request) {
                 Ok(seed) => info!("kickoff: play_new_game committed (seed={seed})"),
@@ -192,9 +193,9 @@ pub fn kickoff_world_system(world: &mut World) {
         }
         KickoffOutcome::LoadSave { path, source } => {
             info!(
-                "kickoff: LoadSave (source={:?}, path={})",
-                source,
-                path.display()
+                "kickoff: LoadSave (source={source:?}, path={p})",
+                source = source,
+                p = path.display()
             );
             match restore_save(
                 world,

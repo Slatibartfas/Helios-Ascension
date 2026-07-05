@@ -314,11 +314,11 @@ pub fn consume_save_actions_system(world: &mut World) {
     if let Some((kind, path)) = action {
         match write_save_to_path(world, &path) {
             Ok(()) => {
-                info!("SavePanel: {:?} → {}", kind, path.display());
+                info!("SavePanel: {kind:?} → {p}", p = path.display());
                 rescan_save_index(world);
             }
             Err(e) => {
-                warn!("SavePanel: write to {} failed: {e}", path.display());
+                warn!("SavePanel: write to {p} failed: {e}", p = path.display());
             }
         }
     }
