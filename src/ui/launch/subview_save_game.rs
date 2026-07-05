@@ -51,13 +51,14 @@ pub struct PendingSavePanelReturn {
 }
 
 /// One-shot queue for "the in-game dashboard's Save button was
-/// clicked, open the Save Panel subview". The render-system side of
-/// `ui_dashboard` (which already runs long on its parameter list)
-/// just flips [`Self::open_panel`]; the exclusive consumer
-/// ([`consume_in_game_save_request_system`]) does the actual
-/// `LaunchState` + [`PendingSavePanelReturn`] mutation. Splitting
-/// the write out keeps `ui_dashboard`'s param count under Bevy
-/// 0.18's type-complexity ceiling.
+/// clicked, open the Save Panel subview". Inserted by the render
+/// system through `Commands::insert_resource(...)` (which `ui_dashboard`
+/// already carries) — that path avoids growing the dashboard's
+/// parameter list past Bevy 0.18's type-complexity ceiling. The
+/// exclusive consumer ([`consume_in_game_save_request_system`]) reads
+/// the queue, captures `LaunchState` into
+/// [`PendingSavePanelReturn::previous_state`], advances `LaunchState`
+/// to `SaveGame`, and removes the resource.
 #[derive(Resource, Debug, Default, Clone)]
 pub struct PendingInGameSaveRequest {
     pub open_panel: bool,
@@ -66,10 +67,6 @@ pub struct PendingInGameSaveRequest {
 impl PendingInGameSaveRequest {
     pub fn has_any(&self) -> bool {
         self.open_panel
-    }
-
-    pub fn clear(&mut self) {
-        self.open_panel = false;
     }
 }
 
@@ -268,7 +265,7 @@ pub fn ui_save_panel_subview(
     }
     if back_clicked {
         let next = return_state.previous_state.unwrap_or(LaunchState::MainMenu);
-        commands.insert_resource(NextLaunchState::Set(next));
+        commands.insert_resource(NextLaunchState::set(next));
     }
 }
 
@@ -278,7 +275,7 @@ pub fn ui_save_panel_subview(
 #[derive(Resource, Debug, Clone, Copy)]
 pub struct NextLaunchState(pub LaunchState);
 impl NextLaunchState {
-    pub fn Set(s: LaunchState) -> Self {
+    pub fn set(s: LaunchState) -> Self {
         Self(s)
     }
 }
@@ -359,21 +356,32 @@ fn format_instant(_t: std::time::Instant) -> String {
 /// then advance `LaunchState` to `SaveGame` so the subview renders
 /// on the next frame.
 ///
+/// The queue resource is **inserted on demand** by
+/// [`crate::ui::dashboard::ui_dashboard`] via
+/// `Commands::insert_resource(...)` — so the system here first
+/// checks for its presence (`world.get_resource`) before consuming.
+/// Removing the resource afterwards is the "consume"; we don't
+/// keep a persistent `pending` state on a default resource because
+/// that would cost a render-time branch for a write that only
+/// happens on click.
+///
 /// Order: runs *after* [`crate::ui::dashboard::ui_dashboard`]
 /// (which writes the queue) and *before*
-/// [`ui_save_panel_subview`] (which observes the new `LaunchState`).
-/// Both anchor sets are configured in their owning plugins — we
-/// reference them by name here so the registration site stays in
-/// one file. Exclusive system (`&mut World`) for the same reason as
-/// [`consume_save_actions_system`]: writes to two resources without
-/// `ResMut` conflict.
+/// [`ui_save_panel_subview`] (which observes the new
+/// `LaunchState`). Exclusive system (`&mut World`) for the same
+/// reason as [`consume_save_actions_system`]: writes to two
+/// resources without `ResMut` conflict.
 pub fn consume_in_game_save_request_system(world: &mut World) {
-    if !world.resource::<PendingInGameSaveRequest>().has_any() {
+    let open = world
+        .get_resource::<PendingInGameSaveRequest>()
+        .map(|r| r.open_panel)
+        .unwrap_or(false);
+    if !open {
         return;
     }
     let current = *world.resource::<LaunchState>();
     if current != LaunchState::InGame {
-        world.resource_mut::<PendingInGameSaveRequest>().clear();
+        world.remove_resource::<PendingInGameSaveRequest>();
         return;
     }
     world
@@ -381,7 +389,7 @@ pub fn consume_in_game_save_request_system(world: &mut World) {
         .previous_state = Some(current);
     *world.resource_mut::<LaunchState>() = LaunchState::SaveGame;
     info!("SavePanel: in-game open request → LaunchState=SaveGame");
-    world.resource_mut::<PendingInGameSaveRequest>().clear();
+    world.remove_resource::<PendingInGameSaveRequest>();
 }
 
 /// Register the Save Panel subview render system + consumer in
@@ -389,7 +397,6 @@ pub fn consume_in_game_save_request_system(world: &mut World) {
 pub fn register_save_panel_subview(app: &mut App) {
     app.init_resource::<PendingSavePanelReturn>()
         .init_resource::<PendingSaveActions>()
-        .init_resource::<PendingInGameSaveRequest>()
         .add_systems(
             EguiPrimaryContextPass,
             (

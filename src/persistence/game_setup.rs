@@ -293,7 +293,7 @@ fn emit_restore_failed(world: &mut World, path: &Path, detail: &str) {
         category: NotificationCategoryId::from("persistence.restore_failed"),
         severity: crate::ui::notifications::events::NotificationSeverity::Critical,
         title: "Save could not be loaded".to_string(),
-        body: format!("{} — the save file has not been modified.", detail),
+        body: format!("{detail} — the save file has not been modified."),
         dedup_key: Some(format!("restore_failed:{}", path.display())),
         auto_dismiss_s: Some(8.0),
         sticky: false,
@@ -366,6 +366,10 @@ mod tests {
     use std::fs;
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicU64, Ordering};
+    // `add_message` is on `App`, not `World` — see
+    // [[feedback-bevy-018-tests-app-not-schedule]].
+    use bevy::app::App;
+    use bevy::prelude::MinimalPlugins;
 
     static COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -419,48 +423,62 @@ mod tests {
 
     #[test]
     fn play_new_game_stashes_world_and_emits_message() {
-        let mut world = World::new();
-        world.init_resource::<PendingGameWorld>();
-        world.add_message::<NewGameCommitted>();
+        // `add_message` lives on `App`, not `World`. Per
+        // [[feedback-bevy-018-tests-app-not-schedule]] we route
+        // through `App::new()` so the message bus exists for the
+        // `play_new_game` exclusive-system call to write to.
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.init_resource::<PendingGameWorld>();
+        app.add_message::<NewGameCommitted>();
         let request = NewGameRequest {
             params: NewGameParams::default(),
             seed: 42,
             preset: "standard".to_string(),
         };
-        let seed = play_new_game(&mut world, request).expect("ok");
+        let world_mut = app.world_mut();
+        let seed = play_new_game(world_mut, request).expect("ok");
         assert_eq!(seed, 42);
-        assert!(world.resource::<PendingGameWorld>().world.is_some());
+        assert!(app.world().resource::<PendingGameWorld>().world.is_some());
         // A message has been written to the bus (no readers yet).
-        assert_eq!(world.resource::<Messages<NewGameCommitted>>().len(), 1);
+        assert_eq!(
+            app.world().resource::<Messages<NewGameCommitted>>().len(),
+            1
+        );
     }
 
     #[test]
     fn play_new_game_auto_seed_paths() {
-        let mut world = World::new();
-        world.init_resource::<PendingGameWorld>();
-        world.add_message::<NewGameCommitted>();
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.init_resource::<PendingGameWorld>();
+        app.add_message::<NewGameCommitted>();
         let request = NewGameRequest {
             params: NewGameParams::default(),
             seed: 0,
             preset: "standard".to_string(),
         };
-        let seed = play_new_game(&mut world, request).expect("ok");
+        let seed = play_new_game(app.world_mut(), request).expect("ok");
         assert_eq!(seed, u64::from_le_bytes(*b"standard"));
     }
 
     #[test]
     fn restore_missing_path_emits_notification_and_returns_err() {
         let _dir = install_userdata_dir("missing");
-        let mut world = World::new();
-        world.init_resource::<PendingGameWorld>();
-        world.init_resource::<SaveIndexState>();
-        world.add_message::<RestoreCommitted>();
-        world.add_message::<NotificationEvent>();
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.init_resource::<PendingGameWorld>();
+        app.init_resource::<SaveIndexState>();
+        app.add_message::<RestoreCommitted>();
+        app.add_message::<NotificationEvent>();
         let bad_path = PathBuf::from("/tmp/definitely-not-a-real-save-zzz.ron");
-        let result = restore_save(&mut world, &bad_path, build_minimal_world_seed);
+        let result = restore_save(app.world_mut(), &bad_path, build_minimal_world_seed);
         assert!(matches!(result, Err(GameSetupError::Io(_))));
         // NotificationEvent was emitted on the message bus.
-        assert_eq!(world.resource::<Messages<NotificationEvent>>().len(), 1);
+        assert_eq!(
+            app.world().resource::<Messages<NotificationEvent>>().len(),
+            1
+        );
         let _ = fs::remove_dir_all(&_dir);
     }
 

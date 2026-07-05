@@ -172,8 +172,6 @@ pub fn kickoff_world_system(world: &mut World) {
     let actions = world.resource::<PendingLaunchActions>();
     let save_index = world.resource::<SaveIndex>();
     let outcome = resolve_kickoff(launch_state, actions, save_index);
-    drop(actions);
-    drop(save_index);
 
     match outcome {
         KickoffOutcome::StartNewGame { request } => {

@@ -939,13 +939,6 @@ pub(crate) fn ui_dashboard(
     sim_time: Res<SimulationTime>,
     mut orbit_query: Query<&mut OrbitCamera, With<GameCamera>>,
     mut expanded_groups: ResMut<crate::ui::ExpandedLedgerGroups>,
-    // GRA-358 PR-C: queue a request to open the Save Panel subview;
-    // `consume_in_game_save_request_system` (registered after this
-    // system) does the `LaunchState` + `PendingSavePanelReturn`
-    // mutation. Keeping it as a single-bool queue avoids inflating
-    // this system's already-large parameter list past Bevy 0.18's
-    // type-complexity ceiling.
-    mut in_game_save_request: ResMut<crate::ui::launch::PendingInGameSaveRequest>,
 ) {
     let ctx = match contexts.ctx_mut() {
         Ok(ctx) => ctx,
@@ -1231,14 +1224,19 @@ pub(crate) fn ui_dashboard(
                             // the Save Panel subview. We capture the
                             // current `LaunchState` so the panel's
                             // Back button returns here (to InGame,
-                            // not MainMenu). The actual transition
-                            // happens in
-                            // `consume_in_game_save_request_system`
-                            // — keeping the egui render system's
-                            // parameter list slim.
+                            // not MainMenu). The egui render system
+                            // already has a `Commands` param so we
+                            // use `insert_resource` to flag the
+                            // request without growing the parameter
+                            // list. `consume_in_game_save_request_system`
+                            // runs after `ui_dashboard` in
+                            // `EguiPrimaryContextPass` and does the
+                            // actual state flip.
                             if ui.button("💾 Save Game").clicked() {
                                 info!("Save clicked — opening Save Panel subview");
-                                in_game_save_request.open_panel = true;
+                                commands.insert_resource(
+                                    crate::ui::launch::PendingInGameSaveRequest { open_panel: true },
+                                );
                             }
                             if ui.button("📂 Load Game").clicked() {
                                 info!("Load clicked");
