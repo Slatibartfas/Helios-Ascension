@@ -85,13 +85,13 @@ pub struct PorkchopGrid {
     /// infeasible rows.
     pub tof_bounds_s: (f64, f64),
     /// `(tof_min_s, tof_max_s)` — the **rendered** window the panel
-    /// should display.  Always a sub-range of `tof_bounds_s`.  When
-    /// the cheap-transfer basin lives in the bottom of the configured
-    /// range (e.g. Earth→Saturn: feasible cells at TOF 60-200 d, but
-    /// the configured range runs to 1.4 yr), this clips the upper
-    /// rows so the colormap fills the panel.  When the configured
-    /// range is already tight (moon transfers, Earth↔Mars), the
-    /// rendered bounds equal the configured bounds.  See
+    /// should display.  Currently always equal to `tof_bounds_s`;
+    /// the panel renders every row the solver produced so the
+    /// player sees the cheapest (low-TOF) options at the panel
+    /// bottom and the long-arc / infeasible options above.  Infeasible
+    /// cells are drawn muted-grey and the colormap remap
+    /// (`compute_grid_dv_range`) ensures the feasible basin spans
+    /// the full green→red gradient regardless of position.  See
     /// `compute_adaptive_tof_bounds`.
     pub rendered_tof_bounds_s: (f64, f64),
     /// `(cols, rows)` — t_dep × tof.
@@ -191,24 +191,39 @@ pub fn build_porkchop_grid_with_params(
         }
     }
 
-    // Adaptive TOF-bounds: clip the rendered Y-axis to the subset of
-    // the configured range that actually contains feasible cells.
-    // For long-distance transfers (Saturn, Uranus, interstellar) the
-    // Lambert solver becomes infeasible for `tof > ~1.5× Hohmann`
-    // at most phases, so most of the upper rows render grey.  Without
-    // the adaptive trim the panel fills 60-70% with grey and the
-    // colormap band only fills the bottom third — the player reads
-    // "nothing useful above 200 d" and concludes the planner is
-    // showing useless data.  Trimming the rendered bounds to the
-    // populated region makes the colormap fill the panel and gives
-    // the long-arc options real visual weight when they exist.
+    // Render the full configured Y-axis range.  Earlier versions of
+    // this builder tried to "adaptively trim" the rendered bounds to
+    // only the rows that contained feasible cells, on the theory
+    // that long-distance porkchops (Saturn, Uranus, interstellar)
+    // would render 60–70% grey if the full range was shown and the
+    // colormap band would be compressed into the bottom third.
     //
-    // We never clip below `tof_min` — that's the panel's anchor row
-    // and must remain visible so the player can pick a "Depart Now
-    // + Hohmann-time" cell.  We add a small upward margin
-    // (TOF_BOUNDARY_MARGIN_FRAC × configured span) above the highest
-    // feasible row so the cheap-transfer basin isn't squashed against
-    // the panel top — keeps the colormap readable.
+    // That turned out to be the wrong call: trimming to the highest
+    // feasible row *also* clips the fastest (lowest TOF) options
+    // when the cheap-transfer basin is itself narrow — which is the
+    // common case for Earth→Jupiter / Earth→Saturn where the C3
+    // ceiling (`c3_ceiling_km2_s2 = 400`) blocks every cell above
+    // ~1.5× Hohmann time.  The trim would collapse the rendered
+    // range to a few-tenths-of-a-year strip at the panel top, with
+    // all four Y-axis labels reading near-identical values and the
+    // player reporting "the Y axis only shows one value".  The
+    // fastest (low-ΔV Hohmann) options sit at the bottom of the
+    // configured range and the slower (high-ΔV long-arc) options
+    // sit at the top — both deserve to be visible.  Infeasible
+    // cells are already drawn in muted grey
+    // (`theme::TEXT_HINT.linear_multiply(0.5)` in `cell_color`),
+    // and the `compute_grid_dv_range` colormap remap ensures the
+    // feasible basin spans the full green→red gradient no matter
+    // where it lives in the rendered range, so a long grey tail
+    // above the basin is informative (it tells the player "no
+    // ballistic option above this TOF") rather than wasted space.
+    //
+    // The trim helper `compute_adaptive_tof_bounds` is retained as
+    // a pass-through so downstream call sites and the public API
+    // stay unchanged, but it now always returns the full configured
+    // range.  Future follow-ups that want auto-trim should gate it
+    // on a player-facing toggle (e.g. "compact view" / "show all
+    // options") rather than applying it silently.
     let rendered_tof_bounds_s =
         compute_adaptive_tof_bounds(&cells, cols, rows, tof_min_s, tof_max_s);
 
@@ -225,90 +240,64 @@ pub fn build_porkchop_grid_with_params(
     }
 }
 
-/// Fraction of the configured `tof_bounds_s` span that must remain
-/// **above** the highest feasible row when adapting the rendered
-/// Y-axis.  The margin keeps the cheap-transfer basin from being
-/// pinned to the panel top so the colormap band has visible
-/// breathing room.  0.10 = 10% upward headroom.  Below this the
-/// player reads the basin as a thin stripe at the top; above this
-/// the wasted space starts to re-appear.
+/// Reserved for future "compact view" mode.  Currently unused —
+/// `compute_adaptive_tof_bounds` always returns the full configured
+/// range so the player sees every (cheap / expensive / infeasible)
+/// option the solver produced.  See the call site in
+/// `build_porkchop_grid_with_params` for the rationale.
+#[allow(dead_code)]
 const TOF_BOUNDARY_MARGIN_FRAC: f64 = 0.10;
 
 /// Compute the rendered `(tof_min_s, tof_max_s)` sub-range.
 ///
-/// Algorithm: scan `cells` for the highest row index that contains at
-/// least one feasible cell.  The new `tof_max_s` sits at that row's
-/// `tof_s` value, expanded by `TOF_BOUNDARY_MARGIN_FRAC` of the
-/// configured span (and capped at the configured `tof_max_s`).
+/// Current contract: always returns the full configured range
+/// `(tof_min_s, tof_max_s)` regardless of which rows contain
+/// feasible cells.  Earlier versions of this helper tried to
+/// auto-trim the rendered Y-axis to only the populated rows so the
+/// colormap band would stretch across the panel instead of being
+/// compressed into a thin strip near the bottom.  That logic had two
+/// failure modes the user reported:
 ///
-/// The `tof_min_s` is left at the configured value — the bottom row
-/// is the panel's "Depart Now + minimum ΔV" anchor and must stay
-/// visible regardless of the upper trim.
+///   1. **Earth→Jupiter / Earth→Saturn collapse.**  When the C3
+///      ceiling (`c3_ceiling_km2_s2 = 400`) blocks every cell above
+///      ~1.5× Hohmann time, *all* feasible cells live in the
+///      bottom 20% of the configured range.  Trimming to the highest
+///      feasible row collapsed the rendered range to a few-tenths-
+///      of-a-year strip at the panel top, with every Y-axis label
+///      reading near-identical values.  The player lost the
+///      visibility of the fastest options (at the panel bottom in
+///      the configured range) entirely.
 ///
-/// Degenerate cases:
-///   * **No feasible cells** → fall back to the full configured range
-///     so the panel shows the topology the solver returned
-///     (everything grey is still useful — it tells the player the
-///     destination is out of reach with the current propulsion).
-///   * **All feasible cells in the bottom row** → trim only the
-///     configured span margin from the top, no further (the basin
-///     spans the entire X-axis but only one TOF is realistic).
-///   * **Every row feasible** → return the configured range unchanged
-///     (the basin already fills the panel).
+///   2. **Forward-iteration bug.**  An earlier draft iterated
+///      `for row in 0..rows` and broke on the first feasible cell,
+///      which stored the LOWEST row index in `highest_feasible_row`.
+///      For grids where row 0 had feasible cells (which is the
+///      common case for the cheap-transfer basin) this produced a
+///      pathological 1-cell strip with all four labels reading the
+///      same value.  The fix was to iterate in reverse, but that
+///      still leaves failure mode #1.
+///
+/// The cleanest solution is to render the full configured range
+/// unconditionally and let the cell-color helper communicate
+/// infeasibility via the muted-grey infeasible colour
+/// (`theme::TEXT_HINT.linear_multiply(0.5)`).  Long grey tails above
+/// the feasible basin are *informative* — they tell the player "no
+/// ballistic option above this TOF within the C3 budget" — and the
+/// `compute_grid_dv_range` colormap remap still produces a usable
+/// green→red gradient across the feasible cells no matter where
+/// they sit in the rendered range.
+///
+/// Future follow-ups: if a "compact view" toggle is added to the
+/// panel UI, re-introduce the trim here gated on the toggle so the
+/// default behaviour stays "show every option the solver found".
 pub fn compute_adaptive_tof_bounds(
-    cells: &[PorkchopCell],
-    cols: usize,
-    rows: usize,
+    _cells: &[PorkchopCell],
+    _cols: usize,
+    _rows: usize,
     tof_min_s: f64,
     tof_max_s: f64,
 ) -> (f64, f64) {
-    if rows <= 1 || cols == 0 {
-        return (tof_min_s, tof_max_s);
-    }
-    let configured_span = (tof_max_s - tof_min_s).max(0.0);
-    // Find the HIGHEST row index that contains at least one feasible
-    // cell.  We iterate in reverse so the first hit wins, which is
-    // exactly the "highest row with a feasible cell" we want.
-    //
-    // Earlier versions iterated forward and broke on the first
-    // feasible cell, which stored the LOWEST row index — that
-    // produced a pathologically small rendered range for any grid
-    // where row 0 had at least one feasible cell (which is the
-    // common case, since the cheapest-transfer basin always lives
-    // near the bottom of the configured range).  Symptom: the panel
-    // showed a 1-cell strip with all 4 Y-axis labels reading the
-    // same value, because the rendered span collapsed to a single
-    // row's worth of TOF.
-    let mut highest_feasible_row: Option<usize> = None;
-    for row in (0..rows).rev() {
-        let mut any_feasible = false;
-        for col in 0..cols {
-            if cells[row * cols + col].feasible {
-                any_feasible = true;
-                break;
-            }
-        }
-        if any_feasible {
-            highest_feasible_row = Some(row);
-            break;
-        }
-    }
-    let Some(top_row) = highest_feasible_row else {
-        // No feasible cells at all — fall back to the full range.
-        return (tof_min_s, tof_max_s);
-    };
-    if top_row >= rows - 1 {
-        // The configured range already contains every feasible cell;
-        // don't trim further.
-        return (tof_min_s, tof_max_s);
-    }
-    // Map `top_row` to its absolute TOF value.
-    let row_frac = top_row as f64 / (rows as f64 - 1.0);
-    let top_tof_s = tof_min_s + row_frac * configured_span;
-    // Add the configured-span margin upward, but cap at the configured max.
-    let margin = TOF_BOUNDARY_MARGIN_FRAC * configured_span;
-    let rendered_tof_max = (top_tof_s + margin).min(tof_max_s).max(tof_min_s);
-    (tof_min_s, rendered_tof_max)
+    (tof_min_s, tof_max_s)
 }
 
 /// Compute the (t_dep_min, t_dep_max) bounds, anchored at the player's
@@ -653,12 +642,11 @@ pub fn build_local_porkchop_grid_with_params(
         }
     }
 
-    // Adaptive TOF-bounds: same logic as the heliocentric builder —
-    // see `compute_adaptive_tof_bounds`.  Moon transfers typically
-    // have most rows feasible so the rendered range stays close to
-    // the configured range, but the trim still kicks in for
-    // wide-window moon overrides (Saturn→Titan, Jupiter→Callisto)
-    // where long-arc transfers are infeasible.
+    // Y-axis bounds: render the full configured range (the helper
+    // is now a pass-through — see `compute_adaptive_tof_bounds`
+    // in the heliocentric builder for the rationale).  This
+    // matches the heliocentric builder's behaviour so both panel
+    // paths show every option the solver produced.
     let rendered_tof_bounds_s =
         compute_adaptive_tof_bounds(&cells, cols, rows, tof_min_s, tof_max_s);
 
@@ -1210,12 +1198,27 @@ mod tests {
     }
 
     #[test]
-    fn adaptive_tof_bounds_trims_above_highest_feasible_row() {
+    fn adaptive_tof_bounds_returns_full_range_when_only_bottom_rows_feasible() {
+        // Regression test for the "Y axis only shows one value" bug.
+        //
         // Synthetic 10×10 grid with feasible cells only in the
-        // bottom 3 rows (rows 7-9).  The trim should clip the
-        // rendered upper bound to row 9's TOF + the configured
-        // margin (TOF_BOUNDARY_MARGIN_FRAC × span).  The lower
-        // bound stays at the configured `tof_min`.
+        // bottom 3 rows (rows 7-9), which models the
+        // Earth→Jupiter / Earth→Saturn case where the C3 ceiling
+        // blocks every cell above ~1.5× Hohmann time.  The old
+        // auto-trim would collapse the rendered range to a
+        // few-tenths-of-a-year strip at the panel top, with all
+        // four Y-axis labels reading near-identical values.
+        //
+        // New contract: `compute_adaptive_tof_bounds` always
+        // returns the full configured range regardless of which
+        // rows contain feasible cells.  Infeasible cells are
+        // drawn muted-grey by `cell_color` and the colormap remap
+        // (`compute_grid_dv_range`) keeps the gradient readable
+        // across the populated region.  The player sees every
+        // (cheap / expensive / infeasible) option the solver
+        // produced, with the fastest (low-TOF) cells at the panel
+        // bottom and the slower / infeasible options stretching
+        // upward.
         let cols = 10;
         let rows = 10;
         let mut cells: Vec<PorkchopCell> = (0..cols * rows)
@@ -1244,42 +1247,39 @@ mod tests {
         let tof_min = 100.0 * SECONDS_PER_DAY;
         let tof_max = 1000.0 * SECONDS_PER_DAY;
         let (lo, hi) = compute_adaptive_tof_bounds(&cells, cols, rows, tof_min, tof_max);
+        // Must return the full configured range so the panel
+        // shows every option, not a collapsed strip.
         assert!(
-            (lo - tof_min).abs() < 1e-9,
-            "rendered lower bound must equal configured tof_min, got {lo}"
-        );
-        // Highest feasible row is index 9 (= tof_max). Margin is
-        // TOF_BOUNDARY_MARGIN_FRAC × (tof_max − tof_min) = 0.1 ×
-        // 900 d = 90 d.  (tof_max + 90 d) is capped at tof_max,
-        // so the upper bound equals tof_max here.  Confirm the
-        // upper bound is strictly less than the "naive
-        // (render_row=9 → tof_min + 9/9 × span = tof_max)" case
-        // would give.  The important contract is just that the
-        // upper bound sits inside (or at) the configured range.
-        assert!(
-            hi <= tof_max + 1e-9 && hi >= tof_min - 1e-9,
-            "rendered upper bound must be inside configured range, got {hi} vs ({tof_min}, {tof_max})"
+            (lo - tof_min).abs() < 1e-9 && (hi - tof_max).abs() < 1e-9,
+            "rendered bounds must equal configured range, got ({lo}, {hi}) vs ({tof_min}, {tof_max})"
         );
     }
 
     #[test]
     fn adaptive_tof_bounds_trims_long_distance_porkchop() {
         // Earth→Saturn end-to-end check: build a real porkchop and
-        // confirm the rendered bounds are always a non-empty
-        // sub-range of the configured bounds (the contract the
-        // adaptive trim guarantees).
+        // confirm the rendered bounds always match the configured bounds
+        // (the contract the current no-trim helper guarantees).
         //
         // Note: Saturn with the default config (`tof_max_factor =
         // 5.0`, `tof_ceiling_years = 10`) ends up with feasible
         // cells across most of the configured range — the 10-yr
         // ceiling binds before the 5× Hohmann factor (Hohmann ≈
         // 6 yr), so the Lambert solver finds solutions at every
-        // row.  The trim doesn't fire here, which is a valid
-        // outcome (the basin already fills the panel).
+        // row.  Under the old auto-trim logic this didn't fire
+        // (the trim only clipped when the highest feasible row
+        // was below `rows - 1`), so the rendered bounds already
+        // equalled the configured bounds in practice.
         //
-        // The trim is exercised by the synthetic
-        // `adaptive_tof_bounds_trims_synthetic_long_tail` test
-        // below, which forces a sparse-feasible-rows layout.
+        // The new contract is stricter: the helper *always*
+        // returns the full configured range regardless of which
+        // rows are feasible, so the panel shows every option the
+        // solver produced.  The synthetic
+        // `adaptive_tof_bounds_returns_full_range_for_sparse_feasible_top`
+        // and `adaptive_tof_bounds_returns_full_range_when_only_bottom_rows_feasible`
+        // tests below exercise this contract with sparse-feasible
+        // layouts (the Earth→Jupiter / Earth→Saturn bug
+        // scenario).
         let cfg = PorkchopConfig::default();
         let inputs = make_inputs(earth_orbit(), saturn_orbit(), "interplanetary");
         let grid = build_porkchop_grid(&cfg, &inputs);
@@ -1287,13 +1287,12 @@ mod tests {
         let rendered_tof_max = grid.rendered_tof_bounds_s.1;
         let rendered_tof_min = grid.rendered_tof_bounds_s.0;
         let configured_tof_min = grid.tof_bounds_s.0;
-        // Rendered bounds must be a non-empty sub-range of
-        // configured bounds (contract).
+        // Rendered bounds must equal the configured bounds.
         assert!(
-            rendered_tof_min >= configured_tof_min - 1e-9
-                && rendered_tof_max <= configured_tof_max + 1e-9
+            (rendered_tof_min - configured_tof_min).abs() < 1e-9
+                && (rendered_tof_max - configured_tof_max).abs() < 1e-9
                 && rendered_tof_max > rendered_tof_min,
-            "rendered bounds ({rendered_tof_min}, {rendered_tof_max}) must be a non-empty sub-range of configured ({configured_tof_min}, {configured_tof_max})"
+            "rendered bounds ({rendered_tof_min}, {rendered_tof_max}) must equal configured ({configured_tof_min}, {configured_tof_max})"
         );
         let feasible_count = grid.cells.iter().filter(|c| c.feasible).count();
         assert!(
@@ -1303,13 +1302,22 @@ mod tests {
     }
 
     /// Synthetic test: force a sparse-feasible-rows layout to
-    /// exercise the trim logic without depending on whether a
-    /// real Lambert build happens to leave the upper rows
-    /// infeasible.  Configured range [100 d, 1000 d]; feasible
-    /// cells in the bottom half (rows 0..5 of 10).  Expected:
-    /// rendered bounds clipped to row 4's TOF + 10% margin.
+    /// Synthetic regression test for the "Y axis only shows one
+    /// value" bug.
+    ///
+    /// Configured range [100 d, 1000 d]; feasible cells in the
+    /// top half (rows 0..5 of 10) — which is the cheap-transfer
+    /// basin for the cheapest Hohmann-like arc.  The remaining
+    /// rows (5..10) are infeasible (e.g. C3 ceiling too tight for
+    /// the long-arc transfers).  Old behaviour would auto-trim
+    /// the rendered range to ~row 4's TOF + 10% margin, collapsing
+    /// the panel to a few-row strip.  New contract: the helper
+    /// always returns the full configured range so the panel
+    /// shows every option the solver produced (the fastest at the
+    /// panel bottom, the slower / infeasible options stretching
+    /// upward toward the panel top).
     #[test]
-    fn adaptive_tof_bounds_trims_synthetic_long_tail() {
+    fn adaptive_tof_bounds_returns_full_range_for_sparse_feasible_top() {
         let cols = 10;
         let rows = 10;
         let mut cells: Vec<PorkchopCell> = (0..cols * rows)
@@ -1338,30 +1346,12 @@ mod tests {
         let tof_min = 100.0 * SECONDS_PER_DAY;
         let tof_max = 1000.0 * SECONDS_PER_DAY;
         let (lo, hi) = compute_adaptive_tof_bounds(&cells, cols, rows, tof_min, tof_max);
-        // Lower bound unchanged.
+        // Helper now always returns the full configured range —
+        // the user wants to see every (cheap / expensive /
+        // infeasible) option the solver produced.
         assert!(
-            (lo - tof_min).abs() < 1e-9,
-            "rendered lower bound must equal configured tof_min ({tof_min} s), got {lo} s"
-        );
-        // Upper bound clipped to row 4's TOF + 10% margin.
-        // Row 4 of 9 spans frac = 4/9 of the configured range:
-        // tof_min + (4/9) × 900 d = 100 + 400 = 500 d.  Margin
-        // = 0.1 × 900 = 90 d.  Sum = 590 d, well below the
-        // configured 1000 d ceiling.
-        let expected_upper_tof_s =
-            tof_min + (4.0_f64 / 9.0) * (tof_max - tof_min) + 0.1 * (tof_max - tof_min);
-        assert!(
-            (hi - expected_upper_tof_s).abs() < 1.0,
-            "rendered upper bound ({hi} s) should sit at row-4 TOF + 10% margin ({expected_upper_tof_s} s)"
-        );
-        // Trim must be substantial: rendered span ≤ 65% of
-        // configured span (the basin covers the bottom half plus
-        // a 10% margin).
-        let rendered_span = hi - lo;
-        let configured_span = tof_max - tof_min;
-        assert!(
-            rendered_span < 0.65 * configured_span,
-            "rendered span ({rendered_span} s) should be < 65% of configured ({configured_span} s) for the trim to be useful"
+            (lo - tof_min).abs() < 1e-9 && (hi - tof_max).abs() < 1e-9,
+            "rendered bounds must equal configured range, got ({lo}, {hi}) vs ({tof_min}, {tof_max})"
         );
     }
 
@@ -1433,6 +1423,7 @@ mod tests {
             );
         }
     }
+
 }
 
 // === Planner wiring helpers (GRA-159 H-1 plumbing) =========================

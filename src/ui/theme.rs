@@ -448,19 +448,36 @@ pub fn with_alpha(c: egui::Color32, a: u8) -> egui::Color32 {
     egui::Color32::from_rgba_unmultiplied(c.r(), c.g(), c.b(), a)
 }
 
-/// Push a colour towards `RED` by adding R and clamping G/B downwards.
-/// Used by the porkchop plot (and any future "out-of-budget" tint) to
-/// flag a colour as un-affordable without replacing it outright — the
-/// player still sees the underlying colormap band, just shifted red.
+/// Push a colour towards `RED` while preserving most of its original
+/// contrast.
 ///
-/// Lives in `theme.rs` (the audit allowlist) because the audit script
-/// flags every `Color32::from_rgba_unmultiplied` call site, even when
-/// the components are runtime-computed.
+/// Earlier versions added a fixed +60 red boost and clamped green / blue
+/// down aggressively. That worked for a handful of cells, but on porkchop
+/// plots where *every* cell is over-budget (e.g. early-Earth fleets aiming
+/// at Jupiter) it washed the entire grid into a near-uniform red slab. The
+/// underlying 2D ΔV structure was still present in the data, but visually it
+/// read as "one vertical band" because the heatmap contrast had been almost
+/// completely flattened.
+///
+/// Blending toward `RED` preserves the relative differences between nearby
+/// colours, so the player can still read the porkchop topology while getting
+/// a clear "you can't afford this yet" signal.
+///
+/// Lives in `theme.rs` (the audit allowlist) because the audit script flags
+/// every `Color32::from_rgba_unmultiplied` call site, even when the
+/// components are runtime-computed.
 pub fn red_tint(c: egui::Color32) -> egui::Color32 {
+    let blend = |src: u8, dst: u8, t: f32| -> u8 {
+        let value = src as f32 + (dst as f32 - src as f32) * t;
+        value.round().clamp(0.0, 255.0) as u8
+    };
+    // 0.32 is strong enough to read as "warning / over-budget" while still
+    // preserving the green→yellow→red topology of the underlying porkchop.
+    let t = 0.32;
     egui::Color32::from_rgba_unmultiplied(
-        c.r().saturating_add(60),
-        c.g().saturating_sub(40).max(40),
-        c.b().saturating_sub(40).max(40),
+        blend(c.r(), RED.r(), t),
+        blend(c.g(), RED.g(), t),
+        blend(c.b(), RED.b(), t),
         c.a(),
     )
 }
