@@ -1263,11 +1263,7 @@ mod tests {
             .map(|i| PorkchopCell {
                 t_dep_s: 0.0,
                 tof_s: (i as f64) * SECONDS_PER_DAY,
-                total_dv_ms: if (i / cols) == 0 {
-                    5.0
-                } else {
-                    15.0
-                },
+                total_dv_ms: if (i / cols) == 0 { 5.0 } else { 15.0 },
                 c3_departure: 0.0,
                 v_inf_arrival_ms: 0.0,
                 delta_v1_ms: 0.0,
