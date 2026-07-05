@@ -76,7 +76,7 @@ pub fn consume_launch_actions_system(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ui::launch::{LaunchState, NewGameRequest, PendingLaunchActions};
+    use crate::ui::launch::{LaunchState, NewGameParams, NewGameRequest, PendingLaunchActions};
     use bevy::MinimalPlugins;
 
     fn fresh_app() -> App {

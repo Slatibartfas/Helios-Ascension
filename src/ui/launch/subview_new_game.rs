@@ -370,7 +370,7 @@ pub fn ui_new_game_subview(
                 let mut star_count = subview_state.params.star_count.min(max_stars).max(1);
                 let star_slider = egui::Slider::new(&mut star_count, 1..=max_stars)
                     .text(format!("Star systems (max {max_stars})"))
-                    .clamping(egui::SliderClamping::Range);
+                    .clamping(egui::SliderClamping::Always);
                 ui.add(star_slider);
                 subview_state.params.star_count = star_count;
 
@@ -380,7 +380,7 @@ pub fn ui_new_game_subview(
                 let mut ai_count = subview_state.params.ai_faction_count.min(max_ai);
                 let ai_slider = egui::Slider::new(&mut ai_count, 0..=max_ai)
                     .text(format!("AI factions (0..={max_ai})"))
-                    .clamping(egui::SliderClamping::Range);
+                    .clamping(egui::SliderClamping::Always);
                 ui.add(ai_slider);
                 subview_state.params.ai_faction_count = ai_count;
 
