@@ -1518,7 +1518,6 @@ mod tests {
             );
         }
     }
-
 }
 
 // === Planner wiring helpers (GRA-159 H-1 plumbing) =========================
