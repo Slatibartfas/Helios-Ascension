@@ -131,8 +131,8 @@ pub fn main_menu_render_system(
 /// True when the menu shell should render.
 ///
 /// Matches GRA-309 §3.4: `MainMenu` is the canonical resting state;
-/// `NewGame / LoadGame / Settings` show the same shell underneath the
-/// subview (subview content lands in PR-D).
+/// `NewGame / LoadGame / Settings / SaveGame` show the same shell
+/// underneath the subview (subview content lands in PR-D / PR-C).
 fn is_menu_state(state: LaunchState) -> bool {
     matches!(
         state,
@@ -140,6 +140,7 @@ fn is_menu_state(state: LaunchState) -> bool {
             | LaunchState::NewGame
             | LaunchState::LoadGame
             | LaunchState::Settings
+            | LaunchState::SaveGame
     )
 }
 

@@ -55,6 +55,7 @@ use bevy::prelude::*;
 
 pub mod autosave;
 pub mod format_version;
+pub mod game_setup;
 pub mod io;
 pub mod migrate;
 pub mod params;
@@ -68,6 +69,11 @@ pub use autosave::{
     DEFAULT_AUTOSAVE_INTERVAL_S, DEFAULT_ROLLING_COUNT,
 };
 pub use format_version::{FORMAT_VERSION, MIN_SUPPORTED_VERSION};
+pub use game_setup::{
+    play_new_game, play_new_game_with_factory, promote_pending_world, rescan_save_index,
+    restore_save, write_save_to_path, GameSetupError, GameSetupPlugin, NewGameCommitted,
+    PendingGameWorld, RestoreCommitted,
+};
 pub use io::{write_save_atomic, SaveIoError};
 pub use migrate::{Body, MigrateError, SchemaKind};
 pub use params::{load_new_game_params_defaults, NewGameParams, NewGameParamsDefaults};

@@ -207,5 +207,22 @@
             default_dismiss_s: 0.0, // sticky
             enabled: false,
         ),
+        // ── Persistence (GRA-358 PR-C) ─────────────────────────
+        // Restore failures (corrupt save, version mismatch, missing
+        // AppTypeRegistry) surface as a Critical toast — the player
+        // has to know the save file was not modified and the click
+        // did not silently do nothing.
+        (
+            id: "persistence.restore_failed",
+            display_name: "Save could not be loaded",
+            default_dismiss_s: 8.0,
+            enabled: true,
+        ),
+        (
+            id: "persistence.save_succeeded",
+            display_name: "Save written",
+            default_dismiss_s: 3.0,
+            enabled: true,
+        ),
     ],
 )

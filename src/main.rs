@@ -91,6 +91,7 @@ fn main() {
         .add_plugins(UIPlugin)
         .add_plugins(PersistencePlugin)
         .add_plugins(SaveLoadPlugin)
+        .add_plugins(GameSetupPlugin)
         .add_plugins(MusicPlugin)
         // Systems
         .add_systems(Startup, setup)

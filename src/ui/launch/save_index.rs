@@ -81,6 +81,59 @@ pub struct SaveIndex {
     pub scanned_dir: Option<PathBuf>,
 }
 
+/// Tracker for the last time [`SaveIndex`] was re-scanned from disk
+/// (GRA-358 PR-C).
+///
+/// PR-A / PR-B already re-scan [`SaveIndex`] after every successful
+/// save (see `src/persistence/autosave.rs::fire_autosave` and the
+/// PR-C manual-save panel) — but they replace the resource wholesale,
+/// so the "did the index drift behind a manual save?" question has
+/// no first-class answer. PR-C introduces this resource so the
+/// Save Panel can refresh itself when the player has been idle on the
+/// subview (e.g. an autosave fires while they are picking a slot)
+/// without re-running the scan every frame.
+///
+/// PR-C exposes [`rescan_save_index_into_world`](Self::rescan_save_index_into_world)
+/// as the single entry point every save/load path calls; the helper
+/// re-scans once and stamps `last_scanned`.
+#[derive(Resource, Debug, Clone)]
+pub struct SaveIndexState {
+    /// Wall-clock instant of the last successful re-scan. The menu
+    /// compares this to its own "first render" stamp to decide
+    /// whether to refresh; tests construct it directly.
+    pub last_scanned: std::time::Instant,
+}
+
+impl Default for SaveIndexState {
+    fn default() -> Self {
+        Self {
+            // `Instant` has no `UNIX_EPOCH` analogue. Use a far-future
+            // sentinel so the first scan always happens and the
+            // sentinel never collides with a real scan.
+            last_scanned: std::time::Instant::now()
+                .checked_sub(std::time::Duration::from_secs(60 * 60 * 24 * 365 * 10))
+                .unwrap_or_else(std::time::Instant::now),
+        }
+    }
+}
+
+impl SaveIndexState {
+    /// Re-scan the saves directory via [`SaveIndex::scan`], update the
+    /// [`SaveIndex`] resource, and stamp `last_scanned` to "now".
+    ///
+    /// Single entry point for every save / load path so the index
+    /// stays consistent without each call site having to remember to
+    /// touch `last_scanned`. The saves directory is resolved from
+    /// [`crate::ui::launch::userdata::resolve_userdata_dir`] so
+    /// tests can override via the `HELIOS_USERDATA_DIR` env var.
+    pub fn rescan_save_index_into_world(&mut self, world: &mut World) {
+        let dir = crate::ui::launch::userdata::resolve_userdata_dir().join(SAVES_SUBDIR);
+        let index = SaveIndex::scan(&dir);
+        world.insert_resource(index);
+        self.last_scanned = std::time::Instant::now();
+    }
+}
+
 impl SaveIndex {
     /// Build an empty index — useful as a `Default` and for tests.
     pub fn empty() -> Self {
