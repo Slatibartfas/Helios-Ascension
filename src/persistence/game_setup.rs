@@ -203,6 +203,7 @@ pub fn build_minimal_world_for_restore() -> World {
 /// [`play_new_game`] because we don't yet have a
 /// build-the-whole-app-world factory wired in; the slot exists so
 /// the next PR can lift it in without touching the message bus.
+#[allow(dead_code)]
 pub fn play_new_game_with_factory<F>(
     world: &mut World,
     request: NewGameRequest,
