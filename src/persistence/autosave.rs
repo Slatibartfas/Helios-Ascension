@@ -290,7 +290,7 @@ mod tests {
     fn fresh_dir(tag: &str) -> PathBuf {
         let pid = std::process::id();
         let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-        let dir = env::temp_dir().join(format!("helios-autosave-{}-{}-{}", tag, pid, n));
+        let dir = env::temp_dir().join(format!("helios-autosave-{tag}-{pid}-{n}"));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).expect("create temp dir");
         dir

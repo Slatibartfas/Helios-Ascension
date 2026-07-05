@@ -75,40 +75,36 @@ pub fn write_save_atomic(path: &Path, contents: &str) -> Result<(), SaveIoError>
 
     if let Err(e) = fs::create_dir_all(parent) {
         return Err(SaveIoError::Create(format!(
-            "could not create parent {}: {}",
+            "could not create parent {}: {e}",
             parent.display(),
-            e
         )));
     }
 
     let mut file = File::create(&tmp_path).map_err(|e| {
-        SaveIoError::Create(format!("could not create {}: {}", tmp_path.display(), e))
+        SaveIoError::Create(format!("could not create {}: {e}", tmp_path.display()))
     })?;
 
     if let Err(e) = file.write_all(contents.as_bytes()) {
         let _ = fs::remove_file(&tmp_path);
         return Err(SaveIoError::Write(format!(
-            "write to {} failed: {}",
+            "write to {} failed: {e}",
             tmp_path.display(),
-            e
         )));
     }
 
     if let Err(e) = file.flush() {
         let _ = fs::remove_file(&tmp_path);
         return Err(SaveIoError::Write(format!(
-            "flush of {} failed: {}",
+            "flush of {} failed: {e}",
             tmp_path.display(),
-            e
         )));
     }
 
     if let Err(e) = file.sync_all() {
         let _ = fs::remove_file(&tmp_path);
         return Err(SaveIoError::Write(format!(
-            "fsync of {} failed: {}",
+            "fsync of {} failed: {e}",
             tmp_path.display(),
-            e
         )));
     }
 
@@ -121,10 +117,9 @@ pub fn write_save_atomic(path: &Path, contents: &str) -> Result<(), SaveIoError>
         // would only confuse callers.
         let _ = fs::remove_file(&tmp_path);
         return Err(SaveIoError::Rename(format!(
-            "rename {} -> {} failed: {}",
+            "rename {} -> {} failed: {e}",
             tmp_path.display(),
             path.display(),
-            e
         )));
     }
 
@@ -142,7 +137,7 @@ mod tests {
     fn fresh_dir(tag: &str) -> std::path::PathBuf {
         let pid = std::process::id();
         let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-        let dir = env::temp_dir().join(format!("helios-persist-io-{}-{}-{}", tag, pid, n));
+        let dir = env::temp_dir().join(format!("helios-persist-io-{tag}-{pid}-{n}"));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).expect("create temp dir");
         dir
