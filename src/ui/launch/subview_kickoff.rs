@@ -44,12 +44,12 @@ use bevy::prelude::*;
 use bevy_egui::EguiPrimaryContextPass;
 
 use super::save_index::{SaveIndex, SaveSummary};
-use super::{LaunchState, NewGameParams, NewGameRequest, PendingLaunchActions};
+use super::{LaunchState, NewGameRequest, PendingLaunchActions};
 
 /// Outcome of one kickoff decision. The Bevy system logs at the
 /// `info!` level and clears the action queue on success; the
 /// decision helper returns this enum so tests can assert.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum KickoffOutcome {
     /// A fresh world was queued for the New Game path. The seed is
     /// `Some(value)` when the player supplied one (random presets
@@ -240,6 +240,7 @@ pub fn register_kickoff_system(app: &mut App) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ui::launch::NewGameParams;
     use std::path::PathBuf;
 
     #[test]

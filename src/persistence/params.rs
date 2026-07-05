@@ -116,7 +116,7 @@ impl NewGameParams {
 /// [`NewGameParamsDefaults::default`] — the same fallback pattern the
 /// other `launch_ui` / `difficulty_presets` / `seed_copy` loaders use
 /// (see `src/ui/launch/manifest.rs`).
-#[derive(Resource, Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Resource, Reflect, Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NewGameParamsDefaults {
     /// Soft upper bound for the star-count slider. The subview
     /// clamps the player's input to `1..=max_star_count`. This is the
@@ -333,7 +333,7 @@ mod tests {
             starting_tech_tier: 2,
             game_speed_initial: 3_600.0,
         };
-        let ron = ron::to_string_pretty(&params, ron::ser::PrettyConfig::default()).unwrap();
+        let ron = ron::ser::to_string_pretty(&params, ron::ser::PrettyConfig::default()).unwrap();
         let back: NewGameParams = ron::from_str(&ron).unwrap();
         assert_eq!(params, back);
     }

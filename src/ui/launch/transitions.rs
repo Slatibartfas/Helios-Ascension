@@ -28,7 +28,7 @@
 use bevy::app::AppExit;
 use bevy::prelude::*;
 
-use super::{LaunchState, NewGameParams, NewGameRequest, PendingLaunchActions};
+use super::{LaunchState, PendingLaunchActions};
 
 /// One-shot resource holding the path the player selected in the
 /// Load Game flow. Populated by the transition consumer; consumed
