@@ -35,6 +35,14 @@ fn default_ui_scale() -> f32 {
     1.0
 }
 
+fn default_autosave_interval_s() -> f32 {
+    300.0
+}
+
+fn default_autosave_enabled() -> bool {
+    true
+}
+
 /// Player-facing settings persisted to `<userdata>/settings.ron`.
 ///
 /// Reads happen at boot after the resource is inserted as
@@ -55,6 +63,18 @@ pub struct PersistentSettings {
     pub ui_scale: f32,
     #[serde(default)]
     pub tutorial_enabled: bool,
+    /// GRA-358 PR-B: whether the autosave timer is allowed to fire.
+    /// UX surfaces this as a toggle in the Settings subview.
+    /// Defaults to `true` so a fresh install starts saving.
+    #[serde(default = "default_autosave_enabled")]
+    pub autosave_enabled: bool,
+    /// GRA-358 PR-B: how often the autosave timer fires, in
+    /// wall-clock seconds. The Settings subview exposes this as a
+    /// numeric input. UX owns the input validation (must be
+    /// `>= 1.0`); the autosave consumer clamps via
+    /// [`crate::persistence::autosave::AutosaveTimer::apply_settings`].
+    #[serde(default = "default_autosave_interval_s")]
+    pub autosave_interval_s: f32,
 }
 
 impl Default for PersistentSettings {
@@ -66,6 +86,8 @@ impl Default for PersistentSettings {
             fullscreen: false,
             ui_scale: 1.0,
             tutorial_enabled: false,
+            autosave_enabled: default_autosave_enabled(),
+            autosave_interval_s: default_autosave_interval_s(),
         }
     }
 }
@@ -219,6 +241,8 @@ mod tests {
             fullscreen: true,
             ui_scale: 1.25,
             tutorial_enabled: true,
+            autosave_enabled: false,
+            autosave_interval_s: 120.0,
         };
 
         let written_path = save_persistent_settings_to(&dir, &original)
