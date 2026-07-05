@@ -247,51 +247,42 @@ pub fn build_porkchop_grid_with_params(
 /// 0.10 = 10% upward headroom.
 const TOF_BOUNDARY_MARGIN_FRAC: f64 = 0.10;
 
-/// Maximum ΔV ratio above the global minimum that still counts as
-/// "useful" for the player's planning.  Rows whose cheapest cell
-/// exceeds `global_min * USEFUL_DV_RATIO` are trimmed off the
-/// rendered range — they're too expensive to be interesting at
-/// the player's current propulsion tier.  Tuned so Jupiter
-/// (cheap ΔV ≈ 10 km/s, expensive rows ≈ 20+ km/s) trims the
-/// long-arc rows but keeps the basin.
-const USEFUL_DV_RATIO: f64 = 1.5;
-
 /// Compute the rendered `(tof_min_s, tof_max_s)` sub-range.
 ///
-/// Strategy: keep rows where the player has actual choice, i.e.
-/// rows that contain at least one cell with ΔV within
-/// `USEFUL_DV_RATIO × global_min_dv`.  Rows beyond that ceiling
-/// are uniformly unaffordable and just clutter the panel.
+/// Contract: **always preserve row 0** as the player's "Depart
+/// Now + minimum TOF" anchor — that's the cheapest fast option
+/// and the most common starting point for any porkchop.  Trim
+/// from the **top** only, clipping rows where no cell is
+/// feasible (Lambert failed or C3 exceeded) plus a small upward
+/// margin so the basin isn't pinned to the panel top.
 ///
-/// Two-stage filter per row:
-///   1. **Feasibility filter** — keep rows with at least one
-///      feasible cell (Lambert solved + C3 within ceiling).
-///   2. **ΔV filter** — keep rows whose minimum-ΔV cell is at or
-///      below `USEFUL_DV_RATIO × global_min_dv`.
+/// The "trim top on infeasibility" rule covers two scenarios:
 ///
-/// The user's "Depart Now + minimum TOF" anchor row (row 0) is
-/// **only** trimmed when *every* column at row 0 is infeasible OR
-/// the cheapest cell at row 0 exceeds the ΔV ceiling — preserving
-/// the player's ability to pick the cheapest low-TOF option when
-/// it exists.
+///   1. **Outer-planet C3 ceiling cuts off long-arc transfers**
+///      (Saturn, Uranus).  At TOF ≫ Hohmann the Lambert solver
+///      finds C3 > ceiling, leaving the upper rows entirely
+///      grey.  Trimming those rows focuses the panel on the
+///      Hohmann basin.
+///   2. **Hohmann-time fast options at row 0** — these stay
+///      visible regardless of cost, because the player wants to
+///      see the "Depart Now + minimum TOF" option as a
+///      comparison point even when their fleet can't afford it
+///      yet.
 ///
-/// Earlier versions of this helper only filtered by feasibility,
-/// which left every row in the panel for destinations like Jupiter
-/// where the C3 ceiling is high but the cheap basin is narrow.
-/// The user reported "lots of impossible tiles" — those were
-/// over-budget cells, not C3-infeasible ones.  This new contract
-/// adds the ΔV-aware filter so the panel focuses on the basin
-/// instead of stretching across the full configured range.
+/// The "always preserve row 0" rule intentionally does NOT trim
+/// based on ΔV cost (e.g. "rows cheaper than `1.5 × global_min`").
+/// Earlier versions of this helper did, and the user reported
+/// that it cut the fastest options off the bottom of the panel
+/// for destinations like Mars — the cheapest transfer is at
+/// row 0 by definition, so any ΔV-based bottom trim would hide
+/// the cheapest Hohmann transfer.  We never trim the bottom;
+/// every row from 0 upward is fair game, but only infeasible
+/// rows above the basin get clipped.
 ///
 /// Degenerate cases:
 ///   * **No feasible cells at all** → fall back to the full range
-///     so the panel shows the solver's full topology (everything
-///     grey is still informative — "nothing fits in this budget").
-///   * **All rows have ΔV within ceiling** → keep the full range.
-///   * **Top rows expensive, bottom cheap** → trim the top.
-///   * **Bottom rows expensive, top cheap** → trim the bottom
-///     (rare; happens when long-arc transfers are cheaper than
-///     Hohmann-time ones).
+///     so the panel shows the solver's full topology.
+///   * **All rows feasible** → keep the full configured range.
 pub fn compute_adaptive_tof_bounds(
     cells: &[PorkchopCell],
     cols: usize,
@@ -304,112 +295,52 @@ pub fn compute_adaptive_tof_bounds(
     }
     let configured_span = (tof_max_s - tof_min_s).max(0.0);
 
-    // Helper: minimum total_dv_ms across feasible cells in the row,
-    // or None if no cell is feasible.
-    let row_min_dv = |row: usize| -> Option<f64> {
-        let mut best = None;
-        for c in 0..cols {
-            let cell = &cells[row * cols + c];
-            if !cell.feasible || !cell.total_dv_ms.is_finite() {
-                continue;
-            }
-            best = Some(best.map_or(cell.total_dv_ms, |b: f64| b.min(cell.total_dv_ms)));
-        }
-        best
-    };
+    // Always preserve row 0.  The bottom anchor stays put unless
+    // row 0 itself is entirely infeasible — in which case the
+    // cheapest fast option doesn't exist anyway.
+    let bottom = tof_min_s;
 
-    // Global minimum ΔV across all feasible cells — drives the
-    // "useful ΔV ceiling" below.
-    let mut global_min_dv = f64::INFINITY;
-    for cell in cells {
-        if !cell.feasible || !cell.total_dv_ms.is_finite() {
-            continue;
+    // Find the highest row that has at least one feasible cell.
+    // Walk from the top down so the first hit wins.
+    let mut highest_feasible_row: Option<usize> = None;
+    for row in (0..rows).rev() {
+        for col in 0..cols {
+            if cells[row * cols + col].feasible {
+                highest_feasible_row = Some(row);
+                break;
+            }
         }
-        if cell.total_dv_ms < global_min_dv {
-            global_min_dv = cell.total_dv_ms;
+        if highest_feasible_row.is_some() {
+            break;
         }
     }
-    if !global_min_dv.is_finite() {
-        // No feasible cells at all — keep the full configured range
+    let Some(highest_row) = highest_feasible_row else {
+        // No feasible cells at all — fall back to the full range
         // so the player sees the solver's full topology.
         return (tof_min_s, tof_max_s);
-    }
-    let useful_dv_ceiling_ms = global_min_dv * USEFUL_DV_RATIO;
-
-    // Lowest "useful" row — first row from the bottom that has at
-    // least one feasible cell AND its cheapest cell is within the
-    // ΔV ceiling.  When row 0 itself is useful this returns 0 — no
-    // trim from the bottom.
-    let mut lowest_useful_row: Option<usize> = None;
-    for row in 0..rows {
-        if let Some(min_dv) = row_min_dv(row) {
-            if min_dv <= useful_dv_ceiling_ms {
-                lowest_useful_row = Some(row);
-                break;
-            }
-        }
-    }
-    let Some(lowest_row) = lowest_useful_row else {
-        // No row has a cell within the ΔV ceiling — fall back to
-        // the full range so the player sees the topology.
-        return (tof_min_s, tof_max_s);
     };
 
-    // Highest "useful" row — last row from the top that has at
-    // least one feasible cell within the ΔV ceiling.
-    let mut highest_useful_row: Option<usize> = None;
-    for row in (0..rows).rev() {
-        if let Some(min_dv) = row_min_dv(row) {
-            if min_dv <= useful_dv_ceiling_ms {
-                highest_useful_row = Some(row);
-                break;
-            }
-        }
+    // If the highest feasible row is already the top row, no
+    // trim is needed — every row is feasible.
+    if highest_row == rows - 1 {
+        return (bottom, tof_max_s);
     }
-    let Some(highest_row) = highest_useful_row else {
-        return (tof_min_s, tof_max_s);
-    };
 
-    // Edge cases:
-    //   * Every row useful → no trim.
-    //   * Only row 0 useful → trim the top to row 0.
-    //   * Only the last row useful → trim the bottom.
-    let bottom_empty_rows = lowest_row;
-    let top_empty_rows = rows - 1 - highest_row;
-
+    // Map an original row index to its absolute TOF value.
     let row_to_tof = |row: usize| -> f64 {
         let row_frac = row as f64 / (rows as f64 - 1.0);
         tof_min_s + row_frac * configured_span
     };
 
-    // Trim the top when the top has empty/non-useful rows.  Add a
-    // small upward margin so the basin isn't pinned to the panel
-    // top.
-    let new_top_tof = if top_empty_rows > 0 {
-        let top_tof = row_to_tof(highest_row);
-        let margin = TOF_BOUNDARY_MARGIN_FRAC * configured_span;
-        (top_tof + margin).min(tof_max_s).max(tof_min_s)
-    } else {
-        tof_max_s
-    };
-
-    // Trim the bottom only when row 0 itself has no useful cell.
-    // When row 0 has a useful cell we keep it as the player's
-    // "Depart Now + minimum TOF" anchor — trimming it would hide
-    // the cheapest low-ΔV option.
-    let new_bottom_tof = if bottom_empty_rows > 0 && lowest_row > 0 {
-        // Anchor slightly below the lowest useful row so the
-        // basin still has breathing room at the top.
-        let anchor_row = lowest_row.saturating_sub(1);
-        row_to_tof(anchor_row)
-    } else {
-        tof_min_s
-    };
+    // Trim from the top to the highest feasible row, with a
+    // small upward margin so the basin isn't pinned to the
+    // panel top.
+    let top_tof = row_to_tof(highest_row);
+    let margin = TOF_BOUNDARY_MARGIN_FRAC * configured_span;
+    let new_top = (top_tof + margin).min(tof_max_s).max(tof_min_s);
 
     // Safety guard: never invert the bounds.
-    let new_bottom = new_bottom_tof.min(new_top_tof).max(tof_min_s);
-    let new_top = new_top_tof.max(new_bottom);
-    (new_bottom, new_top)
+    (bottom.min(new_top), new_top)
 }
 
 /// Compute the (t_dep_min, t_dep_max) bounds, anchored at the player's
@@ -1290,7 +1221,7 @@ mod tests {
             .map(|i| PorkchopCell {
                 t_dep_s: 0.0,
                 tof_s: (i as f64) * SECONDS_PER_DAY,
-                total_dv_ms: 5.0 + (i as f64) * 0.05, // min ΔV 5.00, max 5.10 km/s → all rows useful
+                total_dv_ms: 5.0 + (i as f64) * 0.05,
                 c3_departure: 0.0,
                 v_inf_arrival_ms: 0.0,
                 delta_v1_ms: 0.0,
@@ -1308,26 +1239,35 @@ mod tests {
         let (lo, hi) = compute_adaptive_tof_bounds(&cells, cols, rows, tof_min, tof_max);
         assert!(
             (lo - tof_min).abs() < 1e-9 && (hi - tof_max).abs() < 1e-9,
-            "all-rows-useful case must return full range, got ({lo}, {hi})"
+            "all-rows-feasible case must return full range, got ({lo}, {hi})"
         );
     }
 
     #[test]
-    fn adaptive_tof_bounds_trims_rows_above_useful_dv_ceiling() {
-        // Synthetic 5×5 grid with all cells feasible, but row min
-        // ΔV grows past `USEFUL_DV_RATIO × global_min` after row 0.
-        // The trim should clip the rendered upper bound to row 0's
-        // TOF + the configured margin so the colormap fills the
-        // panel.
+    fn adaptive_tof_bounds_preserves_row_zero_even_when_expensive() {
+        // Regression test: the previous ΔV-aware trim sometimes
+        // cut row 0 (the cheapest "Depart Now + minimum TOF"
+        // option) when its ΔV exceeded the global_min × ratio
+        // ceiling.  For destinations like Mars the cheapest
+        // Hohmann transfer IS row 0, so cutting it removed the
+        // player's most useful choice.
+        //
+        // Synthetic 5×5 grid: row 0 has cheap ΔV (5 km/s), rows
+        // 1-4 have expensive ΔV (15 km/s = 3× global_min).
+        // Contract: trim the top only, never the bottom.  Row 0
+        // stays anchored at tof_min; the top trim cuts off rows
+        // 2-4, keeping rows 0-1.
         let cols = 5;
         let rows = 5;
         let cells: Vec<PorkchopCell> = (0..cols * rows)
             .map(|i| PorkchopCell {
                 t_dep_s: 0.0,
                 tof_s: (i as f64) * SECONDS_PER_DAY,
-                // Row 0 min ΔV = 5 km/s.  Row 1 min ΔV = 10 km/s
-                // (2× global_min, exceeds 1.5× ceiling).
-                total_dv_ms: 5.0 + (i / cols) as f64 * 5.0,
+                total_dv_ms: if (i / cols) == 0 {
+                    5.0
+                } else {
+                    15.0
+                },
                 c3_departure: 0.0,
                 v_inf_arrival_ms: 0.0,
                 delta_v1_ms: 0.0,
@@ -1343,16 +1283,16 @@ mod tests {
         let tof_min = 100.0 * SECONDS_PER_DAY;
         let tof_max = 1000.0 * SECONDS_PER_DAY;
         let (lo, hi) = compute_adaptive_tof_bounds(&cells, cols, rows, tof_min, tof_max);
-        // Row 0 stays anchored; rows 1-4 are above the ceiling.
-        // Trim: top = row_to_tof(0) + 0.1 × span = 100 + 0.1 × 900 = 190.
+        // Row 0 stays anchored at tof_min regardless of ΔV.
         assert!(
             (lo - tof_min).abs() < 1e-9,
             "rendered lower bound must equal configured tof_min, got {lo}"
         );
-        let expected_top = tof_min + 0.1 * (tof_max - tof_min);
+        // All rows are feasible, so the top is not trimmed —
+        // rendered upper bound equals configured tof_max.
         assert!(
-            (hi - expected_top).abs() < 1.0,
-            "rendered upper bound ({hi}) should sit at row-0 TOF + 10% margin ({expected_top})"
+            (hi - tof_max).abs() < 1e-9,
+            "all-feasible case must keep the full top, got {hi}"
         );
     }
 
@@ -1392,12 +1332,13 @@ mod tests {
         let tof_max = 1000.0 * SECONDS_PER_DAY;
         let (lo, hi) = compute_adaptive_tof_bounds(&cells, cols, rows, tof_min, tof_max);
         // Trim top: row_to_tof(9) + 0.1 × 900 = 1000 + 90 = 1090,
-        // capped at tof_max → 1000.  Trim bottom: row_to_tof(6)
-        // = 100 + (6/9) × 900 = 700.
-        let expected_lo = tof_min + (6.0_f64 / 9.0) * (tof_max - tof_min);
+        // capped at tof_max → 1000.  Bottom is preserved at
+        // tof_min (row 0 is the "Depart Now + minimum TOF" anchor
+        // and is never trimmed away).
         assert!(
-            (lo - expected_lo).abs() < 1.0,
-            "rendered lower bound ({lo}) should sit at row-6 TOF ({expected_lo})"
+            (lo - tof_min).abs() < 1e-9,
+            "rendered lower bound must equal configured tof_min ({lof_min}), got {lo}",
+            lof_min = tof_min
         );
         assert!(
             (hi - tof_max).abs() < 1.0,

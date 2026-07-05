@@ -222,20 +222,8 @@ pub fn porkchop_panel(
                 Pos2::new(x, grid_rect.top() + view_row as f32 * cell_h),
                 Vec2::new(cell_w, cell_h),
             );
-            let style = cell_style(cell, &color_stops, grid_dv_range, fleet_max_dv_ms);
-            cell_clip.rect_filled(rect, 0.0, style.color);
-            // Out-of-budget cells get a faint red outline drawn
-            // *after* the fill so the underlying colormap is still
-            // visible.  The outline signals "you can't afford this
-            // yet" without hiding the topology.
-            if style.over_budget {
-                cell_clip.rect_stroke(
-                    rect,
-                    0.0,
-                    Stroke::new(1.0, Color32::from_rgba_unmultiplied(231, 76, 60, 180)),
-                    egui::StrokeKind::Inside,
-                );
-            }
+            let color = cell_color(cell, &color_stops, grid_dv_range, fleet_max_dv_ms);
+            cell_clip.rect_filled(rect, 0.0, color);
         }
     }
 
@@ -531,44 +519,23 @@ fn draw_dashed_vertical(painter: &egui::Painter, x: f32, top: f32, bottom: f32, 
     }
 }
 
-/// Result of cell styling.  `over_budget = true` means the cell is
-/// feasible but exceeds the fleet's ΔV budget; the cell renderer
-/// draws a faint red outline on these so the player can see the
-/// underlying green→yellow→red topology without losing it to a
-/// uniform red wash.
-struct CellStyle {
-    color: Color32,
-    over_budget: bool,
-}
-
-fn cell_style(
+/// Compute the cell fill colour from the colormap.  Infeasible
+/// cells render as muted dim grey so the player's eye is drawn to
+/// the feasible basin.  Out-of-budget cells keep their natural
+/// colormap colour so the underlying topology stays readable; the
+/// planner side panel already surfaces the "selected option
+/// requires more ΔV" warning when the user clicks one.
+fn cell_color(
     cell: &PorkchopCell,
     color_stops: &[crate::fleets::PorkchopColorStop],
     grid_dv_range: Option<(f64, f64)>,
-    fleet_max_dv_ms: f64,
-) -> CellStyle {
+    _fleet_max_dv_ms: f64,
+) -> Color32 {
     if !cell.feasible {
-        // Infeasible cell: muted dim grey, lower-alpha than the colormap
-        // stops so the player's eye is drawn to the feasible basin.
-        return CellStyle {
-            color: theme::TEXT_HINT.linear_multiply(0.5),
-            over_budget: false,
-        };
+        return theme::TEXT_HINT.linear_multiply(0.5);
     }
     let dv_km_s = cell.total_dv_ms / 1000.0;
-    let c = sample_relative_colormap(color_stops, dv_km_s, grid_dv_range);
-    // Mark out-of-budget cells (fleet ΔV too low) with a red
-    // outline drawn *after* the fill, instead of tinting the fill.
-    // The tint was collapsing the whole panel into a near-uniform
-    // red on grids where every cell is over budget (e.g. early
-    // Earth→Jupiter), which made the underlying topology
-    // invisible.  The outline preserves the colormap so the player
-    // can still see which ΔV band the cell sits in even when it's
-    // unaffordable.
-    CellStyle {
-        color: c,
-        over_budget: cell.total_dv_ms > fleet_max_dv_ms,
-    }
+    sample_relative_colormap(color_stops, dv_km_s, grid_dv_range)
 }
 
 /// ΔV range (km/s) of the grid's feasible cells, used to remap the
