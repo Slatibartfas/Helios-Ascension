@@ -298,7 +298,7 @@ pub fn consume_save_actions_system(world: &mut World) {
     let action: Option<(PendingSaveActionKind, PathBuf)> = {
         let mut pending = world.resource_mut::<PendingSaveActions>();
         if pending.save_as_path.is_some() {
-            let path = pending.save_as_path.clone().unwrap();
+            let path = pending.save_as_path.take().unwrap();
             pending.clear();
             Some((PendingSaveActionKind::SaveAs, path))
         } else if pending.save_to_current_slot {
