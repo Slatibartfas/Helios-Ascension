@@ -147,36 +147,79 @@ pub fn porkchop_panel(
     );
     let cell_w = grid_rect.width() / visible_cols as f32;
 
-    // Y-axis rendering.  Always map the panel directly onto the full
-    // solved row range (`grid.tof_bounds_s`, `rows`) rather than any
-    // pre-trimmed sub-range.  The adaptive-trim experiment introduced
-    // `rendered_tof_bounds_s`, but if a stale or narrow range leaks
-    // into the panel state the hover logic collapses to a handful of
-    // rows and the tooltip appears to show the same ΔV almost anywhere
-    // the user points.  Using the full solved row range here makes the
-    // hover / click mapping robust even if an older grid instance still
-    // carries trimmed metadata.
+    // Y-axis rendering.  Use the builder's adaptive trim
+    // (`rendered_tof_bounds_s`) to clip the row range to the
+    // populated band: rows below the lowest feasible row
+    // (the fastest feasible trajectory) and above the highest
+    // feasible row (the slowest feasible trajectory) are
+    // excluded, plus a small margin on each side so the
+    // colormap band stretches across the cheap-transfer basin
+    // instead of getting squashed into the populated row band.
+    // See `compute_adaptive_tof_bounds` in
+    // `src/fleets/porkchop.rs` for the full contract.
+    //
+    // **Y-axis orientation: NASA / JPL convention.** Row 0
+    // (lowest TOF, fastest trajectory) is drawn at the BOTTOM of
+    // the panel; row `rows - 1` (highest TOF, slowest
+    // trajectory) is drawn at the TOP.  This matches the user-
+    // reported "start with the fastest trajectory then extend
+    // upward" mental model: the cheapest fast Hohmann-like
+    // options sit at the bottom of the panel, the slower
+    // long-arc options sit above, and the trim clips the empty
+    // grey tail at the very top.
+    //
+    // Fallback: if `rendered_tof_bounds_s` is missing or
+    // degenerate (zero span, out-of-range), fall back to the
+    // full solved row range so hover / click mapping stays
+    // robust against stale metadata on older grid instances.
     let tof_min_s = grid.tof_bounds_s.0;
     let tof_max_s = grid.tof_bounds_s.1;
-    let rendered_row_first = 0usize;
-    let rendered_row_last = rows.saturating_sub(1);
-    let n_view_rows = rows.max(1);
+    let configured_span = (tof_max_s - tof_min_s).max(f64::MIN_POSITIVE);
+    let (rendered_tof_min_s, rendered_tof_max_s) = grid.rendered_tof_bounds_s;
+    // Map an absolute TOF (in seconds) to its row index in the
+    // solved grid.  The solved grid's row→TOF map is linear with
+    // `row_frac = row / (rows - 1)`, so the inverse is
+    // `row = frac × (rows - 1)`.  Clamp to `[0, rows - 1]` so any
+    // rounding past the edge falls back to the boundary row
+    // rather than producing an out-of-bounds index that would
+    // later crash on `grid.cells[row * cols + col]`.
+    let tof_to_row = |tof_s: f64| -> usize {
+        let frac = ((tof_s - tof_min_s) / configured_span).clamp(0.0, 1.0);
+        (frac * (rows as f64 - 1.0)).round() as usize
+    };
+    let mut rendered_row_first = tof_to_row(rendered_tof_min_s);
+    let mut rendered_row_last = tof_to_row(rendered_tof_max_s);
+    // Sanity guard: never let the adaptive trim collapse to an
+    // empty or inverted range.  If the builder produced a
+    // degenerate pair (e.g. both bounds equal), fall back to
+    // the full solved range so the player still sees something.
+    if rendered_row_first >= rendered_row_last {
+        rendered_row_first = 0;
+        rendered_row_last = rows.saturating_sub(1);
+    }
+    let n_view_rows = (rendered_row_last - rendered_row_first + 1).max(1);
     let cell_h = grid_rect.height() / n_view_rows as f32;
 
     // Compute the (col, row) of the cell currently under the cursor.
     // The cursor's visible col is `cursor_x / cell_w + scroll`; the
     // buffer col is that value floored.  The visible row index is
-    // `cursor_y / cell_h` in the rendered Y-axis (which spans the
-    // populated row sub-range); we map it back to the original
-    // `grid.cells` row index for the hover / click handlers.
+    // `cursor_y / cell_h` in the rendered Y-axis (NASA convention:
+    // row 0 at the bottom, so the cursor's distance from the BOTTOM
+    // divided by `cell_h` gives the view row).  We map it back to
+    // the original `grid.cells` row index for the hover / click
+    // handlers.
     let hover_cell: Option<(usize, usize)> = resp
         .hover_pos()
         .filter(|pos| grid_rect.contains(*pos))
         .map(|pos| {
             let col_f = (pos.x - grid_rect.left()) / cell_w + scroll;
             let col = col_f.max(0.0) as usize;
-            let view_row = ((pos.y - grid_rect.top()) / cell_h) as usize;
-            let view_row = view_row.min(n_view_rows - 1);
+            // NASA convention: row 0 (lowest TOF) at the panel
+            // BOTTOM.  Cursor Y is measured from the top of the
+            // panel, so the view row index is `n_view_rows - 1 -
+            // (cursor_y - top) / cell_h`.
+            let cursor_from_bottom = (grid_rect.bottom() - pos.y) / cell_h;
+            let view_row = (cursor_from_bottom as usize).min(n_view_rows - 1);
             let orig_row = (rendered_row_first + view_row).min(rows - 1);
             (col.min(cols - 1), orig_row)
         });
@@ -195,31 +238,40 @@ pub fn porkchop_panel(
     let visible_w = visible_cols as f32 * cell_w;
     let cell_clip = painter.with_clip_rect(grid_rect);
     // Map an original row index to its Y pixel position in the
-    // rendered Y-axis.  Because the panel always renders the full row
-    // range, this is now a simple row→y mapping over `[0, rows)`.
+    // rendered Y-axis.  NASA convention: row 0 (lowest TOF,
+    // fastest trajectory) at the BOTTOM of the panel, row
+    // `n_view_rows - 1` (highest TOF, slowest trajectory) at
+    // the TOP.  The view-row index is `orig_row -
+    // rendered_row_first`, and the Y position is
+    // `grid_rect.bottom() - (view_row + 1) * cell_h`.
     let orig_row_to_view_y = |orig_row: usize| -> f32 {
         if orig_row < rendered_row_first {
-            return grid_rect.top() - cell_h;
+            return grid_rect.bottom() + cell_h;
         }
         let view_row = orig_row - rendered_row_first;
         if view_row >= n_view_rows {
-            return grid_rect.bottom() + cell_h;
+            return grid_rect.top() - cell_h;
         }
-        grid_rect.top() + view_row as f32 * cell_h
+        grid_rect.bottom() - (view_row + 1) as f32 * cell_h
     };
     for c in 0..cols as i32 {
         let x = grid_rect.left() + (c as f32 - scroll) * cell_w;
         if x + cell_w < grid_rect.left() || x > grid_rect.left() + visible_w {
             continue;
         }
-        // Iterate the full solved row range.  Infeasible cells are
-        // still drawn muted-grey, which keeps the true porkchop shape
-        // visible instead of collapsing hover/click onto a trimmed band.
+        // Iterate the adaptive-trimmed row range.  Infeasible cells in
+        // this range are still drawn muted-grey, which keeps the
+        // cheap-transfer basin shape visible without extending the
+        // panel into the empty grey tail the trim just clipped.
         for orig_row in rendered_row_first..=rendered_row_last {
             let view_row = orig_row - rendered_row_first;
             let cell = &grid.cells[orig_row * cols + c as usize];
+            // NASA convention: row 0 at the bottom.  The Y
+            // position is `grid_rect.bottom() - (view_row + 1)
+            // * cell_h` so the lowest-TOF row sits at the
+            // panel's bottom edge.
             let rect = Rect::from_min_size(
-                Pos2::new(x, grid_rect.top() + view_row as f32 * cell_h),
+                Pos2::new(x, grid_rect.bottom() - (view_row + 1) as f32 * cell_h),
                 Vec2::new(cell_w, cell_h),
             );
             let color = cell_color(cell, &color_stops, grid_dv_range, fleet_max_dv_ms);
@@ -303,7 +355,12 @@ pub fn porkchop_panel(
         );
     }
     for view_row in 0..=n_view_rows {
-        let y = grid_rect.top() + view_row as f32 * cell_h;
+        // NASA convention: view_row 0 (lowest TOF, fastest
+        // trajectory) at the BOTTOM.  The grid line position
+        // is `grid_rect.bottom() - view_row * cell_h`, so the
+        // first line drawn is the bottom edge and the last is
+        // the top edge.
+        let y = grid_rect.bottom() - view_row as f32 * cell_h;
         painter.line_segment(
             [
                 Pos2::new(grid_rect.left(), y),
@@ -366,24 +423,31 @@ pub fn porkchop_panel(
         );
     }
     // Y-axis: 4 ticks
-    // The data cells render `row=0` (smallest TOF) at the *top* of the
-    // grid (see "Cells" loop below: y = grid_rect.top() + row * cell_h)
-    // and grow downward toward `tof_max`.  Labels MUST mirror that
-    // direction or the tooltip and the y-axis tick the user reads off
-    // disagree: hovering a cell near the bottom shows a large TOF in
-    // the tooltip but the label next to the cursor reads a small TOF,
-    // which the player reads as "tooltip is almost double the y-axis
-    // value".  Anchor labels at the same y as their tick on the data
-    // side — frac=0 (tof_min) at the top, frac=1 (tof_max) at the
-    // bottom — matching the standard NASA / JPL porkchop convention
-    // (short trips at the top, long trips at the bottom).
+    // The data cells render `row=rendered_row_first` (lowest
+    // TOF, fastest trajectory) at the BOTTOM of the grid and
+    // grow upward toward `rendered_row_last` (highest TOF,
+    // slowest trajectory) at the TOP — NASA / JPL convention
+    // and the user-reported "start with the fastest trajectory
+    // then extend upward" mental model.  Labels MUST mirror
+    // that direction or the tooltip and the y-axis tick the
+    // user reads off disagree: hovering a cell near the top
+    // shows a large TOF in the tooltip but the label next to
+    // the cursor reads a small TOF.  Anchor labels at the same
+    // y as their tick on the data side — frac=0
+    // (`rendered_tof_min`) at the BOTTOM, frac=1
+    // (`rendered_tof_max`) at the TOP.
     //
-    // Labels interpolate across the full solved range.  This keeps the
-    // visual tick marks and the hover-mapped row indices anchored to the
-    // same coordinate system even if a stale grid still carries trimmed
-    // metadata from an older build.
-    let label_tof_min = tof_min_s;
-    let label_tof_max = tof_max_s;
+    // Labels interpolate across the *rendered* range, not the
+    // configured range.  When the adaptive trim clips the upper
+    // grey tail the labels need to follow, otherwise they'd
+    // continue to span the empty rows and the top-most label
+    // would read e.g. "8 yr" while the cell directly to its
+    // right sits at the highest feasible row (~ 1.5 yr).
+    // Reusing the trim's `rendered_tof_bounds_s` keeps the
+    // visual tick marks and the hover-mapped row indices
+    // anchored to the same coordinate system.
+    let label_tof_min = rendered_tof_min_s.max(tof_min_s);
+    let label_tof_max = rendered_tof_max_s.min(tof_max_s);
     for i in 0..=3 {
         let frac = i as f64 / 3.0;
         let tof_s = label_tof_min + frac * (label_tof_max - label_tof_min);
@@ -392,7 +456,10 @@ pub fn porkchop_panel(
         } else {
             format!("{:.0} d", tof_s / SECONDS_PER_DAY)
         };
-        let y = grid_rect.top() + (frac as f32) * grid_rect.height();
+        // NASA convention: frac=0 (smallest TOF) at the
+        // BOTTOM.  Y position is `grid_rect.bottom() -
+        // frac * grid_rect.height()`.
+        let y = grid_rect.bottom() - (frac as f32) * grid_rect.height();
         painter.text(
             Pos2::new(grid_rect.left() - 4.0, y),
             egui::Align2::RIGHT_CENTER,

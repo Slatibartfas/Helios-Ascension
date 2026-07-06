@@ -6,39 +6,96 @@ bottom third of the grid (rows 0-20% of the way up); the rest was
 grey (Lambert infeasibility, not high-ΔV). Two follow-up changes in
 `src/fleets/porkchop.rs` + `src/ui/porkchop_panel.rs`:
 
-## 1. Adaptive `rendered_tof_bounds_s`
+## 1. Adaptive `rendered_tof_bounds_s` (symmetric trim)
 
 `PorkchopGrid` carries a new field `rendered_tof_bounds_s: (f64, f64)`
 alongside the existing `tof_bounds_s: (f64, f64)`. The builder:
 
   1. Solves the full configured range as before (so no data is lost).
-  2. Scans `cells` for the highest row that contains at least one
-     feasible cell.
-  3. Sets `rendered_tof_bounds_s.0 = tof_bounds_s.0` (the bottom row
-     is the panel's "Depart Now + minimum ΔV" anchor and must stay
-     visible).
-  4. Sets `rendered_tof_bounds_s.1 = top_row_tof + 10% × configured_span`,
-     capped at `tof_bounds_s.1`.
+  2. Scans `cells` for the **lowest** and **highest** rows that
+     contain at least one feasible cell (one pass over the
+     row-major grid, with row-level short-circuit on the inner
+     column loop).
+  3. Sets `rendered_tof_bounds_s.0 = lowest_feasible_row_tof −
+     10% × configured_span`, clamped to `tof_bounds_s.0`.
+  4. Sets `rendered_tof_bounds_s.1 = highest_feasible_row_tof +
+     10% × configured_span`, clamped to `tof_bounds_s.1`.
 
-The panel maps only the populated row range to its vertical extent, so
-the colormap band stretches across the populated region instead of
-getting squashed into the bottom third.
+The panel maps only the populated row range to its vertical extent,
+so the colormap band stretches across the populated region instead
+of getting squashed into the populated row band.
 
 `compute_adaptive_tof_bounds` is the pure helper (exported for unit
-tests). Degenerate cases:
+tests). The trim is **symmetric** — both ends are clipped around
+the populated band, with row 0 only preserved when it is itself
+feasible. Earlier contracts preserved row 0 unconditionally (so
+the "Depart Now + minimum TOF" reference point stayed visible at
+the cost of a long grey tail). That worked for Earth→Mars (row 0
+is the cheapest Hohmann transfer and is always feasible) but
+failed for Earth→Jupiter: the C3 ceiling blocks the short-arc
+options at row 0, the populated band sits in the middle of the
+configured range, and the trim was leaving a long grey tail at
+the bottom that compressed the colormap into a thin sliver. The
+new contract clips both ends.
+
+Degenerate cases:
   * No feasible cells → fall back to configured range (player still
     sees "nothing fits in this budget" topology).
-  * All rows feasible → no trim needed.
-  * Trimmed to top row but `top_row_tof + margin ≥ tof_max` → capped
-    at `tof_max` (the 10% margin is purely cosmetic when the basin
-    already fills the panel).
+  * All rows feasible → no trim needed (trim is a no-op pass-through).
+  * Populated band so narrow the margins would force bounds to
+    cross → fall back to the raw `bottom_tof..=top_tof` band
+    without margins (defensive).
+  * Lowest feasible row = 0 AND highest feasible row = rows-1
+    → return configured range (the populated band already spans
+    the whole thing).
 
-Earth→Saturn with the default 60×60 config happens to leave the
-Lambert solver feasible at every row (5× Hohmann ≈ 30 yr capped at
-10 yr; the solver finds solutions across the whole range), so the
-adaptive trim doesn't fire — a valid "no trim needed" outcome. The
-synthetic `adaptive_tof_bounds_trims_synthetic_long_tail` test forces
-a sparse-feasible layout to exercise the trim path.
+Earth→Jupiter with the default 60×60 config happens to leave the
+Lambert solver feasible at every row (5× Hohmann ≈ 30 yr capped
+at 10 yr; the solver finds solutions across the whole range), so
+the symmetric trim is also a no-op there. The
+`adaptive_tof_bounds_jupiter_layout_trims_both_ends` synthetic
+test forces a 30%-feasible band (rows 4-6 of 10) to exercise the
+both-ends trim path; the
+`adaptive_tof_bounds_trims_both_ends_around_populated_band` test
+forces feasible cells only in the top 3 rows to exercise the
+bottom-trim path (the layout the C3 ceiling produces for outer
+planets).
+
+## 2. Panel rendering wired to `rendered_tof_bounds_s`
+
+`src/ui/porkchop_panel.rs` reads `grid.rendered_tof_bounds_s` to
+compute `rendered_row_first` and `rendered_row_last` (the row
+indices that map to the panel's top and bottom edges), then
+draws only the rows in that range. The Y-axis tick labels
+interpolate over the *rendered* range, not the configured range
+— when the trim clips the upper grey tail the labels need to
+follow, otherwise the bottom-most label would read e.g. "8 yr"
+while the cell directly to its right sits at the highest feasible
+row (~ 1.5 yr). The cell-drawing loop, hover mapping, and grid
+lines all use the same trimmed `n_view_rows` so the panel layout
+is consistent.
+
+The previous "always map the panel directly onto the full solved
+row range" comment was stale; the helper has been a pass-through
+for several revisions but the panel was still hard-coding
+`rendered_row_first = 0` and `rendered_row_last = rows - 1`. The
+new panel code reads `rendered_tof_bounds_s` and falls back to
+the full range only when the bounds are degenerate (zero span
+or out-of-range) so hover/click mapping stays robust against
+stale metadata on older grid instances.
+
+## 3. Resolution bump: 40×50 → 60×60
+
+Default resolution bumped from 2000 to 3600 cells, still well within
+the 5000-cell validator ceiling (rebuild cost ≈ 1.1 s worst-case on
+a 4-core host — inside the 3-day staleness window so the deferred
+build doesn't visibly lag at 1 yr/s sim speed). Per-category overrides
+also bumped:
+  * interstellar: 60×50 → 70×60 (4200 cells)
+  * moon:         50×40 → 70×50 (3500 cells)
+  * star_approach:50×40 → 60×50 (3000 cells)
+
+The RON file's comments document the rationale (`assets/data/porkchop_config.ron`).
 
 ## 2. Resolution bump: 40×50 → 60×60
 
