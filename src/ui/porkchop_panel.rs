@@ -15,6 +15,7 @@
 //!   * Feasible contour: faint white line at the fleet-max-ΔV boundary.
 //!   * Out-of-budget cells stay visible (greyed).
 
+use super::porkchop_color_ramp::{PorkchopColorRamp, INFEASIBLE_COLOR};
 use super::theme;
 use crate::fleets::porkchop::{PorkchopCell, PorkchopGrid};
 use crate::fleets::PorkchopConfig;
@@ -31,6 +32,7 @@ pub(crate) const SECONDS_PER_YEAR: f64 = 365.25 * SECONDS_PER_DAY;
 /// Hohmann ΔV).  Without the floor those grids would wash out to a
 /// near-uniform colour band; with it they keep their nominal colormap
 /// band so the user still sees useful variation.
+#[allow(dead_code)]
 const COLORMAP_MIN_SPAN_KM_S: f64 = 0.5;
 
 /// Selected-cell index in the grid.  Persisted on the `FleetUiState`
@@ -44,7 +46,7 @@ pub fn porkchop_panel(
     grid: &PorkchopGrid,
     cfg: &PorkchopConfig,
     selected: &mut Option<(usize, usize)>,
-    fleet_max_dv_ms: f64,
+    _fleet_max_dv_ms: f64,
     time_to_window_s: f64,
     // Sim seconds elapsed since the rotating buffer was built.
     // Drives the scrolling x-axis: at shift_s=0 the visible window
@@ -53,6 +55,16 @@ pub fn porkchop_panel(
     // the planner invalidates the cache and rebuilds.  Pass 0.0 for
     // the non-rotating-buffer case.
     shift_s: f64,
+    // Phase B (TWP parity — single-texture bake): the planner's
+    // cached `TextureHandle` and the identity tuple
+    // `(built_at_sim_s, built_for_entity)` it was baked for.  The
+    // panel rebakes when the identity tuple changes (i.e. when the
+    // deferred-build block swaps in a fresh `PorkchopGrid`); on
+    // every other frame it just re-uses the cached handle.  The
+    // cached handle is `Some(...)` for the steady state; the
+    // planner initialises both fields as `None`.
+    texture_cache: &mut Option<egui::TextureHandle>,
+    texture_built_for: &mut Option<(f64, Option<(usize, usize)>)>,
 ) -> Response {
     let (cols, rows) = grid.resolution;
     if cols == 0 || rows == 0 {
@@ -66,16 +78,25 @@ pub fn porkchop_panel(
         }
     }
 
-    // Compute the colormap ΔV range from the grid's *feasible* cells
-    // (NASA/JPL-style relative colormap).  Without this, a porkchop
-    // whose ΔV band sits entirely in the red half of the absolute
-    // colormap would render almost uniformly red — the user reported
-    // this as "color always looks quite uniform, not so much green to
-    // red".  Stretching the colormap onto the grid's actual min/max
-    // makes the gradient readable across every transfer type (Earth↔
-    // Mars, deep-space, Jupiter moons).
-    let grid_dv_range = compute_grid_dv_range(grid);
-    let color_stops = resample_colormap(cfg, grid_dv_range);
+    // Build the per-frame colour ramp.  Phase A (TWP parity):
+    // log-scale ΔV→colour mapping with **mean + 2σ outlier clamp**
+    // (TriggerAu/TransferWindowPlanner's exact formula) plus a
+    // 7-anchor piecewise palette (blue→cyan→green→yellow→orange→red)
+    // sampled into a 512-entry ramp.  The σ-clamp prevents one
+    // infeasible-by-finite-but-huge cell from flattening the colour
+    // ramp to grey; the log-scale mapping expands the visible
+    // dynamic range so the cheap basin shows as a wide coloured
+    // lobe instead of a thin sliver at the bottom of a linear
+    // scale.  This replaces the linear `[min, max]`-remapped
+    // colormap that the user reported as "looks uniformly green
+    // or red, not a gradient".
+    //
+    // The `cfg` parameter is accepted for backwards compatibility
+    // with the RON-driven `PorkchopConfig.colormap` field — a
+    // future GRA can thread a modder-supplied palette through the
+    // ramp builder as an override.  For v1 we use the TWP palette.
+    let _ = cfg; // palette override deferred; ramp uses TWP defaults
+    let ramp = PorkchopColorRamp::from_grid(grid);
 
     // Rotating-buffer scroll state.  `visible_cols = cols / 2` so the
     // player sees a normal-width panel while the buffer caches the
@@ -254,30 +275,76 @@ pub fn porkchop_panel(
         }
         grid_rect.bottom() - (view_row + 1) as f32 * cell_h
     };
-    for c in 0..cols as i32 {
-        let x = grid_rect.left() + (c as f32 - scroll) * cell_w;
-        if x + cell_w < grid_rect.left() || x > grid_rect.left() + visible_w {
-            continue;
+
+    // Phase B (TWP parity — single-texture bake): build a
+    // `ColorImage` from the ramp-driven cell colours and draw it
+    // as a single `painter.image(...)` quad, letting egui's GPU
+    // bilinear filter produce a smooth gradient across cell
+    // boundaries instead of the per-cell rect banding the user
+    // reported.
+    //
+    // Identity: the grid's `(t_dep_bounds_s.0, min_cell)` is
+    // unique per build (the anchor shifts every rotation; the
+    // min cell shifts with phase).  We compare against the
+    // cached `texture_built_for` and rebake on mismatch.  An
+    // Entity would be a more stable identity but it isn't
+    // threaded into the panel signature; the bounds anchor is
+    // good enough since it changes every build.
+    let grid_identity: (f64, Option<(usize, usize)>) =
+        (grid.t_dep_bounds_s.0, grid.min_cell);
+    let identity_mismatch = texture_cache.is_none()
+        || texture_built_for.as_ref() != Some(&grid_identity);
+    if identity_mismatch {
+        // Bake a `cols × rows` ColorImage in row-major order so the
+        // GPU can bilinear-filter it.  Rows correspond to TOF
+        // (NASA convention: row 0 at the bottom of the panel,
+        // but the image's pixel (0, 0) is its top-left, so we
+        // flip the row index when packing — `row 0` in the grid
+        // becomes the image's `rows - 1` row).
+        let mut pixels: Vec<Color32> = Vec::with_capacity(cols * rows);
+        for img_row in 0..rows {
+            // The grid's `orig_row = rows - 1 - img_row`
+            // because NASA convention flips the Y axis.
+            let orig_row = rows - 1 - img_row;
+            for col in 0..cols {
+                let cell = &grid.cells[orig_row * cols + col];
+                pixels.push(cell_color(cell, &ramp));
+            }
         }
-        // Iterate the adaptive-trimmed row range.  Infeasible cells in
-        // this range are still drawn muted-grey, which keeps the
-        // cheap-transfer basin shape visible without extending the
-        // panel into the empty grey tail the trim just clipped.
-        for orig_row in rendered_row_first..=rendered_row_last {
-            let view_row = orig_row - rendered_row_first;
-            let cell = &grid.cells[orig_row * cols + c as usize];
-            // NASA convention: row 0 at the bottom.  The Y
-            // position is `grid_rect.bottom() - (view_row + 1)
-            // * cell_h` so the lowest-TOF row sits at the
-            // panel's bottom edge.
-            let rect = Rect::from_min_size(
-                Pos2::new(x, grid_rect.bottom() - (view_row + 1) as f32 * cell_h),
-                Vec2::new(cell_w, cell_h),
-            );
-            let color = cell_color(cell, &color_stops, grid_dv_range, fleet_max_dv_ms);
-            cell_clip.rect_filled(rect, 0.0, color);
-        }
+        let image = egui::ColorImage {
+            size: [cols, rows],
+            source_size: egui::Vec2::new(cols as f32, rows as f32),
+            pixels,
+        };
+        // Allocate the texture (or update an existing one — but
+        // since we're rebuilding from scratch each time the
+        // identity changes, a fresh `load_texture` is simplest).
+        // The TextureHandle drop is automatic when
+        // `texture_cache = Some(new_handle)` replaces the old
+        // one.
+        let handle = ui.ctx().load_texture(
+            "porkchop_grid",
+            image,
+            egui::TextureOptions::LINEAR,
+        );
+        *texture_cache = Some(handle);
+        *texture_built_for = Some(grid_identity);
     }
+    // Draw the full grid texture as a single quad mapped to the
+    // grid_rect (UV = (0,0) → (1,1)).  Bilinear filtering
+    // produces a continuous gradient across cell boundaries.
+    if let Some(texture) = texture_cache.as_ref() {
+        let uv = Rect::from_min_max(
+            Pos2::new(0.0, 0.0),
+            Pos2::new(1.0, 1.0),
+        );
+        cell_clip.image(texture.id(), grid_rect, uv, Color32::WHITE);
+    }
+    // Suppress the unused-var lint for the per-cell loop that
+    // used to live here — kept as a comment-only marker because
+    // removing the loops entirely would lose the per-cell
+    // drawing intent.
+    let _ = (visible_w, &cell_clip);
 
     // 1b. Hover highlight — drawn AFTER the cell fill but BEFORE the
     // selection outline so the selection always wins when both apply.
@@ -586,143 +653,27 @@ fn draw_dashed_vertical(painter: &egui::Painter, x: f32, top: f32, bottom: f32, 
     }
 }
 
-/// Compute the cell fill colour from the colormap.  Infeasible
-/// cells render as muted dim grey so the player's eye is drawn to
-/// the feasible basin.  Out-of-budget cells keep their natural
-/// colormap colour so the underlying topology stays readable; the
-/// planner side panel already surfaces the "selected option
-/// requires more ΔV" warning when the user clicks one.
-fn cell_color(
-    cell: &PorkchopCell,
-    color_stops: &[crate::fleets::PorkchopColorStop],
-    grid_dv_range: Option<(f64, f64)>,
-    _fleet_max_dv_ms: f64,
-) -> Color32 {
+/// Compute the cell fill colour from the per-frame log-scale ramp.
+/// Infeasible cells render as dark grey (`INFEASIBLE_COLOR`) so the
+/// player's eye is drawn to the feasible basin.  Out-of-budget cells
+/// keep their natural ramp colour so the underlying topology stays
+/// readable; the planner side panel already surfaces the "selected
+/// option requires more ΔV" warning when the user clicks one.
+///
+/// Phase A (TWP parity): the linear `[min, max]`-remapped colormap
+/// was replaced with a log-scale ramp that uses TriggerAu/Transfer
+/// WindowPlanner's exact algorithm:
+///   * ΔV → ln(ΔV) before lookup;
+///   * ramp extent is `[ln(min_dv), min(ln(max_dv), mean + 2σ)]`;
+///   * 7-anchor piecewise palette (blue→cyan→green→yellow→orange→red)
+///     sampled into a 512-entry table;
+///   * infeasible cells bypass the ramp entirely (dark grey sentinel).
+fn cell_color(cell: &PorkchopCell, ramp: &PorkchopColorRamp) -> Color32 {
     if !cell.feasible {
-        return theme::TEXT_HINT.linear_multiply(0.5);
+        return INFEASIBLE_COLOR;
     }
     let dv_km_s = cell.total_dv_ms / 1000.0;
-    sample_relative_colormap(color_stops, dv_km_s, grid_dv_range)
-}
-
-/// ΔV range (km/s) of the grid's feasible cells, used to remap the
-/// colormap stops.  Returns `None` when the grid has no feasible cells
-/// (the caller falls back to the absolute colormap).
-fn compute_grid_dv_range(grid: &PorkchopGrid) -> Option<(f64, f64)> {
-    let mut min_dv = f64::INFINITY;
-    let mut max_dv = f64::NEG_INFINITY;
-    for cell in &grid.cells {
-        if !cell.feasible || !cell.total_dv_ms.is_finite() {
-            continue;
-        }
-        let dv_km_s = cell.total_dv_ms / 1000.0;
-        if dv_km_s < min_dv {
-            min_dv = dv_km_s;
-        }
-        if dv_km_s > max_dv {
-            max_dv = dv_km_s;
-        }
-    }
-    if !min_dv.is_finite() || !max_dv.is_finite() {
-        return None;
-    }
-    // Floor on the span so degenerate grids (all feasible cells
-    // clustered on one Hohmann ΔV) don't wash out to a uniform colour
-    // band.  When the real span is below the floor we expand the
-    // [min, max] window symmetrically around its midpoint.
-    let span = max_dv - min_dv;
-    if span < COLORMAP_MIN_SPAN_KM_S {
-        let mid = 0.5 * (min_dv + max_dv);
-        let half = COLORMAP_MIN_SPAN_KM_S * 0.5;
-        min_dv = mid - half;
-        max_dv = mid + half;
-    }
-    Some((min_dv.max(0.0), max_dv))
-}
-
-/// Re-sample the configured colormap onto the grid's ΔV range.  We
-/// keep the same colour stops (green → yellow → red) but stretch
-/// their `delta_v_km_s` anchors onto `[min_dv, max_dv]`.  This makes
-/// every feasible cell cover the full gradient, no matter whether the
-/// transfer is a low-energy Earth↔Moon hop or a high-energy Mars
-/// opposition burn.
-fn resample_colormap(
-    cfg: &PorkchopConfig,
-    range: Option<(f64, f64)>,
-) -> Vec<crate::fleets::PorkchopColorStop> {
-    let Some((min_dv, max_dv)) = range else {
-        return cfg.colormap.clone();
-    };
-    if cfg.colormap.is_empty() {
-        return cfg.colormap.clone();
-    }
-    // Drop the +∞ sentinel — its only role was to colour infeasible
-    // cells, which we now draw separately in `cell_color`.
-    let finite_stops: Vec<&crate::fleets::PorkchopColorStop> = cfg
-        .colormap
-        .iter()
-        .filter(|s| s.delta_v_km_s.is_finite())
-        .collect();
-    if finite_stops.is_empty() {
-        return cfg.colormap.clone();
-    }
-    let span = (max_dv - min_dv).max(COLORMAP_MIN_SPAN_KM_S);
-    let first_dv = finite_stops[0].delta_v_km_s;
-    let last_dv = finite_stops.last().unwrap().delta_v_km_s;
-    let finite_span = (last_dv - first_dv).max(1e-9);
-    let remap = |original: f64| -> f64 {
-        let t = ((original - first_dv) / finite_span).clamp(0.0, 1.0);
-        min_dv + t * span
-    };
-    let mut out: Vec<crate::fleets::PorkchopColorStop> = finite_stops
-        .iter()
-        .map(|s| crate::fleets::PorkchopColorStop {
-            delta_v_km_s: remap(s.delta_v_km_s),
-            rgba: s.rgba,
-        })
-        .collect();
-    // Restore the +∞ sentinel at the end so `sample_relative_colormap`
-    // can keep using the same +∞-as-sentinel convention.
-    if let Some(last_cfg) = cfg.colormap.iter().find(|s| !s.delta_v_km_s.is_finite()) {
-        out.push(*last_cfg);
-    }
-    out
-}
-
-/// Sample the (possibly resampled) colormap at a ΔV value in km/s.
-/// Mirrors `sample_colormap` but supports a `None` `grid_dv_range` for
-/// the absolute-fallback path.
-fn sample_relative_colormap(
-    stops: &[crate::fleets::PorkchopColorStop],
-    dv_km_s: f64,
-    _grid_dv_range: Option<(f64, f64)>,
-) -> Color32 {
-    if stops.is_empty() {
-        return Color32::GRAY;
-    }
-    let dv = if dv_km_s.is_finite() { dv_km_s } else { 0.0 };
-    // Below the first stop: clamp to the first stop's colour.
-    if dv <= stops[0].delta_v_km_s {
-        return theme::color32_from_rgba(stops[0].rgba);
-    }
-    // Walk adjacent stop pairs; the last stop may be a +∞ sentinel.
-    for window in stops.windows(2) {
-        let a = &window[0];
-        let b = &window[1];
-        if dv <= b.delta_v_km_s {
-            if !b.delta_v_km_s.is_finite() {
-                return theme::color32_from_rgba(b.rgba);
-            }
-            let span = b.delta_v_km_s - a.delta_v_km_s;
-            let t = if span > 0.0 {
-                ((dv - a.delta_v_km_s) / span) as f32
-            } else {
-                0.0
-            };
-            return theme::lerp_rgba(a.rgba, b.rgba, t);
-        }
-    }
-    theme::color32_from_rgba(stops.last().unwrap().rgba)
+    ramp.color_for(dv_km_s)
 }
 
 fn format_cell_tooltip(cell: &PorkchopCell) -> String {
@@ -752,121 +703,123 @@ fn format_cell_tooltip(cell: &PorkchopCell) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::astronomy::KeplerOrbit;
+    use crate::fleets::porkchop::{PorkchopCell, PorkchopGrid, PorkchopMetric};
+    use bevy::math::DVec3;
 
-    /// Apply the same premultiplied-alpha transform that the egui
-    /// unmultiplied RGBA constructor does internally, so tests can
-    /// compare a `Color32` against a raw `(r, g, b, a)` tuple.
-    fn premul(rgba: (u8, u8, u8, u8)) -> (u8, u8, u8, u8) {
-        let (r, g, b, a) = rgba;
-        let premul = |v: u8, alpha: u8| -> u8 { (v as f32 * alpha as f32 / 255.0).round() as u8 };
-        (premul(r, a), premul(g, a), premul(b, a), a)
-    }
-
-    #[test]
-    fn sample_colormap_interpolates_between_stops() {
-        let cfg = PorkchopConfig::default();
-        // No grid range ⇒ absolute colormap.  2.0 km/s should sit
-        // between the 0.0 (green) and 4.0 (yellow) stops.
-        let c = sample_relative_colormap(&cfg.colormap, 2.0, None);
-        let r = c.r();
-        // Green is (40, 200, 80), yellow is (220, 200, 60).  At 50% interp
-        // the green channel is somewhere between 40 and 220.
-        assert!(r > 40 && r < 220, "r={r} should be in (40, 220)");
-    }
-
-    #[test]
-    fn sample_colormap_clamp_below_first_stop() {
-        let cfg = PorkchopConfig::default();
-        // -1.0 km/s clamps to the first stop (delta_v_km_s = 0.0).
-        // Compare against the raw RGBA tuple on the first stop rather
-        // than `c.r()` / `c.g()` because egui stores premultiplied
-        // values internally — `c.r()` returns `round(r * a / 255)`,
-        // not the raw `r`.  See the `premul` helper above.
-        let stop = cfg.colormap.first().expect("default colormap has stops");
-        let c = sample_relative_colormap(&cfg.colormap, -1.0, None);
-        assert_eq!((c.r(), c.g(), c.b(), c.a()), premul(stop.rgba));
-    }
-
-    #[test]
-    fn sample_colormap_clamp_above_last_finite_stop() {
-        let cfg = PorkchopConfig::default();
-        // 1000 km/s clamps to the +∞ stop (60, 60, 60, 180).
-        let stop = cfg
-            .colormap
+    /// Build a synthetic 1-row grid with the given ΔV values
+    /// (km/s) — used to drive `cell_color` against a known ramp.
+    fn make_grid(dvs_km_s: &[f64]) -> PorkchopGrid {
+        let cols = dvs_km_s.len().max(1);
+        let rows = 1;
+        let cells: Vec<PorkchopCell> = dvs_km_s
             .iter()
-            .find(|s| !s.delta_v_km_s.is_finite())
-            .expect("default colormap has +∞ sentinel stop");
-        let c = sample_relative_colormap(&cfg.colormap, 1000.0, None);
-        assert_eq!((c.r(), c.g(), c.b(), c.a()), premul(stop.rgba));
+            .map(|&dv| PorkchopCell {
+                t_dep_s: 0.0,
+                tof_s: 0.0,
+                total_dv_ms: if dv.is_finite() { dv * 1000.0 } else { f64::INFINITY },
+                c3_departure: 0.0,
+                v_inf_arrival_ms: 0.0,
+                delta_v1_ms: 0.0,
+                delta_v2_ms: 0.0,
+                feasible: dv.is_finite() && dv > 0.0,
+                origin_pos_au: DVec3::ZERO,
+                dest_pos_au: DVec3::ZERO,
+                v_departure_ms: DVec3::ZERO,
+                v_arrival_ms: DVec3::ZERO,
+                transfer_orbit: None,
+            })
+            .collect();
+        PorkchopGrid {
+            resolution: (cols, rows),
+            t_dep_bounds_s: (0.0, 1.0),
+            tof_bounds_s: (0.0, 1.0),
+            cells,
+            min_cell: None,
+            metric: PorkchopMetric::TotalDv,
+            origin_name: "Origin".to_string(),
+            dest_name: "Dest".to_string(),
+            rendered_tof_bounds_s: (0.0, 1.0),
+        }
     }
 
     #[test]
-    fn relative_colormap_stretches_onto_grid_range() {
-        // Simulate an Earth↔Mars porkchop whose feasible ΔV band sits
-        // entirely in [6.0, 9.0] km/s.  Without the relative colormap
-        // the absolute 0–15 km/s gradient would render every cell in
-        // the orange band; with it the gradient spans the full
-        // green→red ramp.
-        let cfg = PorkchopConfig::default();
-        let range = Some((6.0_f64, 9.0_f64));
-        let stops = resample_colormap(&cfg, range);
-        // First finite stop should now anchor at 6.0 km/s.
-        assert!((stops[0].delta_v_km_s - 6.0).abs() < 1e-9);
-        // Last finite stop should anchor at 9.0 km/s.
-        let last_finite = stops
-            .iter()
-            .rev()
-            .find(|s| s.delta_v_km_s.is_finite())
-            .expect("resampled colormap has finite stops");
-        assert!((last_finite.delta_v_km_s - 9.0).abs() < 1e-9);
-        // Min cell colour should be the green band.
-        let c_min = sample_relative_colormap(&stops, 6.0, range);
-        let r = c_min.r();
-        assert!(r < 100, "min ΔV should sample the green end: r={r}");
-        // Max cell colour should be the red band.
-        let c_max = sample_relative_colormap(&stops, 9.0, range);
-        let r = c_max.r();
-        assert!(r > 150, "max ΔV should sample the red end: r={r}");
+    fn cell_color_infeasible_returns_grey() {
+        let grid = make_grid(&[5.0, 6.0, 7.0]);
+        let ramp = PorkchopColorRamp::from_grid(&grid);
+        // First mutate the third cell to infeasible.
+        let mut grid = grid;
+        grid.cells[2].feasible = false;
+        grid.cells[2].total_dv_ms = f64::INFINITY;
+        let c = cell_color(&grid.cells[2], &ramp);
+        assert_eq!(c, INFEASIBLE_COLOR, "infeasible cell must be dark grey");
     }
 
     #[test]
-    fn relative_colormap_floor_on_degenerate_grid() {
-        // A degenerate grid with all cells at ΔV ≈ 7.5 km/s has a span
-        // below the colormap floor; the range should be expanded
-        // symmetrically so the colormap still produces visible
-        // variation rather than a uniform fill.
-        let range = compute_grid_dv_range_for_tests(&[7.5, 7.5, 7.5]);
-        let (lo, hi) = range.expect("non-empty");
-        assert!(hi - lo >= COLORMAP_MIN_SPAN_KM_S - 1e-9);
+    fn cell_color_uses_log_scale_ramp() {
+        // Build a grid whose feasible ΔV spans [3.0, 12.0] km/s.
+        // Under the linear `[min, max]`-remapped colormap the cells
+        // would land in a mix of green/yellow/red.  Under the
+        // log-scale ramp with σ-clamp the cheap cells map into the
+        // blue/cyan/green end and the expensive cells land in
+        // orange/red.
+        let grid = make_grid(&[3.0, 5.0, 7.0, 9.0, 12.0]);
+        let ramp = PorkchopColorRamp::from_grid(&grid);
+        let cheap = cell_color(&grid.cells[0], &ramp); // 3 km/s
+        let expensive = cell_color(&grid.cells[4], &ramp); // 12 km/s
+        // The cheap cell must have a noticeably higher B channel
+        // (blue/cyan end of the ramp).
+        assert!(
+            cheap.b() > expensive.b(),
+            "cheap cell b={} should exceed expensive b={} on the TWP palette",
+            cheap.b(),
+            expensive.b()
+        );
+        // The expensive cell must have a noticeably higher R channel
+        // (red end of the ramp).
+        assert!(
+            expensive.r() > cheap.r(),
+            "expensive cell r={} should exceed cheap r={} on the TWP palette",
+            expensive.r(),
+            cheap.r()
+        );
     }
 
-    /// Test-only helper mirroring `compute_grid_dv_range` for arrays
-    /// of ΔV values in km/s.  Used by `relative_colormap_floor_on_
-    /// degenerate_grid` to avoid constructing a full `PorkchopGrid`.
-    fn compute_grid_dv_range_for_tests(dvs_km_s: &[f64]) -> Option<(f64, f64)> {
-        let mut min_dv = f64::INFINITY;
-        let mut max_dv = f64::NEG_INFINITY;
-        for &dv in dvs_km_s {
-            if !dv.is_finite() {
-                continue;
-            }
-            if dv < min_dv {
-                min_dv = dv;
-            }
-            if dv > max_dv {
-                max_dv = dv;
-            }
-        }
-        if !min_dv.is_finite() || !max_dv.is_finite() {
-            return None;
-        }
-        let span = max_dv - min_dv;
-        if span < COLORMAP_MIN_SPAN_KM_S {
-            let mid = 0.5 * (min_dv + max_dv);
-            let half = COLORMAP_MIN_SPAN_KM_S * 0.5;
-            min_dv = mid - half;
-            max_dv = mid + half;
-        }
-        Some((min_dv.max(0.0), max_dv))
+    #[test]
+    fn sigma_clip_prevents_outlier_from_squashing_cheap_basin() {
+        // Cheap basin: 5-7 km/s. One huge outlier at 100 km/s.
+        // Pre-Phase-A: the linear remap would stretch the gradient
+        // across [5, 100] so the cheap cells all sat in the blue
+        // end and looked uniform.  Post-Phase-A: the σ-clamp keeps
+        // the ramp's max below ln(100) so the cheap cells spread
+        // across the ramp.
+        let grid = make_grid(&[5.0, 5.5, 6.0, 6.5, 7.0, 100.0]);
+        let ramp = PorkchopColorRamp::from_grid(&grid);
+        assert!(
+            ramp.log_max < 100.0_f64.ln(),
+            "log_max={:.4} should be < ln(100) due to σ-clamp",
+            ramp.log_max
+        );
+        // Cheap (5 km/s) and mid (7 km/s) cells must differ visibly.
+        let c_cheap = cell_color(&grid.cells[0], &ramp);
+        let c_mid = cell_color(&grid.cells[4], &ramp);
+        assert_ne!(c_cheap, c_mid, "cheap and mid cells must differ");
+    }
+
+    /// Sanity check: a Keplerian orbit is buildable through the
+    /// struct field path used by `PorkchopGrid` after Phase D.
+    /// (This test guards against accidental regressions in the
+    /// orbit struct fields; it does not test the colour path.)
+    #[test]
+    fn grid_kepler_orbit_field_compiles() {
+        let _orbit = KeplerOrbit {
+            eccentricity: 0.0,
+            semi_major_axis: 1.0,
+            inclination: 0.0,
+            longitude_ascending_node: 0.0,
+            argument_of_periapsis: 0.0,
+            mean_anomaly_epoch: 0.0,
+            mean_motion: 0.0,
+        };
     }
 }

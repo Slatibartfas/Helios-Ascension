@@ -33,6 +33,7 @@ pub mod launch;
 pub mod notifications;
 mod personnel_panel;
 mod porkchop_panel;
+mod porkchop_color_ramp;
 mod research_panel;
 mod resources_bar;
 mod settings;
@@ -318,6 +319,35 @@ pub struct FleetUiState {
     /// fallback that the user perceived as a leftward snap.
     /// Defaults to `false`.
     pub porkchop_grid_pending_rebuild: bool,
+    /// Porkchop rebuild storm guard (Phase B+): set when the
+    /// deferred-build block has *started* solving the new grid but
+    /// has not yet reached the atomic swap at the bottom of the
+    /// block.  The per-frame block bails out unless this is `false`
+    /// or the grid is genuinely `None`, so a single rotation
+    /// trigger produces exactly one ~360 ms solve instead of one
+    /// solve per frame (≈22 solves at 60 FPS).  Cleared alongside
+    /// `porkchop_grid_pending_rebuild` at the atomic swap.
+    pub porkchop_build_in_flight: bool,
+    /// Phase B (TWP parity — single-texture bake): cached
+    /// `egui::TextureHandle` for the current porkchop grid, keyed
+    /// on the grid's identity (`(porkchop_built_at_s,
+    /// porkchop_built_for)`).  The texture is uploaded once per
+    /// grid build (not per frame) and the panel draws it as a
+    /// single `painter.image(...)` quad, letting egui's GPU
+    /// bilinear filter produce a smooth gradient across cell
+    /// boundaries instead of the per-cell rect banding the user
+    /// reported.  `None` until the first texture upload completes.
+    /// Cleared on `clear_target` so a target switch drops the
+    /// stale handle.
+    pub porkchop_texture: Option<bevy_egui::egui::TextureHandle>,
+    /// Identity of the grid currently baked into
+    /// `porkchop_texture`: `(t_dep_bounds_s_anchor, min_cell)`.
+    /// The t_dep anchor shifts every rotation trigger; the
+    /// `(col, row)` of the min cell shifts with phase.  Compared
+    /// on every render; mismatch triggers a re-bake.  The pair
+    /// is unique per build without needing to thread `Entity`
+    /// into the panel signature.
+    pub porkchop_texture_built_for: Option<(f64, Option<(usize, usize)>)>,
     /// GRA-343 (GRA-328b): cached cross-system Hohmann grid for the
     /// current `(system_id)` target.  Populated by
     /// `try_build_cross_system_hohmann` in `transfer_planner.rs` when
@@ -415,6 +445,12 @@ impl FleetUiState {
         self.porkchop_built_at_s = None;
         self.porkchop_last_real_build_s = None;
         self.porkchop_grid_pending_rebuild = false;
+        self.porkchop_build_in_flight = false;
+        // Phase B: drop the cached texture handle so a target
+        // switch forces a fresh upload (the next render will
+        // detect the identity mismatch and re-bake).
+        self.porkchop_texture = None;
+        self.porkchop_texture_built_for = None;
         self.selected_porkchop_cell = None;
         self.selected_abs_t_dep_s = None;
         self.selected_abs_tof_s = None;

@@ -30,11 +30,10 @@
 //   1. `defaults.resolution_t_dep * defaults.resolution_tof`
 //      must be ≤ 5000 (sub-second recompute on a 4-core host).
 //   2. `colormap` must contain ≥ 2 stops; the first stop's
-//      ΔV must be `0.0`; the last stop's ΔV is treated as
-//      `+∞` (use `inf` — RON 0.8 accepts `inf` / `+inf` / `-inf` /
-//      `NaN` literals; the previous `f64::INFINITY` Rust-style
-//      syntax silently failed to parse and the loader fell back to
-//      `PorkchopConfig::default()` at runtime).
+//      ΔV must be `0.0`. (Phase C: the previous "+∞" sentinel
+//      stop requirement is gone — infeasible cells use the
+//      dedicated `INFEASIBLE_COLOR` in `porkchop_color_ramp.rs`,
+//      not a colormap stop.)
 //   3. `category_overrides` are matched top-down, first hit wins;
 //      a single override must be self-consistent (resolution ×
 //      resolution ≤ 5000, tof_min_factor > 0, tof_min < tof_max).
@@ -172,9 +171,17 @@
     ],
 
     // ΔV (km/s) → RGBA stops. Linear interpolation between adjacent
-    // stops; the last stop's ΔV is the "+∞" sentinel and is used
-    // for infeasible cells (Lambert solver failed). RGBA tuples
-    // are (R, G, B, A) with components in 0..=255.
+    // stops. RGBA tuples are (R, G, B, A) with components in 0..=255.
+    //
+    // Phase C: the previous "+∞" sentinel stop has been removed.
+    // Infeasible cells (Lambert solver failed) are now rendered
+    // with the dedicated `INFEASIBLE_COLOR` (dark grey) in
+    // `src/ui/porkchop_color_ramp.rs` and the baked texture in
+    // `src/ui/porkchop_panel.rs` — they bypass the colormap
+    // entirely. The runtime colormap covers only the feasible
+    // ΔV range, simplifying the validator and removing the
+    // `delta_v_km_s: inf` literal that previously failed to
+    // parse with old Rust syntax.
     //
     // Stops are tuned to match the helios theme palette:
     //   GREEN  = best in class (≤ 4 km/s)
@@ -186,7 +193,6 @@
         (delta_v_km_s: 4.0,                    rgba: (220, 200,  60, 220)),
         (delta_v_km_s: 8.0,                    rgba: (230, 140,  40, 220)),
         (delta_v_km_s: 15.0,                   rgba: (220,  60,  60, 220)),
-        (delta_v_km_s: inf,                    rgba: ( 60,  60,  60, 180)),
     ],
     // Iso-ΔV contour lines drawn on top of the grid, in km/s.
     // The minimum (cheapest cell) contour is always drawn; the

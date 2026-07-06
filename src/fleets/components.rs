@@ -900,10 +900,14 @@ impl Default for PorkchopConfig {
                     delta_v_km_s: 15.0,
                     rgba: (220, 60, 60, 220),
                 },
-                PorkchopColorStop {
-                    delta_v_km_s: f64::INFINITY,
-                    rgba: (60, 60, 60, 180),
-                },
+                // Phase C: the previous +∞ sentinel stop has been
+                // removed. Infeasible cells are now rendered with
+                // the dedicated `INFEASIBLE_COLOR` (dark grey) in
+                // `porkchop_color_ramp.rs` and the baked texture in
+                // `porkchop_panel.rs`. Modders can still supply a
+                // finite extended stop (e.g. ΔV = 30 km/s for the
+                // "off the chart" band) but the runtime no longer
+                // requires it.
             ],
             contour_levels_km_s: vec![3.0, 5.0, 8.0, 12.0],
             display_max_dv_km_s: 20.0,

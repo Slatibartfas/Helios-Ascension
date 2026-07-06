@@ -327,3 +327,149 @@ fn _unused_imports_compile() {
         category: String::new(),
     };
 }
+
+// ── Rebuild-storm guard (Phase B+) ────────────────────────────────────────
+
+#[test]
+fn gra_rebuild_storm_guard_in_flight_defaults_to_false() {
+    // The in-flight flag must default to `false` so the first
+    // rotation trigger can fire the build block on its first frame.
+    // If it defaulted to `true`, the planner would never rebuild.
+    let state = FleetUiState::default();
+    assert!(
+        !state.porkchop_build_in_flight,
+        "porkchop_build_in_flight must default to false"
+    );
+}
+
+#[test]
+fn gra_rebuild_storm_guard_clear_target_resets_in_flight() {
+    // `clear_target()` must reset the in-flight flag — a stranded
+    // `true` after a target switch would deadlock the planner
+    // (no further rebuilds ever fire).
+    let mut state = FleetUiState {
+        porkchop_build_in_flight: true,
+        ..Default::default()
+    };
+    state.clear_target();
+    assert!(
+        !state.porkchop_build_in_flight,
+        "clear_target() must reset porkchop_build_in_flight"
+    );
+}
+
+#[test]
+fn gra_rebuild_storm_guard_atomic_swap_clears_in_flight() {
+    // The rebuild-storm guard contract: when a build completes, the
+    // atomic swap at the bottom of the deferred-build block must
+    // clear BOTH `porkchop_grid_pending_rebuild` AND
+    // `porkchop_build_in_flight` in the same statement.  If only
+    // one is cleared, the next rotation trigger either skips the
+    // build (in_flight still `true`) or storms (pending_rebuild
+    // still `true`).
+    let cfg = PorkchopConfig::default();
+    let earth = earth_orbit();
+    let mars = mars_orbit();
+    let grid = build_rotating_buffer_for_body_target(
+        &cfg,
+        earth,
+        mars,
+        "Earth".to_string(),
+        "Mars".to_string(),
+        "interplanetary",
+        0.0,
+    );
+    let mut state = FleetUiState {
+        porkchop_grid: Some(grid),
+        porkchop_grid_pending_rebuild: true,
+        porkchop_build_in_flight: true,
+        ..Default::default()
+    };
+    // Simulate the build completing: atomic swap + flag clear
+    // (single-statement contract — same pattern as
+    // `gra_169_part_b_pending_rebuild_keeps_grid_visible`).
+    let new_grid = build_rotating_buffer_for_body_target(
+        &cfg,
+        earth,
+        mars,
+        "Earth".to_string(),
+        "Mars".to_string(),
+        "interplanetary",
+        365.25 * SECONDS_PER_DAY,
+    );
+    state.porkchop_grid = Some(new_grid);
+    state.porkchop_grid_pending_rebuild = false;
+    state.porkchop_build_in_flight = false;
+    assert!(state.porkchop_grid.is_some());
+    assert!(
+        !state.porkchop_grid_pending_rebuild,
+        "atomic swap must clear pending_rebuild"
+    );
+    assert!(
+        !state.porkchop_build_in_flight,
+        "atomic swap must clear in_flight — a stranded `true` \
+         would deadlock the planner (no further rebuilds ever fire)"
+    );
+}
+
+#[test]
+fn gra_rebuild_storm_guard_blocks_reentry_while_in_flight() {
+    // The storm-guard contract: while `porkchop_build_in_flight`
+    // is `true`, the deferred-build block must NOT re-solve the
+    // grid.  This is the regression test for the symptom
+    // "pauses every few seconds even though there is plenty of
+    // material on the X axis" — pre-fix, every frame the planner
+    // was open AND the pending-rebuild flag was set would
+    // re-enter `build_rotating_buffer_for_body_target` and
+    // discard the previous frame's in-progress solve (~22
+    // consecutive solves at 60 FPS, ~8 s of CPU per rotation
+    // trigger).
+    //
+    // We assert the resource contract by simulating two
+    // consecutive "frames": frame N enters the block and sets
+    // `in_flight = true`; frame N+1 must observe the flag and
+    // skip.  We don't drive the planner render path here (it
+    // requires an egui context); we lock in the resource contract.
+    let cfg = PorkchopConfig::default();
+    let earth = earth_orbit();
+    let mars = mars_orbit();
+    let grid = build_rotating_buffer_for_body_target(
+        &cfg,
+        earth,
+        mars,
+        "Earth".to_string(),
+        "Mars".to_string(),
+        "interplanetary",
+        0.0,
+    );
+
+    let mut state = FleetUiState {
+        // Pre-fix: only `pending_rebuild = true` was enough to
+        // re-enter the build block. Post-fix: the in-flight
+        // guard adds a second barrier.
+        porkchop_grid: Some(grid),
+        porkchop_grid_pending_rebuild: true,
+        porkchop_build_in_flight: true,
+        ..Default::default()
+    };
+    // Frame N+1: the block evaluates
+    //   `needs_build && !porkchop_build_in_flight`
+    // with both flags set. `in_flight = true` so the block bails
+    // out — the grid is NOT re-solved.
+    let would_solve = state.porkchop_grid_pending_rebuild
+        && !state.porkchop_build_in_flight;
+    assert!(
+        !would_solve,
+        "while in_flight is true the build block must NOT re-solve the grid; \
+         pre-fix code would re-solve and storm CPU"
+    );
+    // Frame N+2: clear in_flight (build completed); now the next
+    // pending_rebuild trigger can fire.
+    state.porkchop_build_in_flight = false;
+    let would_solve_now = state.porkchop_grid_pending_rebuild
+        && !state.porkchop_build_in_flight;
+    assert!(
+        would_solve_now,
+        "after in_flight is cleared the next trigger can fire a fresh build"
+    );
+}

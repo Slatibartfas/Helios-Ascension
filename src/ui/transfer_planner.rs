@@ -1463,11 +1463,25 @@ pub(super) fn render_transfer_planner(
             || fleet_ui_state.porkchop_grid_pending_rebuild)
             && fleet_ui_state.selected_gravity_assist.is_none()
             && should_build_porkchop_for_destination(body_query, target_entity);
-        if needs_build {
+        // Porkchop rebuild-storm guard (Phase B+): if a build is
+        // already in flight (we entered this block on a previous
+        // frame and the ~360 ms Lambert solve hasn't finished yet),
+        // skip the re-entry.  Without this, every frame the planner
+        // is open AND the pending-rebuild flag is set would
+        // re-solve the full 1200-cell grid from scratch — at 60 FPS
+        // a single rotation trigger fires 22 consecutive solves
+        // (~8 s of CPU) before the atomic swap lands.  The first
+        // entry below still sets `porkchop_build_in_flight = true`
+        // inside the orbit-resolved branch (so a transient
+        // `heliocentric_orbit_for_body = None` doesn't strand the
+        // flag as `true`), and the atomic swap at the end clears
+        // it.
+        if needs_build && !fleet_ui_state.porkchop_build_in_flight {
             if let (Some(origin_orbit), Some(dest_orbit)) = (
                 heliocentric_orbit_for_body(orbit.body, body_query),
                 heliocentric_orbit_for_body(target_entity, body_query),
             ) {
+                fleet_ui_state.porkchop_build_in_flight = true;
                 let origin_name = body_query
                     .get(orbit.body)
                     .ok()
@@ -1569,9 +1583,12 @@ pub(super) fn render_transfer_planner(
                 // pending-rebuild flag in a single statement.  The
                 // panel only ever observes the old grid (until now)
                 // or the new grid (from here on), never `None` —
-                // that's the no-blank-frame contract.
+                // that's the no-blank-frame contract.  Also clears
+                // `porkchop_build_in_flight` so the next rotation
+                // trigger can re-enter the build block.
                 fleet_ui_state.porkchop_grid = Some(new_grid);
                 fleet_ui_state.porkchop_grid_pending_rebuild = false;
+                fleet_ui_state.porkchop_build_in_flight = false;
                 // Stamp the build epoch so the staleness check above
                 // can decide when the grid needs refreshing.
                 fleet_ui_state.porkchop_built_at_s = Some(elapsed);
@@ -5350,6 +5367,11 @@ pub(super) fn render_transfer_planner(
                 // rotation-trigger block so the same value threads
                 // through both the staleness check and the render.
                 let time_to_window_s = f64::NAN;
+                // Phase B (TWP parity — single-texture bake):
+                // thread the planner's cached `TextureHandle` and
+                // its identity tuple through to the panel so the
+                // rebake runs only when the grid identity changes
+                // (≈ once per rotation trigger, NOT per frame).
                 super::porkchop_panel::porkchop_panel(
                     ui,
                     grid,
@@ -5358,6 +5380,8 @@ pub(super) fn render_transfer_planner(
                     fleet_max_dv,
                     time_to_window_s,
                     shift_s,
+                    &mut fleet_ui_state.porkchop_texture,
+                    &mut fleet_ui_state.porkchop_texture_built_for,
                 );
                 ui.add_space(4.0);
                 if let Some((sc, sr)) = fleet_ui_state.selected_porkchop_cell {
