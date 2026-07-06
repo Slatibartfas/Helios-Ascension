@@ -1217,8 +1217,16 @@ pub(crate) fn ui_dashboard(
                         GameMenu::Main => {
                             ui.label("Main menu options:");
                             if ui.button("🚪 Quit Game").clicked() {
-                                // TODO: Implement quit
-                                info!("Quit clicked");
+                                // Fire Bevy's `AppExit` message so the
+                                // runtime picks up the quit request the
+                                // same way the main-menu Quit button does
+                                // (see `src/ui/launch/menu.rs`). Routed
+                                // through `Commands` rather than a
+                                // dedicated `MessageWriter` parameter so
+                                // the function stays under Bevy 0.18's
+                                // `IntoSystem` parameter cap (~16).
+                                info!("Quit clicked — sending AppExit");
+                                commands.write_message(bevy::app::AppExit::Success);
                             }
                             // GRA-358 PR-C: Save Game routes through
                             // the Save Panel subview. We capture the

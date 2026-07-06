@@ -44,6 +44,15 @@ bevy_egui = { version = "0.39", features = ["render"] }
 # to resolve. Enabled through the same feature toggle.
 bevy_scene = { version = "0.18", features = ["serialize"] }
 
+# Persistence (snapshot.rs) needs to deny-list engine runtime resources
+# (AccessibilityRequested, WinitMonitors, etc.) whose inner types are not
+# reflect-serialisable. Bevy only re-exports `winit` at the top level; a11y
+# must be reached through its standalone crate. Both crates are pulled in
+# transitively via the `bevy_winit` feature on `bevy`, but we need a
+# direct entry to reference the resource types in the deny call.
+bevy_a11y = { version = "0.18", features = ["serialize"] }
+bevy_winit = { version = "0.18" }
+
 # Math and physics
 glam = "0.29"
 

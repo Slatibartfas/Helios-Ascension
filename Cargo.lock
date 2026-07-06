@@ -3235,8 +3235,10 @@ version = "0.4.0"
 dependencies = [
  "bevy",
  "bevy-inspector-egui",
+ "bevy_a11y",
  "bevy_egui",
  "bevy_scene",
+ "bevy_winit",
  "glam 0.29.3",
  "image",
  "rand",

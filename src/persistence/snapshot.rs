@@ -4,7 +4,11 @@
 //!
 //! 1. Builds a [`DynamicScene`] from the [`World`] (Bevy engine reflection
 //!    pulls every `#[reflect(Component)]` component and
-//!    `#[reflect(Resource)]` resource registered with `AppTypeRegistry`).
+//!    `#[reflect(Resource)]` resource registered with `AppTypeRegistry`),
+//!    minus a small denylist of Bevy-runtime resources whose inner
+//!    types are not (and cannot reasonably be) reflect-serialised
+//!    (e.g. `bevy_a11y::AccessibilityRequested` wraps an
+//!    `Arc<AtomicBool>` that Bevy's [`SceneSerializer`] refuses).
 //! 2. Wraps the scene in [`SceneSerializer`] and pipes it through `ron`.
 //! 3. Wraps the RON blob in a [`SaveFile`] envelope that also carries
 //!    [`SaveMetadata`] for the menu to read without parsing the body.
@@ -14,13 +18,10 @@
 //! - Atomic on-disk write (write to `.tmp` then rename) — that lands in
 //!   PR-B alongside the slot manager.
 //! - Compression — saves are KB-scale.
-//! - Filtering — PR-A snapshots *everything* registered with reflection.
-//!   Filtering specific components/resources (e.g. the renderer's
-//!   short-lived ones) is a future PR.
 
 use bevy::prelude::*;
 use bevy_scene::serde::SceneSerializer;
-use bevy_scene::DynamicScene;
+use bevy_scene::DynamicSceneBuilder;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
@@ -119,13 +120,44 @@ impl fmt::Display for SnapshotError {
 
 impl std::error::Error for SnapshotError {}
 
+/// Resources the snapshot must **skip**.
+///
+/// Bevy's `DefaultPlugins` install resources whose inner types are
+/// not reflect-serialisable:
+///
+/// - [`bevy_a11y::AccessibilityRequested`] wraps an
+///   `Arc<AtomicBool>` whose field-reflection Bevy won't register —
+///   the [`SceneSerializer`] fails when it encounters it.
+/// - [`bevy_a11y::ManageAccessibilityUpdates`] has `Reflect` + the
+///   `ReflectSerialize` type data registered, but its sibling resource
+///   triggers the same chain. We deny both for symmetry because Bevy
+///   is free to swap which one it visits first across versions.
+/// - [`bevy_winit::WinitMonitors`], [`bevy_winit::WinitSettings`],
+///   [`bevy_winit::DisplayHandleWrapper`], and
+///   [`bevy_winit::EventLoopProxyWrapper`] hold platform / event-loop
+///   handles that have no meaningful serialised form and are
+///   reconstructed on every Bevy startup anyway.
+///
+/// All of these are runtime plumbing that the player has zero
+/// observable interest in persisting — letting the in-memory state
+/// drift after the next launch is correct.
+fn configure_builder(builder: DynamicSceneBuilder) -> DynamicSceneBuilder {
+    builder
+        .deny_resource::<bevy_a11y::AccessibilityRequested>()
+        .deny_resource::<bevy_a11y::ManageAccessibilityUpdates>()
+        .deny_resource::<bevy_winit::WinitMonitors>()
+        .deny_resource::<bevy_winit::WinitSettings>()
+        .deny_resource::<bevy_winit::DisplayHandleWrapper>()
+        .deny_resource::<bevy_winit::EventLoopProxyWrapper>()
+}
+
 /// Snapshot the given [`World`] into a RON string ready to write to disk.
 ///
-/// PR-A's snapshot is unconditional — every `#[reflect(Component)]` and
-/// `#[reflect(Resource)]` type registered with `AppTypeRegistry` is
-/// included. Filtering is out of scope for this PR.
+/// PR-B's snapshot uses [`DynamicSceneBuilder`] and an internal denylist
+/// to skip Bevy-runtime resources that fail Bevy's reflect-serialise
+/// pipeline. Game state (components / resources we own) is included.
 pub fn snapshot_world(world: &World, metadata: SaveMetadata) -> Result<String, SnapshotError> {
-    let scene = DynamicScene::from_world(world);
+    let scene = configure_builder(DynamicSceneBuilder::from_world(world)).build();
 
     let registry = world
         .get_resource::<AppTypeRegistry>()
@@ -153,7 +185,7 @@ pub fn snapshot_world_with_registry(
     registry: &bevy::ecs::reflect::AppTypeRegistry,
     metadata: SaveMetadata,
 ) -> Result<String, SnapshotError> {
-    let scene = DynamicScene::from_world(world);
+    let scene = configure_builder(DynamicSceneBuilder::from_world(world)).build();
     let registry_locked = registry.read();
     let serializer = SceneSerializer::new(&scene, &registry_locked);
     let scene_ron = ron::ser::to_string_pretty(&serializer, ron::ser::PrettyConfig::default())
@@ -195,5 +227,45 @@ mod tests {
         let err = snapshot_world(&world, SaveMetadata::new_now(0, 0, "test"))
             .expect_err("missing AppTypeRegistry must error");
         assert_eq!(err, SnapshotError::MissingTypeRegistry);
+    }
+
+    #[test]
+    fn snapshot_skips_a11y_resource_inner_arc_atomic() {
+        // Regression test for the in-game save failure: the engine
+        // installs `bevy_a11y::AccessibilityRequested` whose inner
+        // `Arc<AtomicBool>` is not reflect-serialisable. Without the
+        // denylist in `configure_builder`, `SceneSerializer` blows up
+        // with "did not register the ReflectSerialize" — see the
+        // SavePanel "save serialise failed" warnings.
+        let mut world = World::new();
+        world.init_resource::<AppTypeRegistry>();
+        world.insert_resource(bevy_a11y::AccessibilityRequested::default());
+        // The presence of the resource plus our denylist must let
+        // the snapshot complete cleanly.
+        let ron = snapshot_world(&world, SaveMetadata::new_now(0, 0, "test"))
+            .expect("snapshot must skip a11y resource");
+        assert!(!ron.is_empty());
+        // Smoke check: the snapshot should NOT mention a11y types —
+        // the denylist kept them out of the scene blob.
+        assert!(
+            !ron.contains("AccessibilityRequested"),
+            "denylist failed — a11y resource serialised into save: {ron}"
+        );
+    }
+
+    #[test]
+    fn snapshot_skips_winit_resources() {
+        // `bevy_winit` resources hold platform/event-loop handles
+        // that have no business in a save file. Confirm the denylist
+        // covers them so a save doesn't depend on transient Bevy
+        // internals.
+        let mut world = World::new();
+        world.init_resource::<AppTypeRegistry>();
+        world.init_resource::<bevy_winit::WinitSettings>();
+        world.init_resource::<bevy_winit::WinitMonitors>();
+        let ron = snapshot_world(&world, SaveMetadata::new_now(0, 0, "test"))
+            .expect("snapshot must skip winit resources");
+        assert!(!ron.contains("WinitSettings"));
+        assert!(!ron.contains("WinitMonitors"));
     }
 }
