@@ -296,10 +296,17 @@ fn is_stellar_mass(mass_kg: f64) -> bool {
 /// sim doesn't fire the staleness check on every frame — at 60 FPS
 /// that would be 60 rebuilds per real second × ~360 ms per rebuild =
 /// 21.6 s of CPU per real second, which would saturate one core.
-/// 1 real second is the floor that keeps the planner's CPU footprint
-/// under ~36 % even at the highest sim speed (1 yr/s = 1 sim year per
-/// real second → 1 rebuild per real second).
-const PORKCHOP_STALENESS_REAL_FLOOR_S: f64 = 1.0;
+/// 5 real seconds is the floor that keeps the planner's CPU footprint
+/// under ~7 % even at the highest sim speed (1 yr/s = 1 sim year per
+/// real second → 1 rebuild every 5 real seconds).  At 1 yr/s, planet
+/// positions shift ~2π rad per real second, so a 1-real-second floor
+/// produced a visible jump every second (texture rebake + transfer
+/// preview arc rebuild) the user reported.  The 5-real-second floor
+/// matches the cadence at which orbital ΔV differences become
+/// *meaningful* (a few minutes of real time = hours of sim time at
+/// 1 yr/s) and aligns with the staleness tests' "5-real-second"
+/// comments throughout this module.
+const PORKCHOP_STALENESS_REAL_FLOOR_S: f64 = 5.0;
 
 /// Compute the Hill-sphere radius (AU) of a secondary body orbiting a much more
 /// massive primary. `a_au` is the secondary's orbital radius around the primary,
@@ -8707,10 +8714,10 @@ mod tests {
         // rebuild fires every 5 real seconds.
         let built = 0.0;
         let (last_real, real_now) = real_floor_satisfied(WEEK_PER_S_TIME_SCALE);
-        // 35 sim days after build (= 5 real seconds at 1 wk/s).
-        // Effective sim cap (35 sim days) is past; real floor is past.
-        // Stale.
-        let elapsed = 35.0 * 86_400.0;
+        // 36 sim days after build (= 5.14 real seconds at 1 wk/s).
+        // Effective sim cap is 35 sim days (strict `>` comparator);
+        // 36 sim days is strictly past, real floor satisfied. Stale.
+        let elapsed = 36.0 * 86_400.0;
         assert!(super::porkchop_grid_is_stale(
             Some(built),
             elapsed,
