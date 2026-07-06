@@ -79,9 +79,17 @@ pub fn main_menu_render_system(
     // on the same resource, so we deref the `ResMut` instead.
     let current_state = *launch_state;
 
-    // Gate: only render in menu states. Splash (PR-B) owns Splash,
-    // and the in-game UI panel chain owns everything from `InGame`.
-    if !is_menu_state(current_state) {
+    // Gate: only render the shell in `MainMenu`. Subviews
+    // (`NewGame`, `LoadGame`, `Settings`, `SaveGame`) own the full
+    // central-panel content for their state — drawing the menu
+    // shell behind them causes `egui::CentralPanel::default()` ID
+    // collisions because both panels share `Id::NULL` as their
+    // parent, which manifests as duplicate widget IDs and (most
+    // importantly for Save Panel) the hidden Quit button getting
+    // activated when the player presses Back. Splash (PR-B) owns
+    // Splash, and the in-game UI chain owns everything from
+    // `InGame`.
+    if current_state != LaunchState::MainMenu {
         return;
     }
 
@@ -128,15 +136,22 @@ pub fn main_menu_render_system(
         });
 }
 
-/// True when the menu shell should render.
+/// True when the launch flow is *not* past the menu — i.e. the
+/// player is still on a shell (menu or splash) or in a subview that
+/// the menu render system should keep its hands off.
 ///
-/// Matches GRA-309 §3.4: `MainMenu` is the canonical resting state;
-/// `NewGame / LoadGame / Settings / SaveGame` show the same shell
-/// underneath the subview (subview content lands in PR-D / PR-C).
+/// Used by the keyboard-shortcut handler and the in-game chrome gate
+/// to decide whether digit-row bindings + ESC are safe to consume.
+/// NOTE: this is **not** used as the render-system gate any more —
+/// `main_menu_render_system` early-returns strictly on `MainMenu`
+/// (subviews own their full central-panel content; rendering the
+/// shell behind a subview causes egui widget-ID collisions that
+/// trigger spurious Quit presses).
 fn is_menu_state(state: LaunchState) -> bool {
     matches!(
         state,
-        LaunchState::MainMenu
+        LaunchState::Splash
+            | LaunchState::MainMenu
             | LaunchState::NewGame
             | LaunchState::LoadGame
             | LaunchState::Settings
@@ -431,12 +446,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn menu_state_predicate_only_matches_menu_variants() {
+    fn menu_state_predicate_matches_all_pre_in_game_states() {
+        // Splash and every menu shell / subview variant — used as the
+        // keyboard-shortcut guard.
+        assert!(is_menu_state(LaunchState::Splash));
         assert!(is_menu_state(LaunchState::MainMenu));
         assert!(is_menu_state(LaunchState::NewGame));
         assert!(is_menu_state(LaunchState::LoadGame));
         assert!(is_menu_state(LaunchState::Settings));
-        assert!(!is_menu_state(LaunchState::Splash));
+        assert!(is_menu_state(LaunchState::SaveGame));
         assert!(!is_menu_state(LaunchState::InGame));
     }
 
