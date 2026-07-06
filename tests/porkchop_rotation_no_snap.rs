@@ -28,7 +28,7 @@
 use bevy::prelude::*;
 use helios_ascension::astronomy::KeplerOrbit;
 use helios_ascension::fleets::orbital_mechanics::GM_SUN;
-use helios_ascension::fleets::porkchop::{build_rotating_buffer_for_body_target, PorkchopInputs};
+use helios_ascension::fleets::porkchop::{build_rotating_buffer_for_body_target, PorkchopGrid, PorkchopInputs};
 use helios_ascension::fleets::PorkchopConfig;
 use helios_ascension::ui::FleetUiState;
 
@@ -471,5 +471,97 @@ fn gra_rebuild_storm_guard_blocks_reentry_while_in_flight() {
     assert!(
         would_solve_now,
         "after in_flight is cleared the next trigger can fire a fresh build"
+    );
+}
+
+// ── Async-build receiver contract (Phase B++) ────────────────────────────
+
+#[test]
+fn gra_async_build_receiver_defaults_to_none() {
+    // The async-build receiver must default to `None` so the first
+    // rotation trigger spawns a worker thread.  If it defaulted
+    // to `Some(empty receiver)`, the polling block would `try_recv`
+    // an immediate `Disconnected` and the build would deadlock.
+    let state = FleetUiState::default();
+    assert!(
+        state.porkchop_build_result_rx.is_none(),
+        "porkchop_build_result_rx must default to None"
+    );
+}
+
+#[test]
+fn gra_async_build_clear_target_drops_receiver() {
+    // `clear_target()` must drop the receiver — a stranded
+    // `Some(_)` after a target switch would either:
+    //   (a) cause the polling block to keep polling the old
+    //       channel and the worker's `tx.send(grid)` would
+    //       succeed but the grid would be for the wrong target,
+    //   (b) hit `Disconnected` and re-spawn indefinitely.
+    // Both are bugs.  The resource contract: `clear_target` sets
+    // the field to `None`.
+    let (tx, rx) = std::sync::mpsc::channel::<PorkchopGrid>();
+    drop(tx); // disconnected — but the field is still `Some(_)`
+    let mut state = FleetUiState {
+        porkchop_build_result_rx: Some(std::sync::Mutex::new(rx)),
+        ..Default::default()
+    };
+    state.clear_target();
+    assert!(
+        state.porkchop_build_result_rx.is_none(),
+        "clear_target() must drop porkchop_build_result_rx"
+    );
+}
+
+#[test]
+fn gra_async_build_polling_blocks_until_worker_finishes() {
+    // End-to-end async-build smoke test: spawn a worker that
+    // sends a small delay then a grid; assert the polling block
+    // returns `Empty` while the worker is running, then `Ok(grid)`
+    // after the worker finishes.
+    //
+    // This drives the actual std::thread + mpsc::channel path
+    // used by `transfer_planner.rs` to verify the contract
+    // without spinning up a Bevy world.
+    use std::sync::mpsc;
+    use std::time::Duration;
+    let (tx, rx) = mpsc::channel::<PorkchopGrid>();
+    let worker = std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(50));
+        let cfg = PorkchopConfig::default();
+        let earth = earth_orbit();
+        let mars = mars_orbit();
+        let grid = build_rotating_buffer_for_body_target(
+            &cfg,
+            earth,
+            mars,
+            "Earth".to_string(),
+            "Mars".to_string(),
+            "interplanetary",
+            0.0,
+        );
+        let _ = tx.send(grid);
+    });
+
+    // Wrap the receiver in the same `Mutex` used in
+    // `FleetUiState` so the test exercises the real access pattern.
+    let rx_lock = std::sync::Mutex::new(rx);
+
+    // Poll once immediately — the worker has a 50 ms delay, so
+    // the channel is empty.
+    let r1 = rx_lock.lock().unwrap().try_recv();
+    assert!(
+        matches!(r1, Err(mpsc::TryRecvError::Empty)),
+        "try_recv before worker finishes must be Empty, got {r1:?}"
+    );
+
+    // Wait for the worker.
+    worker.join().expect("worker thread panicked");
+
+    // Poll again — the worker has sent, so we get the grid.
+    let r2 = rx_lock.lock().unwrap().try_recv();
+    let grid = r2.expect("try_recv after worker finishes must be Ok");
+    assert!(
+        grid.cells.iter().any(|c| c.feasible),
+        "async-built grid must have at least one feasible cell"
     );
 }

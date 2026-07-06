@@ -1452,6 +1452,103 @@ pub(super) fn render_transfer_planner(
         // will swap it once the new one is ready.
     }
     if let Some(target_entity) = fleet_ui_state.target_body {
+        // Async build (Phase B++): if a worker thread has finished
+        // its solve, receive the result and atomically swap it into
+        // `porkchop_grid`.  `try_recv()` is non-blocking — if the
+        // worker is still solving we just continue, no main-thread
+        // stall.  This replaces the previous synchronous-solve path
+        // that blocked the egui pass for ~360 ms per rotation
+        // trigger (visible as a "short break in game progress" at
+        // high sim speeds).
+        if let Some(rx_lock) = fleet_ui_state.porkchop_build_result_rx.as_ref() {
+            // Lock briefly to call `try_recv()`. The lock is held
+            // only for the duration of the call, so contention with
+            // the worker thread (which never touches the receiver)
+            // is zero.
+            let try_recv_result = rx_lock.lock().ok().map(|rx| rx.try_recv());
+            match try_recv_result {
+                Some(Ok(new_grid)) => {
+                    // Re-anchor `selected_porkchop_cell` after
+                    // rotation: search the new buffer for the cell
+                    // whose `(abs_t_dep, abs_tof)` is closest to
+                    // the recorded anchors, and update `(sc, sr)`
+                    // so the user's selection stays on the same
+                    // physical cell across rotations.  Without
+                    // this the same `(sc, sr)` lands on a
+                    // different abs t_dep in the new buffer and
+                    // the selected cell's ΔV appears to "jump"
+                    // by 1-3 km/s every rotation.
+                    if let (Some(abs_t_dep), Some(abs_tof)) = (
+                        fleet_ui_state.selected_abs_t_dep_s,
+                        fleet_ui_state.selected_abs_tof_s,
+                    ) {
+                        let (cols_b, rows_b) = new_grid.resolution;
+                        if cols_b > 0 && rows_b > 0 {
+                            let col_step = (new_grid.t_dep_bounds_s.1
+                                - new_grid.t_dep_bounds_s.0)
+                                / cols_b as f64;
+                            let tof_step = (new_grid.tof_bounds_s.1
+                                - new_grid.tof_bounds_s.0)
+                                / rows_b as f64;
+                            let t_dep_min_abs = elapsed;
+                            let t_of_min_abs = new_grid.tof_bounds_s.0;
+                            let mut best: Option<(usize, usize, f64)> = None;
+                            for r in 0..rows_b {
+                                for c in 0..cols_b {
+                                    let cell_t_dep_abs =
+                                        t_dep_min_abs + (c as f64) * col_step;
+                                    let cell_t_of =
+                                        t_of_min_abs + (r as f64) * tof_step;
+                                    let dt = (cell_t_dep_abs - abs_t_dep).abs();
+                                    let dtof = (cell_t_of - abs_tof).abs();
+                                    let err = dt + dtof * 0.01;
+                                    if best.is_none() || err < best.unwrap().2 {
+                                        best = Some((c, r, err));
+                                    }
+                                }
+                            }
+                            if let Some((c, r, _)) = best {
+                                fleet_ui_state.selected_porkchop_cell = Some((c, r));
+                            }
+                        }
+                    }
+                    // Atomic swap: replace the cached grid and clear
+                    // the pending-rebuild flag in a single statement.
+                    // The panel only ever observes the old grid
+                    // (until now) or the new grid (from here on),
+                    // never `None` — that's the no-blank-frame
+                    // contract.  Also clears `porkchop_build_in_flight`
+                    // and drops the receiver so the next rotation
+                    // trigger can spawn a fresh worker.
+                    fleet_ui_state.porkchop_grid = Some(new_grid);
+                    fleet_ui_state.porkchop_grid_pending_rebuild = false;
+                    fleet_ui_state.porkchop_build_in_flight = false;
+                    fleet_ui_state.porkchop_build_result_rx = None;
+                    fleet_ui_state.porkchop_built_at_s = Some(elapsed);
+                    fleet_ui_state.porkchop_last_real_build_s = Some(real_now_s);
+                    fleet_ui_state.porkchop_built_for = Some(target_entity);
+                }
+                Some(Err(std::sync::mpsc::TryRecvError::Empty)) => {
+                    // Worker still solving — do nothing. The build
+                    // is "in flight" and the storm guard below
+                    // prevents re-spawn.
+                }
+                Some(Err(std::sync::mpsc::TryRecvError::Disconnected)) => {
+                    // Worker panicked or the sender was dropped.
+                    // Clear the flags so the next frame re-spawns.
+                    fleet_ui_state.porkchop_build_in_flight = false;
+                    fleet_ui_state.porkchop_build_result_rx = None;
+                    // Leave `porkchop_grid_pending_rebuild = true`
+                    // so the next frame re-attempts the build.
+                }
+                None => {
+                    // Mutex was poisoned (a thread panicked while
+                    // holding the lock). Treat as disconnected.
+                    fleet_ui_state.porkchop_build_in_flight = false;
+                    fleet_ui_state.porkchop_build_result_rx = None;
+                }
+            }
+        }
         // GRA-169 (Part B): trigger the build whenever the grid is
         // missing OR a pending rebuild is queued.  In the pending
         // case the *old* grid stays in `porkchop_grid` while this
@@ -1512,99 +1609,51 @@ pub(super) fn render_transfer_planner(
                     dest_parent,
                     origin_parent,
                 );
-                // GRA-169 (Part B): build the new grid into a local
-                // first so the *previous* grid stays in
-                // `fleet_ui_state.porkchop_grid` for the panel to
-                // render during the ~360 ms solve.  The swap +
-                // flag-clear at the bottom of this block is one
-                // statement so the panel never sees a `None`
-                // intermediate.  Re-anchor logic below also runs
-                // against the new local grid.
-                let new_grid = build_rotating_buffer_for_body_target(
-                    porkchop_config,
-                    origin_orbit,
-                    dest_orbit,
-                    origin_name,
-                    dest_name,
-                    category,
-                    elapsed,
-                );
-                // Re-anchor `selected_porkchop_cell` after rotation:
-                // search the new buffer for the cell whose
-                // `(abs_t_dep, abs_tof)` is closest to the recorded
-                // anchors, and update `(sc, sr)` so the user's
-                // selection stays on the same physical cell across
-                // rotations.  Without this the same `(sc, sr)` lands
-                // on a different abs t_dep in the new buffer and
-                // the selected cell's ΔV appears to "jump" by 1-3 km/s
-                // every rotation.
-                if let (Some(abs_t_dep), Some(abs_tof)) = (
-                    fleet_ui_state.selected_abs_t_dep_s,
-                    fleet_ui_state.selected_abs_tof_s,
-                ) {
-                    let (cols_b, rows_b) = new_grid.resolution;
-                    if cols_b > 0 && rows_b > 0 {
-                        let col_step =
-                            (new_grid.t_dep_bounds_s.1 - new_grid.t_dep_bounds_s.0) / cols_b as f64;
-                        let tof_step =
-                            (new_grid.tof_bounds_s.1 - new_grid.tof_bounds_s.0) / rows_b as f64;
-                        // The grid's t_dep_bounds_s.0 is a nominal
-                        // anchor at 0.0 — the *absolute* t_dep of cell c
-                        // is `elapsed + c * col_step` (the planet-position
-                        // fix in `solve_cell` uses `inputs.sim_time_s +
-                        // t_dep_s` for the orbit propagation). Use
-                        // `elapsed` as the offset, NOT
-                        // `new_grid.t_dep_bounds_s.0` (= 0), or the
-                        // re-anchor finds a cell whose t_dep is off
-                        // by `elapsed` and the cell content (planet
-                        // position, Lambert ΔV) silently differs from
-                        // the cell the user actually clicked.
-                        let t_dep_min_abs = elapsed;
-                        let t_of_min_abs = new_grid.tof_bounds_s.0;
-                        let mut best: Option<(usize, usize, f64)> = None;
-                        for r in 0..rows_b {
-                            for c in 0..cols_b {
-                                let cell_t_dep_abs = t_dep_min_abs + (c as f64) * col_step;
-                                let cell_t_of = t_of_min_abs + (r as f64) * tof_step;
-                                let dt = (cell_t_dep_abs - abs_t_dep).abs();
-                                let dtof = (cell_t_of - abs_tof).abs();
-                                let err = dt + dtof * 0.01;
-                                if best.is_none() || err < best.unwrap().2 {
-                                    best = Some((c, r, err));
-                                }
-                            }
-                        }
-                        if let Some((c, r, _)) = best {
-                            fleet_ui_state.selected_porkchop_cell = Some((c, r));
-                        }
-                    }
-                }
-                // Atomic swap: replace the cached grid and clear the
-                // pending-rebuild flag in a single statement.  The
-                // panel only ever observes the old grid (until now)
-                // or the new grid (from here on), never `None` —
-                // that's the no-blank-frame contract.  Also clears
-                // `porkchop_build_in_flight` so the next rotation
-                // trigger can re-enter the build block.
-                fleet_ui_state.porkchop_grid = Some(new_grid);
-                fleet_ui_state.porkchop_grid_pending_rebuild = false;
-                fleet_ui_state.porkchop_build_in_flight = false;
-                // Stamp the build epoch so the staleness check above
-                // can decide when the grid needs refreshing.
-                fleet_ui_state.porkchop_built_at_s = Some(elapsed);
-                // Stamp the wall-clock epoch so the real-time
-                // floor in `porkchop_grid_is_stale` can rate-limit
-                // rebuilds at intermediate sim speeds (1 wk/s,
-                // 1 day/s) where the sim-time cap alone would
-                // gate the rebuild on a 52-72 real-second
-                // interval that reads as "the grid is frozen".
-                fleet_ui_state.porkchop_last_real_build_s = Some(real_now_s);
-                // Stamp the build target so the staleness check can
-                // also detect when the player switches destinations
-                // through a non-click entry point (3D right-click,
-                // hotkeys, automation) that doesn't fire the
-                // planner's per-frame rebuild path.
-                fleet_ui_state.porkchop_built_for = Some(target_entity);
+                // Async build (Phase B++): spawn a worker thread
+                // to solve the Lambert grid off the main thread.
+                // The egui pass continues immediately; the polling
+                // block above `try_recv()`s the result on every
+                // subsequent frame and atomically swaps it in.  This
+                // eliminates the previous ~360 ms main-thread
+                // block that read as a "short break in game
+                // progress" the user reported at high sim speeds.
+                //
+                // We clone `porkchop_config` because `&PorkchopConfig`
+                // borrows from the Bevy `Res<PorkchopConfig>` whose
+                // lifetime is tied to the world — can't safely
+                // cross a thread boundary without 'static.  The
+                // config is small (a few KB) so the clone is cheap.
+                let cfg = porkchop_config.clone();
+                let (tx, rx) = std::sync::mpsc::channel();
+                std::thread::Builder::new()
+                    .name("porkchop-build".to_string())
+                    .spawn(move || {
+                        let grid = build_rotating_buffer_for_body_target(
+                            &cfg,
+                            origin_orbit,
+                            dest_orbit,
+                            origin_name,
+                            dest_name,
+                            category,
+                            elapsed,
+                        );
+                        // `tx.send` returns Err if the receiver was
+                        // dropped (e.g. target changed mid-solve) —
+                        // we discard the grid in that case.  The
+                        // receiver-side polling block also detects
+                        // disconnection and clears `in_flight`.
+                        let _ = tx.send(grid);
+                    })
+                    .expect("failed to spawn porkchop-build thread");
+                fleet_ui_state.porkchop_build_in_flight = true;
+                // Wrap the receiver in a `Mutex` so the
+                // `FleetUiState` resource remains `Send + Sync`
+                // (required by Bevy). The lock is held only briefly
+                // inside the polling block's `try_recv()` call.
+                fleet_ui_state.porkchop_build_result_rx = Some(std::sync::Mutex::new(rx));
+                // Re-anchor logic + atomic swap moved to the
+                // polling block at the top of this `if let Some(target_entity)`
+                // section — see the comment there for why.
             }
         }
     }
@@ -5370,8 +5419,11 @@ pub(super) fn render_transfer_planner(
                 // Phase B (TWP parity — single-texture bake):
                 // thread the planner's cached `TextureHandle` and
                 // its identity tuple through to the panel so the
-                // rebake runs only when the grid identity changes
-                // (≈ once per rotation trigger, NOT per frame).
+                // rebake runs only when the grid identity changes.
+                // The identity uses `target_body` (NOT the
+                // `t_dep_bounds_s.0` anchor — that shifted every
+                // rotation trigger and caused the visible "jump
+                // every second" the user reported).
                 super::porkchop_panel::porkchop_panel(
                     ui,
                     grid,
@@ -5380,6 +5432,7 @@ pub(super) fn render_transfer_planner(
                     fleet_max_dv,
                     time_to_window_s,
                     shift_s,
+                    fleet_ui_state.target_body,
                     &mut fleet_ui_state.porkchop_texture,
                     &mut fleet_ui_state.porkchop_texture_built_for,
                 );

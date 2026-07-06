@@ -55,16 +55,23 @@ pub fn porkchop_panel(
     // the planner invalidates the cache and rebuilds.  Pass 0.0 for
     // the non-rotating-buffer case.
     shift_s: f64,
+    // Target body for the current grid — the planner's
+    // `fleet_ui_state.target_body`.  Used as the **stable**
+    // component of the texture-bake identity (see the identity
+    // comment at the bake site below).  Pass the current
+    // target entity; `None` while the planner has no target.
+    target_body: Option<Entity>,
     // Phase B (TWP parity — single-texture bake): the planner's
     // cached `TextureHandle` and the identity tuple
-    // `(built_at_sim_s, built_for_entity)` it was baked for.  The
+    // `(target_body, resolution, min_cell)` it was baked for. The
     // panel rebakes when the identity tuple changes (i.e. when the
-    // deferred-build block swaps in a fresh `PorkchopGrid`); on
-    // every other frame it just re-uses the cached handle.  The
-    // cached handle is `Some(...)` for the steady state; the
-    // planner initialises both fields as `None`.
+    // deferred-build block swaps in a fresh `PorkchopGrid` whose
+    // target/resolution/min-cell differs); on every other frame it
+    // just re-uses the cached handle. The cached handle is `Some(...)`
+    // for the steady state; the planner initialises both fields as
+    // `None`.
     texture_cache: &mut Option<egui::TextureHandle>,
-    texture_built_for: &mut Option<(f64, Option<(usize, usize)>)>,
+    texture_built_for: &mut Option<(Option<Entity>, (usize, usize), Option<(usize, usize)>)>,
 ) -> Response {
     let (cols, rows) = grid.resolution;
     if cols == 0 || rows == 0 {
@@ -283,15 +290,24 @@ pub fn porkchop_panel(
     // boundaries instead of the per-cell rect banding the user
     // reported.
     //
-    // Identity: the grid's `(t_dep_bounds_s.0, min_cell)` is
-    // unique per build (the anchor shifts every rotation; the
-    // min cell shifts with phase).  We compare against the
-    // cached `texture_built_for` and rebake on mismatch.  An
-    // Entity would be a more stable identity but it isn't
-    // threaded into the panel signature; the bounds anchor is
-    // good enough since it changes every build.
-    let grid_identity: (f64, Option<(usize, usize)>) =
-        (grid.t_dep_bounds_s.0, grid.min_cell);
+    // Identity: `(target_body, grid.resolution, grid.min_cell)`.
+    // Crucially we do NOT use `t_dep_bounds_s.0` (which is the
+    // absolute sim-time anchor at build time — it shifts every
+    // rotation trigger, ~1 real-second at 1 hr/s, causing a
+    // rebake every second). The Lambert-solve cell content is
+    // determined by `(col_frac, row_frac)` in the buffer, NOT by
+    // the absolute anchor; rotation produces visually-equivalent
+    // colours. So the texture only needs to rebake when:
+    //   * target body changes (`target_body`),
+    //   * grid resolution changes (config-driven, rare), or
+    //   * the cheapest feasible cell shifts by more than a pixel
+    //     (`min_cell`).
+    // Each of these is a stable signal across rotations. The
+    // texture upload (which runs synchronously in
+    // `EguiPrimaryContextPass` and is the source of the visible
+    // "jump every second") only fires on these rare events.
+    let grid_identity: (Option<Entity>, (usize, usize), Option<(usize, usize)>) =
+        (target_body, grid.resolution, grid.min_cell);
     let identity_mismatch = texture_cache.is_none()
         || texture_built_for.as_ref() != Some(&grid_identity);
     if identity_mismatch {

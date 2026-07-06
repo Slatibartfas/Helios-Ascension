@@ -328,6 +328,25 @@ pub struct FleetUiState {
     /// solve per frame (≈22 solves at 60 FPS).  Cleared alongside
     /// `porkchop_grid_pending_rebuild` at the atomic swap.
     pub porkchop_build_in_flight: bool,
+    /// Async porkchop build (Phase B++): the receiving end of the
+    /// `mpsc::channel` from the worker thread that solves the
+    /// Lambert grid off the main thread.  When `Some(_)`, the
+    /// worker is running; the per-frame block polls
+    /// `try_recv()` and atomically swaps the result into
+    /// `porkchop_grid` when ready.  When `None`, no worker is
+    /// running.  Replaces the old synchronous-solve path that
+    /// blocked the egui pass for ~360 ms per rotation trigger
+    /// (visible as a "short break in game progress" the user
+    /// reported at high sim speeds).
+    ///
+    /// The receiver is wrapped in a `Mutex` because Bevy requires
+    /// `Resource` types to be `Send + Sync`, and `mpsc::Receiver`
+    /// is `!Sync` by design (it's a single-consumer channel).  We
+    /// only lock briefly inside `try_recv()`, so contention is
+    /// negligible — the receiver is read from exactly one thread
+    /// (the egui main thread) at any given moment.
+    pub porkchop_build_result_rx:
+        Option<std::sync::Mutex<std::sync::mpsc::Receiver<crate::fleets::porkchop::PorkchopGrid>>>,
     /// Phase B (TWP parity — single-texture bake): cached
     /// `egui::TextureHandle` for the current porkchop grid, keyed
     /// on the grid's identity (`(porkchop_built_at_s,
@@ -347,7 +366,8 @@ pub struct FleetUiState {
     /// on every render; mismatch triggers a re-bake.  The pair
     /// is unique per build without needing to thread `Entity`
     /// into the panel signature.
-    pub porkchop_texture_built_for: Option<(f64, Option<(usize, usize)>)>,
+    pub porkchop_texture_built_for:
+        Option<(Option<Entity>, (usize, usize), Option<(usize, usize)>)>,
     /// GRA-343 (GRA-328b): cached cross-system Hohmann grid for the
     /// current `(system_id)` target.  Populated by
     /// `try_build_cross_system_hohmann` in `transfer_planner.rs` when
@@ -446,6 +466,12 @@ impl FleetUiState {
         self.porkchop_last_real_build_s = None;
         self.porkchop_grid_pending_rebuild = false;
         self.porkchop_build_in_flight = false;
+        // Async build (Phase B++): drop the receiver. The worker
+        // thread, if any, will continue solving in the background
+        // and try_send into a now-dropped channel — `Sender::send`
+        // returns Err but the thread doesn't panic. The next
+        // target's build will spawn a fresh worker.
+        self.porkchop_build_result_rx = None;
         // Phase B: drop the cached texture handle so a target
         // switch forces a fresh upload (the next render will
         // detect the identity mismatch and re-bake).
