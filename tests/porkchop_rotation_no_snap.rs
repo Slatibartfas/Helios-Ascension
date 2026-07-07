@@ -372,6 +372,7 @@ fn gra_rebuild_storm_guard_clear_target_resets_in_flight() {
 /// the cell is selected), and passed to
 /// `predict_body_visual_pos(origin, current_sim_s, departure_s,
 /// ...)`.
+#[allow(dead_code)] // helper for future cell-coordinate tests; not used by current ones
 fn cell_abs_t_dep(grid: &PorkchopGrid, sc: usize) -> f64 {
     let (cols, _) = grid.resolution;
     let col_step = (grid.t_dep_bounds_s.1 - grid.t_dep_bounds_s.0) / cols as f64;

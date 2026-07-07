@@ -228,11 +228,6 @@ fn build_palette_ramp(log_min: f64, log_max: f64, ramp_size: usize) -> Vec<Color
     out
 }
 
-/// `Color32` → Bevy `Color` conversion lives at
-/// `crate::ui::theme::color32_to_bevy` so callers (tests, diagnostic
-/// dumps) import it from there directly — the audit-funnel rationale
-/// for keeping colour literals out of this module holds.
-
 #[cfg(test)]
 mod tests {
     use super::*;
