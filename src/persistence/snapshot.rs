@@ -122,7 +122,6 @@ impl std::error::Error for SnapshotError {}
 
 /// Resources the snapshot must **skip**.
 ///
-/// Bevy's `DefaultPlugins` install resources whose inner types are
 /// not reflect-serialisable:
 ///
 /// - [`bevy_a11y::AccessibilityRequested`] wraps an
@@ -141,14 +140,107 @@ impl std::error::Error for SnapshotError {}
 /// All of these are runtime plumbing that the player has zero
 /// observable interest in persisting — letting the in-memory state
 /// drift after the next launch is correct.
-fn configure_builder(builder: DynamicSceneBuilder) -> DynamicSceneBuilder {
+fn collect_all_entities(world: &World) -> Vec<bevy::prelude::Entity> {
+    // Bevy 0.18 doesn't expose a public iterator over every entity
+    // regardless of archetype (the `iter_entities` method was
+    // moved to `RenderPhase` for the render crate).  Walk the
+    // world's `Entities` metadata array directly — each entry's
+    // `location: Option<EntityLocation>` is `Some` iff the entity
+    // is currently spawned, so we filter for those and reconstruct
+    // the `Entity` from `index + generation`.
+    //
+    // SAFETY: `world.entities()` returns `&Entities`, which exposes
+    // its `meta` field as a `pub(crate)` accessor.  We access the
+    // array through `EntityMeta` in read-only fashion (no mutation
+    // of the entity allocator) so the safety contract is satisfied
+    // by the immutable borrow — no concurrent mutation can race
+    // with us while the borrow lasts.
+    let entities = world.entities();
+    let mut out = Vec::with_capacity(entities.len() as usize);
+    // `Entities::meta` is `Vec<EntityMeta>`; `EntityMeta::location`
+    // is `Option<EntityLocation>` — `Some` means spawned.  Use the
+    // public `get_spawned`-via-`resolve_from_index` round-trip
+    // rather than poking at private fields.
+    for index in 0..entities.len() as u32 {
+        // `u32::MAX` is reserved as a "no entity" sentinel by
+        // Bevy's entity allocator, so `EntityIndex::from_raw_u32`
+        // would return `None`.  Skip it explicitly.
+        if index == u32::MAX {
+            continue;
+        }
+        let entity = entities.resolve_from_index(
+            bevy::ecs::entity::EntityIndex::from_raw_u32(index)
+                .expect("checked against u32::MAX above"),
+        );
+        if entities.contains_spawned(entity) {
+            out.push(entity);
+        }
+    }
+    out
+}
+
+fn configure_builder<'a>(
+    entities: &[bevy::prelude::Entity],
+    builder: DynamicSceneBuilder<'a>,
+) -> DynamicSceneBuilder<'a> {
+    // Bevy 0.18's `DynamicSceneBuilder::from_world` returns an
+    // empty scene by default — every entity must be passed through
+    // `extract_entities(...)` and every resource through
+    // `extract_resources()`.  We snapshot the full world (all
+    // entities, all reflect-registered resources) so colony /
+    // fleet / time-scale state round-trips.  The denylist below
+    // carves out the Bevy-runtime plumbing we don't want
+    // persisting (a11y / winit handles).
+    //
+    // Why this matters: pre-fix code called `from_world(world)`
+    // without `extract_entities(...)`, which produced an empty
+    // entity list.  Restoring a save then deserialised into zero
+    // entities, breaking every world-state test that expected
+    // round-tripped components.  The same applied to resources
+    // (the doc-comment on `NewGameParams` claimed
+    // `#[serde(default)]` everywhere, but the persistence
+    // round-trip path wasn't extracting resources at all).
+    //
+    // Entity IDs are collected by `collect_all_entities` (so
+    // `World` doesn't need a `&mut` borrow here — `World::query
+    //::<Entity>()` wants `&mut World` in Bevy 0.18) and passed in
+    // as a slice.
     builder
+        .extract_entities(entities.iter().copied())
+        // IMPORTANT: apply the resource denylist BEFORE calling
+        // `extract_resources()`.  `extract_resources` reads the
+        // filter to decide which resource type-IDs to skip, so
+        // denying after extraction would let every resource
+        // (including the engine-runtime `Time<T>` family with
+        // their non-reflect-serialisable `Instant`/`Duration`
+        // fields) slip through.  See the full rationale on each
+        // denied type below.
         .deny_resource::<bevy_a11y::AccessibilityRequested>()
         .deny_resource::<bevy_a11y::ManageAccessibilityUpdates>()
         .deny_resource::<bevy_winit::WinitMonitors>()
         .deny_resource::<bevy_winit::WinitSettings>()
         .deny_resource::<bevy_winit::DisplayHandleWrapper>()
         .deny_resource::<bevy_winit::EventLoopProxyWrapper>()
+        // `bevy_time::Time<T>` (where `T` defaults to the unit
+        // type `()` and is `Real`/`Virtual`/`Fixed` for the
+        // engine's wall-clock / step-clock resources) each hold
+        // an `Instant`/`Duration` field that doesn't carry
+        // `ReflectSerialize` type data; serialising raises "type
+        // `Instant` did not register the `ReflectSerialize`" and
+        // the snapshot returns `Err("save serialise failed: …")`.
+        // Time is a wall-clock / step-clock runtime concept that
+        // has no meaningful save-time value (a freshly-launched
+        // app starts at t=0 anyway), so deny all four flavours
+        // — including the unit-defaulted `Time<()>` — like the
+        // a11y / winit resources above.  `TimeUpdateStrategy` is
+        // a sibling resource that needs the same denylist because
+        // it shapes the same wall-clock control flow.
+        .deny_resource::<bevy_time::Time<()>>()
+        .deny_resource::<bevy_time::Time<bevy_time::Real>>()
+        .deny_resource::<bevy_time::Time<bevy_time::Virtual>>()
+        .deny_resource::<bevy_time::Time<bevy_time::Fixed>>()
+        .deny_resource::<bevy_time::TimeUpdateStrategy>()
+        .extract_resources()
 }
 
 /// Snapshot the given [`World`] into a RON string ready to write to disk.
@@ -157,11 +249,20 @@ fn configure_builder(builder: DynamicSceneBuilder) -> DynamicSceneBuilder {
 /// to skip Bevy-runtime resources that fail Bevy's reflect-serialise
 /// pipeline. Game state (components / resources we own) is included.
 pub fn snapshot_world(world: &World, metadata: SaveMetadata) -> Result<String, SnapshotError> {
-    let scene = configure_builder(DynamicSceneBuilder::from_world(world)).build();
-
+    // AppTypeRegistry is required by both `extract_entities` and
+    // `extract_resources` (each calls `self.original_world.resource
+    // ::<AppTypeRegistry>().read()` internally).  Fail fast with the
+    // typed `MissingTypeRegistry` error before either runs — without
+    // this guard the Bevy internals would panic with an opaque
+    // "Resource does not exist" message and the snapshot test that
+    // exercises the missing-registry case would die on a panic
+    // rather than the typed error it asserts on.
     let registry = world
         .get_resource::<AppTypeRegistry>()
         .ok_or(SnapshotError::MissingTypeRegistry)?;
+    let entities = collect_all_entities(world);
+    let scene = configure_builder(&entities, DynamicSceneBuilder::from_world(world)).build();
+
     let registry_locked = registry.read();
 
     let serializer = SceneSerializer::new(&scene, &registry_locked);
@@ -185,7 +286,8 @@ pub fn snapshot_world_with_registry(
     registry: &bevy::ecs::reflect::AppTypeRegistry,
     metadata: SaveMetadata,
 ) -> Result<String, SnapshotError> {
-    let scene = configure_builder(DynamicSceneBuilder::from_world(world)).build();
+    let entities = collect_all_entities(world);
+    let scene = configure_builder(&entities, DynamicSceneBuilder::from_world(world)).build();
     let registry_locked = registry.read();
     let serializer = SceneSerializer::new(&scene, &registry_locked);
     let scene_ron = ron::ser::to_string_pretty(&serializer, ron::ser::PrettyConfig::default())

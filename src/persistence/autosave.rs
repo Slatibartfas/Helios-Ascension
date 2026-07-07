@@ -204,7 +204,6 @@ fn fire_autosave(world: &mut World) -> Result<(), String> {
         let world_ref: &World = &*world;
         snapshot_world(world_ref, metadata).map_err(|e| format!("snapshot: {e}"))?
     };
-
     let path = compose_autosave_path(&saves_dir);
     write_save_atomic(&path, &ron).map_err(|e| format!("write {}: {e}", path.display()))?;
 

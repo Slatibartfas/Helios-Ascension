@@ -241,16 +241,25 @@ mod tests {
 
         // Verify entities came back. The snapshot/restore round-trip
         // uses fresh Entity IDs, so we count rather than compare.
-        let mut q = restored.world.query::<(&TestComponentA, &TestComponentB)>();
-        let mut count = 0;
-        for (a, b) in q.iter(&restored.world) {
-            count += 1;
-            // At least one entity should have the values we set.
-            let _ = (a, b);
+        // The test spawns TWO separate entities (one with
+        // `TestComponentA` only, one with `TestComponentB` only)
+        // so each component lives on its own entity — query them
+        // separately, not via a join.
+        let mut count_a = 0;
+        let mut count_b = 0;
+        for _ in restored.world.query::<&TestComponentA>().iter(&restored.world) {
+            count_a += 1;
+        }
+        for _ in restored.world.query::<&TestComponentB>().iter(&restored.world) {
+            count_b += 1;
         }
         assert!(
-            count >= 1,
-            "restored world must contain at least one entity"
+            count_a >= 1,
+            "restored world must contain at least one entity with TestComponentA"
+        );
+        assert!(
+            count_b >= 1,
+            "restored world must contain at least one entity with TestComponentB"
         );
 
         // Sanity: original world entity is still there (the snapshot is

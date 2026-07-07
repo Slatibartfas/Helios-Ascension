@@ -722,7 +722,15 @@ mod tests {
             discovery_tier: 2,
             delta_v_to_redirect_kms: Some(2.0),
             redirect_target: "Mars".into(),
-            terraforming_source: false,
+            // Composition has Water 0.1 ≥ TERRAFORMING_WATER_THRESHOLD
+            // (0.05) and Δv 2.0 ≤ TERRAFORMING_DELTA_V_CAP_KMS (6.0),
+            // so `auto_terraforming_rule` returns `true`.  The
+            // declared flag must match for the consistency check to
+            // pass; if a specific test wants to exercise the
+            // `terraforming_source = false` path it should override
+            // the composition so the auto-rule returns false
+            // (e.g. drop Water below 0.05).
+            terraforming_source: true,
             terraforming_source_override: None,
             lore_seed: None,
         }

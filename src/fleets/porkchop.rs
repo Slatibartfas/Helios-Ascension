@@ -2629,18 +2629,22 @@ mod planner_wiring_tests {
 
     #[test]
     fn local_frame_jupiter_europa_optimal_dv_matches_hohmann() {
-        // Jupiter-Europa Hohmann (circular) ΔV ≈ 2.7 km/s from
-        // parking orbit at Io radius (Europa's own orbit radius is
-        // 671,100 km; we use that as parking_radius_au for a
-        // Io→Europa zero-ΔV scenario).  Easier test: parking at
-        // Europa's own radius is degenerate; use Jupiter-orbit parking
-        // (low Jupiter orbit ≈ 100,000 km) and dest at Europa.
+        // Jupiter-Io parking (421,800 km) → Europa (671,100 km)
+        // Hohmann ΔV ≈ 3.6 km/s total (1.87 km/s departure burn +
+        // 1.67 km/s arrival burn, classical two-burn Hohmann).  The
+        // earlier fixture used a 100 Mm parking orbit — that's deep
+        // inside Jupiter's gravity well and the Hohmann from there
+        // to Europa burns ~11 km/s, blowing past the local_moon
+        // override's C3 ceiling of 100 (km/s)² (the C3 block made
+        // every cell infeasible).  Io orbit is a realistic
+        // departure parking orbit for a Jupiter→Europa transfer
+        // and lands comfortably inside the C3 budget.
         let cfg = PorkchopConfig {
             category_overrides: vec![make_local_moon_override()],
             ..PorkchopConfig::default()
         };
         use super::super::orbital_mechanics::AU_IN_METERS;
-        let parking_au = 100_000.0e3 / AU_IN_METERS; // 100 Mm parking orbit
+        let parking_au = 421_800.0e3 / AU_IN_METERS; // Io orbit
         let dest_au = europa_orbit_radius_au();
         let inputs = LocalPorkchopInputs {
             origin_name: "Jupiter".to_string(),
@@ -2664,9 +2668,12 @@ mod planner_wiring_tests {
             min_dv_ms.is_finite(),
             "Jupiter-Europa grid must have at least one feasible cell"
         );
-        // Jupiter parking 100 Mm → Europa 671 Mm: ΔV is dominated by
-        // the deep-well parking orbit and is small (~hundreds of m/s).
-        // Just assert it's finite and below 5 km/s as a sanity check.
+        // Sanity: Io→Europa Hohmann total ΔV ≈ 3.5 km/s.  The porkchop
+        // solver picks the minimum across the t_dep/tof surface, which
+        // for a circular-orbit circular-orbit Hohmann pair sits at the
+        // exact Hohmann ΔV (no phasing savings on offer when both
+        // orbits are circular).  Assert under 5 km/s as a sanity
+        // bound — the analytical answer is ≈ 3.5 km/s.
         assert!(
             min_dv_ms < 5_000.0,
             "Jupiter-Europa min ΔV = {min_dv_ms:.0} m/s, expected < 5000 m/s"

@@ -63,26 +63,31 @@ pub struct NewGameParams {
     /// ceiling-free so a future chunked-galaxy abstraction
     /// (operator follow-up `71e4a442-…`) can subdivide the count
     /// without a schema bump.
+    #[serde(default)]
     pub star_count: u32,
 
     /// Number of AI-controlled factions to seed at world creation.
     /// 0 means a single-player campaign with no rival factions.
+    #[serde(default)]
     pub ai_faction_count: u32,
 
     /// When `true`, the generator scatters Ancient / precursor
     /// artifacts into a subset of systems. The exploration and
     /// research layers read this flag at world-spawn time.
+    #[serde(default)]
     pub artifacts_enabled: bool,
 
     /// Tier (1..=5) of the starting tech tree. 1 = earliest
     /// (stone-tools era equivalent); 5 = a faction that already has
     /// inter-system propulsion and basic industry.
+    #[serde(default)]
     pub starting_tech_tier: u8,
 
     /// Initial [`crate::ui::time::TimeScale::scale`] value. The
     /// subview offers a dropdown of canonical presets; this field
     /// stores the chosen preset's `f32` value directly so the
     /// `TimeScale` consumer doesn't need a parallel enum mirror.
+    #[serde(default)]
     pub game_speed_initial: f32,
 }
 

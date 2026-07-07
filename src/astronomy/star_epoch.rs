@@ -306,7 +306,13 @@ mod tests {
     #[test]
     fn advance_position_round_trip() {
         // 1-year offset, α-Cen barycenter published velocity (−23.2, 0.7, 0.4) km/s.
-        // Forward + reverse should recover the epoch position to <1e-6 AU.
+        // Forward propagation is linear, so `p_t - p_0 = velocity × dt`.
+        // The round-trip recovers the epoch position exactly (no
+        // gravity-correction applied at this level — interstellar
+        // propagation uses a straight-line ballistic model).  We
+        // assert the per-axis offset matches the analytical
+        // `velocity_kms × dt / AU_IN_METERS_in_km` value within
+        // 1e-6 AU (numerical precision only).
         let sys = StarSystemEphemeris {
             system_id: "Alpha Centauri".into(),
             display_name: "Alpha Centauri".into(),
@@ -320,18 +326,34 @@ mod tests {
         };
         let one_year_s = 365.25 * 86_400.0;
         let p_t = advance_position(&sys, one_year_s);
-        // Convert the offset back to ly for the <1e-6 AU tolerance check.
+        // Convert the offset back to AU for the round-trip check.
+        // velocity × dt_s × 1000 m/km ÷ AU_IN_METERS (m/AU) → AU.
+        //   -23.2 km/s × 31_557_600 s × 1000 m/km = -7.32e11 m
+        //   -7.32e11 m ÷ 1.496e11 m/AU = -4.893 AU
+        // The earlier <1e-1 tolerance conflated m and km by 1000×
+        // (the velocity `* 1000.0` factor in `advance_position` was
+        // missed).  The new tolerance is the analytic offset ±1e-6.
+        let dt_au_per_axis = |v_kms: f64| -> f64 {
+            v_kms * one_year_s * 1000.0 / AU_IN_METERS
+        };
         let dx_au = (p_t.x - sys.position_m.x) / AU_IN_METERS;
         let dy_au = (p_t.y - sys.position_m.y) / AU_IN_METERS;
         let dz_au = (p_t.z - sys.position_m.z) / AU_IN_METERS;
-        // Velocity is km/s × 1 yr → m, then ÷ AU_IN_METERS → AU.
-        // -23.2 km/s × 31_557_600 s = -7.32e8 m = -4.9e-3 AU per axis.
         assert!(
-            dx_au.abs() < 1e-1,
-            "x offset {dx_au} AU exceeds sanity bound"
+            (dx_au - dt_au_per_axis(sys.velocity_kms[0])).abs() < 1e-6,
+            "x offset {dx_au} AU differs from analytical {} AU",
+            dt_au_per_axis(sys.velocity_kms[0])
         );
-        assert!(dy_au.abs() < 1e-1);
-        assert!(dz_au.abs() < 1e-1);
+        assert!(
+            (dy_au - dt_au_per_axis(sys.velocity_kms[1])).abs() < 1e-6,
+            "y offset {dy_au} AU differs from analytical {} AU",
+            dt_au_per_axis(sys.velocity_kms[1])
+        );
+        assert!(
+            (dz_au - dt_au_per_axis(sys.velocity_kms[2])).abs() < 1e-6,
+            "z offset {dz_au} AU differs from analytical {} AU",
+            dt_au_per_axis(sys.velocity_kms[2])
+        );
     }
 
     #[test]

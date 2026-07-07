@@ -3238,6 +3238,7 @@ dependencies = [
  "bevy_a11y",
  "bevy_egui",
  "bevy_scene",
+ "bevy_time",
  "bevy_winit",
  "glam 0.29.3",
  "image",

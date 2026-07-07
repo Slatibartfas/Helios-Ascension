@@ -52,6 +52,16 @@ bevy_scene = { version = "0.18", features = ["serialize"] }
 # direct entry to reference the resource types in the deny call.
 bevy_a11y = { version = "0.18", features = ["serialize"] }
 bevy_winit = { version = "0.18" }
+# Persistence (snapshot.rs) needs to deny-list engine runtime resources
+# for the wall-clock / step-clock `Time<T>` family (Time<()>,
+# Time<Real>, Time<Virtual>, Time<Fixed>) and TimeUpdateStrategy —
+# their inner `Instant`/`Duration` fields don't carry ReflectSerialize
+# type data, so the snapshot would otherwise fail with
+# "type `Instant` did not register the `ReflectSerialize`".  Bevy
+# re-exports them through `bevy::time`, but using the direct crate
+# path guarantees we resolve the same `TypeId` the engine inserts
+# into the world (vs. an indirect re-export through the prelude).
+bevy_time = { version = "0.18" }
 
 # Math and physics
 glam = "0.29"
