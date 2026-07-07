@@ -228,12 +228,10 @@ fn build_palette_ramp(log_min: f64, log_max: f64, ramp_size: usize) -> Vec<Color
     out
 }
 
-/// Convert `Color32` to Bevy `Color` (used by tests / diagnostic
-/// dumps).  Not used by Phase B's texture bake.  Re-exported from
-/// `theme::color32_to_bevy` so the audit-funnel rationale for
-/// keeping colour literals out of this module holds.
-#[allow(dead_code)]
-pub use crate::ui::theme::color32_to_bevy;
+/// `Color32` → Bevy `Color` conversion lives at
+/// `crate::ui::theme::color32_to_bevy` so callers (tests, diagnostic
+/// dumps) import it from there directly — the audit-funnel rationale
+/// for keeping colour literals out of this module holds.
 
 #[cfg(test)]
 mod tests {
@@ -283,7 +281,7 @@ mod tests {
     fn ramp_clips_at_mean_plus_2sigma() {
         // 1 cheap cell + 99 mid cells + 1 100-km/s outlier.
         let mut cells: Vec<f64> = vec![5.0];
-        cells.extend(std::iter::repeat(8.0).take(98));
+        cells.extend(std::iter::repeat_n(8.0, 98));
         cells.push(100.0);
         let grid = make_grid(&cells);
         let ramp = PorkchopColorRamp::from_grid(&grid);

@@ -533,7 +533,11 @@ pub fn paused_label_color(alpha: u8) -> egui::Color32 {
 
 /// Convert an `egui::Color32` to a Bevy `Color`.  Lives here (the
 /// audit allowlist) so callers don't have to construct a
-/// `Color::srgba` literal of their own.
+/// `Color::srgba` literal of their own.  `dead_code`-allowed because
+/// it's a public-API helper for future test/diagnostic dumps; the
+/// pre-cascade `porkchop_color_ramp.rs::color32_to_bevy` carried
+/// the same allow.
+#[allow(dead_code)]
 pub fn color32_to_bevy(c: egui::Color32) -> bevy::prelude::Color {
     bevy::prelude::Color::srgba(
         c.r() as f32 / 255.0,
