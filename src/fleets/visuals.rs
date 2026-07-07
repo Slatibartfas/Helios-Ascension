@@ -3402,7 +3402,64 @@ pub fn draw_fleet_transfer_preview(
 
     let current_sim_s = elapsed;
     let departure_offset_s = fleet_ui_state.departure_offset_days * 86_400.0;
-    let departure_s = current_sim_s + departure_offset_s;
+    // Anchor the burn at the cell's absolute epoch when one is
+    // recorded (the user clicked a porkchop cell — the cell click
+    // records `selected_abs_t_dep_s`, which survives buffer
+    // rotations).  Falling back to the relative formula
+    // (`current_sim_s + departure_offset_s`) keeps the legacy
+    // slider path working (where there is no recorded absolute).
+    //
+    // "Stays at immediate departure once cell hits Now": when the
+    // recorded `selected_abs_t_dep_s` is in the past (the user
+    // has scrolled the chart past their selection, or sim time
+    // has overtaken the click epoch), clamp it to `current_sim_s`
+    // so the trajectory behaves as an "immediate departure"
+    // preview — `op` is then the *live* planet position, the
+    // Lambert solver is re-evaluated every frame with the live
+    // origin and the live destination-at-arrival-time, and the
+    // arc visibly tracks the live planet instead of orbiting
+    // around the screen at the past burn-time planet's phase.
+    // The selected cell stays selected (ΔV / TOF / fuel readout
+    // intact) but the trajectory itself now shows "if I burn
+    // right now, this is what happens" continuously — which is
+    // what the player wants once the planned burn has expired.
+    //
+    // Clamping logic:
+    //   * `selected_abs_t_dep_s = Some(t)` where `t < current`:
+    //     fall back to `current_sim_s` (immediate departure).
+    //   * `selected_abs_t_dep_s = Some(t)` where `t >= current`:
+    //     use `t` (frozen absolute, the original GRA-169 fix).
+    //   * `selected_abs_t_dep_s = None`: slider path, use
+    //     `current_sim_s + departure_offset_s`.  The relative
+    //     formula keeps `planet(burn_time) - planet(current)`
+    //     constant in orbital phase, so the slider path's arc
+    //     origin advances with sim time at orbital rate.  When
+    //     the slider sits at the leftmost position
+    //     (`departure_offset_days = 0`), the relative formula
+    //     collapses to `current_sim_s` and the slider path
+    //     matches the cell path's "immediate departure" behaviour.
+    let departure_s = match fleet_ui_state.selected_abs_t_dep_s {
+        Some(recorded_abs_t_dep_s) if recorded_abs_t_dep_s >= current_sim_s => {
+            // Cell is in the future — anchor absolutely (frozen
+            // burn epoch) so the visible separation between the
+            // arc origin and the live planet shrinks smoothly as
+            // sim time approaches the burn.
+            recorded_abs_t_dep_s
+        }
+        Some(_) => {
+            // Cell is in the past — clamp to "now" so the
+            // preview becomes an immediate-departure preview
+            // that continuously re-solves against the live
+            // planet.  This is the fix for the "trajectory moves
+            // all over the place once the selected tile hits
+            // Now" report: previously the arc was anchored at
+            // the past burn epoch and the back-projected planet
+            // orbited around the star at orbital rate as sim
+            // time kept advancing.
+            current_sim_s
+        }
+        None => current_sim_s + departure_offset_s,
+    };
 
     // Course correction: fleet is actively mid-transit but the transfer planner is open.
     // Instead of returning early with a straight line, we override the departure point
@@ -3411,6 +3468,7 @@ pub fn draw_fleet_transfer_preview(
     let is_course_correction = maybe_maneuver
         .map(|man| elapsed >= man.departure_time)
         .unwrap_or(false);
+
     // For course corrections the fleet's current Transform IS the departure point;
     // for normal transfers it's the predicted origin body position at departure time.
     let course_correction_fleet_pos: Option<Vec3> = if is_course_correction {
@@ -3938,11 +3996,60 @@ pub fn draw_fleet_transfer_preview(
             unified_preview
         {
             let total_ma_travel = orbit.mean_motion * preview_duration_s;
+
+            // Time progression along the planned transfer.  This makes the
+            // preview arc visibly "consume" as sim time advances past the
+            // planned departure — at Phase 0.0 the arc spans the full launch
+            // → arrival, and as elapsed_since_departure approaches
+            // preview_duration_s the arc shrinks back toward dp_absolute.
+            //
+            // Reuse the already-anchored `departure_s` (absolute epoch
+            // when `selected_abs_t_dep_s` is recorded, otherwise the
+            // relative fallback) instead of recomputing
+            // `current_sim_s + departure_offset_s` here — that
+            // recomputation used the relative formula unconditionally,
+            // silently overriding the absolute anchor and reintroducing
+            // the "trajectory origin stuck at the original selection"
+            // bug for the pre-burn branch below.  Before the burn, the
+            // arc starts at `op` (planet at launch) and spans the full
+            // trajectory; after it starts at the spacecraft's *actual*
+            // position along the planned orbit (Lambert-conic-propagated,
+            // star-centered since this branch is same-star / barycentric)
+            // with the remaining mean-anomaly travel.
+            let elapsed_since_departure_s =
+                (current_sim_s - departure_s).max(0.0);
+            let phase_ma_raw = elapsed_since_departure_s * orbit.mean_motion;
+            // Direction-aware clamp: handle retrograde transfers where
+            // mean_motion is negative by clamping on the absolute scale.
+            let phase_ma = if total_ma_travel >= 0.0 {
+                phase_ma_raw.min(total_ma_travel)
+            } else {
+                phase_ma_raw.max(total_ma_travel)
+            };
+            let (start_pos, remaining_ma_travel) = if phase_ma.abs() > 1e-9 {
+                let local = orbit_position_from_mean_anomaly(
+                    orbit,
+                    orbit.mean_anomaly_epoch + phase_ma,
+                );
+                // Local orbit pos is in AU relative to the transfer's center
+                // (the star).  For this branch the floating origin is the
+                // star, so the AU→visual scaling is direct (no parent
+                // offset needed).
+                let current_visual = Vec3::new(
+                    (local.x * SCALING_FACTOR) as f32,
+                    (local.y * SCALING_FACTOR) as f32,
+                    (local.z * SCALING_FACTOR) as f32,
+                );
+                (current_visual, total_ma_travel - phase_ma)
+            } else {
+                (op, total_ma_travel)
+            };
+
             let geo = compute_barycentric_visual_arc(
                 orbit,
-                op,
+                start_pos,
                 dp_absolute,
-                total_ma_travel,
+                remaining_ma_travel,
                 departure_velocity_ms,
                 arrival_velocity_ms,
             );
@@ -4068,7 +4175,18 @@ pub fn draw_gravity_assist_preview(
     let current_sim_s = sim_time.elapsed_seconds();
     let real_secs = real_time.elapsed_secs() as f64;
     let sim_scale = time_scale.scale as f64;
-    let depart_s = current_sim_s + departure_offset_s;
+    // Same three-way clamp as `draw_fleet_transfer_preview`:
+    // recorded absolute epoch in the future → use it (frozen);
+    // recorded epoch in the past → clamp to `current_sim_s`
+    // (immediate-departure preview); no recorded epoch → slider
+    // formula.  See that function's docs for the full rationale.
+    let depart_s = match fleet_ui_state.selected_abs_t_dep_s {
+        Some(recorded_abs_t_dep_s) if recorded_abs_t_dep_s >= current_sim_s => {
+            recorded_abs_t_dep_s
+        }
+        Some(_) => current_sim_s,
+        None => current_sim_s + departure_offset_s,
+    };
 
     let Ok((origin_t, origin_bd, _)) = body_query.get(origin_body) else {
         return;

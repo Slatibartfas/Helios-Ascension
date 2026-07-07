@@ -346,13 +346,20 @@ pub fn porkchop_panel(
         *texture_cache = Some(handle);
         *texture_built_for = Some(grid_identity);
     }
-    // Draw the full grid texture as a single quad mapped to the
-    // grid_rect (UV = (0,0) → (1,1)).  Bilinear filtering
-    // produces a continuous gradient across cell boundaries.
+// grid_rect (UV = (scroll/cols, 0) → ((scroll+visible_cols)/cols, 1)).
+    // Scrolling the UV window instead of redrawing cells means the
+    // GPU bilinear filter smooths the seam where the right-edge cells
+    // exit and the left-edge cells enter — no per-frame rebake.  The
+    // hover-cell math (`(pos.x - grid_rect.left()) / cell_w + scroll`)
+    // and the selection rectangle (`(sc as f32 - scroll) * cell_w`)
+    // both already use `scroll`, so the visible UV band stays
+    // consistent with where the user can click.
     if let Some(texture) = texture_cache.as_ref() {
+        let uv_min_x = (scroll / cols as f32).max(0.0);
+        let uv_max_x = ((scroll + visible_cols as f32) / cols as f32).min(1.0);
         let uv = Rect::from_min_max(
-            Pos2::new(0.0, 0.0),
-            Pos2::new(1.0, 1.0),
+            Pos2::new(uv_min_x, 0.0),
+            Pos2::new(uv_max_x, 1.0),
         );
         cell_clip.image(texture.id(), grid_rect, uv, Color32::WHITE);
     }

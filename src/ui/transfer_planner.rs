@@ -529,6 +529,48 @@ pub fn heliocentric_orbit_for_body(
     parent_ko.copied()
 }
 
+/// Fraction of the rotating porkchop buffer's future runway to
+/// consume before triggering the next async rebuild.  `1.0` = wait
+/// until the visible window's right edge exactly reaches the
+/// buffer's right edge (no lead time).  A lower fraction starts the
+/// async Lambert solve earlier, so the ~300–500 ms worker thread has
+/// already finished — and the atomic grid swap has already
+/// happened — well before the runway would otherwise run dry.  This
+/// converts the rebuild from "the buffer ran out, so we're now
+/// blocked waiting for a fresh one" (a perceptible jump right at the
+/// edge) into "the fresh grid was already sitting in reserve when we
+/// needed it" (an inaudible swap somewhere in the overlap window).
+///
+/// `0.85` was picked empirically: it leaves 15 % of the runway
+/// (≈ 0.15 × 4 × `t_dep_window_days`, tens of sim-days even for the
+/// tightest category override) as build-time margin, which comfortably
+/// covers the worker's real-world solve time even at high sim-speed
+/// multipliers, without rebuilding so often that it wastes CPU on
+/// solves the player never gets close to needing.
+const PORKCHOP_EARLY_ROTATION_FACTOR: f64 = 0.85;
+
+/// Returns `true` when the rotating porkchop buffer should start
+/// building its next window.
+///
+/// `shift_s` is the sim-seconds elapsed since the current buffer was
+/// built (`elapsed - built_at_s`).  `buffer_t_dep_span_s` is the
+/// buffer's full `(t_dep_max - t_dep_min)` span — this function
+/// halves it internally (the buffer covers 2× the visible window,
+/// so only the first half is "runway" before the visible window's
+/// right edge reaches the buffer's right edge) and applies the
+/// `PORKCHOP_EARLY_ROTATION_FACTOR` lead-time margin.
+///
+/// Extracted as a pure function (rather than left inline in the
+/// egui render path) so the rotation-lead-time contract can be unit
+/// tested without spinning up a Bevy app + egui context.
+pub fn should_rotate_porkchop_buffer(shift_s: f64, buffer_t_dep_span_s: f64) -> bool {
+    if buffer_t_dep_span_s <= 0.0 {
+        return false;
+    }
+    let visible_window_runway_s = buffer_t_dep_span_s * 0.5;
+    shift_s >= visible_window_runway_s * PORKCHOP_EARLY_ROTATION_FACTOR
+}
+
 /// Decide whether the porkchop `(t_dep, t_tof)` grid is the right
 /// tool for a given destination body, or whether the planner should
 /// fall through to the legacy Efficient / Moderate / Fast 3-option
@@ -1382,6 +1424,64 @@ pub(super) fn render_transfer_planner(
         .map(|built| elapsed - built)
         .unwrap_or(0.0)
         .max(0.0);
+    // "Stays at immediate departure once cell hits Now": when
+    // the recorded `selected_abs_t_dep_s` falls below the
+    // player's current sim clock (i.e. the cell the user
+    // clicked has scrolled past the left edge of the chart and
+    // into the past), re-anchor both the recorded absolute
+    // epoch AND the visual `(sc, sr)` cell coordinate to the
+    // "immediate departure" position.  Without this re-anchor
+    // the chart highlight rectangle would slide off the left
+    // edge while the trajectory ghost arc orbited around the
+    // screen at the past burn-time planet's orbital phase
+    // (the "trajectory moves all over the place once the
+    // selected tile hits Now" report).
+    //
+    // The re-anchor keeps `selected_abs_t_dep_s = elapsed`
+    // (exactly "now"), which the render path's three-way
+    // clamp then treats as the immediate-departure path:
+    // `departure_s = max(selected_abs_t_dep_s, current_sim_s)
+    // = current_sim_s`.  `predict_body_visual_pos(origin,
+    // current_sim_s, current_sim_s, ...)` returns the *live*
+    // planet position, the Lambert solver re-evaluates the
+    // porkchop cell's `transfer_orbit` against live origin +
+    // live destination-at-arrival-time, and the arc visually
+    // tracks the live planet continuously as sim time keeps
+    // advancing.
+    //
+    // `selected_porkchop_cell` is clamped to `(0, sr)` so the
+    // selection highlight sticks at the leftmost column of the
+    // chart (the "Now" line).  The row stays the same so the
+    // player's TOF preference is preserved across the re-anchor.
+    //
+    // The re-anchor is gated on having a selected cell AND a
+    // grid (so it doesn't fire on the first frame after the
+    // planner opens, before the first build lands).  It also
+    // intentionally runs BEFORE the panel renders, so the
+    // panel's selection rectangle, highlight, and tooltip
+    // hover math all see the corrected `(sc, sr)`.
+    if let (Some((_sc, sr)), Some(recorded_abs_t_dep), Some(grid)) = (
+        fleet_ui_state.selected_porkchop_cell,
+        fleet_ui_state.selected_abs_t_dep_s,
+        fleet_ui_state.porkchop_grid.as_ref(),
+    ) {
+        if recorded_abs_t_dep < elapsed {
+            // Re-anchor to "now": the recorded absolute epoch
+            // becomes the player's current sim clock, and the
+            // visual cell coordinate clamps to col 0 (the
+            // "Now" line).  Row stays the same so the TOF
+            // preference is preserved.
+            let (cols_buf, _rows_buf) = grid.resolution;
+            if cols_buf > 0 {
+                fleet_ui_state.selected_abs_t_dep_s = Some(elapsed);
+                // The row's TOF is the cell's recorded TOF —
+                // the Lambert solution's TOF stays valid as a
+                // "what if I burn now" estimate.  Don't touch
+                // `selected_abs_tof_s`.
+                fleet_ui_state.selected_porkchop_cell = Some((0, sr));
+            }
+        }
+    }
     // Buffer covers 4× the visible window, so the visible window
     // is exactly 1/2 of the buffer's t_dep span.  Rotation fires
     // when the visible window's right edge has reached the
@@ -1398,13 +1498,19 @@ pub(super) fn render_transfer_planner(
     // grid while the build block (~360 ms) solves the new one —
     // then atomically swaps `porkchop_grid` + clears the flag in
     // one statement.  No blank frame.
-    let buffer_future_window_s = fleet_ui_state
+    //
+    // The trigger now fires with lead time (`should_rotate_porkchop_
+    // buffer` applies `PORKCHOP_EARLY_ROTATION_FACTOR`) instead of
+    // waiting until the runway is fully exhausted — see that
+    // function's docs for the "invisible swap in the overlap window"
+    // rationale.
+    let buffer_t_dep_span_s = fleet_ui_state
         .porkchop_grid
         .as_ref()
-        .map(|g| (g.t_dep_bounds_s.1 - g.t_dep_bounds_s.0) * 0.5)
+        .map(|g| g.t_dep_bounds_s.1 - g.t_dep_bounds_s.0)
         .unwrap_or(0.0);
-    let buffer_needs_rotation =
-        fleet_ui_state.porkchop_grid.is_some() && shift_s >= buffer_future_window_s;
+    let buffer_needs_rotation = fleet_ui_state.porkchop_grid.is_some()
+        && should_rotate_porkchop_buffer(shift_s, buffer_t_dep_span_s);
 
     let grid_for_changed = fleet_ui_state.porkchop_built_for != fleet_ui_state.target_body;
     if fleet_ui_state.porkchop_grid.is_some()
@@ -1441,11 +1547,42 @@ pub(super) fn render_transfer_planner(
         // buffer every rotation.  We only clear on destination
         // change or staleness expiry.
         fleet_ui_state.porkchop_grid_pending_rebuild = true;
-        // Stamps are cleared so the next build runs against a clean
-        // slate; the grid itself is preserved so the panel keeps
-        // rendering it.
-        fleet_ui_state.porkchop_built_at_s = None;
-        fleet_ui_state.porkchop_last_real_build_s = None;
+        // IMPORTANT: do NOT clear `porkchop_built_at_s` here.
+        // Previously this block set `porkchop_built_at_s = None`
+        // which made `shift_s = elapsed - None.unwrap_or(0) = 0`
+        // for the entire ~360 ms async-build window.  The panel's
+        // scroll then reset to the OLD buffer's left edge while
+        // the worker was solving — a visible backward jump of the
+        // chart content to the very leftmost columns.  When the
+        // swap landed, scroll reset to 0 of the NEW buffer (which
+        // also starts at the current sim epoch), so the chart
+        // content snapped forward again.  The combined effect
+        // was a left-then-right flicker the user reported as
+        // "the reload still causes the porkchop to flicker".
+        //
+        // Keeping `porkchop_built_at_s` at its current value lets
+        // `shift_s` keep advancing during the build; the old
+        // grid's visible window stays anchored at "now" exactly
+        // as it was before the trigger fired.  When the swap
+        // lands, the new buffer's `t_dep_bounds_s.0 = elapsed`
+        // (the same value `shift_s` had reached) so the visible
+        // cell content of the new buffer's leftmost columns is
+        // the SAME physical cells the old buffer was already
+        // showing — no horizontal content jump, no flicker.
+        //
+        // The Lamport-style rotation invariant ("shifting the
+        // buffer's `t_dep_min_s` by `Δ` only relabels cell dates,
+        // not ΔV") is what makes this seamless: the new buffer's
+        // col 0 at `elapsed` is identical Lambert-wise to the old
+        // buffer's leftmost visible cell at the moment of swap.
+        // The clearing of `porkchop_built_at_s` on destination
+        // change is fine because `porkchop_grid = None` is also
+        // set there (the panel renders the empty-state fallback
+        // instead of stale content).
+        //
+        // `porkchop_last_real_build_s` is also preserved so the
+        // staleness floor (which compares against real time) does
+        // not falsely re-trigger the moment the swap lands.
         if grid_for_changed {
             // Destination changed — drop the old grid's metadata
             // and clear selection (the new grid is a different
@@ -5469,9 +5606,25 @@ pub(super) fn render_transfer_planner(
                             // a slightly different value (the new
                             // buffer's grid resolution might not
                             // align exactly with the old).
+                            //
+                            // Also accept "recorded ≈ elapsed" as a
+                            // match: when the cell has been clamped
+                            // to col 0 by the per-frame
+                            // immediate-departure re-anchor above,
+                            // `selected_abs_t_dep_s` was set to
+                            // `elapsed` (not the cell's natural
+                            // `t_dep_bounds_s.0`).  Without this
+                            // second match condition the post-panel
+                            // block would overwrite the recorded
+                            // anchor back to the cell's natural
+                            // (past) `t_dep_bounds_s.0`, undoing
+                            // the clamp.
                             let current_matches_recorded = match fleet_ui_state.selected_abs_t_dep_s
                             {
-                                Some(prev) => (prev - abs_t_dep).abs() < col_step * 0.5,
+                                Some(prev) => {
+                                    (prev - abs_t_dep).abs() < col_step * 0.5
+                                        || (prev - elapsed).abs() < col_step * 0.5
+                                }
                                 None => false,
                             };
                             if !current_matches_recorded {
@@ -5629,33 +5782,38 @@ pub(super) fn render_transfer_planner(
                                         // instead of cloning.
                                         transfer_orbit_override: cell.transfer_orbit,
                                     };
-                                // Porkchop cells use the player's chosen
-                                // t_dep directly (the cell's `t_dep_s`
-                                // is an offset from the buffer's
-                                // `t_dep_min_s`) — the departure-time
-                                // slider is intentionally ignored for
-                                // porkchop selections because the cell
-                                // already encodes the absolute t_dep.
-                                // The absolute sim-time departure is
-                                // `grid.t_dep_min_s + cell.t_dep_s`,
-                                // which stays constant as the buffer
-                                // scrolls (and matches the absolute
-                                // epoch used to compute the Lambert
-                                // solution) — adding `elapsed` here
-                                // would double-count the planner's
-                                // current sim time, producing a
-                                // trajectory whose t_dep drifts by
-                                // `shift_s` every time the buffer
-                                // rebuilds.  Note: `grid.t_dep_bounds_s.0`
-                                // is 0 in the rotating-buffer build (a
-                                // nominal anchor — the *absolute* t_dep
-                                // is `elapsed + t_dep_s`, the same as
-                                // before the fix), so reading it would
-                                // underflow the trajectory by `elapsed`
-                                // seconds.  Use `elapsed + t_dep_s` so
-                                // the trajectory stays at the user's
-                                // chosen cell across rotations.
-                                let planned_departure_time_s = elapsed + cell.t_dep_s;
+                                // Anchor the planned burn at the cell's
+                                // *absolute* epoch (`selected_abs_t_dep_s`,
+                                // recorded at click and re-anchored across
+                                // buffer rotations) rather than the
+                                // relative `elapsed + cell.t_dep_s`.  The
+                                // relative formula drifts forward by
+                                // `elapsed` every frame, which keeps
+                                // `planet(burn_time) - planet(current)`
+                                // constant — so the trajectory's start
+                                // slides around the orbit at the planet's
+                                // own orbital rate and visually looks
+                                // "glued" to the planet between grid
+                                // rebuilds.  Anchoring absolutely freezes
+                                // the burn epoch, so the burn-time planet
+                                // position advances in world space and the
+                                // visible separation between trajectory
+                                // start and live planet shrinks as sim
+                                // time approaches the burn — which is the
+                                // "consume toward now" behaviour the user
+                                // expects as the chart cell slides left.
+                                //
+                                // The Lambert solution is still re-solved
+                                // every frame in `build_planned_transfer`
+                                // with planet positions evaluated at this
+                                // fixed absolute burn time, so the
+                                // transfer orbit's `mean_anomaly_epoch` /
+                                // `mean_motion` / `departure_velocity_ms`
+                                // refresh per frame and the Bezier
+                                // interior visibly evolves.
+                                let planned_departure_time_s = fleet_ui_state
+                                    .selected_abs_t_dep_s
+                                    .unwrap_or(grid.t_dep_bounds_s.0 + cell.t_dep_s);
                                 // Sync `departure_offset_days` so the
                                 // side-panel "Arrives:" timestamp and
                                 // `waiting_orbit_count` reflect the
@@ -5733,12 +5891,14 @@ pub(super) fn render_transfer_planner(
                             // reads are populated; the rest stay at
                             // sensible defaults.
                             //
-                            // `cell.t_dep_s` is the offset from the
-                            // planner's "now" reference (`elapsed`); the
-                            // body-target call uses the absolute epoch
-                            // (`planned_departure_time_s = elapsed +
-                            // cell.t_dep_s`).
-                            let planned_departure_time_s = elapsed + cell.t_dep_s;
+                            // Use the same absolute anchor as the
+                            // preview above (`selected_abs_t_dep_s`)
+                            // so the executed maneuver's burn time
+                            // matches the visible preview instead of
+                            // drifting forward by `elapsed`.
+                            let planned_departure_time_s = fleet_ui_state
+                                .selected_abs_t_dep_s
+                                .unwrap_or(grid.t_dep_bounds_s.0 + cell.t_dep_s);
                             let (cell_sma_au, cell_ecc) = cell
                                 .transfer_orbit
                                 .as_ref()
@@ -8656,6 +8816,50 @@ mod tests {
             None,
             100.0
         ));
+    }
+
+    #[test]
+    fn should_rotate_porkchop_buffer_fires_before_full_runway_exhaustion() {
+        // Buffer span of 100 sim-days -> runway (half the span) is
+        // 50 sim-days.  With the 0.85 early-rotation factor the
+        // trigger should fire at 42.5 sim-days, well before the old
+        // 100%-exhaustion threshold (50 sim-days).  This is the
+        // "recalc a bit ahead of time" lead-time the user asked for.
+        let buffer_span_s = 100.0 * 86_400.0;
+        let runway_s = buffer_span_s * 0.5;
+        let early_trigger_s = runway_s * 0.85;
+
+        assert!(
+            !super::should_rotate_porkchop_buffer(early_trigger_s - 86_400.0, buffer_span_s),
+            "must NOT fire one full day before the early-trigger point"
+        );
+        assert!(
+            super::should_rotate_porkchop_buffer(early_trigger_s, buffer_span_s),
+            "must fire exactly at the early-trigger point (85% of runway)"
+        );
+        assert!(
+            super::should_rotate_porkchop_buffer(runway_s, buffer_span_s),
+            "must still fire at the old 100%-exhaustion point (monotonic threshold)"
+        );
+    }
+
+    #[test]
+    fn should_rotate_porkchop_buffer_never_fires_for_degenerate_span() {
+        // A zero or negative buffer span (e.g. grid not yet built)
+        // must never trigger a rotation — there is nothing to
+        // rotate away from.
+        assert!(!super::should_rotate_porkchop_buffer(1.0, 0.0));
+        assert!(!super::should_rotate_porkchop_buffer(1.0, -1.0));
+        assert!(!super::should_rotate_porkchop_buffer(0.0, 0.0));
+    }
+
+    #[test]
+    fn should_rotate_porkchop_buffer_does_not_fire_before_any_shift() {
+        // At shift_s = 0 (grid just built), the trigger must never
+        // fire regardless of buffer span — otherwise every render
+        // frame after a build would immediately queue another
+        // rebuild.
+        assert!(!super::should_rotate_porkchop_buffer(0.0, 480.0 * 86_400.0));
     }
 
     #[test]
