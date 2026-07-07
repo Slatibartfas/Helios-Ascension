@@ -333,9 +333,7 @@ mod tests {
         // The earlier <1e-1 tolerance conflated m and km by 1000×
         // (the velocity `* 1000.0` factor in `advance_position` was
         // missed).  The new tolerance is the analytic offset ±1e-6.
-        let dt_au_per_axis = |v_kms: f64| -> f64 {
-            v_kms * one_year_s * 1000.0 / AU_IN_METERS
-        };
+        let dt_au_per_axis = |v_kms: f64| -> f64 { v_kms * one_year_s * 1000.0 / AU_IN_METERS };
         let dx_au = (p_t.x - sys.position_m.x) / AU_IN_METERS;
         let dy_au = (p_t.y - sys.position_m.y) / AU_IN_METERS;
         let dz_au = (p_t.z - sys.position_m.z) / AU_IN_METERS;

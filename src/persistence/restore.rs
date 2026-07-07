@@ -247,10 +247,18 @@ mod tests {
         // separately, not via a join.
         let mut count_a = 0;
         let mut count_b = 0;
-        for _ in restored.world.query::<&TestComponentA>().iter(&restored.world) {
+        for _ in restored
+            .world
+            .query::<&TestComponentA>()
+            .iter(&restored.world)
+        {
             count_a += 1;
         }
-        for _ in restored.world.query::<&TestComponentB>().iter(&restored.world) {
+        for _ in restored
+            .world
+            .query::<&TestComponentB>()
+            .iter(&restored.world)
+        {
             count_b += 1;
         }
         assert!(

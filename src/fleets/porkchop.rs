@@ -168,8 +168,7 @@ pub fn build_porkchop_grid_with_params(
     //      for outer planets (E→J: `5·hohmann = 13.6 yr` > 10 yr) and
     //      for the `interstellar` / `star_approach` / `moon` category
     //      overrides (which carry their own `tof_ceiling_years`).
-    let dest_period_s = std::f64::consts::TAU
-        / inputs.dest_orbit.mean_motion.abs().max(1e-25);
+    let dest_period_s = std::f64::consts::TAU / inputs.dest_orbit.mean_motion.abs().max(1e-25);
     let dest_period_cap_s = 4.0 * dest_period_s;
     let hohmann_multiplier_cap_s = 5.0 * tof_h;
     let ceiling_cap_s = params.tof_ceiling_years * SECONDS_PER_YEAR;
@@ -1742,12 +1741,14 @@ mod tests {
         let span = tof_max_s - tof_min_s;
 
         // Sanity: span is positive and finite.
-        assert!(span > 0.0 && span.is_finite(), "tof span must be positive, got {span}");
+        assert!(
+            span > 0.0 && span.is_finite(),
+            "tof span must be positive, got {span}"
+        );
 
         // Sanity: span is bounded by the smallest of the three Phase-D
         // ceilings: `4·dest_period`, `5·hohmann`, `10 yr`.
-        let dest_period_s =
-            std::f64::consts::TAU / mars_orbit().mean_motion.abs().max(1e-25);
+        let dest_period_s = std::f64::consts::TAU / mars_orbit().mean_motion.abs().max(1e-25);
         let tof_h = hohmann_time_s(
             earth_orbit().semi_major_axis,
             mars_orbit().semi_major_axis,
@@ -1833,8 +1834,9 @@ mod tests {
     fn phase_d_interstellar_override_wins_over_dest_period_cap() {
         let cfg_default = PorkchopConfig::default();
         let mut cfg_override = PorkchopConfig::default();
-        cfg_override.category_overrides.push(
-            crate::fleets::components::PorkchopCategoryOverride {
+        cfg_override
+            .category_overrides
+            .push(crate::fleets::components::PorkchopCategoryOverride {
                 match_key: "interstellar".to_string(),
                 t_dep_window_days: 730.0,
                 tof_min_hohmann_factor: 0.2,
@@ -1844,13 +1846,10 @@ mod tests {
                 resolution_t_dep: 60,
                 resolution_tof: 60,
                 c3_ceiling_km2_s2: 400.0,
-            },
-        );
+            });
 
-        let inputs_default =
-            make_inputs(earth_orbit(), mars_orbit(), "interstellar");
-        let inputs_override =
-            make_inputs(earth_orbit(), mars_orbit(), "interstellar");
+        let inputs_default = make_inputs(earth_orbit(), mars_orbit(), "interstellar");
+        let inputs_override = make_inputs(earth_orbit(), mars_orbit(), "interstellar");
 
         let grid_default = build_porkchop_grid(&cfg_default, &inputs_default);
         let grid_override = build_porkchop_grid(&cfg_override, &inputs_override);
@@ -1858,8 +1857,7 @@ mod tests {
         // With the defaults category_only (10 yr ceiling): the 10-yr cap
         // binds for E→M because `4·687 d = 2748 d < 3652 d`. We can
         // only assert the cap is bounded above by 10 yr.
-        let span_default =
-            grid_default.tof_bounds_s.1 - grid_default.tof_bounds_s.0;
+        let span_default = grid_default.tof_bounds_s.1 - grid_default.tof_bounds_s.0;
         assert!(
             span_default <= 10.0 * SECONDS_PER_YEAR + 1.0,
             "default E→M span should be bounded by 10 yr, got {span_default:.1} s"
@@ -1871,8 +1869,7 @@ mod tests {
         // span must be ≥ what the defaults produce (proving the
         // override hook is consulted). The exact span depends on the
         // min of the three Phase-D ceilings.
-        let span_override =
-            grid_override.tof_bounds_s.1 - grid_override.tof_bounds_s.0;
+        let span_override = grid_override.tof_bounds_s.1 - grid_override.tof_bounds_s.0;
         assert!(
             span_override >= span_default - 1.0,
             "interstellar override span ({span_override:.1} s) should be >= defaults span ({span_default:.1} s)"

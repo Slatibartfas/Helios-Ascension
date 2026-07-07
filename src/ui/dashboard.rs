@@ -1381,20 +1381,13 @@ pub(super) fn ui_time_controls(
                 };
                 let pause_stroke = if is_paused {
                     let alpha = (120.0 + 135.0 * blink) as u8;
-                    egui::Stroke::new(
-                        1.5,
-                        egui::Color32::from_rgba_unmultiplied(231, 76, 60, alpha),
-                    )
+                    egui::Stroke::new(1.5, theme::paused_overlay_fg(alpha))
                 } else {
                     egui::Stroke::new(0.5, theme::BORDER)
                 };
                 let pause_label = if is_paused {
-                    egui::RichText::new("⏸ PAUSED").color(egui::Color32::from_rgba_unmultiplied(
-                        255,
-                        90,
-                        70,
-                        (180.0 + 75.0 * blink) as u8,
-                    ))
+                    egui::RichText::new("⏸ PAUSED")
+                        .color(theme::paused_label_color((180.0 + 75.0 * blink) as u8))
                 } else {
                     egui::RichText::new("▶ Running").color(theme::TEXT_DIM)
                 };

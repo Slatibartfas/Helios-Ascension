@@ -1628,21 +1628,17 @@ pub(super) fn render_transfer_planner(
                     ) {
                         let (cols_b, rows_b) = new_grid.resolution;
                         if cols_b > 0 && rows_b > 0 {
-                            let col_step = (new_grid.t_dep_bounds_s.1
-                                - new_grid.t_dep_bounds_s.0)
+                            let col_step = (new_grid.t_dep_bounds_s.1 - new_grid.t_dep_bounds_s.0)
                                 / cols_b as f64;
-                            let tof_step = (new_grid.tof_bounds_s.1
-                                - new_grid.tof_bounds_s.0)
-                                / rows_b as f64;
+                            let tof_step =
+                                (new_grid.tof_bounds_s.1 - new_grid.tof_bounds_s.0) / rows_b as f64;
                             let t_dep_min_abs = elapsed;
                             let t_of_min_abs = new_grid.tof_bounds_s.0;
                             let mut best: Option<(usize, usize, f64)> = None;
                             for r in 0..rows_b {
                                 for c in 0..cols_b {
-                                    let cell_t_dep_abs =
-                                        t_dep_min_abs + (c as f64) * col_step;
-                                    let cell_t_of =
-                                        t_of_min_abs + (r as f64) * tof_step;
+                                    let cell_t_dep_abs = t_dep_min_abs + (c as f64) * col_step;
+                                    let cell_t_of = t_of_min_abs + (r as f64) * tof_step;
                                     let dt = (cell_t_dep_abs - abs_t_dep).abs();
                                     let dtof = (cell_t_of - abs_tof).abs();
                                     let err = dt + dtof * 0.01;

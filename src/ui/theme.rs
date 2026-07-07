@@ -507,6 +507,42 @@ pub fn lerp_rgba(a: (u8, u8, u8, u8), b: (u8, u8, u8, u8), t: f32) -> egui::Colo
     )
 }
 
+/// Dark-grey sentinel for porkchop cells that are infeasible or have
+/// non-finite ΔV.  Lifted from the local `INFEASIBLE_COLOR` constant in
+/// `porkchop_color_ramp.rs` so the audit (which only allowlists
+/// `theme.rs`) has a single source of truth for the colormap's
+/// "no data" mask colour.
+pub const PORKCHOP_INFEASIBLE: egui::Color32 = egui::Color32::from_rgb(40, 40, 40);
+
+/// Pause-button overlay foreground.  Same hue as `RED` but with a
+/// caller-supplied alpha so the stroke can pulse with the blink
+/// animation.  Funnelled through `theme.rs` because the audit flags
+/// every `Color32::from_rgba_unmultiplied` call outside this file,
+/// even when the components are runtime-derived from a constant.
+pub fn paused_overlay_fg(alpha: u8) -> egui::Color32 {
+    egui::Color32::from_rgba_unmultiplied(RED.r(), RED.g(), RED.b(), alpha)
+}
+
+/// Pause-button label colour — a slightly lighter, more saturated
+/// red than `RED` so the "⏸ PAUSED" label reads cleanly on the
+/// pause-button fill.  Same audit-funnel rationale as
+/// `paused_overlay_fg`.
+pub fn paused_label_color(alpha: u8) -> egui::Color32 {
+    egui::Color32::from_rgba_unmultiplied(255, 90, 70, alpha)
+}
+
+/// Convert an `egui::Color32` to a Bevy `Color`.  Lives here (the
+/// audit allowlist) so callers don't have to construct a
+/// `Color::srgba` literal of their own.
+pub fn color32_to_bevy(c: egui::Color32) -> bevy::prelude::Color {
+    bevy::prelude::Color::srgba(
+        c.r() as f32 / 255.0,
+        c.g() as f32 / 255.0,
+        c.b() as f32 / 255.0,
+        c.a() as f32 / 255.0,
+    )
+}
+
 /// Compute the blink-pulsed fill colour for the dashboard's pause button.
 /// `blink` is a 0.0..=1.0 alpha value driven by the time-controls animation.
 pub fn pause_button_fill(blink: f32) -> egui::Color32 {
