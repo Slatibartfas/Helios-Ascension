@@ -1259,7 +1259,13 @@ pub(super) fn sync_plan_from_ui(plan: &mut TransferPlan, ui: &FleetUiState) {
     plan.selected_abs_t_dep_s = ui.selected_abs_t_dep_s;
     plan.selected_abs_tof_s = ui.selected_abs_tof_s;
     plan.planned_transfer = ui.planned_transfer.clone();
-    plan.rebuild_source_from_mirror();
+    // Phase 1: skip `rebuild_source_from_mirror` — no Phase-1 reader
+    // consults `plan.source` (the only Phase-1 consumer is
+    // `render_reference_frame_indicator`, which reads the mirrored
+    // fields directly), so cloning the `porkchop_grid` *again* into
+    // `SelectionSource::Porkchop { grid, .. }` is a per-frame hot-
+    // path allocation.  Phase 2 (`build_selected_card`) will
+    // reintroduce the call once it has a real consumer.
 }
 
 /// Write every mirrored `TransferPlan` field back into `FleetUiState`.
@@ -1311,10 +1317,16 @@ pub(super) fn render_reference_frame_indicator(
 ) {
     // No active selection → render nothing (Phase 1: the indicator
     // is informational; suppressing it when empty avoids a useless
-    // `auto` row above an empty picker).
+    // `auto` row above an empty picker).  The `target_star_approach`
+    // arm is part of the same family: a star-approach-only selection
+    // has `target_body = Entity::PLACEHOLDER` and no fleet / system
+    // target, so it would otherwise fall through to
+    // `resolve_planner_transfer_frame` and render a misleading
+    // `body-local` label instead of a `helio/star-system` label.
     if plan.target_body.is_none()
         && plan.target_fleet.is_none()
         && plan.target_star_system.is_none()
+        && plan.target_star_approach.is_none()
     {
         return;
     }

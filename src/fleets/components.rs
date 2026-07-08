@@ -1185,14 +1185,14 @@ pub struct TransferPlan {
 
 impl TransferPlan {
     /// Rebuild `source` from the mirrored fields after the planner
-    /// has mutated them in place.  Phase 1 only synthesises the
-    /// `Porkchop` variant; later phases add the rest.
+    /// has mutated them in place.  Phase 2 will call this from
+    /// `build_selected_card` (GRA-367-B).  Phase 1 has no Phase-1
+    /// reader of `SelectionSource::Porkchop.grid`, so the call
+    /// site deliberately skips it — see the comment in
+    /// `src/ui/transfer_planner.rs:1262` for the rationale.
     pub fn rebuild_source_from_mirror(&mut self) {
         self.source = match (&self.porkchop_grid, self.selected_porkchop_cell) {
-            (Some(grid), selected) => SelectionSource::Porkchop {
-                grid: grid.clone(),
-                selected,
-            },
+            (Some(grid), selected) => SelectionSource::Porkchop { grid: grid.clone(), selected },
             _ => SelectionSource::Empty,
         };
     }
