@@ -127,3 +127,5 @@ src/plugins/system_populator.rs:1982  OrbitPath::new(Color::srgba(0.25, 0.45, 0.
 src/plugins/system_populator.rs:2126  OrbitPath::with_fade(Color::srgba(0.3, 0.55, 0.22, 0.45), 5.0), // Dark green, steep fade — asteroids
 src/plugins/system_populator.rs:2238  OrbitPath::new(Color::srgba(1.0, 0.8, 0.3, 0.65)), // Yellow — comets
 src/plugins/system_populator.rs:2813  OrbitPath::new(Color::srgba(0.65, 0.65, 0.65, 0.5)), // Grey — moons
+src/ui/porkchop_color_ramp.rs:52  /// Each anchor's RGB triple is `Color::srgb(r as f32 / 255, ...)`
+src/ui/porkchop_color_ramp.rs:241  Color::srgba(r, g, b, a)

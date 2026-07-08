@@ -1,5 +1,7 @@
 //! ECS components for the fleet management and orbital transfer system.
 
+use super::orbital_mechanics::TransferOption;
+use super::porkchop::PorkchopGrid;
 use super::types::{FleetRole, PropulsionType, ShipClass};
 use crate::astronomy::KeplerOrbit;
 use bevy::prelude::*;
@@ -1073,3 +1075,138 @@ impl InterstellarPropulsionPolicy {
         }
     }
 }
+
+// ── GRA-367-A: TransferPlan skeleton + frame indicator ────────────────────
+// Phase 1 of the Transfer Planner Harmonisation design
+// (`docs/design/TRANSFER_PLANNER_HARMONISATION.md`).  Introduces the
+// `TransferPlan` resource and `SelectionSource` enum that will replace
+// `FleetUiState`'s 25 transfer fields over Phases 2-6.  Phase 1 only:
+//   - mirrors the porkchop + target-slot fields that account for the
+//     bulk of read/write traffic,
+//   - leaves `target_lagrange` / `gravity_assist_candidates` /
+//     `cross_system_grid` on `FleetUiState` for now (they reference
+//     UI-owned types in `crate::ui`; their consumers migrate in
+//     Phases 2/4/5),
+//   - adds a `frame_override: Option<TransferReferenceFrame>` slot
+//     surfaced as a read-only 1-line indicator above the picker
+//     (Phase 6 wires the override UI).
+//
+// Read-write both ways: `sync_from_fleet_ui_state` /
+// `sync_to_fleet_ui_state` keep the two shapes consistent.  All
+// existing `FleetUiState` consumers keep working unchanged; new code
+// that wants to migrate early can read/write `TransferPlan` directly
+// and call the sync fn around its mutation site.
+
+/// Source of the active transfer selection.  Phase 1 ships only the
+/// `Empty` + `Porkchop` variants; Phases 3-6 populate the rest as
+/// each algorithm migrates.
+#[derive(Debug, Clone, Default)]
+pub enum SelectionSource {
+    /// No active selection.
+    #[default]
+    Empty,
+    /// A heliocentric porkchop grid is the active selection surface
+    /// (`PorkchopGrid` with a `(col, row)` cursor).  Phase 1 only
+    /// builds this variant — the other classes still render through
+    /// their legacy UIs while their Phase-3/5/6 children land.
+    Porkchop {
+        grid: PorkchopGrid,
+        selected: Option<(usize, usize)>,
+    },
+}
+
+/// Unified per-fleet transfer plan (GRA-367-A Phase 1).
+///
+/// Mirrors `FleetUiState`'s transfer fields so the planner can
+/// migrate field-by-field over Phases 2-6 without behaviour change.
+/// Phase 1 mirrors the porkchop + target-slot cluster; later phases
+/// widen the mirror to Lagrange/GA/cross-system state.
+#[derive(Resource, Debug, Default)]
+pub struct TransferPlan {
+    /// Active selection surface and its cursor (Phase 1: only
+    /// `Empty` or `Porkchop { … }`; later phases populate GA,
+    /// BodyHohmann, Interstellar, CrossStar as each migrates).
+    pub source: SelectionSource,
+
+    // ── Target slots (Phase 1: body / star-approach / fleet / star-system) ─
+    /// Target body chosen for transfer planning.  Mutually exclusive
+    /// with `target_fleet` / `target_star_system`.
+    pub target_body: Option<Entity>,
+    /// `(star_entity, radius_au)` for a star-approach target.  See
+    /// `FleetUiState::target_star_approach` for semantics (GRA-161).
+    pub target_star_approach: Option<(Entity, f64)>,
+    /// Fleet entity targeted for an intercept course.  Mutually
+    /// exclusive with `target_body` / `target_star_system`.
+    pub target_fleet: Option<Entity>,
+    /// Interstellar target: `(system_id, display_name, distance_ly)`.
+    pub target_star_system: Option<(usize, String, f32)>,
+
+    // ── Departure slider ────────────────────────────────────────────────
+    /// Days from *now* until the fleet's planned departure
+    /// (0 = depart immediately).  Mirrors `FleetUiState`.
+    pub departure_offset_days: f64,
+
+    // ── 3-option row (legacy short-hop fallback) ────────────────────────
+    /// Index into `computed_options` the player has highlighted.
+    pub selected_option: usize,
+    /// Transfer options computed for the current `(fleet, target)`
+    /// pair (legacy 3-option row; porkchop supersedes when grid is
+    /// `Some`).
+    pub computed_options: Vec<TransferOption>,
+
+    // ── Porkchop cache (mirrors `FleetUiState` 1:1) ─────────────────────
+    /// Cached porkchop grid for the current `(fleet, target)` pair.
+    pub porkchop_grid: Option<PorkchopGrid>,
+    /// Target body entity the cached grid was built for.
+    pub porkchop_built_for: Option<Entity>,
+    /// Simulation-time epoch the cached grid was built at.
+    pub porkchop_built_at_s: Option<f64>,
+    /// Wall-clock epoch the cached grid was built at.
+    pub porkchop_last_real_build_s: Option<f64>,
+    /// GRA-169 (Part B) atomic-swap flag.
+    pub porkchop_grid_pending_rebuild: bool,
+    /// `(col, row)` index of the player-selected cell.
+    pub selected_porkchop_cell: Option<(usize, usize)>,
+    /// Absolute `(t_dep, tof)` of the selected cell (rotation reanchor).
+    pub selected_abs_t_dep_s: Option<f64>,
+    pub selected_abs_tof_s: Option<f64>,
+
+    // ── Committed plan ──────────────────────────────────────────────────
+    /// Fully assembled transfer plan ready for execution.  Mirrors
+    /// `FleetUiState::planned_transfer`.
+    pub planned_transfer: Option<PlannedTransfer>,
+
+    // ── Frame override (Phase 1: read-only display; Phase 6: editable) ─
+    /// Reference-frame override.  Phase 1 only displays the auto-
+    /// resolved frame; Phase 6 wires the override UI.  `None` means
+    /// "use auto-resolved frame" (the planner's default).
+    pub frame_override: Option<TransferReferenceFrame>,
+}
+
+impl TransferPlan {
+    /// Rebuild `source` from the mirrored fields after the planner
+    /// has mutated them in place.  Phase 2 will call this from
+    /// `build_selected_card` (GRA-367-B).  Phase 1 has no Phase-1
+    /// reader of `SelectionSource::Porkchop.grid`, so the call
+    /// site deliberately skips it — see the comment in
+    /// `src/ui/transfer_planner.rs:1262` for the rationale.
+    pub fn rebuild_source_from_mirror(&mut self) {
+        self.source = match (&self.porkchop_grid, self.selected_porkchop_cell) {
+            (Some(grid), selected) => SelectionSource::Porkchop {
+                grid: grid.clone(),
+                selected,
+            },
+            _ => SelectionSource::Empty,
+        };
+    }
+}
+
+// Sync helpers live in `crate::ui::transfer_planner` (Phase 1) because
+// `FleetUiState` lives in `crate::ui` and pulling it into `fleets`
+// would invert the module dependency (today `ui` depends on
+// `fleets`, not the other way around).  The free fns are:
+//
+//   pub fn sync_plan_from_ui(plan: &mut TransferPlan, ui: &FleetUiState);
+//   pub fn sync_ui_from_plan(plan: &TransferPlan, ui: &mut FleetUiState);
+//
+// Both are `pub(super)` so the planner module owns them.
