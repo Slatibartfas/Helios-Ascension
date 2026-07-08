@@ -1231,6 +1231,145 @@ fn try_build_cross_system_hohmann(
     })
 }
 
+// ── GRA-367-A: TransferPlan ↔ FleetUiState sync + frame indicator ────────
+// Phase 1 of the Transfer Planner Harmonisation design
+// (`docs/design/TRANSFER_PLANNER_HARMONISATION.md`).  Mirrors the
+// porkchop + target-slot cluster between `TransferPlan` and
+// `FleetUiState`.  `target_lagrange` / `gravity_assist_candidates` /
+// `cross_system_grid` stay on `FleetUiState` for Phase 1 (their
+// consumers migrate in Phases 2/4/5); the sync fns intentionally
+// leave them untouched so the read-write contract stays trivial to
+// reason about.
+
+/// Populate every mirrored `TransferPlan` field from `FleetUiState`.
+pub(super) fn sync_plan_from_ui(plan: &mut TransferPlan, ui: &FleetUiState) {
+    plan.target_body = ui.target_body;
+    plan.target_star_approach = ui.target_star_approach;
+    plan.target_fleet = ui.target_fleet;
+    plan.target_star_system = ui.target_star_system.clone();
+    plan.departure_offset_days = ui.departure_offset_days;
+    plan.selected_option = ui.selected_option;
+    plan.computed_options = ui.computed_options.clone();
+    plan.porkchop_grid = ui.porkchop_grid.clone();
+    plan.porkchop_built_for = ui.porkchop_built_for;
+    plan.porkchop_built_at_s = ui.porkchop_built_at_s;
+    plan.porkchop_last_real_build_s = ui.porkchop_last_real_build_s;
+    plan.porkchop_grid_pending_rebuild = ui.porkchop_grid_pending_rebuild;
+    plan.selected_porkchop_cell = ui.selected_porkchop_cell;
+    plan.selected_abs_t_dep_s = ui.selected_abs_t_dep_s;
+    plan.selected_abs_tof_s = ui.selected_abs_tof_s;
+    plan.planned_transfer = ui.planned_transfer.clone();
+    plan.rebuild_source_from_mirror();
+}
+
+/// Write every mirrored `TransferPlan` field back into `FleetUiState`.
+pub(super) fn sync_ui_from_plan(plan: &TransferPlan, ui: &mut FleetUiState) {
+    ui.target_body = plan.target_body;
+    ui.target_star_approach = plan.target_star_approach;
+    ui.target_fleet = plan.target_fleet;
+    ui.target_star_system = plan.target_star_system.clone();
+    ui.departure_offset_days = plan.departure_offset_days;
+    ui.selected_option = plan.selected_option;
+    ui.computed_options = plan.computed_options.clone();
+    ui.porkchop_grid = plan.porkchop_grid.clone();
+    ui.porkchop_built_for = plan.porkchop_built_for;
+    ui.porkchop_built_at_s = plan.porkchop_built_at_s;
+    ui.porkchop_last_real_build_s = plan.porkchop_last_real_build_s;
+    ui.porkchop_grid_pending_rebuild = plan.porkchop_grid_pending_rebuild;
+    ui.selected_porkchop_cell = plan.selected_porkchop_cell;
+    ui.selected_abs_t_dep_s = plan.selected_abs_t_dep_s;
+    ui.selected_abs_tof_s = plan.selected_abs_tof_s;
+    ui.planned_transfer = plan.planned_transfer.clone();
+}
+
+/// Render the read-only 1-line reference-frame indicator above the
+/// planner picker.  Phase 1 displays the auto-resolved frame (the
+/// same value `resolve_planner_transfer_frame` already computes
+/// during grid build); Phase 6 (GRA-367-F) replaces this with a
+/// `ComboBox` / icon-button override.  `body_query` is required so
+/// we can name the body's parent star or barycentre in the label
+/// without doing a second lookup later in the planner path.
+pub(super) fn render_reference_frame_indicator(
+    ui: &mut egui::Ui,
+    orbit: &FleetOrbit,
+    body_query: &Query<(
+        Entity,
+        &CelestialBody,
+        &SpaceCoordinates,
+        Option<&KeplerOrbit>,
+        Option<&LogicalParent>,
+    )>,
+    plan: &TransferPlan,
+) {
+    // No active selection → render nothing (Phase 1: the indicator
+    // is informational; suppressing it when empty avoids a useless
+    // `auto` row above an empty picker).
+    if plan.target_body.is_none() && plan.target_fleet.is_none() && plan.target_star_system.is_none()
+    {
+        return;
+    }
+
+    let origin_entity = orbit.body;
+
+    // Interstellar targets have no target body entity; the planner
+    // resolves them to the system-barycentric frame directly (see
+    // `try_build_cross_system_hohmann`).  Render that explicitly so
+    // the indicator never has to pass `Entity::PLACEHOLDER` through
+    // `resolve_planner_transfer_frame`.
+    if plan.target_star_system.is_some() {
+        ui.label(
+            egui::RichText::new(format!(
+                "Frame: {} (auto)",
+                planner_frame_label(PlannerTransferFrame::SystemBarycentric)
+            ))
+            .size(11.0)
+            .color(theme::TEXT_DIM)
+            .italics(),
+        );
+        return;
+    }
+
+    let target_entity = plan
+        .target_body
+        .or(plan.target_fleet)
+        .unwrap_or(Entity::PLACEHOLDER);
+
+    let origin_parent = body_query
+        .get(origin_entity)
+        .ok()
+        .and_then(|(_, _, _, _, lp)| lp)
+        .map(|lp| lp.0);
+    let dest_parent = body_query
+        .get(target_entity)
+        .ok()
+        .and_then(|(_, _, _, _, lp)| lp)
+        .map(|lp| lp.0);
+
+    let resolved = resolve_planner_transfer_frame(
+        origin_entity,
+        target_entity,
+        origin_parent,
+        dest_parent,
+        body_query,
+    );
+
+    let label = format!("Frame: {} (auto)", planner_frame_label(resolved));
+    ui.label(
+        egui::RichText::new(label)
+            .size(11.0)
+            .color(theme::TEXT_DIM)
+            .italics(),
+    );
+}
+
+fn planner_frame_label(frame: PlannerTransferFrame) -> String {
+    match frame {
+        PlannerTransferFrame::BodyLocal(_) => "body-local".to_string(),
+        PlannerTransferFrame::StellarLocal(_) => "stellar-local".to_string(),
+        PlannerTransferFrame::SystemBarycentric => "system barycentric".to_string(),
+    }
+}
+
 pub(super) fn render_transfer_planner(
     ui: &mut egui::Ui,
     fleet_entity: Entity,
@@ -1255,6 +1394,12 @@ pub(super) fn render_transfer_planner(
         Without<CelestialBody>,
     >,
     fleet_ui_state: &mut FleetUiState,
+    // GRA-367-A Phase 1: the new planner-shaped mirror resource.
+    // Phase 1 keeps `FleetUiState` as the writer-of-record (this
+    // function still mutates it in-place for the existing consumers),
+    // and `sync_plan_from_ui` rebuilds `TransferPlan` from it each
+    // frame.  Phase 2 will flip the ownership.
+    transfer_plan: &mut TransferPlan,
     pending_actions: &mut PendingFleetActions,
     current_system_id: usize,
     body_system_ids: &Query<&SystemId>,
@@ -1350,6 +1495,17 @@ pub(super) fn render_transfer_planner(
         );
     }
     ui.separator();
+
+    // ── GRA-367-A Phase 1: TransferPlan mirror + frame indicator ─────────
+    // Phase 1 keeps `FleetUiState` as the writer-of-record (the
+    // planner's per-frame build / clear_target paths still mutate it
+    // directly), and rebuilds `TransferPlan` from it each frame so
+    // the new resource mirrors the legacy state.  The frame
+    // indicator below reads from the mirror — Phase 2 will flip the
+    // ownership so `TransferPlan` is the writer and `FleetUiState`
+    // becomes the read shadow.
+    sync_plan_from_ui(&mut transfer_plan, fleet_ui_state);
+    render_reference_frame_indicator(ui, orbit, body_query, &transfer_plan);
 
     // ── GRA-326 Phase 2: planner auto-decides ──────────────────────────────
     // The three-way Auto/Porkchop/Legacy RadioButton group was removed —

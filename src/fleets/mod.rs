@@ -22,8 +22,8 @@ pub use components::{
     CreateFleetFromShipsAction, Fleet, FleetOrbit, HistoricalProbe, HistoricalProbeKind,
     InterstellarPropulsionPolicy, MergeFleetAction, PendingFleetActions, PlannedTransfer,
     PorkchopCategoryOverride, PorkchopColorStop, PorkchopConfig, PorkchopGridDefaults,
-    ResolvedPorkchopParams, ShipInfo, ShipInstance, SpawnFleetAction, StartTransferAction,
-    TransferReferenceFrame, TransferShipsAction,
+    ResolvedPorkchopParams, SelectionSource, ShipInfo, ShipInstance, SpawnFleetAction,
+    StartTransferAction, TransferPlan, TransferReferenceFrame, TransferShipsAction,
 };
 pub use historical_probes::{HistoricalProbeScanState, HistoricalProbesSpawned};
 pub use orbital_mechanics::{

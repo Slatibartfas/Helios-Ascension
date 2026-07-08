@@ -2211,6 +2211,11 @@ pub(super) fn ui_transfer_planner_popup(
     body_system_ids: Query<&SystemId>,
     mut pending_actions: ResMut<PendingFleetActions>,
     mut fleet_ui_state: ResMut<FleetUiState>,
+    // GRA-367-A Phase 1: the unified transfer-plan mirror resource.
+    // Rebuilt from `FleetUiState` each frame inside `render_transfer_planner`
+    // (Phase 1 keeps `FleetUiState` as the writer-of-record so every
+    // existing consumer keeps working unchanged).
+    mut transfer_plan: ResMut<TransferPlan>,
     sim_time: Res<SimulationTime>,
     time_scale: Res<TimeScale>,
     current_system: Res<CurrentStarSystem>,
@@ -2314,6 +2319,9 @@ pub(super) fn ui_transfer_planner_popup(
                         &body_query,
                         &all_fleets_query,
                         &mut fleet_ui_state,
+                        // GRA-367-A Phase 1: planner-shaped mirror of
+                        // the transfer state, rebuilt each frame.
+                        &mut transfer_plan,
                         &mut pending_actions,
                         current_system_id,
                         &body_system_ids,

@@ -89,8 +89,8 @@ use crate::fleets::orbital_mechanics::{
 };
 use crate::fleets::{
     AbortToOriginAction, ActiveManeuver, Fleet, FleetOrbit, MergeFleetAction, PendingFleetActions,
-    PlannedTransfer, StartTransferAction, TransferOption, TransferReferenceFrame,
-    TransferWindowInfo, AU_IN_METERS, GM_SUN, G_CONST,
+    PlannedTransfer, SelectionSource, StartTransferAction, TransferOption, TransferPlan,
+    TransferReferenceFrame, TransferWindowInfo, AU_IN_METERS, GM_SUN, G_CONST,
 };
 use crate::game_state::{ActiveMenu, GameMenu};
 use crate::plugins::camera::{
@@ -692,6 +692,12 @@ impl Plugin for UIPlugin {
             .init_resource::<Settings>()
             .init_resource::<ShippingCompanyFilter>()
             .init_resource::<FleetUiState>()
+        // GRA-367-A Phase 1: planner-shaped mirror of the transfer
+        // state.  Rebuilt from `FleetUiState` each frame inside
+        // `render_transfer_planner` (Phase 1 keeps `FleetUiState`
+        // as the writer-of-record).  Phase 2 will flip the
+        // ownership.
+        .init_resource::<TransferPlan>()
             .init_resource::<ResolutionWarning>()
             .init_resource::<ExpandedLedgerGroups>()
             .init_resource::<construction_panel::ConstructionUiState>()
