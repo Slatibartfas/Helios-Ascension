@@ -24,7 +24,7 @@ env:
   # at server-startup time, which isn't reliably exposed in every
   # step environment, and the marginal gain over Swatinem/rust-cache
   # isn't worth the failure mode.
-  SCCACHE_DIR: "${{ runner.workspace }}/.sccache-cache"
+  SCCACHE_DIR: "/home/runner/.sccache-cache"
   SCCACHE_CACHE_SIZE: "2G"
 
 jobs:
