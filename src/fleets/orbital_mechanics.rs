@@ -6,10 +6,12 @@
 use super::components::{Fleet, InterstellarPropulsionPolicy};
 // Phase 5 (GRA-367-E): the cross-star ballistic fallback now
 // returns a degenerate 3×1 `PorkchopGrid` instead of a
-// `Vec<TransferOption>`.  `PorkchopCell` is referenced inline via
-// `super::porkchop::PorkchopCell` in `fitted_cross_star_ballistic_options`
-// because the helper site already lives inside that function's body.
-use super::porkchop::{PorkchopGrid, PorkchopMetric};
+// `Vec<TransferOption>`.  `PorkchopCell` and `PorkchopMetric` are
+// referenced inline via `super::porkchop::{PorkchopCell,
+// PorkchopMetric}` in `cross_star_porkchop_grid` and
+// `fitted_cross_star_ballistic_options`; only `PorkchopGrid` is
+// needed at module scope for the function return types.
+use super::porkchop::PorkchopGrid;
 use crate::astronomy::{orbit_position_from_mean_anomaly, KeplerOrbit};
 use bevy::math::DVec3;
 
@@ -1248,7 +1250,7 @@ fn porkchop_grid_to_cross_star_options(grid: &PorkchopGrid) -> Vec<TransferOptio
             energy_multiplier: energy_multipliers.get(i).copied().unwrap_or(1.0),
             burn_time_s: 0.0,
             is_thrust_limited: false,
-            transfer_orbit_override: cell.transfer_orbit.clone(),
+            transfer_orbit_override: cell.transfer_orbit,
         })
         .collect()
 }
