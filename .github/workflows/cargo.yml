@@ -10,6 +10,16 @@ env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: -D warnings
   CARGO_BUILD_JOBS: "2"
+  # sccache cross-run reuse (GRA-380). With
+  # `.cargo/config.toml` setting `rustc-wrapper = "sccache"`, every
+  # cargo invocation in this job is automatically wrapped; setting
+  # these vars at workflow scope makes them visible to all steps
+  # including the cargo fmt / clippy / test / doc steps below.
+  # SCCACHE_GHA_ENABLED routes hits to the same Actions cache bucket
+  # Swatinem/rust-cache populates for target/; SCCACHE_CACHE_SIZE caps
+  # the local-disk sccache to 2 GiB.
+  SCCACHE_GHA_ENABLED: "true"
+  SCCACHE_CACHE_SIZE: "2G"
 
 jobs:
   build:
@@ -38,17 +48,12 @@ jobs:
 
       - name: Install sccache
         # Local-disk sccache cache populated per-run; cross-run reuse is
-        # handled by SCCACHE_GHA_ENABLED below which writes hits into the
-        # GitHub Actions cache (keyed by Swatinem/rust-cache above).
+        # handled by SCCACHE_GHA_ENABLED in the workflow-level env: block
+        # above, which writes hits into the GitHub Actions cache (keyed by
+        # Swatinem/rust-cache above). `.cargo/config.toml` sets
+        # `rustc-wrapper = "sccache"` so cargo invocations are wrapped
+        # automatically once sccache is on $PATH.
         run: cargo install sccache --locked --version ^0.16
-
-      - name: Configure sccache (GitHub Actions backend)
-        env:
-          # Routes the local sccache cache to the same Actions cache that
-          # Swatinem/rust-cache populates, so sccache hits and target/
-          # objects live in one bucket and share a restore key.
-          SCCACHE_GHA_ENABLED: "true"
-          SCCACHE_CACHE_SIZE: "2G"
 
       - name: cargo fmt --check
         run: cargo fmt --all -- --check
