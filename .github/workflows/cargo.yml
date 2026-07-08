@@ -36,6 +36,20 @@ jobs:
           workspaces: |
             .
 
+      - name: Install sccache
+        # Local-disk sccache cache populated per-run; cross-run reuse is
+        # handled by SCCACHE_GHA_ENABLED below which writes hits into the
+        # GitHub Actions cache (keyed by Swatinem/rust-cache above).
+        run: cargo install sccache --locked --version ^0.16
+
+      - name: Configure sccache (GitHub Actions backend)
+        env:
+          # Routes the local sccache cache to the same Actions cache that
+          # Swatinem/rust-cache populates, so sccache hits and target/
+          # objects live in one bucket and share a restore key.
+          SCCACHE_GHA_ENABLED: "true"
+          SCCACHE_CACHE_SIZE: "2G"
+
       - name: cargo fmt --check
         run: cargo fmt --all -- --check
 

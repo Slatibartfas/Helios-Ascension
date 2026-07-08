@@ -1,5 +1,17 @@
 # Bevy-optimized build configuration
 #
+# ─── sccache ────────────────────────────────────────────────────────────
+# Cache rustc invocations across branches / CI runs. Install once with
+# `cargo install sccache --locked`. The cache lives in ~/.cache/sccache
+# (Linux), ~/Library/Caches/sccache (macOS) or
+# %LOCALAPPDATA%\Mozilla\sccache (Windows). Set `SCCACHE_DIR` to override.
+#
+# On CI we additionally point SCCACHE_GHA_ENABLED=1 so sccache uses the
+# GitHub Actions cache backend for cross-run reuse.
+[build]
+rustc-wrapper = "sccache"
+
+# ─── Linker ─────────────────────────────────────────────────────────────
 # Use rust-lld (bundled with rustup's `llvm-tools` component) on Windows MSVC.
 # The default `link.exe` link step takes ~14s on incremental Bevy builds;
 # rust-lld typically cuts that by 30-50%.
