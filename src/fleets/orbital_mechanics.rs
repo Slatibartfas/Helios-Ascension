@@ -4,6 +4,12 @@
 //! and the Tsiolkovsky rocket equation for fuel estimation.
 
 use super::components::{Fleet, InterstellarPropulsionPolicy};
+// Phase 5 (GRA-367-E): the cross-star ballistic fallback now
+// returns a degenerate 3×1 `PorkchopGrid` instead of a
+// `Vec<TransferOption>`.  `PorkchopCell` is referenced inline via
+// `super::porkchop::PorkchopCell` in `fitted_cross_star_ballistic_options`
+// because the helper site already lives inside that function's body.
+use super::porkchop::{PorkchopGrid, PorkchopMetric};
 use crate::astronomy::{orbit_position_from_mean_anomaly, KeplerOrbit};
 use bevy::math::DVec3;
 
@@ -911,39 +917,51 @@ fn fitted_cross_star_ballistic_options(
     origin_host_radius_au: f64,
     dest_host_gm: f64,
     dest_host_radius_au: f64,
-) -> Vec<TransferOption> {
+) -> PorkchopGrid {
     use std::f64::consts::PI;
 
+    // Phase 5 (GRA-367-E): refactored from `Vec<TransferOption>` to
+    // a degenerate 3×1 `PorkchopGrid` so the renderer can drop the
+    // `is_inter_star_body_transfer` branch.  The grid holds the
+    // same three presets (Efficient / Moderate / Fast) as before;
+    // rows index the preset and the single column is the fixed
+    // departure epoch (0 — we use a placeholder; the planner renders
+    // these as a vertical option list rather than a true t_dep
+    // sweep).  `calculate_cross_star_ballistic_options` still builds
+    // the canonical `Vec<TransferOption>` downstream from this
+    // grid for `build_planned_transfer` consumption.
+
+    let degenerate_empty_cells: Vec<super::porkchop::PorkchopCell> = Vec::new();
     let r1_au = origin_pos_au.length();
     let r2_au = dest_pos_au.length();
     if system_gm <= 0.0 || r1_au <= 1e-6 || r2_au <= 1e-6 {
-        return Vec::new();
+        return cross_star_porkchop_grid(origin_pos_au, dest_pos_au, degenerate_empty_cells);
     }
 
     let mut angle_cos = origin_pos_au.dot(dest_pos_au) / (r1_au * r2_au);
     angle_cos = angle_cos.clamp(-0.999_999, 0.999_999);
     let delta_theta = angle_cos.acos();
     if !delta_theta.is_finite() || delta_theta <= 1e-4 {
-        return Vec::new();
+        return cross_star_porkchop_grid(origin_pos_au, dest_pos_au, degenerate_empty_cells);
     }
 
     let outward = r2_au >= r1_au;
     let eccentricity = if outward {
         let denom = r1_au - r2_au * angle_cos;
         if denom.abs() < 1e-9 {
-            return Vec::new();
+            return cross_star_porkchop_grid(origin_pos_au, dest_pos_au, degenerate_empty_cells);
         }
         (r2_au - r1_au) / denom
     } else {
         let denom = r2_au * angle_cos - r1_au;
         if denom.abs() < 1e-9 {
-            return Vec::new();
+            return cross_star_porkchop_grid(origin_pos_au, dest_pos_au, degenerate_empty_cells);
         }
         (r2_au - r1_au) / denom
     };
 
     if !eccentricity.is_finite() || !(0.0..0.98).contains(&eccentricity) {
-        return Vec::new();
+        return cross_star_porkchop_grid(origin_pos_au, dest_pos_au, degenerate_empty_cells);
     }
 
     let semi_latus_rectum_au = if outward {
@@ -953,7 +971,7 @@ fn fitted_cross_star_ballistic_options(
     };
     let semi_major_axis_au = semi_latus_rectum_au / (1.0 - eccentricity * eccentricity).max(1e-9);
     if !semi_major_axis_au.is_finite() || semi_major_axis_au <= 0.0 {
-        return Vec::new();
+        return cross_star_porkchop_grid(origin_pos_au, dest_pos_au, degenerate_empty_cells);
     }
 
     let start_true_anomaly = if outward { 0.0 } else { PI };
@@ -971,12 +989,12 @@ fn fitted_cross_star_ballistic_options(
     let semi_major_axis_m = semi_major_axis_au * AU_IN_METERS;
     let mean_motion = (system_gm / semi_major_axis_m.powi(3)).sqrt();
     if !mean_motion.is_finite() || mean_motion <= 0.0 {
-        return Vec::new();
+        return cross_star_porkchop_grid(origin_pos_au, dest_pos_au, degenerate_empty_cells);
     }
 
     let base_transfer_time_s = (end_mean_anomaly - start_mean_anomaly) / mean_motion;
     if !base_transfer_time_s.is_finite() || base_transfer_time_s <= 0.0 {
-        return Vec::new();
+        return cross_star_porkchop_grid(origin_pos_au, dest_pos_au, degenerate_empty_cells);
     }
 
     let r1_m = r1_au * AU_IN_METERS;
@@ -989,29 +1007,114 @@ fn fitted_cross_star_ballistic_options(
         circular_escape_injection_dv(origin_host_gm, origin_host_radius_au)
             + circular_escape_injection_dv(dest_host_gm, dest_host_radius_au);
 
-    let efficient = TransferOption {
-        label: "Curved Efficient",
-        total_delta_v_ms: (v_transfer1 - v_circ1).abs()
-            + (v_circ2 - v_transfer2).abs()
-            + local_escape_capture_floor,
-        delta_v1_ms: (v_transfer1 - v_circ1).abs() + local_escape_capture_floor * 0.5,
-        delta_v2_ms: (v_circ2 - v_transfer2).abs() + local_escape_capture_floor * 0.5,
-        plane_change_dv_ms: 0.0,
-        transfer_time_s: base_transfer_time_s,
-        sma_au: semi_major_axis_au,
-        eccentricity,
-        energy_multiplier: 1.0,
-        burn_time_s: 0.0,
-        is_thrust_limited: false,
-        transfer_orbit_override: None,
+    let efficient_total_dv =
+        (v_transfer1 - v_circ1).abs() + (v_circ2 - v_transfer2).abs() + local_escape_capture_floor;
+    let efficient_dv1 = (v_transfer1 - v_circ1).abs() + local_escape_capture_floor * 0.5;
+    let efficient_dv2 = (v_circ2 - v_transfer2).abs() + local_escape_capture_floor * 0.5;
+
+    // Build the three preset cells as `(row 0 efficient, row 1 moderate, row 2 fast)`.
+    // Each cell's `t_dep_s` placeholder (0.0) carries no transfer meaning — the
+    // degenerate 3×1 grid's row index drives preset selection.  `build_planned_transfer`
+    // reads `transfer_orbit_override` from the corresponding `TransferOption` instead.
+    let cells = vec![
+        super::porkchop::PorkchopCell {
+            t_dep_s: 0.0,
+            tof_s: base_transfer_time_s,
+            total_dv_ms: efficient_total_dv,
+            c3_departure: 0.0,
+            v_inf_arrival_ms: 0.0,
+            delta_v1_ms: efficient_dv1,
+            delta_v2_ms: efficient_dv2,
+            feasible: efficient_total_dv.is_finite(),
+            origin_pos_au,
+            dest_pos_au,
+            v_departure_ms: DVec3::ZERO,
+            v_arrival_ms: DVec3::ZERO,
+            transfer_orbit: None,
+        },
+        super::porkchop::PorkchopCell {
+            t_dep_s: 0.0,
+            tof_s: base_transfer_time_s * 2.0 / 3.0, // 0.78 → 1.5× faster (matches time_factor)
+            total_dv_ms: efficient_total_dv * 1.5,
+            c3_departure: 0.0,
+            v_inf_arrival_ms: 0.0,
+            delta_v1_ms: efficient_dv1 * 1.5,
+            delta_v2_ms: efficient_dv2 * 1.5,
+            feasible: (efficient_total_dv * 1.5).is_finite(),
+            origin_pos_au,
+            dest_pos_au,
+            v_departure_ms: DVec3::ZERO,
+            v_arrival_ms: DVec3::ZERO,
+            transfer_orbit: None,
+        },
+        super::porkchop::PorkchopCell {
+            t_dep_s: 0.0,
+            tof_s: base_transfer_time_s * 0.62, // 1 / 2.5 ≈ 0.4 (matches time_factor)
+            total_dv_ms: efficient_total_dv * 2.5,
+            c3_departure: 0.0,
+            v_inf_arrival_ms: 0.0,
+            delta_v1_ms: efficient_dv1 * 2.5,
+            delta_v2_ms: efficient_dv2 * 2.5,
+            feasible: (efficient_total_dv * 2.5).is_finite(),
+            origin_pos_au,
+            dest_pos_au,
+            v_departure_ms: DVec3::ZERO,
+            v_arrival_ms: DVec3::ZERO,
+            transfer_orbit: None,
+        },
+    ];
+
+    cross_star_porkchop_grid(origin_pos_au, dest_pos_au, cells)
+}
+
+/// Wrap a 3-cell porkchop list (Efficient/Moderate/Fast) in a
+/// `PorkchopGrid` (3×1) for `fitted_cross_star_ballistic_options`.
+///
+/// Used by Phase 5 (GRA-367-E) so the renderer can drop the
+/// `is_inter_star_body_transfer` branch and consume the same
+/// per-class panel used for the curved cross-star transfer.  The
+/// `t_dep_bounds_s` pair covers the cell's single column (the
+/// departure window is degenerate — the planner renders the three
+/// rows as a preset list and the player's departure slider sets the
+/// actual `t_dep` elsewhere).
+fn cross_star_porkchop_grid(
+    origin_pos_au: DVec3,
+    dest_pos_au: DVec3,
+    cells: Vec<super::porkchop::PorkchopCell>,
+) -> PorkchopGrid {
+    let min_cell = cells
+        .iter()
+        .enumerate()
+        .filter(|(_, c)| c.feasible)
+        .min_by(|(_, a), (_, b)| {
+            a.total_dv_ms
+                .partial_cmp(&b.total_dv_ms)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
+        .map(|(i, _)| (0usize, i));
+    let row_count = cells.len().max(1);
+    // tof_bounds are derived from row 0 and the last populated row so
+    // `compute_adaptive_tof_bounds` has a sensible Y-axis band even
+    // before the panel renders.
+    let first_tof_s = cells.first().map(|c| c.tof_s).unwrap_or(0.0);
+    let last_tof_s = cells.last().map(|c| c.tof_s).unwrap_or(first_tof_s);
+    let (tof_lo, tof_hi) = if last_tof_s < first_tof_s {
+        (last_tof_s, first_tof_s)
+    } else {
+        (first_tof_s, last_tof_s)
     };
-
-    let mut moderate = scaled_transfer(&efficient, 1.5, "Curved Moderate");
-    let mut fast = scaled_transfer(&efficient, 2.5, "Curved Fast");
-    moderate.energy_multiplier = 1.5;
-    fast.energy_multiplier = 2.5;
-
-    vec![efficient, moderate, fast]
+    let _ = (origin_pos_au, dest_pos_au); // positions are already attached to each cell
+    PorkchopGrid {
+        origin_name: "Origin star".to_string(),
+        dest_name: "Destination star".to_string(),
+        t_dep_bounds_s: (0.0, 0.0),
+        tof_bounds_s: (tof_lo, tof_hi),
+        rendered_tof_bounds_s: (tof_lo, tof_hi),
+        resolution: (1, row_count),
+        cells,
+        min_cell,
+        metric: super::porkchop::PorkchopMetric::TotalDv,
+    }
 }
 
 /// Compute Lambert-solved curved cross-star transfer options in the system barycentric frame.
@@ -1080,7 +1183,12 @@ pub fn calculate_cross_star_ballistic_options(
     }
 
     if options.len() != 3 {
-        return fitted_cross_star_ballistic_options(
+        // Phase 5: `fitted_cross_star_ballistic_options` returns a
+        // degenerate 3×1 `PorkchopGrid` per GRA-367-E.  Convert back
+        // to the canonical `Vec<TransferOption>` so the planner's
+        // existing `computed_options` consumer (and the
+        // `build_planned_transfer` integrator) stays unchanged.
+        let grid = fitted_cross_star_ballistic_options(
             origin_pos_au,
             dest_pos_au,
             system_gm,
@@ -1089,6 +1197,7 @@ pub fn calculate_cross_star_ballistic_options(
             dest_host_gm,
             dest_host_radius_au,
         );
+        return porkchop_grid_to_cross_star_options(&grid);
     }
 
     options.sort_by(|left, right| {
@@ -1112,6 +1221,36 @@ pub fn calculate_cross_star_ballistic_options(
     }
 
     options
+}
+
+/// Phase 5 (GRA-367-E): convert the degenerate 3×1 cross-star
+/// `PorkchopGrid` back to the legacy `Vec<TransferOption>` shape so
+/// `calculate_cross_star_ballistic_options` callers (and
+/// `build_planned_transfer` downstream) can stay on the existing
+/// data path.  Each row maps to one preset label (Efficient /
+/// Moderate / Fast), and the row's `total_dv_ms` becomes the
+/// option's total ΔV.
+fn porkchop_grid_to_cross_star_options(grid: &PorkchopGrid) -> Vec<TransferOption> {
+    let labels = ["Curved Efficient", "Curved Moderate", "Curved Fast"];
+    let energy_multipliers = [1.0, 1.5, 2.5];
+    grid.cells
+        .iter()
+        .enumerate()
+        .map(|(i, cell)| TransferOption {
+            label: labels.get(i).copied().unwrap_or("Curved"),
+            total_delta_v_ms: cell.total_dv_ms,
+            delta_v1_ms: cell.delta_v1_ms,
+            delta_v2_ms: cell.delta_v2_ms,
+            plane_change_dv_ms: 0.0,
+            transfer_time_s: cell.tof_s,
+            sma_au: 0.0,
+            eccentricity: 0.0,
+            energy_multiplier: energy_multipliers.get(i).copied().unwrap_or(1.0),
+            burn_time_s: 0.0,
+            is_thrust_limited: false,
+            transfer_orbit_override: cell.transfer_orbit.clone(),
+        })
+        .collect()
 }
 
 /// Transfer options for a **co-orbital phasing maneuver** to an L3, L4, or L5
