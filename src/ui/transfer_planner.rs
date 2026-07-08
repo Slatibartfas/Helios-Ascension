@@ -1507,19 +1507,18 @@ fn render_gravity_assist_sub_grid(
         let cell_rect = egui::Rect::from_min_size(egui::pos2(x, y), egui::vec2(cell_w, cell_h));
         let color = if cell.feasible && cell.total_dv_ms.is_finite() {
             let t = ((cell.total_dv_ms - dv_lo) / (dv_hi - dv_lo)).clamp(0.0, 1.0) as f32;
-            // 5-stop ramp: green (cheap) → yellow → red (expensive).
-            let (r, g, b) = if t < 0.25 {
-                (60, 200, 90)
+            // 4-stop ramp: green (cheap) → yellow → orange → red (expensive).
+            if t < 0.25 {
+                theme::HEATMAP_CHEAP
             } else if t < 0.5 {
-                (220, 200, 60)
+                theme::HEATMAP_MID
             } else if t < 0.75 {
-                (230, 140, 40)
+                theme::HEATMAP_WARM
             } else {
-                (220, 60, 60)
-            };
-            egui::Color32::from_rgb(r, g, b)
+                theme::HEATMAP_HOT
+            }
         } else {
-            egui::Color32::from_rgb(60, 60, 65)
+            theme::HEATMAP_INFEASIBLE
         };
         painter.rect_filled(cell_rect, 0.0, color);
     }

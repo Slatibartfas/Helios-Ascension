@@ -255,6 +255,24 @@ pub const STATUS_NEUTRAL: egui::Color32 = egui::Color32::from_rgb(220, 220, 220)
 /// Muted — mid grey for inactive/disabled UI.
 pub const STATUS_MUTED: egui::Color32 = egui::Color32::from_rgb(180, 180, 180);
 
+// ─── Porkchop / GA Heatmap Bands (GRA-367) ──────────────────────────────
+
+/// ΔV-cheapest band — saturated green for the cheapest 25 % of cells in
+/// the (porkchop or GA-sub-grid) heatmap.  Slightly punchier than
+/// [`STATUS_SUCCESS`] so the cheap basin reads as a clearly-green lobe
+/// against the surrounding red/yellow cells.
+pub const HEATMAP_CHEAP: egui::Color32 = egui::Color32::from_rgb(60, 200, 90);
+/// ΔV-mid band — amber/yellow for the 25–50 % range.
+pub const HEATMAP_MID: egui::Color32 = egui::Color32::from_rgb(220, 200, 60);
+/// ΔV-warm band — orange for the 50–75 % range.
+pub const HEATMAP_WARM: egui::Color32 = egui::Color32::from_rgb(230, 140, 40);
+/// ΔV-expensive band — red for the most expensive 25 %.
+pub const HEATMAP_HOT: egui::Color32 = egui::Color32::from_rgb(220, 60, 60);
+/// Dim grey for infeasible cells (Lambert failure, no positive GA kick,
+/// or unphysical C3).  Picked slightly darker than [`STATUS_MUTED`] so
+/// the cheap-basin colours "pop" against the greyed background.
+pub const HEATMAP_INFEASIBLE: egui::Color32 = egui::Color32::from_rgb(60, 60, 65);
+
 // ─── Anchor / Marker ────────────────────────────────────────────────────
 
 /// Anchor / marker — orange-gold for ⚓ glyphs and similar emphasis marks.
