@@ -55,6 +55,22 @@ jobs:
         # automatically once sccache is on $PATH.
         run: cargo install sccache --locked --version ^0.16
 
+      - name: Start sccache server
+        # sccache uses a client-server model: the rustc-wrapper is a thin
+        # client that connects to a background server. The server reads
+        # SCCACHE_GHA_ENABLED and the GHA-specific env vars
+        # (ACTIONS_CACHE_URL / ACTIONS_RUNTIME_TOKEN) at startup, so it
+        # MUST be started in a step that has those vars in its
+        # environment. Starting it as a separate step (rather than via
+        # the rustc-wrapper) is the documented pattern; without this
+        # step, cargo's first rustc invocation tries to spin up the
+        # server inside the wrapper context and fails with
+        # `cache url for ghac not found`.
+        run: |
+          sccache --version
+          sccache --start-server
+          sccache -z
+
       - name: cargo fmt --check
         run: cargo fmt --all -- --check
 
