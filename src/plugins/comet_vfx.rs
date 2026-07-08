@@ -1,8 +1,8 @@
-use bevy::prelude::*;
-use bevy_hanabi::prelude::*;
+use crate::astronomy::components::CometTail;
 use crate::astronomy::components::{CurrentStarSystem, SystemId};
 use crate::plugins::solar_system::{Comet, Star};
-use crate::astronomy::components::CometTail; // Reuse existing marker if possible, or define our own for particles
+use bevy::prelude::*;
+use bevy_hanabi::prelude::*; // Reuse existing marker if possible, or define our own for particles
 
 /// Plugin for hyper-realistic comet tail effects
 pub struct CometVfxPlugin;
@@ -15,19 +15,19 @@ impl Plugin for CometVfxPlugin {
 
         app.insert_resource(CometTailResources::default())
             .add_systems(Startup, setup_comet_effects)
-            .add_systems(Update, (
-                attach_comet_tails,
-                update_comet_vectors,
-                cleanup_legacy_tails,
-            ));
+            .add_systems(
+                Update,
+                (
+                    attach_comet_tails,
+                    update_comet_vectors,
+                    cleanup_legacy_tails,
+                ),
+            );
     }
 }
 
 /// Cleanup any legacy mesh-based tails that might have been spawned by old systems
-fn cleanup_legacy_tails(
-    mut commands: Commands,
-    query: Query<Entity, With<CometTail>>,
-) {
+fn cleanup_legacy_tails(mut commands: Commands, query: Query<Entity, With<CometTail>>) {
     for entity in query.iter() {
         commands.entity(entity).despawn();
     }
@@ -75,16 +75,10 @@ fn setup_comet_effects(
     let comet_vel_prop = writer.add_property("comet_velocity", Vec3::ZERO.into());
 
     // Init: Spawn at parent position
-    let init_pos = SetAttributeModifier::new(
-        Attribute::POSITION,
-        writer.lit(Vec3::ZERO).expr(),
-    );
+    let init_pos = SetAttributeModifier::new(Attribute::POSITION, writer.lit(Vec3::ZERO).expr());
 
     // Init: Lifetime (randomized)
-    let init_age = SetAttributeModifier::new(
-        Attribute::AGE,
-        writer.lit(0.0).expr(),
-    );
+    let init_age = SetAttributeModifier::new(Attribute::AGE, writer.lit(0.0).expr());
     let init_lifetime = SetAttributeModifier::new(
         Attribute::LIFETIME,
         writer.lit(2.0).uniform(writer.lit(3.0)).expr(),
@@ -94,22 +88,15 @@ fn setup_comet_effects(
     // "High-velocity particles". Let's give them some initial push plus the wind.
     // The wind dominates.
 
-    let particle_size = SetAttributeModifier::new(
-        Attribute::SIZE,
-        writer.lit(0.5).expr(),
-    );
+    let particle_size = SetAttributeModifier::new(Attribute::SIZE, writer.lit(0.5).expr());
 
     // Init: Velocity = Comet Velocity (Type I follows the nucleus closely but is pushed by wind)
-    let init_vel_ion = SetAttributeModifier::new(
-        Attribute::VELOCITY,
-        writer.prop(comet_vel_prop).expr(),
-    );
+    let init_vel_ion =
+        SetAttributeModifier::new(Attribute::VELOCITY, writer.prop(comet_vel_prop).expr());
 
     // Update: Apply Solar Wind Force (Acceleration)
     // Force = Property("solar_wind_force")
-    let update_accel = AccelModifier::new(
-        writer.prop(solar_wind_prop).expr()
-    );
+    let update_accel = AccelModifier::new(writer.prop(solar_wind_prop).expr());
 
     let ion_effect = EffectAsset::new(
         vec![4096], // Capacity
@@ -124,10 +111,12 @@ fn setup_comet_effects(
     .init(particle_size)
     .init(init_vel_ion)
     .update(update_accel)
-    .render(ColorOverLifetimeModifier { gradient: ion_gradient })
+    .render(ColorOverLifetimeModifier {
+        gradient: ion_gradient,
+    })
     .render(SizeOverLifetimeModifier {
         gradient: Gradient::constant(Vec2::splat(1.0)),
-        screen_space_size: false
+        screen_space_size: false,
     });
 
     // -----------------------------------------------------------------------
@@ -147,19 +136,21 @@ fn setup_comet_effects(
 
     let mut writer_dust = ExprWriter::new();
     let comet_vel_prop = writer_dust.add_property("comet_velocity", Vec3::ZERO.into());
-    let radiation_pressure_prop = writer_dust.add_property("radiation_pressure", (Vec3::Y * 2.0).into()); // Vector3
+    let radiation_pressure_prop =
+        writer_dust.add_property("radiation_pressure", (Vec3::Y * 2.0).into()); // Vector3
 
     // Init: Position
-    let init_pos_dust = SetAttributeModifier::new(
-        Attribute::POSITION,
-        writer_dust.lit(Vec3::ZERO).expr(),
-    );
+    let init_pos_dust =
+        SetAttributeModifier::new(Attribute::POSITION, writer_dust.lit(Vec3::ZERO).expr());
 
     // Init: Velocity = Comet Velocity * 0.99 (Almost matches nucleus, allowing wind to curve it naturally)
     // Need to access property 'comet_velocity' in Init
     let init_vel_dust = SetAttributeModifier::new(
         Attribute::VELOCITY,
-        writer_dust.prop(comet_vel_prop).mul(writer_dust.lit(0.99)).expr(),
+        writer_dust
+            .prop(comet_vel_prop)
+            .mul(writer_dust.lit(0.99))
+            .expr(),
     );
 
     let init_lifetime_dust = SetAttributeModifier::new(
@@ -174,13 +165,11 @@ fn setup_comet_effects(
     );
 
     // Update: Radiation Pressure (Acceleration)
-    let update_rad_pressure = AccelModifier::new(
-        writer_dust.prop(radiation_pressure_prop).expr()
-    );
+    let update_rad_pressure = AccelModifier::new(writer_dust.prop(radiation_pressure_prop).expr());
 
     // Update: Drag
     let update_drag = LinearDragModifier::new(
-        writer_dust.lit(0.5).expr() // Drag coefficient
+        writer_dust.lit(0.5).expr(), // Drag coefficient
     );
 
     let dust_effect = EffectAsset::new(
@@ -196,10 +185,12 @@ fn setup_comet_effects(
     .init(init_size_dust)
     .update(update_rad_pressure)
     .update(update_drag)
-    .render(ColorOverLifetimeModifier { gradient: dust_gradient })
+    .render(ColorOverLifetimeModifier {
+        gradient: dust_gradient,
+    })
     .render(SizeOverLifetimeModifier {
         gradient: Gradient::constant(Vec2::splat(1.0)),
-        screen_space_size: false
+        screen_space_size: false,
     });
 
     resources.ion_tail = effects.add(ion_effect);
@@ -209,7 +200,10 @@ fn setup_comet_effects(
 /// Spawns particle effects for new comets
 fn attach_comet_tails(
     mut commands: Commands,
-    query: Query<(Entity, &Transform, Option<&SystemId>), (With<Comet>, Without<CometVfxController>)>,
+    query: Query<
+        (Entity, &Transform, Option<&SystemId>),
+        (With<Comet>, Without<CometVfxController>),
+    >,
     resources: Res<CometTailResources>,
     current_system: Res<CurrentStarSystem>,
 ) {
@@ -233,22 +227,24 @@ fn attach_comet_tails(
         });
 
         // Ion Tail
-        commands.spawn(ParticleEffectBundle {
-            effect: ParticleEffect::new(resources.ion_tail.clone()),
-            transform: Transform::IDENTITY,
-            ..default()
-        })
-        .insert(Name::new("Ion Tail"))
-        .set_parent(entity);
+        commands
+            .spawn(ParticleEffectBundle {
+                effect: ParticleEffect::new(resources.ion_tail.clone()),
+                transform: Transform::IDENTITY,
+                ..default()
+            })
+            .insert(Name::new("Ion Tail"))
+            .set_parent(entity);
 
         // Dust Tail
-        commands.spawn(ParticleEffectBundle {
-            effect: ParticleEffect::new(resources.dust_tail.clone()),
-            transform: Transform::IDENTITY,
-            ..default()
-        })
-        .insert(Name::new("Dust Tail"))
-        .set_parent(entity);
+        commands
+            .spawn(ParticleEffectBundle {
+                effect: ParticleEffect::new(resources.dust_tail.clone()),
+                transform: Transform::IDENTITY,
+                ..default()
+            })
+            .insert(Name::new("Dust Tail"))
+            .set_parent(entity);
     }
 }
 
@@ -256,7 +252,15 @@ fn attach_comet_tails(
 fn update_comet_vectors(
     time: Res<Time>,
     current_system: Res<CurrentStarSystem>,
-    mut comet_query: Query<(&GlobalTransform, &Children, &mut CometVfxController, Option<&SystemId>), With<Comet>>,
+    mut comet_query: Query<
+        (
+            &GlobalTransform,
+            &Children,
+            &mut CometVfxController,
+            Option<&SystemId>,
+        ),
+        With<Comet>,
+    >,
     mut effect_query: Query<(&mut EffectProperties, &Name)>,
     star_query: Query<(&GlobalTransform, Option<&SystemId>), With<Star>>,
 ) {
@@ -268,7 +272,9 @@ fn update_comet_vectors(
         .unwrap_or(Vec3::ZERO);
 
     let dt = time.delta_secs();
-    if dt == 0.0 { return; }
+    if dt == 0.0 {
+        return;
+    }
 
     for (comet_transform, children, mut controller, system_id) in comet_query.iter_mut() {
         // Only update comets in the current star system

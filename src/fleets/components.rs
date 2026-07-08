@@ -854,6 +854,19 @@ pub struct PorkchopCategoryOverride {
     pub resolution_t_dep: usize,
     pub resolution_tof: usize,
     pub c3_ceiling_km2_s2: f64,
+    /// Optional GRA-367-C (Phase 3, amended r2) knob: number of
+    /// preset rows in the cislunar short-hop bar.  Default 5, soft
+    /// clamped to `[3, 9]` by `porkchop::clamp_short_hop_options`.
+    /// Ignored by every category other than `short_hop`.
+    ///
+    /// `#[serde(default)]` keeps the field optional on disk so older
+    /// RON files (without `short_hop_options`) continue to load via
+    /// `PorkchopConfig::default()`.  The LGD's
+    /// `assets/data/porkchop_config.ron` ships the field on the
+    /// `short_hop` override only; every other override leaves it
+    /// absent (and serde fills it with `None`).
+    #[serde(default)]
+    pub short_hop_options: Option<usize>,
 }
 
 /// One stop in the porkchop ΔV → RGBA colormap.  Linear interpolation
