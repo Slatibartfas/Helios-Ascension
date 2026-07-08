@@ -1263,6 +1263,14 @@ pub(super) fn sync_plan_from_ui(plan: &mut TransferPlan, ui: &FleetUiState) {
 }
 
 /// Write every mirrored `TransferPlan` field back into `FleetUiState`.
+///
+/// Phase 1 keeps `FleetUiState` as the writer-of-record so this
+/// helper is unused (clippy `-D dead_code` rejects it).  Phase 2
+/// flips ownership and the planner will call this every frame
+/// before reading the cached `FleetUiState` fields.  The
+/// `#[allow(dead_code)]` keeps the helper compile-clean while
+/// unused, so the Phase 2 PR can drop the allow and use it.
+#[allow(dead_code)]
 pub(super) fn sync_ui_from_plan(plan: &TransferPlan, ui: &mut FleetUiState) {
     ui.target_body = plan.target_body;
     ui.target_star_approach = plan.target_star_approach;
@@ -1507,7 +1515,7 @@ pub(super) fn render_transfer_planner(
     // ownership so `TransferPlan` is the writer and `FleetUiState`
     // becomes the read shadow.
     sync_plan_from_ui(transfer_plan, fleet_ui_state);
-    render_reference_frame_indicator(ui, orbit, body_query, &transfer_plan);
+    render_reference_frame_indicator(ui, orbit, body_query, transfer_plan);
 
     // ── GRA-326 Phase 2: planner auto-decides ──────────────────────────────
     // The three-way Auto/Porkchop/Legacy RadioButton group was removed —
