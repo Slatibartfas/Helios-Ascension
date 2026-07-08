@@ -1192,7 +1192,10 @@ impl TransferPlan {
     /// `src/ui/transfer_planner.rs:1262` for the rationale.
     pub fn rebuild_source_from_mirror(&mut self) {
         self.source = match (&self.porkchop_grid, self.selected_porkchop_cell) {
-            (Some(grid), selected) => SelectionSource::Porkchop { grid: grid.clone(), selected },
+            (Some(grid), selected) => SelectionSource::Porkchop {
+                grid: grid.clone(),
+                selected,
+            },
             _ => SelectionSource::Empty,
         };
     }
