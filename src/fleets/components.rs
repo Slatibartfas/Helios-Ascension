@@ -857,7 +857,11 @@ pub struct PorkchopCategoryOverride {
     /// Optional GRA-367-C (Phase 3, amended r2) knob: number of
     /// preset rows in the cislunar short-hop bar.  Default 5, soft
     /// clamped to `[3, 9]` by `porkchop::clamp_short_hop_options`.
-    /// Ignored by every category other than `short_hop`.
+    /// Ignored by every category other than `short_hop`.  Type is
+    /// `usize` to match the Coder's `clamp_short_hop_options` /
+    /// `build_short_hop_grid` signatures in PR #230 (GRA-367-C) —
+    /// see the LGD↔Coder coordination note in
+    /// `paperclip.klingspor.one/GRA/issues/GRA-374`.
     ///
     /// `#[serde(default)]` keeps the field optional on disk so older
     /// RON files (without `short_hop_options`) continue to load via
