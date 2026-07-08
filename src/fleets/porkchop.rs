@@ -1090,6 +1090,209 @@ pub fn build_short_hop_grid(
     }
 }
 
+// === Star-approach grid (GRA-367-F, Phase 6) ================================
+//
+// Planet → parent-star transfers: rows = parking orbit (Hohmann time
+// derived per row), cols = t_dep.  Differs from `build_short_hop_grid`
+// (single column, no t_dep choice) and `build_porkchop_grid_for_local_
+// frame` (t_dep × tof) because parking radius dominates the budget.
+// Inputs are Bevy-free so the unit tests stay pure-Rust.  Cells whose
+// C3 exceeds the RON `star_approach.c3_ceiling_km2_s2` (default 400)
+// are marked infeasible and the panel's INFEASIBLE_COLOR applies.
+
+/// Inputs to `build_star_approach_grid`.  Caller resolves the
+/// parking-orbit radius list (typically derived from
+/// `star_approach_bounds_au` and the per-body default), the parent
+/// star's GM (m³/s²), and the fleet's current orbital phase at
+/// `sim_time_s`.  The builder is free of Bevy queries and stays
+/// unit-testable.
+#[derive(Debug, Clone)]
+pub struct StarApproachInputs {
+    /// Origin name (e.g. "Earth") — surfaced in the panel header.
+    pub origin_name: String,
+    /// Destination name (e.g. "Sol") — surfaced in the panel header.
+    pub dest_name: String,
+    /// Parent-star gravitational parameter (m³/s²).  Sol ≈ 1.327e20.
+    pub gm_star: f64,
+    /// Candidate parking-orbit radii (AU).  Each entry becomes one
+    /// row of the grid.  Caller is responsible for sorting + dedup;
+    /// the builder assumes strictly-increasing entries.
+    pub parking_options_au: Vec<f64>,
+    /// Origin parking phase angle (rad) at `sim_time_s`.  Mirrors
+    /// `LocalPorkchopInputs.origin_phase_at_epoch_rad`.
+    pub origin_phase_at_epoch_rad: f64,
+    /// `sim_time_s` — the "now" epoch the player is planning from.
+    pub sim_time_s: f64,
+    /// C3 ceiling (m²/s²) for the Lambert solver.  Defaults to
+    /// `400 km²/s²` (the RON `star_approach.c3_ceiling_km2_s2`)
+    /// when `None`.
+    pub c3_ceiling_ms2: Option<f64>,
+    /// Departure-window duration (days).  Cols sweep `[−half, +half]`
+    /// around `sim_time_s`.  Defaults to `365` (the RON
+    /// `star_approach.t_dep_window_days`).
+    pub t_dep_window_days: Option<f64>,
+    /// Column count of the t_dep sweep.  Defaults to `60` (the RON
+    /// `star_approach.resolution_t_dep`).
+    pub resolution_t_dep: Option<usize>,
+}
+
+/// Build a star-approach grid for the planet-→-parent-star transfer.
+/// Shape: `cols = t_dep resolution` × `rows = parking_options_au.len()`.
+/// Each cell solves a Lambert problem from the parking orbit at `t_dep`
+/// to a periapsis at the star (r_dest = 0).  TOF per cell is the
+/// Hohmann-optimal time for that parking orbit.  Empty
+/// `parking_options_au` returns an empty grid; `cols = 0` clamps to 2.
+pub fn build_star_approach_grid(inputs: &StarApproachInputs) -> PorkchopGrid {
+    use super::orbital_mechanics::AU_IN_METERS;
+
+    // Defaults mirror the RON `star_approach` category override.
+    let c3_ceiling_ms2 = inputs.c3_ceiling_ms2.unwrap_or(400.0 * 1.0e6);
+    let t_dep_window_days = inputs.t_dep_window_days.unwrap_or(365.0);
+    let cols = inputs.resolution_t_dep.unwrap_or(60).max(2);
+    let rows = inputs.parking_options_au.len();
+
+    // Departure window centred on `sim_time_s`.
+    let half_window_s = 0.5 * t_dep_window_days * SECONDS_PER_DAY;
+    let t_dep_min_s = inputs.sim_time_s - half_window_s;
+    let t_dep_max_s = inputs.sim_time_s + half_window_s;
+    let t_dep_window_s = (t_dep_max_s - t_dep_min_s).max(0.0);
+
+    // Destination radius at the star centre.  Phase 6 collides at the
+    // star; a future solar-Oberth variant (periapsis above the
+    // photosphere) can read this from inputs without a signature
+    // change.
+    const R_DEST_AU: f64 = 0.0;
+
+    // Per-row Hohmann TOFs (parking-orbit dominates the geometry).
+    let row_tof_s: Vec<f64> = inputs
+        .parking_options_au
+        .iter()
+        .map(|&parking_au| {
+            let a_au = ((parking_au + R_DEST_AU) * 0.5).max(1.0e-3);
+            let a_m = a_au * AU_IN_METERS;
+            std::f64::consts::PI * (a_m.powi(3) / inputs.gm_star).sqrt()
+        })
+        .collect();
+
+    let total_cells = cols * rows;
+    let mut cells: Vec<PorkchopCell> = Vec::with_capacity(total_cells);
+    let mut min_cell: Option<(usize, usize)> = None;
+    let mut min_dv: f64 = f64::INFINITY;
+    let mut overall_tof_min = f64::INFINITY;
+    let mut overall_tof_max = f64::NEG_INFINITY;
+
+    for row in 0..rows {
+        let parking_au = inputs.parking_options_au[row];
+        let r1_m = parking_au * AU_IN_METERS;
+        let omega = (inputs.gm_star / r1_m.powi(3)).sqrt();
+        let v_circ_ms = (inputs.gm_star / r1_m).sqrt();
+        let tof_s = row_tof_s[row];
+        overall_tof_min = overall_tof_min.min(tof_s);
+        overall_tof_max = overall_tof_max.max(tof_s);
+
+        for col in 0..cols {
+            let col_frac = if cols > 1 {
+                col as f64 / (cols as f64 - 1.0)
+            } else {
+                0.0
+            };
+            let t_dep_s = t_dep_min_s + col_frac * t_dep_window_s;
+
+            // Parking position at `t_dep_s` in the parent-star inertial
+            // frame (mirrors the local-frame builder's convention).
+            let angle = inputs.origin_phase_at_epoch_rad + omega * t_dep_s;
+            let origin_pos_au = DVec3::new(parking_au * angle.cos(), parking_au * angle.sin(), 0.0);
+            let dest_pos_au = DVec3::ZERO;
+
+            let cell =
+                match solve_lambert_transfer(origin_pos_au, dest_pos_au, tof_s, inputs.gm_star) {
+                    Some((v1_ms, v2_ms, orbit)) => {
+                        let v1_speed_ms = v1_ms.length();
+                        let dep_burn_ms = (v1_speed_ms - v_circ_ms).max(0.0);
+                        let v_inf_dep_ms = (v1_speed_ms - v_circ_ms).max(0.0);
+                        let c3 = v_inf_dep_ms * v_inf_dep_ms;
+                        if !c3.is_finite() || c3 > c3_ceiling_ms2 {
+                            PorkchopCell {
+                                t_dep_s,
+                                tof_s,
+                                total_dv_ms: f64::INFINITY,
+                                c3_departure: c3,
+                                v_inf_arrival_ms: 0.0,
+                                delta_v1_ms: 0.0,
+                                delta_v2_ms: 0.0,
+                                feasible: false,
+                                origin_pos_au,
+                                dest_pos_au,
+                                v_departure_ms: v1_ms,
+                                v_arrival_ms: v2_ms,
+                                transfer_orbit: None,
+                            }
+                        } else {
+                            // Collision at star surface — total Δv is the
+                            // single departure burn; arrival burn is 0.
+                            PorkchopCell {
+                                t_dep_s,
+                                tof_s,
+                                total_dv_ms: dep_burn_ms,
+                                c3_departure: c3,
+                                v_inf_arrival_ms: 0.0,
+                                delta_v1_ms: dep_burn_ms,
+                                delta_v2_ms: 0.0,
+                                feasible: true,
+                                origin_pos_au,
+                                dest_pos_au,
+                                v_departure_ms: v1_ms,
+                                v_arrival_ms: v2_ms,
+                                transfer_orbit: Some(orbit),
+                            }
+                        }
+                    }
+                    None => PorkchopCell {
+                        t_dep_s,
+                        tof_s,
+                        total_dv_ms: f64::INFINITY,
+                        c3_departure: 0.0,
+                        v_inf_arrival_ms: 0.0,
+                        delta_v1_ms: 0.0,
+                        delta_v2_ms: 0.0,
+                        feasible: false,
+                        origin_pos_au,
+                        dest_pos_au,
+                        v_departure_ms: DVec3::ZERO,
+                        v_arrival_ms: DVec3::ZERO,
+                        transfer_orbit: None,
+                    },
+                };
+
+            if cell.feasible && cell.total_dv_ms < min_dv {
+                min_dv = cell.total_dv_ms;
+                min_cell = Some((col, row));
+            }
+            cells.push(cell);
+        }
+    }
+
+    let (tof_min_s, tof_max_s) = if rows == 0 {
+        (0.0, 0.0)
+    } else {
+        (overall_tof_min, overall_tof_max)
+    };
+    let rendered_tof_bounds_s =
+        compute_adaptive_tof_bounds(&cells, cols, rows.max(1), tof_min_s, tof_max_s);
+
+    PorkchopGrid {
+        origin_name: inputs.origin_name.clone(),
+        dest_name: inputs.dest_name.clone(),
+        t_dep_bounds_s: (t_dep_min_s, t_dep_max_s),
+        tof_bounds_s: (tof_min_s, tof_max_s),
+        rendered_tof_bounds_s,
+        resolution: (cols, rows),
+        cells,
+        min_cell,
+        metric: PorkchopMetric::TotalDv,
+    }
+}
+
 // === Tests =================================================================
 //
 // Three unit tests as required by the LGD design contract:
@@ -3121,5 +3324,57 @@ mod planner_wiring_tests {
             min_dv_ms < 5_000.0,
             "Jupiter-Europa min ΔV = {min_dv_ms:.0} m/s, expected < 5000 m/s"
         );
+    }
+
+    // === Star-approach grid (GRA-367-F, Phase 6) ===========================
+
+    /// Snapshot test: Sol + parking 0.3 AU.  Locks the (parking × t_dep)
+    /// shape (rows = parking, per-cell TOF = Hohmann time of that
+    /// parking) and the cheap-cell determinism for Phase 6 acceptance.
+    #[test]
+    fn build_star_approach_grid_sol_parking_0p3au_is_deterministic() {
+        let inputs = StarApproachInputs {
+            origin_name: "Earth".to_string(),
+            dest_name: "Sol".to_string(),
+            gm_star: GM_SUN,
+            parking_options_au: vec![0.10, 0.20, 0.30, 0.50, 1.00],
+            origin_phase_at_epoch_rad: 0.0,
+            sim_time_s: 0.0,
+            c3_ceiling_ms2: None,
+            t_dep_window_days: None,
+            resolution_t_dep: Some(20),
+        };
+
+        let grid_a = build_star_approach_grid(&inputs);
+        let grid_b = build_star_approach_grid(&inputs);
+
+        assert_eq!(grid_a.resolution, (20, 5));
+        assert_eq!(grid_a.cells.len(), 100);
+
+        let (ca, ra) = grid_a.min_cell.expect("Phase 6 grid must have a min cell");
+        let (cb, rb) = grid_b.min_cell.expect("Phase 6 grid must have a min cell");
+        assert_eq!((ca, ra), (cb, rb), "min_cell must be deterministic");
+        let dv_a = grid_a.cells[ra * grid_a.resolution.0 + ca].total_dv_ms;
+        let dv_b = grid_b.cells[rb * grid_b.resolution.0 + cb].total_dv_ms;
+        assert!(
+            (dv_a - dv_b).abs() < 1e-9,
+            "min ΔV must be deterministic: {dv_a} vs {dv_b}"
+        );
+        assert!(
+            dv_a.is_finite() && dv_a < 50_000.0,
+            "Sol parking min ΔV ({dv_a:.0} m/s) should be finite & < 50 km/s"
+        );
+
+        // Per-row TOF locks the (parking × t_dep) shape.
+        for (row, &parking_au) in inputs.parking_options_au.iter().enumerate() {
+            let cell = &grid_a.cells[row * grid_a.resolution.0];
+            let a_m = ((parking_au + 0.0) * 0.5).max(1.0e-3) * AU_IN_METERS;
+            let expected_tof_s = std::f64::consts::PI * (a_m.powi(3) / GM_SUN).sqrt();
+            assert!(
+                (cell.tof_s - expected_tof_s).abs() < 1e-6,
+                "row {row} TOF = {} (parking = {parking_au} AU), expected {expected_tof_s}",
+                cell.tof_s,
+            );
+        }
     }
 }
