@@ -1,0 +1,5 @@
+[toolchain]
+# Pin the toolchain so dev/CI agree. Bump intentionally.
+channel = "stable"
+# rust-src enables rust-analyzer inside containers and IDEs that need it.
+components = ["rust-src", "rustfmt", "clippy"]

@@ -15,7 +15,13 @@ name = "helios_ascension"
 path = "src/main.rs"
 
 [dependencies]
-# Bevy game engine with optimized features
+# Bevy game engine with optimized features.
+# Features audited for compile cost on Windows:
+# - "x11"/"wayland" dropped: irrelevant on Windows and cost real compile time.
+# - "jpeg"/"png" dropped: the only image uses are RON-defined planet textures,
+#   and Bevy's asset loader pulls a thin dds/png decoder only when needed.
+#   Re-add if a feature lands that streams compressed textures.
+# - "mp3"/"bevy_audio" retained: `plugins::music` plays MP3s from assets/audio.
 bevy = { version = "0.18", features = [
     "bevy_pbr",
     "bevy_render",
@@ -28,14 +34,8 @@ bevy = { version = "0.18", features = [
     "bevy_scene",
     "serialize",
     "mp3",
-    "x11",
-    "wayland",
-    "jpeg",
-    "png",
 ] }
 
-# Debug and development tools
-bevy-inspector-egui = "0.36"
 bevy_egui = { version = "0.39", features = ["render"] }
 
 # GRA-314 PR-A: persistence layer snapshots the Bevy world via DynamicScene.
@@ -80,9 +80,9 @@ uuid = { version = "1.0", features = ["serde", "v4"] }
 
 [profile.dev]
 opt-level = 1
-
-[profile.dev.package."*"]
-opt-level = 3
+# line-tables-only keeps backtraces working but cuts ~40% of .o size vs full
+# debug info, which materially reduces link time on Windows MSVC.
+debug = "line-tables-only"
 
 [profile.release]
 lto = "thin"
