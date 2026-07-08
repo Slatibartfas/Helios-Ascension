@@ -44,9 +44,20 @@
 //      unknown keys are ignored and fall through to `defaults`.
 //      (`gravity_assist` added in GRA-367-RON for the P2 flyby
 //      palette; the planner's `classify_body_transfer_category`
-//      emits it once GRA-367-D wires the assist branch.)
+//      emits it once GRA-367-D wires the assist branch.
+//      `short_hop` added in GRA-367-RON (operator-amended r2) for
+//      the configurable short-hop bar; its `short_hop_options`
+//      field was added to `PorkchopCategoryOverride` at the same
+//      time, with `#[serde(default)]` only so older RON files
+//      keep deserialising.  Rebase resolution (PR #229 onto main
+//      after PR #230): the r2 amend's `Option<u32>` +
+//      `skip_serializing_if` form was dropped in favour of main's
+//      `Option<usize>` + `#[serde(default)]` form, which matches
+//      PR #230's `build_short_hop_grid` consumer and the LGD's
+//      r3 amend (`265f46b`); the field's wire semantics are
+//      unchanged.)
 //
-// v0.5.0 ships with the 4 category_overrides below; the LGD
+// v0.5.0 ships with the 5 category_overrides below; the LGD
 // authored defaults to be conservative (60-day window, 40×30
 // resolution, ≤ 8 km/s tof baseline) so the first PR lands
 // without performance surprises.
@@ -170,6 +181,30 @@
             resolution_t_dep: 60,
             resolution_tof: 50,
             c3_ceiling_km2_s2: 400.0,
+        ),
+        // Short-hop (GRA-367 P3, operator-amended r2 — see
+        // `docs/design/TRANSFER_PLANNER_HARMONISATION.md`):
+        // replaces the legacy 3-card Efficient/Moderate/Fast row
+        // with a configurable N-row porkchop bar (default 5 in this
+        // entry; LGD may retune without a code change). The
+        // preset spread is `{0.6×, 0.85×, 1.0×, 1.4×, 2.0×}` of
+        // Hohmann time, so the player sees *variety* of options
+        // rather than three copies of the same transfer.
+        // `short_hop_options` powers `build_short_hop_grid`'s row
+        // count (clamped 3..=9 at the call site; `None` falls back
+        // to the legacy 3 behaviour). Resolution fields drive the
+        // single-column per-row Δv sweep used to colour the bar.
+        (
+            match_key: "short_hop",
+            t_dep_window_days: 14.0,
+            tof_min_hohmann_factor: 0.6,
+            tof_max_hohmann_factor: 2.0,
+            tof_floor_days: 0.5,
+            tof_ceiling_years: 0.165,
+            resolution_t_dep: 1,
+            resolution_tof: 50,
+            c3_ceiling_km2_s2: 400.0,
+            short_hop_options: Some(5),
         ),
         // Gravity assist (GRA-367 P2): the planner re-solves a
         // selected cell with `compute_gravity_assist_for_cell` once

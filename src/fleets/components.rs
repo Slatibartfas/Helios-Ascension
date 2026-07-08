@@ -865,6 +865,13 @@ pub struct PorkchopCategoryOverride {
     /// `assets/data/porkchop_config.ron` ships the field on the
     /// `short_hop` override only; every other override leaves it
     /// absent (and serde fills it with `None`).
+    ///
+    /// Rebase resolution (PR #229 onto main after PR #230): kept main's
+    /// `Option<usize>` + `#[serde(default)]` form (matches PR #230's
+    /// `build_short_hop_grid` consumer) over the r2 amend's `Option<u32>`
+    /// + `skip_serializing_if`.  The LGD's r3 amend (`265f46b`) had
+    /// already aligned to this shape; that commit is now redundant and
+    /// dropped from the rebased history (effectively squashed into r2).
     #[serde(default)]
     pub short_hop_options: Option<usize>,
 }
