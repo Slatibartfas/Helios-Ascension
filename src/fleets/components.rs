@@ -857,7 +857,11 @@ pub struct PorkchopCategoryOverride {
     /// Optional GRA-367-C (Phase 3, amended r2) knob: number of
     /// preset rows in the cislunar short-hop bar.  Default 5, soft
     /// clamped to `[3, 9]` by `porkchop::clamp_short_hop_options`.
-    /// Ignored by every category other than `short_hop`.
+    /// Ignored by every category other than `short_hop`.  Type is
+    /// `usize` to match the Coder's `clamp_short_hop_options` /
+    /// `build_short_hop_grid` signatures in PR #230 (GRA-367-C) —
+    /// see the LGD↔Coder coordination note in
+    /// `paperclip.klingspor.one/GRA/issues/GRA-374`.
     ///
     /// `#[serde(default)]` keeps the field optional on disk so older
     /// RON files (without `short_hop_options`) continue to load via
@@ -865,6 +869,14 @@ pub struct PorkchopCategoryOverride {
     /// `assets/data/porkchop_config.ron` ships the field on the
     /// `short_hop` override only; every other override leaves it
     /// absent (and serde fills it with `None`).
+    ///
+    /// Rebase note (PR #229 onto main after PR #230): kept main's
+    /// `Option<usize>` form with `#[serde(default)]`, which matches
+    /// PR #230's `build_short_hop_grid` consumer.  The LGD's r2 amend
+    /// used `Option<u32>` with `skip_serializing_if`, and the r3 amend
+    /// (`265f46b`) had already realigned to the main form; the rebased
+    /// r2 commit absorbs the r3 rationale and the r3 commit becomes a
+    /// no-op diff in the final stack.
     #[serde(default)]
     pub short_hop_options: Option<usize>,
 }
