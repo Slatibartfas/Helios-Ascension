@@ -13,8 +13,7 @@ use helios_ascension::fleets::InterstellarPropulsionPolicy;
 fn interstellar_propulsion_ron_loads_cleanly() {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("assets/data/interstellar_propulsion.ron");
-    let contents =
-        std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {path:?}: {e}"));
+    let contents = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {path:?}: {e}"));
     let policy: InterstellarPropulsionPolicy = ron::from_str(&contents)
         .unwrap_or_else(|e| panic!("interstellar_propulsion.ron failed to parse: {e}"));
     // Validation must also pass — covers the case where RON deserializes
@@ -25,8 +24,7 @@ fn interstellar_propulsion_ron_loads_cleanly() {
     }
     // Sanity: every policy value must be finite and well-formed.
     assert!(
-        policy.ai_phase_angle_tolerance_deg > 0.0
-            && policy.ai_phase_angle_tolerance_deg <= 180.0,
+        policy.ai_phase_angle_tolerance_deg > 0.0 && policy.ai_phase_angle_tolerance_deg <= 180.0,
         "ai_phase_angle_tolerance_deg out of range: {}",
         policy.ai_phase_angle_tolerance_deg
     );
