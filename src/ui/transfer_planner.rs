@@ -1,12 +1,17 @@
 use super::time::format_timestamp_date_time;
 use super::*;
 use crate::fleets::orbital_mechanics::calculate_cross_star_ballistic_options;
-use crate::fleets::porkchop::{build_grid_for_body_target, build_rotating_buffer_for_body_target};
+// GRA-367-E: pull `PorkchopGrid` into the module-level scope so the
+// `try_build_cross_system_hohmann` return type resolves without a
+// local `use` inside the function body.  Phase 5 emits a degenerate
+// `PorkchopGrid` (1×1 cells) for the cross-system path; Phase 1 will
+// later consume the same shape.
+use crate::fleets::porkchop::{
+    build_grid_for_body_target, build_rotating_buffer_for_body_target, PorkchopGrid,
+};
 // GRA-343: explicit import — `super::*` does not bring the new
 // resource type from `crate::fleets` into this module's namespace
-// for fn-signature type aliases.  The cross-system grid is a
-// `PorkchopGrid` (GRA-367-E), pulled in via `use crate::fleets::porkchop::*`
-// below where it's constructed; `InterstellarPropulsionPolicy` is
+// for fn-signature type aliases.  `InterstellarPropulsionPolicy` is
 // re-exported through `crate::fleets` and needs the explicit path.
 use crate::fleets::InterstellarPropulsionPolicy;
 
