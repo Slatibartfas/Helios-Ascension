@@ -1304,7 +1304,9 @@ pub(super) fn render_reference_frame_indicator(
     // No active selection → render nothing (Phase 1: the indicator
     // is informational; suppressing it when empty avoids a useless
     // `auto` row above an empty picker).
-    if plan.target_body.is_none() && plan.target_fleet.is_none() && plan.target_star_system.is_none()
+    if plan.target_body.is_none()
+        && plan.target_fleet.is_none()
+        && plan.target_star_system.is_none()
     {
         return;
     }
