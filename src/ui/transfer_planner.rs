@@ -5094,71 +5094,36 @@ pub(super) fn render_transfer_planner(
                 .map(|target_entity| is_inter_star_transfer(orbit.body, target_entity, body_query))
                 .unwrap_or(false);
             let hides_calendar_eta = is_interstellar || is_inter_star_body_transfer;
-            if is_interstellar {
-                if let Some((_, ref sys_name, dist_ly)) = star_system_snap {
-                    ui.group(|ui| {
-                        ui.label(
-                            egui::RichText::new(format!(
-                                "\u{1F30C} Interstellar Mission: {}",
-                                sys_name
-                            ))
-                            .strong()
-                            .size(13.0)
-                            .color(theme::GRAVITY_ASSIST),
-                        );
-                        ui.label(
-                            egui::RichText::new(format!(
-                                "Distance: {:.2} ly = {:.0} AU",
-                                dist_ly,
-                                dist_ly as f64 * 63_241.077
-                            ))
-                            .size(11.0)
-                            .color(theme::TEXT_DIM),
-                        );
-                        ui.label(
-                            egui::RichText::new(
-                                "\u{26A0} Interstellar navigation is point-and-burn. \
-                                 Transfer windows do not apply. \
-                                 Ensure adequate \u{394}V and life-support reserves.",
-                            )
-                            .size(11.0)
-                            .italics()
-                            .color(theme::AMBER),
-                        );
-                    });
-                    ui.add_space(4.0);
-                }
-            } else if is_inter_star_body_transfer {
-                ui.group(|ui| {
-                    ui.label(
-                        egui::RichText::new("Binary-System Transfer")
-                            .strong()
-                            .size(13.0)
-                            .color(theme::GRAVITY_ASSIST),
-                    );
-                    ui.label(
-                        egui::RichText::new(
-                            "Trajectory is computed in the system barycentric frame because origin and destination orbit different stars.",
-                        )
-                        .size(11.0)
-                        .color(theme::TEXT_DIM),
-                    );
-                    ui.label(
-                        egui::RichText::new(
-                            "Curved barycentric ballistic options use a system-gravity approximation; direct profiles remain available as high-thrust point-and-burn alternatives.",
-                        )
-                        .size(11.0)
-                        .color(theme::AMBER),
-                    );
-                    ui.label(
-                        egui::RichText::new(
-                            "Curved options change the arc shape. Direct options keep the straight barycentric preview and mainly trade travel time against ΔV.",
-                        )
-                        .size(11.0)
-                        .italics()
-                        .color(theme::TEXT_DIM),
-                    );
-                });
+            // GRA-367-B Phase 2: render the interstellar + binary-system
+            // header cards through the unified `build_selected_card` so
+            // every transfer class surfaces through one widget.  The
+            // other classes (porkchop, 3-option, gravity-assist,
+            // cross-star) keep their inline renderings until their
+            // `SelectionSource` variants land in Phases 3/4/5/6 — at
+            // that point each child migrates its inline code through
+            // the same `render_card` call.
+            if is_interstellar || is_inter_star_body_transfer {
+                use super::transfer_planner_card::{
+                    build_selected_card, render_card, CardSupplement, FleetInfo,
+                };
+                let supplement = CardSupplement {
+                    star_system_snap: star_system_snap.clone(),
+                    is_inter_star_body_transfer,
+                    frame_caption: Some("Frame: System Barycentric".to_string()),
+                    ..CardSupplement::default()
+                };
+                let fleet_info = FleetInfo {
+                    max_delta_v_ms: fleet_max_dv,
+                    wet_mass_t: fleet.total_wet_mass_t() as f64,
+                };
+                let fuel_cost_closure = |dv_ms: f64| fleet.total_fuel_cost_for_dv(dv_ms) as f64;
+                let card = build_selected_card(
+                    transfer_plan,
+                    Some(&supplement),
+                    fleet_info,
+                    fuel_cost_closure,
+                );
+                render_card(ui, &card);
                 ui.add_space(4.0);
             }
 

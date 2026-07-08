@@ -1,0 +1,7 @@
+# Cross-star Transfer: → Proxima
+  Distance: 4.24 ly
+
+  ΔV                       35.00 km/s
+  Travel time              120.00 yr
+
+  [Leg 1] System barycentric
