@@ -18,9 +18,12 @@ path = "src/main.rs"
 # Bevy game engine with optimized features.
 # Features audited for compile cost on Windows:
 # - "x11"/"wayland" dropped: irrelevant on Windows and cost real compile time.
-# - "jpeg"/"png" dropped: the only image uses are RON-defined planet textures,
-#   and Bevy's asset loader pulls a thin dds/png decoder only when needed.
-#   Re-add if a feature lands that streams compressed textures.
+# - "jpeg"/"png" REQUIRED: nearly every celestial-body and UI texture on
+#   disk is .jpg or .png (see assets/textures/celestial/**.jpg|.png and
+#   assets/data/planet_textures.ron).  Dropping the decoders turns every
+#   planet, moon, comet, and ring into an unlit black mesh because
+#   `bevy_image` fails the load with "feature \"jpeg\" is not enabled".
+#   GRA-368 tracking the regloss.
 # - "mp3"/"bevy_audio" retained: `plugins::music` plays MP3s from assets/audio.
 bevy = { version = "0.18", features = [
     "bevy_pbr",
@@ -34,6 +37,8 @@ bevy = { version = "0.18", features = [
     "bevy_scene",
     "serialize",
     "mp3",
+    "jpeg",
+    "png",
 ] }
 
 bevy_egui = { version = "0.39", features = ["render"] }
