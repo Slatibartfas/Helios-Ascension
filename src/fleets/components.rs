@@ -1073,3 +1073,250 @@ impl InterstellarPropulsionPolicy {
         }
     }
 }
+
+// ── GRA-371: TransferPlan resource + SelectionSource enum ─────────────────────
+//
+// Phase 1 of the GRA-367 harmonisation plan.  These types define the *future*
+// unified shape that will replace `FleetUiState`'s six coexisting transfer
+// fields, but Phase 1 ships them with no behaviour change — they are populated
+// through a one-way write-through shadow (`sync_transfer_plan_from_ui_state`,
+// registered in `FleetPlugin::build`) and the only consumer in this phase is
+// the 1-line reference-frame indicator in `src/ui/transfer_planner.rs`.  No
+// rendering path reads `SelectionSource` yet; `SelectionSource` exists so the
+// data layer can land first and the panel collapse (Phases 2-6) follows
+// without an API break.
+
+/// Player's currently-active transfer plan — the unified shape that
+/// `FleetUiState`'s six coexisting option surfaces will collapse onto.
+///
+/// Phase 1 only writes this resource through the shadow-sync system described
+/// above.  Consumers of `TransferPlan` for *rendering* are introduced in
+/// Phase 2 (selected-option card unification).  Until then the panel keeps
+/// reading `FleetUiState` directly — `TransferPlan` exists so the data
+/// layer can land first.
+///
+/// The `source` enum carries exactly the information that determines which
+/// per-class branch the planner renders today; collapse the branch onto the
+/// enum value in Phases 3-6, then drop the per-class fields from
+/// `FleetUiState`.
+///
+/// GRA-367 Phase 1 (this PR).  See `docs/design/TRANSFER_PLANNER_HARMONISATION.md`
+/// r2 for the full phase breakdown.
+#[derive(Resource, Default, Debug)]
+pub struct TransferPlan {
+    /// The data layer for the active transfer (porkchop / GA / kinematic /
+    /// cross-star / star-approach / empty).  In Phase 1 the planner still
+    /// derives its render branch from `FleetUiState`; `source` is populated
+    /// by the shadow-sync system to match what the planner is *currently*
+    /// rendering so callers can later migrate branch-by-branch without a
+    /// feature flag.
+    pub source: SelectionSource,
+    /// Currently-selected transfer option (if the player has picked a cell /
+    /// preset).  In Phase 1 this mirrors `(col, row)` for porkchop targets
+    /// and `selected_option` for legacy rows; nothing reads it.
+    pub selected: Option<SelectedTransfer>,
+    /// Optional rendered preview block (mirror of `computed_options`).
+    pub preview: Option<PlanPreview>,
+    /// Fully-assembled commit plan (mirror of `planned_transfer`).
+    pub commit: Option<PlannedTransfer>,
+    /// Player-overridable reference frame.  Phase 1 stores the resolved
+    /// frame but does not consume it; Phase 6 wires the override UI.
+    pub frame: PlannerFrame,
+}
+
+impl TransferPlan {
+    /// Reset the plan to its default state.  Mirrors `FleetUiState::clear_target`
+    /// for callers that move to `TransferPlan` as the source of truth.
+    pub fn clear(&mut self) {
+        self.source = SelectionSource::Empty;
+        self.selected = None;
+        self.preview = None;
+        self.commit = None;
+        self.frame = PlannerFrame::Auto;
+    }
+}
+
+/// Which transfer class / grid is currently driving the planner.
+///
+/// Phase 1 only writes this from the shadow-sync system; nothing renders off
+/// it yet.  The `Empty` variant is also the initial state, so consumers can
+/// safely check `is_empty()` to know whether any transfer is in flight.
+///
+/// GRA-367 Phase 1.  See `docs/design/TRANSFER_PLANNER_HARMONISATION.md` r2.
+#[derive(Debug, Clone)]
+pub enum SelectionSource {
+    /// No transfer is currently selected (player has not picked a target).
+    Empty,
+    /// A planet-to-planet porkchop grid is active.  `(col, row)` is the
+    /// currently-highlighted cell (or `None` if no selection).
+    Porkchop {
+        grid: PorkchopGridSnapshot,
+        selected: Option<(usize, usize)>,
+    },
+    /// A gravity-assist chain (one or more flyby candidates) is active.
+    /// In Phase 1 the planner still treats GAs as a per-candidate row, not a
+    /// grid — so we mirror the picked candidate + its dep window here.
+    GravityAssist {
+        candidate: GravityAssistEntrySnapshot,
+        dep_window: DepWindowSnapshot,
+    },
+    /// A short-hop (moon, ring) "3-speeds"-style row is active.  Phase 3
+    /// swaps the 3-card row for an n-row porkchop bar (RON-configurable
+    /// n_options, default 5).
+    BodyHohmann {
+        option: TransferOptionSnapshot,
+        dep_window: DepWindowSnapshot,
+    },
+    /// Interstellar transfer (single kinematic option).
+    Interstellar {
+        option: KinematicOptionSnapshot,
+        distance_ly: f32,
+    },
+    /// Cross-star hop (interior of binary / trinary system, or a 1×1
+    /// degenerate porkchop populated by `try_build_cross_system_hohmann`).
+    CrossStar {
+        grid: CrossSystemGridSnapshot,
+        selected: Option<(usize, usize)>,
+    },
+}
+
+impl SelectionSource {
+    /// `true` when no transfer is currently in flight.
+    pub fn is_empty(&self) -> bool {
+        matches!(self, SelectionSource::Empty)
+    }
+
+    /// Short label used by the per-class branches in the shadow-sync
+    /// system to record which source the planner is *currently* rendering
+    /// off of `FleetUiState`.  Pure-string discriminator; the variants
+    /// themselves carry the data.
+    pub fn class_label(&self) -> &'static str {
+        match self {
+            SelectionSource::Empty => "empty",
+            SelectionSource::Porkchop { .. } => "porkchop",
+            SelectionSource::GravityAssist { .. } => "gravity_assist",
+            SelectionSource::BodyHohmann { .. } => "short_hop",
+            SelectionSource::Interstellar { .. } => "interstellar",
+            SelectionSource::CrossStar { .. } => "cross_star",
+        }
+    }
+}
+
+/// Resolved reference frame for the transfer (Phase 1 + Phase 6 override).
+///
+/// `Auto` means "use the planner's auto-resolved frame" (the same logic as
+/// the legacy `resolve_planner_transfer_frame`).  Phase 6 will add a UI
+/// override; Phase 1 stores only `Auto` and the resolved value gets baked
+/// into `preview` for tests.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum PlannerFrame {
+    /// Defer to the planner's auto-resolved frame (`BodyLocal` /
+    /// `StellarLocal` / `SystemBarycentric`).
+    #[default]
+    Auto,
+    /// Force body-local frame around a specific entity.
+    BodyLocal(Entity),
+    /// Force stellar-local frame around a specific entity.
+    StellarLocal(Entity),
+    /// Force system barycentric frame (cross-system transfers).
+    SystemBarycentric,
+}
+
+impl PlannerFrame {
+    /// `true` if the player has overridden the auto-resolved frame.
+    pub fn is_overridden(&self) -> bool {
+        !matches!(self, PlannerFrame::Auto)
+    }
+}
+
+/// Lightweight snapshot of a `PorkchopGrid` for `SelectionSource::Porkchop`.
+///
+/// We can't put the full `PorkchopGrid` here because that would force
+/// `TransferPlan` (in `components.rs`) to depend on `porkchop.rs`, which is
+/// already a tight dependency cycle in the project.  The snapshot records
+/// the `(col, row)` selection plus the cell count for now; later phases
+/// replace this with a `Weak<PorkchopGrid>` handle.
+#[derive(Debug, Clone, Copy)]
+pub struct PorkchopGridSnapshot {
+    /// Total cells (`cols × rows`).
+    pub cell_count: usize,
+    /// Number of columns (t_dep samples).
+    pub cols: usize,
+    /// Number of rows (tof samples).
+    pub rows: usize,
+}
+
+/// Lightweight snapshot of a `GravityAssistEntry` (Phase 1 carry-only).
+#[derive(Debug, Clone, Copy)]
+pub struct GravityAssistEntrySnapshot {
+    /// Index of the assist candidate in `FleetUiState.gravity_assist_candidates`,
+    /// or `None` for "no GA selected".
+    pub index: Option<usize>,
+}
+
+/// Lightweight snapshot of the departure window the planner is using.
+#[derive(Debug, Clone, Copy)]
+pub struct DepWindowSnapshot {
+    /// Sim-time epoch (seconds since world start) at the window's centre.
+    pub center_s: f64,
+    /// Window half-width (seconds).
+    pub half_width_s: f64,
+}
+
+/// Lightweight snapshot of a `TransferOption` (Phase 1 carry-only).
+#[derive(Debug, Clone, Copy)]
+pub struct TransferOptionSnapshot {
+    /// Index into `FleetUiState.computed_options`.
+    pub index: usize,
+    /// Total ΔV for the option (m/s) — captured for the per-class invariant
+    /// in Phase 3 ("strictly decreasing peak Δv").
+    pub delta_v_ms: f64,
+}
+
+/// Lightweight snapshot of a single kinematic (interstellar) option.
+#[derive(Debug, Clone, Copy)]
+pub struct KinematicOptionSnapshot {
+    /// ΔV (m/s) of the kinematic option.
+    pub delta_v_ms: f64,
+    /// Brachistochrone duration (s).
+    pub duration_s: f64,
+}
+
+/// Lightweight snapshot of a `CrossSystemGrid` (GRA-343 follow-up).
+#[derive(Debug, Clone, Copy)]
+pub struct CrossSystemGridSnapshot {
+    /// Total cell count (`cols × rows`).
+    pub cell_count: usize,
+}
+
+/// Mirror of `FleetUiState.selected_porkchop_cell` plus the parsed transfer
+/// data.  Phase 2 wires the unified selected-card to this struct; Phase 1
+/// just keeps it populated so future consumers can adopt it incrementally.
+#[derive(Debug, Clone, Copy)]
+pub struct SelectedTransfer {
+    /// Absolute departure epoch (sim seconds since world start).
+    pub t_dep_s: f64,
+    /// Time-of-flight (seconds).
+    pub tof_s: f64,
+    /// Total ΔV (m/s) for the selected option.
+    pub total_dv_ms: f64,
+    /// Number of legs (1 for direct / kinematic; 2 for gravity assist).
+    pub leg_count: u8,
+    /// Optional transfer orbit (helps `process_fleet_actions` keep the same
+    /// orbit it had when only `selected_porkchop_cell` was the canonical
+    /// state).
+    pub has_transfer_orbit: bool,
+}
+
+/// Mirror of `FleetUiState.computed_options`-derived preview block.
+#[derive(Debug, Clone)]
+pub struct PlanPreview {
+    /// How many options the planner surfaced (1 for kinematic / interstellar
+    /// / cross-star; n for short-hop row; cols × rows for a porkchop).
+    pub option_count: usize,
+    /// `(col, row)` for the auto-picked cheapest cell — Phase 1 stub.
+    pub recommended: Option<(usize, usize)>,
+}
+        }
+    }
+}

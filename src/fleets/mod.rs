@@ -21,9 +21,10 @@ pub use components::{
     AbortToOriginAction, ActiveManeuver, AssignLogisticsRequestAction, AssignShipsAction,
     CreateFleetFromShipsAction, Fleet, FleetOrbit, HistoricalProbe, HistoricalProbeKind,
     InterstellarPropulsionPolicy, MergeFleetAction, PendingFleetActions, PlannedTransfer,
-    PorkchopCategoryOverride, PorkchopColorStop, PorkchopConfig, PorkchopGridDefaults,
-    ResolvedPorkchopParams, ShipInfo, ShipInstance, SpawnFleetAction, StartTransferAction,
-    TransferReferenceFrame, TransferShipsAction,
+    PlannerFrame, PorkchopCategoryOverride, PorkchopColorStop, PorkchopConfig,
+    PorkchopGridDefaults, ResolvedPorkchopParams, SelectedTransfer, SelectionSource, ShipInfo,
+    ShipInstance, SpawnFleetAction, StartTransferAction, TransferPlan, TransferReferenceFrame,
+    TransferShipsAction,
 };
 pub use historical_probes::{HistoricalProbeScanState, HistoricalProbesSpawned};
 pub use orbital_mechanics::{
@@ -34,6 +35,7 @@ pub use orbital_mechanics::{
     AU_IN_METERS, GM_SUN, G_CONST,
 };
 pub use systems::activate_scheduled_departures;
+pub use systems::sync_transfer_plan_from_ui_state;
 pub use systems::DayOneFleetSpawned;
 pub use types::{FleetClass, FleetRole, PropulsionType, ShipClass};
 pub use visuals::FleetMesh;
@@ -44,6 +46,12 @@ pub struct FleetPlugin;
 impl Plugin for FleetPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<PendingFleetActions>()
+            // GRA-371 (Phase 1 of GRA-367): register the new TransferPlan
+            // resource so the shadow-sync system below has a destination to
+            // write to.  The default `TransferPlan::default()` yields
+            // `SelectionSource::Empty` + `PlannerFrame::Auto`, so the
+            // resource is inert until the player's first target selection.
+            .init_resource::<TransferPlan>()
             .add_systems(
                 Startup,
                 (
@@ -76,6 +84,14 @@ impl Plugin for FleetPlugin {
                     // idempotency gate.
                     historical_probes::apply_historical_probe_scan_bonuses,
                     systems::process_fleet_actions,
+                    // GRA-371: shadow-sync runs *after* `process_fleet_actions`
+                    // so any committed `PlannedTransfer` reaches `TransferPlan`
+                    // the same frame it hits `FleetUiState`.  No `.chain()`
+                    // on the system — it has no ordering constraint beyond
+                    // "after fleet actions", which `process_fleet_actions`
+                    // establishes.
+                    systems::sync_transfer_plan_from_ui_state
+                        .after(systems::process_fleet_actions),
                     systems::sync_fleet_cache_from_ship_entities
                         .after(systems::process_fleet_actions),
                     systems::activate_scheduled_departures.after(systems::process_fleet_actions),

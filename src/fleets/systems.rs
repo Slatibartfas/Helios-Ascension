@@ -8,6 +8,7 @@ use bevy::time::Real;
 
 use super::components::{
     ActiveManeuver, Fleet, FleetOrbit, PendingFleetActions, ShipInfo, ShipInstance,
+    TransferPlan,
 };
 use super::orbital_mechanics::AU_IN_METERS;
 use super::types::{PropulsionType, ShipClass};
@@ -1317,4 +1318,120 @@ pub fn spawn_initial_fleet(
     // save-load that rehydrates the `World`) do not duplicate the
     // constellation.
     commands.init_resource::<DayOneFleetSpawned>();
+}
+
+// ── GRA-371 Phase 1: TransferPlan shadow-sync ────────────────────────────────
+//
+// Phase 1 of the GRA-367 harmonisation plan shadows `FleetUiState`'s six
+// coexisting option surfaces into a single `TransferPlan` resource.  The
+// system below is the write-through path: every frame, it observes the
+// `FleetUiState` fields that the planner render branch reads from and writes
+// the matching `TransferPlan` representation.  Nothing *renders* off
+// `TransferPlan` yet — Phases 2-6 migrate rendering branch-by-branch — so the
+// only Phase-1 consumer is the 1-line reference-frame indicator in
+// `render_transfer_planner` (`src/ui/transfer_planner.rs`), which reads
+// `TransferPlan.frame`.  Every other `TransferPlan` field is populated for
+// future phases to adopt without an API break.
+//
+// Behaviour-change audit (Phase 1 contract):
+//   * System runs after `process_fleet_actions` so commits reflected in
+//     `FleetUiState.planned_transfer` are mirrored this frame.
+//   * System is idempotent — running it twice leaves `TransferPlan` in the
+//     same state, so it can run in any schedule position relative to itself.
+//   * Reads no ECS components, only `Res<FleetUiState>` + `ResMut<TransferPlan>`,
+//     so registering it does not change the existing per-frame system graph
+//     cost beyond a single in-place shadow write.
+//   * Does not mutate `FleetUiState`.  Phase 2+ will introduce a reverse-sync
+//     path; Phase 1 deliberately avoids that to keep the no-behaviour-change
+//     guarantee.
+pub fn sync_transfer_plan_from_ui_state(
+    fleet_ui_state: Res<crate::ui::FleetUiState>,
+    mut transfer_plan: ResMut<TransferPlan>,
+) {
+    use super::components::{
+        CrossSystemGridSnapshot, DepWindowSnapshot, GravityAssistEntrySnapshot, PlanPreview,
+        PorkchopGridSnapshot, SelectionSource, TransferOptionSnapshot,
+    };
+
+    // No target → `SelectionSource::Empty`.
+    if fleet_ui_state.target_body.is_none()
+        && fleet_ui_state.target_lagrange.is_none()
+        && fleet_ui_state.target_fleet.is_none()
+        && fleet_ui_state.target_star_system.is_none()
+    {
+        transfer_plan.source = SelectionSource::Empty;
+        transfer_plan.selected = None;
+        transfer_plan.preview = None;
+        transfer_plan.commit = None;
+        return;
+    }
+
+    let empty_window = DepWindowSnapshot {
+        center_s: 0.0,
+        half_width_s: 0.0,
+    };
+
+    // Cross-star / interstellar system target → `CrossStar`.
+    if let Some((_system_id, _name, _distance_ly)) = fleet_ui_state.target_star_system {
+        let cell_count = fleet_ui_state
+            .cross_system_grid
+            .as_ref()
+            .map(|g| g.cols * g.rows)
+            .unwrap_or(1);
+        transfer_plan.source = SelectionSource::CrossStar {
+            grid: CrossSystemGridSnapshot { cell_count },
+            selected: None,
+        };
+    } else if fleet_ui_state.target_lagrange.is_some() {
+        // Lagrange targets route through the same 3-option row as moons today.
+        transfer_plan.source = SelectionSource::BodyHohmann {
+            option: TransferOptionSnapshot {
+                index: fleet_ui_state.selected_option,
+                delta_v_ms: fleet_ui_state
+                    .computed_options
+                    .get(fleet_ui_state.selected_option)
+                    .map(|o| o.total_dv_ms)
+                    .unwrap_or(0.0),
+            },
+            dep_window: empty_window,
+        };
+    } else if let Some(idx) = fleet_ui_state.selected_gravity_assist {
+        // Gravity-assist branch: GA candidate + the dep window of the parent
+        // porkchop grid (mirrors the planner's GA-selected render path).
+        transfer_plan.source = SelectionSource::GravityAssist {
+            candidate: GravityAssistEntrySnapshot { index: Some(idx) },
+            dep_window: empty_window,
+        };
+    } else if let Some(grid) = fleet_ui_state.porkchop_grid.as_ref() {
+        let (cols, rows) = grid.resolution;
+        transfer_plan.source = SelectionSource::Porkchop {
+            grid: PorkchopGridSnapshot {
+                cell_count: cols * rows,
+                cols,
+                rows,
+            },
+            selected: fleet_ui_state.selected_porkchop_cell,
+        };
+    } else if !fleet_ui_state.computed_options.is_empty() {
+        transfer_plan.source = SelectionSource::BodyHohmann {
+            option: TransferOptionSnapshot {
+                index: fleet_ui_state.selected_option,
+                delta_v_ms: fleet_ui_state
+                    .computed_options
+                    .get(fleet_ui_state.selected_option)
+                    .map(|o| o.total_dv_ms)
+                    .unwrap_or(0.0),
+            },
+            dep_window: empty_window,
+        };
+    } else {
+        transfer_plan.source = SelectionSource::Empty;
+    }
+
+    transfer_plan.preview = Some(PlanPreview {
+        option_count: fleet_ui_state.computed_options.len(),
+        recommended: fleet_ui_state.selected_porkchop_cell,
+    });
+
+    transfer_plan.commit = fleet_ui_state.planned_transfer.clone();
 }

@@ -959,6 +959,26 @@ fn position_in_planner_frame(
     }
 }
 
+/// Display label for the auto-resolved planner frame.
+///
+/// Used by the GRA-371 Phase 1 reference-frame indicator (the new 1-line
+/// widget above the existing picker).  Phase 6 will add a player
+/// override; until then the label just surfaces what the planner has
+/// already chosen so the player can see the implicit frame decision.
+///
+/// Returns short labels like `"heliocentric"`, `"moon-local"`, or
+/// `"barycentric"`.  Phase 6 also surfaces the centre entity name; for
+/// Phase 1 we keep the label class-only (the entity name would require
+/// an extra `body_query.get()` and the player hasn't asked for the
+/// override yet).
+fn planner_frame_label(frame: PlannerTransferFrame) -> &'static str {
+    match frame {
+        PlannerTransferFrame::SystemBarycentric => "barycentric",
+        PlannerTransferFrame::StellarLocal(_) => "heliocentric",
+        PlannerTransferFrame::BodyLocal(_) => "moon-local",
+    }
+}
+
 #[inline]
 fn checked_arrival_timestamp(current_timestamp: i64, total_eta_s: f64) -> Option<i64> {
     if !total_eta_s.is_finite() || total_eta_s < 0.0 {
@@ -1350,6 +1370,69 @@ pub(super) fn render_transfer_planner(
         );
     }
     ui.separator();
+
+    // ── GRA-371 Phase 1: reference-frame indicator ──────────────────────────
+    // One-line widget that surfaces the auto-resolved planner frame so the
+    // player can see the implicit choice.  Calls
+    // `resolve_planner_transfer_frame` directly (the same function the
+    // planner's dispatch block calls) so the label matches the planner's
+    // own decision frame-for-frame; Phase 6 will switch this to read
+    // `TransferPlan.frame` once the resource carries a player-overridable
+    // frame.  Reads `bevy::prelude::Entity::PLACEHOLDER` as a no-target
+    // sentinel for Lagrange / Fleet targets where `target_body` is `None`
+    // — `resolve_planner_transfer_frame` will fall through to the default
+    // branch and return `BodyLocal(Entity::PLACEHOLDER)`, which is fine
+    // because we only display the label class, not the entity.
+    //
+    // The label is hidden when no target is selected so the planner's
+    // empty state reads the same as before.
+    let frame_label = match fleet_ui_state.target_body.or(fleet_ui_state.target_lagrange
+        .map(|_| bevy::prelude::Entity::PLACEHOLDER))
+        .or(fleet_ui_state.target_fleet)
+    {
+        Some(_) => {
+            // Re-resolve the frame so the label stays in lock-step with the
+            // planner's auto-pick (the existing planner calls this same
+            // function from inside the dispatch block; calling it twice per
+            // frame is cheap and removes a stale-read path on Phase 6).
+            let origin_entity = orbit.body;
+            let target_entity = fleet_ui_state.target_body.unwrap_or_else(|| {
+                fleet_ui_state
+                    .target_fleet
+                    .unwrap_or(bevy::prelude::Entity::PLACEHOLDER)
+            });
+            let origin_parent = body_query
+                .get(origin_entity)
+                .ok()
+                .and_then(|(_, _, _, _, lp)| lp)
+                .map(|lp| lp.0);
+            let dest_parent = body_query
+                .get(target_entity)
+                .ok()
+                .and_then(|(_, _, _, _, lp)| lp)
+                .map(|lp| lp.0);
+            let frame = resolve_planner_transfer_frame(
+                origin_entity,
+                target_entity,
+                origin_parent,
+                dest_parent,
+                body_query,
+            );
+            planner_frame_label(frame)
+        }
+        None => "—",
+    };
+    ui.horizontal(|ui| {
+        ui.add_space(2.0);
+        ui.label(
+            egui::RichText::new(format!("Reference frame: {}", frame_label))
+                .size(11.0)
+                .color(theme::TEXT_DIM),
+        );
+        ui.label(
+            egui::RichText::new("(auto)").size(9.0).color(theme::TEXT_DIM),
+        );
+    });
 
     // ── GRA-326 Phase 2: planner auto-decides ──────────────────────────────
     // The three-way Auto/Porkchop/Legacy RadioButton group was removed —
