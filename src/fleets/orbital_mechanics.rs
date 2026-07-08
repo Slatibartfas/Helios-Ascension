@@ -481,7 +481,10 @@ pub fn sweep_gravity_assist_grid(
 
     let (t_dep_lo, t_dep_hi) = dep_window;
     let (tof_lo, tof_hi) = tof_bounds;
-    if !(tof_hi > tof_lo) || !(t_dep_hi > t_dep_lo) {
+    // Clippy `neg_cmp_op_on_partial_ord` — use direct `<=` instead
+    // of negating `>` so the comparison stays explicit.  Both
+    // branches return early if the window is degenerate.
+    if tof_hi <= tof_lo || t_dep_hi <= t_dep_lo {
         return cells;
     }
 
