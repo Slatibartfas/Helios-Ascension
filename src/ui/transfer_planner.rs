@@ -1506,7 +1506,7 @@ pub(super) fn render_transfer_planner(
     // indicator below reads from the mirror — Phase 2 will flip the
     // ownership so `TransferPlan` is the writer and `FleetUiState`
     // becomes the read shadow.
-    sync_plan_from_ui(&mut transfer_plan, fleet_ui_state);
+    sync_plan_from_ui(transfer_plan, fleet_ui_state);
     render_reference_frame_indicator(ui, orbit, body_query, &transfer_plan);
 
     // ── GRA-326 Phase 2: planner auto-decides ──────────────────────────────

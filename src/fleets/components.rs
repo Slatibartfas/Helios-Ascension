@@ -1,5 +1,6 @@
 //! ECS components for the fleet management and orbital transfer system.
 
+use super::orbital_mechanics::TransferOption;
 use super::porkchop::PorkchopGrid;
 use super::types::{FleetRole, PropulsionType, ShipClass};
 use crate::astronomy::KeplerOrbit;

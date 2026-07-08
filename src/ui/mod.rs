@@ -89,8 +89,8 @@ use crate::fleets::orbital_mechanics::{
 };
 use crate::fleets::{
     AbortToOriginAction, ActiveManeuver, Fleet, FleetOrbit, MergeFleetAction, PendingFleetActions,
-    PlannedTransfer, SelectionSource, StartTransferAction, TransferOption, TransferPlan,
-    TransferReferenceFrame, TransferWindowInfo, AU_IN_METERS, GM_SUN, G_CONST,
+    PlannedTransfer, StartTransferAction, TransferOption, TransferPlan, TransferReferenceFrame,
+    TransferWindowInfo, AU_IN_METERS, GM_SUN, G_CONST,
 };
 use crate::game_state::{ActiveMenu, GameMenu};
 use crate::plugins::camera::{
