@@ -5646,8 +5646,13 @@ pub(super) fn render_transfer_planner(
             )
             .default_open(true)
             .show(ui, |ui| {
-                // Snapshot data before mut-borrowing fleet_ui_state below
-                let snapped: Vec<(usize, String, f64, f64, f64, f64)> = fleet_ui_state
+                // Snapshot data before mut-borrowing fleet_ui_state below.
+                // GRA-367 Phase 4 — also captures `flyby_entity` and
+                // `flyby_radius_au` so the per-candidate GA sub-grid can
+                // resolve KeplerOrbits without needing to re-borrow
+                // `fleet_ui_state.gravity_assist_candidates` inside the
+                // `CollapsingHeader::show` closure.
+                let snapped: Vec<(usize, String, f64, f64, f64, f64, Entity, f64)> = fleet_ui_state
                     .gravity_assist_candidates
                     .iter()
                     .enumerate()
@@ -5659,11 +5664,23 @@ pub(super) fn render_transfer_planner(
                             e.option.extra_time_s,
                             e.option.window_period_s,
                             e.option.v_inf_ms,
+                            e.flyby_entity,
+                            e.option.flyby_radius_au,
                         )
                     })
                     .collect();
 
-                for (idx, body_name, savings, extra_t, win_period, v_inf) in snapped {
+                for (
+                    idx,
+                    body_name,
+                    savings,
+                    extra_t,
+                    win_period,
+                    v_inf,
+                    flyby_entity,
+                    flyby_radius_au,
+                ) in snapped
+                {
                     let is_sel = fleet_ui_state.selected_gravity_assist == Some(idx);
                     let beneficial = savings > 100.0;
                     let header_color = if is_sel {
@@ -5767,7 +5784,7 @@ pub(super) fn render_transfer_planner(
                             let origin_orbit_opt =
                                 heliocentric_orbit_for_body(orbit.body, body_query);
                             let flyby_orbit_opt =
-                                heliocentric_orbit_for_body(entry.flyby_entity, body_query);
+                                heliocentric_orbit_for_body(flyby_entity, body_query);
                             let dest_orbit_opt =
                                 heliocentric_orbit_for_body(target_entity, body_query);
                             let (Some(origin_orbit), Some(flyby_orbit), Some(dest_orbit)) =
@@ -5793,12 +5810,12 @@ pub(super) fn render_transfer_planner(
                                 .map(|(_, b, _, _, _)| G_CONST * b.mass)
                                 .unwrap_or(GM_SUN);
                             let flyby_gm = body_query
-                                .get(entry.flyby_entity)
+                                .get(flyby_entity)
                                 .ok()
                                 .map(|(_, b, _, _, _)| G_CONST * b.mass)
                                 .unwrap_or(0.0);
                             let min_periapsis_au = body_query
-                                .get(entry.flyby_entity)
+                                .get(flyby_entity)
                                 .ok()
                                 .map(|(_, b, _, _, _)| {
                                     // `b.radius` is in metres (JPL
@@ -5812,8 +5829,8 @@ pub(super) fn render_transfer_planner(
                                 .unwrap_or(0.001);
                             render_gravity_assist_sub_grid(
                                 ui,
-                                entry.flyby_entity,
-                                entry.option.flyby_radius_au,
+                                flyby_entity,
+                                flyby_radius_au,
                                 &origin_orbit,
                                 &flyby_orbit,
                                 &dest_orbit,

@@ -495,7 +495,7 @@ pub fn sweep_gravity_assist_grid(
     let v_circ_origin = (gm / r1_m).sqrt();
     let v_circ_dest = (gm / r2_m).sqrt();
 
-    let mut tof_leg1_min = GA_GRID_MIN_LEG_TOF_S;
+    let tof_leg1_min = GA_GRID_MIN_LEG_TOF_S;
     let mut tof_leg1_max = tof_hi * 0.5;
     if tof_leg1_max < tof_leg1_min {
         tof_leg1_max = tof_leg1_min;
