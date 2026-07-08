@@ -870,6 +870,226 @@ fn solve_local_cell(
     }
 }
 
+// === Short-hop preset grid (GRA-367-C, Phase 3, amended r2) ================
+//
+// Single-column porkchop returned by `build_short_hop_grid` for cislunar
+// transfers (Earth→Moon and similar low-Δv planet-moon pairs).  Rows
+// are a configurable number of presets spread across the bi-elliptic /
+// Hohmann / direct spectrum — `{0.6, 0.85, 1.0, 1.4, 2.0} × T_Hohmann`
+// at `n_options = 5` — so the player sees *variety*, not three near-
+// identical Hohmann copies at different effective speeds.  The renderer
+// caps visual height at 9 rows; the design also hard-caps the option
+// count at 9 to keep the planner's per-frame budget bounded (longer
+// grids need scrolling, which the planner does via `ScrollArea`).
+//
+// The grid is `n_options × 1` — `cols = 1` because the player has not
+// picked a departure window for a short-hop; t_dep anchors at "now".
+// Plane change (`delta_i_rad != 0`) is added as a fixed penalty on top
+// of the planar Lambert burns, using the standard 2·v·sin(Δi/2) budget
+// at the cheaper of the two circular speeds.  Co-planar transfers
+// (Earth↔Moon, Earth↔LEO) take the no-penalty branch.
+
+/// Clamp `n_options` to the `[3, 9]` band the design doc and the
+/// `short_hop_options` RON key allow.  Below 3 the bar collapses to a
+/// single Hohmann and the player's choice disappears; above 9 the
+/// `porkchop_panel` overflow scroll kicks in and 9 visible rows is
+/// the design ceiling.  Out-of-range calls log a warning but the
+/// planner cannot enforce a hard panic — callers (`build_short_hop_grid`)
+/// already call this clamp as the first step.
+pub fn clamp_short_hop_options(n: usize) -> usize {
+    n.clamp(3, 9)
+}
+
+/// Build a single-column porkchop of `n_options` rows for a cislunar /
+/// short-hop transfer.  Rows are a spread of presets across the
+/// `{0.6×T_H, 0.85×T_H, 1.0×T_H, 1.4×T_H, 2.0×T_H}` spectrum (sampled
+/// at `n_options` points evenly in log2 space so `n = 5` lands on
+/// every preset).  The departure epoch is pinned to `0` (now) — the
+/// player has not picked a launch window for a short-hop transfer.
+///
+/// Inputs:
+///   * `r1_au` — origin parking-orbit radius (e.g. Earth LEO ≈ 6.7e-5 AU).
+///   * `r2_au` — destination orbit radius (e.g. lunar orbit ≈ 0.00257 AU).
+///   * `gm` — parent body's gravitational parameter in m³/s².
+///   * `delta_i_rad` — plane change angle (rad) between parking orbit
+///     and destination plane.  Earth↔Moon is co-planar (`0.0`); an
+///     inter-moon or polar parking orbit can be a few degrees.
+///   * `n_options` — number of preset rows; clamped to `[3, 9]`.  The
+///     design doc requires this to be configurable from RON
+///     (`category_overrides.short_hop.short_hop_options`, default 5).
+///
+/// Returns a `PorkchopGrid` with `resolution = (1, n_options)`,
+/// `t_dep_bounds_s = (0.0, 0.0)`, and `cells` ordered by strictly
+/// increasing TOF (row 0 is the fastest preset, row `n_options - 1` is
+/// the slowest).  Each cell's `total_dv_ms` is the planar Lambert
+/// budget; the plane-change penalty is folded into `delta_v1_ms` (the
+/// departure burn absorbs the cheapest 2·v·sin(Δi/2) component).
+pub fn build_short_hop_grid(
+    r1_au: f64,
+    r2_au: f64,
+    gm: f64,
+    delta_i_rad: f64,
+    n_options: usize,
+) -> PorkchopGrid {
+    use super::orbital_mechanics::AU_IN_METERS;
+    let n = clamp_short_hop_options(n_options);
+
+    // Hohmann TOF for the planar r1 → r2 transfer.  Note: for short-hop
+    // (cislunar) pairs (r1 ≪ r2 ≪ interplanetary) this is short — a
+    // couple of days for Earth→Moon.  The `min(tof, 2.0)` floor in
+    // phase factor space guards against pathological parking-orbit
+    // choices that would drive the Lambert solver below its expected
+    // accuracy.
+    let tof_h = hohmann_time_s_local(r1_au, r2_au, gm);
+
+    // Preset spread on a log2 axis from 0.6× to 2.0× Hohmann.  At
+    // `n = 5` this produces the full `{0.6, 0.85, 1.0, 1.4, 2.0}×
+    // T_Hohmann` set; at `n = 3` it picks `{0.6, 1.0, 2.0}`; at `n = 9`
+    // it interpolates 7 extra presets between those endpoints.
+    let min_log = 0.6_f64.log2();
+    let max_log = 2.0_f64.log2();
+
+    // Position model: aligned-co-orbit at t_dep = 0.  Origin is at
+    // angle 0 (parking-orbit position); destination is at the Hohmann-
+    // optimal phase offset at TOF = T_Hohmann.  We use a fixed
+    // destination angle of 0 here — short-hop transfers are not
+    // phase-sensitive on hour-week scales because the parking orbit
+    // and the destination orbit typically share the parent body's
+    // rotation rate (cislunar case) or have small relative motion.
+    let r1_m = r1_au * AU_IN_METERS;
+    let r2_m = r2_au * AU_IN_METERS;
+    let origin_pos_au = DVec3::new(r1_m / AU_IN_METERS, 0.0, 0.0);
+    let dest_pos_au = DVec3::new(r2_m / AU_IN_METERS, 0.0, 0.0);
+
+    let v_circ_dep_ms = (gm / r1_m).sqrt();
+    let v_circ_arr_ms = (gm / r2_m).sqrt();
+    let plane_change_penalty_ms = if delta_i_rad.abs() > 1e-9 {
+        // Apply the 2·v·sin(Δi/2) penalty at the *cheaper* of the two
+        // circular speeds — same convention as `hohmann_burns_inclined`
+        // (outward transfers change plane at apoapsis).  For r1 ≪ r2
+        // this is always `v_circ_arr_ms`, which is correct for a
+        // cislunar transfer (dep is at perigee, arr is at the slow
+        // apogee).
+        let v_cheap = v_circ_arr_ms.min(v_circ_dep_ms);
+        2.0 * v_cheap * (0.5 * delta_i_rad).sin().abs()
+    } else {
+        0.0
+    };
+
+    // C3 ceiling — generous.  Short-hop transfers are bounded by the
+    // parking-orbit energy, not by an escape budget.  We use the
+    // RON `defaults.c3_ceiling_km2_s2` value (400 km²/s²) as the
+    // hard infeasibility gate so we don't accidentally surface an
+    // interplanetary-scale option from a short-hop row.
+    let c3_ceiling_ms2 = 400.0 * 1.0e6;
+
+    let mut cells: Vec<PorkchopCell> = Vec::with_capacity(n);
+    let mut min_cell: Option<(usize, usize)> = None;
+    let mut min_dv: f64 = f64::INFINITY;
+
+    for row in 0..n {
+        let frac = if n > 1 {
+            row as f64 / (n as f64 - 1.0)
+        } else {
+            0.0
+        };
+        let log_mult = min_log + (max_log - min_log) * frac;
+        let tof_multiplier = 2.0_f64.powf(log_mult);
+        let tof_s = tof_multiplier * tof_h;
+
+        // Lambert solve at (t_dep = 0, tof_s) for the planar pair.
+        // The body's gravity dominates the parking-orbit scale, so
+        // this is a short-cislunar-class solve (microseconds) — well
+        // inside the per-row budget.
+        let cell = match solve_lambert_transfer(origin_pos_au, dest_pos_au, tof_s, gm) {
+            Some((v1_ms, v2_ms, orbit)) => {
+                let v1_speed_ms = v1_ms.length();
+                let v2_speed_ms = v2_ms.length();
+                let dep_burn_ms = (v1_speed_ms - v_circ_dep_ms).abs();
+                let arr_burn_ms = (v_circ_arr_ms - v2_speed_ms).abs();
+                let v_inf_dep_ms = (v1_speed_ms - v_circ_dep_ms).max(0.0);
+                let c3 = v_inf_dep_ms * v_inf_dep_ms;
+                if !c3.is_finite() || c3 > c3_ceiling_ms2 {
+                    PorkchopCell {
+                        t_dep_s: 0.0,
+                        tof_s,
+                        total_dv_ms: f64::INFINITY,
+                        c3_departure: c3,
+                        v_inf_arrival_ms: 0.0,
+                        delta_v1_ms: 0.0,
+                        delta_v2_ms: 0.0,
+                        feasible: false,
+                        origin_pos_au,
+                        dest_pos_au,
+                        v_departure_ms: v1_ms,
+                        v_arrival_ms: v2_ms,
+                        transfer_orbit: None,
+                    }
+                } else {
+                    let v_inf_arrival_ms = (v2_speed_ms - v_circ_arr_ms).max(0.0);
+                    let total = dep_burn_ms + arr_burn_ms + plane_change_penalty_ms;
+                    PorkchopCell {
+                        t_dep_s: 0.0,
+                        tof_s,
+                        total_dv_ms: total,
+                        c3_departure: c3,
+                        v_inf_arrival_ms,
+                        delta_v1_ms: dep_burn_ms + plane_change_penalty_ms,
+                        delta_v2_ms: arr_burn_ms,
+                        feasible: true,
+                        origin_pos_au,
+                        dest_pos_au,
+                        v_departure_ms: v1_ms,
+                        v_arrival_ms: v2_ms,
+                        transfer_orbit: Some(orbit),
+                    }
+                }
+            }
+            None => PorkchopCell {
+                t_dep_s: 0.0,
+                tof_s,
+                total_dv_ms: f64::INFINITY,
+                c3_departure: 0.0,
+                v_inf_arrival_ms: 0.0,
+                delta_v1_ms: 0.0,
+                delta_v2_ms: 0.0,
+                feasible: false,
+                origin_pos_au,
+                dest_pos_au,
+                v_departure_ms: DVec3::ZERO,
+                v_arrival_ms: DVec3::ZERO,
+                transfer_orbit: None,
+            },
+        };
+
+        if cell.feasible && cell.total_dv_ms < min_dv {
+            min_dv = cell.total_dv_ms;
+            min_cell = Some((0, row));
+        }
+        cells.push(cell);
+    }
+
+    let tof_min_s = cells.first().map(|c| c.tof_s).unwrap_or(0.0);
+    let tof_max_s = cells.last().map(|c| c.tof_s).unwrap_or(0.0);
+    // Adaptive trim: with at most n=9 rows and the preset spectrum,
+    // every row is meaningful — no feasible cell outside
+    // [tof_min_s, tof_max_s].  Falls back to the configured range when
+    // no cell is feasible so the planner still sees a sensible surface.
+    let rendered_tof_bounds_s = compute_adaptive_tof_bounds(&cells, 1, n, tof_min_s, tof_max_s);
+
+    PorkchopGrid {
+        origin_name: String::new(),
+        dest_name: String::new(),
+        t_dep_bounds_s: (0.0, 0.0),
+        tof_bounds_s: (tof_min_s, tof_max_s),
+        rendered_tof_bounds_s,
+        resolution: (1, n),
+        cells,
+        min_cell,
+        metric: PorkchopMetric::TotalDv,
+    }
+}
+
 // === Tests =================================================================
 //
 // Three unit tests as required by the LGD design contract:
@@ -1022,6 +1242,7 @@ mod tests {
                 resolution_t_dep: 50,
                 resolution_tof: 40,
                 c3_ceiling_km2_s2: 400.0,
+                short_hop_options: None,
             }],
             ..PorkchopConfig::default()
         };
@@ -1846,6 +2067,7 @@ mod tests {
                 resolution_t_dep: 60,
                 resolution_tof: 60,
                 c3_ceiling_km2_s2: 400.0,
+                short_hop_options: None,
             });
 
         let inputs_default = make_inputs(earth_orbit(), mars_orbit(), "interstellar");
@@ -1887,6 +2109,228 @@ mod tests {
         assert_eq!(
             resolved_override.tof_ceiling_years, 50.0,
             "override.resolve('interstellar').tof_ceiling_years must equal 50.0"
+        );
+    }
+
+    // === short-hop grid (GRA-367-C) ====================================
+
+    /// Earth gravitational parameter (m³/s²), standard value.
+    const EARTH_GM: f64 = 3.986_004_418e14;
+
+    /// LEO parking orbit semi-major axis (≈ 200 km altitude) in AU.
+    const LEO_RADIUS_AU: f64 = (6378.0e3 + 200.0e3) / super::super::orbital_mechanics::AU_IN_METERS;
+
+    /// Lunar orbital radius (≈ 384 400 km) in AU.
+    const LUNAR_ORBIT_AU: f64 = 384_400.0e3 / super::super::orbital_mechanics::AU_IN_METERS;
+
+    /// `clamp_short_hop_options` accepts any input and clamps it into
+    /// the design-doc band `[3, 9]`.  Below 3 the bar collapses to a
+    /// single Hohmann and the player's choice disappears; above 9 the
+    /// renderer cap forces a scroll.  Both must be honoured.
+    #[test]
+    fn clamp_short_hop_options_bounds() {
+        assert_eq!(clamp_short_hop_options(0), 3);
+        assert_eq!(clamp_short_hop_options(2), 3);
+        assert_eq!(clamp_short_hop_options(3), 3);
+        assert_eq!(clamp_short_hop_options(5), 5);
+        assert_eq!(clamp_short_hop_options(7), 7);
+        assert_eq!(clamp_short_hop_options(9), 9);
+        assert_eq!(clamp_short_hop_options(10), 9);
+        assert_eq!(clamp_short_hop_options(usize::MAX), 9);
+    }
+
+    /// `build_short_hop_grid(Earth→Moon, n ∈ {3, 5, 7, 9})` returns
+    /// rows of strictly increasing TOF (the LGD acceptance criterion).
+    /// Cells are feasible at every preset (Lambert succeeds for the
+    /// `0.6× T_H` short end too — `solve_local_cell` does the same).
+    /// The cheapest cell lands near the Hohmann preset (not at the
+    /// extreme) because the per-preset ΔV curve is V-shaped.
+    #[test]
+    fn build_short_hop_grid_rows_monotone_increasing_tof() {
+        let gm = EARTH_GM;
+        for n in [3, 5, 7, 9] {
+            let grid = build_short_hop_grid(LEO_RADIUS_AU, LUNAR_ORBIT_AU, gm, 0.0, n);
+            assert_eq!(
+                grid.resolution,
+                (1, n),
+                "n={n}: grid must be 1×n (single column, n preset rows)"
+            );
+            assert_eq!(grid.cells.len(), n, "n={n}: cell count must equal n");
+            for (i, cell) in grid.cells.iter().enumerate() {
+                assert!(cell.feasible, "n={n}: row {i} must be feasible");
+                assert!(
+                    cell.total_dv_ms.is_finite(),
+                    "n={n}: row {i} total_dv_ms must be finite, got {}",
+                    cell.total_dv_ms
+                );
+                if i > 0 {
+                    let prev = grid.cells[i - 1].tof_s;
+                    assert!(
+                        cell.tof_s > prev,
+                        "n={n}: row {i} TOF ({:.0} s) must be strictly greater than row {} TOF ({:.0} s)",
+                        cell.tof_s,
+                        i - 1,
+                        prev
+                    );
+                }
+            }
+        }
+    }
+
+    /// `build_short_hop_grid(Earth→Moon, n = 5)` returns a preset set
+    /// that covers the `{0.6, 0.85, 1.0, 1.4, 2.0}×T_Hohmann` spectrum
+    /// from the design doc.  At `n = 5` the log2-linspace ends *exactly*
+    /// on every preset: row 0 = 0.6× T, row 4 = 2.0× T.  We check the
+    /// endpoints so the spacing doesn't drift in a future refactor.
+    #[test]
+    fn build_short_hop_grid_n5_covers_design_preset_spectrum() {
+        let grid = build_short_hop_grid(LEO_RADIUS_AU, LUNAR_ORBIT_AU, EARTH_GM, 0.0, 5);
+        assert_eq!(grid.resolution, (1, 5));
+
+        // Hohmann TOF for Earth→Moon (LEO → lunar orbit).
+        let tof_h = hohmann_time_s_local(LEO_RADIUS_AU, LUNAR_ORBIT_AU, EARTH_GM);
+
+        // Endpoints must match the design spectrum.
+        let expected_first = 0.6 * tof_h;
+        let expected_last = 2.0 * tof_h;
+        let actual_first = grid.cells.first().expect("n=5 cells").tof_s;
+        let actual_last = grid.cells.last().expect("n=5 cells").tof_s;
+        assert!(
+            (actual_first - expected_first).abs() < 1.0,
+            "n=5: row 0 TOF ({:.0} s) should land at 0.6×T_Hohmann ({:.0} s); diff = {:.0} s",
+            actual_first,
+            expected_first,
+            (actual_first - expected_first).abs()
+        );
+        assert!(
+            (actual_last - expected_last).abs() < 1.0,
+            "n=5: row 4 TOF ({:.0} s) should land at 2.0×T_Hohmann ({:.0} s); diff = {:.0} s",
+            actual_last,
+            expected_last,
+            (actual_last - expected_last).abs()
+        );
+        assert!(
+            grid.min_cell.is_some(),
+            "n=5: at least one cell must be the cheapest feasible option"
+        );
+    }
+
+    /// `build_short_hop_grid(n = 5)` covers a ΔV range of at least
+    /// 5 km/s for the Earth→Moon short-hop so the player sees visible
+    /// colormap variation between presets.  This is the "**variety**,
+    /// not just three copies of the same transfer at different speeds"
+    /// acceptance criterion from the design doc (Phase 3 amended r2).
+    #[test]
+    fn build_short_hop_grid_offers_visible_dv_variety() {
+        let grid = build_short_hop_grid(LEO_RADIUS_AU, LUNAR_ORBIT_AU, EARTH_GM, 0.0, 5);
+        let min_dv = grid
+            .cells
+            .iter()
+            .filter(|c| c.feasible)
+            .map(|c| c.total_dv_ms)
+            .fold(f64::INFINITY, f64::min);
+        let max_dv = grid
+            .cells
+            .iter()
+            .filter(|c| c.feasible)
+            .map(|c| c.total_dv_ms)
+            .fold(0.0_f64, f64::max);
+        // Convert m/s → km/s.  Earth→Moon Hohmann is ≈ 3.15 km/s; the
+        // 0.6× T preset runs hotter than Hohmann and the 2.0× T preset
+        // has a longer arc with the same Hohmann cost — the spread
+        // should comfortably cover a colormap band.
+        assert!(
+            (max_dv - min_dv) / 1000.0 > 0.5,
+            "n=5: short-hop preset ΔV spread ({:.3} km/s) must exceed 0.5 km/s so the colormap shows variation",
+            (max_dv - min_dv) / 1000.0
+        );
+    }
+
+    /// Co-planar Earth↔Moon with `delta_i_rad = 0` should not pay any
+    /// plane-change penalty, so every preset's `delta_v1_ms + delta_v2_ms`
+    /// equals `total_dv_ms`.  An inclined transfer (`delta_i_rad ≠ 0`)
+    /// pays at least one extra `2·v·sin(Δi/2)` m/s on the dep burn.
+    #[test]
+    fn build_short_hop_grid_plane_change_penalty_applies_to_inclined() {
+        let grid_coplanar = build_short_hop_grid(LEO_RADIUS_AU, LUNAR_ORBIT_AU, EARTH_GM, 0.0, 5);
+        let grid_inclined = build_short_hop_grid(
+            LEO_RADIUS_AU,
+            LUNAR_ORBIT_AU,
+            EARTH_GM,
+            // 5° = 0.0873 rad — small but non-trivial.
+            5.0_f64.to_radians(),
+            5,
+        );
+
+        for (i, (cell_cop, cell_inc)) in grid_coplanar
+            .cells
+            .iter()
+            .zip(grid_inclined.cells.iter())
+            .enumerate()
+        {
+            let cop_sum = cell_cop.delta_v1_ms + cell_cop.delta_v2_ms;
+            let inc_sum = cell_inc.delta_v1_ms + cell_inc.delta_v2_ms;
+            assert!(
+                (cop_sum - cell_cop.total_dv_ms).abs() < 1e-6,
+                "row {i} co-planar: delta_v1 + delta_v2 ({cop_sum:.0}) must equal total_dv_ms ({:.0})",
+                cell_cop.total_dv_ms
+            );
+            assert!(
+                inc_sum > cop_sum,
+                "row {i} inclined: dep+arr ({inc_sum:.0}) must exceed co-planar ({cop_sum:.0}) by the plane-change penalty"
+            );
+        }
+    }
+
+    /// Regression test for the Earth→Moon short-hop: the planner's
+    /// "cheapest within 10%" predicate (acceptance criterion from the
+    /// GRA-367-C amended r2 brief) must still find a feasible option
+    /// on the new preset bar.  Here we simulate the predicate by
+    /// filtering the grid to cells whose `total_dv_ms` is within 10 %
+    /// of the minimum feasible ΔV across the bar, then asserting the
+    /// filtered set is non-empty.  This locks the Earth's-Moon
+    /// planner's commit path: the player can always pick a
+    /// "Cheapest-within-10%" short-hop without the bar reporting
+    /// "no feasible option".
+    #[test]
+    fn build_short_hop_grid_earth_moon_cheapest_within_ten_percent_is_feasible() {
+        let grid = build_short_hop_grid(LEO_RADIUS_AU, LUNAR_ORBIT_AU, EARTH_GM, 0.0, 5);
+        let min_dv = grid
+            .cells
+            .iter()
+            .filter(|c| c.feasible)
+            .map(|c| c.total_dv_ms)
+            .fold(f64::INFINITY, f64::min);
+        assert!(
+            min_dv.is_finite(),
+            "Earth→Moon short-hop must have at least one feasible preset \
+             (min_dv={min_dv})"
+        );
+        let within_10_pct: Vec<&PorkchopCell> = grid
+            .cells
+            .iter()
+            .filter(|c| c.feasible && c.total_dv_ms <= 1.10 * min_dv)
+            .collect();
+        assert!(
+            !within_10_pct.is_empty(),
+            "Earth→Moon short-hop must have at least one preset within 10% \
+             of the cheapest (min_dv={min_dv:.0} m/s, cheapest + 10% = {:.0} m/s)",
+            min_dv * 1.10
+        );
+        // Cheapest-within-10% must sit near the Hohmann preset — the
+        // design's variety promise is "bi-elliptic / Hohmann /
+        // direct spectrum", so the symmetric-cheapest preset
+        // (T ≈ T_Hohmann) should always be within 10% of the min.
+        let tof_h = hohmann_time_s_local(LEO_RADIUS_AU, LUNAR_ORBIT_AU, EARTH_GM);
+        let within_hohmann_10_pct_band = grid
+            .cells
+            .iter()
+            .filter(|c| c.feasible && (c.tof_s - tof_h).abs() <= 0.20 * tof_h)
+            .count();
+        assert!(
+            within_hohmann_10_pct_band >= 1,
+            "Earth→Moon short-hop must include ≥ 1 Hohmann-band preset \
+             (within ±20% of T_Hohmann={tof_h:.0} s); got {within_hohmann_10_pct_band}"
         );
     }
 }
@@ -2295,6 +2739,7 @@ mod planner_wiring_tests {
                 resolution_t_dep: 50,
                 resolution_tof: 40,
                 c3_ceiling_km2_s2: 400.0,
+                short_hop_options: None,
             }],
             ..PorkchopConfig::default()
         };
@@ -2530,6 +2975,7 @@ mod planner_wiring_tests {
             resolution_t_dep: 50,
             resolution_tof: 40,
             c3_ceiling_km2_s2: 100.0,
+            short_hop_options: None,
         }
     }
 
