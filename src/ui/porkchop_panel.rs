@@ -308,8 +308,8 @@ pub fn porkchop_panel(
     // "jump every second") only fires on these rare events.
     let grid_identity: (Option<Entity>, (usize, usize), Option<(usize, usize)>) =
         (target_body, grid.resolution, grid.min_cell);
-    let identity_mismatch = texture_cache.is_none()
-        || texture_built_for.as_ref() != Some(&grid_identity);
+    let identity_mismatch =
+        texture_cache.is_none() || texture_built_for.as_ref() != Some(&grid_identity);
     if identity_mismatch {
         // Bake a `cols × rows` ColorImage in row-major order so the
         // GPU can bilinear-filter it.  Rows correspond to TOF
@@ -338,15 +338,13 @@ pub fn porkchop_panel(
         // The TextureHandle drop is automatic when
         // `texture_cache = Some(new_handle)` replaces the old
         // one.
-        let handle = ui.ctx().load_texture(
-            "porkchop_grid",
-            image,
-            egui::TextureOptions::LINEAR,
-        );
+        let handle = ui
+            .ctx()
+            .load_texture("porkchop_grid", image, egui::TextureOptions::LINEAR);
         *texture_cache = Some(handle);
         *texture_built_for = Some(grid_identity);
     }
-// grid_rect (UV = (scroll/cols, 0) → ((scroll+visible_cols)/cols, 1)).
+    // grid_rect (UV = (scroll/cols, 0) → ((scroll+visible_cols)/cols, 1)).
     // Scrolling the UV window instead of redrawing cells means the
     // GPU bilinear filter smooths the seam where the right-edge cells
     // exit and the left-edge cells enter — no per-frame rebake.  The
@@ -357,10 +355,7 @@ pub fn porkchop_panel(
     if let Some(texture) = texture_cache.as_ref() {
         let uv_min_x = (scroll / cols as f32).max(0.0);
         let uv_max_x = ((scroll + visible_cols as f32) / cols as f32).min(1.0);
-        let uv = Rect::from_min_max(
-            Pos2::new(uv_min_x, 0.0),
-            Pos2::new(uv_max_x, 1.0),
-        );
+        let uv = Rect::from_min_max(Pos2::new(uv_min_x, 0.0), Pos2::new(uv_max_x, 1.0));
         cell_clip.image(texture.id(), grid_rect, uv, Color32::WHITE);
     }
     // Suppress the unused-var lint for the per-cell loop that
@@ -740,7 +735,11 @@ mod tests {
             .map(|&dv| PorkchopCell {
                 t_dep_s: 0.0,
                 tof_s: 0.0,
-                total_dv_ms: if dv.is_finite() { dv * 1000.0 } else { f64::INFINITY },
+                total_dv_ms: if dv.is_finite() {
+                    dv * 1000.0
+                } else {
+                    f64::INFINITY
+                },
                 c3_departure: 0.0,
                 v_inf_arrival_ms: 0.0,
                 delta_v1_ms: 0.0,
@@ -790,8 +789,8 @@ mod tests {
         let ramp = PorkchopColorRamp::from_grid(&grid);
         let cheap = cell_color(&grid.cells[0], &ramp); // 3 km/s
         let expensive = cell_color(&grid.cells[4], &ramp); // 12 km/s
-        // The cheap cell must have a noticeably higher B channel
-        // (blue/cyan end of the ramp).
+                                                           // The cheap cell must have a noticeably higher B channel
+                                                           // (blue/cyan end of the ramp).
         assert!(
             cheap.b() > expensive.b(),
             "cheap cell b={} should exceed expensive b={} on the TWP palette",

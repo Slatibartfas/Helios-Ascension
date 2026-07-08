@@ -161,7 +161,7 @@ fn collect_all_entities(world: &World) -> Vec<bevy::prelude::Entity> {
     // is `Option<EntityLocation>` — `Some` means spawned.  Use the
     // public `get_spawned`-via-`resolve_from_index` round-trip
     // rather than poking at private fields.
-    for index in 0..entities.len() as u32 {
+    for index in 0..entities.len() {
         // `u32::MAX` is reserved as a "no entity" sentinel by
         // Bevy's entity allocator, so `EntityIndex::from_raw_u32`
         // would return `None`.  Skip it explicitly.

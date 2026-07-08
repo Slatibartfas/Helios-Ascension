@@ -28,7 +28,9 @@
 use bevy::prelude::*;
 use helios_ascension::astronomy::KeplerOrbit;
 use helios_ascension::fleets::orbital_mechanics::GM_SUN;
-use helios_ascension::fleets::porkchop::{build_rotating_buffer_for_body_target, PorkchopGrid, PorkchopInputs};
+use helios_ascension::fleets::porkchop::{
+    build_rotating_buffer_for_body_target, PorkchopGrid, PorkchopInputs,
+};
 use helios_ascension::fleets::PorkchopConfig;
 use helios_ascension::ui::FleetUiState;
 
@@ -370,6 +372,7 @@ fn gra_rebuild_storm_guard_clear_target_resets_in_flight() {
 /// the cell is selected), and passed to
 /// `predict_body_visual_pos(origin, current_sim_s, departure_s,
 /// ...)`.
+#[allow(dead_code)] // helper for future cell-coordinate tests; not used by current ones
 fn cell_abs_t_dep(grid: &PorkchopGrid, sc: usize) -> f64 {
     let (cols, _) = grid.resolution;
     let col_step = (grid.t_dep_bounds_s.1 - grid.t_dep_bounds_s.0) / cols as f64;
@@ -400,11 +403,7 @@ fn immediate_departure_clamp_keeps_trajectory_anchored_at_live_planet() {
     // check on `f64` — the render path's actual
     // `predict_body_visual_pos` call is covered by the
     // integration tests.
-    fn clamp_departure_s(
-        recorded: Option<f64>,
-        current_sim_s: f64,
-        offset_s: f64,
-    ) -> f64 {
+    fn clamp_departure_s(recorded: Option<f64>, current_sim_s: f64, offset_s: f64) -> f64 {
         match recorded {
             Some(t) if t >= current_sim_s => t,
             Some(_) => current_sim_s,
@@ -471,11 +470,9 @@ fn per_frame_reanchor_clamps_cell_to_col_zero_when_burn_is_past() {
         current_sim_s: f64,
         cols_buf: usize,
     ) -> (Option<(usize, usize)>, Option<f64>) {
-        if let (Some((_sc, sr)), Some(recorded), true) = (
-            selected_porkchop_cell,
-            selected_abs_t_dep_s,
-            cols_buf > 0,
-        ) {
+        if let (Some((_sc, sr)), Some(recorded), true) =
+            (selected_porkchop_cell, selected_abs_t_dep_s, cols_buf > 0)
+        {
             if recorded < current_sim_s {
                 return (Some((0, sr)), Some(current_sim_s));
             }
@@ -531,14 +528,13 @@ fn cell_anchor_recognises_immediate_departure_state() {
     ) -> bool {
         match prev {
             Some(p) => {
-                (p - cell_abs_t_dep).abs() < col_step * 0.5
-                    || (p - elapsed).abs() < col_step * 0.5
+                (p - cell_abs_t_dep).abs() < col_step * 0.5 || (p - elapsed).abs() < col_step * 0.5
             }
             None => false,
         }
     }
     let col_step = 1000.0_f64; // arbitrary
-    // Recorded matches elapsed → match (immediate-departure path)
+                               // Recorded matches elapsed → match (immediate-departure path)
     assert!(
         matches_recorded(Some(100.0), 50.0, 100.0, col_step),
         "recorded==elapsed must match (immediate-departure state)"
@@ -755,8 +751,7 @@ fn gra_rebuild_storm_guard_blocks_reentry_while_in_flight() {
     //   `needs_build && !porkchop_build_in_flight`
     // with both flags set. `in_flight = true` so the block bails
     // out — the grid is NOT re-solved.
-    let would_solve = state.porkchop_grid_pending_rebuild
-        && !state.porkchop_build_in_flight;
+    let would_solve = state.porkchop_grid_pending_rebuild && !state.porkchop_build_in_flight;
     assert!(
         !would_solve,
         "while in_flight is true the build block must NOT re-solve the grid; \
@@ -765,8 +760,7 @@ fn gra_rebuild_storm_guard_blocks_reentry_while_in_flight() {
     // Frame N+2: clear in_flight (build completed); now the next
     // pending_rebuild trigger can fire.
     state.porkchop_build_in_flight = false;
-    let would_solve_now = state.porkchop_grid_pending_rebuild
-        && !state.porkchop_build_in_flight;
+    let would_solve_now = state.porkchop_grid_pending_rebuild && !state.porkchop_build_in_flight;
     assert!(
         would_solve_now,
         "after in_flight is cleared the next trigger can fire a fresh build"
@@ -983,7 +977,8 @@ fn trajectory_preview_absolute_anchor_lets_offset_shrink() {
             "absolute-anchor separation must shrink as T_now approaches T_abs; \
              got {} -> {} (should be strictly decreasing — burn-time planet \
              converges toward live planet)",
-            w[0], w[1],
+            w[0],
+            w[1],
         );
     }
 

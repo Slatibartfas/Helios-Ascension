@@ -4016,8 +4016,7 @@ pub fn draw_fleet_transfer_preview(
             // position along the planned orbit (Lambert-conic-propagated,
             // star-centered since this branch is same-star / barycentric)
             // with the remaining mean-anomaly travel.
-            let elapsed_since_departure_s =
-                (current_sim_s - departure_s).max(0.0);
+            let elapsed_since_departure_s = (current_sim_s - departure_s).max(0.0);
             let phase_ma_raw = elapsed_since_departure_s * orbit.mean_motion;
             // Direction-aware clamp: handle retrograde transfers where
             // mean_motion is negative by clamping on the absolute scale.
@@ -4027,10 +4026,8 @@ pub fn draw_fleet_transfer_preview(
                 phase_ma_raw.max(total_ma_travel)
             };
             let (start_pos, remaining_ma_travel) = if phase_ma.abs() > 1e-9 {
-                let local = orbit_position_from_mean_anomaly(
-                    orbit,
-                    orbit.mean_anomaly_epoch + phase_ma,
-                );
+                let local =
+                    orbit_position_from_mean_anomaly(orbit, orbit.mean_anomaly_epoch + phase_ma);
                 // Local orbit pos is in AU relative to the transfer's center
                 // (the star).  For this branch the floating origin is the
                 // star, so the AU→visual scaling is direct (no parent
@@ -4181,9 +4178,7 @@ pub fn draw_gravity_assist_preview(
     // (immediate-departure preview); no recorded epoch → slider
     // formula.  See that function's docs for the full rationale.
     let depart_s = match fleet_ui_state.selected_abs_t_dep_s {
-        Some(recorded_abs_t_dep_s) if recorded_abs_t_dep_s >= current_sim_s => {
-            recorded_abs_t_dep_s
-        }
+        Some(recorded_abs_t_dep_s) if recorded_abs_t_dep_s >= current_sim_s => recorded_abs_t_dep_s,
         Some(_) => current_sim_s,
         None => current_sim_s + departure_offset_s,
     };

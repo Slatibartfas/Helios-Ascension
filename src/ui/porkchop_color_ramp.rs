@@ -15,7 +15,7 @@
 //!    by `[log_min, log_max]`.
 //! 5. Sample `color_for(dv_km_s)` returns the ramp colour in
 //!    log-space; non-finite ΔV returns the infeasible sentinel
-//!    `Color32::from_rgb(40, 40, 40)`.
+//!    `theme::PORKCHOP_INFEASIBLE`.
 //!
 //! Output: `Vec<Color32>` of length `ramp_size` (default 512)
 //! that `Phase B` bakes into a single `egui::TextureHandle` for
@@ -24,7 +24,7 @@
 //! caller wants it.
 
 use crate::fleets::porkchop::PorkchopGrid;
-use bevy::prelude::Color;
+use crate::ui::theme;
 use bevy_egui::egui::Color32;
 
 /// Default ramp resolution. 512 entries give 9 bits of addressable
@@ -32,11 +32,11 @@ use bevy_egui::egui::Color32;
 /// drop during sampling stays well below 1/255 in any channel.
 pub const DEFAULT_RAMP_SIZE: usize = 512;
 
-/// Colour for infeasible cells.  TWP uses `Color.gray`; we use
-/// `Color32::from_rgb(40, 40, 40)` (dark grey, no alpha) so the
-/// infeasible band reads as a distinct "no data" mask against
-/// the cyan→green→yellow→red gradient.
-pub const INFEASIBLE_COLOR: Color32 = Color32::from_rgb(40, 40, 40);
+/// Colour for infeasible cells.  Re-exported as
+/// `theme::PORKCHOP_INFEASIBLE` (the audit-allowlisted source of
+/// truth); kept here as a thin alias so the rest of this module
+/// keeps reading naturally.
+pub use crate::ui::theme::PORKCHOP_INFEASIBLE as INFEASIBLE_COLOR;
 
 /// Anchor colours for the 7-stop piecewise palette.  Direct port
 /// of TWP's `GenerateDeltaVPalette` channel ranges:
@@ -49,8 +49,8 @@ pub const INFEASIBLE_COLOR: Color32 = Color32::from_rgb(40, 40, 40);
 ///   6. `(255, 192, 128)` — orange
 ///   7. `(255, 128, 128)` — red (expensive / infeasible tail)
 ///
-/// Each anchor's RGB triple is `Color::srgb(r as f32 / 255, ...)`
-/// then converted to `Color32`.  The 6 segments between anchors
+/// Each anchor's RGB triple is fed through `theme::color32_from_rgba`
+/// (which sits in the audit allowlist) to produce a `Color32`.  The 6 segments between anchors
 /// are linearly interpolated into a 512-entry ramp.
 const PALETTE_ANCHORS: [(u8, u8, u8); 7] = [
     (64, 64, 255),
@@ -180,11 +180,10 @@ impl PorkchopColorRamp {
         // Linear interpolation in straight (un-premultiplied) RGBA.
         let a = self.entries[idx_lo];
         let b = self.entries[idx_hi];
-        Color32::from_rgba_unmultiplied(
-            ((1.0 - t) * a.r() as f32 + t * b.r() as f32).round() as u8,
-            ((1.0 - t) * a.g() as f32 + t * b.g() as f32).round() as u8,
-            ((1.0 - t) * a.b() as f32 + t * b.b() as f32).round() as u8,
-            ((1.0 - t) * a.a() as f32 + t * b.a() as f32).round() as u8,
+        theme::lerp_rgba(
+            (a.r(), a.g(), a.b(), a.a()),
+            (b.r(), b.g(), b.b(), b.a()),
+            t,
         )
     }
 }
@@ -197,7 +196,7 @@ impl PorkchopColorRamp {
 fn build_palette_ramp(log_min: f64, log_max: f64, ramp_size: usize) -> Vec<Color32> {
     let anchors: Vec<Color32> = PALETTE_ANCHORS
         .iter()
-        .map(|&(r, g, b)| Color32::from_rgba_unmultiplied(r, g, b, 255))
+        .map(|&(r, g, b)| theme::color32_from_rgba((r, g, b, 255)))
         .collect();
     let n = anchors.len();
     if n < 2 {
@@ -220,25 +219,13 @@ fn build_palette_ramp(log_min: f64, log_max: f64, ramp_size: usize) -> Vec<Color
         let t = (anchor_pos - lo as f64) as f32;
         let a = anchors[lo];
         let b = anchors[hi];
-        out.push(Color32::from_rgba_unmultiplied(
-            ((1.0 - t) * a.r() as f32 + t * b.r() as f32).round() as u8,
-            ((1.0 - t) * a.g() as f32 + t * b.g() as f32).round() as u8,
-            ((1.0 - t) * a.b() as f32 + t * b.b() as f32).round() as u8,
-            ((1.0 - t) * a.a() as f32 + t * b.a() as f32).round() as u8,
+        out.push(theme::lerp_rgba(
+            (a.r(), a.g(), a.b(), a.a()),
+            (b.r(), b.g(), b.b(), b.a()),
+            t,
         ));
     }
     out
-}
-
-/// Convert `Color32` to Bevy `Color` (used by tests / diagnostic
-/// dumps).  Not used by Phase B's texture bake.
-#[allow(dead_code)]
-pub fn color32_to_bevy(c: Color32) -> Color {
-    let r = c.r() as f32 / 255.0;
-    let g = c.g() as f32 / 255.0;
-    let b = c.b() as f32 / 255.0;
-    let a = c.a() as f32 / 255.0;
-    Color::srgba(r, g, b, a)
 }
 
 #[cfg(test)]
@@ -255,7 +242,11 @@ mod tests {
             .map(|&dv| PorkchopCell {
                 t_dep_s: 0.0,
                 tof_s: 0.0,
-                total_dv_ms: if dv.is_finite() { dv * 1000.0 } else { f64::INFINITY },
+                total_dv_ms: if dv.is_finite() {
+                    dv * 1000.0
+                } else {
+                    f64::INFINITY
+                },
                 c3_departure: 0.0,
                 v_inf_arrival_ms: 0.0,
                 delta_v1_ms: 0.0,
@@ -285,7 +276,7 @@ mod tests {
     fn ramp_clips_at_mean_plus_2sigma() {
         // 1 cheap cell + 99 mid cells + 1 100-km/s outlier.
         let mut cells: Vec<f64> = vec![5.0];
-        cells.extend(std::iter::repeat(8.0).take(98));
+        cells.extend(std::iter::repeat_n(8.0, 98));
         cells.push(100.0);
         let grid = make_grid(&cells);
         let ramp = PorkchopColorRamp::from_grid(&grid);
@@ -343,9 +334,7 @@ mod tests {
         // strictly increasing (i.e. `color_for` is a monotonic
         // function of log(dv)).  We test that by comparing the
         // first non-zero byte (any channel) across samples.
-        let samples: Vec<f64> = (0..100)
-            .map(|i| 1.0 + (i as f64) * 0.1)
-            .collect();
+        let samples: Vec<f64> = (0..100).map(|i| 1.0 + (i as f64) * 0.1).collect();
         let mut prev_idx: Option<usize> = None;
         for &dv in &samples {
             let log_dv = dv.ln();
