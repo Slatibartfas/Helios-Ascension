@@ -45,6 +45,10 @@ mod tech_tree;
 pub(super) mod theme;
 pub mod time;
 pub mod transfer_planner;
+// GRA-367-B: unified selected-option card (Phase 2).  Sibling of
+// `transfer_planner` so the card module can be unit-tested without
+// pulling in the 9000-line planner body.
+pub mod transfer_planner_card;
 
 pub use settings::Settings;
 

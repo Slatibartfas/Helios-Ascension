@@ -1,0 +1,10 @@
+# 🌌 Interstellar Mission: Alpha Centauri
+  Distance: 4.37 ly = 276364 AU
+
+  Mode                      Point-and-burn (kinematic)
+
+  [Leg 1] Continuous thrust to destination
+
+  frame: ΔV budget: 6.00 km/s
+
+  WARN: ⚠ Interstellar navigation is point-and-burn. Transfer windows do not apply. Ensure adequate ΔV and life-support reserves.

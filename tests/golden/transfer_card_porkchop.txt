@@ -1,0 +1,9 @@
+# Porkchop Cell: Earth → Mars
+
+  ΔV total                  5.60 km/s (dep 3.60 + arr 2.00)
+  t_dep / TOF               30 d / 220 d
+  Fuel                      8.4 t (0%)
+  v(arr)                    24.00 km/s
+  v∞(arr)                   2.50 km/s
+
+  [Leg 1] Direct Lambert arc
