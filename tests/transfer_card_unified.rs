@@ -220,6 +220,8 @@ fn snapshot_gravity_assist_card() {
         dv_depart_ms: 1_200.0,
         dv_mid_ms: 0.0,
         dv_arrive_ms: 3_200.0,
+        t_dep_s: 0.0,
+        tof_s: 280.0 * 86_400.0,
     };
     let entry = GravityAssistEntry {
         option: ga,

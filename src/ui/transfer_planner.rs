@@ -1,6 +1,8 @@
 use super::time::format_timestamp_date_time;
 use super::*;
-use crate::fleets::orbital_mechanics::calculate_cross_star_ballistic_options;
+use crate::fleets::orbital_mechanics::{
+    calculate_cross_star_ballistic_options, sweep_gravity_assist_grid, GA_GRID_DEFAULT_RESOLUTION,
+};
 use crate::fleets::porkchop::{build_grid_for_body_target, build_rotating_buffer_for_body_target};
 // GRA-343: explicit import — `super::*` does not bring the new
 // resource type from `crate::fleets` into this module's namespace
@@ -1390,6 +1392,180 @@ fn planner_frame_label(frame: PlannerTransferFrame) -> String {
         PlannerTransferFrame::StellarLocal(_) => "stellar-local".to_string(),
         PlannerTransferFrame::SystemBarycentric => "system barycentric".to_string(),
     }
+}
+
+/// Render a single GA candidate's `(t_dep, tof)` sub-grid as a
+/// collapsible mini-heatmap inside the Gravity Assists panel (GRA-367
+/// Phase 4).  The grid is built lazily via
+/// [`crate::fleets::orbital_mechanics::sweep_gravity_assist_grid`] the
+/// first time the user expands the candidate's "GA Grid" header, and
+/// painted as a `cols × rows` array of cell rectangles whose fill
+/// encodes `feasible` (filled greenish-blue when feasible, dim grey
+/// when not) and `total_dv_ms` (darker green = cheaper, yellow =
+/// mid, red = expensive — same ΔV→colour convention as the main
+/// porkchop colormap).  The minimum-ΔV feasible cell is highlighted
+/// with a white border so the player can read the "best window" at a
+/// glance.
+///
+/// Kept deliberately minimal — does **not** wire a click-to-select
+/// pipeline yet.  Phase 5 / GRA-367-E will fold the GA sub-grid into
+/// the same selectable grid renderer as the main porkchop; for now the
+/// sub-grid is read-only and surfaces the cheapest `(t_dep, tof)` pair
+/// as a plain text readout below the heatmap.
+#[allow(clippy::too_many_arguments)]
+fn render_gravity_assist_sub_grid(
+    ui: &mut egui::Ui,
+    _flyby_entity: Entity,
+    flyby_radius_au: f64,
+    origin_orbit: &KeplerOrbit,
+    flyby_orbit: &KeplerOrbit,
+    dest_orbit: &KeplerOrbit,
+    gm: f64,
+    gm_planet: f64,
+    min_periapsis_au: f64,
+    sim_time_s: f64,
+) {
+    use crate::fleets::orbital_mechanics::hohmann_transfer;
+
+    // Hohmann baseline (r1 → r2) for the tof axis range.
+    // `hohmann_transfer` returns `(dep_dv, arr_dv, tof, sma, ecc)`;
+    // `tof` is the half-period of the Hohmann ellipse — i.e. the
+    // canonical "fastest" time-of-flight.  We expand the tof axis
+    // ±2.5× around it so the player sees both faster (high-thrust)
+    // and slower (more efficient) windows, matching the short-hop
+    // RON's `tof_max_hohmann_factor` of 2.5.
+    let r1_au = origin_orbit.semi_major_axis;
+    let r2_au = dest_orbit.semi_major_axis;
+    let (_, _, hohmann_tof_s, _, _) = hohmann_transfer(r1_au, r2_au, gm);
+    let tof_min_s = hohmann_tof_s * 0.4;
+    let tof_max_s = hohmann_tof_s * 2.5;
+    let dep_window_s = 60.0 * 86_400.0; // ±60-day dep window per the design doc.
+
+    let cells = sweep_gravity_assist_grid(
+        r1_au,
+        flyby_radius_au,
+        r2_au,
+        gm,
+        gm_planet,
+        min_periapsis_au,
+        origin_orbit,
+        flyby_orbit,
+        dest_orbit,
+        (0.0, dep_window_s),
+        (tof_min_s.max(86_400.0 * 5.0), tof_max_s),
+        GA_GRID_DEFAULT_RESOLUTION,
+        sim_time_s,
+    );
+
+    let (cols, rows) = GA_GRID_DEFAULT_RESOLUTION;
+    let feasible_count = cells.iter().filter(|c| c.feasible).count();
+    let min_cell_idx = cells
+        .iter()
+        .enumerate()
+        .filter(|(_, c)| c.feasible)
+        .min_by(|(_, a), (_, b)| {
+            a.total_dv_ms
+                .partial_cmp(&b.total_dv_ms)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
+        .map(|(i, _)| i);
+
+    // 220-px wide canvas, square cells (col_w = row_h = canvas/cols).
+    let canvas_w = 220.0_f32;
+    let canvas_h = canvas_w * (rows as f32) / (cols as f32);
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(canvas_w, canvas_h), egui::Sense::hover());
+    let painter = ui.painter_at(rect);
+
+    // Pre-compute ΔV→colour mapping (log scale, blue→cyan→green→
+    // yellow→orange→red) so the heatmap matches the main porkchop
+    // convention.  Infeasible cells render dim grey so the
+    // "no-assist-at-this-geometry" rows are visually distinct from
+    // the cheap basin.
+    let finite_dvs: Vec<f64> = cells
+        .iter()
+        .filter(|c| c.feasible && c.total_dv_ms.is_finite())
+        .map(|c| c.total_dv_ms)
+        .collect();
+    let (dv_lo, dv_hi) = if finite_dvs.is_empty() {
+        (1.0, 10.0)
+    } else {
+        let lo = finite_dvs.iter().cloned().fold(f64::INFINITY, f64::min);
+        let hi = finite_dvs.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        if (hi - lo).abs() < 1e-3 {
+            (lo, lo + 1.0)
+        } else {
+            (lo, hi)
+        }
+    };
+    let cell_w = rect.width() / cols as f32;
+    let cell_h = rect.height() / rows as f32;
+    for (i, cell) in cells.iter().enumerate() {
+        let col = i % cols;
+        let row = i / cols;
+        let x = rect.left() + col as f32 * cell_w;
+        let y = rect.top() + row as f32 * cell_h;
+        let cell_rect = egui::Rect::from_min_size(egui::pos2(x, y), egui::vec2(cell_w, cell_h));
+        let color = if cell.feasible && cell.total_dv_ms.is_finite() {
+            let t = ((cell.total_dv_ms - dv_lo) / (dv_hi - dv_lo)).clamp(0.0, 1.0) as f32;
+            // 4-stop ramp: green (cheap) → yellow → orange → red (expensive).
+            if t < 0.25 {
+                theme::HEATMAP_CHEAP
+            } else if t < 0.5 {
+                theme::HEATMAP_MID
+            } else if t < 0.75 {
+                theme::HEATMAP_WARM
+            } else {
+                theme::HEATMAP_HOT
+            }
+        } else {
+            theme::HEATMAP_INFEASIBLE
+        };
+        painter.rect_filled(cell_rect, 0.0, color);
+    }
+    if let Some(idx) = min_cell_idx {
+        let col = idx % cols;
+        let row = idx / cols;
+        let x = rect.left() + col as f32 * cell_w;
+        let y = rect.top() + row as f32 * cell_h;
+        let min_rect = egui::Rect::from_min_size(egui::pos2(x, y), egui::vec2(cell_w, cell_h));
+        painter.rect_stroke(
+            min_rect,
+            0.0,
+            egui::Stroke::new(1.5, egui::Color32::WHITE),
+            egui::StrokeKind::Inside,
+        );
+    }
+
+    // Text readout.
+    ui.add_space(2.0);
+    if let Some(idx) = min_cell_idx {
+        let cell = &cells[idx];
+        ui.label(
+            egui::RichText::new(format!(
+                "Best window: t_dep +{} d, tof {} d (Δv {})",
+                (cell.t_dep_s / 86_400.0).round() as i64,
+                (cell.tof_s / 86_400.0).round() as i64,
+                format_delta_v(cell.total_dv_ms)
+            ))
+            .size(10.0)
+            .color(theme::GREEN),
+        );
+    } else {
+        ui.label(
+            egui::RichText::new(format!("No feasible window in {}×{} grid.", cols, rows))
+                .size(10.0)
+                .color(theme::TEXT_DIM),
+        );
+    }
+    ui.label(
+        egui::RichText::new(format!(
+            "{} / {} cells feasible",
+            feasible_count,
+            cells.len()
+        ))
+        .size(10.0)
+        .color(theme::TEXT_DIM),
+    );
 }
 
 pub(super) fn render_transfer_planner(
@@ -5470,8 +5646,13 @@ pub(super) fn render_transfer_planner(
             )
             .default_open(true)
             .show(ui, |ui| {
-                // Snapshot data before mut-borrowing fleet_ui_state below
-                let snapped: Vec<(usize, String, f64, f64, f64, f64)> = fleet_ui_state
+                // Snapshot data before mut-borrowing fleet_ui_state below.
+                // GRA-367 Phase 4 — also captures `flyby_entity` and
+                // `flyby_radius_au` so the per-candidate GA sub-grid can
+                // resolve KeplerOrbits without needing to re-borrow
+                // `fleet_ui_state.gravity_assist_candidates` inside the
+                // `CollapsingHeader::show` closure.
+                let snapped: Vec<(usize, String, f64, f64, f64, f64, Entity, f64)> = fleet_ui_state
                     .gravity_assist_candidates
                     .iter()
                     .enumerate()
@@ -5483,11 +5664,23 @@ pub(super) fn render_transfer_planner(
                             e.option.extra_time_s,
                             e.option.window_period_s,
                             e.option.v_inf_ms,
+                            e.flyby_entity,
+                            e.option.flyby_radius_au,
                         )
                     })
                     .collect();
 
-                for (idx, body_name, savings, extra_t, win_period, v_inf) in snapped {
+                for (
+                    idx,
+                    body_name,
+                    savings,
+                    extra_t,
+                    win_period,
+                    v_inf,
+                    flyby_entity,
+                    flyby_radius_au,
+                ) in snapped
+                {
                     let is_sel = fleet_ui_state.selected_gravity_assist == Some(idx);
                     let beneficial = savings > 100.0;
                     let header_color = if is_sel {
@@ -5561,6 +5754,96 @@ pub(super) fn render_transfer_planner(
                                 );
                                 ui.end_row();
                             });
+
+                        // GRA-367 Phase 4 — collapsible GA sub-grid.
+                        // Lazily built and rendered only when the player
+                        // expands this candidate's "GA Grid" header.
+                        // Skipped when the planner has no target body
+                        // (origin or dest heliocentric orbit is unknown).
+                        let sub_grid_available = body_target_snap.is_some();
+                        let sub_grid_header = format!(
+                            "📊 GA Grid ({}×{} cells)",
+                            GA_GRID_DEFAULT_RESOLUTION.0, GA_GRID_DEFAULT_RESOLUTION.1
+                        );
+                        egui::CollapsingHeader::new(
+                            egui::RichText::new(sub_grid_header).size(11.0),
+                        )
+                        .default_open(false)
+                        .show(ui, |ui| {
+                            if !sub_grid_available {
+                                ui.label(
+                                    egui::RichText::new(
+                                        "Pick a target body to render the GA sub-grid.",
+                                    )
+                                    .size(10.0)
+                                    .color(theme::TEXT_DIM),
+                                );
+                                return;
+                            }
+                            let target_entity = body_target_snap.unwrap();
+                            let origin_orbit_opt =
+                                heliocentric_orbit_for_body(orbit.body, body_query);
+                            let flyby_orbit_opt =
+                                heliocentric_orbit_for_body(flyby_entity, body_query);
+                            let dest_orbit_opt =
+                                heliocentric_orbit_for_body(target_entity, body_query);
+                            let (Some(origin_orbit), Some(flyby_orbit), Some(dest_orbit)) =
+                                (origin_orbit_opt, flyby_orbit_opt, dest_orbit_opt)
+                            else {
+                                ui.label(
+                                    egui::RichText::new(
+                                        "Heliocentric orbit unavailable for one of the bodies.",
+                                    )
+                                    .size(10.0)
+                                    .color(theme::TEXT_DIM),
+                                );
+                                return;
+                            };
+                            // Central-body GM (parent star) + flyby planet
+                            // GM.  Both fall back to GM_SUN so the grid
+                            // still renders (with zero kick) if the query
+                            // misses — the colormap will then be all-grey
+                            // and the "No feasible window" label kicks in.
+                            // Kilo CRITICAL (PR #233 review): walk the
+                            // `LogicalParent` chain via `find_host_star`
+                            // so fleets orbiting moons (moon → planet →
+                            // star) resolve to the host star's GM instead
+                            // of the planet's GM.  Matches the existing
+                            // GA preview path at line 3561.
+                            let central_gm = find_host_star(orbit.body, body_query)
+                                .map(|(_, mass)| G_CONST * mass)
+                                .unwrap_or(GM_SUN);
+                            let flyby_gm = body_query
+                                .get(flyby_entity)
+                                .ok()
+                                .map(|(_, b, _, _, _)| G_CONST * b.mass)
+                                .unwrap_or(0.0);
+                            let min_periapsis_au = body_query
+                                .get(flyby_entity)
+                                .ok()
+                                .map(|(_, b, _, _, _)| {
+                                    // `b.radius` is in metres (JPL
+                                    // convention); convert to AU and
+                                    // multiply by 3 for a safe
+                                    // periapsis (matches the
+                                    // existing `r_peri_jup` constant
+                                    // at orbital_mechanics.rs:2380).
+                                    (b.radius as f64 * 3.0) / AU_IN_METERS
+                                })
+                                .unwrap_or(0.001);
+                            render_gravity_assist_sub_grid(
+                                ui,
+                                flyby_entity,
+                                flyby_radius_au,
+                                &origin_orbit,
+                                &flyby_orbit,
+                                &dest_orbit,
+                                central_gm,
+                                flyby_gm,
+                                min_periapsis_au,
+                                elapsed,
+                            );
+                        });
 
                         ui.horizontal(|ui| {
                             if is_sel {
