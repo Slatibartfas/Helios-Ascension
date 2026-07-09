@@ -1,6 +1,8 @@
 use super::time::format_timestamp_date_time;
 use super::*;
-use crate::fleets::orbital_mechanics::calculate_cross_star_ballistic_options;
+use crate::fleets::orbital_mechanics::{
+    calculate_cross_star_ballistic_options, sweep_gravity_assist_grid, GA_GRID_DEFAULT_RESOLUTION,
+};
 // GRA-367-E: pull `PorkchopGrid` into the module-level scope so the
 // `try_build_cross_system_hohmann` return type resolves without a
 // local `use` inside the function body.  Phase 5 emits a degenerate
