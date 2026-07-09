@@ -19,7 +19,7 @@ use crate::fleets::components::{TransferPlan, TransferReferenceFrame};
 use crate::fleets::orbital_mechanics::{format_delta_v, format_duration, TransferOption};
 use crate::fleets::porkchop::{PorkchopCell, PorkchopGrid};
 use crate::ui::theme;
-use crate::ui::{CrossSystemCell, CrossSystemGrid, GravityAssistEntry};
+use crate::ui::GravityAssistEntry;
 
 use bevy_egui::egui;
 
@@ -81,7 +81,7 @@ pub struct CardWidget {
 pub struct CardSupplement {
     pub gravity_assist_candidates: Vec<GravityAssistEntry>,
     pub selected_gravity_assist: Option<usize>,
-    pub cross_system_grid: Option<CrossSystemGrid>,
+    pub cross_system_grid: Option<PorkchopGrid>,
     pub cross_system_selected: Option<(usize, usize)>,
     /// `(system_id, display_name, distance_ly)` when the target is an
     /// interstellar star system; populated for the 🌌 header card.
@@ -154,7 +154,12 @@ pub fn build_selected_card(
     // `PorkchopGrid` (1×1) so it routes through the porkchop arm.
     if let Some(sup) = supplement {
         if let Some(grid) = sup.cross_system_grid.as_ref() {
-            return build_cross_star_card(grid, sup.cross_system_selected);
+            // `star_system_snap` carries `(system_id, name, distance_ly)`
+            // for the interstellar target — surface the distance as
+            // the subtitle (Phase 5 dropped the per-cell `distance_ly`
+            // field when refactoring into the shared `PorkchopGrid`).
+            let distance_ly = sup.star_system_snap.as_ref().map(|(_, _, ly)| *ly);
+            return build_cross_star_card(grid, sup.cross_system_selected, distance_ly);
         }
     }
 
@@ -404,12 +409,18 @@ fn build_ga_summary_card(candidates: &[GravityAssistEntry]) -> CardWidget {
     }
 }
 
-fn build_cross_star_card(grid: &CrossSystemGrid, selected: Option<(usize, usize)>) -> CardWidget {
+fn build_cross_star_card(
+    grid: &PorkchopGrid,
+    selected: Option<(usize, usize)>,
+    distance_ly: Option<f32>,
+) -> CardWidget {
     let (col, row) = selected.unwrap_or((0, 0));
-    let cell: Option<&CrossSystemCell> = grid.cells.get(row * grid.cols + col);
+    let (grid_cols, _grid_rows) = grid.resolution;
+    let cell: Option<&PorkchopCell> = grid.cells.get(row * grid_cols + col);
+    let subtitle = distance_ly.map(|ly| format!("Distance: {:.2} ly", ly));
     let mut card = CardWidget {
-        title: format!("Cross-star Transfer: → {}", grid.destination_name),
-        subtitle: Some(format!("Distance: {:.2} ly", grid.distance_ly)),
+        title: format!("Cross-star Transfer: → {}", grid.dest_name),
+        subtitle,
         rows: Vec::new(),
         warn: None,
         legs: vec![CardLeg {
@@ -419,8 +430,8 @@ fn build_cross_star_card(grid: &CrossSystemGrid, selected: Option<(usize, usize)
         frame_caption: None,
     };
     match cell {
-        Some(c) if c.is_feasible => {
-            let dv_kms = c.delta_v_ms / 1_000.0;
+        Some(c) if c.feasible => {
+            let dv_kms = c.total_dv_ms / 1_000.0;
             card.rows.push(CardRow {
                 label: "ΔV".to_string(),
                 value: format!("{dv_kms:.2} km/s"),
@@ -428,15 +439,9 @@ fn build_cross_star_card(grid: &CrossSystemGrid, selected: Option<(usize, usize)
             });
             card.rows.push(CardRow {
                 label: "Travel time".to_string(),
-                value: format_duration(c.transfer_time_s).to_string(),
+                value: format_duration(c.tof_s).to_string(),
                 severity: Severity::Neutral,
             });
-            if c.phase_error_deg > 30.0 {
-                card.warn = Some(format!(
-                    "⚠ Phase-angle error {:.0}° exceeds 30° tolerance",
-                    c.phase_error_deg
-                ));
-            }
         }
         Some(_) => {
             card.warn =

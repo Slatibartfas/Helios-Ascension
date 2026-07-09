@@ -4,12 +4,16 @@ use crate::fleets::orbital_mechanics::{
     calculate_cross_star_ballistic_options, sweep_gravity_assist_grid, GA_GRID_DEFAULT_RESOLUTION,
 };
 use crate::fleets::porkchop::{build_grid_for_body_target, build_rotating_buffer_for_body_target};
+// GRA-367-E: pull `PorkchopGrid` into the module-level scope so the
+// `try_build_cross_system_hohmann` return type resolves without a
+// local `use` inside the function body.  Phase 5 emits a degenerate
+// `PorkchopGrid` (1×1 cells) for the cross-system path; Phase 1 will
+// later consume the same shape.
+use crate::fleets::porkchop::PorkchopGrid;
 // GRA-343: explicit import — `super::*` does not bring the new
 // resource type from `crate::fleets` into this module's namespace
-// for fn-signature type aliases.  CrossSystemGrid / CrossSystemCell
-// ARE pulled in via `super::*` (they're declared in `super::mod`),
-// but `InterstellarPropulsionPolicy` is re-exported through
-// `crate::fleets` and needs the explicit path.
+// for fn-signature type aliases.  `InterstellarPropulsionPolicy` is
+// re-exported through `crate::fleets` and needs the explicit path.
 use crate::fleets::InterstellarPropulsionPolicy;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1110,8 +1114,8 @@ fn try_build_local_porkchop(
 /// destination.  Returns `None` when the destination has no barycentric
 /// position or when the Lambert solver fails to converge.
 ///
-/// For v0.5.0 (GRA-343 / GRA-328b) the grid is a single cell — the
-/// cross-system Hohmann is a ballistic transfer with one optimal
+/// GRA-367-E: the grid is a degenerate 1×1 `PorkchopGrid`.  The cross-
+/// system Hohmann is a ballistic transfer with one optimal
 /// `(t_dep, tof)` and no meaningful `(t_dep, tof)` basin to scan
 /// (the destination is a fixed point in the heliocentric frame at
 /// distances of 1–11 light-years).  The solver consumes the
@@ -1121,6 +1125,11 @@ fn try_build_local_porkchop(
 /// `within_human_phase_tolerance` /
 /// `within_ai_phase_tolerance` in `src/fleets/orbital_mechanics.rs`).
 ///
+/// Returning the same `PorkchopGrid` as the interplanetary planner
+/// lets the renderer drop the `is_interstellar` /
+/// `is_inter_star_body_transfer` branches and reuse the per-class
+/// panel (Phase 5).
+///
 /// The destination barycentric position is taken from the LGD-owned
 /// `nearest_stars_raw.json` lookup, with the destination's
 /// heliocentric distance converted to AU.  The originating system is
@@ -1128,7 +1137,7 @@ fn try_build_local_porkchop(
 /// origin support is GRA-328c's territory; for now the grid is always
 /// computed relative to Sol.
 ///
-/// GRA-343 / GRA-328b.
+/// GRA-343 / GRA-328b / GRA-367-E.
 #[allow(clippy::too_many_arguments)]
 fn try_build_cross_system_hohmann(
     system_id: usize,
@@ -1138,10 +1147,11 @@ fn try_build_cross_system_hohmann(
     sim_time_s: f64,
     fleet: &Fleet,
     policy: &InterstellarPropulsionPolicy,
-) -> Option<CrossSystemGrid> {
+) -> Option<PorkchopGrid> {
     use crate::fleets::orbital_mechanics::{
         meets_human_margin, within_human_phase_tolerance, AU_IN_METERS, GM_SUN,
     };
+    use crate::fleets::porkchop::{PorkchopCell, PorkchopGrid, PorkchopMetric};
 
     // ── Resolve the destination barycentric position from the LGD's
     // `nearest_stars_raw.json` lookup.  GRA-328c will replace this with
@@ -1205,31 +1215,52 @@ fn try_build_cross_system_hohmann(
     // ── Margin check.  If the fleet cannot meet the human margin,
     // the cell is rendered as "infeasible" with the reason in the
     // hover tooltip.  We still return a grid so the UI can show
-    // the "no feasible window" message.
+    // the "no feasible window" message.  The `is_feasible`
+    // predicate is unchanged from GRA-343 — Phase 5 only widens the
+    // cell model, not the gating logic.
     let meets_margin = meets_human_margin(fleet, dv_required_ms, policy);
 
-    let cell = CrossSystemCell {
-        delta_v_ms: dv_required_ms,
-        transfer_time_s: tof_s,
-        phase_error_deg,
-        is_feasible: meets_margin,
+    // Phase 5: emit a single `PorkchopCell` so the renderer can drop
+    // the interstellar branch.  Position / velocity vectors and the
+    // transfer conic are not solved for interstellar distances
+    // (Hohmann × light-year is hyperbolic, no closed-form conic),
+    // so they default to zero — the panel renders the Δv / TOF
+    // band from the cell, not the arc.
+    let cell = PorkchopCell {
+        t_dep_s: sim_time_s,
+        tof_s,
+        total_dv_ms: dv_required_ms,
+        c3_departure: 0.0,
+        v_inf_arrival_ms: 0.0,
+        delta_v1_ms: dv_required_ms * 0.5,
+        delta_v2_ms: dv_required_ms * 0.5,
+        feasible: meets_margin,
+        origin_pos_au: bevy::math::DVec3::ZERO,
+        dest_pos_au: bevy::math::DVec3::new(distance_au, 0.0, 0.0),
+        v_departure_ms: bevy::math::DVec3::ZERO,
+        v_arrival_ms: bevy::math::DVec3::ZERO,
+        transfer_orbit: None,
     };
 
-    let recommended_cell = if meets_margin { Some((0, 0)) } else { None };
+    let min_cell = if meets_margin { Some((0, 0)) } else { None };
     let dest_name_owned = dest_sys.system_name.clone();
+    let _ = (system_id, phase_error_deg); // GRA-343 fields no longer carried by `PorkchopGrid`
 
-    Some(CrossSystemGrid {
-        destination_system_id: system_id,
-        destination_name: dest_name_owned,
-        distance_ly: distance_ly as f64,
-        cols: 1,
-        rows: 1,
-        t_dep_start_s: sim_time_s,
-        t_dep_step_s: 1.0,
-        tof_start_s: tof_s,
-        tof_step_s: 1.0,
+    // 1×1 degenerate grid — same surface the interplanetary planner
+    // passes to the renderer.  Phase 5 keeps the grid degenerate
+    // because the destination barycentric distance is fixed (no
+    // tof scan) and the departure epoch is set by the player's
+    // slider (no t_dep sweep); the solver has nothing to vary.
+    Some(PorkchopGrid {
+        origin_name: "Sol".to_string(),
+        dest_name: dest_name_owned,
+        t_dep_bounds_s: (sim_time_s, sim_time_s),
+        tof_bounds_s: (tof_s, tof_s),
+        rendered_tof_bounds_s: (tof_s, tof_s),
+        resolution: (1, 1),
         cells: vec![cell],
-        recommended_cell,
+        min_cell,
+        metric: PorkchopMetric::TotalDv,
     })
 }
 
@@ -4706,11 +4737,11 @@ pub(super) fn render_transfer_planner(
             // and rebuilt only when the destination system_id
             // changes.  Falls back to `None` when the destination
             // has no barycentric lookup or the policy resource is
-            // unavailable (debug fallback).  The planner UI uses
-            // `cross_system_grid.recommended_cell` and the
-            // feasibility predicate to gate the Execute button
-            // through `meets_human_margin` / `meets_ai_margin`
-            // (already in scope via the module import).
+            // unavailable (debug fallback).  The grid is a
+            // degenerate 1×1 `PorkchopGrid` (GRA-367-E), whose
+            // `min_cell` is `Some((0, 0))` iff `meets_human_margin`
+            // passes (the feasibility predicate is unchanged from
+            // GRA-343).
             let needs_rebuild = fleet_ui_state
                 .cross_system_grid_built_for
                 .map(|sid| sid != system_id)
@@ -5131,9 +5162,15 @@ pub(super) fn render_transfer_planner(
                 fleet_ui_state.computed_options[fleet_ui_state.selected_option].clone();
             let planned_departure_time_s =
                 elapsed + fleet_ui_state.departure_offset_days * 86_400.0;
-            fleet_ui_state.planned_transfer = if star_system_snap.is_some()
-                || fleet_ui_state.selected_gravity_assist.is_some()
-            {
+            fleet_ui_state.planned_transfer = if fleet_ui_state.selected_gravity_assist.is_some() {
+                // GRA-367-E: previously also short-circuited on
+                // `star_system_snap.is_some()`.  Interstellar navigation
+                // is still NYI, but the special-case branch was the
+                // Phase 5 target — the per-class render dispatch now
+                // covers the cross-system grid uniformly, so falling
+                // through to `None` (no destination body matches in
+                // the existing `else if` chain) is the same end state
+                // without the dedicated guard.
                 None
             } else if let Some(ref lp) = lp_target_snap {
                 build_planned_transfer_lp(fleet_entity, fleet, orbit, lp, body_query, &sel_option)
@@ -5264,12 +5301,6 @@ pub(super) fn render_transfer_planner(
             };
             let sel_affordable_with_abort = sel_option.total_delta_v_ms <= dv_after_abort;
 
-            // Interstellar note
-            let is_interstellar = star_system_snap.is_some();
-            let is_inter_star_body_transfer = body_target_snap
-                .map(|target_entity| is_inter_star_transfer(orbit.body, target_entity, body_query))
-                .unwrap_or(false);
-            let hides_calendar_eta = is_interstellar || is_inter_star_body_transfer;
             // GRA-367-B Phase 2: render the interstellar + binary-system
             // header cards through the unified `build_selected_card` so
             // every transfer class surfaces through one widget.  The
@@ -5278,6 +5309,19 @@ pub(super) fn render_transfer_planner(
             // `SelectionSource` variants land in Phases 3/4/5/6 — at
             // that point each child migrates its inline code through
             // the same `render_card` call.
+            //
+            // GRA-367-E (Phase 5): the cross-star + interstellar
+            // degenerate grid now feeds the same per-class panel; the
+            // per-class `is_interstellar` / `is_inter_star_body_transfer`
+            // render cards and the `is_interstellar || is_inter_star_body_
+            // transfer` gating inside the Execute Transfer click handler
+            // have been removed.  Calendar ETA always shows
+            // (`hides_calendar_eta` is now a non-existent state).
+            let is_interstellar = star_system_snap.is_some();
+            let is_inter_star_body_transfer = body_target_snap
+                .map(|target_entity| is_inter_star_transfer(orbit.body, target_entity, body_query))
+                .unwrap_or(false);
+            let hides_calendar_eta = false;
             if is_interstellar || is_inter_star_body_transfer {
                 use super::transfer_planner_card::{
                     build_selected_card, render_card, CardSupplement, FleetInfo,
@@ -5302,10 +5346,7 @@ pub(super) fn render_transfer_planner(
                 render_card(ui, &card);
                 ui.add_space(4.0);
             }
-
-            let btn_label = if is_interstellar {
-                "\u{1F680} Commit Interstellar Course".to_string()
-            } else if is_course_correction {
+            let btn_label = if is_course_correction {
                 if abort_cost_t > 0.01 {
                     let abort_dv_kms = (fleet_max_dv - dv_after_abort) / 1_000.0;
                     format!(
@@ -5345,207 +5386,313 @@ pub(super) fn render_transfer_planner(
             // single commit path.
             if fleet_ui_state.porkchop_grid.is_none() {
                 ui.horizontal(|ui| {
-                let insufficient = !sel_option.transfer_time_s.is_finite()
-                    || (sel_option.is_thrust_limited
-                        && (is_interstellar || is_inter_star_body_transfer)
-                        && sel_option.total_delta_v_ms == 0.0);
-                let btn = egui::Button::new(
-                    egui::RichText::new(&btn_label).size(13.0).strong(),
-                );
-                let resp = ui.add_enabled(!insufficient && (sel_affordable_with_abort || is_interstellar), btn);
-                if resp.clicked() {
-                    if is_interstellar {
-                        // Interstellar travel: no ECS destination body; log mission intent.
-                        // Full multi-system navigation will be implemented in a future session.
-                        if let Some((sys_id, ref sys_name, dist_ly)) = star_system_snap {
-                            info!(
-                                "Fleet '{}' committed to interstellar course: {} ({:.2} ly, system_id {}). \
-                                 \u{394}V required: {:.1} km/s, travel time: {:.1} years. \
-                                 Multi-system navigation NYI.",
-                                fleet.name, sys_name, dist_ly, sys_id,
-                                sel_option.total_delta_v_ms / 1_000.0,
-                                sel_option.transfer_time_s / (365.25 * 86_400.0),
-                            );
-                        }
+                    // GRA-367-E: the previous `is_interstellar ||
+                    // is_inter_star_body_transfer` clause was removed
+                    // — cross-system and inter-star transfers now flow
+                    // through the same Execute Transfer button as
+                    // interplanetary, gated only on `sel_affordable_
+                    // with_abort`.
+                    let insufficient = !sel_option.transfer_time_s.is_finite();
+                    // Kilo WARNING (PR #234 review): the previous code
+                    // silently dropped interstellar clicks because
+                    // `maybe_transfer` had no `star_system_snap` arm.
+                    // Phase 5 hasn't wired `PlannedTransfer` for star
+                    // destinations yet (Phase 6 / GRA-377 owns that),
+                    // so disable the Execute button explicitly and
+                    // surface the reason in a hover tooltip instead
+                    // of pretending the click did something.
+                    let btn =
+                        egui::Button::new(egui::RichText::new(&btn_label).size(13.0).strong());
+                    let resp = ui.add_enabled(
+                        !insufficient && sel_affordable_with_abort && !is_interstellar,
+                        btn,
+                    );
+                    let resp = if is_interstellar {
+                        resp.on_hover_text(
+                            "Interstellar commit wired in Phase 6 (GRA-377). \
+                             The cross-system grid renders ΔV / TOF; the \
+                             PlannedTransfer record needs a star-destination \
+                             entity path that lands with the Phase 6 dispatcher.",
+                        )
                     } else {
-                        let maybe_transfer = if let Some(ref lp) = lp_target_snap {
-                            build_planned_transfer_lp(fleet_entity, fleet, orbit, lp, body_query, &sel_option)
-                        } else if let Some(tfe) = fleet_target_snap {
-                            all_fleets_query.get(tfe).ok()
-                                .and_then(|(_, _, _, maybe_fo, _)| maybe_fo)
-                                .and_then(|fo| {
-                                    let target_orbit_radius_au = fleet_ui_state
-                                        .target_star_approach
-                                        .filter(|(e, _)| *e == fo.body)
-                                        .map(|(_, r)| r);
-                                    build_planned_transfer(fleet_entity, fleet, orbit, fo.body, planned_departure_time_s, body_query, &sel_option, course_correction_sc, body_system_ids, current_system_id, target_orbit_radius_au)
-                                })
-                        } else if let Some(te) = body_target_snap {
-                            if sel_option.label == "Gravity Assist" {
-                                // Build the Leg-1 arc toward the flyby body so the departure
-                                // direction and orbital plane are correct, then stitch in a
-                                // Leg-2 arc (flyby → destination) so the in-transit position
-                                // is correct throughout the full two-leg trajectory.
-                                let sel_ga_idx = fleet_ui_state.selected_gravity_assist;
-                                let flyby_e = sel_ga_idx
-                                    .and_then(|i| fleet_ui_state.gravity_assist_candidates.get(i))
-                                    .map(|ga| ga.flyby_entity);
-                                let ga_opt = sel_ga_idx
-                                    .and_then(|i| fleet_ui_state.gravity_assist_candidates.get(i))
-                                    .map(|e| e.option.clone());
+                        resp
+                    };
+                    if resp.clicked() {
+                        {
+                            let maybe_transfer = if let Some(ref lp) = lp_target_snap {
+                                build_planned_transfer_lp(
+                                    fleet_entity,
+                                    fleet,
+                                    orbit,
+                                    lp,
+                                    body_query,
+                                    &sel_option,
+                                )
+                            } else if let Some(tfe) = fleet_target_snap {
+                                all_fleets_query
+                                    .get(tfe)
+                                    .ok()
+                                    .and_then(|(_, _, _, maybe_fo, _)| maybe_fo)
+                                    .and_then(|fo| {
+                                        let target_orbit_radius_au = fleet_ui_state
+                                            .target_star_approach
+                                            .filter(|(e, _)| *e == fo.body)
+                                            .map(|(_, r)| r);
+                                        build_planned_transfer(
+                                            fleet_entity,
+                                            fleet,
+                                            orbit,
+                                            fo.body,
+                                            planned_departure_time_s,
+                                            body_query,
+                                            &sel_option,
+                                            course_correction_sc,
+                                            body_system_ids,
+                                            current_system_id,
+                                            target_orbit_radius_au,
+                                        )
+                                    })
+                            } else if let Some(te) = body_target_snap {
+                                if sel_option.label == "Gravity Assist" {
+                                    // Build the Leg-1 arc toward the flyby body so the departure
+                                    // direction and orbital plane are correct, then stitch in a
+                                    // Leg-2 arc (flyby → destination) so the in-transit position
+                                    // is correct throughout the full two-leg trajectory.
+                                    let sel_ga_idx = fleet_ui_state.selected_gravity_assist;
+                                    let flyby_e = sel_ga_idx
+                                        .and_then(|i| {
+                                            fleet_ui_state.gravity_assist_candidates.get(i)
+                                        })
+                                        .map(|ga| ga.flyby_entity);
+                                    let ga_opt = sel_ga_idx
+                                        .and_then(|i| {
+                                            fleet_ui_state.gravity_assist_candidates.get(i)
+                                        })
+                                        .map(|e| e.option.clone());
 
-                                if let Some(flyby) = flyby_e {
-                                    let target_orbit_radius_au = fleet_ui_state
-                                        .target_star_approach
-                                        .filter(|(e, _)| *e == flyby)
-                                        .map(|(_, r)| r);
-                                    let mut maybe_pt = build_planned_transfer(
-                                        fleet_entity, fleet, orbit, flyby, planned_departure_time_s,
-                                        body_query, &sel_option, course_correction_sc,
-                                        body_system_ids, current_system_id,
-                                        target_orbit_radius_au,);
+                                    if let Some(flyby) = flyby_e {
+                                        let target_orbit_radius_au = fleet_ui_state
+                                            .target_star_approach
+                                            .filter(|(e, _)| *e == flyby)
+                                            .map(|(_, r)| r);
+                                        let mut maybe_pt = build_planned_transfer(
+                                            fleet_entity,
+                                            fleet,
+                                            orbit,
+                                            flyby,
+                                            planned_departure_time_s,
+                                            body_query,
+                                            &sel_option,
+                                            course_correction_sc,
+                                            body_system_ids,
+                                            current_system_id,
+                                            target_orbit_radius_au,
+                                        );
 
-                                    if let Some(ref mut pt) = maybe_pt {
-                                        // Record the flyby body so the executed maneuver can
-                                        // reproduce the two-leg path for rendering.
-                                        pt.flyby_body = Some(flyby);
+                                        if let Some(ref mut pt) = maybe_pt {
+                                            // Record the flyby body so the executed maneuver can
+                                            // reproduce the two-leg path for rendering.
+                                            pt.flyby_body = Some(flyby);
 
-                                        // Always record the actual destination so the fleet
-                                        // parks at the right body on arrival.
-                                        pt.destination_body = te;
+                                            // Always record the actual destination so the fleet
+                                            // parks at the right body on arrival.
+                                            pt.destination_body = te;
 
-                                        // Stitch in Leg-2: flyby → final destination.
-                                        if let Some(ga) = ga_opt {
-                                            use crate::astronomy::KeplerOrbit;
-                                            use crate::fleets::orbital_mechanics::AU_IN_METERS;
-                                            use bevy::math::DVec3;
+                                            // Stitch in Leg-2: flyby → final destination.
+                                            if let Some(ga) = ga_opt {
+                                                use crate::astronomy::KeplerOrbit;
+                                                use crate::fleets::orbital_mechanics::AU_IN_METERS;
+                                                use bevy::math::DVec3;
 
-                                            // All three positions must resolve; skip Leg-2
-                                            // if any entity is missing to avoid garbage orbit.
-                                            let center_res = match pt.reference_frame {
-                                                TransferReferenceFrame::SystemBarycentric => Some(bevy::math::DVec3::ZERO),
-                                                TransferReferenceFrame::Body(center_entity) => body_query
-                                                    .get(center_entity)
-                                                    .ok()
-                                                    .map(|(_, _, sc, _, _)| sc.position),
-                                            };
-                                            let flyby_res  = body_query.get(flyby).ok().map(|(_, _, sc, _, _)| sc.position);
-                                            let dest_res   = body_query.get(te).ok().map(|(_, _, sc, _, _)| sc.position);
-                                            // Resolve the central body's GM from its mass (works for any star).
-                                            let center_gm = match pt.reference_frame {
-                                                TransferReferenceFrame::Body(center_entity) => body_query
-                                                    .get(center_entity)
-                                                    .ok()
-                                                    .map(|(_, b, _, _, _)| G_CONST * b.mass)
-                                                    .unwrap_or(GM_SUN),
-                                                TransferReferenceFrame::SystemBarycentric => GM_SUN,
-                                            };
-
-                                            if let (Some(center_pos), Some(flyby_pos), Some(dest_pos)) =
-                                                (center_res, flyby_res, dest_res)
-                                            {
-
-                                            let flyby_rel = flyby_pos - center_pos;
-                                            let dest_rel  = dest_pos  - center_pos;
-                                            let flyby_r   = flyby_rel.length();
-                                            let dest_r    = dest_rel.length();
-
-                                            let (.., leg2_sma, leg2_ecc) =
-                                                hohmann_transfer(flyby_r, dest_r, center_gm);
-                                            let leg2_outward = dest_r >= flyby_r;
-                                            let leg2_mae = if leg2_outward { 0.0 } else { std::f64::consts::PI };
-
-                                            // Derive orbital plane and AoP for Leg-2 from
-                                            // the flyby body's current position.
-                                            let plane_n = flyby_rel.cross(dest_rel);
-                                            let plane_len = plane_n.length();
-                                            let (incl2, lan2, aop2) = if plane_len > 1e-20 {
-                                                let n = plane_n / plane_len;
-                                                // Clamp guards against floating-point rounding
-                                                // that can push the dot product slightly outside
-                                                // [-1, 1], which would cause acos to return NaN.
-                                                let incl = n.z.clamp(-1.0, 1.0).acos();
-                                                let nxy = DVec3::new(-n.y, n.x, 0.0);
-                                                let nl  = nxy.length();
-                                                let lan = if nl > 1e-20 {
-                                                    let nd = nxy / nl; nd.y.atan2(nd.x)
-                                                } else { 0.0 };
-                                                let aop = if nl > 1e-20 {
-                                                    let nd = nxy / nl;
-                                                    let pd = flyby_rel.normalize_or_zero();
-                                                    let cw = nd.dot(pd);
-                                                    let sw = n.dot(nd.cross(pd));
-                                                    let om = sw.atan2(cw);
-                                                    if leg2_outward { om } else { om + std::f64::consts::PI }
-                                                } else {
-                                                    let ang = flyby_rel.y.atan2(flyby_rel.x);
-                                                    if leg2_outward { ang } else { ang - std::f64::consts::PI }
+                                                // All three positions must resolve; skip Leg-2
+                                                // if any entity is missing to avoid garbage orbit.
+                                                let center_res = match pt.reference_frame {
+                                                    TransferReferenceFrame::SystemBarycentric => {
+                                                        Some(bevy::math::DVec3::ZERO)
+                                                    }
+                                                    TransferReferenceFrame::Body(center_entity) => {
+                                                        body_query
+                                                            .get(center_entity)
+                                                            .ok()
+                                                            .map(|(_, _, sc, _, _)| sc.position)
+                                                    }
                                                 };
-                                                (incl, lan, aop)
-                                            } else {
-                                                let ang = flyby_rel.y.atan2(flyby_rel.x);
-                                                let aop = if leg2_outward { ang } else { ang - std::f64::consts::PI };
-                                                (0.0, 0.0, aop)
-                                            };
+                                                let flyby_res = body_query
+                                                    .get(flyby)
+                                                    .ok()
+                                                    .map(|(_, _, sc, _, _)| sc.position);
+                                                let dest_res = body_query
+                                                    .get(te)
+                                                    .ok()
+                                                    .map(|(_, _, sc, _, _)| sc.position);
+                                                // Resolve the central body's GM from its mass (works for any star).
+                                                let center_gm = match pt.reference_frame {
+                                                    TransferReferenceFrame::Body(center_entity) => {
+                                                        body_query
+                                                            .get(center_entity)
+                                                            .ok()
+                                                            .map(|(_, b, _, _, _)| G_CONST * b.mass)
+                                                            .unwrap_or(GM_SUN)
+                                                    }
+                                                    TransferReferenceFrame::SystemBarycentric => {
+                                                        GM_SUN
+                                                    }
+                                                };
 
-                                            let sma_m = leg2_sma * AU_IN_METERS;
-                                            let leg2_mm = (center_gm / sma_m.powi(3)).sqrt();
+                                                if let (
+                                                    Some(center_pos),
+                                                    Some(flyby_pos),
+                                                    Some(dest_pos),
+                                                ) = (center_res, flyby_res, dest_res)
+                                                {
+                                                    let flyby_rel = flyby_pos - center_pos;
+                                                    let dest_rel = dest_pos - center_pos;
+                                                    let flyby_r = flyby_rel.length();
+                                                    let dest_r = dest_rel.length();
 
-                                            pt.leg2_orbit = Some(KeplerOrbit {
-                                                semi_major_axis: leg2_sma,
-                                                eccentricity: leg2_ecc,
-                                                inclination: incl2,
-                                                longitude_ascending_node: lan2,
-                                                argument_of_periapsis: aop2,
-                                                mean_anomaly_epoch: leg2_mae,
-                                                mean_motion: leg2_mm,
-                                            });
-                                            pt.leg2_start_s = ga.leg1_time_s;
-                                            } // end: if let (Some(center_pos), ...)
+                                                    let (.., leg2_sma, leg2_ecc) = hohmann_transfer(
+                                                        flyby_r, dest_r, center_gm,
+                                                    );
+                                                    let leg2_outward = dest_r >= flyby_r;
+                                                    let leg2_mae = if leg2_outward {
+                                                        0.0
+                                                    } else {
+                                                        std::f64::consts::PI
+                                                    };
+
+                                                    // Derive orbital plane and AoP for Leg-2 from
+                                                    // the flyby body's current position.
+                                                    let plane_n = flyby_rel.cross(dest_rel);
+                                                    let plane_len = plane_n.length();
+                                                    let (incl2, lan2, aop2) = if plane_len > 1e-20 {
+                                                        let n = plane_n / plane_len;
+                                                        // Clamp guards against floating-point rounding
+                                                        // that can push the dot product slightly outside
+                                                        // [-1, 1], which would cause acos to return NaN.
+                                                        let incl = n.z.clamp(-1.0, 1.0).acos();
+                                                        let nxy = DVec3::new(-n.y, n.x, 0.0);
+                                                        let nl = nxy.length();
+                                                        let lan = if nl > 1e-20 {
+                                                            let nd = nxy / nl;
+                                                            nd.y.atan2(nd.x)
+                                                        } else {
+                                                            0.0
+                                                        };
+                                                        let aop = if nl > 1e-20 {
+                                                            let nd = nxy / nl;
+                                                            let pd = flyby_rel.normalize_or_zero();
+                                                            let cw = nd.dot(pd);
+                                                            let sw = n.dot(nd.cross(pd));
+                                                            let om = sw.atan2(cw);
+                                                            if leg2_outward {
+                                                                om
+                                                            } else {
+                                                                om + std::f64::consts::PI
+                                                            }
+                                                        } else {
+                                                            let ang =
+                                                                flyby_rel.y.atan2(flyby_rel.x);
+                                                            if leg2_outward {
+                                                                ang
+                                                            } else {
+                                                                ang - std::f64::consts::PI
+                                                            }
+                                                        };
+                                                        (incl, lan, aop)
+                                                    } else {
+                                                        let ang = flyby_rel.y.atan2(flyby_rel.x);
+                                                        let aop = if leg2_outward {
+                                                            ang
+                                                        } else {
+                                                            ang - std::f64::consts::PI
+                                                        };
+                                                        (0.0, 0.0, aop)
+                                                    };
+
+                                                    let sma_m = leg2_sma * AU_IN_METERS;
+                                                    let leg2_mm =
+                                                        (center_gm / sma_m.powi(3)).sqrt();
+
+                                                    pt.leg2_orbit = Some(KeplerOrbit {
+                                                        semi_major_axis: leg2_sma,
+                                                        eccentricity: leg2_ecc,
+                                                        inclination: incl2,
+                                                        longitude_ascending_node: lan2,
+                                                        argument_of_periapsis: aop2,
+                                                        mean_anomaly_epoch: leg2_mae,
+                                                        mean_motion: leg2_mm,
+                                                    });
+                                                    pt.leg2_start_s = ga.leg1_time_s;
+                                                } // end: if let (Some(center_pos), ...)
+                                            }
                                         }
+                                        maybe_pt
+                                    } else {
+                                        let target_orbit_radius_au = fleet_ui_state
+                                            .target_star_approach
+                                            .filter(|(e, _)| *e == te)
+                                            .map(|(_, r)| r);
+                                        build_planned_transfer(
+                                            fleet_entity,
+                                            fleet,
+                                            orbit,
+                                            te,
+                                            planned_departure_time_s,
+                                            body_query,
+                                            &sel_option,
+                                            course_correction_sc,
+                                            body_system_ids,
+                                            current_system_id,
+                                            target_orbit_radius_au,
+                                        )
                                     }
-                                    maybe_pt
                                 } else {
                                     let target_orbit_radius_au = fleet_ui_state
                                         .target_star_approach
                                         .filter(|(e, _)| *e == te)
                                         .map(|(_, r)| r);
-                                    build_planned_transfer(fleet_entity, fleet, orbit, te, planned_departure_time_s, body_query, &sel_option, course_correction_sc, body_system_ids, current_system_id, target_orbit_radius_au)
+                                    build_planned_transfer(
+                                        fleet_entity,
+                                        fleet,
+                                        orbit,
+                                        te,
+                                        planned_departure_time_s,
+                                        body_query,
+                                        &sel_option,
+                                        course_correction_sc,
+                                        body_system_ids,
+                                        current_system_id,
+                                        target_orbit_radius_au,
+                                    )
                                 }
                             } else {
-                                let target_orbit_radius_au = fleet_ui_state
-                                    .target_star_approach
-                                    .filter(|(e, _)| *e == te)
-                                    .map(|(_, r)| r);
-                                build_planned_transfer(fleet_entity, fleet, orbit, te, planned_departure_time_s, body_query, &sel_option, course_correction_sc, body_system_ids, current_system_id, target_orbit_radius_au)
+                                None
+                            };
+                            if let Some(transfer) = maybe_transfer {
+                                pending_actions.start_transfers.push(StartTransferAction {
+                                    fleet: fleet_entity,
+                                    transfer,
+                                    abort_cost_t,
+                                    departure_offset_s: fleet_ui_state.departure_offset_days
+                                        * 86_400.0,
+                                });
+                                // Close the transfer popup so the preview arc doesn't
+                                // immediately show an abort trajectory after launch.
+                                fleet_ui_state.show_transfer_popup = false;
                             }
-                        } else {
-                            None
-                        };
-                        if let Some(transfer) = maybe_transfer {
-                            pending_actions.start_transfers.push(StartTransferAction {
-                                fleet: fleet_entity,
-                                transfer,
-                                abort_cost_t,
-                                departure_offset_s: fleet_ui_state.departure_offset_days * 86_400.0,
-                            });
-                            // Close the transfer popup so the preview arc doesn't
-                            // immediately show an abort trajectory after launch.
-                            fleet_ui_state.show_transfer_popup = false;
                         }
                     }
-                }
-                if !hides_calendar_eta {
-                    let dep_s = fleet_ui_state.departure_offset_days * 86_400.0;
-                    let total_eta_s = dep_s + sel_option.transfer_time_s;
-                    ui.add_space(theme::Spacing::lg);
-                    ui.label(
-                        egui::RichText::new(format!("ETA  {}", format_duration(total_eta_s)))
-                            .size(12.0)
-                            .color(theme::GREEN),
-                    );
-                }
-            });
+                    if !hides_calendar_eta {
+                        let dep_s = fleet_ui_state.departure_offset_days * 86_400.0;
+                        let total_eta_s = dep_s + sel_option.transfer_time_s;
+                        ui.add_space(theme::Spacing::lg);
+                        ui.label(
+                            egui::RichText::new(format!("ETA  {}", format_duration(total_eta_s)))
+                                .size(12.0)
+                                .color(theme::GREEN),
+                        );
+                    }
+                });
             } // end !porkchop_grid — hide legacy "Execute Transfer" when panel is shown
 
             // GRA-153 M-3: "Abort to Origin" + "Disband Fleet" buttons.
@@ -5618,7 +5765,7 @@ pub(super) fn render_transfer_planner(
                     );
                 }
             }
-            if !is_interstellar && !sel_affordable_with_abort {
+            if !sel_affordable_with_abort {
                 ui.label(
                     egui::RichText::new(if abort_cost_t > 0.0 {
                         "Insufficient \u{394}V remaining after abort burn."
@@ -7300,11 +7447,20 @@ pub fn build_planned_transfer(
                 .map(|(_, _, orbit)| orbit)
                 .unwrap_or_else(|| {
                     let mean_anomaly_epoch = if outward { 0.0 } else { std::f64::consts::PI };
-                    let sma_m = option.sma_au * AU_IN_METERS;
+                    // GRA-367-E / Kilo WARNING 2026-07-09: clamp degenerate
+                    // sma_au to a safe Hohmann-proxy minimum so the
+                    // fallback doesn't divide by zero and produce inf
+                    // mean motion.
+                    let safe_sma_au = if option.sma_au.is_finite() && option.sma_au > 0.0 {
+                        option.sma_au
+                    } else {
+                        1.0
+                    };
+                    let sma_m = safe_sma_au * AU_IN_METERS;
                     let mean_motion = (gm / sma_m.powi(3)).sqrt();
 
                     KeplerOrbit {
-                        semi_major_axis: option.sma_au,
+                        semi_major_axis: safe_sma_au,
                         eccentricity: option.eccentricity,
                         inclination: transfer_inclination,
                         longitude_ascending_node: transfer_lan,
@@ -7319,11 +7475,20 @@ pub fn build_planned_transfer(
             orbit_override
         } else {
             let mean_anomaly_epoch = if outward { 0.0 } else { std::f64::consts::PI };
-            let sma_m = option.sma_au * AU_IN_METERS;
+            // GRA-367-E / Kilo WARNING 2026-07-09: when `sma_au` is 0.0,
+            // NaN, or non-finite the fallback would divide by zero and
+            // produce `inf` mean motion.  Clamp to a safe Hohmann-proxy
+            // minimum so the orbital math stays numerically stable.
+            let safe_sma_au = if option.sma_au.is_finite() && option.sma_au > 0.0 {
+                option.sma_au
+            } else {
+                1.0
+            };
+            let sma_m = safe_sma_au * AU_IN_METERS;
             let mean_motion = (gm / sma_m.powi(3)).sqrt();
 
             KeplerOrbit {
-                semi_major_axis: option.sma_au,
+                semi_major_axis: safe_sma_au,
                 eccentricity: option.eccentricity,
                 inclination: transfer_inclination,
                 longitude_ascending_node: transfer_lan,
@@ -7536,7 +7701,16 @@ fn build_planned_transfer_lp(
     };
 
     let gm = lp.gm;
-    let sma_m = option.sma_au * AU_IN_METERS;
+    // GRA-367-E / Kilo WARNING 2026-07-09: clamp degenerate sma_au for
+    // robustness — Lagrange transfer sma_au should normally be the
+    // planet's SMA which is positive, but caller-supplied options can
+    // be zero in degenerate fallback paths.
+    let safe_sma_au = if option.sma_au.is_finite() && option.sma_au > 0.0 {
+        option.sma_au
+    } else {
+        lp.planet_sma_au.max(0.001)
+    };
+    let sma_m = safe_sma_au * AU_IN_METERS;
     let mean_motion = (gm / sma_m.powi(3)).sqrt();
 
     let outward = lp.radius_au >= lp.planet_sma_au;
@@ -7548,7 +7722,7 @@ fn build_planned_transfer_lp(
     let mean_anomaly_epoch = if outward { 0.0 } else { std::f64::consts::PI };
 
     let transfer_orbit = KeplerOrbit {
-        semi_major_axis: option.sma_au,
+        semi_major_axis: safe_sma_au,
         eccentricity: option.eccentricity,
         inclination: 0.0,
         longitude_ascending_node: 0.0,
