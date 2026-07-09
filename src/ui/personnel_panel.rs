@@ -493,7 +493,7 @@ fn draw_roster_table(
 
     egui::Frame::NONE
         .fill(theme::SURFACE)
-        .stroke(egui::Stroke::new(1.0, theme::BORDER))
+        .stroke(egui::Stroke::new(1.0_f32, theme::BORDER))
         .corner_radius(3.0)
         .inner_margin(egui::Margin::same(theme::Spacing::sm as i8))
         .show(ui, |ui| {
@@ -755,7 +755,7 @@ fn draw_assignments_block(ui: &mut egui::Ui, assignments: &[ActiveAssignment]) {
 
     egui::Frame::NONE
         .fill(theme::SURFACE)
-        .stroke(egui::Stroke::new(1.0, theme::BORDER))
+        .stroke(egui::Stroke::new(1.0_f32, theme::BORDER))
         .corner_radius(3.0)
         .inner_margin(egui::Margin::same(theme::Spacing::sm as i8))
         .show(ui, |ui| {

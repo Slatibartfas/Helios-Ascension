@@ -513,7 +513,7 @@ fn render_history_plot(
     painter.rect_stroke(
         rect,
         4.0,
-        egui::Stroke::new(1.0, theme::BORDER),
+        egui::Stroke::new(1.0_f32, theme::BORDER),
         egui::StrokeKind::Outside,
     );
 
@@ -549,7 +549,7 @@ fn render_history_plot(
                 egui::pos2(x, plot_rect.top()),
                 egui::pos2(x, plot_rect.bottom()),
             ],
-            egui::Stroke::new(1.0, theme::BORDER.linear_multiply(0.6)),
+            egui::Stroke::new(1.0_f32, theme::BORDER.linear_multiply(0.6)),
         );
 
         let tick_sim_seconds = window_start + HISTORY_PANEL_SECONDS * t;
@@ -577,7 +577,7 @@ fn render_history_plot(
                 egui::pos2(plot_rect.left(), y),
                 egui::pos2(plot_rect.right(), y),
             ],
-            egui::Stroke::new(1.0, theme::BORDER.linear_multiply(0.35)),
+            egui::Stroke::new(1.0_f32, theme::BORDER.linear_multiply(0.35)),
         );
 
         let value = min_y + (max_y - min_y) * t;
@@ -597,13 +597,17 @@ fn render_history_plot(
         .collect();
     painter.add(egui::Shape::line(
         line_points,
-        egui::Stroke::new(2.0, series.accent),
+        egui::Stroke::new(2.0_f32, series.accent),
     ));
 
     if let Some(last) = series.points.last() {
         let current_pos = to_screen(last.sim_seconds, last.value);
         painter.circle_filled(current_pos, 3.5, theme::ACCENT);
-        painter.circle_stroke(current_pos, 5.0, egui::Stroke::new(1.0, theme::ACCENT_DIM));
+        painter.circle_stroke(
+            current_pos,
+            5.0,
+            egui::Stroke::new(1.0_f32, theme::ACCENT_DIM),
+        );
     }
 
     if interactive {
@@ -624,14 +628,14 @@ fn render_history_plot(
                     egui::pos2(nearest_pos.x, plot_rect.top()),
                     egui::pos2(nearest_pos.x, plot_rect.bottom()),
                 ],
-                egui::Stroke::new(1.0, theme::ACCENT),
+                egui::Stroke::new(1.0_f32, theme::ACCENT),
             );
             painter.line_segment(
                 [
                     egui::pos2(plot_rect.left(), nearest_pos.y),
                     egui::pos2(plot_rect.right(), nearest_pos.y),
                 ],
-                egui::Stroke::new(1.0, theme::ACCENT_DIM),
+                egui::Stroke::new(1.0_f32, theme::ACCENT_DIM),
             );
             painter.circle_filled(nearest_pos, 4.0, theme::ACCENT);
 
@@ -1302,7 +1306,7 @@ pub(super) fn ui_resources_bar(
                         ui.painter().rect_stroke(
                             interact.rect,
                             2.0,
-                            egui::Stroke::new(1.0, color),
+                            egui::Stroke::new(1.0_f32, color),
                             egui::StrokeKind::Outside,
                         );
                     }
@@ -1357,7 +1361,7 @@ pub(super) fn ui_resources_bar(
                     let response = egui::Frame::NONE
                         .inner_margin(egui::Margin::symmetric(1, 2))
                         .stroke(egui::Stroke::new(
-                            if flash > 0.0 { 2.0 } else { 0.0 },
+                            if flash > 0.0 { 2.0_f32 } else { 0.0_f32 },
                             border_color,
                         ))
                         .show(ui, |ui| {
@@ -1433,7 +1437,7 @@ pub(super) fn ui_resources_bar(
                         ui.painter().rect_stroke(
                             interact.rect,
                             2.0,
-                            egui::Stroke::new(1.0, rp_color),
+                            egui::Stroke::new(1.0_f32, rp_color),
                             egui::StrokeKind::Outside,
                         );
                     }
@@ -1488,7 +1492,7 @@ pub(super) fn ui_resources_bar(
                     let response = egui::Frame::NONE
                         .inner_margin(egui::Margin::symmetric(1, 2))
                         .stroke(egui::Stroke::new(
-                            if flash > 0.0 { 2.0 } else { 0.0 },
+                            if flash > 0.0 { 2.0_f32 } else { 0.0_f32 },
                             border_color,
                         ))
                         .show(ui, |ui| {
@@ -1556,7 +1560,7 @@ pub(super) fn ui_resources_bar(
                         ui.painter().rect_stroke(
                             interact.rect,
                             2.0,
-                            egui::Stroke::new(1.0, ep_color),
+                            egui::Stroke::new(1.0_f32, ep_color),
                             egui::StrokeKind::Outside,
                         );
                     }
@@ -1605,7 +1609,7 @@ pub(super) fn ui_resources_bar(
                         ui.painter().rect_stroke(
                             kardashev_interact.rect,
                             2.0,
-                            egui::Stroke::new(1.0, theme::CAT_STRATEGIC),
+                            egui::Stroke::new(1.0_f32, theme::CAT_STRATEGIC),
                             egui::StrokeKind::Outside,
                         );
                     }
@@ -1679,7 +1683,7 @@ pub(super) fn ui_resources_bar(
                         ui.painter().rect_stroke(
                             interact.rect,
                             2.0,
-                            egui::Stroke::new(1.0, power_color),
+                            egui::Stroke::new(1.0_f32, power_color),
                             egui::StrokeKind::Outside,
                         );
                         interact
@@ -1768,7 +1772,7 @@ pub(super) fn ui_resources_bar(
                         ui.painter().rect_stroke(
                             treasury_interact.rect,
                             2.0,
-                            egui::Stroke::new(1.0, treasury_color),
+                            egui::Stroke::new(1.0_f32, treasury_color),
                             egui::StrokeKind::Outside,
                         );
                         treasury_interact
@@ -1824,7 +1828,7 @@ pub(super) fn ui_resources_bar(
                         ui.painter().rect_stroke(
                             pop_interact.rect,
                             2.0,
-                            egui::Stroke::new(1.0, theme::TEXT),
+                            egui::Stroke::new(1.0_f32, theme::TEXT),
                             egui::StrokeKind::Outside,
                         );
                         pop_interact

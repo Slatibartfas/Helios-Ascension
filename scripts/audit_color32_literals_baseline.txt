@@ -3,24 +3,16 @@
 # Regenerate with: python3 scripts/audit_color32_literals.py --emit-baseline
 # Move entries out as they're promoted to src/ui/theme.rs constants.
 
-src/ui/dashboard.rs:1386  egui::Color32::from_rgba_unmultiplied(231, 76, 60, alpha),
-src/ui/dashboard.rs:1392  egui::RichText::new("⏸ PAUSED").color(egui::Color32::from_rgba_unmultiplied(
-src/ui/dossier_panel.rs:1142  egui::Stroke::new(1.0, egui::Color32::from_rgba_premultiplied(0, 242, 255, 60)),
-src/ui/dossier_panel.rs:1160  let fill_color = egui::Color32::from_rgba_premultiplied(0, 242, 255, 18);
-src/ui/dossier_panel.rs:1353  egui::Color32::from_rgba_premultiplied(20, 20, 30, 230)
-src/ui/dossier_panel.rs:1355  egui::Color32::from_rgba_premultiplied(255, 255, 255, 220)
-src/ui/dossier_panel.rs:1404  egui::Color32::from_rgba_premultiplied(255, 255, 255, 60)
-src/ui/dossier_panel.rs:1406  egui::Color32::from_rgba_premultiplied(0, 0, 0, 80)
-src/ui/dossier_panel.rs:2855  let fill_color = egui::Color32::from_rgba_premultiplied(
-src/ui/dossier_panel.rs:2877  egui::Color32::from_rgba_premultiplied(220, 230, 240, (180.0 * brightness) as u8),
+src/ui/dossier_panel.rs:1144  egui::Color32::from_rgba_premultiplied(0, 242, 255, 60),
+src/ui/dossier_panel.rs:1163  let fill_color = egui::Color32::from_rgba_premultiplied(0, 242, 255, 18);
+src/ui/dossier_panel.rs:1356  egui::Color32::from_rgba_premultiplied(20, 20, 30, 230)
+src/ui/dossier_panel.rs:1358  egui::Color32::from_rgba_premultiplied(255, 255, 255, 220)
+src/ui/dossier_panel.rs:1407  egui::Color32::from_rgba_premultiplied(255, 255, 255, 60)
+src/ui/dossier_panel.rs:1409  egui::Color32::from_rgba_premultiplied(0, 0, 0, 80)
+src/ui/dossier_panel.rs:2858  let fill_color = egui::Color32::from_rgba_premultiplied(
+src/ui/dossier_panel.rs:2880  egui::Color32::from_rgba_premultiplied(220, 230, 240, (180.0 * brightness) as u8),
 src/ui/fleets_panel.rs:172  egui::Color32::from_rgba_premultiplied(0, 140, 160, 42)
-src/ui/porkchop_color_ramp.rs:18  //!    `Color32::from_rgb(40, 40, 40)`.
-src/ui/porkchop_color_ramp.rs:36  /// `Color32::from_rgb(40, 40, 40)` (dark grey, no alpha) so the
-src/ui/porkchop_color_ramp.rs:39  pub const INFEASIBLE_COLOR: Color32 = Color32::from_rgb(40, 40, 40);
-src/ui/porkchop_color_ramp.rs:183  Color32::from_rgba_unmultiplied(
-src/ui/porkchop_color_ramp.rs:200  .map(|&(r, g, b)| Color32::from_rgba_unmultiplied(r, g, b, 255))
-src/ui/porkchop_color_ramp.rs:223  out.push(Color32::from_rgba_unmultiplied(
 src/ui/research_panel.rs:1278  egui::Color32::from_rgba_unmultiplied(13, 17, 23, 120),
 src/ui/research_panel.rs:1359  egui::Color32::from_rgba_unmultiplied(13, 17, 23, 120),
 src/ui/research_panel.rs:1459  .fill(egui::Color32::from_rgba_unmultiplied(13, 17, 23, 245))
-src/ui/resources_bar.rs:845  egui::Color32::from_rgba_premultiplied(4, 6, 12, 104),
+src/ui/resources_bar.rs:849  egui::Color32::from_rgba_premultiplied(4, 6, 12, 104),

@@ -801,7 +801,7 @@ pub(super) fn render_tech_tree_tab(
             // Remove the technology
             tech_data.technologies.remove(&del_id);
             // Remove from all prerequisite lists
-            for (_, tech) in tech_data.technologies.iter_mut() {
+            for tech in tech_data.technologies.values_mut() {
                 tech.prerequisites.retain(|p| p != &del_id);
             }
             // Clear selection if it was the deleted tech
@@ -912,7 +912,7 @@ pub(super) fn render_tech_tree_tab(
                 .title_bar(false)
                 .frame(egui::Frame::popup(ui.ctx().style().as_ref())
                     .fill(theme::TOOLTIP_BG_ALT)
-                    .stroke(egui::Stroke::new(2.0, tech_category_color(tech.category))))
+                    .stroke(egui::Stroke::new(2.0_f32, tech_category_color(tech.category))))
                 .show(ui.ctx(), |ui| {
                     render_research_tech_tooltip_content(
                         ui,

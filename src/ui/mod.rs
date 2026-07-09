@@ -984,7 +984,7 @@ fn ui_top_menu_bar(
                             ui.painter().rect_stroke(
                                 rect,
                                 4.0,
-                                egui::Stroke::new(2.0, theme::ACCENT),
+                                egui::Stroke::new(2.0_f32, theme::ACCENT),
                                 egui::StrokeKind::Outside,
                             );
                         }
@@ -1329,7 +1329,7 @@ fn ui_hover_tooltip(
                     ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
                     egui::Frame::NONE
                         .fill(theme::TOOLTIP_BG)
-                        .stroke(egui::Stroke::new(2.0, theme::ACCENT_DIM))
+                        .stroke(egui::Stroke::new(2.0_f32, theme::ACCENT_DIM))
                         .inner_margin(theme::Spacing::lg)
                         .show(ui, |ui| {
                             ui.horizontal(|ui| {
@@ -1420,7 +1420,7 @@ fn ui_hover_tooltip(
                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
                 egui::Frame::NONE
                     .fill(theme::TOOLTIP_BG)
-                    .stroke(egui::Stroke::new(2.0, theme::ACCENT_DIM))
+                    .stroke(egui::Stroke::new(2.0_f32, theme::ACCENT_DIM))
                     .inner_margin(theme::Spacing::lg)
                     .show(ui, |ui| {
                         // Use horizontal layout to prevent narrow wrapping
@@ -1566,7 +1566,7 @@ fn ui_starmap_hover_tooltip(
                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
                 egui::Frame::NONE
                     .fill(theme::TOOLTIP_BG)
-                    .stroke(egui::Stroke::new(2.0, theme::AMBER))
+                    .stroke(egui::Stroke::new(2.0_f32, theme::AMBER))
                     .inner_margin(theme::Spacing::lg)
                     .show(ui, |ui| {
                         ui.horizontal(|ui| {

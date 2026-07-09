@@ -336,7 +336,7 @@ pub fn body_aggregate_tier_breakdown(
     let mut max_concentration = [None; 3];
     let mut any_revealed = [false; 3];
 
-    for (_resource, deposit) in resources.deposits.iter() {
+    for deposit in resources.deposits.values() {
         let breakdown = deposit.tier_breakdown(state);
         for (i, reveal) in breakdown.iter().enumerate() {
             if reveal.revealed {

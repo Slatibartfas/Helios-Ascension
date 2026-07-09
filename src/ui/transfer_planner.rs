@@ -1570,7 +1570,7 @@ fn render_gravity_assist_sub_grid(
         painter.rect_stroke(
             min_rect,
             0.0,
-            egui::Stroke::new(1.5, egui::Color32::WHITE),
+            egui::Stroke::new(1.5_f32, egui::Color32::WHITE),
             egui::StrokeKind::Inside,
         );
     }

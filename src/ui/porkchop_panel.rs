@@ -377,7 +377,7 @@ pub fn porkchop_panel(
                 painter.rect_stroke(
                     rect,
                     0.0,
-                    Stroke::new(1.5, Color32::from_white_alpha(180)),
+                    Stroke::new(1.5_f32, Color32::from_white_alpha(180)),
                     egui::StrokeKind::Inside,
                 );
             }
@@ -417,7 +417,7 @@ pub fn porkchop_panel(
             painter.rect_stroke(
                 rect,
                 0.0,
-                Stroke::new(2.0, theme::RP_BLUE),
+                Stroke::new(2.0_f32, theme::RP_BLUE),
                 egui::StrokeKind::Inside,
             );
         }
@@ -436,7 +436,7 @@ pub fn porkchop_panel(
                 Pos2::new(x, grid_rect.top()),
                 Pos2::new(x, grid_rect.bottom()),
             ],
-            Stroke::new(0.5, Color32::from_white_alpha(20)),
+            Stroke::new(0.5_f32, Color32::from_white_alpha(20)),
         );
     }
     for view_row in 0..=n_view_rows {
@@ -451,7 +451,7 @@ pub fn porkchop_panel(
                 Pos2::new(grid_rect.left(), y),
                 Pos2::new(grid_rect.right(), y),
             ],
-            Stroke::new(0.5, Color32::from_white_alpha(20)),
+            Stroke::new(0.5_f32, Color32::from_white_alpha(20)),
         );
     }
 
@@ -648,7 +648,7 @@ fn draw_cell_tooltip(painter: &egui::Painter, cursor: Pos2, plot_rect: Rect, cel
     painter.rect_stroke(
         rect,
         3.0,
-        Stroke::new(1.0, Color32::from_white_alpha(80)),
+        Stroke::new(1.0_f32, Color32::from_white_alpha(80)),
         egui::StrokeKind::Inside,
     );
     painter.text(
@@ -666,7 +666,10 @@ fn draw_dashed_vertical(painter: &egui::Painter, x: f32, top: f32, bottom: f32, 
     let mut y = top;
     while y < bottom {
         let y2 = (y + dash).min(bottom);
-        painter.line_segment([Pos2::new(x, y), Pos2::new(x, y2)], Stroke::new(1.0, color));
+        painter.line_segment(
+            [Pos2::new(x, y), Pos2::new(x, y2)],
+            Stroke::new(1.0_f32, color),
+        );
         y += dash + gap;
     }
 }

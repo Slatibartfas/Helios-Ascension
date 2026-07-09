@@ -54,9 +54,9 @@ fn draw_tab_button(ui: &mut egui::Ui, label: &str, selected: bool) -> egui::Resp
             theme::SURFACE
         })
         .stroke(if selected {
-            egui::Stroke::new(1.0, theme::ACCENT)
+            egui::Stroke::new(1.0_f32, theme::ACCENT)
         } else {
-            egui::Stroke::new(1.0, theme::BORDER)
+            egui::Stroke::new(1.0_f32, theme::BORDER)
         })
         .corner_radius(4.0),
     );
@@ -1069,9 +1069,9 @@ fn render_available_engineering_tab(
                         theme::SURFACE
                     })
                     .stroke(if is_preselected {
-                        egui::Stroke::new(1.0, theme::ACCENT)
+                        egui::Stroke::new(1.0_f32, theme::ACCENT)
                     } else {
-                        egui::Stroke::new(1.0, theme::BORDER)
+                        egui::Stroke::new(1.0_f32, theme::BORDER)
                     })
                     .corner_radius(4.0)
                     .inner_margin(egui::Margin::symmetric(8, 6))
@@ -1446,7 +1446,7 @@ fn render_bonuses_tab(
             } else {
                 theme::TEXT_HINT
             };
-            let border_width = if is_pinned { 2.0 } else { 1.0 };
+            let border_width = if is_pinned { 2.0_f32 } else { 1.0_f32 };
 
             let pos = egui::pos2(row_rect.right() + 24.0, row_rect.top());
 

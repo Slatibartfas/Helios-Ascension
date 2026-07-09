@@ -185,7 +185,10 @@ fn render_ship_manifest_row(
                 painter.rect_stroke(
                     frame_rect,
                     row_rounding,
-                    egui::Stroke::new(if response.dragged() { 1.2 } else { 1.0 }, stroke_color),
+                    egui::Stroke::new(
+                        if response.dragged() { 1.2_f32 } else { 1.0_f32 },
+                        stroke_color,
+                    ),
                     egui::StrokeKind::Inside,
                 );
             }
@@ -1257,7 +1260,7 @@ fn render_fleet_list(
                     ui.painter().rect_stroke(
                         rect.expand(1.0),
                         row_rounding,
-                        egui::Stroke::new(1.0, theme::ACCENT),
+                        egui::Stroke::new(1.0_f32, theme::ACCENT),
                         egui::StrokeKind::Inside,
                     );
                 } else if resp.hovered() {
@@ -1266,7 +1269,7 @@ fn render_fleet_list(
                     ui.painter().rect_stroke(
                         rect.expand(1.0),
                         row_rounding,
-                        egui::Stroke::new(1.0, theme::BORDER),
+                        egui::Stroke::new(1.0_f32, theme::BORDER),
                         egui::StrokeKind::Inside,
                     );
                 }
