@@ -77,6 +77,13 @@ pub struct CardWidget {
 /// Each Phase-3/4/5/6 child shrinks this struct by moving one field onto
 /// `SelectionSource`.  When empty, the supplement is `None` and the
 /// builder is purely `TransferPlan`-driven — which is the Phase 6 goal.
+///
+/// GRA-382 (Phase 5 renderer cleanup) dropped the `is_inter_star_body_transfer`
+/// boolean.  The binary cross-star identity now lives on
+/// `SelectionSource::Binary { origin_star, dest_star }` and the
+/// `cross_system_grid` / `cross_system_selected` pair continues to carry
+/// the actual `PorkchopGrid` payload until Phase 6 collapses it onto
+/// `SelectionSource::Binary { grid, .. }`.
 #[derive(Debug, Clone, Default)]
 pub struct CardSupplement {
     pub gravity_assist_candidates: Vec<GravityAssistEntry>,
@@ -86,8 +93,6 @@ pub struct CardSupplement {
     /// `(system_id, display_name, distance_ly)` when the target is an
     /// interstellar star system; populated for the 🌌 header card.
     pub star_system_snap: Option<(usize, String, f32)>,
-    /// `true` for binary cross-star transfers (`is_inter_star_body_transfer`).
-    pub is_inter_star_body_transfer: bool,
     /// Reference-frame indicator caption (Phase 1 read-only).
     pub frame_caption: Option<String>,
 }
@@ -130,9 +135,6 @@ pub fn build_selected_card(
     if let Some(sup) = supplement {
         if let Some((_, ref name, dist_ly)) = sup.star_system_snap {
             return build_interstellar_card(name, dist_ly, fleet_info);
-        }
-        if sup.is_inter_star_body_transfer {
-            return build_cross_star_header_card();
         }
     }
 
@@ -298,20 +300,6 @@ fn build_interstellar_card(name: &str, dist_ly: f32, fleet_info: FleetInfo) -> C
         )),
     };
     card
-}
-
-fn build_cross_star_header_card() -> CardWidget {
-    CardWidget {
-        title: "Binary-System Transfer".to_string(),
-        subtitle: None,
-        rows: Vec::new(),
-        warn: None,
-        legs: vec![CardLeg {
-            leg_label: "Frame".to_string(),
-            summary: "System barycentric (origin & dest orbit different stars)".to_string(),
-        }],
-        frame_caption: None,
-    }
 }
 
 fn build_ga_card(entry: &GravityAssistEntry) -> CardWidget {
