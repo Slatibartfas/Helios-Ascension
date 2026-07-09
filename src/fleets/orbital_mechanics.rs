@@ -1036,7 +1036,7 @@ fn fitted_cross_star_ballistic_options(
         },
         super::porkchop::PorkchopCell {
             t_dep_s: 0.0,
-            tof_s: base_transfer_time_s * 2.0 / 3.0, // 0.78 → 1.5× faster (matches time_factor)
+            tof_s: base_transfer_time_s * 0.78, // 0.78 → 1.5× faster (matches time_factor)
             total_dv_ms: efficient_total_dv * 1.5,
             c3_departure: 0.0,
             v_inf_arrival_ms: 0.0,
@@ -1051,7 +1051,7 @@ fn fitted_cross_star_ballistic_options(
         },
         super::porkchop::PorkchopCell {
             t_dep_s: 0.0,
-            tof_s: base_transfer_time_s * 0.62, // 1 / 2.5 ≈ 0.4 (matches time_factor)
+            tof_s: base_transfer_time_s * 0.62, // canonical time_factor for "Curved Fast" preset (matches line 1159)
             total_dv_ms: efficient_total_dv * 2.5,
             c3_departure: 0.0,
             v_inf_arrival_ms: 0.0,

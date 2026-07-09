@@ -5220,9 +5220,32 @@ pub(super) fn render_transfer_planner(
                     // interplanetary, gated only on `sel_affordable_
                     // with_abort`.
                     let insufficient = !sel_option.transfer_time_s.is_finite();
+                    // Kilo WARNING (PR #234 review): the previous code
+                    // silently dropped interstellar clicks because
+                    // `maybe_transfer` had no `star_system_snap` arm.
+                    // Phase 5 hasn't wired `PlannedTransfer` for star
+                    // destinations yet (Phase 6 / GRA-377 owns that),
+                    // so disable the Execute button explicitly and
+                    // surface the reason in a hover tooltip instead
+                    // of pretending the click did something.
                     let btn =
                         egui::Button::new(egui::RichText::new(&btn_label).size(13.0).strong());
-                    let resp = ui.add_enabled(!insufficient && sel_affordable_with_abort, btn);
+                    let resp = ui.add_enabled(
+                        !insufficient
+                            && sel_affordable_with_abort
+                            && !is_interstellar,
+                        btn,
+                    );
+                    let resp = if is_interstellar {
+                        resp.on_hover_text(
+                            "Interstellar commit wired in Phase 6 (GRA-377). \
+                             The cross-system grid renders ΔV / TOF; the \
+                             PlannedTransfer record needs a star-destination \
+                             entity path that lands with the Phase 6 dispatcher.",
+                        )
+                    } else {
+                        resp
+                    };
                     if resp.clicked() {
                         {
                             let maybe_transfer = if let Some(ref lp) = lp_target_snap {
