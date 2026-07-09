@@ -185,7 +185,10 @@ fn render_ship_manifest_row(
                 painter.rect_stroke(
                     frame_rect,
                     row_rounding,
-                    egui::Stroke::new(if response.dragged() { 1.2_f32 } else { 1.0_f32 }, stroke_color),
+                    egui::Stroke::new(
+                        if response.dragged() { 1.2_f32 } else { 1.0_f32 },
+                        stroke_color,
+                    ),
                     egui::StrokeKind::Inside,
                 );
             }
