@@ -1149,6 +1149,7 @@ pub struct StarApproachInputs {
 /// to a periapsis at the star (r_dest = 0).  TOF per cell is the
 /// Hohmann-optimal time for that parking orbit.  Empty
 /// `parking_options_au` returns an empty grid; `cols = 0` clamps to 2.
+#[allow(clippy::needless_range_loop)] // row index pairs two parallel arrays (parking_options_au, row_tof_s)
 pub fn build_star_approach_grid(inputs: &StarApproachInputs) -> PorkchopGrid {
     use super::orbital_mechanics::AU_IN_METERS;
 
@@ -2714,7 +2715,7 @@ mod planner_wiring_tests {
     //! These tests use synthetic `KeplerOrbit` fixtures and the pure
     //! helper API, so the pure-math module stays free of `Query`/
     //! `QueryState` plumbing and the tests run without a world.
-    use super::orbital_mechanics::AU_IN_METERS;
+    use crate::fleets::orbital_mechanics::AU_IN_METERS;
     use super::*;
     use crate::plugins::solar_system_data::BodyType;
 
