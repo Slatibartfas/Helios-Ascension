@@ -2715,8 +2715,8 @@ mod planner_wiring_tests {
     //! These tests use synthetic `KeplerOrbit` fixtures and the pure
     //! helper API, so the pure-math module stays free of `Query`/
     //! `QueryState` plumbing and the tests run without a world.
-    use crate::fleets::orbital_mechanics::AU_IN_METERS;
     use super::*;
+    use crate::fleets::orbital_mechanics::AU_IN_METERS;
     use crate::plugins::solar_system_data::BodyType;
 
     #[test]
