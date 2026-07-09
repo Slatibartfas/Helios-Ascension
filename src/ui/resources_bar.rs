@@ -1361,7 +1361,7 @@ pub(super) fn ui_resources_bar(
                     let response = egui::Frame::NONE
                         .inner_margin(egui::Margin::symmetric(1, 2))
                         .stroke(egui::Stroke::new(
-                            if flash > 0.0 { 2.0 } else { 0.0 },
+                            if flash > 0.0 { 2.0_f32 } else { 0.0_f32 },
                             border_color,
                         ))
                         .show(ui, |ui| {
@@ -1492,7 +1492,7 @@ pub(super) fn ui_resources_bar(
                     let response = egui::Frame::NONE
                         .inner_margin(egui::Margin::symmetric(1, 2))
                         .stroke(egui::Stroke::new(
-                            if flash > 0.0 { 2.0 } else { 0.0 },
+                            if flash > 0.0 { 2.0_f32 } else { 0.0_f32 },
                             border_color,
                         ))
                         .show(ui, |ui| {

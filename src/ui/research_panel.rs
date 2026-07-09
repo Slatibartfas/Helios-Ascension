@@ -1446,7 +1446,7 @@ fn render_bonuses_tab(
             } else {
                 theme::TEXT_HINT
             };
-            let border_width = if is_pinned { 2.0 } else { 1.0 };
+            let border_width = if is_pinned { 2.0_f32 } else { 1.0_f32 };
 
             let pos = egui::pos2(row_rect.right() + 24.0, row_rect.top());
 
