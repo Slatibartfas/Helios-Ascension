@@ -417,10 +417,7 @@ fn build_cross_star_card(
     let (col, row) = selected.unwrap_or((0, 0));
     let (grid_cols, _grid_rows) = grid.resolution;
     let cell: Option<&PorkchopCell> = grid.cells.get(row * grid_cols + col);
-    let subtitle = match distance_ly {
-        Some(ly) => Some(format!("Distance: {:.2} ly", ly)),
-        None => None,
-    };
+    let subtitle = distance_ly.map(|ly| format!("Distance: {:.2} ly", ly));
     let mut card = CardWidget {
         title: format!("Cross-star Transfer: → {}", grid.dest_name),
         subtitle,
