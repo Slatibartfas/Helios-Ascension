@@ -634,10 +634,8 @@ pub fn should_build_porkchop_for_destination(
 /// GM is missing so the caller falls back to the legacy 3-option row.
 ///
 /// Parking-orbit radius on the parent body uses the parent's radius
-/// + 200 km altitude as a LEO proxy.  Without this we'd pass
-/// `r1 == r2` (parent radius on both sides) and the Hohmann TOF would
-/// collapse to zero — the solver would still return a grid but every
-/// cell would be infeasible.
+/// plus 200 km altitude as a LEO proxy, so r1 != r2 and the Hohmann
+/// TOF doesn't collapse to zero.
 fn short_hop_grid_for_moon(
     body_query: &Query<(
         Entity,

@@ -799,12 +799,10 @@ mod gra_384_snapshot_tests {
             min_cell: Some((0, 0)),
             metric: PorkchopMetric::TotalDv,
         };
-        let mut plan = TransferPlan::default();
-        // GRA-381 narrows the mirror; today the dispatcher accepts
-        // the ShortHop variant even when sourced from a PorkchopGrid
-        // on the supplement.  Direct source variant is the canonical
-        // wire-in path post-Phase-6.
-        plan.source = SelectionSource::ShortHop { grid: grid.clone() };
+        let plan = TransferPlan {
+            source: SelectionSource::ShortHop { grid: grid.clone() },
+            ..TransferPlan::default()
+        };
         let sup = CardSupplement {
             cross_system_grid: Some(grid.clone()),
             ..CardSupplement::default()
@@ -861,8 +859,10 @@ mod gra_384_snapshot_tests {
             min_cell: Some((10, 2)),
             metric: PorkchopMetric::TotalDv,
         };
-        let mut plan = TransferPlan::default();
-        plan.source = SelectionSource::StarApproach { grid: grid.clone() };
+        let plan = TransferPlan {
+            source: SelectionSource::StarApproach { grid: grid.clone() },
+            ..TransferPlan::default()
+        };
         let sup = CardSupplement {
             cross_system_grid: Some(grid.clone()),
             ..CardSupplement::default()
