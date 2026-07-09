@@ -682,10 +682,13 @@ mod gra_384_snapshot_tests {
     #[test]
     fn cross_star_card_snapshot_alpha_centauri() {
         let grid = degenerate_cross_star_grid(true, 53_000.0, "α Centauri");
+        // NOTE: do NOT set `star_system_snap` here — the dispatcher's
+        // interstellar branch runs before the cross-star branch, and
+        // populating it would route this test through the interstellar
+        // card (which always surfaces a warn + has no "ΔV" row).
         let sup = CardSupplement {
             cross_system_grid: Some(grid.clone()),
             cross_system_selected: Some((0, 0)),
-            star_system_snap: Some((1, "α Centauri".to_string(), 4.37)),
             ..CardSupplement::default()
         };
         let card = build_selected_card(
@@ -799,15 +802,20 @@ mod gra_384_snapshot_tests {
             min_cell: Some((0, 0)),
             metric: PorkchopMetric::TotalDv,
         };
+        // The dispatcher's first arm reads `plan.selected_porkchop_cell` +
+        // `plan.porkchop_grid`; populating only `SelectionSource::ShortHop`
+        // on `plan.source` is not enough.  Mirror the production wiring
+        // (which anchors `selected_porkchop_cell` after building the
+        // grid) so the dispatcher routes through `build_porkchop_card`
+        // with the Earth→Moon grid.
         let plan = TransferPlan {
             source: SelectionSource::ShortHop { grid: grid.clone() },
+            porkchop_grid: Some(grid.clone()),
+            selected_porkchop_cell: Some((0, 0)),
             ..TransferPlan::default()
         };
-        let sup = CardSupplement {
-            cross_system_grid: Some(grid.clone()),
-            ..CardSupplement::default()
-        };
-        let card = build_selected_card(&plan, Some(&sup), test_fleet_info(), |_dv| 0.0);
+        // Empty supplement: short-hop class doesn't need cross_system_grid
+        // (that field routes to
         assert!(
             card.title.contains("Earth") && card.title.contains("Moon"),
             "title must include origin + dest, got {:?}",
@@ -859,14 +867,16 @@ mod gra_384_snapshot_tests {
             min_cell: Some((10, 2)),
             metric: PorkchopMetric::TotalDv,
         };
+        // Dispatcher first arm reads `plan.porkchop_grid` +
+        // `plan.selected_porkchop_cell`; `SelectionSource::StarApproach`
+        // alone is not enough (same caveat as the short-hop test above).
         let plan = TransferPlan {
             source: SelectionSource::StarApproach { grid: grid.clone() },
+            porkchop_grid: Some(grid.clone()),
+            selected_porkchop_cell: Some((10, 2)),
             ..TransferPlan::default()
         };
-        let sup = CardSupplement {
-            cross_system_grid: Some(grid.clone()),
-            ..CardSupplement::default()
-        };
+        let sup = CardSupplement::default();
         let card = build_selected_card(&plan, Some(&sup), test_fleet_info(), |_dv| 0.0);
         assert!(
             card.title.contains("Earth") && card.title.contains("Sol"),

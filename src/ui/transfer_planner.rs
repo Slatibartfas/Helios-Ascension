@@ -698,6 +698,7 @@ fn star_approach_grid_for_target(
         Option<&KeplerOrbit>,
         Option<&LogicalParent>,
     )>,
+    fleet_body_entity: Entity,
     star_entity: Entity,
     selected_radius_au: f64,
     min_radius_au: f64,
@@ -707,9 +708,12 @@ fn star_approach_grid_for_target(
     let gm_star = body_query
         .get(star_entity)
         .ok()
-        .map(|(_, b, _, _, _)| G_CONST * b.mass)
-        .unwrap_or(GM_SUN);
-    let origin_name = "Fleet".to_string();
+        .map(|(_, b, _, _, _)| G_CONST * b.mass);
+    let origin_name = body_query
+        .get(fleet_body_entity)
+        .ok()
+        .map(|(_, b, _, _, _)| b.name.clone())
+        .unwrap_or_else(|| "Fleet".to_string());
     let dest_name = body_query
         .get(star_entity)
         .ok()
@@ -735,7 +739,7 @@ fn star_approach_grid_for_target(
     let inputs = StarApproachInputs {
         origin_name,
         dest_name,
-        gm_star,
+        gm_star: gm_star.unwrap_or(GM_SUN),
         parking_options_au,
         origin_phase_at_epoch_rad: 0.0,
         sim_time_s,
@@ -3565,6 +3569,7 @@ pub(super) fn render_transfer_planner(
                                         fleet_ui_state.porkchop_grid =
                                             star_approach_grid_for_target(
                                                 body_query,
+                                                orbit.body,
                                                 *entity,
                                                 *radius_au,
                                                 *min_radius_au,
@@ -3628,6 +3633,7 @@ pub(super) fn render_transfer_planner(
                                             fleet_ui_state.porkchop_grid =
                                                 star_approach_grid_for_target(
                                                     body_query,
+                                                    orbit.body,
                                                     *entity,
                                                     clamped,
                                                     *min_radius_au,
