@@ -197,6 +197,7 @@ fn snapshot_cross_star_card() {
             dest_pos_au: DVec3::ZERO,
             v_departure_ms: DVec3::ZERO,
             v_arrival_ms: DVec3::ZERO,
+            transfer_orbit: None,
         }],
         min_cell: Some((0, 0)),
         metric: PorkchopMetric::TotalDv,
