@@ -90,6 +90,14 @@ pub struct CardSupplement {
     pub selected_gravity_assist: Option<usize>,
     pub cross_system_grid: Option<PorkchopGrid>,
     pub cross_system_selected: Option<(usize, usize)>,
+    /// System-barycentric distance to the cross-star target (ly).
+    /// Populated alongside `cross_system_grid` so the dispatcher's
+    /// cross-star arm can surface the distance caption without
+    /// piggy-backing on `star_system_snap` (which is reserved for
+    /// the 🌌 interstellar header card and would force the wrong
+    /// branch on cross-star targets).  `None` if no cross-star
+    /// selection is active.
+    pub cross_system_distance_ly: Option<f32>,
     /// `(system_id, display_name, distance_ly)` when the target is an
     /// interstellar star system; populated for the 🌌 header card.
     pub star_system_snap: Option<(usize, String, f32)>,
@@ -156,12 +164,16 @@ pub fn build_selected_card(
     // `PorkchopGrid` (1×1) so it routes through the porkchop arm.
     if let Some(sup) = supplement {
         if let Some(grid) = sup.cross_system_grid.as_ref() {
-            // `star_system_snap` carries `(system_id, name, distance_ly)`
-            // for the interstellar target — surface the distance as
-            // the subtitle (Phase 5 dropped the per-cell `distance_ly`
-            // field when refactoring into the shared `PorkchopGrid`).
-            let distance_ly = sup.star_system_snap.as_ref().map(|(_, _, ly)| *ly);
-            return build_cross_star_card(grid, sup.cross_system_selected, distance_ly);
+            // `cross_system_distance_ly` is the system-barycentric
+            // distance to the cross-star target.  Read it directly so
+            // the subtitle surfaces the distance on cross-star targets
+            // without piggy-backing on `star_system_snap` (which is
+            // reserved for the 🌌 interstellar header card).
+            return build_cross_star_card(
+                grid,
+                sup.cross_system_selected,
+                sup.cross_system_distance_ly,
+            );
         }
     }
 
@@ -682,13 +694,14 @@ mod gra_384_snapshot_tests {
     #[test]
     fn cross_star_card_snapshot_alpha_centauri() {
         let grid = degenerate_cross_star_grid(true, 53_000.0, "α Centauri");
-        // NOTE: do NOT set `star_system_snap` here — the dispatcher's
-        // interstellar branch runs before the cross-star branch, and
-        // populating it would route this test through the interstellar
-        // card (which always surfaces a warn + has no "ΔV" row).
+        // Populate `cross_system_distance_ly` (the cross-star
+        // distance caption lives here now — see the dispatcher and
+        // the field's docstring).  Leave `star_system_snap` unset so
+        // we don't fall into the 🌌 interstellar header branch.
         let sup = CardSupplement {
             cross_system_grid: Some(grid.clone()),
             cross_system_selected: Some((0, 0)),
+            cross_system_distance_ly: Some(4.37),
             ..CardSupplement::default()
         };
         let card = build_selected_card(

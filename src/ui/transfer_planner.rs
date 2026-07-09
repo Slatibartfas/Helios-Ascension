@@ -705,20 +705,22 @@ fn star_approach_grid_for_target(
     max_radius_au: f64,
     sim_time_s: f64,
 ) -> Option<PorkchopGrid> {
-    let gm_star = body_query
-        .get(star_entity)
-        .ok()
-        .map(|(_, b, _, _, _)| G_CONST * b.mass);
+    // Bail if the star lookup fails — without a CelestialBody we
+    // can't resolve `gm_star` or `dest_name`, so the grid builder
+    // would otherwise build against bogus inputs (the previous
+    // implementation silently substituted `GM_SUN` + `"Star"`).
+    // Returning `None` lets the caller fall through to the legacy
+    // 3-option row.  Equivalent fallback exists for the fleet-body
+    // lookup, but that's just a display-name cosmetic so we keep
+    // the `"Fleet"` default there.
+    let star = body_query.get(star_entity).ok().map(|(_, b, _, _, _)| b)?;
+    let gm_star = G_CONST * star.mass;
+    let dest_name = star.name.clone();
     let origin_name = body_query
         .get(fleet_body_entity)
         .ok()
         .map(|(_, b, _, _, _)| b.name.clone())
         .unwrap_or_else(|| "Fleet".to_string());
-    let dest_name = body_query
-        .get(star_entity)
-        .ok()
-        .map(|(_, b, _, _, _)| b.name.clone())
-        .unwrap_or_else(|| "Star".to_string());
     // Five log-spaced parking radii in [min, max].  Include the
     // selected radius verbatim (clamped to the bounds) so the row
     // the player just picked shows up in the grid.  Linear-in-log
@@ -739,7 +741,7 @@ fn star_approach_grid_for_target(
     let inputs = StarApproachInputs {
         origin_name,
         dest_name,
-        gm_star: gm_star.unwrap_or(GM_SUN),
+        gm_star,
         parking_options_au,
         origin_phase_at_epoch_rad: 0.0,
         sim_time_s,
@@ -5595,6 +5597,15 @@ pub(super) fn render_transfer_planner(
                     selected_gravity_assist: fleet_ui_state.selected_gravity_assist,
                     cross_system_grid: fleet_ui_state.cross_system_grid.clone(),
                     cross_system_selected: None,
+                    // Source the system-barycentric distance from
+                    // `star_system_snap` (the only place that builds
+                    // `cross_system_grid`).  When the target is a
+                    // star system — cross-star or interstellar —
+                    // both fields carry the same `distance_ly`.  The
+                    // dispatcher reads `cross_system_distance_ly`
+                    // for the cross-star subtitle and
+                    // `star_system_snap` for the 🌌 header.
+                    cross_system_distance_ly: star_system_snap.as_ref().map(|(_, _, ly)| *ly),
                     star_system_snap: star_system_snap
                         .as_ref()
                         .map(|(id, name, ly)| (*id, name.clone(), *ly)),
