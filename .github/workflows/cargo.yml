@@ -10,6 +10,22 @@ env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: -D warnings
   CARGO_BUILD_JOBS: "2"
+  # sccache wrapper (GRA-380). With `.cargo/config.toml` setting
+  # `rustc-wrapper = "sccache"`, every cargo invocation is wrapped.
+  # SCCACHE_DIR points sccache at a local-disk cache inside the
+  # runner's workspace, which lets a single cargo invocation share
+  # object files across multiple rustc processes within the same
+  # run (saves wall time on `cargo test` after `cargo clippy`).
+  # Cross-run reuse is handled by Swatinem/rust-cache above, which
+  # caches the entire target/ directory keyed by Cargo.lock — that
+  # covers the common case (95%+ of CI wall time) more cheaply than
+  # sccache's GHA backend. We deliberately do NOT enable
+  # SCCACHE_GHA_ENABLED here: that backend requires ACTIONS_CACHE_URL
+  # at server-startup time, which isn't reliably exposed in every
+  # step environment, and the marginal gain over Swatinem/rust-cache
+  # isn't worth the failure mode.
+  SCCACHE_DIR: "/home/runner/.sccache-cache"
+  SCCACHE_CACHE_SIZE: "2G"
 
 jobs:
   build:
@@ -37,18 +53,25 @@ jobs:
             .
 
       - name: Install sccache
-        # Local-disk sccache cache populated per-run; cross-run reuse is
-        # handled by SCCACHE_GHA_ENABLED below which writes hits into the
-        # GitHub Actions cache (keyed by Swatinem/rust-cache above).
+        # Local-disk sccache wrapper for in-run rustc deduplication.
+        # `.cargo/config.toml` sets `rustc-wrapper = "sccache"`, so
+        # cargo invocations are wrapped automatically once sccache
+        # is on $PATH. Cross-run reuse is handled by Swatinem/rust-cache
+        # above (target/ caching), not by sccache.
         run: cargo install sccache --locked --version ^0.16
 
-      - name: Configure sccache (GitHub Actions backend)
-        env:
-          # Routes the local sccache cache to the same Actions cache that
-          # Swatinem/rust-cache populates, so sccache hits and target/
-          # objects live in one bucket and share a restore key.
-          SCCACHE_GHA_ENABLED: "true"
-          SCCACHE_CACHE_SIZE: "2G"
+      - name: Start sccache server
+        # sccache uses a client-server model: the rustc-wrapper is a
+        # thin client that connects to a background server. We start
+        # the server explicitly so the cargo invocations below just
+        # connect to a running server rather than trying to spin one
+        # up inside the wrapper invocation context. SCCACHE_DIR in
+        # the workflow-level env: block points the local-disk backend
+        # at a per-workspace cache directory.
+        run: |
+          sccache --version
+          sccache --start-server
+          sccache -z
 
       - name: cargo fmt --check
         run: cargo fmt --all -- --check
