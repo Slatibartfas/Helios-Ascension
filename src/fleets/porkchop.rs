@@ -2716,6 +2716,7 @@ mod planner_wiring_tests {
     //! `QueryState` plumbing and the tests run without a world.
     use super::*;
     use crate::plugins::solar_system_data::BodyType;
+    use super::orbital_mechanics::AU_IN_METERS;
 
     #[test]
     fn planner_wiring_earth_to_mars_returns_non_empty_grid() {
