@@ -385,7 +385,6 @@ fn cell_abs_t_dep(grid: &PorkchopGrid, sc: usize) -> f64 {
     grid.t_dep_bounds_s.0 + (sc as f64) * col_step
 }
 
-
 #[test]
 fn immediate_departure_clamp_keeps_trajectory_anchored_at_live_planet() {
     // The fix for "trajectory moves all over the place once the
