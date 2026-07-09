@@ -1171,10 +1171,10 @@ pub enum SelectionSource {
         options: Vec<TransferOption>,
         selected: usize,
     },
-    /// Gravity-assist candidates.  Mirrors `FleetUiState.gravity_assist_candidates`
-    /// + `selected_gravity_assist`.  When `selected` is `None` the renderer
-    /// shows the summary card; when `Some(idx)` it shows the per-candidate
-    /// card.
+    /// Gravity-assist candidates.  Mirrors
+    /// `FleetUiState.gravity_assist_candidates` + `selected_gravity_assist`.
+    /// When `selected` is `None` the renderer shows the summary card; when
+    /// `Some(idx)` it shows the per-candidate card.
     GravityAssist {
         candidates: Vec<GravityAssistEntry>,
         selected: Option<usize>,
