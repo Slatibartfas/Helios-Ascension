@@ -2781,6 +2781,17 @@ mod tests {
             0.0,
         );
         let feasible_empty: usize = grid_empty.iter().filter(|c| c.feasible).count();
+        // Kilo WARNING (PR #233 review): pin the invariant to the
+        // upstream filter so the assertion is structural, not
+        // empirical.  `find_gravity_assist_options` returned `[]` for
+        // this route (asserted above at line 2731), so the grid sweep
+        // must also report zero feasible cells — the `ga_kick <= 0.0`
+        // short-circuit at line 602 enforces exactly that
+        // "no-candidate → no-feasible-cell" relation.
+        assert!(
+            opts_empty.is_empty(),
+            "feasible-empty grid assertion requires opts_empty to be empty"
+        );
         assert_eq!(
             feasible_empty, 0,
             "No candidate body for Earth→Mars, but {} cells were feasible",

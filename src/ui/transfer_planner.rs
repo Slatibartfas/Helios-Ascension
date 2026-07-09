@@ -5804,10 +5804,14 @@ pub(super) fn render_transfer_planner(
                             // still renders (with zero kick) if the query
                             // misses — the colormap will then be all-grey
                             // and the "No feasible window" label kicks in.
-                            let central_gm = body_query
-                                .get(orbit.body)
-                                .ok()
-                                .map(|(_, b, _, _, _)| G_CONST * b.mass)
+                            // Kilo CRITICAL (PR #233 review): walk the
+                            // `LogicalParent` chain via `find_host_star`
+                            // so fleets orbiting moons (moon → planet →
+                            // star) resolve to the host star's GM instead
+                            // of the planet's GM.  Matches the existing
+                            // GA preview path at line 3561.
+                            let central_gm = find_host_star(orbit.body, body_query)
+                                .map(|(_, mass)| G_CONST * mass)
                                 .unwrap_or(GM_SUN);
                             let flyby_gm = body_query
                                 .get(flyby_entity)
