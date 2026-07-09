@@ -646,7 +646,7 @@ fn short_hop_grid_for_moon(
         Option<&KeplerOrbit>,
         Option<&LogicalParent>,
     )>,
-    origin_entity: Entity,
+    _origin_entity: Entity,
     dest_entity: Entity,
     n_options: usize,
 ) -> Option<PorkchopGrid> {
@@ -5606,7 +5606,7 @@ pub(super) fn render_transfer_planner(
                     &*transfer_plan,
                     Some(&card_supplement),
                     fleet_info,
-                    |dv_ms| fleet.total_fuel_cost_for_dv(dv_ms),
+                    |dv_ms| f64::from(fleet.total_fuel_cost_for_dv(dv_ms)),
                 );
                 crate::ui::transfer_planner_card::render_card(ui, &card);
                 ui.add_space(4.0);

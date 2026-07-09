@@ -657,6 +657,9 @@ mod gra_384_snapshot_tests {
             feasible,
             origin_pos_au: DVec3::ZERO,
             dest_pos_au: DVec3::new(4.37 * 63_241.077, 0.0, 0.0),
+            v_departure_ms: DVec3::ZERO,
+            v_arrival_ms: DVec3::new(dv_ms * 0.5, 0.0, 0.0),
+            transfer_orbit: None,
         };
         PorkchopGrid {
             origin_name: "Sol".to_string(),
@@ -780,6 +783,9 @@ mod gra_384_snapshot_tests {
                 feasible: true,
                 origin_pos_au: DVec3::new(6.571e-4, 0.0, 0.0), // LEO proxy
                 dest_pos_au: DVec3::new(0.00257, 0.0, 0.0),    // Lunar SMA
+                v_departure_ms: DVec3::ZERO,
+                v_arrival_ms: DVec3::ZERO,
+                transfer_orbit: None,
             })
             .collect();
         let grid = PorkchopGrid {
@@ -838,6 +844,9 @@ mod gra_384_snapshot_tests {
                     feasible: row == 2 && col == 10, // one feasible cell
                     origin_pos_au: DVec3::new(1.0, 0.0, 0.0),
                     dest_pos_au: DVec3::new(0.3, 0.0, 0.0),
+                    v_departure_ms: DVec3::ZERO,
+                    v_arrival_ms: DVec3::ZERO,
+                    transfer_orbit: None,
                 })
             })
             .collect();
