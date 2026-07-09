@@ -478,7 +478,7 @@ mod tests {
         // Test that angles are properly normalized to 0-360 range
         let positions = calculate_positions_at_timestamp(JAN_1_2026_TIMESTAMP);
 
-        for (_name, angle) in positions.iter() {
+        for angle in positions.values() {
             assert!(
                 *angle >= 0.0 && *angle < 360.0,
                 "Angle {} should be in range [0, 360)",

@@ -17,9 +17,9 @@ fn render_selectable_label(ui: &mut egui::Ui, is_selected: bool, name: &str) -> 
         egui::Color32::TRANSPARENT
     };
     let stroke = if response.hovered() {
-        egui::Stroke::new(1.0, theme::ACCENT)
+        egui::Stroke::new(1.0_f32, theme::ACCENT)
     } else if is_selected {
-        egui::Stroke::new(1.0, theme::ACCENT_DIM)
+        egui::Stroke::new(1.0_f32, theme::ACCENT_DIM)
     } else {
         egui::Stroke::NONE
     };
@@ -62,9 +62,9 @@ fn render_group_header(
         egui::Color32::TRANSPARENT
     };
     let stroke = if response.hovered() {
-        egui::Stroke::new(1.0, theme::ACCENT_DIM)
+        egui::Stroke::new(1.0_f32, theme::ACCENT_DIM)
     } else if is_open {
-        egui::Stroke::new(1.0, theme::BORDER)
+        egui::Stroke::new(1.0_f32, theme::BORDER)
     } else {
         egui::Stroke::NONE
     };
@@ -596,7 +596,7 @@ fn render_fleet_ledger_tree(
                 ui.painter().rect_stroke(
                     rect.expand(1.0),
                     rounding,
-                    egui::Stroke::new(1.0, theme::ACCENT),
+                    egui::Stroke::new(1.0_f32, theme::ACCENT),
                     egui::StrokeKind::Inside,
                 );
             } else if resp.hovered() {
@@ -605,7 +605,7 @@ fn render_fleet_ledger_tree(
                 ui.painter().rect_stroke(
                     rect.expand(1.0),
                     rounding,
-                    egui::Stroke::new(1.0, theme::BORDER),
+                    egui::Stroke::new(1.0_f32, theme::BORDER),
                     egui::StrokeKind::Inside,
                 );
             }
@@ -1381,9 +1381,9 @@ pub(super) fn ui_time_controls(
                 };
                 let pause_stroke = if is_paused {
                     let alpha = (120.0 + 135.0 * blink) as u8;
-                    egui::Stroke::new(1.5, theme::paused_overlay_fg(alpha))
+                    egui::Stroke::new(1.5_f32, theme::paused_overlay_fg(alpha))
                 } else {
-                    egui::Stroke::new(0.5, theme::BORDER)
+                    egui::Stroke::new(0.5_f32, theme::BORDER)
                 };
                 let pause_label = if is_paused {
                     egui::RichText::new("⏸ PAUSED")
@@ -1418,7 +1418,7 @@ pub(super) fn ui_time_controls(
                                 .color(theme::ACCENT)
                                 .strong(),
                         )
-                        .stroke(egui::Stroke::new(1.5, theme::ACCENT))
+                        .stroke(egui::Stroke::new(1.5_f32, theme::ACCENT))
                         .fill(theme::SURFACE_RAISED)
                     } else {
                         egui::Button::new(
@@ -1426,7 +1426,7 @@ pub(super) fn ui_time_controls(
                                 .color(theme::TEXT)
                                 .strong(),
                         )
-                        .stroke(egui::Stroke::new(0.5, theme::BORDER))
+                        .stroke(egui::Stroke::new(0.5_f32, theme::BORDER))
                         .fill(theme::SURFACE)
                     };
                     let speed_label = SPEED_LABELS[i];
@@ -1477,7 +1477,7 @@ pub(super) fn ui_time_controls(
                     let skip_btn = egui::Button::new(
                         egui::RichText::new("⏭").size(16.0).color(theme::TEXT_DIM),
                     )
-                    .stroke(egui::Stroke::new(0.5, theme::BORDER))
+                    .stroke(egui::Stroke::new(0.5_f32, theme::BORDER))
                     .fill(theme::SURFACE);
                     if ui.add_sized([36.0, 36.0], skip_btn).clicked() {
                         playlist.skip_requested = true;
@@ -1490,9 +1490,9 @@ pub(super) fn ui_time_controls(
                         theme::TEXT_DIM
                     };
                     let play_stroke = if playlist.paused {
-                        egui::Stroke::new(1.0, theme::ACCENT)
+                        egui::Stroke::new(1.0_f32, theme::ACCENT)
                     } else {
-                        egui::Stroke::new(0.5, theme::BORDER)
+                        egui::Stroke::new(0.5_f32, theme::BORDER)
                     };
                     let play_btn = egui::Button::new(
                         egui::RichText::new(play_label).size(16.0).color(play_color),

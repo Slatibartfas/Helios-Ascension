@@ -324,9 +324,9 @@ fn render_menu_button(
         theme::SURFACE
     };
     let stroke = if enabled {
-        egui::Stroke::new(1.0, theme::ACCENT_DIM)
+        egui::Stroke::new(1.0_f32, theme::ACCENT_DIM)
     } else {
-        egui::Stroke::new(0.5, theme::BORDER)
+        egui::Stroke::new(0.5_f32, theme::BORDER)
     };
     let label_color = if enabled {
         theme::TEXT

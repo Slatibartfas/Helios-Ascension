@@ -896,7 +896,7 @@ fn render_construction_overview_tab(
                     .color(chip_color),
             )
             .fill(theme::SURFACE_RAISED)
-            .stroke(egui::Stroke::new(1.0, chip_color))
+            .stroke(egui::Stroke::new(1.0_f32, chip_color))
             .corner_radius(10.0)
             .min_size(egui::vec2(0.0, 22.0));
             let response = ui.add(chip);
@@ -1404,9 +1404,9 @@ fn render_construction_build_tab(
                     theme::SURFACE
                 })
                 .stroke(if selected {
-                    egui::Stroke::new(1.0, theme::ACCENT)
+                    egui::Stroke::new(1.0_f32, theme::ACCENT)
                 } else {
-                    egui::Stroke::new(1.0, theme::BORDER)
+                    egui::Stroke::new(1.0_f32, theme::BORDER)
                 })
                 .corner_radius(4.0);
                 if ui.add(btn).clicked() {

@@ -163,7 +163,7 @@ fn render_one_toast(
 
     let frame = egui::Frame::new()
         .fill(theme::BG)
-        .stroke(egui::Stroke::new(1.0, border))
+        .stroke(egui::Stroke::new(1.0_f32, border))
         .corner_radius(egui::CornerRadius::same(4))
         .inner_margin(egui::Margin::symmetric(
             theme::Spacing::md as i8,

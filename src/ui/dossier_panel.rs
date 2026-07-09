@@ -592,7 +592,7 @@ fn draw_dossier_header(
             ui.painter().vline(
                 divider_rect.center().x,
                 divider_rect.y_range(),
-                egui::Stroke::new(1.0, BORDER),
+                egui::Stroke::new(1.0_f32, BORDER),
             );
             ui.add_space(10.0);
 
@@ -703,7 +703,7 @@ fn section_divider(ui: &mut egui::Ui) {
     ui.painter().hline(
         rect.left()..=rect.right(),
         y,
-        egui::Stroke::new(1.0, BORDER),
+        egui::Stroke::new(1.0_f32, BORDER),
     );
     ui.add_space(theme::Spacing::sm);
 }
@@ -1122,14 +1122,14 @@ fn draw_radar_chart(ui: &mut egui::Ui, scores: &[f32; 5]) {
             .collect();
         painter.add(egui::Shape::closed_line(
             ring_points,
-            egui::Stroke::new(0.5, BORDER),
+            egui::Stroke::new(0.5_f32, BORDER),
         ));
     }
 
     // Axis lines
     for &a in &angles {
         let tip = center + egui::Vec2::new(a.cos() * max_r, a.sin() * max_r);
-        painter.line_segment([center, tip], egui::Stroke::new(0.5, BORDER));
+        painter.line_segment([center, tip], egui::Stroke::new(0.5_f32, BORDER));
     }
 
     // Earth reference pentagon (all 1.0) — thin cyan outline
@@ -1139,7 +1139,10 @@ fn draw_radar_chart(ui: &mut egui::Ui, scores: &[f32; 5]) {
         .collect();
     painter.add(egui::Shape::closed_line(
         earth_pts,
-        egui::Stroke::new(1.0, egui::Color32::from_rgba_premultiplied(0, 242, 255, 60)),
+        egui::Stroke::new(
+            1.0_f32,
+            egui::Color32::from_rgba_premultiplied(0, 242, 255, 60),
+        ),
     ));
 
     // Player polygon — compute vertex positions from scores.
@@ -1169,7 +1172,7 @@ fn draw_radar_chart(ui: &mut egui::Ui, scores: &[f32; 5]) {
     // Outline
     painter.add(egui::Shape::closed_line(
         player_pts.clone(),
-        egui::Stroke::new(1.0, ACCENT),
+        egui::Stroke::new(1.0_f32, ACCENT),
     ));
 
     // Axis labels + % score beneath each label.
@@ -1393,7 +1396,7 @@ fn draw_atmosphere_bar(ui: &mut egui::Ui, gases: &[AtmosphericGas]) {
         // Label inside bar if segment is wide enough
         if w > 28.0 {
             let label_text = if w > 55.0 {
-                format!("{} {:.1}%", &gas.name, gas.percentage)
+                format!("{} {:.1}%", gas.name, gas.percentage)
             } else {
                 gas.name.clone()
             };
@@ -1445,7 +1448,7 @@ fn draw_atmosphere_bar(ui: &mut egui::Ui, gases: &[AtmosphericGas]) {
     painter.rect_stroke(
         bar_rect,
         3.0,
-        egui::Stroke::new(1.0, BORDER),
+        egui::Stroke::new(1.0_f32, BORDER),
         egui::StrokeKind::Outside,
     );
 }
@@ -1811,7 +1814,7 @@ fn draw_dimension_progress_bar(ui: &mut egui::Ui, tier: u8, active_progress: Opt
         ui.painter().rect_stroke(
             segment,
             2.0,
-            egui::Stroke::new(1.0, BORDER),
+            egui::Stroke::new(1.0_f32, BORDER),
             egui::StrokeKind::Outside,
         );
     }
@@ -2890,7 +2893,7 @@ pub(super) fn paint_resource_tile(
                     painter.circle_stroke(
                         egui::Pos2::new(cx, pip_y),
                         pip_r,
-                        egui::Stroke::new(0.5, theme::BORDER_DIM),
+                        egui::Stroke::new(0.5_f32, theme::BORDER_DIM),
                     );
                 }
             }
@@ -2918,7 +2921,7 @@ pub(super) fn paint_resource_tile(
     painter.rect_stroke(
         rect,
         3.0,
-        egui::Stroke::new(1.0, BORDER),
+        egui::Stroke::new(1.0_f32, BORDER),
         egui::StrokeKind::Outside,
     );
 
@@ -3194,7 +3197,7 @@ fn draw_resource_tile(
         .show(|ui| {
             let tip_frame = egui::Frame::NONE
                 .fill(BG_FILL)
-                .stroke(egui::Stroke::new(1.0, ACCENT_DIM))
+                .stroke(egui::Stroke::new(1.0_f32, ACCENT_DIM))
                 .inner_margin(egui::Margin::same(8));
 
             tip_frame.show(ui, |ui| {

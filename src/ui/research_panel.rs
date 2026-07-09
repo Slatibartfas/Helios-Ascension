@@ -54,9 +54,9 @@ fn draw_tab_button(ui: &mut egui::Ui, label: &str, selected: bool) -> egui::Resp
             theme::SURFACE
         })
         .stroke(if selected {
-            egui::Stroke::new(1.0, theme::ACCENT)
+            egui::Stroke::new(1.0_f32, theme::ACCENT)
         } else {
-            egui::Stroke::new(1.0, theme::BORDER)
+            egui::Stroke::new(1.0_f32, theme::BORDER)
         })
         .corner_radius(4.0),
     );
@@ -1069,9 +1069,9 @@ fn render_available_engineering_tab(
                         theme::SURFACE
                     })
                     .stroke(if is_preselected {
-                        egui::Stroke::new(1.0, theme::ACCENT)
+                        egui::Stroke::new(1.0_f32, theme::ACCENT)
                     } else {
-                        egui::Stroke::new(1.0, theme::BORDER)
+                        egui::Stroke::new(1.0_f32, theme::BORDER)
                     })
                     .corner_radius(4.0)
                     .inner_margin(egui::Margin::symmetric(8, 6))

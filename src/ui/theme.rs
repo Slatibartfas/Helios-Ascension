@@ -642,7 +642,7 @@ pub fn kbd_shortcut_label(text: impl Into<String>) -> egui::RichText {
 pub fn panel_frame() -> egui::Frame {
     egui::Frame::NONE
         .fill(BG)
-        .stroke(egui::Stroke::new(1.0, BORDER))
+        .stroke(egui::Stroke::new(1.0_f32, BORDER))
         .inner_margin(egui::Margin::same(Spacing::md as i8))
 }
 
@@ -650,7 +650,7 @@ pub fn panel_frame() -> egui::Frame {
 pub fn central_frame() -> egui::Frame {
     egui::Frame::NONE
         .fill(BG_SOLID)
-        .stroke(egui::Stroke::new(1.0, BORDER))
+        .stroke(egui::Stroke::new(1.0_f32, BORDER))
         .inner_margin(egui::Margin::same(Spacing::sm as i8))
 }
 
@@ -665,7 +665,7 @@ pub fn section_frame() -> egui::Frame {
 pub fn elevated_frame() -> egui::Frame {
     egui::Frame::NONE
         .fill(SURFACE)
-        .stroke(egui::Stroke::new(1.0, BORDER))
+        .stroke(egui::Stroke::new(1.0_f32, BORDER))
         .inner_margin(egui::Margin::same(Spacing::sm as i8))
         .corner_radius(3.0)
 }
@@ -674,7 +674,7 @@ pub fn elevated_frame() -> egui::Frame {
 pub fn tooltip_frame() -> egui::Frame {
     egui::Frame::NONE
         .fill(egui::Color32::from_rgba_unmultiplied(12, 16, 28, 245))
-        .stroke(egui::Stroke::new(1.5, ACCENT_DIM))
+        .stroke(egui::Stroke::new(1.5_f32, ACCENT_DIM))
         .inner_margin(egui::Margin::same(Spacing::md as i8))
         .corner_radius(4.0)
 }
@@ -687,7 +687,7 @@ pub fn divider(ui: &mut egui::Ui) {
     ui.painter().hline(
         rect.left()..=rect.right(),
         y,
-        egui::Stroke::new(1.0, BORDER),
+        egui::Stroke::new(1.0_f32, BORDER),
     );
     ui.add_space(6.0);
 }
@@ -844,45 +844,45 @@ pub fn apply_global_visuals(ctx: &egui::Context) {
     // ── Text & selection ─────────────────────────────────────────
     visuals.override_text_color = Some(TEXT);
     visuals.selection.bg_fill = egui::Color32::from_rgba_premultiplied(0, 160, 180, 60);
-    visuals.selection.stroke = egui::Stroke::new(1.0, ACCENT);
+    visuals.selection.stroke = egui::Stroke::new(1.0_f32, ACCENT);
 
     // ── Window chrome ────────────────────────────────────────────
-    visuals.window_stroke = egui::Stroke::new(1.0, BORDER);
+    visuals.window_stroke = egui::Stroke::new(1.0_f32, BORDER);
     visuals.window_shadow = egui::Shadow::NONE;
     visuals.popup_shadow = egui::Shadow::NONE;
 
     // ── Separators ───────────────────────────────────────────────
-    visuals.widgets.noninteractive.bg_stroke = egui::Stroke::new(0.5, BORDER);
+    visuals.widgets.noninteractive.bg_stroke = egui::Stroke::new(0.5_f32, BORDER);
 
     // ── Widget states ────────────────────────────────────────────
     // Non-interactive (labels, separators)
     visuals.widgets.noninteractive.bg_fill = SURFACE;
-    visuals.widgets.noninteractive.fg_stroke = egui::Stroke::new(1.0, TEXT);
+    visuals.widgets.noninteractive.fg_stroke = egui::Stroke::new(1.0_f32, TEXT);
     visuals.widgets.noninteractive.weak_bg_fill = SURFACE;
 
     // Inactive (buttons at rest)
     visuals.widgets.inactive.bg_fill = SURFACE;
     visuals.widgets.inactive.weak_bg_fill = SURFACE;
-    visuals.widgets.inactive.bg_stroke = egui::Stroke::new(0.5, BORDER);
-    visuals.widgets.inactive.fg_stroke = egui::Stroke::new(1.0, TEXT_VALUE);
+    visuals.widgets.inactive.bg_stroke = egui::Stroke::new(0.5_f32, BORDER);
+    visuals.widgets.inactive.fg_stroke = egui::Stroke::new(1.0_f32, TEXT_VALUE);
 
     // Hovered
     visuals.widgets.hovered.bg_fill = SURFACE_RAISED;
     visuals.widgets.hovered.weak_bg_fill = SURFACE_RAISED;
-    visuals.widgets.hovered.bg_stroke = egui::Stroke::new(1.0, ACCENT_DIM);
-    visuals.widgets.hovered.fg_stroke = egui::Stroke::new(1.0, ACCENT);
+    visuals.widgets.hovered.bg_stroke = egui::Stroke::new(1.0_f32, ACCENT_DIM);
+    visuals.widgets.hovered.fg_stroke = egui::Stroke::new(1.0_f32, ACCENT);
 
     // Active (pressed)
     visuals.widgets.active.bg_fill = egui::Color32::from_rgb(0, 80, 90);
     visuals.widgets.active.weak_bg_fill = egui::Color32::from_rgb(0, 80, 90);
-    visuals.widgets.active.bg_stroke = egui::Stroke::new(1.5, ACCENT);
-    visuals.widgets.active.fg_stroke = egui::Stroke::new(1.5, ACCENT);
+    visuals.widgets.active.bg_stroke = egui::Stroke::new(1.5_f32, ACCENT);
+    visuals.widgets.active.fg_stroke = egui::Stroke::new(1.5_f32, ACCENT);
 
     // Open (e.g. combo box, expanded collapsing header)
     visuals.widgets.open.bg_fill = SURFACE_RAISED;
     visuals.widgets.open.weak_bg_fill = SURFACE_RAISED;
-    visuals.widgets.open.bg_stroke = egui::Stroke::new(1.0, ACCENT_DIM);
-    visuals.widgets.open.fg_stroke = egui::Stroke::new(1.0, ACCENT);
+    visuals.widgets.open.bg_stroke = egui::Stroke::new(1.0_f32, ACCENT_DIM);
+    visuals.widgets.open.fg_stroke = egui::Stroke::new(1.0_f32, ACCENT);
 
     // ── Misc ─────────────────────────────────────────────────────
     visuals.striped = true;
@@ -1473,7 +1473,7 @@ pub fn tab_strip<T: crate::ui::tab::Tab>(
                 ui.painter().hline(
                     rect.left()..=rect.right(),
                     underline_y,
-                    egui::Stroke::new(2.0, ACCENT),
+                    egui::Stroke::new(2.0_f32, ACCENT),
                 );
             }
         }

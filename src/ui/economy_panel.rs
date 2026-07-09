@@ -543,9 +543,9 @@ fn render_mining_group_header(
         egui::Color32::TRANSPARENT
     };
     let stroke = if response.hovered() {
-        egui::Stroke::new(1.0, theme::ACCENT_DIM)
+        egui::Stroke::new(1.0_f32, theme::ACCENT_DIM)
     } else if is_open {
-        egui::Stroke::new(1.0, theme::BORDER)
+        egui::Stroke::new(1.0_f32, theme::BORDER)
     } else {
         egui::Stroke::NONE
     };
@@ -580,9 +580,9 @@ fn render_mining_body_row(
         egui::Color32::TRANSPARENT
     };
     let stroke = if response.hovered() {
-        egui::Stroke::new(1.0, theme::ACCENT)
+        egui::Stroke::new(1.0_f32, theme::ACCENT)
     } else if selected {
-        egui::Stroke::new(1.0, theme::ACCENT_DIM)
+        egui::Stroke::new(1.0_f32, theme::ACCENT_DIM)
     } else {
         egui::Stroke::NONE
     };

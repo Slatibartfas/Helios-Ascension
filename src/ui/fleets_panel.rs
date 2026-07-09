@@ -1257,7 +1257,7 @@ fn render_fleet_list(
                     ui.painter().rect_stroke(
                         rect.expand(1.0),
                         row_rounding,
-                        egui::Stroke::new(1.0, theme::ACCENT),
+                        egui::Stroke::new(1.0_f32, theme::ACCENT),
                         egui::StrokeKind::Inside,
                     );
                 } else if resp.hovered() {
@@ -1266,7 +1266,7 @@ fn render_fleet_list(
                     ui.painter().rect_stroke(
                         rect.expand(1.0),
                         row_rounding,
-                        egui::Stroke::new(1.0, theme::BORDER),
+                        egui::Stroke::new(1.0_f32, theme::BORDER),
                         egui::StrokeKind::Inside,
                     );
                 }
