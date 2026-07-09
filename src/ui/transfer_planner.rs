@@ -7165,11 +7165,20 @@ pub fn build_planned_transfer(
                 .map(|(_, _, orbit)| orbit)
                 .unwrap_or_else(|| {
                     let mean_anomaly_epoch = if outward { 0.0 } else { std::f64::consts::PI };
-                    let sma_m = option.sma_au * AU_IN_METERS;
+                    // GRA-367-E / Kilo WARNING 2026-07-09: clamp degenerate
+                    // sma_au to a safe Hohmann-proxy minimum so the
+                    // fallback doesn't divide by zero and produce inf
+                    // mean motion.
+                    let safe_sma_au = if option.sma_au.is_finite() && option.sma_au > 0.0 {
+                        option.sma_au
+                    } else {
+                        1.0
+                    };
+                    let sma_m = safe_sma_au * AU_IN_METERS;
                     let mean_motion = (gm / sma_m.powi(3)).sqrt();
 
                     KeplerOrbit {
-                        semi_major_axis: option.sma_au,
+                        semi_major_axis: safe_sma_au,
                         eccentricity: option.eccentricity,
                         inclination: transfer_inclination,
                         longitude_ascending_node: transfer_lan,
@@ -7184,11 +7193,20 @@ pub fn build_planned_transfer(
             orbit_override
         } else {
             let mean_anomaly_epoch = if outward { 0.0 } else { std::f64::consts::PI };
-            let sma_m = option.sma_au * AU_IN_METERS;
+            // GRA-367-E / Kilo WARNING 2026-07-09: when `sma_au` is 0.0,
+            // NaN, or non-finite the fallback would divide by zero and
+            // produce `inf` mean motion.  Clamp to a safe Hohmann-proxy
+            // minimum so the orbital math stays numerically stable.
+            let safe_sma_au = if option.sma_au.is_finite() && option.sma_au > 0.0 {
+                option.sma_au
+            } else {
+                1.0
+            };
+            let sma_m = safe_sma_au * AU_IN_METERS;
             let mean_motion = (gm / sma_m.powi(3)).sqrt();
 
             KeplerOrbit {
-                semi_major_axis: option.sma_au,
+                semi_major_axis: safe_sma_au,
                 eccentricity: option.eccentricity,
                 inclination: transfer_inclination,
                 longitude_ascending_node: transfer_lan,
@@ -7401,7 +7419,16 @@ fn build_planned_transfer_lp(
     };
 
     let gm = lp.gm;
-    let sma_m = option.sma_au * AU_IN_METERS;
+    // GRA-367-E / Kilo WARNING 2026-07-09: clamp degenerate sma_au for
+    // robustness — Lagrange transfer sma_au should normally be the
+    // planet's SMA which is positive, but caller-supplied options can
+    // be zero in degenerate fallback paths.
+    let safe_sma_au = if option.sma_au.is_finite() && option.sma_au > 0.0 {
+        option.sma_au
+    } else {
+        lp.planet_sma_au.max(0.001)
+    };
+    let sma_m = safe_sma_au * AU_IN_METERS;
     let mean_motion = (gm / sma_m.powi(3)).sqrt();
 
     let outward = lp.radius_au >= lp.planet_sma_au;
@@ -7413,7 +7440,7 @@ fn build_planned_transfer_lp(
     let mean_anomaly_epoch = if outward { 0.0 } else { std::f64::consts::PI };
 
     let transfer_orbit = KeplerOrbit {
-        semi_major_axis: option.sma_au,
+        semi_major_axis: safe_sma_au,
         eccentricity: option.eccentricity,
         inclination: 0.0,
         longitude_ascending_node: 0.0,

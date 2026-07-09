@@ -1238,19 +1238,39 @@ fn porkchop_grid_to_cross_star_options(grid: &PorkchopGrid) -> Vec<TransferOptio
     grid.cells
         .iter()
         .enumerate()
-        .map(|(i, cell)| TransferOption {
-            label: labels.get(i).copied().unwrap_or("Curved"),
-            total_delta_v_ms: cell.total_dv_ms,
-            delta_v1_ms: cell.delta_v1_ms,
-            delta_v2_ms: cell.delta_v2_ms,
-            plane_change_dv_ms: 0.0,
-            transfer_time_s: cell.tof_s,
-            sma_au: 0.0,
-            eccentricity: 0.0,
-            energy_multiplier: energy_multipliers.get(i).copied().unwrap_or(1.0),
-            burn_time_s: 0.0,
-            is_thrust_limited: false,
-            transfer_orbit_override: cell.transfer_orbit,
+        .map(|(i, cell)| {
+            // GRA-367-E / Kilo WARNING 2026-07-09: the fallback KeplerOrbit
+            // constructor in `build_planned_transfer` divides by `sma_au`
+            // (`(gm / sma.powi(3)).sqrt()`), so a `sma_au: 0.0` degenerates
+            // to `inf` mean motion.  Derive a Hohmann-proxy sma_au +
+            // eccentricity from the cell's origin/dest positions so the
+            // fallback path stays numerically stable.  When the cell lacks
+            // both vectors (degenerate empty grid), fall back to NaN-skip
+            // values rather than zero.
+            let r1_au = cell.origin_pos_au.length();
+            let r2_au = cell.dest_pos_au.length();
+            let (sma_au, eccentricity) = if r1_au > 1e-6 && r2_au > 1e-6 {
+                (
+                    (r1_au + r2_au) * 0.5,
+                    ((r2_au - r1_au).abs()) / (r1_au + r2_au),
+                )
+            } else {
+                (f64::NAN, 0.0)
+            };
+            TransferOption {
+                label: labels.get(i).copied().unwrap_or("Curved"),
+                total_delta_v_ms: cell.total_dv_ms,
+                delta_v1_ms: cell.delta_v1_ms,
+                delta_v2_ms: cell.delta_v2_ms,
+                plane_change_dv_ms: 0.0,
+                transfer_time_s: cell.tof_s,
+                sma_au,
+                eccentricity,
+                energy_multiplier: energy_multipliers.get(i).copied().unwrap_or(1.0),
+                burn_time_s: 0.0,
+                is_thrust_limited: false,
+                transfer_orbit_override: cell.transfer_orbit,
+            }
         })
         .collect()
 }
