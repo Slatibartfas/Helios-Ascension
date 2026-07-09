@@ -90,6 +90,14 @@ pub struct CardSupplement {
     pub selected_gravity_assist: Option<usize>,
     pub cross_system_grid: Option<PorkchopGrid>,
     pub cross_system_selected: Option<(usize, usize)>,
+    /// System-barycentric distance to the cross-star target (ly).
+    /// Populated alongside `cross_system_grid` so the dispatcher's
+    /// cross-star arm can surface the distance caption without
+    /// piggy-backing on `star_system_snap` (which is reserved for
+    /// the 🌌 interstellar header card and would force the wrong
+    /// branch on cross-star targets).  `None` if no cross-star
+    /// selection is active.
+    pub cross_system_distance_ly: Option<f32>,
     /// `(system_id, display_name, distance_ly)` when the target is an
     /// interstellar star system; populated for the 🌌 header card.
     pub star_system_snap: Option<(usize, String, f32)>,
@@ -156,12 +164,16 @@ pub fn build_selected_card(
     // `PorkchopGrid` (1×1) so it routes through the porkchop arm.
     if let Some(sup) = supplement {
         if let Some(grid) = sup.cross_system_grid.as_ref() {
-            // `star_system_snap` carries `(system_id, name, distance_ly)`
-            // for the interstellar target — surface the distance as
-            // the subtitle (Phase 5 dropped the per-cell `distance_ly`
-            // field when refactoring into the shared `PorkchopGrid`).
-            let distance_ly = sup.star_system_snap.as_ref().map(|(_, _, ly)| *ly);
-            return build_cross_star_card(grid, sup.cross_system_selected, distance_ly);
+            // `cross_system_distance_ly` is the system-barycentric
+            // distance to the cross-star target.  Read it directly so
+            // the subtitle surfaces the distance on cross-star targets
+            // without piggy-backing on `star_system_snap` (which is
+            // reserved for the 🌌 interstellar header card).
+            return build_cross_star_card(
+                grid,
+                sup.cross_system_selected,
+                sup.cross_system_distance_ly,
+            );
         }
     }
 
@@ -607,5 +619,284 @@ pub fn frame_caption(frame: Option<TransferReferenceFrame>) -> Option<String> {
     match frame? {
         TransferReferenceFrame::SystemBarycentric => Some("Frame: System Barycentric".to_string()),
         TransferReferenceFrame::Body(_) => Some("Frame: Body Local".to_string()),
+    }
+}
+
+#[cfg(test)]
+mod gra_384_snapshot_tests {
+    //! GRA-384 — snapshot tests for the 4 transfer planner classes
+    //! wired into the unified `build_selected_card` dispatcher
+    //! (short-hop, star-approach, cross-star, interstellar).
+    //!
+    //! Each test feeds a hand-rolled `CardSupplement` to
+    //! `build_selected_card` and asserts on the resulting
+    //! `CardWidget` fields (title, rows, warn) so the dispatcher's
+    //! per-class branch is locked.  Tests are Bevy-free: the
+    //! planner's `build_selected_card` helper only consumes
+    //! `TransferPlan` (Phase 1 mirror) + `CardSupplement`, so a
+    //! default `TransferPlan` plus a hand-built supplement is
+    //! enough to drive each branch.
+    use super::*;
+    use crate::fleets::components::{SelectionSource, TransferPlan};
+    use crate::fleets::porkchop::{PorkchopCell, PorkchopGrid, PorkchopMetric};
+    use bevy::math::DVec3;
+
+    /// Stub fleet info — a 25 km/s ΔV budget with 1 000 t wet mass.
+    /// Mirrors a small LEO-bound fleet that can comfortably afford a
+    /// cislunar transfer but is well below the interstellar ΔV
+    /// requirement, so the cross-star / interstellar cards light up
+    /// the `Exceeds fleet ΔV budget` warning row.
+    fn test_fleet_info() -> FleetInfo {
+        FleetInfo {
+            max_delta_v_ms: 25_000.0,
+            wet_mass_t: 1_000.0,
+        }
+    }
+
+    /// Build a degenerate 1×1 `PorkchopGrid` for cross-star /
+    /// interstellar tests (GRA-367-E).  When `feasible` is `false`,
+    /// the card surfaces the "No feasible cross-system trajectory"
+    /// warning so the test can assert on the warn string.
+    fn degenerate_cross_star_grid(feasible: bool, dv_ms: f64, dest_name: &str) -> PorkchopGrid {
+        let cell = PorkchopCell {
+            t_dep_s: 0.0,
+            tof_s: 86_400.0 * 365.0 * 4.37, // 4.37 yr (α Cen TOF proxy)
+            total_dv_ms: dv_ms,
+            c3_departure: 0.0,
+            v_inf_arrival_ms: 0.0,
+            delta_v1_ms: dv_ms * 0.5,
+            delta_v2_ms: dv_ms * 0.5,
+            feasible,
+            origin_pos_au: DVec3::ZERO,
+            dest_pos_au: DVec3::new(4.37 * 63_241.077, 0.0, 0.0),
+            v_departure_ms: DVec3::ZERO,
+            v_arrival_ms: DVec3::new(dv_ms * 0.5, 0.0, 0.0),
+            transfer_orbit: None,
+        };
+        PorkchopGrid {
+            origin_name: "Sol".to_string(),
+            dest_name: dest_name.to_string(),
+            t_dep_bounds_s: (0.0, 0.0),
+            tof_bounds_s: (0.0, 86_400.0 * 365.0 * 4.37),
+            rendered_tof_bounds_s: (0.0, 86_400.0 * 365.0 * 4.37),
+            resolution: (1, 1),
+            cells: vec![cell],
+            min_cell: if feasible { Some((0, 0)) } else { None },
+            metric: PorkchopMetric::TotalDv,
+        }
+    }
+
+    /// ── Cross-star (Sol → α Centauri) ────────────────────────────────
+    /// Verifies the dispatcher routes the cross-system degenerate
+    /// grid through `build_cross_star_card` and that the surface
+    /// shows the destination name, distance subtitle, and ΔV / TOF
+    /// rows.  Mirrors the GRA-367-E data-layer shape.
+    #[test]
+    fn cross_star_card_snapshot_alpha_centauri() {
+        let grid = degenerate_cross_star_grid(true, 53_000.0, "α Centauri");
+        // Populate `cross_system_distance_ly` (the cross-star
+        // distance caption lives here now — see the dispatcher and
+        // the field's docstring).  Leave `star_system_snap` unset so
+        // we don't fall into the 🌌 interstellar header branch.
+        let sup = CardSupplement {
+            cross_system_grid: Some(grid.clone()),
+            cross_system_selected: Some((0, 0)),
+            cross_system_distance_ly: Some(4.37),
+            ..CardSupplement::default()
+        };
+        let card = build_selected_card(
+            &TransferPlan::default(),
+            Some(&sup),
+            test_fleet_info(),
+            |_dv| 0.0,
+        );
+        assert!(
+            card.title.contains("α Centauri"),
+            "title must include destination name, got {:?}",
+            card.title
+        );
+        assert!(
+            card.subtitle.as_deref().unwrap_or("").contains("4.37"),
+            "subtitle must include distance, got {:?}",
+            card.subtitle
+        );
+        assert_eq!(card.legs.len(), 1, "single leg for direct cross-star");
+        assert!(
+            card.warn.is_none(),
+            "feasible cell must not surface a warning, got {:?}",
+            card.warn
+        );
+        let dv_row = card
+            .rows
+            .iter()
+            .find(|r| r.label == "ΔV")
+            .expect("cross-star card must include ΔV row");
+        assert!(
+            dv_row.value.contains("53.00"),
+            "ΔV row must show 53.00 km/s, got {:?}",
+            dv_row.value
+        );
+    }
+
+    /// ── Interstellar (Sol → Sirius) ──────────────────────────────────
+    /// Verifies the dispatcher routes the star-system supplement
+    /// through `build_interstellar_card` (the 🌌 header) and that the
+    /// 8.6 ly distance surfaces in the subtitle.  The ΔV budget
+    /// warning fires because 8.6 ly × 12 km/s/ly ≈ 104 km/s ≫ 25 km/s
+    /// fleet budget.
+    #[test]
+    fn interstellar_card_snapshot_sirius() {
+        let sup = CardSupplement {
+            star_system_snap: Some((7, "Sirius".to_string(), 8.6)),
+            ..CardSupplement::default()
+        };
+        let card = build_selected_card(
+            &TransferPlan::default(),
+            Some(&sup),
+            test_fleet_info(),
+            |_dv| 0.0,
+        );
+        assert!(
+            card.title.contains("Sirius"),
+            "title must include Sirius, got {:?}",
+            card.title
+        );
+        assert!(
+            card.subtitle.as_deref().unwrap_or("").contains("8.60"),
+            "subtitle must include distance, got {:?}",
+            card.subtitle
+        );
+        assert!(
+            card.warn
+                .as_deref()
+                .unwrap_or("")
+                .contains("Interstellar navigation"),
+            "interstellar warn must explain point-and-burn, got {:?}",
+            card.warn
+        );
+        assert_eq!(card.legs.len(), 1);
+    }
+
+    /// ── Short-hop (Earth → Moon) ─────────────────────────────────────
+    /// Verifies the dispatcher routes a `ShortHop` `SelectionSource`
+    /// (set on `TransferPlan.source` by GRA-381's per-class mirror)
+    /// through the same per-class rendering as a directly-populated
+    /// grid.  We synthesise a 1×5 single-column grid (the RON
+    /// `short_hop` category override's resolution) and assert the
+    /// card title + structure.
+    #[test]
+    fn short_hop_card_snapshot_earth_moon() {
+        let n_rows = 5;
+        let cells: Vec<PorkchopCell> = (0..n_rows)
+            .map(|row| PorkchopCell {
+                t_dep_s: 0.0,
+                tof_s: 86_400.0 * 3.0 + (row as f64) * 86_400.0, // 3-7 day crescent
+                total_dv_ms: 3_200.0 + (row as f64) * 50.0,
+                c3_departure: 0.0,
+                v_inf_arrival_ms: 0.0,
+                delta_v1_ms: 3_100.0,
+                delta_v2_ms: 100.0,
+                feasible: true,
+                origin_pos_au: DVec3::new(6.571e-4, 0.0, 0.0), // LEO proxy
+                dest_pos_au: DVec3::new(0.00257, 0.0, 0.0),    // Lunar SMA
+                v_departure_ms: DVec3::ZERO,
+                v_arrival_ms: DVec3::ZERO,
+                transfer_orbit: None,
+            })
+            .collect();
+        let grid = PorkchopGrid {
+            origin_name: "Earth".to_string(),
+            dest_name: "Moon".to_string(),
+            t_dep_bounds_s: (0.0, 0.0),
+            tof_bounds_s: (86_400.0 * 3.0, 86_400.0 * 7.0),
+            rendered_tof_bounds_s: (86_400.0 * 3.0, 86_400.0 * 7.0),
+            resolution: (1, n_rows),
+            cells,
+            min_cell: Some((0, 0)),
+            metric: PorkchopMetric::TotalDv,
+        };
+        // The dispatcher's first arm reads `plan.selected_porkchop_cell` +
+        // `plan.porkchop_grid`; populating only `SelectionSource::ShortHop`
+        // on `plan.source` is not enough.  Mirror the production wiring
+        // (which anchors `selected_porkchop_cell` after building the
+        // grid) so the dispatcher routes through `build_porkchop_card`
+        // with the Earth→Moon grid.
+        let plan = TransferPlan {
+            source: SelectionSource::ShortHop { grid: grid.clone() },
+            porkchop_grid: Some(grid.clone()),
+            selected_porkchop_cell: Some((0, 0)),
+            ..TransferPlan::default()
+        };
+        // Empty supplement: short-hop class doesn't need cross_system_grid
+        // (that field routes to `build_cross_star_card` instead).
+        let sup = CardSupplement::default();
+        let card = build_selected_card(&plan, Some(&sup), test_fleet_info(), |_dv| 0.0);
+        assert!(
+            card.title.contains("Earth") && card.title.contains("Moon"),
+            "title must include origin + dest, got {:?}",
+            card.title
+        );
+        assert!(
+            card.title.contains("Porkchop Cell") || card.title.contains("Cross-star"),
+            "title must dispatch to the per-class surface, got {:?}",
+            card.title
+        );
+    }
+
+    /// ── Star-approach (Earth → Sol) ──────────────────────────────────
+    /// Verifies the dispatcher accepts a 20×5 parking-radius grid
+    /// and routes through the per-class surface.  Mirrors the
+    /// existing `build_star_approach_grid_sol_parking_0p3au_is_deterministic`
+    /// snapshot in `porkchop.rs` at the card surface.
+    #[test]
+    fn star_approach_card_snapshot_earth_sol() {
+        let cols = 20;
+        let rows = 5;
+        let cells: Vec<PorkchopCell> = (0..rows)
+            .flat_map(|row| {
+                (0..cols).map(move |col| PorkchopCell {
+                    t_dep_s: (col as f64) * 86_400.0 * 18.25, // 18.25-day col step
+                    tof_s: 86_400.0 * 30.0 * ((row + 1) as f64),
+                    total_dv_ms: 6_000.0 + (row as f64) * 4_000.0 + (col as f64) * 100.0,
+                    c3_departure: 0.0,
+                    v_inf_arrival_ms: 0.0,
+                    delta_v1_ms: 5_500.0,
+                    delta_v2_ms: 500.0,
+                    feasible: row == 2 && col == 10, // one feasible cell
+                    origin_pos_au: DVec3::new(1.0, 0.0, 0.0),
+                    dest_pos_au: DVec3::new(0.3, 0.0, 0.0),
+                    v_departure_ms: DVec3::ZERO,
+                    v_arrival_ms: DVec3::ZERO,
+                    transfer_orbit: None,
+                })
+            })
+            .collect();
+        let grid = PorkchopGrid {
+            origin_name: "Earth".to_string(),
+            dest_name: "Sol".to_string(),
+            t_dep_bounds_s: (0.0, 86_400.0 * 365.0),
+            tof_bounds_s: (86_400.0 * 30.0, 86_400.0 * 30.0 * 5.0),
+            rendered_tof_bounds_s: (86_400.0 * 30.0, 86_400.0 * 30.0 * 5.0),
+            resolution: (cols, rows),
+            cells,
+            min_cell: Some((10, 2)),
+            metric: PorkchopMetric::TotalDv,
+        };
+        // Dispatcher first arm reads `plan.porkchop_grid` +
+        // `plan.selected_porkchop_cell`; `SelectionSource::StarApproach`
+        // alone is not enough (same caveat as the short-hop test above).
+        let plan = TransferPlan {
+            source: SelectionSource::StarApproach { grid: grid.clone() },
+            porkchop_grid: Some(grid.clone()),
+            selected_porkchop_cell: Some((10, 2)),
+            ..TransferPlan::default()
+        };
+        let sup = CardSupplement::default();
+        let card = build_selected_card(&plan, Some(&sup), test_fleet_info(), |_dv| 0.0);
+        assert!(
+            card.title.contains("Earth") && card.title.contains("Sol"),
+            "title must include origin + dest, got {:?}",
+            card.title
+        );
     }
 }

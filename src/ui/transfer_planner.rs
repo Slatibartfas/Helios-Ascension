@@ -3,7 +3,10 @@ use super::*;
 use crate::fleets::orbital_mechanics::{
     calculate_cross_star_ballistic_options, sweep_gravity_assist_grid, GA_GRID_DEFAULT_RESOLUTION,
 };
-use crate::fleets::porkchop::{build_grid_for_body_target, build_rotating_buffer_for_body_target};
+use crate::fleets::porkchop::{
+    build_grid_for_body_target, build_rotating_buffer_for_body_target, build_short_hop_grid,
+    build_star_approach_grid, StarApproachInputs,
+};
 // GRA-367-E: pull `PorkchopGrid` into the module-level scope so the
 // `try_build_cross_system_hohmann` return type resolves without a
 // local `use` inside the function body.  Phase 5 emits a degenerate
@@ -619,6 +622,135 @@ pub fn should_build_porkchop_for_destination(
         // heliocentric orbits, so the porkchop math is the right tool.
         _ => true,
     }
+}
+
+/// Build a short-hop cislunar porkchop grid for a moon destination.
+///
+/// GRA-384 wire-in: when the destination is a moon (which the
+/// heliocentric Lambert path can't model — `r1 ≈ r2` collapses to a
+/// degenerate grid), the RON `category_overrides.short_hop.short_hop_options`
+/// knob picks the row count for a single-column per-row ΔV sweep via
+/// `build_short_hop_grid`.  Returns `None` if the parent body or its
+/// GM is missing so the caller falls back to the legacy 3-option row.
+///
+/// Parking-orbit radius on the parent body uses the parent's radius
+/// plus 200 km altitude as a LEO proxy, so r1 != r2 and the Hohmann
+/// TOF doesn't collapse to zero.
+fn short_hop_grid_for_moon(
+    body_query: &Query<(
+        Entity,
+        &CelestialBody,
+        &SpaceCoordinates,
+        Option<&KeplerOrbit>,
+        Option<&LogicalParent>,
+    )>,
+    _origin_entity: Entity,
+    dest_entity: Entity,
+    n_options: usize,
+) -> Option<PorkchopGrid> {
+    use crate::fleets::orbital_mechanics::AU_IN_METERS;
+    let parent_entity = body_query
+        .get(dest_entity)
+        .ok()
+        .and_then(|(_, _, _, _, lp)| lp)
+        .map(|lp| lp.0)?;
+    let parent_radius_km = body_query
+        .get(parent_entity)
+        .ok()
+        .map(|(_, b, _, _, _)| b.radius as f64)
+        .unwrap_or(6_371.0);
+    // LEO-style parking radius: parent radius + 200 km altitude.
+    let parking_radius_km = parent_radius_km + 200.0;
+    let r1_au = parking_radius_km * 1_000.0 / AU_IN_METERS;
+    let r2_au = body_query
+        .get(dest_entity)
+        .ok()
+        .and_then(|(_, _, _, ko, _)| ko.copied())
+        .map(|ko| ko.semi_major_axis)
+        .unwrap_or(r1_au);
+    let gm = body_query
+        .get(parent_entity)
+        .ok()
+        .map(|(_, b, _, _, _)| G_CONST * b.mass)
+        .unwrap_or(GM_SUN);
+    Some(build_short_hop_grid(r1_au, r2_au, gm, 0.0, n_options))
+}
+
+/// Build a star-approach porkchop grid for a star-approach destination.
+///
+/// GRA-384 wire-in: when the player picks a star-approach destination
+/// (Earth→Sol, etc.) the planner now produces a parking-radius × t_dep
+/// surface via `build_star_approach_grid` so the LGD's `PorkchopPanel`
+/// renders the player-usable ΔV/TOF band instead of the legacy
+/// single-cell Hohmann fallback.  Five log-spaced parking radii are
+/// sampled across `[min_radius_au, max_radius_au]` with the player's
+/// `selected_radius_au` always included so the picker value lands
+/// inside the visible grid (the `target_star_approach` snapshot is
+/// only used by `build_planned_transfer`, not by the grid itself).
+///
+/// Returns `None` if the star's GM cannot be resolved (defensive —
+/// `build_star_approach_grid` would otherwise panic on `sqrt(-GM)`).
+fn star_approach_grid_for_target(
+    body_query: &Query<(
+        Entity,
+        &CelestialBody,
+        &SpaceCoordinates,
+        Option<&KeplerOrbit>,
+        Option<&LogicalParent>,
+    )>,
+    fleet_body_entity: Entity,
+    star_entity: Entity,
+    selected_radius_au: f64,
+    min_radius_au: f64,
+    max_radius_au: f64,
+    sim_time_s: f64,
+) -> Option<PorkchopGrid> {
+    // Bail if the star lookup fails — without a CelestialBody we
+    // can't resolve `gm_star` or `dest_name`, so the grid builder
+    // would otherwise build against bogus inputs (the previous
+    // implementation silently substituted `GM_SUN` + `"Star"`).
+    // Returning `None` lets the caller fall through to the legacy
+    // 3-option row.  Equivalent fallback exists for the fleet-body
+    // lookup, but that's just a display-name cosmetic so we keep
+    // the `"Fleet"` default there.
+    let star = body_query.get(star_entity).ok().map(|(_, b, _, _, _)| b)?;
+    let gm_star = G_CONST * star.mass;
+    let dest_name = star.name.clone();
+    let origin_name = body_query
+        .get(fleet_body_entity)
+        .ok()
+        .map(|(_, b, _, _, _)| b.name.clone())
+        .unwrap_or_else(|| "Fleet".to_string());
+    // Five log-spaced parking radii in [min, max].  Include the
+    // selected radius verbatim (clamped to the bounds) so the row
+    // the player just picked shows up in the grid.  Linear-in-log
+    // spacing mirrors the RON `star_approach` category override's
+    // log-axis preset convention (see `build_short_hop_grid`).
+    let lo = min_radius_au.max(1.0e-4);
+    let hi = max_radius_au.max(lo * 1.01);
+    let clamped_selected = selected_radius_au.clamp(lo, hi);
+    let log_lo = lo.log10();
+    let log_hi = hi.log10();
+    // Always include 5 candidates: lo, hi, sel, and two log-spread
+    // points between lo and hi.  Sorted + deduped before return.
+    let mid_a = 10f64.powf(log_lo + (log_hi - log_lo) / 3.0);
+    let mid_b = 10f64.powf(log_lo + 2.0 * (log_hi - log_lo) / 3.0);
+    let mut parking_options_au = vec![lo, mid_a, mid_b, clamped_selected, hi];
+    parking_options_au.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    parking_options_au.dedup_by(|a, b| (*a - *b).abs() < 1.0e-9);
+    let inputs = StarApproachInputs {
+        origin_name,
+        dest_name,
+        gm_star,
+        parking_options_au,
+        origin_phase_at_epoch_rad: 0.0,
+        sim_time_s,
+        c3_ceiling_ms2: None,
+        t_dep_window_days: None,
+        resolution_t_dep: Some(60),
+        dest_radius_au: None,
+    };
+    Some(build_star_approach_grid(&inputs))
 }
 
 pub fn transfer_absolute_position(
@@ -3067,6 +3199,31 @@ pub(super) fn render_transfer_planner(
                                                     elapsed,
                                                 ))
                                             })()
+                                            } else if let Some(n) = porkchop_config
+                                                .category_overrides
+                                                .iter()
+                                                .find(|o| o.match_key == "short_hop")
+                                                .and_then(|o| o.short_hop_options)
+                                            {
+                                                // GRA-384 short-hop wire-in:
+                                                // `should_build_porkchop_for_destination`
+                                                // returns false for Moon/Ring so
+                                                // the heliocentric Lambert grid
+                                                // can't render, but the RON may
+                                                // configure a `short_hop` override
+                                                // with `short_hop_options: Some(n)`
+                                                // that produces a configurable
+                                                // single-column cislunar bar via
+                                                // `build_short_hop_grid`.  Falls
+                                                // through to the legacy 3-option
+                                                // row when the override is absent
+                                                // (`short_hop_options == None`).
+                                                short_hop_grid_for_moon(
+                                                    body_query,
+                                                    orbit.body,
+                                                    *entity,
+                                                    n,
+                                                )
                                             } else {
                                                 None
                                             };
@@ -3396,14 +3553,33 @@ pub(super) fn render_transfer_planner(
                                         fleet_ui_state.planned_transfer = None;
                                         fleet_ui_state.selected_option = 0;
                                         fleet_ui_state.selected_gravity_assist = None;
-                                        // Clear the cached porkchop grid so the
-                                        // GRA-159 rebuild path re-runs against
-                                        // the new arrival radius on the next
-                                        // frame.  The grid is invalidated here
-                                        // regardless of whether the radius
-                                        // changed; the rebuild itself is the
-                                        // GRA-159 wiring's responsibility.
-                                        fleet_ui_state.porkchop_grid = None;
+                                        // GRA-384 star-approach wire-in:
+                                        // populate the cached porkchop grid
+                                        // immediately so the LGD's
+                                        // `PorkchopPanel` renders the
+                                        // parking-radius × t_dep surface
+                                        // instead of falling through to
+                                        // the legacy 3-option row.  The
+                                        // parking-radius list is derived
+                                        // from the per-star bounds the
+                                        // picker already enforces
+                                        // (`min_radius_au`,
+                                        // `default_radius_au`,
+                                        // `max_radius_au`) so the
+                                        // selected row is always inside
+                                        // the visible grid.
+                                        fleet_ui_state.porkchop_grid =
+                                            star_approach_grid_for_target(
+                                                body_query,
+                                                orbit.body,
+                                                *entity,
+                                                *radius_au,
+                                                *min_radius_au,
+                                                *max_radius_au,
+                                                elapsed,
+                                            );
+                                        fleet_ui_state.porkchop_built_at_s = Some(elapsed);
+                                        fleet_ui_state.porkchop_built_for = Some(*entity);
                                         fleet_ui_state.selected_porkchop_cell = None;
                                     }
                                     // Inline DragValue for the parking radius.
@@ -3435,9 +3611,19 @@ pub(super) fn render_transfer_planner(
                                         // and a float epsilon flips the value.
                                         let clamped = r.clamp(*min_radius_au, *max_radius_au);
                                         if (clamped - *radius_au).abs() > f64::EPSILON {
-                                            // Store in UI state and invalidate
-                                            // the cached porkchop grid so the
-                                            // GRA-159 rebuild picks it up.
+                                            // Store in UI state and rebuild
+                                            // the star-approach grid against
+                                            // the new parking radius so the
+                                            // panel reflects the change on
+                                            // the same frame.  The legacy
+                                            // "invalidate and let the
+                                            // deferred build path pick it up"
+                                            // pattern would have shown a
+                                            // blank panel for one frame —
+                                            // GRA-384 wires the rebuild here
+                                            // so the player sees the new
+                                            // parking radius take effect
+                                            // immediately.
                                             fleet_ui_state.target_star_approach =
                                                 Some((*entity, clamped));
                                             if fleet_ui_state.target_body == Some(*entity) {
@@ -3446,7 +3632,18 @@ pub(super) fn render_transfer_planner(
                                                 fleet_ui_state.selected_option = 0;
                                                 fleet_ui_state.selected_gravity_assist = None;
                                             }
-                                            fleet_ui_state.porkchop_grid = None;
+                                            fleet_ui_state.porkchop_grid =
+                                                star_approach_grid_for_target(
+                                                    body_query,
+                                                    orbit.body,
+                                                    *entity,
+                                                    clamped,
+                                                    *min_radius_au,
+                                                    *max_radius_au,
+                                                    elapsed,
+                                                );
+                                            fleet_ui_state.porkchop_built_at_s = Some(elapsed);
+                                            fleet_ui_state.porkchop_built_for = Some(*entity);
                                             fleet_ui_state.selected_porkchop_cell = None;
                                         }
                                     }
@@ -5373,6 +5570,61 @@ pub(super) fn render_transfer_planner(
                     .italics()
                     .color(theme::AMBER),
                 );
+            }
+
+            // GRA-384: render the unified `build_selected_card` widget
+            // above the Execute button for every per-class selection
+            // (interplanetary porkchop, gravity-assist candidates,
+            // cross-star degenerate grid, interstellar star-system,
+            // short-hop bar, star-approach parking-radius grid).  The
+            // card source-of-truth is `transfer_plan.source` plus the
+            // `CardSupplement` carrying UI-owned fields that have not
+            // yet migrated onto `SelectionSource` (GRA-381 is the
+            // dispatcher that completes the migration; until then the
+            // supplement bridges the gap).  Replaces the per-class
+            // header rows the previous GRA-382 cleanup deferred.
+            //
+            // The `transfer_plan` resource is borrowed mutably for the
+            // `sync_plan_from_ui` mirror earlier in this function, so
+            // we reborrow it as `&*transfer_plan` here to share the
+            // same underlying state with the card builder (which takes
+            // `&TransferPlan`).  `TransferPlan` is not `Clone` (it's a
+            // resource), so the reborrow is the cheapest path that
+            // doesn't require a full clone of the porkchop grid.
+            {
+                let card_supplement = crate::ui::transfer_planner_card::CardSupplement {
+                    gravity_assist_candidates: fleet_ui_state.gravity_assist_candidates.clone(),
+                    selected_gravity_assist: fleet_ui_state.selected_gravity_assist,
+                    cross_system_grid: fleet_ui_state.cross_system_grid.clone(),
+                    cross_system_selected: None,
+                    // Source the system-barycentric distance from
+                    // `star_system_snap` (the only place that builds
+                    // `cross_system_grid`).  When the target is a
+                    // star system — cross-star or interstellar —
+                    // both fields carry the same `distance_ly`.  The
+                    // dispatcher reads `cross_system_distance_ly`
+                    // for the cross-star subtitle and
+                    // `star_system_snap` for the 🌌 header.
+                    cross_system_distance_ly: star_system_snap.as_ref().map(|(_, _, ly)| *ly),
+                    star_system_snap: star_system_snap
+                        .as_ref()
+                        .map(|(id, name, ly)| (*id, name.clone(), *ly)),
+                    frame_caption: None,
+                };
+                let dry_mass_t = fleet.ships.iter().map(|s| s.dry_mass_t as f64).sum::<f64>();
+                let wet_mass_t = dry_mass_t + fleet.total_fuel_t() as f64;
+                let fleet_info = crate::ui::transfer_planner_card::FleetInfo {
+                    max_delta_v_ms: fleet_max_dv,
+                    wet_mass_t,
+                };
+                let card = crate::ui::transfer_planner_card::build_selected_card(
+                    &*transfer_plan,
+                    Some(&card_supplement),
+                    fleet_info,
+                    |dv_ms| f64::from(fleet.total_fuel_cost_for_dv(dv_ms)),
+                );
+                crate::ui::transfer_planner_card::render_card(ui, &card);
+                ui.add_space(4.0);
             }
 
             // Execute Transfer button with ETA on the same row.
