@@ -14,7 +14,7 @@ use helios_ascension::fleets::porkchop::{PorkchopCell, PorkchopGrid, PorkchopMet
 use helios_ascension::ui::transfer_planner_card::{
     build_selected_card, frame_caption, CardSupplement, CardWidget, FleetInfo,
 };
-use helios_ascension::ui::{CrossSystemCell, CrossSystemGrid, GravityAssistEntry};
+use helios_ascension::ui::GravityAssistEntry;
 use std::fs;
 use std::path::PathBuf;
 
@@ -175,23 +175,31 @@ fn snapshot_interstellar_card() {
 
 #[test]
 fn snapshot_cross_star_card() {
-    let grid = CrossSystemGrid {
-        destination_system_id: 2,
-        destination_name: "Proxima".to_string(),
-        distance_ly: 4.24,
-        cols: 1,
-        rows: 1,
-        t_dep_start_s: 0.0,
-        t_dep_step_s: 1.0,
-        tof_start_s: 100.0 * 365.25 * 86_400.0,
-        tof_step_s: 1.0,
-        cells: vec![CrossSystemCell {
-            delta_v_ms: 35_000.0,
-            transfer_time_s: 120.0 * 365.25 * 86_400.0,
-            phase_error_deg: 12.0,
-            is_feasible: true,
+    let tof_min = 100.0 * 365.25 * 86_400.0;
+    let tof_max = 120.0 * 365.25 * 86_400.0;
+    let grid = PorkchopGrid {
+        origin_name: "Sol".to_string(),
+        dest_name: "Proxima".to_string(),
+        t_dep_bounds_s: (0.0, 0.0),
+        tof_bounds_s: (tof_min, tof_max),
+        rendered_tof_bounds_s: (tof_min, tof_max),
+        resolution: (1, 1),
+        cells: vec![PorkchopCell {
+            t_dep_s: 0.0,
+            tof_s: tof_max,
+            total_dv_ms: 35_000.0,
+            c3_departure: 0.0,
+            v_inf_arrival_ms: 0.0,
+            delta_v1_ms: 17_500.0,
+            delta_v2_ms: 17_500.0,
+            feasible: true,
+            origin_pos_au: DVec3::ZERO,
+            dest_pos_au: DVec3::ZERO,
+            v_departure_ms: DVec3::ZERO,
+            v_arrival_ms: DVec3::ZERO,
         }],
-        recommended_cell: Some((0, 0)),
+        min_cell: Some((0, 0)),
+        metric: PorkchopMetric::TotalDv,
     };
     let plan = TransferPlan::default();
     let sup = CardSupplement {
