@@ -3,14 +3,13 @@ use super::*;
 use crate::fleets::orbital_mechanics::{
     calculate_cross_star_ballistic_options, sweep_gravity_assist_grid, GA_GRID_DEFAULT_RESOLUTION,
 };
+use crate::fleets::porkchop::{build_grid_for_body_target, build_rotating_buffer_for_body_target};
 // GRA-367-E: pull `PorkchopGrid` into the module-level scope so the
 // `try_build_cross_system_hohmann` return type resolves without a
 // local `use` inside the function body.  Phase 5 emits a degenerate
 // `PorkchopGrid` (1×1 cells) for the cross-system path; Phase 1 will
 // later consume the same shape.
-use crate::fleets::porkchop::{
-    build_grid_for_body_target, build_rotating_buffer_for_body_target, PorkchopGrid,
-};
+use crate::fleets::porkchop::PorkchopGrid;
 // GRA-343: explicit import — `super::*` does not bring the new
 // resource type from `crate::fleets` into this module's namespace
 // for fn-signature type aliases.  `InterstellarPropulsionPolicy` is
