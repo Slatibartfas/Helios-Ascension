@@ -1134,6 +1134,13 @@ pub struct StarApproachInputs {
     /// Column count of the t_dep sweep.  Defaults to `60` (the RON
     /// `star_approach.resolution_t_dep`).
     pub resolution_t_dep: Option<usize>,
+    /// Destination radius (AU).  Defaults to the solar-corona proxy
+    /// (`0.00465 AU ≈ R_SUN`); callers passing a per-body photosphere
+    /// override produce a solar-Oberth variant.  Must be > 0 — the
+    /// `solve_lambert_transfer` guard at `orbital_mechanics.rs:732`
+    /// short-circuits to `None` for `r2_m <= 0.0`, which would mark
+    /// every cell infeasible.
+    pub dest_radius_au: Option<f64>,
 }
 
 /// Build a star-approach grid for the planet-→-parent-star transfer.
@@ -1157,18 +1164,25 @@ pub fn build_star_approach_grid(inputs: &StarApproachInputs) -> PorkchopGrid {
     let t_dep_max_s = inputs.sim_time_s + half_window_s;
     let t_dep_window_s = (t_dep_max_s - t_dep_min_s).max(0.0);
 
-    // Destination radius at the star centre.  Phase 6 collides at the
-    // star; a future solar-Oberth variant (periapsis above the
-    // photosphere) can read this from inputs without a signature
-    // change.
-    const R_DEST_AU: f64 = 0.0;
+    // Destination radius at the star's photospheric surface.  Phase 6
+    // burns into the photosphere (solar-Oberth); the previous constant
+    // `0.0` made `solve_lambert_transfer` short-circuit to `None`
+    // (the `r2_m <= 0.0` guard at orbital_mechanics.rs:732) so every
+    // cell was infeasible and the snapshot test panicked on
+    // `.expect("Phase 6 grid must have a min cell")`.  Solar radius
+    // in AU is `R_SUN_M / AU_IN_METERS ≈ 6.957e8 / 1.496e11 ≈ 0.00465`.
+    // A future variant can pass `dest_radius_au` from inputs without a
+    // signature change (the const-fallback below resolves to the
+    // stellar-corona proxy for the standard "burn into the photosphere"
+    // transfer).
+    let r_dest_au = inputs.dest_radius_au.unwrap_or(0.00465);
 
     // Per-row Hohmann TOFs (parking-orbit dominates the geometry).
     let row_tof_s: Vec<f64> = inputs
         .parking_options_au
         .iter()
         .map(|&parking_au| {
-            let a_au = ((parking_au + R_DEST_AU) * 0.5).max(1.0e-3);
+            let a_au = ((parking_au + r_dest_au) * 0.5).max(1.0e-3);
             let a_m = a_au * AU_IN_METERS;
             std::f64::consts::PI * (a_m.powi(3) / inputs.gm_star).sqrt()
         })
@@ -3343,6 +3357,7 @@ mod planner_wiring_tests {
             c3_ceiling_ms2: None,
             t_dep_window_days: None,
             resolution_t_dep: Some(20),
+            dest_radius_au: None,
         };
 
         let grid_a = build_star_approach_grid(&inputs);
@@ -3368,7 +3383,7 @@ mod planner_wiring_tests {
         // Per-row TOF locks the (parking × t_dep) shape.
         for (row, &parking_au) in inputs.parking_options_au.iter().enumerate() {
             let cell = &grid_a.cells[row * grid_a.resolution.0];
-            let a_m = ((parking_au + 0.0) * 0.5).max(1.0e-3) * AU_IN_METERS;
+            let a_m = ((parking_au + 0.00465) * 0.5).max(1.0e-3) * AU_IN_METERS;
             let expected_tof_s = std::f64::consts::PI * (a_m.powi(3) / GM_SUN).sqrt();
             assert!(
                 (cell.tof_s - expected_tof_s).abs() < 1e-6,
