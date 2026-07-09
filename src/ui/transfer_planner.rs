@@ -5171,8 +5171,6 @@ pub(super) fn render_transfer_planner(
                 render_card(ui, &card);
                 ui.add_space(4.0);
             }
-
-
             let btn_label = if is_course_correction {
                 if abort_cost_t > 0.01 {
                     let abort_dv_kms = (fleet_max_dv - dv_after_abort) / 1_000.0;
@@ -5231,9 +5229,7 @@ pub(super) fn render_transfer_planner(
                     let btn =
                         egui::Button::new(egui::RichText::new(&btn_label).size(13.0).strong());
                     let resp = ui.add_enabled(
-                        !insufficient
-                            && sel_affordable_with_abort
-                            && !is_interstellar,
+                        !insufficient && sel_affordable_with_abort && !is_interstellar,
                         btn,
                     );
                     let resp = if is_interstellar {
