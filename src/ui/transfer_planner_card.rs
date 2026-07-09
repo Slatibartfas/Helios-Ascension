@@ -815,7 +815,9 @@ mod gra_384_snapshot_tests {
             ..TransferPlan::default()
         };
         // Empty supplement: short-hop class doesn't need cross_system_grid
-        // (that field routes to
+        // (that field routes to `build_cross_star_card` instead).
+        let sup = CardSupplement::default();
+        let card = build_selected_card(&plan, Some(&sup), test_fleet_info(), |_dv| 0.0);
         assert!(
             card.title.contains("Earth") && card.title.contains("Moon"),
             "title must include origin + dest, got {:?}",
