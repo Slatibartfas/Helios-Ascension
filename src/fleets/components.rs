@@ -4,6 +4,7 @@ use super::orbital_mechanics::TransferOption;
 use super::porkchop::PorkchopGrid;
 use super::types::{FleetRole, PropulsionType, ShipClass};
 use crate::astronomy::KeplerOrbit;
+use crate::ui::GravityAssistEntry;
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
@@ -1122,21 +1123,61 @@ impl InterstellarPropulsionPolicy {
 // that wants to migrate early can read/write `TransferPlan` directly
 // and call the sync fn around its mutation site.
 
-/// Source of the active transfer selection.  Phase 1 ships only the
-/// `Empty` + `Porkchop` variants; Phases 3-6 populate the rest as
-/// each algorithm migrates.
+/// Source of the active transfer selection.
+///
+/// Phase 1 (GRA-367-A) shipped `Empty` + `Porkchop`.  GRA-367-B (Phase 2)
+/// shipped the unified card builder.  GRA-382 (Phase 5 renderer cleanup)
+/// widens this enum to mirror every per-class selection surface so the
+/// renderer can drop its `is_interstellar` / `is_inter_star_body_transfer`
+/// branches.  The `TransferPlan.rebuild_source_from_mirror` helper keeps
+/// the variant in sync with the mirrored `TransferPlan` fields so legacy
+/// `FleetUiState` writers continue to drive the card surface through the
+/// same `plan.source` discriminant.
+///
+/// GRA-381 (Phase-6 dispatcher + FrameOverride widget) is the next child
+/// to consume the new variants in `transfer_planner::render_transfer_planner`.
 #[derive(Debug, Clone, Default)]
 pub enum SelectionSource {
     /// No active selection.
     #[default]
     Empty,
     /// A heliocentric porkchop grid is the active selection surface
-    /// (`PorkchopGrid` with a `(col, row)` cursor).  Phase 1 only
-    /// builds this variant — the other classes still render through
-    /// their legacy UIs while their Phase-3/5/6 children land.
+    /// (`PorkchopGrid` with a `(col, row)` cursor).
     Porkchop {
         grid: PorkchopGrid,
         selected: Option<(usize, usize)>,
+    },
+    /// Interstellar target: a fixed barycentric position outside the
+    /// player's current system.  `distance_ly` is the heliocentric
+    /// distance to the destination star (1–11 ly typical).
+    Interstellar { system_id: usize, distance_ly: f32 },
+    /// Binary cross-star transfer between two stellar hosts.  The
+    /// system-barycentric frame applies; the renderer uses
+    /// `origin_star` / `dest_star` to label the title row.
+    Binary {
+        origin_star: Entity,
+        dest_star: Entity,
+    },
+    /// Short-hop porkchop grid (Phase 3 / GRA-367-C).  Mirrors the
+    /// grid stored on `FleetUiState.short_hop_grid` after the
+    /// `transfer_plan.rebuild_source_from_mirror()` call.
+    ShortHop { grid: PorkchopGrid },
+    /// Star-approach porkchop grid (Phase 6 / GRA-367-F).  1×N scan
+    /// of parking-radius × TOF.
+    StarApproach { grid: PorkchopGrid },
+    /// Legacy 3-option row (Hohmann / moderate / fast).  Mirrors
+    /// `FleetUiState.computed_options` + `selected_option`.
+    Hohmann3Option {
+        options: Vec<TransferOption>,
+        selected: usize,
+    },
+    /// Gravity-assist candidates.  Mirrors `FleetUiState.gravity_assist_candidates`
+    /// + `selected_gravity_assist`.  When `selected` is `None` the renderer
+    /// shows the summary card; when `Some(idx)` it shows the per-candidate
+    /// card.
+    GravityAssist {
+        candidates: Vec<GravityAssistEntry>,
+        selected: Option<usize>,
     },
 }
 
