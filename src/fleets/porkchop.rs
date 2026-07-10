@@ -104,6 +104,68 @@ pub struct PorkchopGrid {
     pub metric: PorkchopMetric,
 }
 
+/// Per-gravity-assist overlay data for the main `PorkchopPanel`.
+///
+/// GRA-385 (operator HB-22): the planner used to render GA candidates as a
+/// separate collapsible "Gravity Assists" list, each with its own tiny
+/// (20×15) sub-grid that the player had to expand before they could even
+/// see the candidate's `(t_dep, tof)` band.  Two usability problems
+/// followed: (1) the sub-grids couldn't be clicked to select — only the
+/// "Use Gravity Assist" button underneath worked, so the player couldn't
+/// pick a specific `(t_dep, tof)` window for the assist; (2) the sub-grid
+/// colormap was a 4-stop discrete ramp (cheap/mid/warm/hot) instead of
+/// the main porkchop's continuous TWP log-scale palette, so the same ΔV
+/// showed as a different colour depending on which panel rendered it.
+///
+/// The overlay representation solves both at once: the planner computes
+/// one `GravityAssistOverlay` per candidate, mapping each feasible GA
+/// cell `(t_dep_s, tof_s)` onto a `(main_col, main_row)` in the main
+/// porkchop's coordinate system, and the panel paints those cells with
+/// the candidate's themed colour + a hatched diagonal pattern so the
+/// assist cells are visually distinct from the direct cells underneath.
+/// Click-to-select falls out of the same data path — the panel's click
+/// handler checks the overlays first and routes the click to GA
+/// selection if it lands inside an overlay cell, or to direct selection
+/// otherwise.  No more standalone panel needed.
+#[derive(Clone, Debug)]
+pub struct GravityAssistOverlay {
+    /// Index into `fleet_ui_state.gravity_assist_candidates`.  Used by
+    /// the planner to translate the panel's selection output back into
+    /// `fleet_ui_state.selected_gravity_assist = Some(idx)`.
+    pub candidate_idx: usize,
+    /// Display name of the flyby body (e.g. "Mars", "Ceres").  Shown in
+    /// the legend at the bottom of the panel.
+    pub body_name: String,
+    /// `true` if the assist saves ΔV relative to the direct transfer at
+    /// the best cell; `false` if the assist is a sub-optimal
+    /// (positive-extra-ΔV) option.  Drives the legend's badge text.
+    pub beneficial: bool,
+    /// `total_dv_ms` at the cheapest feasible cell, used for the legend
+    /// badge ("via Mars — 4.32 km/s") and the high-contrast highlight
+    /// on the best cell.
+    pub best_dv_ms: f64,
+    /// `(col, row)` of the cheapest feasible cell, projected into the
+    /// **main grid's** `(col, row)` coordinate system.  Used by the
+    /// panel to render a high-contrast outline on the "best window" tile
+    /// so the player can spot it at a glance.
+    pub best_main_cell: Option<(usize, usize)>,
+    /// `(col, row)` of every feasible GA cell, projected into the main
+    /// grid's coordinate system.  Cells outside the main grid's bounds
+    /// are clamped to the nearest edge cell rather than dropped, so the
+    /// overlay still shows "the assist is reachable from this band".
+    pub cells: Vec<(usize, usize)>,
+    /// Theme colour for the overlay fill.  `None` means the panel picks
+    /// from the candidate index (Mars → AMBER, Ceres → TEAL, fallback
+    /// to EP_TEAL for >2 candidates — the same palette the
+    /// `gravity_assist_candidates` summary block used to use).
+    pub color: Option<Color32>,
+}
+
+// Color32 is from bevy_egui; allow importing here without breaking the
+// data-layer purity of the rest of `porkchop.rs` (no UI imports above
+// this line).
+use bevy_egui::egui::Color32;
+
 /// Inputs to `build_porkchop_grid`.  Caller resolves origin/dest
 /// heliocentric orbits to absolute mean anomaly / mean motion so the
 /// builder is free of Bevy queries and stays unit-testable.
@@ -1080,7 +1142,15 @@ pub fn build_short_hop_grid(
     PorkchopGrid {
         origin_name: String::new(),
         dest_name: String::new(),
-        t_dep_bounds_s: (0.0, 0.0),
+        // The panel's rotating-buffer scroll math divides by
+        // `t_dep_bounds_s.1 - t_dep_bounds_s.0`; a zero span (the
+        // previous `(0.0, 0.0)`) would make `col_step_s = 0` and the
+        // UV-window calculation produce `±infinity`, which the GPU
+        // silently renders as a fully-clipped panel.  Use a 1-second
+        // nominal span — the panel never actually reads the absolute
+        // value (the rotating buffer offsets everything by `shift_s`),
+        // it just needs a non-zero denominator.
+        t_dep_bounds_s: (0.0, 1.0),
         tof_bounds_s: (tof_min_s, tof_max_s),
         rendered_tof_bounds_s,
         resolution: (1, n),

@@ -1,8 +1,6 @@
 use super::time::format_timestamp_date_time;
 use super::*;
-use crate::fleets::orbital_mechanics::{
-    calculate_cross_star_ballistic_options, sweep_gravity_assist_grid, GA_GRID_DEFAULT_RESOLUTION,
-};
+use crate::fleets::orbital_mechanics::calculate_cross_star_ballistic_options;
 use crate::fleets::porkchop::{
     build_grid_for_body_target, build_rotating_buffer_for_body_target, build_short_hop_grid,
     build_star_approach_grid, StarApproachInputs,
@@ -1565,178 +1563,155 @@ fn planner_frame_label(frame: PlannerTransferFrame) -> String {
     }
 }
 
-/// Render a single GA candidate's `(t_dep, tof)` sub-grid as a
-/// collapsible mini-heatmap inside the Gravity Assists panel (GRA-367
-/// Phase 4).  The grid is built lazily via
-/// [`crate::fleets::orbital_mechanics::sweep_gravity_assist_grid`] the
-/// first time the user expands the candidate's "GA Grid" header, and
-/// painted as a `cols × rows` array of cell rectangles whose fill
-/// encodes `feasible` (filled greenish-blue when feasible, dim grey
-/// when not) and `total_dv_ms` (darker green = cheaper, yellow =
-/// mid, red = expensive — same ΔV→colour convention as the main
-/// porkchop colormap).  The minimum-ΔV feasible cell is highlighted
-/// with a white border so the player can read the "best window" at a
-/// glance.
+/// Build a [`PorkchopGrid`] for the given gravity-assist candidate,
+/// ready to feed into [`super::porkchop_panel::porkchop_panel`].  The
+/// grid is laid out `(t_dep, tof)` with `t_dep` spanning a 60-day
+/// forward window from `sim_time_s` (per the GRA-367 design doc)
+/// and `tof` spanning `0.4x -> 2.5x` Hohmann time for the
+/// origin->destination pair.  Resolution is the RON `gravity_assist`
+/// category override (20x15 cells by default; 300 cells total ---
+/// well under the 5000-cell validator ceiling).
 ///
-/// Kept deliberately minimal — does **not** wire a click-to-select
-/// pipeline yet.  Phase 5 / GRA-367-E will fold the GA sub-grid into
-/// the same selectable grid renderer as the main porkchop; for now the
-/// sub-grid is read-only and surfaces the cheapest `(t_dep, tof)` pair
-/// as a plain text readout below the heatmap.
-#[allow(clippy::too_many_arguments)]
-fn render_gravity_assist_sub_grid(
-    ui: &mut egui::Ui,
-    _flyby_entity: Entity,
-    flyby_radius_au: f64,
-    origin_orbit: &KeplerOrbit,
-    flyby_orbit: &KeplerOrbit,
-    dest_orbit: &KeplerOrbit,
-    gm: f64,
-    gm_planet: f64,
-    min_periapsis_au: f64,
+/// The returned grid has its own absolute-coord anchor in
+/// `t_dep_bounds_s` so the panel's rotating-buffer scroll math sees a
+/// non-degenerate span and the rotating-buffer re-anchor in the
+/// planner tracks a meaningful shift.  The GA grid's `(t_dep, tof)`
+/// values are referenced by the click handler when the player picks
+/// a window inside the GA view.
+fn build_gravity_assist_display_grid(
+    candidate: &crate::ui::GravityAssistEntry,
+    body_query: &Query<(
+        Entity,
+        &CelestialBody,
+        &SpaceCoordinates,
+        Option<&KeplerOrbit>,
+        Option<&LogicalParent>,
+    )>,
+    origin_body: Entity,
+    target_body: Entity,
     sim_time_s: f64,
-) {
-    use crate::fleets::orbital_mechanics::hohmann_transfer;
+) -> crate::fleets::porkchop::PorkchopGrid {
+    use crate::fleets::orbital_mechanics::{
+        hohmann_transfer, sweep_gravity_assist_grid, AU_IN_METERS, GA_GRID_DEFAULT_RESOLUTION,
+        GM_SUN, G_CONST,
+    };
+    use crate::fleets::porkchop::PorkchopCell;
 
-    // Hohmann baseline (r1 → r2) for the tof axis range.
-    // `hohmann_transfer` returns `(dep_dv, arr_dv, tof, sma, ecc)`;
-    // `tof` is the half-period of the Hohmann ellipse — i.e. the
-    // canonical "fastest" time-of-flight.  We expand the tof axis
-    // ±2.5× around it so the player sees both faster (high-thrust)
-    // and slower (more efficient) windows, matching the short-hop
-    // RON's `tof_max_hohmann_factor` of 2.5.
+    // Bail with a degenerate 1x1 grid if we can't resolve the orbit
+    // chain.  The panel handles a degenerate grid by drawing empty
+    // cells (it never crashes on `cols = 0`) so this is a safe
+    // fallback when the candidate's host star / planet chain is
+    // missing in the body query.
+    let Some(origin_orbit) = heliocentric_orbit_for_body(origin_body, body_query) else {
+        return PorkchopGrid {
+            origin_name: String::new(),
+            dest_name: String::new(),
+            t_dep_bounds_s: (0.0, 1.0),
+            tof_bounds_s: (0.0, 1.0),
+            rendered_tof_bounds_s: (0.0, 1.0),
+            resolution: (1, 1),
+            cells: vec![],
+            min_cell: None,
+            metric: crate::fleets::porkchop::PorkchopMetric::TotalDv,
+        };
+    };
+    let Some(target_orbit) = heliocentric_orbit_for_body(target_body, body_query) else {
+        return PorkchopGrid {
+            origin_name: String::new(),
+            dest_name: String::new(),
+            t_dep_bounds_s: (0.0, 1.0),
+            tof_bounds_s: (0.0, 1.0),
+            rendered_tof_bounds_s: (0.0, 1.0),
+            resolution: (1, 1),
+            cells: vec![],
+            min_cell: None,
+            metric: crate::fleets::porkchop::PorkchopMetric::TotalDv,
+        };
+    };
+    let Some(flyby_orbit) = heliocentric_orbit_for_body(candidate.flyby_entity, body_query) else {
+        return PorkchopGrid {
+            origin_name: String::new(),
+            dest_name: String::new(),
+            t_dep_bounds_s: (0.0, 1.0),
+            tof_bounds_s: (0.0, 1.0),
+            rendered_tof_bounds_s: (0.0, 1.0),
+            resolution: (1, 1),
+            cells: vec![],
+            min_cell: None,
+            metric: crate::fleets::porkchop::PorkchopMetric::TotalDv,
+        };
+    };
+
     let r1_au = origin_orbit.semi_major_axis;
-    let r2_au = dest_orbit.semi_major_axis;
-    let (_, _, hohmann_tof_s, _, _) = hohmann_transfer(r1_au, r2_au, gm);
-    let tof_min_s = hohmann_tof_s * 0.4;
-    let tof_max_s = hohmann_tof_s * 2.5;
-    let dep_window_s = 60.0 * 86_400.0; // ±60-day dep window per the design doc.
+    let r2_au = target_orbit.semi_major_axis;
+    let r_fly_au = candidate.option.flyby_radius_au;
+    let central_gm = find_host_star(origin_body, body_query)
+        .map(|(_, mass)| G_CONST * mass)
+        .unwrap_or(GM_SUN);
+    let flyby_gm = body_query
+        .get(candidate.flyby_entity)
+        .ok()
+        .map(|(_, b, _, _, _)| G_CONST * b.mass)
+        .unwrap_or(0.0);
+    let min_periapsis_au = body_query
+        .get(candidate.flyby_entity)
+        .ok()
+        .map(|(_, b, _, _, _)| (b.radius as f64 * 3.0) / AU_IN_METERS)
+        .unwrap_or(0.001);
 
-    let cells = sweep_gravity_assist_grid(
+    // Mirror the GRA-367 design-doc dep_window and tof_bounds the
+    // legacy sub-grid renderer used: 60-day forward window for t_dep,
+    // 0.4x -> 2.5x Hohmann for tof.
+    let dep_window_s = 60.0 * 86_400.0;
+    let (_, _, hohmann_tof_s, _, _) = hohmann_transfer(r1_au, r2_au, central_gm);
+    let tof_min_s = (hohmann_tof_s * 0.4).max(86_400.0 * 5.0);
+    let tof_max_s = hohmann_tof_s * 2.5;
+
+    let cells: Vec<PorkchopCell> = sweep_gravity_assist_grid(
         r1_au,
-        flyby_radius_au,
+        r_fly_au,
         r2_au,
-        gm,
-        gm_planet,
+        central_gm,
+        flyby_gm,
         min_periapsis_au,
-        origin_orbit,
-        flyby_orbit,
-        dest_orbit,
+        &origin_orbit,
+        &flyby_orbit,
+        &target_orbit,
         (0.0, dep_window_s),
-        (tof_min_s.max(86_400.0 * 5.0), tof_max_s),
+        (tof_min_s, tof_max_s),
         GA_GRID_DEFAULT_RESOLUTION,
         sim_time_s,
     );
 
-    let (cols, rows) = GA_GRID_DEFAULT_RESOLUTION;
-    let feasible_count = cells.iter().filter(|c| c.feasible).count();
+    let (cols, _rows) = GA_GRID_DEFAULT_RESOLUTION;
     let min_cell_idx = cells
         .iter()
         .enumerate()
-        .filter(|(_, c)| c.feasible)
+        .filter(|(_, c)| c.feasible && c.total_dv_ms.is_finite())
         .min_by(|(_, a), (_, b)| {
             a.total_dv_ms
                 .partial_cmp(&b.total_dv_ms)
                 .unwrap_or(std::cmp::Ordering::Equal)
         })
-        .map(|(i, _)| i);
+        .map(|(i, _)| (i % cols, i / cols));
 
-    // 220-px wide canvas, square cells (col_w = row_h = canvas/cols).
-    let canvas_w = 220.0_f32;
-    let canvas_h = canvas_w * (rows as f32) / (cols as f32);
-    let (rect, _) = ui.allocate_exact_size(egui::vec2(canvas_w, canvas_h), egui::Sense::hover());
-    let painter = ui.painter_at(rect);
-
-    // Pre-compute ΔV→colour mapping (log scale, blue→cyan→green→
-    // yellow→orange→red) so the heatmap matches the main porkchop
-    // convention.  Infeasible cells render dim grey so the
-    // "no-assist-at-this-geometry" rows are visually distinct from
-    // the cheap basin.
-    let finite_dvs: Vec<f64> = cells
-        .iter()
-        .filter(|c| c.feasible && c.total_dv_ms.is_finite())
-        .map(|c| c.total_dv_ms)
-        .collect();
-    let (dv_lo, dv_hi) = if finite_dvs.is_empty() {
-        (1.0, 10.0)
-    } else {
-        let lo = finite_dvs.iter().cloned().fold(f64::INFINITY, f64::min);
-        let hi = finite_dvs.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-        if (hi - lo).abs() < 1e-3 {
-            (lo, lo + 1.0)
-        } else {
-            (lo, hi)
-        }
-    };
-    let cell_w = rect.width() / cols as f32;
-    let cell_h = rect.height() / rows as f32;
-    for (i, cell) in cells.iter().enumerate() {
-        let col = i % cols;
-        let row = i / cols;
-        let x = rect.left() + col as f32 * cell_w;
-        let y = rect.top() + row as f32 * cell_h;
-        let cell_rect = egui::Rect::from_min_size(egui::pos2(x, y), egui::vec2(cell_w, cell_h));
-        let color = if cell.feasible && cell.total_dv_ms.is_finite() {
-            let t = ((cell.total_dv_ms - dv_lo) / (dv_hi - dv_lo)).clamp(0.0, 1.0) as f32;
-            // 4-stop ramp: green (cheap) → yellow → orange → red (expensive).
-            if t < 0.25 {
-                theme::HEATMAP_CHEAP
-            } else if t < 0.5 {
-                theme::HEATMAP_MID
-            } else if t < 0.75 {
-                theme::HEATMAP_WARM
-            } else {
-                theme::HEATMAP_HOT
-            }
-        } else {
-            theme::HEATMAP_INFEASIBLE
-        };
-        painter.rect_filled(cell_rect, 0.0, color);
+    PorkchopGrid {
+        origin_name: String::new(),
+        dest_name: candidate.option.body_name.clone(),
+        // Anchor the t_dep window centred on `sim_time_s` so the
+        // panel's rotating-buffer scroll math sees a sensible shift
+        // and the "Now" tick lands at the leftmost column.
+        t_dep_bounds_s: (
+            sim_time_s - dep_window_s * 0.5,
+            sim_time_s + dep_window_s * 0.5,
+        ),
+        tof_bounds_s: (tof_min_s, tof_max_s),
+        rendered_tof_bounds_s: (tof_min_s, tof_max_s),
+        resolution: GA_GRID_DEFAULT_RESOLUTION,
+        cells,
+        min_cell: min_cell_idx,
+        metric: crate::fleets::porkchop::PorkchopMetric::TotalDv,
     }
-    if let Some(idx) = min_cell_idx {
-        let col = idx % cols;
-        let row = idx / cols;
-        let x = rect.left() + col as f32 * cell_w;
-        let y = rect.top() + row as f32 * cell_h;
-        let min_rect = egui::Rect::from_min_size(egui::pos2(x, y), egui::vec2(cell_w, cell_h));
-        painter.rect_stroke(
-            min_rect,
-            0.0,
-            egui::Stroke::new(1.5_f32, egui::Color32::WHITE),
-            egui::StrokeKind::Inside,
-        );
-    }
-
-    // Text readout.
-    ui.add_space(2.0);
-    if let Some(idx) = min_cell_idx {
-        let cell = &cells[idx];
-        ui.label(
-            egui::RichText::new(format!(
-                "Best window: t_dep +{} d, tof {} d (Δv {})",
-                (cell.t_dep_s / 86_400.0).round() as i64,
-                (cell.tof_s / 86_400.0).round() as i64,
-                format_delta_v(cell.total_dv_ms)
-            ))
-            .size(10.0)
-            .color(theme::GREEN),
-        );
-    } else {
-        ui.label(
-            egui::RichText::new(format!("No feasible window in {}×{} grid.", cols, rows))
-                .size(10.0)
-                .color(theme::TEXT_DIM),
-        );
-    }
-    ui.label(
-        egui::RichText::new(format!(
-            "{} / {} cells feasible",
-            feasible_count,
-            cells.len()
-        ))
-        .size(10.0)
-        .color(theme::TEXT_DIM),
-    );
 }
 
 pub(super) fn render_transfer_planner(
@@ -2214,6 +2189,61 @@ pub(super) fn render_transfer_planner(
                 }
             }
         }
+        // GRA-384 follow-up: short-hop sync build for Moon/Ring
+        // destinations.  The async path below is sized for the
+        // ~360 ms Lambert solve on the heliocentric grid; the
+        // short-hop ΔV sweep is microseconds, so we build it
+        // synchronously here.  Mirrors the click handler at line
+        // 3153 so a planner opened with a pre-set Moon target
+        // (e.g. via the 3D-scene right-click handler) gets the
+        // same N-row porkchop bar as a fresh click — without
+        // this branch the player would see the legacy 3-option
+        // row on every "open planner with target already set"
+        // because `should_build_porkchop_for_destination` returns
+        // false for moons, which gates the async build below.
+        // Falls back to `porkchop_grid = None` (legacy 3-option
+        // row) when the RON `short_hop_options` override is
+        // absent.
+        //
+        // IMPORTANT: do NOT also gate on `porkchop_grid_pending_rebuild`.
+        // The target-change block above (line 2074) sets
+        // `porkchop_grid_pending_rebuild = true` AND clears
+        // `porkchop_grid = None` (line 2116) when `grid_for_changed`.
+        // The pending-rebuild flag there is the legacy "queue an async
+        // rebuild" marker — but for Moon destinations the async path
+        // can't help (the heliocentric Lambert solver produces a
+        // degenerate grid for r1≈r2), so this sync short-hop build
+        // IS the rebuild.  Gating on `pending_rebuild` here would
+        // suppress the sync build entirely and the player would see
+        // the legacy 3-option row on every "switch target to Moon"
+        // path.  After the sync build lands, `needs_build` below
+        // evaluates to `false` (grid is Some) so the async path
+        // stays out of the way — no risk of the in-flight worker
+        // overwriting our grid because that worker's polling block
+        // only swaps in a result when `target_entity` matches
+        // `fleet_ui_state.porkchop_built_for`, which we just set.
+        if !should_build_porkchop_for_destination(body_query, target_entity)
+            && fleet_ui_state.porkchop_grid.is_none()
+        {
+            if let Some(n) = porkchop_config
+                .category_overrides
+                .iter()
+                .find(|o| o.match_key == "short_hop")
+                .and_then(|o| o.short_hop_options)
+            {
+                fleet_ui_state.porkchop_grid =
+                    short_hop_grid_for_moon(body_query, orbit.body, target_entity, n);
+                fleet_ui_state.porkchop_built_at_s = Some(elapsed);
+                fleet_ui_state.porkchop_built_for = Some(target_entity);
+                // We just satisfied the pending rebuild ourselves;
+                // clear the flag so the rotation / staleness check
+                // at line 2041 doesn't immediately re-queue a
+                // rebuild of the (now-superseded) target-change
+                // contract.
+                fleet_ui_state.porkchop_grid_pending_rebuild = false;
+            }
+        }
+
         // GRA-169 (Part B): trigger the build whenever the grid is
         // missing OR a pending rebuild is queued.  In the pending
         // case the *old* grid stays in `porkchop_grid` while this
@@ -6037,268 +6067,6 @@ pub(super) fn render_transfer_planner(
             }
         }
 
-        // ── Gravity Assists panel ─────────────────────────────────────────────
-        // Shown whenever there are heliocentric flyby candidates for this route.
-        if !fleet_ui_state.gravity_assist_candidates.is_empty() {
-            ui.add_space(6.0);
-            let num_ga = fleet_ui_state.gravity_assist_candidates.len();
-            let header_text = format!("⚡ Gravity Assists ({num_ga} available)");
-            egui::CollapsingHeader::new(
-                egui::RichText::new(header_text)
-                    .size(12.0)
-                    .strong()
-                    .color(theme::ACCENT),
-            )
-            .default_open(true)
-            .show(ui, |ui| {
-                // Snapshot data before mut-borrowing fleet_ui_state below.
-                // GRA-367 Phase 4 — also captures `flyby_entity` and
-                // `flyby_radius_au` so the per-candidate GA sub-grid can
-                // resolve KeplerOrbits without needing to re-borrow
-                // `fleet_ui_state.gravity_assist_candidates` inside the
-                // `CollapsingHeader::show` closure.
-                let snapped: Vec<(usize, String, f64, f64, f64, f64, Entity, f64)> = fleet_ui_state
-                    .gravity_assist_candidates
-                    .iter()
-                    .enumerate()
-                    .map(|(i, e)| {
-                        (
-                            i,
-                            e.option.body_name.clone(),
-                            e.option.dv_savings_ms,
-                            e.option.extra_time_s,
-                            e.option.window_period_s,
-                            e.option.v_inf_ms,
-                            e.flyby_entity,
-                            e.option.flyby_radius_au,
-                        )
-                    })
-                    .collect();
-
-                for (
-                    idx,
-                    body_name,
-                    savings,
-                    extra_t,
-                    win_period,
-                    v_inf,
-                    flyby_entity,
-                    flyby_radius_au,
-                ) in snapped
-                {
-                    let is_sel = fleet_ui_state.selected_gravity_assist == Some(idx);
-                    let beneficial = savings > 100.0;
-                    let header_color = if is_sel {
-                        theme::EP_TEAL
-                    } else if beneficial {
-                        theme::GREEN
-                    } else {
-                        theme::TEXT_DIM
-                    };
-
-                    ui.group(|ui| {
-                        ui.set_min_width(ui.available_width());
-                        ui.label(
-                            egui::RichText::new(format!("⚡ via {body_name}"))
-                                .size(12.0)
-                                .strong()
-                                .color(header_color),
-                        );
-                        egui::Grid::new(format!("ga_grid_{idx}"))
-                            .num_columns(2)
-                            .spacing([8.0, 2.0])
-                            .show(ui, |ui| {
-                                if beneficial {
-                                    ui.label(egui::RichText::new("ΔV saved:").size(11.0));
-                                    ui.label(
-                                        egui::RichText::new(format_delta_v(savings))
-                                            .size(11.0)
-                                            .strong()
-                                            .color(theme::GREEN),
-                                    );
-                                } else {
-                                    ui.label(egui::RichText::new("Extra ΔV:").size(11.0));
-                                    ui.label(
-                                        egui::RichText::new(format_delta_v(-savings))
-                                            .size(11.0)
-                                            .color(theme::TEXT_DIM),
-                                    );
-                                }
-                                ui.end_row();
-
-                                ui.label(egui::RichText::new("Extra time:").size(11.0));
-                                let sign = if extra_t >= 0.0 { "+" } else { "" };
-                                ui.label(
-                                    egui::RichText::new(format!(
-                                        "{sign}{}",
-                                        format_duration(extra_t.abs())
-                                    ))
-                                    .size(11.0)
-                                    .color(theme::TEXT),
-                                );
-                                ui.end_row();
-
-                                ui.label(egui::RichText::new("Window every:").size(11.0));
-                                let win_str = if win_period.is_finite() {
-                                    format_duration(win_period)
-                                } else {
-                                    "∞".to_owned()
-                                };
-                                ui.label(
-                                    egui::RichText::new(win_str)
-                                        .size(11.0)
-                                        .color(theme::TEXT_DIM),
-                                );
-                                ui.end_row();
-
-                                ui.label(egui::RichText::new("v∞:").size(11.0));
-                                ui.label(
-                                    egui::RichText::new(format_delta_v(v_inf))
-                                        .size(11.0)
-                                        .color(theme::TEXT_DIM),
-                                );
-                                ui.end_row();
-                            });
-
-                        // GRA-367 Phase 4 — collapsible GA sub-grid.
-                        // Lazily built and rendered only when the player
-                        // expands this candidate's "GA Grid" header.
-                        // Skipped when the planner has no target body
-                        // (origin or dest heliocentric orbit is unknown).
-                        let sub_grid_available = body_target_snap.is_some();
-                        let sub_grid_header = format!(
-                            "📊 GA Grid ({}×{} cells)",
-                            GA_GRID_DEFAULT_RESOLUTION.0, GA_GRID_DEFAULT_RESOLUTION.1
-                        );
-                        egui::CollapsingHeader::new(
-                            egui::RichText::new(sub_grid_header).size(11.0),
-                        )
-                        .default_open(false)
-                        .show(ui, |ui| {
-                            if !sub_grid_available {
-                                ui.label(
-                                    egui::RichText::new(
-                                        "Pick a target body to render the GA sub-grid.",
-                                    )
-                                    .size(10.0)
-                                    .color(theme::TEXT_DIM),
-                                );
-                                return;
-                            }
-                            let target_entity = body_target_snap.unwrap();
-                            let origin_orbit_opt =
-                                heliocentric_orbit_for_body(orbit.body, body_query);
-                            let flyby_orbit_opt =
-                                heliocentric_orbit_for_body(flyby_entity, body_query);
-                            let dest_orbit_opt =
-                                heliocentric_orbit_for_body(target_entity, body_query);
-                            let (Some(origin_orbit), Some(flyby_orbit), Some(dest_orbit)) =
-                                (origin_orbit_opt, flyby_orbit_opt, dest_orbit_opt)
-                            else {
-                                ui.label(
-                                    egui::RichText::new(
-                                        "Heliocentric orbit unavailable for one of the bodies.",
-                                    )
-                                    .size(10.0)
-                                    .color(theme::TEXT_DIM),
-                                );
-                                return;
-                            };
-                            // Central-body GM (parent star) + flyby planet
-                            // GM.  Both fall back to GM_SUN so the grid
-                            // still renders (with zero kick) if the query
-                            // misses — the colormap will then be all-grey
-                            // and the "No feasible window" label kicks in.
-                            // Kilo CRITICAL (PR #233 review): walk the
-                            // `LogicalParent` chain via `find_host_star`
-                            // so fleets orbiting moons (moon → planet →
-                            // star) resolve to the host star's GM instead
-                            // of the planet's GM.  Matches the existing
-                            // GA preview path at line 3561.
-                            let central_gm = find_host_star(orbit.body, body_query)
-                                .map(|(_, mass)| G_CONST * mass)
-                                .unwrap_or(GM_SUN);
-                            let flyby_gm = body_query
-                                .get(flyby_entity)
-                                .ok()
-                                .map(|(_, b, _, _, _)| G_CONST * b.mass)
-                                .unwrap_or(0.0);
-                            let min_periapsis_au = body_query
-                                .get(flyby_entity)
-                                .ok()
-                                .map(|(_, b, _, _, _)| {
-                                    // `b.radius` is in metres (JPL
-                                    // convention); convert to AU and
-                                    // multiply by 3 for a safe
-                                    // periapsis (matches the
-                                    // existing `r_peri_jup` constant
-                                    // at orbital_mechanics.rs:2380).
-                                    (b.radius as f64 * 3.0) / AU_IN_METERS
-                                })
-                                .unwrap_or(0.001);
-                            render_gravity_assist_sub_grid(
-                                ui,
-                                flyby_entity,
-                                flyby_radius_au,
-                                &origin_orbit,
-                                &flyby_orbit,
-                                &dest_orbit,
-                                central_gm,
-                                flyby_gm,
-                                min_periapsis_au,
-                                elapsed,
-                            );
-                        });
-
-                        ui.horizontal(|ui| {
-                            if is_sel {
-                                if ui.small_button("✕ Clear Assist").clicked() {
-                                    fleet_ui_state.selected_gravity_assist = None;
-                                    // Shift selection back to direct Efficient option
-                                    fleet_ui_state.selected_option = 0;
-                                    fleet_ui_state.planned_transfer = None;
-                                    // GRA-154: clearing the assist lets the
-                                    // porkchop (if cached) become accurate
-                                    // again for the direct route.  Drop it
-                                    // so the deferred-build path rebuilds
-                                    // on the next frame.
-                                    fleet_ui_state.porkchop_grid = None;
-                                    fleet_ui_state.selected_porkchop_cell = None;
-                                }
-                            } else {
-                                let label = if beneficial {
-                                    "⚡ Use Gravity Assist"
-                                } else {
-                                    "Use Suboptimal Assist"
-                                };
-                                if ui.small_button(label).clicked() {
-                                    fleet_ui_state.selected_gravity_assist = Some(idx);
-                                    fleet_ui_state.selected_option = 0; // GA is option 0
-                                    fleet_ui_state.planned_transfer = None;
-                                    // GRA-154: the porkchop math models
-                                    // direct (t_dep, t_tof) Lambert arcs.
-                                    // A selected gravity assist is a
-                                    // multi-leg trajectory (Earth → flyby →
-                                    // destination) whose ΔV cannot be
-                                    // expressed as a single (t_dep, t_tof)
-                                    // contour.  Drop the cached porkchop so
-                                    // the planner falls through to the legacy
-                                    // 3-option row (which has the per-leg
-                                    // dep/mid/arr burns) and the gravity-assist
-                                    // builder path (`Execute Transfer` →
-                                    // "Gravity Assist" branch → Leg-1 +
-                                    // Leg-2 stitching in `build_planned_transfer`).
-                                    fleet_ui_state.porkchop_grid = None;
-                                    fleet_ui_state.selected_porkchop_cell = None;
-                                }
-                            }
-                        });
-                    });
-                    ui.add_space(2.0);
-                }
-            });
-        }
-
         let show_binary_transfer_direct_labels = body_target_snap
             .map(|target| is_inter_star_transfer(orbit.body, target, body_query))
             .unwrap_or(false);
@@ -6387,17 +6155,44 @@ pub(super) fn render_transfer_planner(
                 // rotation-trigger block so the same value threads
                 // through both the staleness check and the render.
                 let time_to_window_s = f64::NAN;
-                // Phase B (TWP parity — single-texture bake):
-                // thread the planner's cached `TextureHandle` and
-                // its identity tuple through to the panel so the
-                // rebake runs only when the grid identity changes.
-                // The identity uses `target_body` (NOT the
-                // `t_dep_bounds_s.0` anchor — that shifted every
-                // rotation trigger and caused the visible "jump
-                // every second" the user reported).
+                // GRA-385 view-mode dispatch: decide which grid to render in the
+                // panel.  Standard -> the main Lambert grid; GA(idx)
+                // -> the candidate's `(t_dep, tof)` grid built via
+                // `sweep_gravity_assist_grid`.  When the GA candidate
+                // list is empty or the cached grid has gone stale,
+                // fall back to Standard.
+                let display_grid: crate::fleets::porkchop::PorkchopGrid =
+                    match fleet_ui_state.porkchop_view_mode {
+                        crate::ui::PorkchopViewMode::Standard => grid.clone(),
+                        crate::ui::PorkchopViewMode::GravityAssist(idx) => {
+                            // Build the GA grid on demand from the candidate
+                            // data.  This is cheap (~microseconds per cell
+                            // on a 20x15 grid) and only runs when the user
+                            // has explicitly toggled into a GA view.  We
+                            // use a temporary scope so the `&fleet_ui_state`
+                            // borrow doesn't conflict with the panel call.
+                            if let (Some(candidate), Some(target)) = (
+                                fleet_ui_state.gravity_assist_candidates.get(idx),
+                                body_target_snap,
+                            ) {
+                                build_gravity_assist_display_grid(
+                                    candidate, body_query, orbit.body, target, elapsed,
+                                )
+                            } else {
+                                // Stale view-mode index (the candidate list
+                                // shrunk since the player toggled) or no
+                                // target body selected.  Drop back to
+                                // Standard so the panel still shows
+                                // something useful.
+                                fleet_ui_state.porkchop_view_mode =
+                                    crate::ui::PorkchopViewMode::Standard;
+                                grid.clone()
+                            }
+                        }
+                    };
                 super::porkchop_panel::porkchop_panel(
                     ui,
-                    grid,
+                    &display_grid,
                     porkchop_config,
                     &mut fleet_ui_state.selected_porkchop_cell,
                     fleet_max_dv,
@@ -6407,6 +6202,83 @@ pub(super) fn render_transfer_planner(
                     &mut fleet_ui_state.porkchop_texture,
                     &mut fleet_ui_state.porkchop_texture_built_for,
                 );
+
+                // GRA-385 view-mode toggle row (rendered below the
+                // panel).  Each button swaps `porkchop_view_mode` to
+                // render a different grid; the currently active view
+                // is highlighted in `EP_TEAL`.  Built as a row of
+                // small_button-style pills so the planner doesn't
+                // gain vertical space when GA candidates aren't
+                // available (the row collapses to just "Standard").
+                ui.add_space(4.0);
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new("View:")
+                            .size(10.5)
+                            .strong()
+                            .color(theme::TEXT_DIM),
+                    );
+                    let standard_selected = matches!(
+                        fleet_ui_state.porkchop_view_mode,
+                        crate::ui::PorkchopViewMode::Standard
+                    );
+                    if ui
+                        .selectable_label(
+                            standard_selected,
+                            egui::RichText::new("Standard").size(10.5),
+                        )
+                        .clicked()
+                        && !standard_selected
+                    {
+                        fleet_ui_state.porkchop_view_mode = crate::ui::PorkchopViewMode::Standard;
+                        fleet_ui_state.selected_porkchop_cell = None;
+                        fleet_ui_state.planned_transfer = None;
+                    }
+                    for (idx, candidate) in
+                        fleet_ui_state.gravity_assist_candidates.iter().enumerate()
+                    {
+                        let ga_selected = matches!(
+                            fleet_ui_state.porkchop_view_mode,
+                            crate::ui::PorkchopViewMode::GravityAssist(i) if i == idx
+                        );
+                        let badge = if candidate.option.dv_savings_ms > 100.0 {
+                            "✓"
+                        } else {
+                            "△"
+                        };
+                        let label = format!("{} via {}", badge, candidate.option.body_name);
+                        if ui
+                            .selectable_label(ga_selected, egui::RichText::new(label).size(10.5))
+                            .clicked()
+                            && !ga_selected
+                        {
+                            fleet_ui_state.porkchop_view_mode =
+                                crate::ui::PorkchopViewMode::GravityAssist(idx);
+                            fleet_ui_state.selected_gravity_assist = Some(idx);
+                            fleet_ui_state.selected_option = 0;
+                            fleet_ui_state.selected_porkchop_cell = None;
+                            fleet_ui_state.planned_transfer = None;
+                        }
+                    }
+                });
+
+                // GRA-385: route the panel's GA-selection output into
+                // `fleet_ui_state.selected_gravity_assist`.  We
+                // intentionally do this AFTER the panel returns so
+                // the planner can clear `planned_transfer` and
+                // `selected_option` (the GA-as-option-0 dispatch
+                // happens here too — see the "Gravity Assist" branch
+                // of the option-matching code further down).
+                if let crate::ui::PorkchopViewMode::GravityAssist(idx) =
+                    fleet_ui_state.porkchop_view_mode
+                {
+                    if fleet_ui_state.selected_gravity_assist != Some(idx) {
+                        fleet_ui_state.selected_gravity_assist = Some(idx);
+                        fleet_ui_state.selected_option = 0;
+                        fleet_ui_state.planned_transfer = None;
+                    }
+                }
+
                 ui.add_space(4.0);
                 if let Some((sc, sr)) = fleet_ui_state.selected_porkchop_cell {
                     // Capture absolute (t_dep, tof) of the selected
@@ -6435,22 +6307,35 @@ pub(super) fn render_transfer_planner(
                             // align exactly with the old).
                             //
                             // Also accept "recorded ≈ elapsed" as a
-                            // match: when the cell has been clamped
-                            // to col 0 by the per-frame
-                            // immediate-departure re-anchor above,
-                            // `selected_abs_t_dep_s` was set to
-                            // `elapsed` (not the cell's natural
-                            // `t_dep_bounds_s.0`).  Without this
+                            // match, but ONLY when we're sitting on
+                            // col 0 (the "Now" line).  When the
+                            // per-frame immediate-departure re-anchor
+                            // above clamps the cell to col 0 it sets
+                            // `selected_abs_t_dep_s = Some(elapsed)`
+                            // (not the cell's natural
+                            // `t_dep_bounds_s.0`); without this
                             // second match condition the post-panel
                             // block would overwrite the recorded
                             // anchor back to the cell's natural
                             // (past) `t_dep_bounds_s.0`, undoing
                             // the clamp.
+                            //
+                            // The col-0 guard is critical: without
+                            // it, `prev ≈ elapsed` matches ANY
+                            // future-cell click taken after the
+                            // re-anchor fired, suppressing the
+                            // abs-coord update — and the very next
+                            // frame's re-anchor (which checks
+                            // `recorded_abs_t_dep < elapsed`) fires
+                            // again and clamps the user's click back
+                            // to col 0.  This was the
+                            // "can't select a future cell once the
+                            // selected tile moves to 'now'" bug.
                             let current_matches_recorded = match fleet_ui_state.selected_abs_t_dep_s
                             {
                                 Some(prev) => {
                                     (prev - abs_t_dep).abs() < col_step * 0.5
-                                        || (prev - elapsed).abs() < col_step * 0.5
+                                        || (sc == 0 && (prev - elapsed).abs() < col_step * 0.5)
                                 }
                                 None => false,
                             };

@@ -197,6 +197,34 @@ impl LagrangeTarget {
     }
 }
 
+/// Which grid the PorkchopPanel should render.
+///
+/// GRA-385: a single panel widget now serves both the standard
+/// direct-transfer view and the gravity-assist candidate views.  The
+/// planner renders a row of toggle buttons below the panel ---
+/// "Standard | via Mars | via Ceres" --- and stores the player's choice
+/// in `FleetUiState.porkchop_view_mode`.  When the user picks a GA
+/// view the planner builds that candidate's `(t_dep, tof)` grid via
+/// `sweep_gravity_assist_grid` and passes it to the panel; a click on
+/// a GA cell selects both the candidate AND the specific `(t_dep,
+/// tof)` window so the player gets to choose "via Mars at this exact
+/// launch time", not just "via Mars at the cheapest window".
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PorkchopViewMode {
+    /// Render the direct Lambert `(t_dep, tof)` grid for the active
+    /// target --- the default view and the one that opens when the
+    /// planner first shows a grid.
+    #[default]
+    Standard,
+    /// Render the GA candidate at `idx` in
+    /// `fleet_ui_state.gravity_assist_candidates`.  When the user
+    /// clicks a cell on this view the planner translates the click
+    /// into `selected_gravity_assist = Some(idx)` plus a `(t_dep,
+    /// tof)` window that's threaded through to the GA builder in
+    /// `build_planned_transfer`.
+    GravityAssist(usize),
+}
+
 /// Pairs a [`GravityAssistOption`] (pure physics) with the ECS entity of the flyby
 /// body, so the 3-D slingshot preview renderer can resolve screen coordinates.
 #[derive(Debug, Clone)]
@@ -293,6 +321,15 @@ pub struct FleetUiState {
     pub gravity_assist_candidates: Vec<GravityAssistEntry>,
     /// Index of the currently chosen gravity-assist candidate (`None` = direct transfer).
     pub selected_gravity_assist: Option<usize>,
+    /// GRA-385 view-mode toggle: which grid the porkchop panel
+    /// renders.  `Standard` shows the direct Lambert `(t_dep, tof)`
+    /// grid for the active target.  `GravityAssist(idx)` switches
+    /// the panel to render the GA candidate's `(t_dep, tof)` grid
+    /// (built from `sweep_gravity_assist_grid`) so the player can
+    /// pick a specific assist window, not just "use the cheapest".
+    /// Persisted on `FleetUiState` so the choice survives planner
+    /// re-opens within the same frame.
+    pub porkchop_view_mode: PorkchopViewMode,
     /// Interstellar target: (system_id, display_name, distance_ly).
     /// Mutually exclusive with `target_body`, `target_lagrange`, and `target_fleet`.
     pub target_star_system: Option<(usize, String, f32)>,

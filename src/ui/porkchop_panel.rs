@@ -138,8 +138,16 @@ pub fn porkchop_panel(
     let visible_cols = (cols / 2).saturating_sub(1).max(1);
     let t_dep_min = grid.t_dep_bounds_s.0;
     let t_dep_max = grid.t_dep_bounds_s.1;
-    let col_step_s = if cols > 0 {
-        (t_dep_max - t_dep_min) / cols as f64
+    // Defensive: a degenerate `t_dep_bounds` (zero span, e.g. a
+    // 1-column short-hop grid that the builder anchors at `(0.0,
+    // 0.0)` for symbolic reasons) would make `col_step_s = 0`,
+    // which makes `scroll = ±infinity` and breaks the UV-window
+    // math below.  Substitute a 1-second nominal step so the
+    // texture maps cleanly across the panel even when there is
+    // no real t_dep axis to scroll.
+    let t_dep_span = t_dep_max - t_dep_min;
+    let col_step_s = if cols > 0 && t_dep_span.abs() > f64::EPSILON {
+        t_dep_span / cols as f64
     } else {
         1.0
     };
@@ -353,8 +361,14 @@ pub fn porkchop_panel(
     // both already use `scroll`, so the visible UV band stays
     // consistent with where the user can click.
     if let Some(texture) = texture_cache.as_ref() {
-        let uv_min_x = (scroll / cols as f32).max(0.0);
-        let uv_max_x = ((scroll + visible_cols as f32) / cols as f32).min(1.0);
+        // Defensive: `scroll` is computed as `(shift_s / col_step_s)`,
+        // and on degenerate grids (`col_step_s = 1.0` from the
+        // fallback above) it can grow large enough that the UV
+        // window goes out of `[0, 1]`.  Clamp to a valid range so
+        // the GPU bilinear sampler doesn't sample outside the
+        // texture and paint garbage at the panel edges.
+        let uv_min_x = (scroll / cols as f32).clamp(0.0, 1.0);
+        let uv_max_x = ((scroll + visible_cols as f32) / cols as f32).clamp(uv_min_x.max(0.0), 1.0);
         let uv = Rect::from_min_max(Pos2::new(uv_min_x, 0.0), Pos2::new(uv_max_x, 1.0));
         cell_clip.image(texture.id(), grid_rect, uv, Color32::WHITE);
     }
@@ -577,6 +591,15 @@ pub fn porkchop_panel(
     // the porkchop.  Click handling stays the same: a click on a
     // feasible cell moves `*selected` to that cell, which downstream
     // systems (trajectory preview, Execute button) read.
+    //
+    // GRA-385 follow-up: the panel now shows either the standard
+    // direct-transfer grid OR the selected gravity-assist candidate's
+    // `(t_dep, tof)` grid, never both.  Click handling is therefore
+    // unchanged from the original — the click selects whatever cell
+    // the user pointed at, and the planner reads `*selected` against
+    // whichever grid is currently rendered (so a click on a GA cell
+    // sets the GA selection path implicitly via the view-mode toggle
+    // that put the GA grid on screen in the first place).
     if let Some((hc, hr)) = hover_cell {
         if resp.clicked() {
             let cell = &grid.cells[hr * cols + hc];
