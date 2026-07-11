@@ -90,21 +90,41 @@
         tof_max_hohmann_factor: 5.0,
         tof_floor_days: 5.0,
         tof_ceiling_years: 10.0,
-        // Resolution: 60 cols (t_dep) × 60 rows (tof) = 3600 cells.
-        // Bumped from 40 × 50 = 2000 cells because the wider 5.0× TOF
-        // range and the per-column ΔV resolution were both
-        // under-sampled for long-distance transfers.  With the
+        // Resolution: 70 cols (t_dep) × 70 rows (tof) = 4900 cells
+        // (was 60 × 60 = 3600; originally 40 × 50 = 2000). Bumped
+        // from 40 × 50 because the wider 5.0× TOF range and the
+        // per-column ΔV resolution were both under-sampled for
+        // long-distance transfers, then bumped from 60 × 60
+        // because direct Earth→Mercury / inner-planet porkchops
+        // still showed 1-cell-wide color stripes in the cheap
+        // basin (≈ 8 d/row over a ~525 d TOF span).  With the
         // adaptive Y-axis trim (see `rendered_tof_bounds_s`) the
         // populated region of a Saturn-class porkchop spans ~30
-        // rendered rows of the 60 solved rows, so the per-cell TOF
-        // resolution on the cheap-transfer basin is now ~12 d at
-        // Saturn (~30 d at 40 × 50).  3600 cells is well within the
-        // 5000-cell budget enforced by validator rule #1, and the
-        // rebuild cost at ~0.3 ms/cell is ~1.1 s worst case — still
-        // inside the 3-day staleness window so the deferred build
-        // path doesn't visibly lag at 1 yr/s sim speed.
-        resolution_t_dep: 60,
-        resolution_tof: 60,
+        // rendered rows of the 70 solved rows, so the per-cell TOF
+        // resolution on the cheap-transfer basin is now ~10 d at
+        // Saturn (~30 d at the original 40 × 50).  4900 cells is
+        // just under the 5000-cell budget enforced by validator
+        // rule #1, and the rebuild cost at ~0.3 ms/cell is ~1.5 s
+        // worst case — still inside the 3-day staleness window so
+        // the deferred build path doesn't visibly lag at 1 yr/s
+        // sim speed.
+        //
+        // The RON resolution values are MINIMUMS, not absolutes.
+        // `build_porkchop_grid_with_params` runs them through
+        // `adaptive_resolution`, which bumps `cols` / `rows` up
+        // if the natural `(t_dep_window, tof_span)` is wider than
+        // the static values can comfortably sample (target:
+        // 3-day t_dep step, 5-day TOF step — see
+        // `MAX_T_DEP_STEP_DAYS` and `MAX_TOF_STEP_DAYS` in
+        // `src/fleets/porkchop.rs`).  Total cells are clamped at
+        // 5000 by shrinking whichever dimension has the looser
+        // step first.  This is the structural fix for
+        // Earth→Mercury via Venus GA, where the Earth↔Venus
+        // synodic window (~614 d) demands finer t_dep sampling
+        // than any static column count could provide without
+        // inflating the Saturn-class grid unnecessarily.
+        resolution_t_dep: 70,
+        resolution_tof: 70,
         // C3 ceiling (km²/s²) above which a cell is rendered as
         // red "infeasible" and is not selectable. Picked to
         // match the helios theme's RED palette transition; the
@@ -204,19 +224,42 @@
             resolution_t_dep: 1,
             resolution_tof: 50,
             c3_ceiling_km2_s2: 400.0,
-            short_hop_options: Some(5),
+            short_hop_options: Some(25),
+            // GRA-385 (synodic sweep): 7 launch-time columns over
+            // the 14-day dep window (= 2-day step).  Catches the
+            // synodic-phase sweep on Galilean / Saturnian moons
+            // without flooding the player with redundant cells.
+            short_hop_t_dep_steps: Some(12),
         ),
-        // Gravity assist (GRA-367 P2): the planner re-solves a
-        // selected cell with `compute_gravity_assist_for_cell` once
-        // the player picks a flyby body. The (t_dep, TOF) sweep is
-        // tighter than the interplanetary default because the
-        // assist's window-period constrains useful launches to a
-        // ~2-month band per assist candidate; the 20×15 grid
-        // (300 cells, well under the 5000-cell ceiling) gives the
-        // flyby palette enough resolution to spot a savings delta
-        // of ~0.05 km/s without an O(grid×bodies) re-solve.
-        // Powers GRA-367-D; no Rust schema change required (the
-        // override uses existing `PorkchopCategoryOverride` fields).
+        // Gravity assist (GRA-367 P2 / GRA-386 bump / follow-up):
+        // the planner re-solves a selected cell with
+        // `compute_gravity_assist_for_cell` once the player picks a
+        // flyby body. The (t_dep, TOF) sweep is tighter than the
+        // interplanetary default because the assist's window-period
+        // constrains useful launches to a ~2-month band per assist
+        // candidate.
+        //
+        // GRA-386: bumped the resolution from 20×15 = 300 cells to
+        // 50×40 = 2000 cells (still well under the 5000-cell
+        // ceiling). The previous 20×15 sizing was for the legacy
+        // non-clickable sub-grid; now that the GA grid IS the panel
+        // (GRA-385 view-mode toggle), 300 cells gives only a ~3-day
+        // column step on a 60-day window — far too coarse to pick a
+        // savings band of ~0.05 km/s.
+        //
+        // Follow-up bump: 50×40 → 80×60 = 4800 cells. The 50-col
+        // setting sampled a ~614-day Earth↔Venus-synodic window at
+        // ~12.3 d/column, which was wider than the cheap-assist
+        // basin (~10–15 d) and rendered the basin as 1-cell-wide
+        // color stripes on Earth→Mercury via Venus (the cheapest
+        // assist was effectively invisible to the player). 80 cols
+        // over the same window gives ~7.7 d/column, and the
+        // builder's `adaptive_resolution` (see defaults block
+        // above) can push cols higher — up to ~94 — while still
+        // keeping the row step at the 5-day target, so the basin
+        // spans 1.5–2.5 cells instead of 0.8. Rebuild cost ~1.44 s
+        // worst case (4800 cells × 0.3 ms); the 3-day staleness
+        // budget at 1 yr/s sim speed is still respected.
         (
             match_key: "gravity_assist",
             t_dep_window_days: 60.0,
@@ -224,8 +267,8 @@
             tof_max_hohmann_factor: 2.5,
             tof_floor_days: 5.0,
             tof_ceiling_years: 3.0,
-            resolution_t_dep: 20,
-            resolution_tof: 15,
+            resolution_t_dep: 80,
+            resolution_tof: 60,
             c3_ceiling_km2_s2: 400.0,
         ),
     ],

@@ -40,11 +40,9 @@
             delta_v_to_redirect_kms: Some(2.4),
             redirect_target: "Mars",
             terraforming_source: true,
-            lore_seed: Some(
-                "C-class dwarf planet. ~25% water of hydration in the regolith; \
-                 nitrogen and ammonia trapped in clays. Practically a giant dirty \
-                 snowball dragged into the inner system by a Jupiter assist."
-            ),
+            lore_seed: Some(r#"C-class dwarf planet. ~25% water of hydration in the regolith;
+nitrogen and ammonia trapped in clays. Practically a giant dirty
+snowball dragged into the inner system by a Jupiter assist."#),
         ),
 
         // Vesta - V-type differentiated fragment.
@@ -64,10 +62,8 @@
             delta_v_to_redirect_kms: Some(2.7),
             redirect_target: "Mars",
             terraforming_source: false,
-            lore_seed: Some(
-                "V-type differentiated fragment. Iron core remnants, basaltic crust \
-                 rich in pyroxene. The HED meteorite parent body."
-            ),
+            lore_seed: Some(r#"V-type differentiated fragment. Iron core remnants, basaltic crust
+rich in pyroxene. The HED meteorite parent body."#),
         ),
 
         // Psyche - M-type. The iconic metal asteroid.
@@ -88,11 +84,9 @@
             delta_v_to_redirect_kms: Some(4.9),
             redirect_target: "Earth",
             terraforming_source: false,
-            lore_seed: Some(
-                "M-type. Probably an exposed iron core of a stripped parent body. \
-                 Mass fractions are dominated by Fe-Ni with traces of noble metals \
-                 rivaling Earth-crust concentrations by an order of magnitude."
-            ),
+            lore_seed: Some(r#"M-type. Probably an exposed iron core of a stripped parent body.
+Mass fractions are dominated by Fe-Ni with traces of noble metals
+rivaling Earth-crust concentrations by an order of magnitude."#),
         ),
 
         // -- Near-Earth survey-friendly -----------------------------------
@@ -113,11 +107,9 @@
             discovery_tier: 1,
             delta_v_to_redirect_kms: Some(5.8),
             redirect_target: "Earth",
-            terraforming_source: false,
-            lore_seed: Some(
-                "Near-Earth C-type. OSIRIS-REx sample returned hydrated clays and \
-                 organics. Surrogate for accessible water on a near-Earth orbit."
-            ),
+            terraforming_source: true,
+            lore_seed: Some(r#"Near-Earth C-type. OSIRIS-REx sample returned hydrated clays and
+organics. Surrogate for accessible water on a near-Earth orbit."#),
         ),
 
         // 433 Eros - NEAR-Shoemaker landed; canonical v0.5.x tutorial body.
@@ -137,10 +129,8 @@
             delta_v_to_redirect_kms: Some(5.4),
             redirect_target: "Earth",
             terraforming_source: false,
-            lore_seed: Some(
-                "Near-Earth Amor-class S-type. NEAR-Shoemaker landed 2001. The \
-                 v0.5.x reference body for surface-mining tutorials."
-            ),
+            lore_seed: Some(r#"Near-Earth Amor-class S-type. NEAR-Shoemaker landed 2001. The
+v0.5.x reference body for surface-mining tutorials."#),
         ),
 
         // 162173 Ryugu - Hayabusa2 sample returned 2020. Low Δv to Moon.
@@ -160,11 +150,9 @@
             delta_v_to_redirect_kms: Some(5.1),
             redirect_target: "Moon",
             terraforming_source: true,
-            lore_seed: Some(
-                "Hayabusa2 sample returned 2020. Hydrated silicates and organics \
-                 confirmed. Low Δv to the Moon makes Ryugu the v0.5.x canonical \
-                 volatile redirect for terrestrial cislunar industry."
-            ),
+            lore_seed: Some(r#"Hayabusa2 sample returned 2020. Hydrated silicates and organics
+confirmed. Low Δv to the Moon makes Ryugu the v0.5.x canonical
+volatile redirect for terrestrial cislunar industry."#),
         ),
 
         // -- Jupiter Trojans (L4/L5 Lagrange) -----------------------------
@@ -186,10 +174,8 @@
             delta_v_to_redirect_kms: Some(1.8),
             redirect_target: "L4",
             terraforming_source: false,
-            lore_seed: Some(
-                "Greek camp at Jupiter L4. The first Jupiter Trojan discovered \
-                 and a useful staging body for a deep-space refuelling post."
-            ),
+            lore_seed: Some(r#"Greek camp at Jupiter L4. The first Jupiter Trojan discovered
+and a useful staging body for a deep-space refuelling post."#),
         ),
 
         // 617 Patroclus - Trojan camp at Jupiter L5. Binary, primitive.
@@ -210,11 +196,9 @@
             delta_v_to_redirect_kms: Some(1.8),
             redirect_target: "L5",
             terraforming_source: true,
-            lore_seed: Some(
-                "Trojan camp at Jupiter L5. Binary system with Menoetius; the \
-                 pair is primitive outer-belt material. Volatiles may exceed \
-                 bulk-fraction estimates from spectroscopy."
-            ),
+            lore_seed: Some(r#"Trojan camp at Jupiter L5. Binary system with Menoetius; the
+pair is primitive outer-belt material. Volatiles may exceed
+bulk-fraction estimates from spectroscopy."#),
         ),
 
         // -- Outer belt ---------------------------------------------------
@@ -236,10 +220,8 @@
             delta_v_to_redirect_kms: Some(3.1),
             redirect_target: "Mars",
             terraforming_source: false,
-            lore_seed: Some(
-                "S-type main belt. One of the earliest-discovered asteroids and a \
-                 convenient mining anchor for the v0.5.x playbook."
-            ),
+            lore_seed: Some(r#"S-type main belt. One of the earliest-discovered asteroids and a
+convenient mining anchor for the v0.5.x playbook."#),
         ),
 
         // Hygiea - large C-type, slow-rotating, low density. Volatile-rich.
@@ -259,10 +241,8 @@
             delta_v_to_redirect_kms: Some(3.6),
             redirect_target: "Mars",
             terraforming_source: true,
-            lore_seed: Some(
-                "C-type, slow rotator, low bulk density. Probably a rubble pile \
-                 - high porosity means redirect delta-v is lower per kg."
-            ),
+            lore_seed: Some(r#"C-type, slow rotator, low bulk density. Probably a rubble pile
+- high porosity means redirect delta-v is lower per kg."#),
         ),
     ],
 )

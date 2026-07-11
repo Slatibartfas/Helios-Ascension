@@ -189,6 +189,7 @@ mod tests {
                 resolution_tof: 8,
                 c3_ceiling_km2_s2: 100.0,
                 short_hop_options: None,
+                short_hop_t_dep_steps: None,
             }],
             ..PorkchopConfig::default()
         };

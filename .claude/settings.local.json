@@ -17,7 +17,9 @@
       "Bash(cargo test:*)",
       "Bash(grep -c \"^\\\\s*\\(\\\\s*$\" assets/data/technologies.ron)",
       "Bash(cat > *)",
-      "Bash(cargo test *)"
+      "Bash(cargo test *)",
+      "Bash(cargo build *)",
+      "Bash(cargo clippy *)"
     ],
     "additionalDirectories": [
       "\\tmp"

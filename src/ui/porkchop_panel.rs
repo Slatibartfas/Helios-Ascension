@@ -135,7 +135,24 @@ pub fn porkchop_panel(
     // grid in `porkchop_grid` while the deferred build solves a
     // new buffer (~360 ms), then atomically swaps — no blank
     // frame and no L/R snap.
-    let visible_cols = (cols / 2).saturating_sub(1).max(1);
+    //
+    // The rotating-buffer half-window design only makes sense for
+    // the heliocentric interplanetary grid (≥30 cols).  For smaller
+    // grids (short-hop = 1 col, gravity-assist = 20 cols) there's
+    // no buffer to rotate and the whole grid should be visible at
+    // once.  Detect by `cols < ROTATING_BUFFER_MIN_COLS` and render
+    // the full texture (no scrolling).  Without this guard the
+    // `scroll = (shift_s / col_step_s)` term drives the UV window
+    // past the end of the texture within a few sim seconds, leaving
+    // the panel blank (`uv_min_x > uv_max_x` after clamp) even
+    // though the underlying texture is correct.
+    const ROTATING_BUFFER_MIN_COLS: usize = 30;
+    let visible_cols = if cols >= ROTATING_BUFFER_MIN_COLS {
+        (cols / 2).saturating_sub(1).max(1)
+    } else {
+        // Small grids: full texture, no scrolling.
+        cols
+    };
     let t_dep_min = grid.t_dep_bounds_s.0;
     let t_dep_max = grid.t_dep_bounds_s.1;
     // Defensive: a degenerate `t_dep_bounds` (zero span, e.g. a
@@ -151,7 +168,14 @@ pub fn porkchop_panel(
     } else {
         1.0
     };
-    let scroll = (shift_s / col_step_s) as f32;
+    // Only enable the rotating-buffer scroll when the texture has
+    // more cells than the visible window (i.e. the interplanetary
+    // case).  Small grids paint the full texture instead.
+    let scroll = if cols > visible_cols {
+        (shift_s / col_step_s) as f32
+    } else {
+        0.0
+    };
 
     // Hover + click.  `Sense::hover()` alone ignores clicks (the user
     // reported they "couldn't click any other tile"), and
@@ -319,38 +343,105 @@ pub fn porkchop_panel(
     let identity_mismatch =
         texture_cache.is_none() || texture_built_for.as_ref() != Some(&grid_identity);
     if identity_mismatch {
-        // Bake a `cols × rows` ColorImage in row-major order so the
-        // GPU can bilinear-filter it.  Rows correspond to TOF
-        // (NASA convention: row 0 at the bottom of the panel,
-        // but the image's pixel (0, 0) is its top-left, so we
-        // flip the row index when packing — `row 0` in the grid
-        // becomes the image's `rows - 1` row).
-        let mut pixels: Vec<Color32> = Vec::with_capacity(cols * rows);
-        for img_row in 0..rows {
-            // The grid's `orig_row = rows - 1 - img_row`
-            // because NASA convention flips the Y axis.
-            let orig_row = rows - 1 - img_row;
-            for col in 0..cols {
-                let cell = &grid.cells[orig_row * cols + col];
-                pixels.push(cell_color(cell, &ramp));
+        // Defensive: a degenerate grid (cells empty but resolution
+        // non-zero) can show up when the planner's deferred build
+        // hands us a grid that hit an empty-cells branch in the
+        // solver (e.g. the heliocentric Lambert solver produces
+        // infeasible cells for every (col, row) of a star-approach
+        // target whose heliocentric orbit isn't meaningful).  Without
+        // this guard the texture-bake indexing below panics with
+        // `index out of bounds: the len is 0 but the index is 0`.
+        // The early-return paints a placeholder texture so the
+        // caller still gets a usable `TextureHandle` to swap into
+        // `texture_cache` (the identity stays matched for the next
+        // frame, avoiding a rebake loop).
+        if grid.cells.is_empty() {
+            let placeholder =
+                egui::ColorImage::new([1, 1], vec![egui::Color32::from_black_alpha(255)]);
+            let handle =
+                ui.ctx()
+                    .load_texture("porkchop_grid", placeholder, egui::TextureOptions::LINEAR);
+            *texture_cache = Some(handle);
+            *texture_built_for = Some(grid_identity);
+        } else {
+            // Bake a supersampled `cols*K × rows*K` ColorImage in
+            // row-major order so the GPU bilinear filter has enough
+            // source pixels per destination pixel to produce smooth
+            // gradients — both spatially (rows with similar ΔV no
+            // longer read as visible horizontal bands) and temporally
+            // (as the rotating-buffer UV scrolls, the per-frame
+            // sub-pixel sampling interpolates instead of stepping).
+            //
+            // Supersampling is essentially free: it's a `4×4` block fill
+            // per cell, no Lambert solves.  A 60×60 grid produces a
+            // 240×240 RGBA texture = 230 KB, which fits comfortably in
+            // VRAM.  The bake cost is dominated by the upload, not the
+            // pixel fill, and the upload only fires on identity changes
+            // (target / resolution / min-cell), not per frame.
+            //
+            // The supersample factor is constant rather than RON-driven
+            // because the smoothness is a perceptual constant — the
+            // human eye sees aliasing above ~8 source pixels per
+            // destination pixel regardless of how coarse the underlying
+            // cell grid is.  Keeping it constant means changing the RON
+            // resolution (e.g. bumping the interplanetary grid from
+            // 60×60 to 120×120) doesn't accidentally halve the effective
+            // AA.
+            //
+            // Rows correspond to TOF (NASA convention: row 0 at the
+            // bottom of the panel, but the image's pixel (0, 0) is its
+            // top-left, so we flip the row index when packing — `row 0`
+            // in the grid becomes the image's `tex_rows - K` row).
+            //
+            // Supersample factor bumped from 4 → 8 → 12 to eliminate the
+            // per-row "wavy/flickering" boundary the player reported
+            // and to give the bilinear filter enough source density
+            // for a near-photographic gradient (GRA-385 follow-up).
+            // At 12× each grid cell renders as a 12×12 block of the
+            // same colour, giving the GPU's bilinear sampler ~144
+            // source texels per cell to interpolate between.  The
+            // sweet-spot ΔV is much easier to pick because the
+            // gradient between adjacent cells is smooth enough that
+            // tiny mouse movements can land on a 50 m/s difference
+            // — at 8× the same delta looked like a hard edge.
+            // Memory cost: 12×12 = 144 texels per cell.  Worst
+            // case is the 60×60 interplanetary grid = 720×720
+            // RGBA = ~2 MB per bake, still well under VRAM and
+            // uploaded only on identity changes (not per frame).
+            const SUPERSAMPLE: usize = 12;
+            let tex_cols = cols * SUPERSAMPLE;
+            let tex_rows = rows * SUPERSAMPLE;
+            let mut pixels: Vec<Color32> = Vec::with_capacity(tex_cols * tex_rows);
+            for img_row in 0..tex_rows {
+                // Map this texture pixel to its grid row.  Each grid row
+                // occupies `SUPERSAMPLE` texture rows; the Y-axis flip
+                // (NASA convention) is folded in here so the GPU
+                // texture's `(0, 0)` corresponds to grid row
+                // `rows - 1`.
+                let orig_row = (tex_rows - 1 - img_row) / SUPERSAMPLE;
+                for col in 0..tex_cols {
+                    let orig_col = col / SUPERSAMPLE;
+                    let cell = &grid.cells[orig_row * cols + orig_col];
+                    pixels.push(cell_color(cell, &ramp));
+                }
             }
+            let image = egui::ColorImage {
+                size: [tex_cols, tex_rows],
+                source_size: egui::Vec2::new(tex_cols as f32, tex_rows as f32),
+                pixels,
+            };
+            // Allocate the texture (or update an existing one — but
+            // since we're rebuilding from scratch each time the
+            // identity changes, a fresh `load_texture` is simplest).
+            // The TextureHandle drop is automatic when
+            // `texture_cache = Some(new_handle)` replaces the old
+            // one.
+            let handle =
+                ui.ctx()
+                    .load_texture("porkchop_grid", image, egui::TextureOptions::LINEAR);
+            *texture_cache = Some(handle);
+            *texture_built_for = Some(grid_identity);
         }
-        let image = egui::ColorImage {
-            size: [cols, rows],
-            source_size: egui::Vec2::new(cols as f32, rows as f32),
-            pixels,
-        };
-        // Allocate the texture (or update an existing one — but
-        // since we're rebuilding from scratch each time the
-        // identity changes, a fresh `load_texture` is simplest).
-        // The TextureHandle drop is automatic when
-        // `texture_cache = Some(new_handle)` replaces the old
-        // one.
-        let handle = ui
-            .ctx()
-            .load_texture("porkchop_grid", image, egui::TextureOptions::LINEAR);
-        *texture_cache = Some(handle);
-        *texture_built_for = Some(grid_identity);
     }
     // grid_rect (UV = (scroll/cols, 0) → ((scroll+visible_cols)/cols, 1)).
     // Scrolling the UV window instead of redrawing cells means the

@@ -61,3 +61,4 @@ assets/data/JPL_CometsList.csv
 # Duplicate solar_system.ron lives at the repo root from an earlier
 # commit; only assets/data/solar_system.ron is loaded by the game.
 /solar_system.ron
+.claude/settings.local.json

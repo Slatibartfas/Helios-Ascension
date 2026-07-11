@@ -11,6 +11,7 @@ use crate::fleets::porkchop::{
 // `PorkchopGrid` (1×1 cells) for the cross-system path; Phase 1 will
 // later consume the same shape.
 use crate::fleets::porkchop::PorkchopGrid;
+use crate::fleets::PorkchopConfig;
 // GRA-343: explicit import — `super::*` does not bring the new
 // resource type from `crate::fleets` into this module's namespace
 // for fn-signature type aliases.  `InterstellarPropulsionPolicy` is
@@ -642,9 +643,11 @@ fn short_hop_grid_for_moon(
         Option<&KeplerOrbit>,
         Option<&LogicalParent>,
     )>,
+    porkchop_config: &PorkchopConfig,
     _origin_entity: Entity,
     dest_entity: Entity,
     n_options: usize,
+    sim_time_s: f64,
 ) -> Option<PorkchopGrid> {
     use crate::fleets::orbital_mechanics::AU_IN_METERS;
     let parent_entity = body_query
@@ -671,7 +674,31 @@ fn short_hop_grid_for_moon(
         .ok()
         .map(|(_, b, _, _, _)| G_CONST * b.mass)
         .unwrap_or(GM_SUN);
-    Some(build_short_hop_grid(r1_au, r2_au, gm, 0.0, n_options))
+    // GRA-385 (synodic sweep): thread the RON's per-category
+    // `short_hop_t_dep_steps` knob through so moons of gas giants
+    // (where launch-timing matters) get a 2D `(t_dep, tof)` grid.
+    // Falls back to `1` (depart-now, single column) when the RON
+    // override is absent or older.
+    let short_hop_override = porkchop_config
+        .category_overrides
+        .iter()
+        .find(|o| o.match_key == "short_hop");
+    let t_dep_steps = short_hop_override
+        .and_then(|o| o.short_hop_t_dep_steps)
+        .unwrap_or(1);
+    let t_dep_window_days = short_hop_override
+        .map(|o| o.t_dep_window_days)
+        .unwrap_or(14.0);
+    Some(build_short_hop_grid(
+        r1_au,
+        r2_au,
+        gm,
+        0.0,
+        n_options,
+        sim_time_s,
+        t_dep_steps,
+        t_dep_window_days,
+    ))
 }
 
 /// Build a star-approach porkchop grid for a star-approach destination.
@@ -1568,9 +1595,15 @@ fn planner_frame_label(frame: PlannerTransferFrame) -> String {
 /// grid is laid out `(t_dep, tof)` with `t_dep` spanning a 60-day
 /// forward window from `sim_time_s` (per the GRA-367 design doc)
 /// and `tof` spanning `0.4x -> 2.5x` Hohmann time for the
-/// origin->destination pair.  Resolution is the RON `gravity_assist`
-/// category override (20x15 cells by default; 300 cells total ---
-/// well under the 5000-cell validator ceiling).
+/// origin->destination pair.
+///
+/// Resolution is taken from the RON `gravity_assist` category override
+/// via `cfg.resolve("gravity_assist")` (GRA-386 — was previously a
+/// hardcoded `GA_GRID_DEFAULT_RESOLUTION = (20, 15) = 300 cells`,
+/// sized for the legacy non-clickable sub-grid).  The override ships
+/// 50×40 = 2000 cells so the cheap-transfer basin is sampleable on a
+/// clickable panel; the fallback kicks in only when the RON override
+/// is missing or malformed.
 ///
 /// The returned grid has its own absolute-coord anchor in
 /// `t_dep_bounds_s` so the panel's rotating-buffer scroll math sees a
@@ -1579,6 +1612,7 @@ fn planner_frame_label(frame: PlannerTransferFrame) -> String {
 /// values are referenced by the click handler when the player picks
 /// a window inside the GA view.
 fn build_gravity_assist_display_grid(
+    cfg: &crate::fleets::PorkchopConfig,
     candidate: &crate::ui::GravityAssistEntry,
     body_query: &Query<(
         Entity,
@@ -1591,9 +1625,25 @@ fn build_gravity_assist_display_grid(
     target_body: Entity,
     sim_time_s: f64,
 ) -> crate::fleets::porkchop::PorkchopGrid {
+    // GRA-386: resolution now comes from the RON `gravity_assist`
+    // category override via `cfg.resolve(...)` instead of the hardcoded
+    // `GA_GRID_DEFAULT_RESOLUTION = (20, 15) = 300 cells`.  That
+    // resolution was sized for the legacy non-clickable sub-grid; now
+    // that the GA grid IS the panel and the player clicks cells to
+    // pick a window, 300 cells is far too coarse.  The override ships
+    // 60×40 = 2400 cells so the cheap basin is sampleable.  We fall
+    // back to the constant only when the RON override is missing or
+    // produces a degenerate pair — defensive so the panel always
+    // renders something rather than a 0-cell grid.
+    let ga_params = cfg.resolve("gravity_assist");
+    let ga_resolution: (usize, usize) =
+        if ga_params.resolution_t_dep >= 2 && ga_params.resolution_tof >= 2 {
+            (ga_params.resolution_t_dep, ga_params.resolution_tof)
+        } else {
+            crate::fleets::orbital_mechanics::GA_GRID_DEFAULT_RESOLUTION
+        };
     use crate::fleets::orbital_mechanics::{
-        hohmann_transfer, sweep_gravity_assist_grid, AU_IN_METERS, GA_GRID_DEFAULT_RESOLUTION,
-        GM_SUN, G_CONST,
+        hohmann_transfer, sweep_gravity_assist_grid, AU_IN_METERS, GM_SUN, G_CONST,
     };
     use crate::fleets::porkchop::PorkchopCell;
 
@@ -1679,11 +1729,11 @@ fn build_gravity_assist_display_grid(
         &target_orbit,
         (0.0, dep_window_s),
         (tof_min_s, tof_max_s),
-        GA_GRID_DEFAULT_RESOLUTION,
+        ga_resolution,
         sim_time_s,
     );
 
-    let (cols, _rows) = GA_GRID_DEFAULT_RESOLUTION;
+    let (cols, _rows) = ga_resolution;
     let min_cell_idx = cells
         .iter()
         .enumerate()
@@ -1707,7 +1757,7 @@ fn build_gravity_assist_display_grid(
         ),
         tof_bounds_s: (tof_min_s, tof_max_s),
         rendered_tof_bounds_s: (tof_min_s, tof_max_s),
-        resolution: GA_GRID_DEFAULT_RESOLUTION,
+        resolution: ga_resolution,
         cells,
         min_cell: min_cell_idx,
         metric: crate::fleets::porkchop::PorkchopMetric::TotalDv,
@@ -2231,8 +2281,14 @@ pub(super) fn render_transfer_planner(
                 .find(|o| o.match_key == "short_hop")
                 .and_then(|o| o.short_hop_options)
             {
-                fleet_ui_state.porkchop_grid =
-                    short_hop_grid_for_moon(body_query, orbit.body, target_entity, n);
+                fleet_ui_state.porkchop_grid = short_hop_grid_for_moon(
+                    body_query,
+                    porkchop_config,
+                    orbit.body,
+                    target_entity,
+                    n,
+                    elapsed,
+                );
                 fleet_ui_state.porkchop_built_at_s = Some(elapsed);
                 fleet_ui_state.porkchop_built_for = Some(target_entity);
                 // We just satisfied the pending rebuild ourselves;
@@ -3111,7 +3167,19 @@ pub(super) fn render_transfer_planner(
     if active_group.is_some() {
         ui.horizontal(|ui| {
             ui.label(egui::RichText::new("Target:").size(13.0));
-            egui::ComboBox::from_id_salt("fleet_target_body")
+            // Hover hint on the target label itself: star-approach
+            // rows carry a DragValue for the parking-orbit radius
+            // *inside* the dropdown (so the player can edit it
+            // without first selecting a different destination) and
+            // the surface tooltip explains where to find it.  Without
+            // this hint the radius readout in the closed-dropdown
+            // label looks like a static value the player has to live
+            // with; in fact it's a per-star, per-default spinner
+            // that the picker exposes once you open the dropdown.
+            let is_star_target = fleet_ui_state.target_body.is_some_and(|e| {
+                body_query.get(e).ok().map(|(_, b, _, _, _)| b.body_type) == Some(BodyType::Star)
+            });
+            let combo = egui::ComboBox::from_id_salt("fleet_target_body")
                 .selected_text(&target_label)
                 .width(280.0)
                 .show_ui(ui, |ui| {
@@ -3250,9 +3318,11 @@ pub(super) fn render_transfer_planner(
                                                 // (`short_hop_options == None`).
                                                 short_hop_grid_for_moon(
                                                     body_query,
+                                                    porkchop_config,
                                                     orbit.body,
                                                     *entity,
                                                     n,
+                                                    elapsed,
                                                 )
                                             } else {
                                                 None
@@ -3682,6 +3752,20 @@ pub(super) fn render_transfer_planner(
                         }
                     }
                 });
+            // Hover hint for star-approach targets: explain where
+            // the parking-radius DragValue lives.  The hint only
+            // shows on hover, so it doesn't pollute the layout.
+            // Without it the radius readout in the closed-dropdown
+            // label looks like a static value the player can't
+            // change; in fact it's a per-star, per-default spinner
+            // that the picker exposes once the dropdown opens.
+            if is_star_target {
+                combo.response.on_hover_text(
+                    "Click to open the destination picker.  Star-approach rows expose a\n\
+                     parking-orbit DragValue on the right side of each star row — drag it\n\
+                     to change the (t_dep, tof) cell range in the porkchop plot.",
+                );
+            }
         });
     }
 
@@ -5414,17 +5498,27 @@ pub(super) fn render_transfer_planner(
                 fleet_ui_state.computed_options[fleet_ui_state.selected_option].clone();
             let planned_departure_time_s =
                 elapsed + fleet_ui_state.departure_offset_days * 86_400.0;
-            fleet_ui_state.planned_transfer = if fleet_ui_state.selected_gravity_assist.is_some() {
-                // GRA-367-E: previously also short-circuited on
-                // `star_system_snap.is_some()`.  Interstellar navigation
-                // is still NYI, but the special-case branch was the
-                // Phase 5 target — the per-class render dispatch now
-                // covers the cross-system grid uniformly, so falling
-                // through to `None` (no destination body matches in
-                // the existing `else if` chain) is the same end state
-                // without the dedicated guard.
-                None
-            } else if let Some(ref lp) = lp_target_snap {
+            // GRA-386: the legacy "GA selected ⇒ wipe preview to None"
+            // short-circuit used to suppress the GA two-leg arc every
+            // frame.  We removed it because the GA-row path is now
+            // handled by the cell-click block further down (lines
+            // ~6530) which routes through `build_planned_transfer_with_flyby`
+            // when `porkchop_view_mode == GravityAssist(idx)`.  Keeping
+            // this `if fleet_ui_state.selected_gravity_assist.is_some()
+            // { None }` arm here would silently overwrite that
+            // two-leg preview every frame before the renderer could
+            // draw it.
+            //
+            // We still want the preview cleared when the player is on
+            // a GA view-mode toggle but has NOT picked a cell yet —
+            // the cell-click block already returns `None` in that case
+            // (the match arm at line 6530 has no `selected_porkchop_cell`
+            // branch), so falling through to the `else if let Some(te) =
+            // body_target_snap` arm below is fine: it tries to build a
+            // direct `PlannedTransfer` to the body, which is what the
+            // pre-fix GA-row code did anyway (and renders correctly
+            // until the player clicks a cell).
+            fleet_ui_state.planned_transfer = if let Some(ref lp) = lp_target_snap {
                 build_planned_transfer_lp(fleet_entity, fleet, orbit, lp, body_query, &sel_option)
             } else if let Some(tfe) = fleet_target_snap {
                 all_fleets_query
@@ -6166,17 +6260,23 @@ pub(super) fn render_transfer_planner(
                         crate::ui::PorkchopViewMode::Standard => grid.clone(),
                         crate::ui::PorkchopViewMode::GravityAssist(idx) => {
                             // Build the GA grid on demand from the candidate
-                            // data.  This is cheap (~microseconds per cell
-                            // on a 20x15 grid) and only runs when the user
-                            // has explicitly toggled into a GA view.  We
-                            // use a temporary scope so the `&fleet_ui_state`
-                            // borrow doesn't conflict with the panel call.
+                            // data.  This is cheap (~hundreds of microseconds
+                            // per cell on the RON-override 50×40 grid) and
+                            // only runs when the user has explicitly toggled
+                            // into a GA view.  We use a temporary scope so the
+                            // `&fleet_ui_state` borrow doesn't conflict with
+                            // the panel call.
                             if let (Some(candidate), Some(target)) = (
                                 fleet_ui_state.gravity_assist_candidates.get(idx),
                                 body_target_snap,
                             ) {
                                 build_gravity_assist_display_grid(
-                                    candidate, body_query, orbit.body, target, elapsed,
+                                    porkchop_config,
+                                    candidate,
+                                    body_query,
+                                    orbit.body,
+                                    target,
+                                    elapsed,
                                 )
                             } else {
                                 // Stale view-mode index (the candidate list
@@ -6398,23 +6498,34 @@ pub(super) fn render_transfer_planner(
                 //
                 // GRA-165 defensive guard: the porkchop is the source of
                 // truth for the trajectory preview.  Drop any lingering
-                // gravity-assist selection so the GA Leg-1+Leg-2 slingshot
-                // overlay can't render on top of the porkchop sampled
-                // polyline in the same frame.  In practice the GA selector
-                // already clears `selected_porkchop_cell` on click, so the
-                // inverse ("GA selected AND a cell selected") is
-                // unreachable on main; this clear is a belt-and-suspenders
-                // guard against a future refactor that drops the inverse
-                // clear, or against a new entry point that sets
-                // `selected_gravity_assist` without going through the
-                // button.  Cheap (one assignment) and closes the "multiple
-                // lines all over the place" class of glitches at the
-                // source.
+                // GRA-386: the defensive guard from GRA-165 used to
+                // unconditionally clear `selected_gravity_assist` as
+                // soon as a cell was picked.  That was correct in the
+                // pre-GRA-385 world where GA candidates only ever lived
+                // in their own side-panel row, but with the new
+                // view-mode toggle the player picks a cell INSIDE the
+                // GA panel — and `draw_gravity_assist_preview`
+                // (`src/fleets/visuals.rs:4118`) keys its two-color
+                // slingshot overlay on `selected_gravity_assist`.  If
+                // we clear it here the renderer returns early at
+                // `visuals.rs:4136` and the player sees only the
+                // amber direct-Lambert arc instead of the lime-green
+                // Leg-1 + magenta Leg-2 trajectory.
                 //
-                // The corresponding GA-injection-side guard lives further
-                // up in this function; PR #192 / `5049b4f` restored that
-                // half.  This clear is the porkchop-side half.
-                if fleet_ui_state.selected_gravity_assist.is_some() {
+                // We now ONLY clear when the player is NOT inside a
+                // GA view-mode toggle — i.e. when a stray
+                // `selected_gravity_assist` somehow leaks into the
+                // standard porkchop flow.  Inside
+                // `PorkchopViewMode::GravityAssist(idx)` we keep both
+                // fields set so the renderer can draw both the
+                // slingshot overlay AND the planned-transfer
+                // `flyby_body` marker at the same time.
+                if fleet_ui_state.selected_gravity_assist.is_some()
+                    && !matches!(
+                        fleet_ui_state.porkchop_view_mode,
+                        crate::ui::PorkchopViewMode::GravityAssist(_)
+                    )
+                {
                     fleet_ui_state.selected_gravity_assist = None;
                     fleet_ui_state.selected_option = 0;
                 }
@@ -6538,19 +6649,87 @@ pub(super) fn render_transfer_planner(
                                 fleet_ui_state.departure_offset_days =
                                     cell.t_dep_s / crate::ui::porkchop_panel::SECONDS_PER_DAY;
                                 let target_orbit_radius_au: Option<f64> = None;
-                                build_planned_transfer(
-                                    fleet_entity,
-                                    fleet,
-                                    orbit,
-                                    target_entity,
-                                    planned_departure_time_s,
-                                    body_query,
-                                    &synthetic_option,
-                                    course_correction_sc,
-                                    body_system_ids,
-                                    current_system_id,
-                                    target_orbit_radius_au,
-                                )
+                                // GRA-386: when the player is in a GA
+                                // view-mode toggle AND has a cell
+                                // selected, build a two-leg
+                                // `PlannedTransfer` via the flyby body so
+                                // the 3D preview arc shows the
+                                // origin → flyby → destination slingshot.
+                                // Without this branch the cell-click path
+                                // would produce a single Lambert arc
+                                // straight to the destination, hiding the
+                                // flyby entirely.
+                                if let crate::ui::PorkchopViewMode::GravityAssist(ga_idx) =
+                                    fleet_ui_state.porkchop_view_mode
+                                {
+                                    if let Some(candidate) =
+                                        fleet_ui_state.gravity_assist_candidates.get(ga_idx)
+                                    {
+                                        // `sweep_gravity_assist_grid`
+                                        // stores the Leg-2 conic on
+                                        // `cell.transfer_orbit`; pass it
+                                        // through to the helper so the
+                                        // preview matches the geometry the
+                                        // commit will launch with.
+                                        build_planned_transfer_with_flyby(
+                                            fleet_entity,
+                                            fleet,
+                                            orbit,
+                                            candidate.flyby_entity,
+                                            target_entity,
+                                            &synthetic_option,
+                                            // Leg-1 half-period for the
+                                            // leg2_start_s timestamp.
+                                            // `synthetic_option.transfer_time_s`
+                                            // is the full TOF (= leg1 + leg2)
+                                            // so we approximate leg1 as half.
+                                            // The active-transit renderer
+                                            // only uses this as a hint for
+                                            // the leg-switch timestamp; small
+                                            // inaccuracy is fine.
+                                            cell.tof_s * 0.5,
+                                            planned_departure_time_s,
+                                            body_query,
+                                            course_correction_sc,
+                                            body_system_ids,
+                                            current_system_id,
+                                            target_orbit_radius_au,
+                                            cell.transfer_orbit,
+                                        )
+                                    } else {
+                                        // Stale GA index — fall through
+                                        // to the direct-transfer path.
+                                        build_planned_transfer(
+                                            fleet_entity,
+                                            fleet,
+                                            orbit,
+                                            target_entity,
+                                            planned_departure_time_s,
+                                            body_query,
+                                            &synthetic_option,
+                                            course_correction_sc,
+                                            body_system_ids,
+                                            current_system_id,
+                                            target_orbit_radius_au,
+                                        )
+                                    }
+                                } else {
+                                    // Standard view-mode: direct Lambert
+                                    // arc, unchanged from before.
+                                    build_planned_transfer(
+                                        fleet_entity,
+                                        fleet,
+                                        orbit,
+                                        target_entity,
+                                        planned_departure_time_s,
+                                        body_query,
+                                        &synthetic_option,
+                                        course_correction_sc,
+                                        body_system_ids,
+                                        current_system_id,
+                                        target_orbit_radius_au,
+                                    )
+                                }
                             }
                             _ => None,
                         }
@@ -6896,6 +7075,204 @@ pub(super) fn render_transfer_planner(
             }
         }
     }
+}
+
+/// Build a two-leg `PlannedTransfer` (origin → flyby → destination) for a
+/// gravity-assist trajectory.  Mirrors the legacy GA-row stitch code
+/// previously inlined in `render_transfer_planner`; extracted here so
+/// the cell-click path inside `PorkchopViewMode::GravityAssist(idx)`
+/// (GRA-385 view-mode toggle) can reuse the same builder.
+///
+/// The returned `PlannedTransfer` has:
+///   * `transfer_orbit` = Leg-1 conic (origin → flyby, Lambert-solved
+///     by `build_planned_transfer` when pointed at the flyby body),
+///   * `flyby_body` = `Some(flyby_entity)` so the pre-launch GA
+///     preview renderer (`draw_gravity_assist_preview` in
+///     `fleets/visuals.rs`) draws the slingshot overlay,
+///   * `destination_body` = the real destination (not the flyby) so
+///     the fleet parks correctly on arrival,
+///   * `leg2_orbit` = Leg-2 conic (flyby → destination).  When
+///     `cell_leg2_orbit` is supplied (the cell-click path), we use
+///     it directly — `sweep_gravity_assist_grid` already
+///     Lambert-solved Leg-2 when building the cell.  When
+///     `cell_leg2_orbit` is `None` (the legacy GA-row path), we fall
+///     back to a Hohmann conic with plane-derived orbital elements so
+///     the Leg-2 arc still points the right way.
+///   * `leg2_start_s` = Leg-1 half-period (`ga_leg1_time_s`).
+#[allow(clippy::too_many_arguments, dead_code)]
+fn build_planned_transfer_with_flyby(
+    _fleet_entity: Entity,
+    fleet: &Fleet,
+    orbit: &FleetOrbit,
+    flyby_entity: Entity,
+    target_entity: Entity,
+    ga_option: &crate::fleets::orbital_mechanics::TransferOption,
+    ga_leg1_time_s: f64,
+    planned_departure_time_s: f64,
+    body_query: &Query<(
+        Entity,
+        &CelestialBody,
+        &SpaceCoordinates,
+        Option<&KeplerOrbit>,
+        Option<&LogicalParent>,
+    )>,
+    course_correction_sc: Option<bevy::math::DVec3>,
+    body_system_ids: &Query<&crate::astronomy::components::SystemId>,
+    current_system_id: usize,
+    target_orbit_radius_au: Option<f64>,
+    cell_leg2_orbit: Option<crate::astronomy::KeplerOrbit>,
+) -> Option<crate::fleets::components::PlannedTransfer> {
+    use crate::astronomy::KeplerOrbit;
+    use crate::fleets::components::PlannedTransfer as PlannedTransferT;
+    use crate::fleets::orbital_mechanics::{hohmann_transfer, AU_IN_METERS, GM_SUN, G_CONST};
+    use crate::fleets::TransferReferenceFrame;
+    use bevy::math::DVec3;
+
+    // Leg-1: build the Keplerian arc origin → flyby by passing the
+    // flyby as the target entity.  `build_planned_transfer` always
+    // sets `flyby_body: None` on the returned struct (see its
+    // constructor at the bottom of the file) so we patch it below.
+    let mut pt: PlannedTransferT = build_planned_transfer(
+        _fleet_entity,
+        fleet,
+        orbit,
+        flyby_entity,
+        planned_departure_time_s,
+        body_query,
+        ga_option,
+        course_correction_sc,
+        body_system_ids,
+        current_system_id,
+        target_orbit_radius_au,
+    )?;
+
+    // Patch the flyby marker + true destination.  Without these two
+    // lines the renderer would draw a single Lambert arc straight to
+    // the flyby and never know about the second leg.
+    pt.flyby_body = Some(flyby_entity);
+    pt.destination_body = target_entity;
+
+    // Leg-2 orbit.  Two paths:
+    //   * Cell-click path — `sweep_gravity_assist_grid` already
+    //     Lambert-solved Leg-2 inside the cell, so we use that conic
+    //     verbatim.  This avoids a duplicate Lambert solve and
+    //     guarantees the preview matches the geometry the cell
+    //     clicked will launch with.
+    //   * Legacy GA-row path — no cell was clicked, so we fall back
+    //     to the Hohmann ellipse between flyby and destination, with
+    //     orbital-plane elements derived from the flyby body's
+    //     current position.  This matches the pre-extraction inline
+    //     stitch behaviour.
+    if let Some(leg2) = cell_leg2_orbit {
+        pt.leg2_orbit = Some(leg2);
+        pt.leg2_start_s = ga_leg1_time_s;
+    } else {
+        // Resolve the flyby and destination positions relative to the
+        // transfer's central body.  Bail (leaving Leg-2 unset) if any
+        // entity is missing so we never produce a garbage orbit.
+        let center_res = match pt.reference_frame {
+            TransferReferenceFrame::SystemBarycentric => Some(DVec3::ZERO),
+            TransferReferenceFrame::Body(center_entity) => body_query
+                .get(center_entity)
+                .ok()
+                .map(|(_, _, sc, _, _)| sc.position),
+        };
+        let flyby_res = body_query
+            .get(flyby_entity)
+            .ok()
+            .map(|(_, _, sc, _, _)| sc.position);
+        let dest_res = body_query
+            .get(target_entity)
+            .ok()
+            .map(|(_, _, sc, _, _)| sc.position);
+        // Resolve the central body's GM (works for any star).
+        let center_gm = match pt.reference_frame {
+            TransferReferenceFrame::Body(center_entity) => body_query
+                .get(center_entity)
+                .ok()
+                .map(|(_, b, _, _, _)| G_CONST * b.mass)
+                .unwrap_or(GM_SUN),
+            TransferReferenceFrame::SystemBarycentric => GM_SUN,
+        };
+
+        if let (Some(center_pos), Some(flyby_pos), Some(dest_pos)) =
+            (center_res, flyby_res, dest_res)
+        {
+            let flyby_rel = flyby_pos - center_pos;
+            let dest_rel = dest_pos - center_pos;
+            let flyby_r = flyby_rel.length();
+            let dest_r = dest_rel.length();
+
+            let (.., leg2_sma, leg2_ecc) = hohmann_transfer(flyby_r, dest_r, center_gm);
+            let leg2_outward = dest_r >= flyby_r;
+            let leg2_mae = if leg2_outward {
+                0.0
+            } else {
+                std::f64::consts::PI
+            };
+
+            // Plane normal from cross product; guards against
+            // floating-point rounding pushing acos outside [-1, 1].
+            let plane_n = flyby_rel.cross(dest_rel);
+            let plane_len = plane_n.length();
+            let (incl2, lan2, aop2) = if plane_len > 1e-20 {
+                let n = plane_n / plane_len;
+                let incl = n.z.clamp(-1.0, 1.0).acos();
+                let nxy = DVec3::new(-n.y, n.x, 0.0);
+                let nl = nxy.length();
+                let lan = if nl > 1e-20 {
+                    let nd = nxy / nl;
+                    nd.y.atan2(nd.x)
+                } else {
+                    0.0
+                };
+                let aop = if nl > 1e-20 {
+                    let nd = nxy / nl;
+                    let pd = flyby_rel.normalize_or_zero();
+                    let cw = nd.dot(pd);
+                    let sw = n.dot(nd.cross(pd));
+                    let om = sw.atan2(cw);
+                    if leg2_outward {
+                        om
+                    } else {
+                        om + std::f64::consts::PI
+                    }
+                } else {
+                    let ang = flyby_rel.y.atan2(flyby_rel.x);
+                    if leg2_outward {
+                        ang
+                    } else {
+                        ang - std::f64::consts::PI
+                    }
+                };
+                (incl, lan, aop)
+            } else {
+                let ang = flyby_rel.y.atan2(flyby_rel.x);
+                let aop = if leg2_outward {
+                    ang
+                } else {
+                    ang - std::f64::consts::PI
+                };
+                (0.0, 0.0, aop)
+            };
+
+            let sma_m = leg2_sma * AU_IN_METERS;
+            let leg2_mm = (center_gm / sma_m.powi(3)).sqrt();
+
+            pt.leg2_orbit = Some(KeplerOrbit {
+                semi_major_axis: leg2_sma,
+                eccentricity: leg2_ecc,
+                inclination: incl2,
+                longitude_ascending_node: lan2,
+                argument_of_periapsis: aop2,
+                mean_anomaly_epoch: leg2_mae,
+                mean_motion: leg2_mm,
+            });
+            pt.leg2_start_s = ga_leg1_time_s;
+        }
+    }
+
+    Some(pt)
 }
 
 /// Build a `PlannedTransfer` from the selected transfer option and fleet/body state.
@@ -7910,6 +8287,7 @@ mod tests {
     use crate::fleets::{Fleet, FleetOrbit, TransferReferenceFrame};
     use crate::plugins::solar_system::{CelestialBody, LogicalParent};
     use crate::plugins::solar_system_data::BodyType;
+    use crate::ui::GravityAssistEntry;
     use bevy::math::DVec3;
     use bevy::prelude::*;
 
@@ -9766,5 +10144,557 @@ mod tests {
             Some(last_real),
             real_now
         ));
+    }
+
+    // === GRA-386: GA grid resolution + two-leg preview tests =========
+    //
+    // Three tests:
+    //   1. `porkchop_config_resolve_gravity_assist_returns_override_resolution` —
+    //      pure-PorkchopConfig unit test for the new resolution plumbing.
+    //   2. `build_gravity_assist_display_grid_uses_ron_resolution` — drives
+    //      the full builder with a custom override and asserts the returned
+    //      grid picks up the override's `(resolution_t_dep, resolution_tof)`.
+    //   3. `build_planned_transfer_with_flyby_sets_flyby_and_leg2_orbit` —
+    //      drives the extracted helper with a synthetic flyby/dest pair
+    //      and asserts `flyby_body` / `leg2_orbit` are populated.
+
+    /// The RON override resolution must reach `PorkchopConfig::resolve`
+    /// verbatim.  Without this plumbing the GA grid would silently fall
+    /// back to `GA_GRID_DEFAULT_RESOLUTION = (20, 15) = 300 cells` and
+    /// the player's `via Mars` toggle would render the legacy sub-grid
+    /// instead of the new 50×40 = 2000-cell panel.
+    #[test]
+    fn porkchop_config_resolve_gravity_assist_returns_override_resolution() {
+        use crate::fleets::components::{PorkchopCategoryOverride, PorkchopConfig};
+        let cfg = PorkchopConfig {
+            category_overrides: vec![PorkchopCategoryOverride {
+                match_key: "gravity_assist".to_string(),
+                t_dep_window_days: 60.0,
+                tof_min_hohmann_factor: 0.4,
+                tof_max_hohmann_factor: 2.5,
+                tof_floor_days: 5.0,
+                tof_ceiling_years: 3.0,
+                resolution_t_dep: 73,
+                resolution_tof: 41,
+                c3_ceiling_km2_s2: 400.0,
+                short_hop_options: None,
+                short_hop_t_dep_steps: None,
+            }],
+            ..PorkchopConfig::default()
+        };
+        let resolved = cfg.resolve("gravity_assist");
+        assert_eq!(
+            resolved.resolution_t_dep, 73,
+            "PorkchopConfig::resolve must thread the GA override resolution_t_dep"
+        );
+        assert_eq!(
+            resolved.resolution_tof, 41,
+            "PorkchopConfig::resolve must thread the GA override resolution_tof"
+        );
+        // Sanity check: an unknown match key falls through to defaults.
+        let unknown = cfg.resolve("nonexistent_category");
+        assert_eq!(
+            unknown.resolution_t_dep, cfg.defaults.resolution_t_dep,
+            "unknown match key must fall through to defaults.resolution_t_dep"
+        );
+    }
+
+    /// `build_gravity_assist_display_grid` now takes a `&PorkchopConfig`
+    /// and uses `cfg.resolve("gravity_assist")` to size the grid.  This
+    /// test wires a custom override and asserts the returned grid
+    /// honours it.
+    #[test]
+    fn build_gravity_assist_display_grid_uses_ron_resolution() {
+        use crate::fleets::components::{PorkchopCategoryOverride, PorkchopConfig};
+        use crate::fleets::orbital_mechanics::GravityAssistOption;
+
+        // Build a minimal Sol-system: Sol + Earth + Mars.  Each body
+        // gets a mass, radius, position, and a KeplerOrbit at the
+        // right SMA so `hohcentric_orbit_for_body` and the orbit
+        // propagator resolve correctly.
+        let mut world = World::new();
+        let sun_e = world
+            .spawn((
+                test_body("Sol", BodyType::Star, 1.989e30, 6.957e8, 5.0),
+                SpaceCoordinates {
+                    position: DVec3::ZERO,
+                },
+                KeplerOrbit {
+                    eccentricity: 0.0,
+                    semi_major_axis: 0.0,
+                    inclination: 0.0,
+                    longitude_ascending_node: 0.0,
+                    argument_of_periapsis: 0.0,
+                    mean_anomaly_epoch: 0.0,
+                    mean_motion: 0.0,
+                },
+                SystemId(7),
+            ))
+            .id();
+        let earth_e = world
+            .spawn((
+                test_body("Earth", BodyType::Planet, 5.972e24, 6.371e6, 0.5),
+                SpaceCoordinates {
+                    position: DVec3::new(1.0, 0.0, 0.0),
+                },
+                KeplerOrbit {
+                    eccentricity: 0.0167,
+                    semi_major_axis: 1.0,
+                    inclination: 0.0,
+                    longitude_ascending_node: 0.0,
+                    argument_of_periapsis: 0.0,
+                    mean_anomaly_epoch: 0.0,
+                    mean_motion: 2.0 * std::f64::consts::PI / (365.25 * 86_400.0),
+                },
+                LogicalParent(sun_e),
+                SystemId(7),
+            ))
+            .id();
+        let mars_e = world
+            .spawn((
+                test_body("Mars", BodyType::Planet, 6.39e23, 3.39e6, 0.4),
+                SpaceCoordinates {
+                    position: DVec3::new(1.524, 0.0, 0.0),
+                },
+                KeplerOrbit {
+                    eccentricity: 0.0934,
+                    semi_major_axis: 1.524,
+                    inclination: 0.0,
+                    longitude_ascending_node: 0.0,
+                    argument_of_periapsis: 0.0,
+                    mean_anomaly_epoch: 0.0,
+                    mean_motion: 2.0 * std::f64::consts::PI / (687.0 * 86_400.0),
+                },
+                LogicalParent(sun_e),
+                SystemId(7),
+            ))
+            .id();
+        let venus_e = world
+            .spawn((
+                test_body("Venus", BodyType::Planet, 4.867e24, 6.052e6, 0.45),
+                SpaceCoordinates {
+                    position: DVec3::new(0.723, 0.0, 0.0),
+                },
+                KeplerOrbit {
+                    eccentricity: 0.0068,
+                    semi_major_axis: 0.723,
+                    inclination: 0.0,
+                    longitude_ascending_node: 0.0,
+                    argument_of_periapsis: 0.0,
+                    mean_anomaly_epoch: 0.0,
+                    mean_motion: 2.0 * std::f64::consts::PI / (224.7 * 86_400.0),
+                },
+                LogicalParent(sun_e),
+                SystemId(7),
+            ))
+            .id();
+
+        let mut body_query_state = world.query::<(
+            Entity,
+            &CelestialBody,
+            &SpaceCoordinates,
+            Option<&KeplerOrbit>,
+            Option<&LogicalParent>,
+        )>();
+        let body_query = body_query_state.query(&world);
+
+        // Synthetic GA candidate (Earth→Mars via Venus).
+        let candidate = GravityAssistEntry {
+            flyby_entity: venus_e,
+            option: GravityAssistOption {
+                body_name: "Venus".to_string(),
+                flyby_radius_au: 0.723,
+                v_inf_ms: 2500.0,
+                max_dv_assist_ms: 1500.0,
+                total_dv_ms: 5500.0,
+                dv_savings_ms: 800.0,
+                total_time_s: 350.0 * 86_400.0,
+                extra_time_s: 80.0 * 86_400.0,
+                window_period_s: f64::INFINITY,
+                leg1_time_s: 175.0 * 86_400.0,
+                leg2_time_s: 175.0 * 86_400.0,
+                dv_depart_ms: 3000.0,
+                dv_mid_ms: 500.0,
+                dv_arrive_ms: 500.0,
+                t_dep_s: 0.0,
+                tof_s: 350.0 * 86_400.0,
+            },
+        };
+
+        // Custom PorkchopConfig with a 7×5 gravity_assist override.
+        let cfg = PorkchopConfig {
+            category_overrides: vec![PorkchopCategoryOverride {
+                match_key: "gravity_assist".to_string(),
+                t_dep_window_days: 60.0,
+                tof_min_hohmann_factor: 0.4,
+                tof_max_hohmann_factor: 2.5,
+                tof_floor_days: 5.0,
+                tof_ceiling_years: 3.0,
+                resolution_t_dep: 7,
+                resolution_tof: 5,
+                c3_ceiling_km2_s2: 400.0,
+                short_hop_options: None,
+                short_hop_t_dep_steps: None,
+            }],
+            ..PorkchopConfig::default()
+        };
+        // Sanity-check: the RON-style override must round-trip through
+        // `resolve()` so we know the production builder sees the same
+        // value the test asserts on below.
+        let resolved = cfg.resolve("gravity_assist");
+        assert_eq!(
+            resolved.resolution_t_dep, 7,
+            "test setup: PorkchopConfig::resolve must return the override resolution_t_dep=7"
+        );
+        assert_eq!(
+            resolved.resolution_tof, 5,
+            "test setup: PorkchopConfig::resolve must return the override resolution_tof=5"
+        );
+
+        let grid = super::build_gravity_assist_display_grid(
+            &cfg,
+            &candidate,
+            &body_query,
+            earth_e,
+            mars_e,
+            0.0,
+        );
+        assert_eq!(
+            grid.resolution,
+            (7, 5),
+            "GA grid resolution must follow the RON override (got {:?})",
+            grid.resolution
+        );
+        assert_eq!(
+            grid.cells.len(),
+            7 * 5,
+            "GA grid cell count must equal cols*rows (got {})",
+            grid.cells.len()
+        );
+    }
+
+    /// `build_planned_transfer_with_flyby` (the GRA-386 helper) must
+    /// populate `flyby_body`, `leg2_orbit`, and `leg2_start_s` so the
+    /// 3D renderer draws the two-leg slingshot overlay.  Without
+    /// these fields, the GA cell-click path produces a single Lambert
+    /// arc to the destination and the flyby is invisible.
+    #[test]
+    fn build_planned_transfer_with_flyby_sets_flyby_and_leg2_orbit() {
+        use crate::fleets::orbital_mechanics::TransferOption;
+
+        // Minimal Sol-system: Sol + Earth + Mars + Venus (flyby).
+        let mut world = World::new();
+        let sun_e = world
+            .spawn((
+                test_body("Sol", BodyType::Star, 1.989e30, 6.957e8, 5.0),
+                SpaceCoordinates {
+                    position: DVec3::ZERO,
+                },
+                KeplerOrbit {
+                    eccentricity: 0.0,
+                    semi_major_axis: 0.0,
+                    inclination: 0.0,
+                    longitude_ascending_node: 0.0,
+                    argument_of_periapsis: 0.0,
+                    mean_anomaly_epoch: 0.0,
+                    mean_motion: 0.0,
+                },
+                SystemId(7),
+            ))
+            .id();
+        let earth_e = world
+            .spawn((
+                test_body("Earth", BodyType::Planet, 5.972e24, 6.371e6, 0.5),
+                SpaceCoordinates {
+                    position: DVec3::new(1.0, 0.0, 0.0),
+                },
+                KeplerOrbit {
+                    eccentricity: 0.0167,
+                    semi_major_axis: 1.0,
+                    inclination: 0.0,
+                    longitude_ascending_node: 0.0,
+                    argument_of_periapsis: 0.0,
+                    mean_anomaly_epoch: 0.0,
+                    mean_motion: 2.0 * std::f64::consts::PI / (365.25 * 86_400.0),
+                },
+                LogicalParent(sun_e),
+                SystemId(7),
+            ))
+            .id();
+        let mars_e = world
+            .spawn((
+                test_body("Mars", BodyType::Planet, 6.39e23, 3.39e6, 0.4),
+                SpaceCoordinates {
+                    position: DVec3::new(1.524, 0.0, 0.0),
+                },
+                KeplerOrbit {
+                    eccentricity: 0.0934,
+                    semi_major_axis: 1.524,
+                    inclination: 0.0,
+                    longitude_ascending_node: 0.0,
+                    argument_of_periapsis: 0.0,
+                    mean_anomaly_epoch: 0.0,
+                    mean_motion: 2.0 * std::f64::consts::PI / (687.0 * 86_400.0),
+                },
+                LogicalParent(sun_e),
+                SystemId(7),
+            ))
+            .id();
+        let venus_e = world
+            .spawn((
+                test_body("Venus", BodyType::Planet, 4.867e24, 6.052e6, 0.45),
+                SpaceCoordinates {
+                    position: DVec3::new(0.723, 0.0, 0.0),
+                },
+                KeplerOrbit {
+                    eccentricity: 0.0068,
+                    semi_major_axis: 0.723,
+                    inclination: 0.0,
+                    longitude_ascending_node: 0.0,
+                    argument_of_periapsis: 0.0,
+                    mean_anomaly_epoch: 0.0,
+                    mean_motion: 2.0 * std::f64::consts::PI / (224.7 * 86_400.0),
+                },
+                LogicalParent(sun_e),
+                SystemId(7),
+            ))
+            .id();
+
+        let mut body_query_state = world.query::<(
+            Entity,
+            &CelestialBody,
+            &SpaceCoordinates,
+            Option<&KeplerOrbit>,
+            Option<&LogicalParent>,
+        )>();
+        let mut system_id_query_state = world.query::<&SystemId>();
+        let body_query = body_query_state.query(&world);
+        let system_id_query = system_id_query_state.query(&world);
+
+        // Minimal fleet parked at Earth's SMA.
+        let fleet = Fleet::new("Test Fleet".to_string());
+        let orbit = FleetOrbit::new(earth_e, 0.0001);
+
+        // Synthetic TransferOption: Leg-1 Hohmann from Earth to Venus
+        // (the flyby).  The values don't have to be physically perfect
+        // because we only check that the helper wires up
+        // `flyby_body` / `leg2_orbit` / `leg2_start_s` correctly.
+        let ga_option = TransferOption {
+            label: "GA Test",
+            total_delta_v_ms: 5500.0,
+            delta_v1_ms: 3000.0,
+            delta_v2_ms: 500.0,
+            plane_change_dv_ms: 0.0,
+            transfer_time_s: 350.0 * 86_400.0,
+            sma_au: 0.86,
+            eccentricity: 0.18,
+            energy_multiplier: 1.0,
+            burn_time_s: 0.0,
+            is_thrust_limited: false,
+            transfer_orbit_override: None,
+        };
+        let ga_leg1_time_s = 175.0 * 86_400.0;
+
+        // Pre-solved Leg-2 conic (what `sweep_gravity_assist_grid`
+        // would attach to `cell.transfer_orbit` in production).  The
+        // helper must surface it on the returned `PlannedTransfer`.
+        let cell_leg2 = KeplerOrbit {
+            eccentricity: 0.21,
+            semi_major_axis: 1.12,
+            inclination: 0.0,
+            longitude_ascending_node: 0.0,
+            argument_of_periapsis: 0.0,
+            mean_anomaly_epoch: 0.0,
+            mean_motion: 2.0 * std::f64::consts::PI / (400.0 * 86_400.0),
+        };
+
+        let planned = super::build_planned_transfer_with_flyby(
+            Entity::PLACEHOLDER,
+            &fleet,
+            &orbit,
+            venus_e, // flyby
+            mars_e,  // real destination
+            &ga_option,
+            ga_leg1_time_s,
+            0.0, // planned_departure_time_s
+            &body_query,
+            None,
+            &system_id_query,
+            7,
+            None, // target_orbit_radius_au
+            Some(cell_leg2),
+        );
+
+        let pt = planned.expect(
+            "build_planned_transfer_with_flyby must return Some for a valid Sol-system setup",
+        );
+        assert_eq!(
+            pt.flyby_body,
+            Some(venus_e),
+            "flyby_body must point at the assist body so the renderer draws the slingshot overlay"
+        );
+        assert_eq!(
+            pt.destination_body, mars_e,
+            "destination_body must point at the real destination so the fleet parks correctly on arrival"
+        );
+        let leg2 = pt
+            .leg2_orbit
+            .expect("leg2_orbit must be Some when cell_leg2_orbit is supplied");
+        assert!(
+            (leg2.semi_major_axis - cell_leg2.semi_major_axis).abs() < 1e-9
+                && (leg2.eccentricity - cell_leg2.eccentricity).abs() < 1e-9,
+            "leg2_orbit must be the pre-solved Lambert conic from the cell (got sma={}, ecc={})",
+            leg2.semi_major_axis,
+            leg2.eccentricity,
+        );
+        assert!(
+            (pt.leg2_start_s - ga_leg1_time_s).abs() < 1.0,
+            "leg2_start_s must equal ga_leg1_time_s so the renderer switches from Leg-1 to Leg-2 at the right epoch (got {}, expected {})",
+            pt.leg2_start_s, ga_leg1_time_s,
+        );
+    }
+
+    /// Backwards-compat: when `cell_leg2_orbit` is `None` (legacy
+    /// GA-row path), the helper falls back to a Hohmann conic and
+    /// still populates `leg2_orbit` + `leg2_start_s`.  This locks
+    /// in the contract for the inline-stitch code we extracted.
+    #[test]
+    fn build_planned_transfer_with_flyby_falls_back_to_hohmann_when_no_cell_orbit() {
+        use crate::fleets::orbital_mechanics::TransferOption;
+
+        let mut world = World::new();
+        let sun_e = world
+            .spawn((
+                test_body("Sol", BodyType::Star, 1.989e30, 6.957e8, 5.0),
+                SpaceCoordinates {
+                    position: DVec3::ZERO,
+                },
+                KeplerOrbit {
+                    eccentricity: 0.0,
+                    semi_major_axis: 0.0,
+                    inclination: 0.0,
+                    longitude_ascending_node: 0.0,
+                    argument_of_periapsis: 0.0,
+                    mean_anomaly_epoch: 0.0,
+                    mean_motion: 0.0,
+                },
+                SystemId(7),
+            ))
+            .id();
+        let earth_e = world
+            .spawn((
+                test_body("Earth", BodyType::Planet, 5.972e24, 6.371e6, 0.5),
+                SpaceCoordinates {
+                    position: DVec3::new(1.0, 0.0, 0.0),
+                },
+                KeplerOrbit {
+                    eccentricity: 0.0167,
+                    semi_major_axis: 1.0,
+                    inclination: 0.0,
+                    longitude_ascending_node: 0.0,
+                    argument_of_periapsis: 0.0,
+                    mean_anomaly_epoch: 0.0,
+                    mean_motion: 2.0 * std::f64::consts::PI / (365.25 * 86_400.0),
+                },
+                LogicalParent(sun_e),
+                SystemId(7),
+            ))
+            .id();
+        let mars_e = world
+            .spawn((
+                test_body("Mars", BodyType::Planet, 6.39e23, 3.39e6, 0.4),
+                SpaceCoordinates {
+                    position: DVec3::new(1.524, 0.0, 0.0),
+                },
+                KeplerOrbit {
+                    eccentricity: 0.0934,
+                    semi_major_axis: 1.524,
+                    inclination: 0.0,
+                    longitude_ascending_node: 0.0,
+                    argument_of_periapsis: 0.0,
+                    mean_anomaly_epoch: 0.0,
+                    mean_motion: 2.0 * std::f64::consts::PI / (687.0 * 86_400.0),
+                },
+                LogicalParent(sun_e),
+                SystemId(7),
+            ))
+            .id();
+        let venus_e = world
+            .spawn((
+                test_body("Venus", BodyType::Planet, 4.867e24, 6.052e6, 0.45),
+                SpaceCoordinates {
+                    position: DVec3::new(0.723, 0.0, 0.0),
+                },
+                KeplerOrbit {
+                    eccentricity: 0.0068,
+                    semi_major_axis: 0.723,
+                    inclination: 0.0,
+                    longitude_ascending_node: 0.0,
+                    argument_of_periapsis: 0.0,
+                    mean_anomaly_epoch: 0.0,
+                    mean_motion: 2.0 * std::f64::consts::PI / (224.7 * 86_400.0),
+                },
+                LogicalParent(sun_e),
+                SystemId(7),
+            ))
+            .id();
+
+        let mut body_query_state = world.query::<(
+            Entity,
+            &CelestialBody,
+            &SpaceCoordinates,
+            Option<&KeplerOrbit>,
+            Option<&LogicalParent>,
+        )>();
+        let mut system_id_query_state = world.query::<&SystemId>();
+        let body_query = body_query_state.query(&world);
+        let system_id_query = system_id_query_state.query(&world);
+
+        let fleet = Fleet::new("Test Fleet".to_string());
+        let orbit = FleetOrbit::new(earth_e, 0.0001);
+        let ga_option = TransferOption {
+            label: "GA Legacy Test",
+            total_delta_v_ms: 5500.0,
+            delta_v1_ms: 3000.0,
+            delta_v2_ms: 500.0,
+            plane_change_dv_ms: 0.0,
+            transfer_time_s: 350.0 * 86_400.0,
+            sma_au: 0.86,
+            eccentricity: 0.18,
+            energy_multiplier: 1.0,
+            burn_time_s: 0.0,
+            is_thrust_limited: false,
+            transfer_orbit_override: None,
+        };
+        let ga_leg1_time_s = 175.0 * 86_400.0;
+
+        let planned = super::build_planned_transfer_with_flyby(
+            Entity::PLACEHOLDER,
+            &fleet,
+            &orbit,
+            venus_e,
+            mars_e,
+            &ga_option,
+            ga_leg1_time_s,
+            0.0,
+            &body_query,
+            None,
+            &system_id_query,
+            7,
+            None,
+            None, // cell_leg2_orbit: None — exercise the Hohmann fallback
+        );
+
+        let pt = planned.expect("fallback path must still succeed for valid Sol setup");
+        assert_eq!(pt.flyby_body, Some(venus_e));
+        assert_eq!(pt.destination_body, mars_e);
+        assert!(
+            pt.leg2_orbit.is_some(),
+            "Hohmann fallback must populate leg2_orbit so the renderer can draw Leg-2"
+        );
+        assert!(
+            (pt.leg2_start_s - ga_leg1_time_s).abs() < 1.0,
+            "Hohmann fallback must set leg2_start_s = ga_leg1_time_s"
+        );
     }
 }

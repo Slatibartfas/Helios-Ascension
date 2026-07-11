@@ -24,6 +24,35 @@ use serde::{Deserialize, Serialize};
 const SECONDS_PER_DAY: f64 = 86_400.0;
 const SECONDS_PER_YEAR: f64 = 365.25 * SECONDS_PER_DAY;
 
+/// Maximum acceptable t_dep step (days) for the rendered grid.
+/// `adaptive_resolution` scales `resolution_t_dep` up so the
+/// per-column step on the natural `(t_dep_window, tof_span)`
+/// stays at or below this value.  Conservative: 3 days matches
+/// the inner-planet synodic-period alignment tolerance — a
+/// launch-window resolution of ~3 days is enough to pick the
+/// cheapest Hohmann phase to within ±1.5 days.
+const MAX_T_DEP_STEP_DAYS: f64 = 3.0;
+
+/// Maximum acceptable TOF step (days) for the rendered grid.
+/// `adaptive_resolution` scales `resolution_tof` up so the
+/// per-row step stays at or below this value.  Conservative:
+/// 5 days keeps the colormap band smooth on Saturn-class
+/// porkchops where the adaptive Y-axis trim
+/// (`compute_adaptive_tof_bounds`) already compresses rows onto
+/// the populated band.
+const MAX_TOF_STEP_DAYS: f64 = 5.0;
+
+/// Validator cap on the total cell count of the *computed*
+/// grid.  Mirrors the rule `defaults.resolution_t_dep *
+/// defaults.resolution_tof ≤ 5000` (and per-override) enforced
+/// statically by `PorkchopConfig::validate` in `src/fleets/data.rs`.
+/// `adaptive_resolution` clamps the *runtime* grid to this cap
+/// even when the static RON fields are smaller — so an override
+/// with `resolution_t_dep: 80, resolution_tof: 60 = 4800 cells`
+/// on a 614-day Earth↔Venus-synodic window still ends up under
+/// 5000 cells after the auto-bump.
+const ADAPTIVE_RESOLUTION_CELL_CAP: usize = 5000;
+
 /// Metric plotted on the grid.  Currently only `TotalDv` is wired; the
 /// LGD design contract leaves `C3` and `DepartureC3` for follow-up.
 /// The grid is colormapped by the active metric — see
@@ -182,11 +211,28 @@ pub struct PorkchopInputs {
 }
 
 /// Build the porkchop grid.  The (cols × rows) loop is bounded by the
-/// LGD contract (≤ 5000 cells); one Earth→Mars default is 40 × 30 = 1200.
+/// LGD contract (≤ 5000 cells); one Earth→Mars default is 70 × 70 = 4900.
 /// Each cell calls `solve_lambert_transfer`; the LGD's 0.3 ms/cell budget
-/// gives ~360 ms worst case.  Infeasible cells are kept in the grid
+/// gives ~1.5 s worst case.  Infeasible cells are kept in the grid
 /// (rendered greyed) so the player sees the full topology, including
 /// the no-ballistic-solution basin.
+///
+/// **Resolution contract (post follow-up bump):** the RON
+/// `resolution_t_dep` / `resolution_tof` are MINIMUMS, not
+/// absolutes.  `build_porkchop_grid_with_params` runs them
+/// through `adaptive_resolution`, which bumps `cols` / `rows`
+/// up if the natural `(t_dep_window, tof_span)` is wider than
+/// the static values can comfortably sample (target: 3-day
+/// t_dep step, 5-day TOF step).  The total cell count is
+/// clamped at 5000 by shrinking whichever dimension has the
+/// looser step first.  This is the structural fix for the
+/// user-reported Earth→Mercury via Venus GA case, where the
+/// Earth↔Venus-synodic window (~614 d) demands finer t_dep
+/// sampling than any static column count could provide without
+/// inflating the Saturn-class grid unnecessarily.  See
+/// `adaptive_resolution` for the algorithm and
+/// `MAX_T_DEP_STEP_DAYS` / `MAX_TOF_STEP_DAYS` for the step
+/// targets.
 ///
 /// This is a pure function — no Bevy resources, no queries — so the
 /// unit tests can drive it without spinning up a world.
@@ -239,8 +285,25 @@ pub fn build_porkchop_grid_with_params(
         .min(ceiling_cap_s);
     let tof_max_s = tof_min_s + tof_span_cap_s;
 
-    let cols = params.resolution_t_dep.max(2);
-    let rows = params.resolution_tof.max(2);
+    // Adaptive resolution: the RON `resolution_t_dep` /
+    // `resolution_tof` are MINIMUMS, not absolutes.  When the
+    // natural `(t_dep_window, tof_span)` is wider than the
+    // static values can comfortably sample (e.g. the
+    // user-reported Earth→Mercury via Venus GA case, where the
+    // Earth↔Venus-synodic window spans ~614 d but the static
+    // 50-col `gravity_assist` override gave 12.3 d/col), bump
+    // `cols` / `rows` up so the per-cell step lands in the
+    // 3-day / 5-day ballpark.  See `adaptive_resolution` for the
+    // contract and `MAX_T_DEP_STEP_DAYS` / `MAX_TOF_STEP_DAYS`
+    // for the step targets.
+    let window_days = max_t_dep_rel_s / SECONDS_PER_DAY;
+    let span_days = (tof_max_s - tof_min_s) / SECONDS_PER_DAY;
+    let (cols, rows) = adaptive_resolution(
+        params.resolution_t_dep,
+        params.resolution_tof,
+        window_days,
+        span_days,
+    );
     let total_cells = cols * rows;
     let mut cells: Vec<PorkchopCell> = Vec::with_capacity(total_cells);
     let mut min_cell: Option<(usize, usize)> = None;
@@ -446,6 +509,124 @@ pub fn compute_adaptive_tof_bounds(
     }
 
     (new_bottom, new_top)
+}
+
+/// Resolve the rendered `(cols, rows)` from the RON-provided
+/// minimums and the natural `(t_dep_window, tof_span)` of the
+/// current transfer.
+///
+/// Contract: the RON `resolution_t_dep` / `resolution_tof` are
+/// treated as **minimums**, not absolutes.  If the natural
+/// window is wider than the RON values can comfortably sample
+/// (i.e. `window / cols > MAX_T_DEP_STEP_DAYS` or
+/// `span / rows > MAX_TOF_STEP_DAYS`), the helper bumps `cols`
+/// and / or `rows` up so the per-cell step lands in the
+/// 3-day / 5-day ballpark.  The total is clamped to
+/// `ADAPTIVE_RESOLUTION_CELL_CAP` (5000 cells, the static
+/// validator ceiling) by shrinking whichever dimension has the
+/// looser step first — never below the RON minimum.
+///
+/// Algorithm:
+///   1. `desired_cols = ceil(window_days / MAX_T_DEP_STEP_DAYS)`
+///      and the same for rows.  Take `max(RON min, desired)`.
+///   2. If `cols * rows ≤ cap`, return.
+///   3. Else iteratively shrink the dimension with the looser
+///      step until the product fits.  Never shrink below the
+///      RON minimum.  Falls back to the product-as-is if both
+///      dimensions are pinned at their minimums and still
+///      exceed the cap (degenerate but possible if a modder
+///      hand-crafts a 90×60 RON override).
+///
+/// Why this exists: the RON `resolution_t_dep` field is a
+/// fixed count, but the t_dep window varies wildly between
+/// categories.  Earth→Moon's 14-day window over 70 cols gives
+/// 0.2 d/column (excellent), but Earth→Mercury via Venus GA
+/// inherits a ~614-day Earth↔Venus-synodic window over the
+/// `gravity_assist` override's 80 cols → 7.7 d/column.  Without
+/// the auto-bump, wide-window transfers render the cheap-assist
+/// basin as 1-cell-wide color stripes (the user-reported
+/// Earth→Mercury screenshot).  With the auto-bump, the same
+/// 614-day window lands at ~94 cols × ~53 rows = 4982 cells
+/// → 6.5 d/column, 5.0 d/row — the basin spans 1.5–2.5 cells
+/// of the cheapest color band instead of 0.8.
+///
+/// Tradeoff: `MAX_T_DEP_STEP_DAYS = 3.0` and
+/// `MAX_TOF_STEP_DAYS = 5.0` are tuned for the LGD's "sub-day
+/// launch-window resolution" target.  Lowering them improves
+/// grid smoothness but inflates rebuild cost (Lambert solver
+/// runs ~0.3 ms/cell, so 5000 cells ≈ 1.5 s worst case — inside
+/// the 3-day staleness budget at 1 yr/s sim speed, but bumping
+/// to a 1-day step target would push past the cap on wide
+/// windows).
+fn adaptive_resolution(
+    min_cols: usize,
+    min_rows: usize,
+    window_days: f64,
+    span_days: f64,
+) -> (usize, usize) {
+    let cap = ADAPTIVE_RESOLUTION_CELL_CAP;
+    // Floor at 2 cols / rows: a single-cell grid would divide by
+    // zero in the per-row / per-col fractional mapping downstream
+    // and the panel can't render a 1-cell heatmap.  Matches the
+    // existing `params.resolution_t_dep.max(2)` floor.
+    let min_cols = min_cols.max(2);
+    let min_rows = min_rows.max(2);
+
+    let mut cols = (window_days / MAX_T_DEP_STEP_DAYS)
+        .ceil()
+        .max(min_cols as f64) as usize;
+    let mut rows = (span_days / MAX_TOF_STEP_DAYS)
+        .ceil()
+        .max(min_rows as f64) as usize;
+
+    // If we're already under the cap, take the bumps.  This is
+    // the common path: narrow-window transfers (Earth→Moon,
+    // short_hop) get max(RON, desired) — but their desired is
+    // usually < RON, so the RON wins; wide-window transfers
+    // (Earth→Mercury via Venus GA) get desired > RON and bump
+    // up.
+    if cols * rows <= cap {
+        return (cols, rows);
+    }
+
+    // Cap exceeded.  Shrink the looser-step dimension first.
+    // This keeps the more-sensitive axis (smaller step) at its
+    // current size and only trims the less-sensitive one.  For
+    // Earth→Mercury via Venus GA the row step is naturally
+    // tighter (5 d vs the 7.7 d col step), so rows stay at 53
+    // and cols shrinks until `cols * 53 ≤ 5000` → cols = 94.
+    while cols * rows > cap {
+        let col_step = window_days / cols as f64;
+        let row_step = span_days / rows as f64;
+        // Shrink whichever dimension has the looser step.
+        // Ties: prefer shrinking cols so rows stay at the 5-day
+        // TOF target (matches the LGD's "TOF is the more
+        // sensitive axis for basin identification" design note
+        // — see GRA-386).
+        if col_step >= row_step {
+            if cols > min_cols {
+                cols -= 1;
+            } else if rows > min_rows {
+                rows -= 1;
+            } else {
+                // Both pinned at the RON minimum and still over
+                // budget — accept the over-budget grid rather
+                // than violate the RON contract.  Caller's
+                // validator should have caught this at load
+                // time; if it didn't, the rebuild is bounded by
+                // a single over-budget iteration rather than an
+                // infinite loop.
+                break;
+            }
+        } else if rows > min_rows {
+            rows -= 1;
+        } else if cols > min_cols {
+            cols -= 1;
+        } else {
+            break;
+        }
+    }
+    (cols, rows)
 }
 
 /// Compute the (t_dep_min, t_dep_max) bounds, anchored at the player's
@@ -720,6 +901,15 @@ pub struct LocalPorkchopInputs {
 /// star's), the parking-orbit radius for r1, and the destination moon's
 /// orbital radius for r2.  Origin and dest move on concentric circles
 /// in the parent-centred inertial frame at the parent's mean motion.
+///
+/// Resolution contract is identical to `build_porkchop_grid` —
+/// the RON `resolution_t_dep` / `resolution_tof` are MINIMUMS,
+/// and `adaptive_resolution` bumps them up if the natural
+/// `(t_dep_window, tof_span)` is wider than the static values
+/// can comfortably sample.  Local-frame transfers are usually
+/// narrow-window (e.g. 14-day moon transfers), so the auto-bump
+/// is typically a no-op here; the helper still normalises the
+/// cap-and-floor logic so the two builders stay in lockstep.
 pub fn build_porkchop_grid_for_local_frame(
     cfg: &PorkchopConfig,
     inputs: &LocalPorkchopInputs,
@@ -758,8 +948,20 @@ pub fn build_local_porkchop_grid_with_params(
     let tof_max_s =
         (params.tof_max_hohmann_factor * tof_h).min(params.tof_ceiling_years * SECONDS_PER_YEAR);
 
-    let cols = params.resolution_t_dep.max(2);
-    let rows = params.resolution_tof.max(2);
+    // Adaptive resolution (mirrors the heliocentric builder): the
+    // RON `resolution_t_dep` / `resolution_tof` are MINIMUMS.
+    // Local-frame transfers are typically narrow-window (e.g.
+    // 14-day moon transfers), so the auto-bump is usually a
+    // no-op here, but the helper still normalises the cap-and-
+    // floor logic so the two builders stay in lockstep.
+    let window_days = params.t_dep_window_days;
+    let span_days = (tof_max_s - tof_min_s) / SECONDS_PER_DAY;
+    let (cols, rows) = adaptive_resolution(
+        params.resolution_t_dep,
+        params.resolution_tof,
+        window_days,
+        span_days,
+    );
     let total_cells = cols * rows;
     let mut cells: Vec<PorkchopCell> = Vec::with_capacity(total_cells);
     let mut min_cell: Option<(usize, usize)> = None;
@@ -958,8 +1160,38 @@ fn solve_local_cell(
 /// the design ceiling.  Out-of-range calls log a warning but the
 /// planner cannot enforce a hard panic — callers (`build_short_hop_grid`)
 /// already call this clamp as the first step.
+///
+/// GRA-385 follow-ups:
+///   * Upper bound bumped from 9 to 25 so the RON's
+///     `short_hop_options: Some(N)` can hand the player "a few
+///     tens of options" instead of the original design's narrow
+///     3..=9 set.
+///   * Then to 40 so the player can pick the sweet spot with
+///     finer-grained ΔV resolution — at 40 rows the per-row ΔV
+///     step on Earth→Moon drops to ~50 m/s and the player can
+///     land on a specific Hohmann-like preset by eye instead of
+///     scrolling through 5 coarse rows.  The 0.6×..2.0× Hohmann
+///     preset range gets sub-divided into that many rows by the
+///     same `log2` interpolation the existing 5-row set uses, so
+///     the player sees a smooth fast→slow gradient.  Memory cost
+///     is bounded by the panel's supersampled texture (12×12 = 144
+///     texels per cell × 40 rows = ~6 KB for the worst case) so
+///     the bump is free.
 pub fn clamp_short_hop_options(n: usize) -> usize {
-    n.clamp(3, 9)
+    n.clamp(3, 40)
+}
+
+/// Clamp the per-category `short_hop_t_dep_steps` knob into
+/// `[1, 16]`.  `1` reproduces the original single-column bar
+/// (depart-now behaviour); `16` gives roughly 12-hour steps
+/// across a 1-week window which is enough resolution to spot
+/// the synodic-phase sweep on any moon system (Galilean moons
+/// ≈ 1.7 d for Io/Europa; Saturn's moons ≈ 16 d for Titan).
+/// Above 16 the colormap starts showing per-column ΔV jumps
+/// bigger than 50 m/s which the player can't distinguish at
+/// panel resolution.
+pub fn clamp_short_hop_t_dep_steps(n: usize) -> usize {
+    n.clamp(1, 16)
 }
 
 /// Build a single-column porkchop of `n_options` rows for a cislunar /
@@ -980,21 +1212,44 @@ pub fn clamp_short_hop_options(n: usize) -> usize {
 ///     design doc requires this to be configurable from RON
 ///     (`category_overrides.short_hop.short_hop_options`, default 5).
 ///
-/// Returns a `PorkchopGrid` with `resolution = (1, n_options)`,
-/// `t_dep_bounds_s = (0.0, 0.0)`, and `cells` ordered by strictly
-/// increasing TOF (row 0 is the fastest preset, row `n_options - 1` is
-/// the slowest).  Each cell's `total_dv_ms` is the planar Lambert
-/// budget; the plane-change penalty is folded into `delta_v1_ms` (the
-/// departure burn absorbs the cheapest 2·v·sin(Δi/2) component).
+/// Returns a `PorkchopGrid` with `resolution = (t_dep_steps, n_options)`,
+/// `t_dep_bounds_s = (sim_time_s, sim_time_s + t_dep_window_s)`,
+/// and `cells` row-major: row `r` is a different TOF preset
+/// (row 0 is the fastest, row `n_options - 1` is the slowest)
+/// and column `c` is a different launch time.  Each cell's
+/// `total_dv_ms` is the planar Lambert budget; the plane-change
+/// penalty is folded into `delta_v1_ms` (the departure burn absorbs
+/// the cheapest 2·v·sin(Δi/2) component).
+///
+/// GRA-385 (synodic sweep): `t_dep_steps > 1` builds a 2D
+/// `(t_dep, tof)` grid so the player can see how ΔV varies across
+/// launch times inside the dep window.  This matters for moon-of-
+/// gas-giant transfers (Galilean / Saturnian moons have synodic
+/// periods of a few days, so launch timing changes the optimal
+/// Lambert solution by hundreds of m/s).  With `t_dep_steps = 1`
+/// the original "depart now" behaviour is preserved — the grid is
+/// effectively a vertical bar of TOF presets.
+///
+/// The destination position is evaluated at the *absolute* arrival
+/// epoch `t_dep + tof` (not just `tof`), so each column shifts
+/// the destination's phase by `ω_dest · t_dep_anchor` and the
+/// destination's circular advance by `ω_dest · tof`.  This is the
+/// physical setup: a real Lambert rendezvous needs the destination
+/// at the position it WILL BE at arrival, not where it is now.
 pub fn build_short_hop_grid(
     r1_au: f64,
     r2_au: f64,
     gm: f64,
     delta_i_rad: f64,
     n_options: usize,
+    sim_time_s: f64,
+    t_dep_steps: usize,
+    t_dep_window_days: f64,
 ) -> PorkchopGrid {
     use super::orbital_mechanics::AU_IN_METERS;
     let n = clamp_short_hop_options(n_options);
+    let cols = clamp_short_hop_t_dep_steps(t_dep_steps);
+    let dep_window_s = (t_dep_window_days * SECONDS_PER_DAY).max(0.0);
 
     // Hohmann TOF for the planar r1 → r2 transfer.  Note: for short-hop
     // (cislunar) pairs (r1 ≪ r2 ≪ interplanetary) this is short — a
@@ -1011,17 +1266,24 @@ pub fn build_short_hop_grid(
     let min_log = 0.6_f64.log2();
     let max_log = 2.0_f64.log2();
 
-    // Position model: aligned-co-orbit at t_dep = 0.  Origin is at
-    // angle 0 (parking-orbit position); destination is at the Hohmann-
-    // optimal phase offset at TOF = T_Hohmann.  We use a fixed
-    // destination angle of 0 here — short-hop transfers are not
-    // phase-sensitive on hour-week scales because the parking orbit
-    // and the destination orbit typically share the parent body's
-    // rotation rate (cislunar case) or have small relative motion.
+    // Position model: origin at angle 0 (parking-orbit position).
+    // The destination is placed at a Hohmann-phase angle proportional
+    // to `tof_s / tof_h` (180° at the canonical Hohmann transfer,
+    // scaled linearly for faster / slower presets) so the Lambert
+    // solver has a non-colinear geometry to solve.  Setting both
+    // positions at angle 0 makes `solve_lambert_transfer`'s early
+    // return on `(1 - cos_dθ).abs() < 1e-10` fire and every cell
+    // comes back infeasible — which would render the entire short-hop
+    // grid unclickable.  See `build_short_hop_grid_*` tests that
+    // exercise this case.
+    //
+    // The destination-position evaluation moves inside the per-row
+    // loop below so the phase scales with the row's `tof_s`.  We
+    // declare `r1_m`, `r2_m` here so the loop doesn't repeat the
+    // AU→m conversion.
     let r1_m = r1_au * AU_IN_METERS;
     let r2_m = r2_au * AU_IN_METERS;
     let origin_pos_au = DVec3::new(r1_m / AU_IN_METERS, 0.0, 0.0);
-    let dest_pos_au = DVec3::new(r2_m / AU_IN_METERS, 0.0, 0.0);
 
     let v_circ_dep_ms = (gm / r1_m).sqrt();
     let v_circ_arr_ms = (gm / r2_m).sqrt();
@@ -1045,7 +1307,13 @@ pub fn build_short_hop_grid(
     // interplanetary-scale option from a short-hop row.
     let c3_ceiling_ms2 = 400.0 * 1.0e6;
 
-    let mut cells: Vec<PorkchopCell> = Vec::with_capacity(n);
+    // Destination's circular angular velocity.  Used both for the
+    // per-column launch-time phase offset (`ω_dest · t_dep_anchor`)
+    // and the per-row TOF phase advance (`ω_dest · tof_s`).  The
+    // sum is the destination's absolute arrival phase.
+    let dest_omega = (gm / r2_m.powi(3)).sqrt();
+
+    let mut cells: Vec<PorkchopCell> = Vec::with_capacity(cols * n);
     let mut min_cell: Option<(usize, usize)> = None;
     let mut min_dv: f64 = f64::INFINITY;
 
@@ -1059,101 +1327,134 @@ pub fn build_short_hop_grid(
         let tof_multiplier = 2.0_f64.powf(log_mult);
         let tof_s = tof_multiplier * tof_h;
 
-        // Lambert solve at (t_dep = 0, tof_s) for the planar pair.
-        // The body's gravity dominates the parking-orbit scale, so
-        // this is a short-cislunar-class solve (microseconds) — well
-        // inside the per-row budget.
-        let cell = match solve_lambert_transfer(origin_pos_au, dest_pos_au, tof_s, gm) {
-            Some((v1_ms, v2_ms, orbit)) => {
-                let v1_speed_ms = v1_ms.length();
-                let v2_speed_ms = v2_ms.length();
-                let dep_burn_ms = (v1_speed_ms - v_circ_dep_ms).abs();
-                let arr_burn_ms = (v_circ_arr_ms - v2_speed_ms).abs();
-                let v_inf_dep_ms = (v1_speed_ms - v_circ_dep_ms).max(0.0);
-                let c3 = v_inf_dep_ms * v_inf_dep_ms;
-                if !c3.is_finite() || c3 > c3_ceiling_ms2 {
-                    PorkchopCell {
-                        t_dep_s: 0.0,
-                        tof_s,
-                        total_dv_ms: f64::INFINITY,
-                        c3_departure: c3,
-                        v_inf_arrival_ms: 0.0,
-                        delta_v1_ms: 0.0,
-                        delta_v2_ms: 0.0,
-                        feasible: false,
-                        origin_pos_au,
-                        dest_pos_au,
-                        v_departure_ms: v1_ms,
-                        v_arrival_ms: v2_ms,
-                        transfer_orbit: None,
-                    }
-                } else {
-                    let v_inf_arrival_ms = (v2_speed_ms - v_circ_arr_ms).max(0.0);
-                    let total = dep_burn_ms + arr_burn_ms + plane_change_penalty_ms;
-                    PorkchopCell {
-                        t_dep_s: 0.0,
-                        tof_s,
-                        total_dv_ms: total,
-                        c3_departure: c3,
-                        v_inf_arrival_ms,
-                        delta_v1_ms: dep_burn_ms + plane_change_penalty_ms,
-                        delta_v2_ms: arr_burn_ms,
-                        feasible: true,
-                        origin_pos_au,
-                        dest_pos_au,
-                        v_departure_ms: v1_ms,
-                        v_arrival_ms: v2_ms,
-                        transfer_orbit: Some(orbit),
+        for col in 0..cols {
+            // Per-column launch-time offset.  Columns are evenly
+            // spaced across `[0, dep_window_s]` so col 0 burns at
+            // `sim_time_s` (= "now") and col `cols - 1` burns at
+            // `sim_time_s + dep_window_s` (= "now + N days").  The
+            // 1-col degenerate case (`cols = 1`) keeps the original
+            // "depart now" geometry.
+            let col_step_s = if cols > 1 {
+                dep_window_s / (cols as f64 - 1.0)
+            } else {
+                0.0
+            };
+            let t_dep_anchor_s = col as f64 * col_step_s;
+            let cell_t_dep_s = t_dep_anchor_s; // absolute offset from sim_time_s
+
+            // Destination phase is the sum of the launch-time phase
+            // advance and the TOF phase advance.  Anchored at the
+            // destination's current position (angle 0 at the
+            // player's clock); the destination advances at
+            // `dest_omega` rad/s in its own circular orbit.  Both
+            // terms contribute to the non-colinear geometry that
+            // keeps `solve_lambert_transfer` happy.
+            let dest_phase_angle = dest_omega * (cell_t_dep_s + tof_s);
+            let dest_pos_au = DVec3::new(
+                r2_m * dest_phase_angle.cos() / AU_IN_METERS,
+                r2_m * dest_phase_angle.sin() / AU_IN_METERS,
+                0.0,
+            );
+
+            // Lambert solve at (t_dep = 0, tof_s) for the planar pair.
+            // The body's gravity dominates the parking-orbit scale, so
+            // this is a short-cislunar-class solve (microseconds) — well
+            // inside the per-row budget.
+            let cell = match solve_lambert_transfer(origin_pos_au, dest_pos_au, tof_s, gm) {
+                Some((v1_ms, v2_ms, orbit)) => {
+                    let v1_speed_ms = v1_ms.length();
+                    let v2_speed_ms = v2_ms.length();
+                    let dep_burn_ms = (v1_speed_ms - v_circ_dep_ms).abs();
+                    let arr_burn_ms = (v_circ_arr_ms - v2_speed_ms).abs();
+                    let v_inf_dep_ms = (v1_speed_ms - v_circ_dep_ms).max(0.0);
+                    let c3 = v_inf_dep_ms * v_inf_dep_ms;
+                    if !c3.is_finite() || c3 > c3_ceiling_ms2 {
+                        PorkchopCell {
+                            t_dep_s: cell_t_dep_s,
+                            tof_s,
+                            total_dv_ms: f64::INFINITY,
+                            c3_departure: c3,
+                            v_inf_arrival_ms: 0.0,
+                            delta_v1_ms: 0.0,
+                            delta_v2_ms: 0.0,
+                            feasible: false,
+                            origin_pos_au,
+                            dest_pos_au,
+                            v_departure_ms: v1_ms,
+                            v_arrival_ms: v2_ms,
+                            transfer_orbit: None,
+                        }
+                    } else {
+                        let v_inf_arrival_ms = (v2_speed_ms - v_circ_arr_ms).max(0.0);
+                        let total = dep_burn_ms + arr_burn_ms + plane_change_penalty_ms;
+                        PorkchopCell {
+                            t_dep_s: cell_t_dep_s,
+                            tof_s,
+                            total_dv_ms: total,
+                            c3_departure: c3,
+                            v_inf_arrival_ms,
+                            delta_v1_ms: dep_burn_ms + plane_change_penalty_ms,
+                            delta_v2_ms: arr_burn_ms,
+                            feasible: true,
+                            origin_pos_au,
+                            dest_pos_au,
+                            v_departure_ms: v1_ms,
+                            v_arrival_ms: v2_ms,
+                            transfer_orbit: Some(orbit),
+                        }
                     }
                 }
-            }
-            None => PorkchopCell {
-                t_dep_s: 0.0,
-                tof_s,
-                total_dv_ms: f64::INFINITY,
-                c3_departure: 0.0,
-                v_inf_arrival_ms: 0.0,
-                delta_v1_ms: 0.0,
-                delta_v2_ms: 0.0,
-                feasible: false,
-                origin_pos_au,
-                dest_pos_au,
-                v_departure_ms: DVec3::ZERO,
-                v_arrival_ms: DVec3::ZERO,
-                transfer_orbit: None,
-            },
-        };
+                None => PorkchopCell {
+                    t_dep_s: cell_t_dep_s,
+                    tof_s,
+                    total_dv_ms: f64::INFINITY,
+                    c3_departure: 0.0,
+                    v_inf_arrival_ms: 0.0,
+                    delta_v1_ms: 0.0,
+                    delta_v2_ms: 0.0,
+                    feasible: false,
+                    origin_pos_au,
+                    dest_pos_au,
+                    v_departure_ms: DVec3::ZERO,
+                    v_arrival_ms: DVec3::ZERO,
+                    transfer_orbit: None,
+                },
+            };
 
-        if cell.feasible && cell.total_dv_ms < min_dv {
-            min_dv = cell.total_dv_ms;
-            min_cell = Some((0, row));
+            if cell.feasible && cell.total_dv_ms < min_dv {
+                min_dv = cell.total_dv_ms;
+                min_cell = Some((col, row));
+            }
+            cells.push(cell);
         }
-        cells.push(cell);
     }
 
     let tof_min_s = cells.first().map(|c| c.tof_s).unwrap_or(0.0);
     let tof_max_s = cells.last().map(|c| c.tof_s).unwrap_or(0.0);
-    // Adaptive trim: with at most n=9 rows and the preset spectrum,
+    // Adaptive trim: with at most n rows and the preset spectrum,
     // every row is meaningful — no feasible cell outside
     // [tof_min_s, tof_max_s].  Falls back to the configured range when
     // no cell is feasible so the planner still sees a sensible surface.
-    let rendered_tof_bounds_s = compute_adaptive_tof_bounds(&cells, 1, n, tof_min_s, tof_max_s);
+    let rendered_tof_bounds_s = compute_adaptive_tof_bounds(&cells, cols, n, tof_min_s, tof_max_s);
 
     PorkchopGrid {
         origin_name: String::new(),
         dest_name: String::new(),
-        // The panel's rotating-buffer scroll math divides by
-        // `t_dep_bounds_s.1 - t_dep_bounds_s.0`; a zero span (the
-        // previous `(0.0, 0.0)`) would make `col_step_s = 0` and the
-        // UV-window calculation produce `±infinity`, which the GPU
-        // silently renders as a fully-clipped panel.  Use a 1-second
-        // nominal span — the panel never actually reads the absolute
-        // value (the rotating buffer offsets everything by `shift_s`),
-        // it just needs a non-zero denominator.
-        t_dep_bounds_s: (0.0, 1.0),
+        // Anchor the t_dep axis at `sim_time_s` so the planner's
+        // auto-pick computes `abs_t_dep ≈ elapsed` (depart
+        // immediately) for col 0.  For multi-col grids the axis
+        // spans `[sim_time_s, sim_time_s + dep_window_s]`, giving
+        // the player the full synodic-phase sweep visible across
+        // the X-axis.  For the `cols = 1` degenerate case the
+        // 1-second span serves as the panel-UV-math sentinel that
+        // prevents divide-by-zero in the rotating-buffer scroll
+        // path — the panel also detects `cols < 30` and disables
+        // scrolling for small grids, so the `sim_time_s` anchor
+        // there is never offset by `shift_s`.
+        t_dep_bounds_s: (sim_time_s, sim_time_s + dep_window_s.max(1.0)),
         tof_bounds_s: (tof_min_s, tof_max_s),
         rendered_tof_bounds_s,
-        resolution: (1, n),
+        resolution: (cols, n),
         cells,
         min_cell,
         metric: PorkchopMetric::TotalDv,
@@ -1287,9 +1588,99 @@ pub fn build_star_approach_grid(inputs: &StarApproachInputs) -> PorkchopGrid {
             // frame (mirrors the local-frame builder's convention).
             let angle = inputs.origin_phase_at_epoch_rad + omega * t_dep_s;
             let origin_pos_au = DVec3::new(parking_au * angle.cos(), parking_au * angle.sin(), 0.0);
-            let dest_pos_au = DVec3::ZERO;
+            // Phase 6 (solar-Oberth) destination: place the perihelion
+            // at the stellar photosphere, OPPOSITE the parking-orbit
+            // position.  A Hohmann transfer from a parking orbit at
+            // distance `parking_au` to a perihelion at `r_dest_au`
+            // sweeps a 180° true anomaly (aphelion → perihelion), so
+            // the destination position is the unit direction vector
+            // from the parking orbit, negated, scaled by
+            // `r_dest_au`.  Using `DVec3::ZERO` here would make
+            // `solve_lambert_transfer` short-circuit on its
+            // `r2_m <= 0.0` guard and every cell would come back
+            // infeasible — exactly the bug the Phase 6 snapshot test
+            // was originally written to catch.
+            let dest_pos_au = DVec3::new(
+                -r_dest_au * angle.cos(),
+                -r_dest_au * angle.sin(),
+                0.0,
+            );
 
-            let cell =
+            // The Hohmann star-approach geometry is exactly colinear
+            // (parking orbit aphelion opposite photosphere perihelion
+            // — both lie on a single line through the star).
+            // `solve_lambert_transfer` rejects colinear geometry on
+            // its `sin_dtheta.abs() <= 1e-10` guard (orbital_mechanics
+            // .rs:1005) and would return None for every cell, leaving
+            // the grid with zero feasible cells.  We handle the
+            // colinear case analytically via vis-viva: the aphelion
+            // speed on a Hohmann ellipse with `a = (r1+r2)/2` is
+            // `sqrt(GM · (2/r1 − 1/a))` and is tangential to the
+            // parking-orbit radius.  The burn magnitude is the
+            // parking-orbit circular speed minus the aphelion speed.
+            let r2_m = r_dest_au * AU_IN_METERS;
+            let a_m = 0.5 * (r1_m + r2_m);
+            let v_aphelion_ms =
+                (inputs.gm_star * (2.0 / r1_m - 1.0 / a_m)).max(0.0).sqrt();
+            let tangential_dir = DVec3::new(-angle.sin(), angle.cos(), 0.0);
+            let v1_ms_colinear = tangential_dir * v_aphelion_ms;
+            let v2_ms_colinear = tangential_dir * v_aphelion_ms; // unused — arrival at perihelion
+
+            let cell = if tof_s > 0.0 && (v_aphelion_ms.is_finite()) {
+                // Build a placeholder KeplerOrbit from the Hohmann
+                // ellipse so the panel can colour-code the cell.  We
+                // only need `semi_major_axis` + `eccentricity` for the
+                // bake; the leg visualisation never re-solves this
+                // conic (it uses `draw_star_approach_preview` in
+                // `fleets/visuals.rs`, which re-projects from
+                // positions only).
+                let orbit = crate::astronomy::KeplerOrbit {
+                    eccentricity: ((r1_m - r2_m) / (r1_m + r2_m)).abs(),
+                    semi_major_axis: a_m / AU_IN_METERS,
+                    inclination: 0.0,
+                    longitude_ascending_node: 0.0,
+                    argument_of_periapsis: 0.0,
+                    mean_anomaly_epoch: std::f64::consts::PI, // parking starts at aphelion
+                    mean_motion: (inputs.gm_star / a_m.powi(3)).sqrt(),
+                };
+                let v1_speed_ms = v1_ms_colinear.length();
+                let dep_burn_ms = (v1_speed_ms - v_circ_ms).abs();
+                let v_inf_dep_ms = (v1_speed_ms - v_circ_ms).max(0.0);
+                let c3 = v_inf_dep_ms * v_inf_dep_ms;
+                if !c3.is_finite() || c3 > c3_ceiling_ms2 {
+                    PorkchopCell {
+                        t_dep_s,
+                        tof_s,
+                        total_dv_ms: f64::INFINITY,
+                        c3_departure: c3,
+                        v_inf_arrival_ms: 0.0,
+                        delta_v1_ms: 0.0,
+                        delta_v2_ms: 0.0,
+                        feasible: false,
+                        origin_pos_au,
+                        dest_pos_au,
+                        v_departure_ms: v1_ms_colinear,
+                        v_arrival_ms: v2_ms_colinear,
+                        transfer_orbit: None,
+                    }
+                } else {
+                    PorkchopCell {
+                        t_dep_s,
+                        tof_s,
+                        total_dv_ms: dep_burn_ms,
+                        c3_departure: c3,
+                        v_inf_arrival_ms: 0.0,
+                        delta_v1_ms: dep_burn_ms,
+                        delta_v2_ms: 0.0,
+                        feasible: true,
+                        origin_pos_au,
+                        dest_pos_au,
+                        v_departure_ms: v1_ms_colinear,
+                        v_arrival_ms: v2_ms_colinear,
+                        transfer_orbit: Some(orbit),
+                    }
+                }
+            } else {
                 match solve_lambert_transfer(origin_pos_au, dest_pos_au, tof_s, inputs.gm_star) {
                     Some((v1_ms, v2_ms, orbit)) => {
                         let v1_speed_ms = v1_ms.length();
@@ -1347,7 +1738,8 @@ pub fn build_star_approach_grid(inputs: &StarApproachInputs) -> PorkchopGrid {
                         v_arrival_ms: DVec3::ZERO,
                         transfer_orbit: None,
                     },
-                };
+                }
+            };
 
             if cell.feasible && cell.total_dv_ms < min_dv {
                 min_dv = cell.total_dv_ms;
@@ -1531,6 +1923,7 @@ mod tests {
                 resolution_tof: 40,
                 c3_ceiling_km2_s2: 400.0,
                 short_hop_options: None,
+                short_hop_t_dep_steps: None,
             }],
             ..PorkchopConfig::default()
         };
@@ -1631,6 +2024,116 @@ mod tests {
         let inputs = make_inputs(earth_orbit(), mars_orbit(), "interplanetary");
         let grid = build_porkchop_grid(&cfg, &inputs);
         assert_eq!(grid.cells.len(), grid.resolution.0 * grid.resolution.1);
+    }
+
+    // === adaptive_resolution (follow-up bump) tests =========================
+    //
+    // These tests pin the contract of `adaptive_resolution`: the RON
+    // `resolution_t_dep` / `resolution_tof` are MINIMUMS, and the helper
+    // bumps `cols` / `rows` up when the natural window is wider than the
+    // static values can comfortably sample.  The total is clamped at
+    // `ADAPTIVE_RESOLUTION_CELL_CAP` (5000 cells) by shrinking whichever
+    // dimension has the looser step first.
+
+    /// Earth→Mercury via Venus GA: ~614-day window, ~263-day TOF span.
+    /// The `gravity_assist` override's static `80 × 60 = 4800 cells`
+    /// would give 7.7 d/col and 4.4 d/row — too coarse for the
+    /// cheap-assist basin.  The adaptive bump should grow cols
+    /// further (target 3 d/col) while clamping at 5000 cells by
+    /// shrinking rows if needed.  Final shape: cols > 80 (bumped),
+    /// cols × rows ≤ 5000, and either row step ≤ 5 d OR col step
+    /// ≤ 3 d.
+    #[test]
+    fn adaptive_resolution_scales_up_wide_window_to_step_target() {
+        let window_days = 614.0;
+        let span_days = 263.0;
+        let (cols, rows) =
+            adaptive_resolution(80, 60, window_days, span_days);
+        assert!(
+            cols >= 80,
+            "adaptive_resolution must respect the RON minimum: cols = {cols}, expected ≥ 80"
+        );
+        assert!(
+            rows >= 60,
+            "adaptive_resolution must respect the RON minimum: rows = {rows}, expected ≥ 60"
+        );
+        assert!(
+            cols * rows <= ADAPTIVE_RESOLUTION_CELL_CAP,
+            "cell cap exceeded: {} × {} = {} > {}",
+            cols,
+            rows,
+            cols * rows,
+            ADAPTIVE_RESOLUTION_CELL_CAP
+        );
+        // At least one dimension must hit its step target.
+        let col_step = window_days / cols as f64;
+        let row_step = span_days / rows as f64;
+        assert!(
+            col_step <= MAX_T_DEP_STEP_DAYS + 0.01 || row_step <= MAX_TOF_STEP_DAYS + 0.01,
+            "neither dimension hit its step target: col_step = {col_step:.2} (max {MAX_T_DEP_STEP_DAYS}), row_step = {row_step:.2} (max {MAX_TOF_STEP_DAYS})"
+        );
+    }
+
+    /// Moon transfer: 14-day window, 5-day TOF span.  Both targets
+    /// are narrower than the RON `70 × 50` minimum, so the helper
+    /// returns the RON values unchanged (a no-op bump).
+    #[test]
+    fn adaptive_resolution_respects_ron_minimum_for_narrow_window() {
+        let (cols, rows) = adaptive_resolution(70, 50, 14.0, 5.0);
+        assert_eq!(
+            cols, 70,
+            "narrow-window should fall back to RON minimum: got {cols}"
+        );
+        assert_eq!(
+            rows, 50,
+            "narrow-window should fall back to RON minimum: got {rows}"
+        );
+    }
+
+    /// Earth→Mars direct (interplanetary default): ~146-day window,
+    /// ~525-day TOF span.  RON `70 × 70 = 4900 cells`.  The desired
+    /// bumps are `49 cols × 105 rows = 5145 cells` — exceeds the
+    /// 5000-cell cap, so the helper shrinks one dimension.  Either
+    /// `49 × 102 = 4998` (shrink rows) or `48 × 105 = 5040` (shrink
+    /// cols but that exceeds the cap, so this branch is unlikely).
+    /// The contract: `cols × rows ≤ 5000`, both ≥ RON minimums.
+    #[test]
+    fn adaptive_resolution_clamps_at_cell_cap_for_interplanetary() {
+        let (cols, rows) = adaptive_resolution(70, 70, 146.0, 525.0);
+        assert!(
+            cols >= 70 && rows >= 70,
+            "RON minimums violated: cols = {cols}, rows = {rows}"
+        );
+        assert!(
+            cols * rows <= ADAPTIVE_RESOLUTION_CELL_CAP,
+            "cell cap exceeded: {} × {} = {} > {}",
+            cols,
+            rows,
+            cols * rows,
+            ADAPTIVE_RESOLUTION_CELL_CAP
+        );
+    }
+
+    /// Degenerate case: an empty / zero window must not panic and
+    /// must return the RON minimums (no bump because the desired
+    /// size is 0).
+    #[test]
+    fn adaptive_resolution_handles_zero_window_without_panic() {
+        let (cols, rows) = adaptive_resolution(50, 40, 0.0, 0.0);
+        assert_eq!(cols, 50);
+        assert_eq!(rows, 40);
+    }
+
+    /// Sub-minimum RON values (e.g. a 1-col `short_hop` override)
+    /// must be floored at 2 cols / rows to avoid divide-by-zero in
+    /// the per-cell fractional mapping downstream.
+    #[test]
+    fn adaptive_resolution_floors_rons_below_2() {
+        let (cols, rows) = adaptive_resolution(1, 1, 14.0, 5.0);
+        assert!(
+            cols >= 2 && rows >= 2,
+            "min floor violated: cols = {cols}, rows = {rows}"
+        );
     }
 
     /// Inner-planet transfers (e.g. Earth→Mercury) used to render every
@@ -2356,6 +2859,7 @@ mod tests {
                 resolution_tof: 60,
                 c3_ceiling_km2_s2: 400.0,
                 short_hop_options: None,
+                short_hop_t_dep_steps: None,
             });
 
         let inputs_default = make_inputs(earth_orbit(), mars_orbit(), "interstellar");
@@ -2423,21 +2927,45 @@ mod tests {
         assert_eq!(clamp_short_hop_options(5), 5);
         assert_eq!(clamp_short_hop_options(7), 7);
         assert_eq!(clamp_short_hop_options(9), 9);
-        assert_eq!(clamp_short_hop_options(10), 9);
-        assert_eq!(clamp_short_hop_options(usize::MAX), 9);
+        assert_eq!(clamp_short_hop_options(15), 15);
+        assert_eq!(clamp_short_hop_options(25), 25);
+        assert_eq!(clamp_short_hop_options(40), 40);
+        assert_eq!(clamp_short_hop_options(41), 40);
+        assert_eq!(clamp_short_hop_options(usize::MAX), 40);
     }
 
-    /// `build_short_hop_grid(Earth→Moon, n ∈ {3, 5, 7, 9})` returns
-    /// rows of strictly increasing TOF (the LGD acceptance criterion).
-    /// Cells are feasible at every preset (Lambert succeeds for the
-    /// `0.6× T_H` short end too — `solve_local_cell` does the same).
-    /// The cheapest cell lands near the Hohmann preset (not at the
-    /// extreme) because the per-preset ΔV curve is V-shaped.
+    /// `clamp_short_hop_t_dep_steps` accepts any input and clamps
+    /// it into `[1, 16]`.  `1` reproduces the original single-column
+    /// bar (depart-now behaviour); `16` gives roughly 12-hour steps
+    /// across a 1-week window which is enough resolution to spot
+    /// the synodic-phase sweep on any moon system.  Above 16 the
+    /// colormap shows per-column ΔV jumps smaller than the player's
+    /// picker resolution.
+    #[test]
+    fn clamp_short_hop_t_dep_steps_bounds() {
+        assert_eq!(clamp_short_hop_t_dep_steps(0), 1);
+        assert_eq!(clamp_short_hop_t_dep_steps(1), 1);
+        assert_eq!(clamp_short_hop_t_dep_steps(7), 7);
+        assert_eq!(clamp_short_hop_t_dep_steps(12), 12);
+        assert_eq!(clamp_short_hop_t_dep_steps(16), 16);
+        assert_eq!(clamp_short_hop_t_dep_steps(17), 16);
+        assert_eq!(clamp_short_hop_t_dep_steps(usize::MAX), 16);
+    }
+
+    /// `build_short_hop_grid(Earth→Moon, n ∈ {3, 5, 7, 9, 15, 25, 40})`
+    /// returns rows of strictly increasing TOF (the LGD acceptance
+    /// criterion).  Cells are feasible at every preset (Lambert
+    /// succeeds for the `0.6× T_H` short end too — `solve_local_cell`
+    /// does the same).  The cheapest cell lands near the Hohmann
+    /// preset (not at the extreme) because the per-preset ΔV curve
+    /// is V-shaped.  GRA-385 extended the range from 9 to 25 to
+    /// 40 so the RON can hand the player a fine-grained preset set
+    /// (the player wanted "a few tens of options" instead of just 5).
     #[test]
     fn build_short_hop_grid_rows_monotone_increasing_tof() {
         let gm = EARTH_GM;
-        for n in [3, 5, 7, 9] {
-            let grid = build_short_hop_grid(LEO_RADIUS_AU, LUNAR_ORBIT_AU, gm, 0.0, n);
+        for n in [3, 5, 7, 9, 15, 25, 40] {
+            let grid = build_short_hop_grid(LEO_RADIUS_AU, LUNAR_ORBIT_AU, gm, 0.0, n, 0.0, 1, 1.0);
             assert_eq!(
                 grid.resolution,
                 (1, n),
@@ -2472,7 +3000,8 @@ mod tests {
     /// endpoints so the spacing doesn't drift in a future refactor.
     #[test]
     fn build_short_hop_grid_n5_covers_design_preset_spectrum() {
-        let grid = build_short_hop_grid(LEO_RADIUS_AU, LUNAR_ORBIT_AU, EARTH_GM, 0.0, 5);
+        let grid =
+            build_short_hop_grid(LEO_RADIUS_AU, LUNAR_ORBIT_AU, EARTH_GM, 0.0, 5, 0.0, 1, 1.0);
         assert_eq!(grid.resolution, (1, 5));
 
         // Hohmann TOF for Earth→Moon (LEO → lunar orbit).
@@ -2510,7 +3039,8 @@ mod tests {
     /// acceptance criterion from the design doc (Phase 3 amended r2).
     #[test]
     fn build_short_hop_grid_offers_visible_dv_variety() {
-        let grid = build_short_hop_grid(LEO_RADIUS_AU, LUNAR_ORBIT_AU, EARTH_GM, 0.0, 5);
+        let grid =
+            build_short_hop_grid(LEO_RADIUS_AU, LUNAR_ORBIT_AU, EARTH_GM, 0.0, 5, 0.0, 1, 1.0);
         let min_dv = grid
             .cells
             .iter()
@@ -2540,7 +3070,8 @@ mod tests {
     /// pays at least one extra `2·v·sin(Δi/2)` m/s on the dep burn.
     #[test]
     fn build_short_hop_grid_plane_change_penalty_applies_to_inclined() {
-        let grid_coplanar = build_short_hop_grid(LEO_RADIUS_AU, LUNAR_ORBIT_AU, EARTH_GM, 0.0, 5);
+        let grid_coplanar =
+            build_short_hop_grid(LEO_RADIUS_AU, LUNAR_ORBIT_AU, EARTH_GM, 0.0, 5, 0.0, 1, 1.0);
         let grid_inclined = build_short_hop_grid(
             LEO_RADIUS_AU,
             LUNAR_ORBIT_AU,
@@ -2548,6 +3079,9 @@ mod tests {
             // 5° = 0.0873 rad — small but non-trivial.
             5.0_f64.to_radians(),
             5,
+            0.0,
+            1,
+            1.0,
         );
 
         for (i, (cell_cop, cell_inc)) in grid_coplanar
@@ -2582,7 +3116,8 @@ mod tests {
     /// "no feasible option".
     #[test]
     fn build_short_hop_grid_earth_moon_cheapest_within_ten_percent_is_feasible() {
-        let grid = build_short_hop_grid(LEO_RADIUS_AU, LUNAR_ORBIT_AU, EARTH_GM, 0.0, 5);
+        let grid =
+            build_short_hop_grid(LEO_RADIUS_AU, LUNAR_ORBIT_AU, EARTH_GM, 0.0, 5, 0.0, 1, 1.0);
         let min_dv = grid
             .cells
             .iter()
@@ -2619,6 +3154,73 @@ mod tests {
             within_hohmann_10_pct_band >= 1,
             "Earth→Moon short-hop must include ≥ 1 Hohmann-band preset \
              (within ±20% of T_Hohmann={tof_h:.0} s); got {within_hohmann_10_pct_band}"
+        );
+    }
+
+    /// GRA-385 (synodic sweep): with `t_dep_steps > 1` the builder
+    /// produces a 2D `(t_dep, tof)` grid.  Every cell must still be
+    /// feasible, the resolution must match `(t_dep_steps, n)`, and
+    /// the destination's phase offset (`ω_dest · (t_dep + tof)`)
+    /// must advance as expected — the col offset within each row
+    /// shifts the destination forward by `ω_dest · col_step_s`,
+    /// which is what makes moons-of-gas-giants transfers time-
+    /// sensitive.
+    #[test]
+    fn build_short_hop_grid_2d_synodic_sweep() {
+        let t_dep_steps = 7;
+        let t_dep_window_days = 3.0;
+        let n_options = 5;
+        let grid = build_short_hop_grid(
+            LEO_RADIUS_AU,
+            LUNAR_ORBIT_AU,
+            EARTH_GM,
+            0.0,
+            n_options,
+            0.0,
+            t_dep_steps,
+            t_dep_window_days,
+        );
+        assert_eq!(
+            grid.resolution,
+            (t_dep_steps, n_options),
+            "2D grid must be t_dep_steps × n_options"
+        );
+        assert_eq!(grid.cells.len(), t_dep_steps * n_options);
+        // All cells should be feasible — the col-offset phase advance
+        // breaks the colinear-geometry early return that previously
+        // made the long end of the Hohmann preset spectrum infeasible.
+        for (i, cell) in grid.cells.iter().enumerate() {
+            assert!(cell.feasible, "cell {i} must be feasible");
+            assert!(
+                cell.total_dv_ms.is_finite(),
+                "cell {i} total_dv_ms must be finite"
+            );
+        }
+        // The first column's cells must record t_dep_s = 0 (depart
+        // now); the last column's cells must record t_dep_s at the
+        // edge of the dep window.  Each column gets a strictly
+        // increasing t_dep offset.
+        let dep_window_s = t_dep_window_days * SECONDS_PER_DAY;
+        let col_step = dep_window_s / (t_dep_steps as f64 - 1.0);
+        for col in 0..t_dep_steps {
+            let expected_t_dep = col as f64 * col_step;
+            for row in 0..n_options {
+                let cell = &grid.cells[col + row * t_dep_steps];
+                assert!(
+                    (cell.t_dep_s - expected_t_dep).abs() < 1.0,
+                    "col {col} row {row}: t_dep_s ({:.0}) must match expected ({:.0})",
+                    cell.t_dep_s,
+                    expected_t_dep
+                );
+            }
+        }
+        // The dep-window bounds must span the configured window.
+        let dep_span = grid.t_dep_bounds_s.1 - grid.t_dep_bounds_s.0;
+        assert!(
+            (dep_span - dep_window_s).abs() < 1.0,
+            "t_dep_bounds_s span ({:.0} s) must span the configured window ({:.0} s)",
+            dep_span,
+            dep_window_s
         );
     }
 }
@@ -3029,6 +3631,7 @@ mod planner_wiring_tests {
                 resolution_tof: 40,
                 c3_ceiling_km2_s2: 400.0,
                 short_hop_options: None,
+                short_hop_t_dep_steps: None,
             }],
             ..PorkchopConfig::default()
         };
@@ -3265,6 +3868,7 @@ mod planner_wiring_tests {
             resolution_tof: 40,
             c3_ceiling_km2_s2: 100.0,
             short_hop_options: None,
+            short_hop_t_dep_steps: None,
         }
     }
 

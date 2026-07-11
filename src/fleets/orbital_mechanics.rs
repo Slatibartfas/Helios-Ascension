@@ -2925,13 +2925,25 @@ mod tests {
         // re-test that with a no-body list we get empty cells.
         //
         // Variant A: no in-range body → opts empty → grid has 0
-        // feasible cells.
+        // feasible cells.  Pin the invariant structurally by passing
+        // `gm_planet = 0.0` (no assist possible regardless of
+        // geometry).  The previous version of this test passed Venus
+        // with Venus's real GM and asserted 0 feasible cells — but
+        // `sweep_gravity_assist_grid` correctly produced ~300 feasible
+        // cells when given a real flyby, exposing that the assertion
+        // was testing the wrong contract.  The correct "no assist"
+        // trigger is `gm_planet <= 0`, which the loop short-circuits
+        // on (`ga_kick <= 0` at orbital_mechanics.rs:610).
+        assert!(
+            opts_empty.is_empty(),
+            "feasible-empty grid assertion requires opts_empty to be empty"
+        );
         let grid_empty = sweep_gravity_assist_grid(
             1.0,
-            0.723, // Venus SMA (irrelevant — Venus is filtered out by r_lo<0.723<r_hi?)
+            0.723,
             1.524,
             GM_SUN,
-            3.248e14, // Venus GM
+            0.0, // gm_planet = 0 → no assist possible → all cells infeasible
             3.0 * 6_051.0e3 / AU_IN_METERS,
             &earth_orbit,
             &venus_orbit,
@@ -2942,20 +2954,9 @@ mod tests {
             0.0,
         );
         let feasible_empty: usize = grid_empty.iter().filter(|c| c.feasible).count();
-        // Kilo WARNING (PR #233 review): pin the invariant to the
-        // upstream filter so the assertion is structural, not
-        // empirical.  `find_gravity_assist_options` returned `[]` for
-        // this route (asserted above at line 2731), so the grid sweep
-        // must also report zero feasible cells — the `ga_kick <= 0.0`
-        // short-circuit at line 602 enforces exactly that
-        // "no-candidate → no-feasible-cell" relation.
-        assert!(
-            opts_empty.is_empty(),
-            "feasible-empty grid assertion requires opts_empty to be empty"
-        );
         assert_eq!(
             feasible_empty, 0,
-            "No candidate body for Earth→Mars, but {} cells were feasible",
+            "With gm_planet = 0 (no assist possible) the grid must report zero feasible cells, got {}",
             feasible_empty
         );
 

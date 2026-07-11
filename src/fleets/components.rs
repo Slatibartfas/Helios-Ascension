@@ -880,6 +880,25 @@ pub struct PorkchopCategoryOverride {
     /// no-op diff in the final stack.
     #[serde(default)]
     pub short_hop_options: Option<usize>,
+    /// Optional GRA-385 knob: number of launch-time columns in the
+    /// short-hop porkchop.  Default 1 (the previous "depart now"
+    /// behaviour — the whole 1×N bar is at a single burn epoch).
+    /// Set to e.g. 7 to spread the bar across 7 evenly-spaced
+    /// launch times inside the short-hop `t_dep_window_days`
+    /// window (3 days by default), which lets the player see the
+    /// synodic-phase sweep for moons of gas giants (Galilean /
+    /// Saturnian moons orbit at sub-week periods so launch timing
+    /// matters there) — without this knob the solver picks a
+    /// single `(t_dep, tof)` that happens to be "now" and the
+    /// player has no signal that waiting 12 hours would save 200 m/s.
+    /// Soft-clamped to `[1, 12]` by `clamp_short_hop_t_dep_steps`.
+    /// Ignored by every category other than `short_hop`.
+    ///
+    /// `#[serde(default)]` keeps the field optional on disk so older
+    /// RON files (without `short_hop_t_dep_steps`) continue to load
+    /// via `PorkchopConfig::default()` (single-column bar).
+    #[serde(default)]
+    pub short_hop_t_dep_steps: Option<usize>,
 }
 
 /// One stop in the porkchop ΔV → RGBA colormap.  Linear interpolation
