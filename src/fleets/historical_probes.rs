@@ -29,7 +29,9 @@ use std::collections::HashMap;
 use bevy::math::DVec3;
 use bevy::prelude::*;
 
-use super::components::{HistoricalProbe, HistoricalProbeKind};
+use super::components::{
+    HistoricalProbe, HistoricalProbeKind, HistoricalProbeTransfer, HistoricalProbesInTransit,
+};
 use crate::astronomy::components::{
     HyperbolicTrajectory, KeplerOrbit, OrbitPath, SpaceCoordinates, SystemId,
 };
@@ -390,6 +392,8 @@ pub fn spawn_historical_probes(
     // Initialise the scan state in case apply_historical_probe_scan_bonuses
     // runs before any other system that would create it.
     commands.init_resource::<HistoricalProbeScanState>();
+    // Marker for the in-transit framing — see `HistoricalProbesInTransit`.
+    commands.init_resource::<HistoricalProbesInTransit>();
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -437,6 +441,7 @@ fn spawn_one_probe(
                 agency,
                 launch_year,
             },
+            HistoricalProbeTransfer::canonical_for_kind(kind),
             SpaceCoordinates { position: pos_au },
             KeplerOrbit::new(
                 elements.e,
@@ -460,6 +465,7 @@ fn spawn_one_probe(
                 agency,
                 launch_year,
             },
+            HistoricalProbeTransfer::canonical_for_kind(kind),
             SpaceCoordinates { position: pos_au },
             orbit,
             SystemId(0),
@@ -714,6 +720,77 @@ mod tests {
             (after_second - (initial + HISTORICAL_PROBE_SCAN_BONUS_RP * 4.0)).abs() < 1e-12,
             "second invocation should not add more RP (got delta {})",
             after_second - (initial + HISTORICAL_PROBE_SCAN_BONUS_RP * 4.0),
+        );
+    }
+
+    /// Locked-down destination catalog.  Each probe gets a single canonical
+    /// `HistoricalProbeTransfer` row via `canonical_for_kind`; if any of the
+    /// four labels or target distances drifts, the panel renders the wrong
+    /// "→ interstellar medium" hint and the player loses trust in the
+    /// in-transit indicator.  The test pins the catalog so a future doc-pass
+    /// or convention rename trips a CI failure rather than a silent UI shift.
+    #[test]
+    fn canonical_destination_catalog_is_stable() {
+        use crate::fleets::components::HistoricalProbeTransfer;
+
+        // Voyager 1 — the interstellar medium has no numeric boundary; the
+        // launch JD matches the canonical 1977-09-05 00:00 TDB epoch.
+        let v1 = HistoricalProbeTransfer::canonical_for_kind(HistoricalProbeKind::Voyager1);
+        assert!(
+            v1.destination_label.contains("Interstellar"),
+            "Voyager 1 should target the interstellar medium, got {:?}",
+            v1.destination_label,
+        );
+        assert_eq!(v1.target_distance_au, None, "ISM has no boundary");
+        assert!(
+            (v1.launch_jd_tdb - 2_443_372.5).abs() < 0.5,
+            "Voyager 1 launch JD drifted from 1977-09-05 (got {})",
+            v1.launch_jd_tdb,
+        );
+
+        // Voyager 2 — same ISM framing, 1977-08-20 launch.
+        let v2 = HistoricalProbeTransfer::canonical_for_kind(HistoricalProbeKind::Voyager2);
+        assert!(v2.destination_label.contains("Interstellar"));
+        assert_eq!(v2.target_distance_au, None);
+        assert!(
+            (v2.launch_jd_tdb - 2_443_356.5).abs() < 0.5,
+            "Voyager 2 launch JD drifted from 1977-08-20 (got {})",
+            v2.launch_jd_tdb,
+        );
+
+        // Parker — solar corona framing, no numeric target (region not a point).
+        let parker = HistoricalProbeTransfer::canonical_for_kind(HistoricalProbeKind::Parker);
+        assert!(
+            parker.destination_label.to_lowercase().contains("corona"),
+            "Parker should target the solar corona, got {:?}",
+            parker.destination_label,
+        );
+        assert_eq!(parker.target_distance_au, None);
+        assert!(
+            (parker.launch_jd_tdb - 2_458_343.5).abs() < 0.5,
+            "Parker launch JD drifted from 2018-08-12 (got {})",
+            parker.launch_jd_tdb,
+        );
+
+        // New Horizons — Arrokoth is a fixed KBO at ~43.1 AU, the only probe
+        // with a numeric target.  Verifies both the label and the target.
+        let nh = HistoricalProbeTransfer::canonical_for_kind(HistoricalProbeKind::NewHorizons);
+        assert!(
+            nh.destination_label.contains("Arrokoth"),
+            "New Horizons should target Arrokoth, got {:?}",
+            nh.destination_label,
+        );
+        let target = nh
+            .target_distance_au
+            .expect("Arrokoth orbit must be pinned");
+        assert!(
+            (target - 43.13).abs() < 0.5,
+            "Arrokoth orbit drifted from 43.13 AU (got {target})",
+        );
+        assert!(
+            (nh.launch_jd_tdb - 2_453_755.5).abs() < 0.5,
+            "New Horizons launch JD drifted from 2006-01-19 (got {})",
+            nh.launch_jd_tdb,
         );
     }
 }

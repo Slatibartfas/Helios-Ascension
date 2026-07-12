@@ -8,7 +8,9 @@ use crate::economy::PendingResourceRequests;
 use crate::economy::RequestPriority;
 use crate::economy::RequestState;
 use crate::economy::ResourceRequest;
-use crate::fleets::components::{HistoricalProbe, HistoricalProbeKind, ShipInfo};
+use crate::fleets::components::{
+    HistoricalProbe, HistoricalProbeKind, HistoricalProbeTransfer, ShipInfo,
+};
 
 /// Filter applied to the fleet list when navigating from the Private
 /// Shipping overview panel (GRA-37.e).  `None` shows every fleet
@@ -320,6 +322,7 @@ pub(super) fn ui_fleets_panel(
             &KeplerOrbit,
             Option<&HyperbolicTrajectory>,
             &HistoricalProbe,
+            Option<&HistoricalProbeTransfer>,
         ),
         With<HistoricalProbe>,
     >,
@@ -914,6 +917,7 @@ fn render_historical_probes_section(
             &KeplerOrbit,
             Option<&HyperbolicTrajectory>,
             &HistoricalProbe,
+            Option<&HistoricalProbeTransfer>,
         ),
         With<HistoricalProbe>,
     >,
@@ -927,16 +931,26 @@ fn render_historical_probes_section(
         launch_year: u16,
         distance_au: f64,
         is_hyperbolic: bool,
+        destination_label: &'static str,
+        target_distance_au: Option<f64>,
     }
     let mut rows: Vec<(HistoricalProbeKind, ProbeRow)> = probe_query
         .iter()
-        .map(|(coords, orbit, hyper, probe)| {
+        .map(|(coords, orbit, hyper, probe, transfer)| {
             // The orbit's `semi_major_axis` is signed: positive for
             // bound ellipses, negative for hyperbolas.  But the brief
             // asks us to classify from `eccentricity` directly so the
             // decision matches the test in
             // `src/fleets/historical_probes.rs::eccentricity_classification`.
             let is_hyperbolic = orbit.eccentricity >= 1.0 || hyper.is_some();
+            // Every historical probe spawned through `spawn_historical_probes`
+            // carries a `HistoricalProbeTransfer` (the spawn path inserts the
+            // canonical destination alongside the probe metadata).  The `Option`
+            // here is defensive — if a save predates this PR, fall back to the
+            // historical-probes baseline so the row still renders.
+            let (destination_label, target_distance_au) = transfer
+                .map(|t| (t.destination_label, t.target_distance_au))
+                .unwrap_or(("Interstellar medium (canonical)", None));
             (
                 probe.kind,
                 ProbeRow {
@@ -945,6 +959,8 @@ fn render_historical_probes_section(
                     launch_year: probe.launch_year,
                     distance_au: coords.position.length(),
                     is_hyperbolic,
+                    destination_label,
+                    target_distance_au,
                 },
             )
         })
@@ -960,14 +976,15 @@ fn render_historical_probes_section(
     rows.sort_by_key(|(kind, _)| probe_kind_index(*kind));
 
     ui.label(
-        egui::RichText::new("DEEP SPACE PROBES")
+        egui::RichText::new("DEEP SPACE PROBES — IN TRANSIT")
             .font(theme::heading())
             .color(theme::ACCENT),
     );
     ui.label(
         egui::RichText::new(
             "Background science assets — read-only. These probes are not under your command \
-             and cannot be transferred.",
+             and cannot be transferred. Each row is currently in flight toward the canonical \
+             mission target; the distance column shows heliocentric range from Sol.",
         )
         .font(theme::body(11.0))
         .color(theme::TEXT_DIM),
@@ -978,7 +995,7 @@ fn render_historical_probes_section(
     // (~340–560 px after the panel padding).  We use simple labels and
     // monospace for the numeric columns to keep the digits aligned.
     egui::Grid::new("historical_probes_header")
-        .num_columns(5)
+        .num_columns(6)
         .spacing([10.0, 4.0])
         .min_col_width(60.0)
         .show(ui, |ui| {
@@ -1001,6 +1018,12 @@ fn render_historical_probes_section(
                     .strong(),
             );
             ui.label(
+                egui::RichText::new("Mission target")
+                    .font(theme::mono(10.0))
+                    .color(theme::TEXT_DIM)
+                    .strong(),
+            );
+            ui.label(
                 egui::RichText::new("Distance (AU)")
                     .font(theme::mono(10.0))
                     .color(theme::TEXT_DIM)
@@ -1017,7 +1040,7 @@ fn render_historical_probes_section(
 
     for (_, row) in &rows {
         egui::Grid::new(format!("historical_probe_row_{}", row.name))
-            .num_columns(5)
+            .num_columns(6)
             .spacing([10.0, 2.0])
             .min_col_width(60.0)
             .show(ui, |ui| {
@@ -1042,6 +1065,22 @@ fn render_historical_probes_section(
                 ui.label(
                     egui::RichText::new(row.launch_year.to_string())
                         .font(theme::mono(12.0))
+                        .color(theme::TEXT),
+                );
+                // Mission target — show target + optional fraction-of-target
+                // when the probe has a numeric destination.  Unbounded
+                // targets ("interstellar medium", "corona") render as just
+                // the destination label, no numeric suffix.
+                let mission_text = match row.target_distance_au {
+                    Some(target) => {
+                        let pct = (row.distance_au / target * 100.0).min(999.0);
+                        format!("→ {}  ({:.0}%)", row.destination_label, pct)
+                    }
+                    None => format!("→ {}", row.destination_label),
+                };
+                ui.label(
+                    egui::RichText::new(mission_text)
+                        .font(theme::body(12.0))
                         .color(theme::TEXT),
                 );
                 ui.label(

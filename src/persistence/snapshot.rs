@@ -564,4 +564,71 @@ mod tests {
             "denylist failed — MeshMaterial3d serialised into save: {ron}"
         );
     }
+
+    /// Regression test: saving a fleet mid-transfer used to fail because
+    /// `ActiveManeuver::option_label: &'static str` is not reflect-serialisable
+    /// (it identifies a static catalog entry like `"Hohmann"` / `"Full Thrust"` /
+    /// `"Coast Phase 1"` and never had ReflectSerialize registered on `&str`).
+    /// The fix: `#[reflect(ignore)]` on the field + a position-based
+    /// `is_kinematic()` fallback so the kinematic determination survives
+    /// the empty-string post-restore state.  This test exercises the same
+    /// shape `process_fleet_actions` builds at execute time so any future
+    /// revert of the denylist-style fix is caught here.
+    #[test]
+    fn snapshot_serializes_fleet_in_active_maneuver() {
+        use crate::astronomy::KeplerOrbit;
+        use crate::fleets::{ActiveManeuver, TransferReferenceFrame};
+
+        let mut world = World::new();
+        world.init_resource::<AppTypeRegistry>();
+        // Synthetic Hohmann-style active maneuver between two placeholder bodies.
+        // `Entity::PLACEHOLDER` keeps the test independent of the entity allocator
+        // — what matters is the struct shape, not the entity ids.
+        let entity = world
+            .spawn(ActiveManeuver {
+                transfer_orbit: KeplerOrbit::default(),
+                reference_frame: TransferReferenceFrame::SystemBarycentric,
+                orbit_center: Entity::PLACEHOLDER,
+                origin_body: Entity::PLACEHOLDER,
+                departure_time: 0.0,
+                arrival_time: 86_400.0,
+                preserve_orbit_geometry: false,
+                destination_body: Entity::PLACEHOLDER,
+                arrival_orbit_radius_au: 1.0,
+                arrival_delta_v_ms: 0.0,
+                fuel_used_t: 0.0,
+                // The two labels we'd expect to "leak" if `#[reflect(ignore)]`
+                // were ever removed.  The test below checks neither serialises.
+                option_label: "Hohmann",
+                departure_angle: 0.0,
+                start_position_au: None,
+                end_position_au: None,
+                departure_velocity_ms: None,
+                arrival_velocity_ms: None,
+                start_visual_pos: None,
+                leg2_orbit: None,
+                leg2_start_s: 0.0,
+                flyby_body: None,
+                kinematic_override: false,
+            })
+            .id();
+        world.spawn_empty(); // exercise multi-entity walks too
+        let snapshot = snapshot_world(&world, SaveMetadata::new_now(0, 0, "test"))
+            .expect("snapshot must round-trip an in-transit ActiveManeuver");
+        // Smoke check: neither `&'static str` field leaks into the save blob.
+        // `option_label` is `#[reflect(ignore)]` and `option_label` would only
+        // appear if a future revert re-enabled reflect-serialisation of `&str`.
+        assert!(
+            !snapshot.contains("Hohmann"),
+            "ActiveManeuver::option_label leaked into snapshot — \
+             check that `#[reflect(ignore)]` is still in place: {snapshot}"
+        );
+        // Sanity check: the entity was actually walked (the empty-spawn
+        // ensures `DynamicSceneBuilder::extract_entities` saw it).
+        assert!(
+            !snapshot.contains("entities: []"),
+            "DynamicSceneBuilder emitted an empty entity list"
+        );
+        let _ = entity;
+    }
 }

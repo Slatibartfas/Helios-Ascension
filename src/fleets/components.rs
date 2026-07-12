@@ -434,7 +434,16 @@ pub struct ActiveManeuver {
     pub arrival_delta_v_ms: f64,
     /// Estimated propellant consumed by the maneuver (tonnes).
     pub fuel_used_t: f32,
-    /// Label of the transfer option chosen by the player.
+    /// Label of the transfer option chosen by the player (e.g. `"Hohmann"`,
+    /// `"Full Thrust"`, `"Coast Phase 1"`).  `&'static str` is
+    /// intentionally NOT reflect-serialised (matches
+    /// [`HistoricalProbe::name`] / [`HistoricalProbe::agency`] and the
+    /// same pattern `PlannedTransfer` uses to keep the action queue
+    /// serialisable).  After a save/load round-trip this field is the
+    /// empty string; `is_kinematic()` therefore also tests the
+    /// precomputed position fields below so it does not silently
+    /// demote a kinematic transfer to a Keplerian one after restore.
+    #[reflect(ignore)]
     pub option_label: &'static str,
     /// Visual orbit angle (radians) of the fleet on its parking ring at the moment
     /// of departure — retained for diagnostics.  Local transfer arcs in System view
@@ -485,20 +494,15 @@ impl ActiveManeuver {
     /// than Keplerian orbit propagation.
     ///
     /// Kinematic transfers include full-thrust, coast phases, max-speed runs,
-    /// and direct L1/L2 Lagrange-point transfers.
+    /// and direct L1/L2 Lagrange-point transfers.  The detection uses the
+    /// precomputed `start_position_au` / `end_position_au` position fields as
+    /// the primary signal so the determination survives a save/load round
+    /// trip (`option_label` is `#[reflect(ignore)]` and comes back as `""`).
+    /// `kinematic_override` remains a manual override for mid-transit course
+    /// corrections.
     pub fn is_kinematic(&self) -> bool {
         self.kinematic_override
-            || self.option_label == "Full Thrust"
-            || self.option_label.contains("Coast")
-            || self.option_label == "Max Speed"
-            || self.option_label.contains("Direct")
-            // GRA-153 M-3: Abort to Origin is propagated as a linear
-            // interpolation from the fleet's current heliocentric position
-            // (start_position_au) to the origin body's predicted position at
-            // arrival (end_position_au).  Treating it as a Keplerian transfer
-            // would re-fly the original Hohmann orbit, which is the bug
-            // class this maneuver exists to avoid.
-            || self.option_label == "Abort to Origin"
+            || (self.start_position_au.is_some() && self.end_position_au.is_some())
     }
 
     /// Fractional progress of the transfer arc, clamped to \[0, 1\].
@@ -800,6 +804,95 @@ pub struct HistoricalProbe {
     /// Calendar year the probe launched (UTC).
     pub launch_year: u16,
 }
+
+/// Companion component to [`HistoricalProbe`] that frames each probe as
+/// an *active mission in transit* rather than a static background entry.
+///
+/// Carries the canonical destination (label + optional target distance)
+/// and the launch epoch so the fleet panel can render
+/// `"Voyager 1 → Interstellar medium (AC+79 3888), 169.5 AU covered"`.
+///
+/// Probes never appear in the player fleet list and never accept
+/// transfer orders — the transfer arc is already drawn by the existing
+/// `OrbitPath` + `KeplerOrbit` / `HyperbolicTrajectory` propagation.  This
+/// component just carries the metadata the panel needs to label them.
+///
+/// Persists across save/load via the standard reflection snapshot (the
+/// `&'static str` is `#[reflect(ignore)]` like `HistoricalProbe::name`)
+/// so the probe's mission framing survives a save round-trip without
+/// the spawn path needing to repopulate it on every load.
+#[derive(Component, Debug, Clone, Copy, Reflect)]
+#[reflect(Component)]
+pub struct HistoricalProbeTransfer {
+    /// Canonical mission target (e.g. `"Interstellar medium"`,
+    /// `"Solar corona (perihelion series)"`, `"Arrokoth / Kuiper Belt"`).
+    /// `#[reflect(ignore)]` because `&'static str` is not reflect-serialised.
+    #[reflect(ignore)]
+    pub destination_label: &'static str,
+    /// Target heliocentric distance (AU).  `None` for unbounded
+    /// destinations — interstellar medium has no boundary, the corona is
+    /// a region not a point, etc.  When set, the panel renders a
+    /// `covered / target` fraction so the player sees fractional mission
+    /// progress rather than just the absolute distance.
+    pub target_distance_au: Option<f64>,
+    /// Julian Date (TDB) of the canonical launch — used to compute
+    /// "M years, N days in transit" without an extra lookup.
+    pub launch_jd_tdb: f64,
+}
+
+impl HistoricalProbeTransfer {
+    /// Canonical probe-to-target map for the four JPL Horizons probes
+    /// that `spawn_historical_probes` emits.  Centralised here so the
+    /// fleet panel and the spawn path agree on labels without a second
+    /// list to maintain.
+    pub fn canonical_for_kind(kind: HistoricalProbeKind) -> Self {
+        match kind {
+            HistoricalProbeKind::Voyager1 => Self {
+                destination_label: "Interstellar medium (AC+79 3888)",
+                target_distance_au: None,
+                // Voyager 1 launched 1977-09-05 00:00 TDB = JD 2_443_372.5.
+                launch_jd_tdb: 2_443_372.5,
+            },
+            HistoricalProbeKind::Voyager2 => Self {
+                destination_label: "Interstellar medium",
+                target_distance_au: None,
+                // Voyager 2 launched 1977-08-20 00:00 TDB = JD 2_443_356.5.
+                launch_jd_tdb: 2_443_356.5,
+            },
+            HistoricalProbeKind::Parker => Self {
+                destination_label: "Solar corona (perihelion series)",
+                target_distance_au: None,
+                // Parker Solar Probe launched 2018-08-12 00:00 UTC = JD 2_458_343.5
+                // (no precise TDB reference available in the historical-probes table;
+                // rounded to the calendar midnight).
+                launch_jd_tdb: 2_458_343.5,
+            },
+            HistoricalProbeKind::NewHorizons => Self {
+                destination_label: "Arrokoth / Kuiper Belt",
+                // 486958 Arrokoth orbits at ~43.1 AU — the canonical mission
+                // "next target" for New Horizons after the Pluto flyby.  Panel
+                // shows `63 AU covered / 43 AU target` which over-shoots —
+                // intentional, signals "primary mission target reached,
+                // extended mission in progress".
+                target_distance_au: Some(43.13),
+                // New Horizons launched 2006-01-19 00:00 UTC = JD 2_453_755.5.
+                launch_jd_tdb: 2_453_755.5,
+            },
+        }
+    }
+}
+
+/// Marker resource recording that at least one `HistoricalProbeTransfer`
+/// has been spawned.  Mirrors `HistoricalProbesSpawned` so any future
+/// "new game" / save-scum reset that drops the probe marker also drops
+/// the transfer marker in one shot.  The current panel doesn't read
+/// this — the `With<HistoricalProbe>` query already filters by the
+/// probe archetype — but it is the natural anchor for a future
+/// "scientific missions in transit" global counter if the
+/// notification system or main menu wants one.
+#[derive(Resource, Debug, Default, Clone, Copy, Reflect)]
+#[reflect(Resource)]
+pub struct HistoricalProbesInTransit;
 
 // === Porkchop plot (H-1) — GRA-152 ============================================
 //
