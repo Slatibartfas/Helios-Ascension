@@ -7386,6 +7386,53 @@ pub(super) fn render_transfer_planner(
                 return;
             }
 
+            // GRA-NNN: while the async porkchop build is in flight for a
+            // body target that would normally produce one, show a centered
+            // spinner instead of falling through to the legacy
+            // Efficient / Moderate / Fast row.  Without this the first
+            // ~360 ms of opening the planner on a fresh target flash the
+            // 3-option row, which the player reads as "there are only
+            // three choices" before the grid lands and they realise the
+            // porkchop surface is the actual tool.
+            //
+            // Conditions:
+            //   * `porkchop_grid.is_none()` — the panel hasn't rendered yet.
+            //   * `porkchop_build_in_flight` — the async worker is
+            //     currently solving it (set by the dispatch in the
+            //     GRA-159 deferred-build block above).
+            //   * target is a body whose type would normally produce a
+            //     porkchop (`should_build_porkchop_for_destination`).
+            //     For Lagrange / fleet / star-system targets, the
+            //     legacy row is the only available UI — no spinner.
+            if fleet_ui_state.porkchop_grid.is_none()
+                && fleet_ui_state.porkchop_build_in_flight
+                && fleet_ui_state
+                    .target_body
+                    .map(|te| {
+                        should_build_porkchop_for_destination(body_query, te)
+                    })
+                    .unwrap_or(false)
+            {
+                ui.add_space(20.0);
+                ui.vertical_centered(|ui| {
+                    ui.add(egui::Spinner::new().size(36.0));
+                    ui.add_space(6.0);
+                    ui.label(
+                        egui::RichText::new("Calculating transfer\u{2026}")
+                            .size(13.0)
+                            .color(theme::TEXT),
+                    );
+                    ui.add_space(2.0);
+                    ui.label(
+                        egui::RichText::new("Lambert porkchop grid")
+                            .size(11.0)
+                            .color(theme::TEXT_DIM),
+                    );
+                });
+                ui.add_space(20.0);
+                return;
+            }
+
             let options: Vec<_> = fleet_ui_state.computed_options.clone();
             for (idx, option) in options.iter().enumerate() {
                 let option_display_label = if show_binary_transfer_direct_labels {
