@@ -416,19 +416,33 @@ pub fn porkchop_panel(
             // VRAM (most GPUs ship with 4–8 GB) and uploaded only on
             // identity changes (not per frame).  For the non-buffer
             // 60×60 grid the bake drops to 1200×1200 = ~5.5 MB.
-            const SUPERSAMPLE: usize = 20;
-            let tex_cols = cols * SUPERSAMPLE;
-            let tex_rows = rows * SUPERSAMPLE;
+            const SUPERSAMPLE_TARGET: usize = 20;
+            // egui 0.33 hard-caps texture side at 2048 (`Context::tex_allocator`
+            // panics with "Texture has size X but the maximum texture side is
+            // 2048").  Wide grids — Jupiter's porkchop lands at 222 cols × 90
+            // rows under the GRA-152 adaptive-resolution sweepper — would
+            // produce 4440×1800 textures at the full 20× AA.  Clamp the
+            // effective SUPERSAMPLE so the resulting texture stays under the
+            // limit; AA quality degrades for very wide grids but the bilinear
+            // gradient is still smooth enough to pick cells at 5–9× AA.
+            // GRA-NNN (orbit-shell refactor follow-up).
+            const MAX_TEX_SIDE: usize = 2048;
+            let supersample = SUPERSAMPLE_TARGET
+                .min(MAX_TEX_SIDE / cols.max(1))
+                .min(MAX_TEX_SIDE / rows.max(1))
+                .max(1);
+            let tex_cols = cols * supersample;
+            let tex_rows = rows * supersample;
             let mut pixels: Vec<Color32> = Vec::with_capacity(tex_cols * tex_rows);
             for img_row in 0..tex_rows {
                 // Map this texture pixel to its grid row.  Each grid row
-                // occupies `SUPERSAMPLE` texture rows; the Y-axis flip
+                // occupies `supersample` texture rows; the Y-axis flip
                 // (NASA convention) is folded in here so the GPU
                 // texture's `(0, 0)` corresponds to grid row
                 // `rows - 1`.
-                let orig_row = (tex_rows - 1 - img_row) / SUPERSAMPLE;
+                let orig_row = (tex_rows - 1 - img_row) / supersample;
                 for col in 0..tex_cols {
-                    let orig_col = col / SUPERSAMPLE;
+                    let orig_col = col / supersample;
                     let cell = &grid.cells[orig_row * cols + orig_col];
                     pixels.push(cell_color(cell, &ramp));
                 }
