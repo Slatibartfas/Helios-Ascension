@@ -67,6 +67,16 @@ bevy_winit = { version = "0.18" }
 # path guarantees we resolve the same `TypeId` the engine inserts
 # into the world (vs. an indirect re-export through the prelude).
 bevy_time = { version = "0.18" }
+# Persistence (snapshot.rs) needs to deny-list the
+# `bevy_camera::visibility::VisibilityClass` component — it wraps a
+# `SmallVec<[core::any::TypeId; 1]>` whose `TypeId` element is
+# process-local and cannot carry `ReflectSerialize` type data. The
+# engine re-attaches `VisibilityClass` automatically when entities
+# gain renderable components, so omitting it from saves is safe. The
+# crate is pulled in transitively via `bevy_render`, but we list it
+# directly so the deny call resolves the same `TypeId` the engine
+# inserts into the world (vs. an indirect re-export through `bevy::camera`).
+bevy_camera = { version = "0.18" }
 
 # Math and physics
 glam = "0.29"

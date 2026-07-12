@@ -3165,6 +3165,7 @@ version = "0.4.0"
 dependencies = [
  "bevy",
  "bevy_a11y",
+ "bevy_camera",
  "bevy_egui",
  "bevy_scene",
  "bevy_time",

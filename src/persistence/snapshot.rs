@@ -206,6 +206,23 @@ fn configure_builder<'a>(
     //::<Entity>()` wants `&mut World` in Bevy 0.18) and passed in
     // as a slice.
     builder
+        // `bevy_camera::visibility::VisibilityClass` is a component
+        // Bevy attaches automatically to every renderable entity
+        // (Mesh3d / Mesh2d via `register_required_components`). Its
+        // field is `SmallVec<[TypeId; 1]>` — `TypeId` is a
+        // process-local handle that Bevy can't (and shouldn't)
+        // register `ReflectSerialize` type data for, so the scene
+        // serializer raises "type `core::any::TypeId` did not register
+        // the `ReflectSerialize`" and the snapshot errors out.
+        //
+        // The component is purely runtime state — Bevy re-attaches a
+        // fresh `VisibilityClass` to renderable entities on the next
+        // frame after load, so omitting it from saves is correct.
+        // Same pattern as the a11y / winit / time resources above:
+        // denylist engine plumbing the player has no observable
+        // interest in persisting. See the regression test
+        // `snapshot_skips_visibility_class_component` below.
+        .deny_component::<bevy_camera::visibility::VisibilityClass>()
         .extract_entities(entities.iter().copied())
         // IMPORTANT: apply the resource denylist BEFORE calling
         // `extract_resources()`.  `extract_resources` reads the
@@ -369,5 +386,36 @@ mod tests {
             .expect("snapshot must skip winit resources");
         assert!(!ron.contains("WinitSettings"));
         assert!(!ron.contains("WinitMonitors"));
+    }
+
+    #[test]
+    fn snapshot_skips_visibility_class_component() {
+        // Regression test for the in-game autosave failure: every
+        // renderable entity (Mesh3d / Mesh2d) carries a
+        // `bevy_camera::visibility::VisibilityClass` component whose
+        // inner `SmallVec<[TypeId; 1]>` is not reflect-serialisable
+        // (`TypeId` is process-local). Without the
+        // `deny_component::<VisibilityClass>` call in
+        // `configure_builder`, `SceneSerializer` raises
+        // "type `core::any::TypeId` did not register the
+        // ReflectSerialize" and `snapshot_world` returns an error —
+        // the autosave timer logs `autosave failed: save serialise
+        // failed: …` every interval and no save file is written.
+        let mut world = World::new();
+        world.init_resource::<AppTypeRegistry>();
+        // VisibilityClass requires `Default`; an empty SmallVec is
+        // still enough to trip the serializer because Bevy walks the
+        // archetype unconditionally when extracting.
+        world.spawn(bevy_camera::visibility::VisibilityClass::default());
+        let ron = snapshot_world(&world, SaveMetadata::new_now(0, 0, "test"))
+            .expect("snapshot must skip VisibilityClass component");
+        assert!(!ron.is_empty());
+        // Smoke check: the snapshot should NOT mention the
+        // component type — the denylist kept it out of the scene
+        // blob.
+        assert!(
+            !ron.contains("VisibilityClass"),
+            "denylist failed — VisibilityClass serialised into save: {ron}"
+        );
     }
 }
