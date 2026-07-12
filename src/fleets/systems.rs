@@ -8,8 +8,9 @@ use bevy::time::Real;
 
 use super::components::{
     ActiveManeuver, Fleet, FleetOrbit, PendingFleetActions, ShipInfo, ShipInstance,
+    TransferReferenceFrame,
 };
-use super::orbital_mechanics::AU_IN_METERS;
+use super::orbital_mechanics::{hohmann_transfer, AU_IN_METERS, GM_SUN};
 use super::types::{PropulsionType, ShipClass};
 use super::visuals::predict_body_physics_pos;
 use crate::astronomy::{orbit_position_from_mean_anomaly, KeplerOrbit, SpaceCoordinates};
@@ -1123,6 +1124,19 @@ pub fn process_fleet_actions(
 #[reflect(Resource)]
 pub struct DayOneFleetSpawned;
 
+/// Idempotency marker for the **debug Earth → Jupiter Hohmann fleet** spawned
+/// by [`spawn_debug_earth_jupiter_fleet`].  The system short-circuits when
+/// this resource is present so a save-load that re-runs `PostStartup` does
+/// not duplicate the constellation.  Strip this resource (and the fleet's
+/// `Fleet` entity) in the same reset path as `DayOneFleetSpawned`.
+///
+/// Lives in `src/fleets/systems.rs` next to the spawn function so the
+/// `idempotency marker ↔ spawn function` pairing is obvious.  The marker is
+/// not registered into `AppTypeRegistry` — there is no save-time value, and
+/// the resource is only a "have we spawned yet?" gate.
+#[derive(Resource, Debug, Clone, Copy, Default)]
+pub struct DebugEarthJupiterFleetSpawned;
+
 /// Resolve a `ShipHullDefinition`'s dry mass from the `ShipbuildingData`
 /// registry, logging a warning and falling back to the class default when
 /// the hull id is missing.  Used by `spawn_initial_fleet` so the Day-1
@@ -1317,4 +1331,120 @@ pub fn spawn_initial_fleet(
     // save-load that rehydrates the `World`) do not duplicate the
     // constellation.
     commands.init_resource::<DayOneFleetSpawned>();
+}
+
+/// Debug aid: spawn a 1-ship fleet at Earth on an immediate Hohmann transfer
+/// to Jupiter.  Lets the player visually verify the in-transit rendering
+/// path (`update_fleet_maneuver_positions` + the trajectory gizmo) and
+/// stress-test the `ActiveManeuver` save/load round trip added by the
+/// `option_label: reflect(ignore)` fix.
+///
+/// Idempotent via [`DebugEarthJupiterFleetSpawned`].  Skipped silently if
+/// either `Earth` or `Jupiter` is missing from the seed (the function logs
+/// at `info` and marks spawned so it doesn't retry every tick).  The fleet
+/// has `departure_time = sim_time.elapsed()` so `activate_scheduled_departures`
+/// strips `FleetOrbit` on the very next Update tick and the transfer arc
+/// becomes the live Kepler propagation immediately.
+pub fn spawn_debug_earth_jupiter_fleet(
+    mut commands: Commands,
+    body_query: Query<(Entity, &CelestialBody, Option<&SpaceCoordinates>)>,
+    sim_time: Res<SimulationTime>,
+    shipbuilding_data: Res<ShipbuildingData>,
+    spawned_marker: Option<Res<DebugEarthJupiterFleetSpawned>>,
+) {
+    if spawned_marker.is_some() {
+        return;
+    }
+
+    // Mark spawned FIRST so any early return below doesn't retry every tick.
+    commands.init_resource::<DebugEarthJupiterFleetSpawned>();
+
+    let find_body = |name: &str| -> Option<Entity> {
+        body_query
+            .iter()
+            .find(|(_, b, _)| b.name == name)
+            .map(|(e, _, _)| e)
+    };
+
+    let (earth, jupiter, sol) = match (find_body("Earth"), find_body("Jupiter"), find_body("Sol")) {
+        (Some(e), Some(j), Some(s)) => (e, j, s),
+        _ => {
+            bevy::log::info!(
+                "spawn_debug_earth_jupiter_fleet: Earth/Jupiter/Sol not found; \
+                 skipping debug Earth→Jupiter fleet (Day-1 fleet still spawned)."
+            );
+            return;
+        }
+    };
+
+    // ── 1. Spawn the fleet parked in a 400 km LEO around Earth ────────────────
+    let earth_orbit_radius_au = (6_371.0_f64 + 400.0) * 1_000.0 / AU_IN_METERS;
+    let dry_mass_t = resolve_hull_dry_mass_t(
+        "courier_frame",
+        ShipClass::ResearchVessel,
+        &shipbuilding_data,
+    );
+    let ship = ShipInfo::new_with_dry_mass(
+        "Debug Earth→Jupiter".to_string(),
+        Some("courier_frame"),
+        ShipClass::ResearchVessel,
+        PropulsionType::Chemical,
+        dry_mass_t,
+    );
+    let fleet_entity = spawn_fleet_with_ship_entities(
+        &mut commands,
+        "Debug Earth→Jupiter".to_string(),
+        vec![ship],
+        earth,
+        earth_orbit_radius_au,
+        false,
+    );
+
+    // ── 2. Compute the Hohmann transfer ellipse (heliocentric, coplanar) ─────
+    let r_earth_au = 1.0_f64;
+    let r_jupiter_au = 5.2044_f64;
+    let (dv_departure_ms, dv_arrival_ms, t_transfer_s, sma_au, ecc) =
+        hohmann_transfer(r_earth_au, r_jupiter_au, GM_SUN);
+
+    let a_m = sma_au * AU_IN_METERS;
+    let mean_motion_rad_s = (GM_SUN / (a_m * a_m * a_m)).sqrt();
+
+    let transfer_orbit = KeplerOrbit::new(ecc, sma_au, 0.0, 0.0, 0.0, 0.0, mean_motion_rad_s);
+
+    let now_s = sim_time.elapsed_seconds();
+
+    let jupiter_parking_radius_au = (71_492.0_f64 + 400_000.0) * 1_000.0 / AU_IN_METERS;
+    let maneuver = ActiveManeuver {
+        transfer_orbit,
+        reference_frame: TransferReferenceFrame::Body(sol),
+        orbit_center: sol,
+        origin_body: earth,
+        departure_time: now_s,
+        arrival_time: now_s + t_transfer_s,
+        preserve_orbit_geometry: false,
+        destination_body: jupiter,
+        arrival_orbit_radius_au: jupiter_parking_radius_au,
+        arrival_delta_v_ms: dv_arrival_ms,
+        fuel_used_t: 0.0,
+        option_label: "Hohmann",
+        kinematic_override: false,
+        departure_angle: 0.0,
+        start_position_au: None,
+        end_position_au: None,
+        departure_velocity_ms: None,
+        arrival_velocity_ms: None,
+        start_visual_pos: None,
+        leg2_orbit: None,
+        leg2_start_s: 0.0,
+        flyby_body: None,
+    };
+
+    commands.entity(fleet_entity).insert(maneuver);
+    bevy::log::info!(
+        "spawn_debug_earth_jupiter_fleet: spawned Hohmann transfer Earth→Jupiter \
+         (departure Δv {:.0} m/s, arrival Δv {:.0} m/s, transfer {:.0} d)",
+        dv_departure_ms,
+        dv_arrival_ms,
+        t_transfer_s / 86_400.0,
+    );
 }

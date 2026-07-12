@@ -95,6 +95,27 @@ pub struct EntityHandles {
     /// Asset path for `MeshMaterial3d<StandardMaterial>`'s
     /// `Handle<StandardMaterial>`, if any.
     pub mesh_material3d_standard: Option<String>,
+    /// Asset path for `MeshMaterial3d<AtmosphereMaterial>`'s
+    /// `Handle<AtmosphereMaterial>`, if any.
+    pub mesh_material3d_atmosphere: Option<String>,
+    /// Asset path for `MeshMaterial3d<OceanMaterial>`'s
+    /// `Handle<OceanMaterial>`, if any.
+    pub mesh_material3d_ocean: Option<String>,
+    /// Asset path for `MeshMaterial3d<StarGlowMaterial>`'s
+    /// `Handle<StarGlowMaterial>`, if any.
+    pub mesh_material3d_star_glow: Option<String>,
+    /// Asset path for `MeshMaterial3d<StarSurfaceMaterial>`'s
+    /// `Handle<StarSurfaceMaterial>`, if any.
+    pub mesh_material3d_star_surface: Option<String>,
+    /// Asset path for `MeshMaterial3d<StarDiffractionMaterial>`'s
+    /// `Handle<StarDiffractionMaterial>`, if any.
+    pub mesh_material3d_star_diffraction: Option<String>,
+    /// Asset path for `MeshMaterial3d<NightMaterial>`'s
+    /// `Handle<NightMaterial>`, if any.
+    pub mesh_material3d_night: Option<String>,
+    /// Asset path for `MeshMaterial3d<SkyboxMaterial>`'s
+    /// `Handle<SkyboxMaterial>`, if any.
+    pub mesh_material3d_skybox: Option<String>,
 }
 
 /// Top-level sidecar that travels alongside the scene blob in
@@ -113,10 +134,17 @@ impl HandleSidecar {
     /// entirely when there's nothing useful to record.
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
-            || self
-                .entries
-                .iter()
-                .all(|e| e.mesh3d.is_none() && e.mesh_material3d_standard.is_none())
+            || self.entries.iter().all(|e| {
+                e.mesh3d.is_none()
+                    && e.mesh_material3d_standard.is_none()
+                    && e.mesh_material3d_atmosphere.is_none()
+                    && e.mesh_material3d_ocean.is_none()
+                    && e.mesh_material3d_star_glow.is_none()
+                    && e.mesh_material3d_star_surface.is_none()
+                    && e.mesh_material3d_star_diffraction.is_none()
+                    && e.mesh_material3d_night.is_none()
+                    && e.mesh_material3d_skybox.is_none()
+            })
     }
 }
 
@@ -165,16 +193,48 @@ pub fn extract_handle_sidecar(world: &World) -> HandleSidecar {
 
         // MeshMaterial3d<StandardMaterial> — same pattern. Helios's
         // custom materials (OceanMaterial, AtmosphereMaterial,
-        // StarGlowMaterial, StarDiffractionMaterial) carry the same
-        // Handle<T> problem but live on entities that the system
-        // populator re-creates on every world rebuild, so they're
-        // not round-tripped — a fresh setup pass re-attaches them
-        // with their paths. If a future commit puts one of those
-        // materials on a save-persistent entity archetype, add a
-        // corresponding `entity_ref.get::<MeshMaterial3d<...>>()`
-        // clause here plus an attach clause in `apply_handle_sidecar`.
+        // StarGlowMaterial, StarDiffractionMaterial, etc.) carry
+        // the same Handle<T> problem AND live on save-persistent
+        // entity archetypes (populated solar-system bodies, oceans,
+        // stars). Each `MeshMaterial3d<T>` is its own Component
+        // type, so each needs its own clause here AND a matching
+        // `deny_component` in `snapshot::configure_builder`.
         if let Some(mat) = entity_ref.get::<MeshMaterial3d<StandardMaterial>>() {
             entry.mesh_material3d_standard = mat.0.path().map(|p| p.to_string());
+        }
+        if let Some(mat) =
+            entity_ref.get::<MeshMaterial3d<crate::plugins::atmosphere::AtmosphereMaterial>>()
+        {
+            entry.mesh_material3d_atmosphere = mat.0.path().map(|p| p.to_string());
+        }
+        if let Some(mat) = entity_ref.get::<MeshMaterial3d<crate::plugins::ocean::OceanMaterial>>()
+        {
+            entry.mesh_material3d_ocean = mat.0.path().map(|p| p.to_string());
+        }
+        if let Some(mat) =
+            entity_ref.get::<MeshMaterial3d<crate::plugins::star_materials::StarGlowMaterial>>()
+        {
+            entry.mesh_material3d_star_glow = mat.0.path().map(|p| p.to_string());
+        }
+        if let Some(mat) =
+            entity_ref.get::<MeshMaterial3d<crate::plugins::star_materials::StarSurfaceMaterial>>()
+        {
+            entry.mesh_material3d_star_surface = mat.0.path().map(|p| p.to_string());
+        }
+        if let Some(mat) = entity_ref
+            .get::<MeshMaterial3d<crate::plugins::star_materials::StarDiffractionMaterial>>()
+        {
+            entry.mesh_material3d_star_diffraction = mat.0.path().map(|p| p.to_string());
+        }
+        if let Some(mat) =
+            entity_ref.get::<MeshMaterial3d<crate::plugins::visual_effects::NightMaterial>>()
+        {
+            entry.mesh_material3d_night = mat.0.path().map(|p| p.to_string());
+        }
+        if let Some(mat) =
+            entity_ref.get::<MeshMaterial3d<crate::render::backdrop::SkyboxMaterial>>()
+        {
+            entry.mesh_material3d_skybox = mat.0.path().map(|p| p.to_string());
         }
     }
 
@@ -239,6 +299,39 @@ pub fn apply_handle_sidecar(
         }
         if let Some(path) = &entry.mesh_material3d_standard {
             let handle: Handle<StandardMaterial> = asset_server.load(path);
+            entity_mut.insert(MeshMaterial3d(handle));
+        }
+        if let Some(path) = &entry.mesh_material3d_atmosphere {
+            let handle: Handle<crate::plugins::atmosphere::AtmosphereMaterial> =
+                asset_server.load(path);
+            entity_mut.insert(MeshMaterial3d(handle));
+        }
+        if let Some(path) = &entry.mesh_material3d_ocean {
+            let handle: Handle<crate::plugins::ocean::OceanMaterial> = asset_server.load(path);
+            entity_mut.insert(MeshMaterial3d(handle));
+        }
+        if let Some(path) = &entry.mesh_material3d_star_glow {
+            let handle: Handle<crate::plugins::star_materials::StarGlowMaterial> =
+                asset_server.load(path);
+            entity_mut.insert(MeshMaterial3d(handle));
+        }
+        if let Some(path) = &entry.mesh_material3d_star_surface {
+            let handle: Handle<crate::plugins::star_materials::StarSurfaceMaterial> =
+                asset_server.load(path);
+            entity_mut.insert(MeshMaterial3d(handle));
+        }
+        if let Some(path) = &entry.mesh_material3d_star_diffraction {
+            let handle: Handle<crate::plugins::star_materials::StarDiffractionMaterial> =
+                asset_server.load(path);
+            entity_mut.insert(MeshMaterial3d(handle));
+        }
+        if let Some(path) = &entry.mesh_material3d_night {
+            let handle: Handle<crate::plugins::visual_effects::NightMaterial> =
+                asset_server.load(path);
+            entity_mut.insert(MeshMaterial3d(handle));
+        }
+        if let Some(path) = &entry.mesh_material3d_skybox {
+            let handle: Handle<crate::render::backdrop::SkyboxMaterial> = asset_server.load(path);
             entity_mut.insert(MeshMaterial3d(handle));
         }
     }
@@ -336,6 +429,7 @@ mod tests {
                 entity: entity.to_bits(),
                 mesh3d: Some("test/path.glb".to_string()),
                 mesh_material3d_standard: None,
+                ..Default::default()
             }],
         };
         // Should not panic even though AssetServer is missing.
@@ -423,11 +517,13 @@ mod tests {
                     entity: 42,
                     mesh3d: Some("models/planet.glb".to_string()),
                     mesh_material3d_standard: None,
+                    ..Default::default()
                 },
                 EntityHandles {
                     entity: 99,
                     mesh3d: None,
                     mesh_material3d_standard: Some("materials/planet.ron".to_string()),
+                    ..Default::default()
                 },
             ],
         };

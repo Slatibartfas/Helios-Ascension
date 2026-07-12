@@ -65,6 +65,17 @@ impl Plugin for FleetPlugin {
                     // for narrative clarity (Day-1 fleet → historical
                     // probes) and has no functional effect.
                     historical_probes::spawn_historical_probes.after(systems::spawn_initial_fleet),
+                    // Debug aid: spawn a 1-ship fleet at Earth on an immediate
+                    // Hohmann transfer to Jupiter.  Lets the player visually
+                    // verify the in-transit rendering path and stress-test
+                    // the ActiveManeuver save/load round trip (the
+                    // option_label reflect(ignore) fix).  Chained AFTER both
+                    // `spawn_initial_fleet` and `spawn_historical_probes` so
+                    // Earth/Jupiter/Sol entities exist in the body_query by
+                    // the time the resolver runs.  Idempotent via
+                    // `DebugEarthJupiterFleetSpawned`.
+                    systems::spawn_debug_earth_jupiter_fleet
+                        .after(historical_probes::spawn_historical_probes),
                 ),
             )
             .add_systems(
@@ -102,6 +113,12 @@ impl Plugin for FleetPlugin {
                     visuals::update_fleet_transforms
                         .after(systems::update_fleet_orbit_positions)
                         .after(systems::update_fleet_maneuver_positions),
+                    // Historical probe icons (separate from the fleet icon path
+                    // because probes are not `Fleet` entities — see
+                    // `HistoricalProbeMesh` in `src/fleets/visuals.rs`).
+                    visuals::ensure_historical_probe_meshes,
+                    visuals::update_historical_probe_transforms
+                        .after(visuals::ensure_historical_probe_meshes),
                 ),
             );
     }

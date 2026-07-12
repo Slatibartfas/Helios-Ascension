@@ -5,7 +5,7 @@ use bevy::prelude::*;
 use bevy::time::Real;
 
 use super::components::{
-    ActiveManeuver, Fleet, FleetOrbit, PlannedTransfer, TransferReferenceFrame,
+    ActiveManeuver, Fleet, FleetOrbit, HistoricalProbe, PlannedTransfer, TransferReferenceFrame,
 };
 use super::types::FleetClass;
 use crate::astronomy::components::FloatingOrigin;
@@ -21,6 +21,18 @@ use crate::ui::{FleetUiState, Settings, SimulationTime, TimeScale};
 /// Marker component for entities that have a fleet mesh sphere.
 #[derive(Component)]
 pub struct FleetMesh;
+
+/// Marker component for historical probe entities that have a probe icon mesh.
+///
+/// Probes are NOT `Fleet` entities — they intentionally never appear in the
+/// player fleet list, never consume fuel, and never accept transfer orders
+/// (see `render_historical_probes_section` in `src/ui/fleets_panel.rs`).
+/// This marker is the equivalent of `FleetMesh` for the probe archetype so
+/// the `ensure_historical_probe_meshes` + `update_historical_probe_transforms`
+/// pair can mirror `ensure_fleet_meshes` + `update_fleet_transforms` without
+/// pulling the probes into the fleet lifecycle.
+#[derive(Component)]
+pub struct HistoricalProbeMesh;
 
 // ── Visual radius helpers ─────────────────────────────────────────────────────
 
@@ -3227,6 +3239,81 @@ pub fn update_fleet_transforms(
             transform.translation =
                 Vec3::new(render_du.x as f32, render_du.y as f32, render_du.z as f32);
         }
+    }
+}
+
+/// Lazily add a sphere mesh + emissive material to historical probe entities
+/// that don't have one yet.  Mirrors [`ensure_fleet_meshes`] for the probe
+/// archetype — probes are not `Fleet` entities so the fleet-side lazy-add
+/// never fires for them, but they still need a 3D icon at their current
+/// `SpaceCoordinates` so the player can see "the probe is here, not just
+/// on this orbit ring".
+///
+/// Probes use the orange/amber palette (vs. the fleet's green) so the
+/// legend reads "fleet = green sphere, probe = amber sphere" without
+/// having to hover each icon.
+pub fn ensure_historical_probe_meshes(
+    mut commands: Commands,
+    probes_without_mesh: Query<Entity, (With<HistoricalProbe>, Without<HistoricalProbeMesh>)>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    for entity in probes_without_mesh.iter() {
+        let mesh = meshes.add(Sphere::new(5.0).mesh().uv(16, 8));
+        let material = materials.add(StandardMaterial {
+            base_color: Color::srgb(0.95, 0.55, 0.20),
+            emissive: LinearRgba::new(1.6, 0.95, 0.30, 1.0),
+            unlit: true,
+            ..default()
+        });
+        commands.entity(entity).insert((
+            Mesh3d(mesh),
+            MeshMaterial3d(material),
+            Transform::default(),
+            // Start hidden; `update_historical_probe_transforms` sets the
+            // correct position + visibility on the very next frame, so the
+            // mesh doesn't flash at world origin for one tick.
+            Visibility::Hidden,
+            HistoricalProbeMesh,
+        ));
+    }
+}
+
+/// Update historical probe mesh transforms from their `SpaceCoordinates`.
+///
+/// Probes are on actual transfer arcs (their `KeplerOrbit` /
+/// `HyperbolicTrajectory` already gives the correct heliocentric position at
+/// every epoch), so unlike fleets we don't have to recompute a parking-orbit
+/// or ActiveManeuver position — `SpaceCoordinates` is the only source.  The
+/// per-frame bookkeeping the fleet path needs (orbits, maneuvers, time
+/// scale, floating origin) is irrelevant here.
+///
+/// Hidden in Starmap view so the gizmo-based icons stay canonical.
+pub fn update_historical_probe_transforms(
+    mut probe_query: Query<
+        (&SpaceCoordinates, &mut Transform, &mut Visibility),
+        (With<HistoricalProbe>, With<HistoricalProbeMesh>),
+    >,
+    view_mode: Res<ViewMode>,
+    floating_origin: Option<Res<FloatingOrigin>>,
+) {
+    if *view_mode == ViewMode::Starmap {
+        for (_, _, mut vis) in probe_query.iter_mut() {
+            *vis = Visibility::Hidden;
+        }
+        return;
+    }
+
+    let origin_offset = floating_origin
+        .as_ref()
+        .map(|fo| fo.position)
+        .unwrap_or(DVec3::ZERO);
+
+    for (sc, mut transform, mut vis) in probe_query.iter_mut() {
+        let render_du = (sc.position - origin_offset) * SCALING_FACTOR;
+        transform.translation =
+            Vec3::new(render_du.x as f32, render_du.y as f32, render_du.z as f32);
+        *vis = Visibility::Visible;
     }
 }
 

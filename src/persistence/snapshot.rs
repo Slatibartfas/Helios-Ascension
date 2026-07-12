@@ -267,16 +267,27 @@ fn configure_builder<'a>(
         // component type we deny; the path round-trips through
         // the same sidecar.
         //
-        // Helios's custom materials (`OceanMaterial`,
-        // `AtmosphereMaterial`, `StarGlowMaterial`,
-        // `StarDiffractionMaterial`) carry the same Handle<T>
-        // problem but live on entities that the system populator
-        // re-creates on every world rebuild — they aren't on
-        // save-persistent archetypes, so they don't appear in the
-        // snapshot at all. If a future commit puts one on a
-        // save-persistent entity, add a corresponding query clause
-        // in `extract_handle_sidecar` and a deny_component here.
+        // Helios's custom materials (`AtmosphereMaterial`,
+        // `OceanMaterial`, `StarGlowMaterial`, `StarSurfaceMaterial`,
+        // `StarDiffractionMaterial`, `NightMaterial`, `SkyboxMaterial`)
+        // carry the same `Handle<T>` problem AND live on
+        // save-persistent entity archetypes (populated solar-system
+        // bodies, oceans, stars). Each `MeshMaterial3d<T>` is its own
+        // Bevy Component type and needs its own `deny_component` here
+        // PLUS a corresponding field in
+        // [`crate::persistence::handle_sidecar::EntityHandles`] and a
+        // query + insert clause there. Adding a new custom material?
+        // Add the deny here, the field in `EntityHandles`, and the
+        // extract + apply clauses in `extract_handle_sidecar` /
+        // `apply_handle_sidecar`.
         .deny_component::<bevy_pbr::MeshMaterial3d<bevy_pbr::StandardMaterial>>()
+        .deny_component::<bevy_pbr::MeshMaterial3d<crate::plugins::atmosphere::AtmosphereMaterial>>()
+        .deny_component::<bevy_pbr::MeshMaterial3d<crate::plugins::ocean::OceanMaterial>>()
+        .deny_component::<bevy_pbr::MeshMaterial3d<crate::plugins::star_materials::StarGlowMaterial>>()
+        .deny_component::<bevy_pbr::MeshMaterial3d<crate::plugins::star_materials::StarSurfaceMaterial>>()
+        .deny_component::<bevy_pbr::MeshMaterial3d<crate::plugins::star_materials::StarDiffractionMaterial>>()
+        .deny_component::<bevy_pbr::MeshMaterial3d<crate::plugins::visual_effects::NightMaterial>>()
+        .deny_component::<bevy_pbr::MeshMaterial3d<crate::render::backdrop::SkyboxMaterial>>()
         .extract_entities(entities.iter().copied())
         // IMPORTANT: apply the resource denylist BEFORE calling
         // `extract_resources()`.  `extract_resources` reads the
