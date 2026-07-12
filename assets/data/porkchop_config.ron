@@ -171,6 +171,28 @@
             resolution_tof: 60,
             c3_ceiling_km2_s2: 400.0,
         ),
+        // Lagrange-point transfers (GRA-NNN): the L1–L5 destination
+        // is a synthetic heliocentric orbit co-rotating with the
+        // planet (and phase-shifted for L3/L4/L5).  The 30-day
+        // window covers a synodic-period slice; the 1.5–3× Hohmann
+        // TOF envelope matches patched-conic Hohmanns between the
+        // parking orbit and the LP.  Low resolution (50×40 = 2000
+        // cells) keeps the build cheap enough to run synchronously
+        // on every planner tick — the GRA-NNN Lagrange grid is
+        // rendered in the same frame the player picks the LP.
+        // Ceiling 0.5 yr covers L1/L2 short falls and L3/L4/L5
+        // Hohmann-style phasing windows comfortably.
+        (
+            match_key: "lagrange",
+            t_dep_window_days: 30.0,
+            tof_min_hohmann_factor: 0.5,
+            tof_max_hohmann_factor: 3.0,
+            tof_floor_days: 1.0,
+            tof_ceiling_years: 0.5,
+            resolution_t_dep: 50,
+            resolution_tof: 40,
+            c3_ceiling_km2_s2: 400.0,
+        ),
         // Moon transfers: tight window, fine grid. Short TOFs and
         // small distances → cheap Lambert solves, can afford more
         // cells. The 14-day window is roughly one lunar orbital

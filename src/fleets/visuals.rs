@@ -3370,9 +3370,12 @@ pub fn update_fleet_transforms(
 /// Lazily add a sphere mesh + emissive material to historical probe entities
 /// that don't have one yet.  Mirrors [`ensure_fleet_meshes`] for the probe
 /// archetype — probes are not `Fleet` entities so the fleet-side lazy-add
-/// never fires for them, but they still need a 3D icon at their current
-/// `SpaceCoordinates` so the player can see "the probe is here, not just
-/// on this orbit ring".
+/// never fires for them.
+///
+/// **Sphere size** is 10 (vs. fleet's 6.0) so the closest probe (Parker
+/// at ~0.2 AU) reads as a visible marker at default zoom without being
+/// a giant disc.  At ~170 AU (Voyager 1) the icon is sub-pixel — the
+/// player zooms in or relies on the orbit ring + fleet-panel badge.
 ///
 /// Probes use the orange/amber palette (vs. the fleet's green) so the
 /// legend reads "fleet = green sphere, probe = amber sphere" without
@@ -3384,7 +3387,7 @@ pub fn ensure_historical_probe_meshes(
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     for entity in probes_without_mesh.iter() {
-        let mesh = meshes.add(Sphere::new(5.0).mesh().uv(16, 8));
+        let mesh = meshes.add(Sphere::new(10.0).mesh().uv(16, 8));
         let material = materials.add(StandardMaterial {
             base_color: Color::srgb(0.95, 0.55, 0.20),
             emissive: LinearRgba::new(1.6, 0.95, 0.30, 1.0),

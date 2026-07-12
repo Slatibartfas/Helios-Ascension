@@ -461,7 +461,14 @@ fn spawn_one_probe(
             SystemId(0),
             Name::new(name),
         ));
-        entity_commands.insert(OrbitPath::with_fade(PROBE_ORBIT_COLOR, 2.0));
+        // Fleet-trajectory-style cyan arc (vs. the muted planet-orbit
+        // blue) so a probe on the same trajectory renders the same
+        // shape as a player fleet in transit.  0.55 alpha so the
+        // long hyperbolic arcs don't drown out the system view.
+        entity_commands.insert(OrbitPath::with_fade(
+            Color::srgba(0.30, 0.80, 1.00, 0.55),
+            2.0,
+        ));
     } else {
         let mut entity_commands = commands.spawn((
             HistoricalProbe {
@@ -476,7 +483,14 @@ fn spawn_one_probe(
             SystemId(0),
             Name::new(name),
         ));
-        entity_commands.insert(OrbitPath::with_fade(PROBE_ORBIT_COLOR, 2.0));
+        // Fleet-trajectory-style cyan arc (vs. the muted planet-orbit
+        // blue) so a probe on the same trajectory renders the same
+        // shape as a player fleet in transit.  0.55 alpha so the
+        // long hyperbolic arcs don't drown out the system view.
+        entity_commands.insert(OrbitPath::with_fade(
+            Color::srgba(0.30, 0.80, 1.00, 0.55),
+            2.0,
+        ));
     }
 }
 

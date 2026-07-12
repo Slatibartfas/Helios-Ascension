@@ -2173,6 +2173,21 @@ pub(super) fn render_transfer_planner(
     // `target_orbit_shell` (formerly `target_arrival_radius`) flows into
     // `radius_for_shell` and then into `star_approach_grid_for_target` so the
     // user's shell pick becomes one of the 5 rows of the resulting grid.
+    //
+    // GRA-NNN: set `porkchop_build_in_flight = true` for the duration
+    // of the sync build so the spinner shows the "Calculating..." label
+    // for a frame even on fast-path builds (Mars-class).  The build is
+    // < 100 ms but the spinner gives consistent feedback with the
+    // async rotating-buffer path which sets the same flag.  We also
+    // fire when `pending_rebuild` is true (the old grid is still
+    // Some but a new build is queued) so the spinner covers the
+    // inward-transfer case where the build takes seconds and the
+    // panel would otherwise show stale black tiles.
+    if fleet_ui_state.porkchop_grid.is_none()
+        || fleet_ui_state.porkchop_grid_pending_rebuild
+    {
+        fleet_ui_state.porkchop_build_in_flight = true;
+    }
     if fleet_ui_state.porkchop_grid.is_none() {
         if let Some(target_entity) = fleet_ui_state.target_body {
             let dest_body_type = body_query
@@ -2347,10 +2362,55 @@ pub(super) fn render_transfer_planner(
                     }
                 }
                 _ => {
-                    // Lagrange / FleetTarget / StarSystem — leave
+                    // FleetTarget / StarSystem — leave
                     // the grid as None so the legacy 3-option row +
                     // GA summary card keeps its correct behaviour.
                 }
+            }
+        } else if let Some(ref lp) = fleet_ui_state.target_lagrange.clone() {
+            // GRA-NNN: Lagrange-point target.  Build the porkchop
+            // synchronously against a synthetic LP co-orbiting the
+            // planet so the panel renders on frame 1 (no worker
+            // round-trip wait).  Same data flow as the body-target
+            // fast-path above — see `build_lagrange_grid` in
+            // `src/fleets/porkchop.rs` for the destination-orbit
+            // synthesis + L-point phase-offset logic.
+            if let (Some(planet_orbit), Some(origin_orbit)) = (
+                heliocentric_orbit_for_body(lp.planet_entity, body_query),
+                heliocentric_orbit_for_body(orbit.body, body_query),
+            ) {
+                let inputs = crate::fleets::porkchop::LagrangePorkchopInputs {
+                    planet_orbit,
+                    origin_orbit,
+                    system_gm: crate::fleets::orbital_mechanics::GM_SUN,
+                    sim_time_s: elapsed,
+                };
+                let grid =
+                    crate::fleets::porkchop::build_lagrange_grid(porkchop_config, &inputs, lp);
+                // Auto-select the cheapest feasible cell so the
+                // first frame after picking an LP shows the ΔV/TOF
+                // summary panel populated (matches the star-approach
+                // fast-path's behaviour).
+                let (cols, rows) = grid.resolution;
+                let mut min_cell = None;
+                let mut min_dv = f64::INFINITY;
+                for c in 0..cols {
+                    for r in 0..rows {
+                        if let Some(cell) = grid.cells.get(r * cols + c) {
+                            if cell.feasible && cell.total_dv_ms < min_dv {
+                                min_dv = cell.total_dv_ms;
+                                min_cell = Some((c, r));
+                            }
+                        }
+                    }
+                }
+                fleet_ui_state.porkchop_grid = Some(grid);
+                // Stamp with the planet entity so the staleness +
+                // rotation check at line ~2500 can still invalidate
+                // the cache when the player switches LP (e.g. via
+                // `clear_target_lp` / a picker click).
+                fleet_ui_state.porkchop_built_for = Some(lp.planet_entity);
+                fleet_ui_state.selected_porkchop_cell = min_cell;
             }
         }
     }
@@ -4320,17 +4380,17 @@ pub(super) fn render_transfer_planner(
         // the dropdown rather than dialing a raw AU value.
         //
         // The shell set depends on the destination body type.  For Lagrange
-        // targets the picker is hidden entirely — `direct_lp_transfer_options`
-        // does a heliocentric-style Hohmann which doesn't honour planet-shell
-        // parking altitudes (planet-moon Lagrange has a different L-frame,
-        // heliocentric needs shell-aware PATCHED CONIC — follow-up ticket).
-        // Showing the picker for Lagrange was misleading the user into
-        // believing the orbit shell drove the displayed ΔV.
-        if fleet_ui_state.target_lagrange.is_some() {
-            // Skip the orbit shell picker — Lagrange legacy 3-option stays.
-            // The "Direct LP Transfer" card above is the canonical L-point UI.
-        } else if let Some(target_entity) =
-            fleet_ui_state.target_body.or(fleet_ui_state.target_fleet)
+        // targets the picker drives `lp_transfer_options` — a patched-conic
+        // solver that dispatches on `lp.gm` (planet-moon vs heliocentric),
+        // so picking Low/Medium/High changes the displayed ΔV consistently
+        // with body targets.  GRA-NNN.
+        if let Some(target_entity) =
+            fleet_ui_state.target_body.or(fleet_ui_state.target_fleet).or(
+                fleet_ui_state
+                    .target_lagrange
+                    .as_ref()
+                    .map(|lp| lp.planet_entity),
+            )
         {
             let body_for_picker = body_query.get(target_entity).ok().map(|(_, b, _, _, _)| b);
 
@@ -5484,28 +5544,19 @@ pub(super) fn render_transfer_planner(
         } else if let Some(ref lp) = lp_target_snap {
             // Lagrange-point transfer.
             //
-            // GRA-NNN follow-up (revert of 07b34e7's Lagrange shell fix):
-            // the previous fix used `radius_for_shell(planet, shell)` as
-            // `r1_lp` and passed it straight to `direct_lp_transfer_options`,
-            // which does a heliocentric-style Hohmann and assumes both r1
-            // and r2 sit in the *central* body's potential.  For
-            // planet-moon Lagrange (e.g. Saturn-Prometheus L1) `lp.gm` is
-            // Saturn's GM, but `radius_for_shell(Saturn, Medium)` is
-            // ~0.001 AU around Saturn — the Hohmann solver then computes
-            // `v_peri ≈ 230 km/s` (escape velocity from Saturn's well at
-            // that radius) and the player sees ΔV ≈ 240 km/s.  Real ΔV
-            // for L1 from Saturn's parking is single-digit km/s.
-            //
-            // The shell picker cannot drive L1 transfers until the solver
-            // switches to a local-frame patched-conic model (different
-            // r1 / r2 / gm regime than the heliocentric porkchop grid).
-            // Until that lands, L1 transfers use the legacy r1_lp
-            // resolution: the moon's orbit around the planet for
-            // planet-moon L-points, or the planet's heliocentric SMA for
-            // Sun-Earth class L-points.  The shell picker is visible for
-            // Lagrange targets but does not drive the calculation —
-            // the 3-option row is the only rendered output until the
-            // patched-conic solver lands as a separate ticket.
+            // GRA-NNN follow-up: the LP porkchop grid is now built in
+            // the fast-path sync dispatch at the top of this function,
+            // so this branch only needs to populate the legacy
+            // `computed_options` row that sits *behind* the porkchop
+            // panel.  The porkchop's `Execute Transfer` button is the
+            // primary commit path; the 3-option row is a fallback for
+            // the GRA-154 transition (pre-porkchop planners) and
+            // matches what the GRA-NNN Lagrange-fixed
+            // `lp_transfer_options` returns.  The shell picker still
+            // adjusts `lp.r1` for the legacy row, but the porkchop
+            // surface is heliocentric and does not currently consume
+            // the shell value (a follow-up ticket can thread the
+            // parking radius into the grid's `body_gm` field).
             //
             // Determine the fleet's current SMA, walking up to the
             // planet's SMA when the fleet is parked at a moon/sub-body.
@@ -5585,12 +5636,46 @@ pub(super) fn render_transfer_planner(
                 );
                 fleet_ui_state.computed_options.append(&mut kinematics);
             } else if matches!(lp.point, 1 | 2) {
-                // L1/L2: small radial offset from planet (~r_hill ≈ 0.01 AU).
-                // Use a direct manifold-like trajectory (realistic ~1–3 month travel
-                // time) instead of a Hohmann half-orbit that takes 6 months and arrives
-                // 180° away from the LP.
-                fleet_ui_state.computed_options =
-                    direct_lp_transfer_options(r1_lp, lp.radius_au, lp.gm);
+                // L1/L2: patched-conic transfer that honours the player's
+                // shell pick on the parent body.  Planet-moon L-points
+                // (e.g. Saturn-Prometheus L1) use a single Hohmann around
+                // the parent body; heliocentric L-points (e.g. Sun-Earth
+                // L1) use a 3-burn patched conic (escape from the
+                // planet + heliocentric Hohmann + capture at L1).  See
+                // `lp_transfer_options` for the full physics.  GRA-NNN.
+                //
+                // For the parking radius, prefer the player's shell
+                // pick around the parent body (keyed on the planet
+                // entity).  Falls back to the legacy r1_lp when no
+                // shell is set so the math stays consistent.
+                let shell_radius_au = fleet_ui_state
+                    .target_orbit_shell
+                    .filter(|(e, _)| *e == lp.planet_entity)
+                    .and_then(|(_, s)| {
+                        body_query
+                            .get(lp.planet_entity)
+                            .ok()
+                            .map(|(_, b, _, _, _)| radius_for_shell(b, s))
+                    })
+                    .unwrap_or(r1_lp);
+                let helio_parking_au = body_query
+                    .get(orbit.body)
+                    .ok()
+                    .and_then(|(_, body, _, ko, _)| {
+                        if body.body_type == BodyType::Star {
+                            Some(orbit.radius_au.max(0.0))
+                        } else {
+                            ko.map(|ko| ko.semi_major_axis)
+                        }
+                    })
+                    .unwrap_or(lp.planet_sma_au);
+                fleet_ui_state.computed_options = crate::fleets::orbital_mechanics::lp_transfer_options(
+                    shell_radius_au,
+                    lp.radius_au,
+                    lp.gm,
+                    helio_parking_au,
+                    crate::fleets::orbital_mechanics::GM_SUN,
+                );
                 apply_thrust_limits(
                     &mut fleet_ui_state.computed_options,
                     fleet.min_accel_ms2(),
@@ -7329,10 +7414,63 @@ pub(super) fn render_transfer_planner(
                 fleet_ui_state.planned_transfer = match fleet_ui_state.selected_porkchop_cell {
                     Some((sc, sr)) => {
                         let cell = grid_owned.cells.get(sr * grid_owned.resolution.0 + sc);
-                        match (cell, body_target_snap) {
-                            // Loosened guard: any feasible cell with
-                            // finite ΔV produces a preview, even if
-                            // the cell is out-of-budget for this
+                        // GRA-NNN: Lagrange targets have no
+                        // `target_body` — dispatch via an explicit
+                        // `if let` before falling through to the
+                        // body-target match.  Without this branch the
+                        // LP porkchop shows cells but every frame
+                        // overwrites `planned_transfer = None`, so
+                        // the 3D ghost arc freezes.
+                        let lp_cell_owned: Option<crate::fleets::porkchop::PorkchopCell> =
+                            cell.cloned();
+                        if let (Some(lp), None, Some(cell)) = (
+                            lp_target_snap.as_ref(),
+                            body_target_snap,
+                            lp_cell_owned,
+                        ) {
+                            if cell.feasible
+                                && cell.total_dv_ms.is_finite()
+                                && cell.delta_v1_ms.is_finite()
+                                && cell.delta_v2_ms.is_finite()
+                            {
+                                let (cell_sma_au, cell_ecc) = cell
+                                    .transfer_orbit
+                                    .as_ref()
+                                    .map(|o| (o.semi_major_axis, o.eccentricity))
+                                    .unwrap_or((lp.planet_sma_au, 0.0));
+                                let synthetic_option =
+                                    crate::fleets::orbital_mechanics::TransferOption {
+                                        label: "Porkchop Cell",
+                                        total_delta_v_ms: cell.total_dv_ms,
+                                        delta_v1_ms: cell.delta_v1_ms,
+                                        delta_v2_ms: cell.delta_v2_ms,
+                                        transfer_time_s: cell.tof_s,
+                                        sma_au: cell_sma_au,
+                                        eccentricity: cell_ecc,
+                                        energy_multiplier: 1.0,
+                                        burn_time_s: 0.0,
+                                        plane_change_dv_ms: 0.0,
+                                        is_thrust_limited: false,
+                                        transfer_orbit_override: cell.transfer_orbit,
+                                    };
+                                fleet_ui_state.departure_offset_days =
+                                    cell.t_dep_s / crate::ui::porkchop_panel::SECONDS_PER_DAY;
+                                build_planned_transfer_lp(
+                                    fleet_entity,
+                                    fleet,
+                                    orbit,
+                                    lp,
+                                    body_query,
+                                    &synthetic_option,
+                                )
+                            } else {
+                                None
+                            }
+                        } else {
+                            match (cell, body_target_snap) {
+                                // Loosened guard: any feasible cell with
+                                // finite ΔV produces a preview, even if
+                                // the cell is out-of-budget for this
                             // fleet.  The Execute button below has
                             // its own `can_execute` check (which does
                             // include the fleet-budget guard) so
@@ -7443,6 +7581,7 @@ pub(super) fn render_transfer_planner(
                                         // through to the helper so the
                                         // preview matches the geometry the
                                         // commit will launch with.
+                                        let target_entity = target_entity;
                                         build_planned_transfer_with_flyby(
                                             fleet_entity,
                                             fleet,
@@ -7505,6 +7644,7 @@ pub(super) fn render_transfer_planner(
                             }
                             _ => None,
                         }
+                        }
                     }
                     None => None,
                 };
@@ -7519,7 +7659,19 @@ pub(super) fn render_transfer_planner(
                 // call the body-target branch uses, then push a
                 // `StartTransferAction` to the pending-actions queue.
                 if let Some((sc, sr)) = fleet_ui_state.selected_porkchop_cell {
+                    // GRA-NNN: pick the destination as either a body
+                    // entity (for the standard / GA view-mode commit
+                    // path) OR a `LagrangeTarget` (for the LP commit
+                    // path).  When *both* are set we prefer the body
+                    // — the GA view-mode toggle is GA-only and LPs
+                    // never coexist with `target_body`.
                     let target_entity = match body_target_snap {
+                        Some(te) => Some(te),
+                        None => lp_target_snap
+                            .as_ref()
+                            .map(|lp| lp.planet_entity),
+                    };
+                    let target_entity = match target_entity {
                         Some(te) => te,
                         None => {
                             // Stale grid: target was cleared but the
@@ -7593,19 +7745,40 @@ pub(super) fn render_transfer_planner(
                             // so the star-approach override is always
                             // `None` for this path.
                             let target_orbit_radius_au: Option<f64> = None;
-                            if let Some(transfer) = build_planned_transfer(
-                                fleet_entity,
-                                fleet,
-                                orbit,
-                                target_entity,
-                                planned_departure_time_s,
-                                body_query,
-                                &synthetic_option,
-                                course_correction_sc,
-                                body_system_ids,
-                                current_system_id,
-                                target_orbit_radius_au,
-                            ) {
+                            // GRA-NNN: Lagrange commit dispatch — the
+                            // LP has no destination body, so
+                            // `build_planned_transfer` cannot be used;
+                            // route through `build_planned_transfer_lp`
+                            // instead so the committed maneuver matches
+                            // the patched-conic geometry the LP porkchop
+                            // is based on.  Falls back to
+                            // `build_planned_transfer(target_entity)` for
+                            // every non-LP path.
+                            let committed = if let (None, Some(lp)) = (body_target_snap, lp_target_snap.as_ref()) {
+                                build_planned_transfer_lp(
+                                    fleet_entity,
+                                    fleet,
+                                    orbit,
+                                    lp,
+                                    body_query,
+                                    &synthetic_option,
+                                )
+                            } else {
+                                build_planned_transfer(
+                                    fleet_entity,
+                                    fleet,
+                                    orbit,
+                                    target_entity,
+                                    planned_departure_time_s,
+                                    body_query,
+                                    &synthetic_option,
+                                    course_correction_sc,
+                                    body_system_ids,
+                                    current_system_id,
+                                    target_orbit_radius_au,
+                                )
+                            };
+                            if let Some(transfer) = committed {
                                 // Fresh transfers from a stable parking
                                 // orbit have no in-flight maneuver to
                                 // abort, so the abort-cost burn penalty
@@ -7691,16 +7864,32 @@ pub(super) fn render_transfer_planner(
             // porkchop surface is the actual tool.
             //
             // Conditions:
-            //   * `porkchop_grid.is_none()` — the panel hasn't rendered yet.
-            //   * `porkchop_build_in_flight` — the async worker is
-            //     currently solving it (set by the dispatch in the
-            //     GRA-159 deferred-build block above).
+            //   * `porkchop_build_in_flight` — a build is queued or
+            //     running.  For inward transfers (e.g. Earth→Mercury)
+            //     the build can take seconds; the OLD grid stays
+            //     visible during the rebuild and shows mostly black
+            //     tiles (infeasible cells) until the new grid lands.
+            //     Showing the spinner over the stale grid makes the
+            //     "calculating..." status visible instead of an
+            //     all-black-tile panel that looks like a renderer bug.
+            //   * `porkchop_grid.is_none() || porkchop_grid_pending_rebuild`
+            //     — either no grid at all, or a new build is queued
+            //     and the old grid is about to be replaced.
             //   * target is a body whose type would normally produce a
             //     porkchop (`should_build_porkchop_for_destination`).
             //     For Lagrange / fleet / star-system targets, the
             //     legacy row is the only available UI — no spinner.
-            if fleet_ui_state.porkchop_grid.is_none()
-                && fleet_ui_state.porkchop_build_in_flight
+            //
+            // GRA-NNN: the previous `porkchop_grid.is_none()` gate
+            // alone was wrong — for slow async builds the grid is
+            // still Some (the old one) so the spinner never showed,
+            // leaving the player staring at a stale mostly-black panel
+            // for the duration of the solve.  Replacing the gate with
+            // `is_none() || pending_rebuild` covers both the no-grid
+            // case (right-click) and the rebuild case (inward transfer).
+            if fleet_ui_state.porkchop_build_in_flight
+                && (fleet_ui_state.porkchop_grid.is_none()
+                    || fleet_ui_state.porkchop_grid_pending_rebuild)
                 && fleet_ui_state
                     .target_body
                     .map(|te| should_build_porkchop_for_destination(body_query, te))

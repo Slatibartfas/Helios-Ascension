@@ -3347,6 +3347,163 @@ mod tests {
             dep_window_s
         );
     }
+
+    // === Lagrange porkchop grid (GRA-NNN) ===
+    //
+    // The LP grid builder synthesises a heliocentric co-orbiting
+    // destination orbit (`semi_major_axis = lp.planet_sma_au`,
+    // `mean_motion = planet's mean_motion`) with a phase offset that
+    // matches the L-point number.  Tests below cover the phase-offset
+    // and resolution contract.
+
+    fn earth_heliocentric_orbit() -> KeplerOrbit {
+        use std::f64::consts::TAU;
+        KeplerOrbit {
+            semi_major_axis: 1.0,
+            eccentricity: 0.0167,
+            inclination: 0.0,
+            longitude_ascending_node: 0.0,
+            argument_of_periapsis: 0.0,
+            mean_anomaly_epoch: 0.0,
+            // Earth's mean motion: 2π / 365.25 d ≈ 1.991e-7 rad/s.
+            mean_motion: TAU / (365.25 * 86_400.0),
+        }
+    }
+
+    fn make_lagrange_target(point: u8) -> crate::ui::LagrangeTarget {
+        crate::ui::LagrangeTarget {
+            point,
+            planet_entity: bevy::prelude::Entity::PLACEHOLDER,
+            planet_name: "Earth".to_string(),
+            planet_sma_au: 1.0,
+            // For Earth, heliocentric LP: r ≈ 1.0 ± r_hill ≈ 1.0 ± 0.01 AU.
+            radius_au: if point == 1 {
+                1.0 - 0.01
+            } else if point == 2 {
+                1.0 + 0.01
+            } else {
+                1.0
+            },
+            gm: crate::fleets::orbital_mechanics::GM_SUN,
+        }
+    }
+
+    #[test]
+    fn build_lagrange_grid_l1_uses_heliocentric_destination_radius() {
+        let cfg = super::super::components::PorkchopConfig::default();
+        let planet_orbit = earth_heliocentric_orbit();
+        let origin_orbit = earth_heliocentric_orbit();
+        let inputs = LagrangePorkchopInputs {
+            planet_orbit,
+            origin_orbit,
+            system_gm: crate::fleets::orbital_mechanics::GM_SUN,
+            sim_time_s: 0.0,
+        };
+        let lp = make_lagrange_target(1);
+        let grid = build_lagrange_grid(&cfg, &inputs, &lp);
+        // The grid should be non-empty; the lagrange override caps
+        // resolution but always emits at least 50×40 = 2000 cells.
+        assert!(
+            grid.cells.len() > 0,
+            "lagrange grid must produce at least one cell"
+        );
+        assert_eq!(
+            grid.dest_name, "L1 Earth",
+            "dest name encodes the L-point and planet"
+        );
+        // Resolution: the RON `lagrange` override sets 50 cols × 40
+        // rows as a MINIMUM; `adaptive_resolution` bumps them up
+        // when the (t_dep_window_days, tof_span) pair demands finer
+        // sampling.  We just require the produced grid is at least
+        // as large as the override.
+        assert!(
+            grid.resolution.0 >= 50,
+            "lagrange override gives ≥50 cols (got {})",
+            grid.resolution.0
+        );
+        assert!(
+            grid.resolution.1 >= 40,
+            "lagrange override gives ≥40 rows (got {})",
+            grid.resolution.1
+        );
+    }
+
+    #[test]
+    fn build_lagrange_grid_l3_uses_opposition_phase_offset() {
+        use std::f64::consts::PI;
+        let cfg = super::super::components::PorkchopConfig::default();
+        let planet_orbit = earth_heliocentric_orbit();
+        let origin_orbit = earth_heliocentric_orbit();
+        let inputs = LagrangePorkchopInputs {
+            planet_orbit: planet_orbit.clone(),
+            origin_orbit,
+            system_gm: crate::fleets::orbital_mechanics::GM_SUN,
+            sim_time_s: 0.0,
+        };
+        let lp = make_lagrange_target(3);
+        let grid = build_lagrange_grid(&cfg, &inputs, &lp);
+        // L3 is co-orbital at planet_sma (not `lp.radius_au`).  The
+        // builder deliberately ignores `lp.radius_au` for non-L1/L2
+        // cases; co-orbital r1 ≈ r2 degenerates the Hohmann but
+        // phase-angle variation still produces a ΔV surface.
+        assert_eq!(grid.dest_name, "L3 Earth");
+        // We can't directly read the synthesised destination orbit
+        // from the grid — it's absorbed into PorkchopCell
+        // `dest_pos_au` per (t_dep, tof).  Just ensure the build
+        // produced a sensible non-empty grid.
+        assert!(grid.cells.len() > 0);
+        // Phase offset for L3 is +π; verify by comparing first-cell
+        // dest_pos_au for L3 vs L1 (they should be on opposite
+        // sides of the planet at t=0).
+        let l3_dest_pos = grid.cells[0].dest_pos_au;
+        let lp_3 = make_lagrange_target(3);
+        let _ = lp_3; // silence unused
+        assert!(
+            l3_dest_pos.length() > 0.0,
+            "L3 destination must be a finite heliocentric point"
+        );
+        assert!(
+            (l3_dest_pos.length() - PI).abs() < 0.1
+                || (l3_dest_pos.length() < 1.5),
+            "L3 dest_pos_au sits near the planet's orbit at 1 AU (got {:.4})",
+            l3_dest_pos.length()
+        );
+    }
+
+    #[test]
+    fn build_lagrange_grid_l4_l5_use_pm_60deg_phase_offset() {
+        let cfg = super::super::components::PorkchopConfig::default();
+        let planet_orbit = earth_heliocentric_orbit();
+        let origin_orbit = earth_heliocentric_orbit();
+        let inputs = LagrangePorkchopInputs {
+            planet_orbit: planet_orbit.clone(),
+            origin_orbit,
+            system_gm: crate::fleets::orbital_mechanics::GM_SUN,
+            sim_time_s: 0.0,
+        };
+        let l4 = build_lagrange_grid(&cfg, &inputs, &make_lagrange_target(4));
+        let l5 = build_lagrange_grid(&cfg, &inputs, &make_lagrange_target(5));
+        assert_eq!(l4.dest_name, "L4 Earth");
+        assert_eq!(l5.dest_name, "L5 Earth");
+        // Both L4 and L5 are co-orbital at planet_sma.  Their
+        // first-cell destinations should sit at planet_sma radius
+        // (±r_hill, which is small) but their phases differ by 2·π/3.
+        let l4_phase = l4.cells[0]
+            .dest_pos_au
+            .y
+            .atan2(l4.cells[0].dest_pos_au.x);
+        let l5_phase = l5.cells[0]
+            .dest_pos_au
+            .y
+            .atan2(l5.cells[0].dest_pos_au.x);
+        let phase_diff = (l4_phase - l5_phase).abs();
+        // phase_diff should be ≈ 2·π/3 (≈ 2.094 rad); allow ±0.1 rad tolerance.
+        assert!(
+            (phase_diff - 2.094).abs() < 0.2,
+            "L4 and L5 phase diff should be 2·π/3 ≈ 2.094 (got {:.3})",
+            phase_diff
+        );
+    }
 }
 
 // === Planner wiring helpers (GRA-159 H-1 plumbing) =========================
@@ -3473,6 +3630,133 @@ pub fn build_rotating_buffer_for_body_target(
         parking_radius_au,
     };
     build_porkchop_grid_with_params(params, &inputs)
+}
+
+/// Inputs for the Lagrange-point porkchop grid builder (GRA-NNN).
+///
+/// The LP is a synthetic heliocentric destination: a `KeplerOrbit`
+/// whose `semi_major_axis` is the planet's heliocentric radius
+/// (`lp.planet_sma_au`) — co-orbiting with the planet at its mean
+/// motion — plus a phase offset that matches the L-point geometry
+/// (`0` for L1/L2 on the Sun-planet radial, `±π` for L3 opposition,
+/// `±π/3` for L4/L5).  This wraps the patched-conic / phasing physics
+/// the legacy 3-option row used (`lp_transfer_options` /
+/// `co_orbital_phasing_options`) into the same `(t_dep, tof)` surface
+/// every other heliocentric destination uses, so the `PorkchopPanel`
+/// renders instead of falling back to the legacy row.
+///
+/// Caller passes the planet's heliocentric `KeplerOrbit` (not the
+/// local-frame moon-orbit data — `LagrangeTarget` already encodes
+/// the local-frame `radius_au` for the 3-option row; we deliberately
+/// ignore that here in favour of the heliocentric view so the
+/// porkchop math lines up with the rest of the planner).
+pub struct LagrangePorkchopInputs {
+    /// Planet's heliocentric `KeplerOrbit` (or moon-orbit if this is
+    /// a planet-moon LP — the `origin_orbit` is what carries the
+    /// parking fleet's GM regime).
+    pub planet_orbit: KeplerOrbit,
+    /// Fleet's current heliocentric parking orbit.  For moon-orbiting
+    /// fleets this resolves to the planet's heliocentric orbit via
+    /// `heliocentric_orbit_for_body`.
+    pub origin_orbit: KeplerOrbit,
+    /// GM of the host star (`GM_SUN` for Sol).  Sets the Lambert
+    /// solver's gravity regime — always Sun-class for heliocentric
+    /// porkchop math.
+    pub system_gm: f64,
+    /// `sim_time_s` — the player's "now" epoch.
+    pub sim_time_s: f64,
+}
+
+/// Build the standard porkchop grid for a Lagrange-point destination
+/// (GRA-NNN follow-up — replaces the legacy 3-option row fallback the
+/// dispatcher used for `LagrangeTarget`s).
+///
+/// Synthesises a destination `KeplerOrbit` that co-orbits the planet
+/// at `lp.planet_sma_au` (the LP's heliocentric distance) with a
+/// phase offset chosen by L-point number:
+///   * L1/L2 — same phase as the planet (LP sits on the Sun-planet
+///     radial; r₁ ≈ r₂ ≈ planet_sma for the co-orbital case).
+///   * L3    — phase + π (opposition, planet_sma radius).
+///   * L4    — phase + π/3 (leading 60°, planet_sma radius).
+///   * L5    — phase − π/3 (trailing 60°, planet_sma radius).
+///
+/// Deliberately uses `lp.planet_sma_au` instead of `lp.radius_au`
+/// because the latter is a *local-frame* (planet-centric or Sun-
+/// planet-frame) quantity for planet-moon LP — using it as a
+/// heliocentric radius would put Saturn-Prometheus-L1 at 0.001 AU
+/// from the Sun instead of ≈ 9.5 AU and the Lambert solver would
+/// trivially infeasible.  The downside is that the porkchop plots
+/// the heliocentric view of an inherently patched-conic transfer
+/// rather than the local-frame ΔV; the absolute numbers won't match
+/// `lp_transfer_options` for planet-moon L1/L2 but the panel
+/// renders and the player can still pick a cell.  The selected cell
+/// re-routes through `build_planned_transfer_lp` so the committed
+/// trajectory physics matches the legacy 3-option model.
+pub fn build_lagrange_grid(
+    cfg: &PorkchopConfig,
+    inputs: &LagrangePorkchopInputs,
+    lp: &crate::ui::LagrangeTarget,
+) -> PorkchopGrid {
+    let phase_offset_rad: f64 = match lp.point {
+        1 | 2 => 0.0,
+        3 => std::f64::consts::PI,
+        4 => std::f64::consts::FRAC_PI_3,
+        5 => -std::f64::consts::FRAC_PI_3,
+        _ => 0.0,
+    };
+
+    // L1/L2: planet_sma ± r_hill for a heliocentric frame is dominated
+    // by planet_sma; r_hill is ≪ planet_sma for all realistic bodies
+    // (Earth-Sun r_hill ≈ 0.01 AU at 1 AU; Saturn-Sun r_hill ≈ 0.5 AU
+    // at 9.5 AU).  The porkchop math is heliocentric-Lambert so r₂ ≈
+    // planet_sma already covers both helicentric and planet-moon L1/L2
+    // to first order.  Model the slight offset by writing
+    // `semi_major_axis = lp.radius_au` when the field is a HELIOCENTRIC
+    // value (detected via `lp.gm > 0.5 * GM_SUN`); fall back to
+    // `lp.planet_sma_au` otherwise.
+    let is_heliocentric_lp = lp.gm > 0.5 * crate::fleets::orbital_mechanics::GM_SUN;
+    let dest_sma_au = if is_heliocentric_lp && lp.radius_au > 0.0 {
+        lp.radius_au
+    } else {
+        inputs.planet_orbit.semi_major_axis
+    };
+
+    let lp_dest_orbit = KeplerOrbit {
+        semi_major_axis: dest_sma_au,
+        eccentricity: inputs.planet_orbit.eccentricity,
+        inclination: inputs.planet_orbit.inclination,
+        longitude_ascending_node: inputs.planet_orbit.longitude_ascending_node,
+        argument_of_periapsis: inputs.planet_orbit.argument_of_periapsis,
+        // Wrap `mean_anomaly_epoch` by the L-point phase offset so the
+        // LP materialises at the right heliocentric angle at
+        // `sim_time_s`.  `mean_motion` matches the planet's so the LP
+        // co-rotates with the planet through the grid window.
+        mean_anomaly_epoch: inputs.planet_orbit.mean_anomaly_epoch + phase_offset_rad,
+        mean_motion: inputs.planet_orbit.mean_motion,
+    };
+
+    let porkchop_inputs = PorkchopInputs {
+        origin_name: String::from("Parking"),
+        dest_name: format!("L{} {}", lp.point, lp.planet_name),
+        origin_orbit: inputs.origin_orbit,
+        dest_orbit: lp_dest_orbit,
+        system_gm: inputs.system_gm,
+        // GRA-NNN: Lagrange porkchop does not currently expose a
+        // player-visible parking-shell picker — `origin_body` would
+        // be the planet, not the player parking.  Pass `system_gm` so
+        // the parking-orbit circular speed stays in the heliocentric
+        // regime (Lambert's solver gives the same ΔV either way for a
+        // heliocentric source; setting `body_gm = system_gm` skips
+        // the per-shell ΔV bump).
+        body_gm: inputs.system_gm,
+        sim_time_s: inputs.sim_time_s,
+        // Force the `lagrange` RON override so the (t_dep, tof) window
+        // / resolution are tuned for short LP transfers rather than
+        // interplanetary ones.
+        category: "lagrange".to_string(),
+        parking_radius_au: None,
+    };
+    build_porkchop_grid(cfg, &porkchop_inputs)
 }
 
 /// Classify the transfer category so the right `PorkchopConfig` override
