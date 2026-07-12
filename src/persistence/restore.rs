@@ -28,6 +28,7 @@ use bevy_scene::DynamicScene;
 use serde::de::DeserializeSeed;
 use std::fmt;
 
+use super::handle_sidecar::apply_handle_sidecar;
 use super::migrate::run_migrations;
 use super::snapshot::{SaveFile, SaveMetadata};
 
@@ -149,6 +150,19 @@ where
     scene
         .write_to_world(&mut world, &mut entity_map)
         .map_err(|e| RestoreError::Scene(format!("{e:?}")))?;
+
+    // 6. Re-attach Handle-bearing components that the snapshot
+    //    denied because their inner `Arc<StrongHandle>` is
+    //    process-local. The sidecar (saved alongside the scene)
+    //    records the asset paths; we resolve them via the asset
+    //    server and insert fresh handles on the corresponding
+    //    entities (using `entity_map` to translate saved IDs to new
+    //    ones). `apply_handle_sidecar` is a no-op when the world has
+    //    no AssetServer (test factory `default_world_factory`) or
+    //    when the sidecar is `None` (older saves without the field).
+    if let Some(sidecar) = envelope.handles.as_ref() {
+        apply_handle_sidecar(&mut world, sidecar, &entity_map);
+    }
 
     Ok(RestoredWorld {
         world,
@@ -297,6 +311,8 @@ mod tests {
                 helios_version: "0.0.0".to_string(),
             },
             body,
+            // No handle sidecar on this hand-crafted test envelope.
+            handles: None,
         };
         let ron_text = ron::to_string(&envelope).expect("serialize envelope");
         let result = restore_world(&ron_text, build_test_world);

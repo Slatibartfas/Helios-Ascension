@@ -26,21 +26,35 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 
 use super::format_version::FORMAT_VERSION;
+use super::handle_sidecar::{extract_handle_sidecar, HandleSidecar};
 use super::migrate::{Body, SchemaKind};
 
 /// Top-level save file envelope written to disk.
 ///
-/// The on-disk layout is a single RON document with two fields:
-/// `metadata` ([`SaveMetadata`]) and `body` ([`Body`]).
+/// The on-disk layout is a single RON document with three fields:
+/// `metadata` ([`SaveMetadata`]), `body` ([`Body`]), and `handles`
+/// (an optional [`HandleSidecar`]).
 ///
 /// The split is intentional: the menu's [`SaveIndex`](crate::ui::launch::save_index::SaveIndex)
 /// scanner (GRA-311 PR-A) reads the first 4 KB of every save to discover
 /// what's on disk. Putting `metadata` first means the menu can list saves
 /// without paying the cost of a full [`Body`] round-trip.
+///
+/// `handles` is `#[serde(default)]` so saves written before the sidecar
+/// existed deserialize as `None` and fall back to "no visual fidelity
+/// round-trip" (the load still succeeds; entities come back without
+/// mesh / material refs, just like the deny-only fix did). New saves
+/// always include the sidecar.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SaveFile {
     pub metadata: SaveMetadata,
     pub body: Body,
+    /// Asset-handle sidecar — see [`HandleSidecar`] for the full
+    /// rationale. `None` when no entity in the saved world had a
+    /// tracked Handle-bearing component, or when the save predates
+    /// the sidecar (older PR-A saves).
+    #[serde(default)]
+    pub handles: Option<HandleSidecar>,
 }
 
 /// Player-visible header stored at the top of every save.
@@ -140,7 +154,12 @@ impl std::error::Error for SnapshotError {}
 /// All of these are runtime plumbing that the player has zero
 /// observable interest in persisting — letting the in-memory state
 /// drift after the next launch is correct.
-fn collect_all_entities(world: &World) -> Vec<bevy::prelude::Entity> {
+/// Walk every spawned entity in `world` and return its `Entity` handle.
+///
+/// `pub(crate)` so [`super::handle_sidecar::extract_handle_sidecar`]
+/// can iterate the same set without duplicating the EntityIndex
+/// round-trip logic.
+pub(crate) fn collect_all_entities(world: &World) -> Vec<bevy::prelude::Entity> {
     // Bevy 0.18 doesn't expose a public iterator over every entity
     // regardless of archetype (the `iter_entities` method was
     // moved to `RenderPhase` for the render crate).  Walk the
@@ -232,20 +251,12 @@ fn configure_builder<'a>(
         // did not register the `ReflectSerialize`" and the snapshot
         // errors out.
         //
-        // TRADE-OFF: this breaks visual fidelity on load — saves
-        // retain gameplay state (positions, fleets, colonies, ship
-        // instances, orbits, etc.) but the entity archetypes
-        // restored from the snapshot no longer carry their Mesh3d,
-        // so rendered bodies / ships / markers come back invisible.
-        // The proper fix is to register custom ReflectSerialize
-        // type data for `Handle<T>` that round-trips as asset-path
-        // strings (so a fresh Handle<Mesh> resolves to the same
-        // asset on the new world via the asset server). That is a
-        // larger change scoped for a follow-up — for now, deny the
-        // component so autosave at least produces a save file
-        // every interval. See the regression tests
-        // `snapshot_skips_mesh3d_component` and
-        // `snapshot_skips_mesh_material3d_component` below.
+        // We deny from the scene blob (so the snapshot succeeds) and
+        // pair it with the [`HandleSidecar`] below — the asset path
+        // is recorded separately and re-attached on load via
+        // [`apply_handle_sidecar`], giving full visual round-trip
+        // fidelity. See `snapshot_skips_mesh3d_component` below
+        // and the sidecar round-trip tests.
         .deny_component::<bevy_mesh::Mesh3d>()
         // Same problem for material refs: `MeshMaterial3d<M>`
         // wraps `Handle<M>`, and `StandardMaterial` is the
@@ -253,14 +264,18 @@ fn configure_builder<'a>(
         // (see e.g. `src/astronomy/selection.rs` and
         // `src/fleets/visuals.rs`). The generic instance
         // `MeshMaterial3d<StandardMaterial>` is the specific
-        // component type we deny; Helios's custom materials
-        // (`OceanMaterial`, `AtmosphereMaterial`,
-        // `StarGlowMaterial`, `StarDiffractionMaterial`) carry the
-        // same Handle<T> problem and would need their own deny
-        // calls if they end up on save-time entities with
-        // Handle::Strong. None currently do — those materials are
-        // attached by setup code that re-runs on world rebuild, so
-        // they come back fresh on load.
+        // component type we deny; the path round-trips through
+        // the same sidecar.
+        //
+        // Helios's custom materials (`OceanMaterial`,
+        // `AtmosphereMaterial`, `StarGlowMaterial`,
+        // `StarDiffractionMaterial`) carry the same Handle<T>
+        // problem but live on entities that the system populator
+        // re-creates on every world rebuild — they aren't on
+        // save-persistent archetypes, so they don't appear in the
+        // snapshot at all. If a future commit puts one on a
+        // save-persistent entity, add a corresponding query clause
+        // in `extract_handle_sidecar` and a deny_component here.
         .deny_component::<bevy_pbr::MeshMaterial3d<bevy_pbr::StandardMaterial>>()
         .extract_entities(entities.iter().copied())
         // IMPORTANT: apply the resource denylist BEFORE calling
@@ -329,7 +344,19 @@ pub fn snapshot_world(world: &World, metadata: SaveMetadata) -> Result<String, S
         schema: SchemaKind::SceneRon,
         data: scene_ron,
     };
-    let file = SaveFile { metadata, body };
+    // Extract the Handle-bearing sidecar BEFORE building the SaveFile
+    // — the scene snapshot just denied those components (their inner
+    // `Arc<StrongHandle>` is process-local), so we record the asset
+    // paths here and let the restore path re-attach fresh handles via
+    // the asset server. See [`crate::persistence::handle_sidecar`] for
+    // the full rationale.
+    let handles = extract_handle_sidecar(world);
+    let handles = if handles.is_empty() { None } else { Some(handles) };
+    let file = SaveFile {
+        metadata,
+        body,
+        handles,
+    };
     ron::ser::to_string_pretty(&file, ron::ser::PrettyConfig::default())
         .map_err(|e| SnapshotError::Serialize(e.to_string()))
 }
@@ -352,7 +379,13 @@ pub fn snapshot_world_with_registry(
         schema: SchemaKind::SceneRon,
         data: scene_ron,
     };
-    let file = SaveFile { metadata, body };
+    let handles = extract_handle_sidecar(world);
+    let handles = if handles.is_empty() { None } else { Some(handles) };
+    let file = SaveFile {
+        metadata,
+        body,
+        handles,
+    };
     ron::ser::to_string_pretty(&file, ron::ser::PrettyConfig::default())
         .map_err(|e| SnapshotError::Serialize(e.to_string()))
 }

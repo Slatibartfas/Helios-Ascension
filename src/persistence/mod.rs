@@ -56,6 +56,7 @@ use bevy::prelude::*;
 pub mod autosave;
 pub mod format_version;
 pub mod game_setup;
+pub mod handle_sidecar;
 pub mod io;
 pub mod migrate;
 pub mod params;
@@ -79,6 +80,9 @@ pub use migrate::{Body, MigrateError, SchemaKind};
 pub use params::{load_new_game_params_defaults, NewGameParams, NewGameParamsDefaults};
 pub use playtime::{tick_playtime_tracker, PlaytimeTracker};
 pub use plugin::SaveLoadPlugin;
+pub use handle_sidecar::{
+    apply_handle_sidecar, extract_handle_sidecar, EntityHandles, HandleSidecar,
+};
 pub use restore::{restore_world, RestoreError, RestoredWorld};
 pub use snapshot::{
     snapshot_world, snapshot_world_with_registry, SaveFile, SaveMetadata, SnapshotError,
