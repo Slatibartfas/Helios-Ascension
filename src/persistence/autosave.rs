@@ -53,6 +53,44 @@ use crate::ui::launch::userdata::{resolve_userdata_dir, PersistentSettings};
 use crate::ui::launch::LaunchState;
 use crate::ui::time::TimeScale;
 
+/// Per-world override for the saves directory used by the autosave
+/// pipeline.
+///
+/// Inserted by tests via `fresh_app_with_dir` so each test owns its
+/// own temp dir without racing on the global `HELIOS_USERDATA_DIR`
+/// env var — Rust's default test harness runs unit tests in parallel,
+/// and process env vars are not thread-local, so a fixture that
+/// `set_var`s the env var while another fixture does the same
+/// yields non-deterministic saves-dir resolution inside
+/// `tick_autosave_timer`. The resource is the same fix in `&World`
+/// form: per-test isolation without serialising the whole module.
+///
+/// Production code never inserts this resource; the env-var path
+/// (`resolve_userdata_dir().join(SAVES_SUBDIR)`) remains the
+/// production fallback. The type is `pub` because Bevy requires
+/// `Resource` types to be reachable from the world and we want the
+/// override path to be test-discoverable without `#[cfg(test)]`
+/// gating every reference site.
+#[derive(Resource, Debug, Clone)]
+pub struct AutosaveSavesDir(pub std::path::PathBuf);
+
+/// Resolve the saves directory for `world`.
+///
+/// Tests that insert [`AutosaveSavesDir`] get `<override>/saves`;
+/// production code falls through to
+/// [`resolve_userdata_dir().join(SAVES_SUBDIR)`]. Keeping the
+/// `<userdata>/saves` join in one helper means [`fire_autosave`] has
+/// one "where do saves go?" call site — no scattered branches to keep
+/// in sync if a future test seam is added.
+fn resolve_saves_dir(world: &World) -> std::path::PathBuf {
+    let userdata = if let Some(override_dir) = world.get_resource::<AutosaveSavesDir>() {
+        override_dir.0.clone()
+    } else {
+        resolve_userdata_dir()
+    };
+    userdata.join(SAVES_SUBDIR)
+}
+
 /// Default interval between autosaves (5 minutes).
 pub const DEFAULT_AUTOSAVE_INTERVAL_S: f64 = 300.0;
 
@@ -195,7 +233,7 @@ fn fire_autosave(world: &mut World) -> Result<(), String> {
     let seed = world.resource::<GameSeed>().value;
     let metadata = SaveMetadata::new_now(seed, playtime, env!("CARGO_PKG_VERSION"));
 
-    let saves_dir = resolve_userdata_dir().join(SAVES_SUBDIR);
+    let saves_dir = resolve_saves_dir(world);
     if let Err(e) = fs::create_dir_all(&saves_dir) {
         return Err(format!("mkdir {}: {e}", saves_dir.display()));
     }
@@ -300,10 +338,11 @@ mod tests {
     /// the deadline to a known offset.
     fn fresh_app_with_dir(interval_s: f64, rolling_count: u32) -> (App, PathBuf) {
         let dir = fresh_dir("app");
-        // SAFETY: tests run single-threaded for env-var mutations.
-        unsafe {
-            std::env::set_var("HELIOS_USERDATA_DIR", &dir);
-        }
+        // Don't mutate `HELIOS_USERDATA_DIR` here — the env var is
+        // process-global, and Rust's default test harness runs
+        // tests in parallel. Use the per-world `AutosaveSavesDir`
+        // override instead so each test owns its saves dir without
+        // racing. See the type's doc comment for the full rationale.
         let mut app = App::new();
         app.add_plugins(TimePlugin);
         app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(
@@ -315,6 +354,8 @@ mod tests {
         app.init_resource::<PersistentSettings>();
         app.init_resource::<GameSeed>();
         app.init_resource::<AppTypeRegistry>();
+        // Per-test saves-dir override — see `resolve_saves_dir`.
+        app.insert_resource(AutosaveSavesDir(dir.clone()));
         // No marker entity: the snapshot is intentionally empty in
         // tests. We exercise the autosave cadence + atomic write,
         // not the reflection coverage of `DynamicScene`. The RON
