@@ -1557,6 +1557,9 @@ mod procedural_generation_tests {
                     visual_radius: 10.0,
                     asteroid_class: None,
                     star_approach_au: None,
+                    // GRA-NNN: shell-cache fields for the orbit-shell resolver.
+                    rotation_period_s: None,
+                    habitable_outer_au: None,
                 },
                 SpaceCoordinates::new(DVec3::ZERO),
                 StarSystem::with_metallicity(10.0, SpectralClass::G, 0.0),
@@ -1575,6 +1578,9 @@ mod procedural_generation_tests {
                     visual_radius: 2.0,
                     asteroid_class: None,
                     star_approach_au: None,
+                    // GRA-NNN: shell-cache fields for the orbit-shell resolver.
+                    rotation_period_s: None,
+                    habitable_outer_au: None,
                 },
                 SpaceCoordinates::new(DVec3::new(5.0, 0.0, 0.0)),
                 OrbitsBody::new(star_entity),
@@ -1593,6 +1599,9 @@ mod procedural_generation_tests {
                     visual_radius: 1.0,
                     asteroid_class: None,
                     star_approach_au: None,
+                    // GRA-NNN: shell-cache fields for the orbit-shell resolver.
+                    rotation_period_s: None,
+                    habitable_outer_au: None,
                 },
                 SpaceCoordinates::new(DVec3::new(5.1, 0.0, 0.0)),
                 OrbitsBody::new(planet_entity),

@@ -28,9 +28,9 @@
 // Loader rules (enforced by load-time validation in
 // tests/porkchop_config_data_tests.rs, added as part of bundle D):
 //   1. `defaults.resolution_t_dep * defaults.resolution_tof`
-//      must be ≤ 12000 (raised 5000 → 12000 alongside the
-//      tighter step targets; ~3.6 s worst-case Lambert solve at
-//      the LGD's 0.3 ms/cell budget, still inside the 3-day
+//      must be ≤ 20000 (raised 12000 → 20000 alongside the
+//      SUPERSAMPLE bump; ~6 s worst-case Lambert solve at the
+//      LGD's 0.3 ms/cell budget, still inside the 3-day
 //      staleness budget at 1 yr/s sim speed).
 //   2. `colormap` must contain ≥ 2 stops; the first stop's
 //      ΔV must be `0.0`. (Phase C: the previous "+∞" sentinel
@@ -39,7 +39,7 @@
 //      not a colormap stop.)
 //   3. `category_overrides` are matched top-down, first hit wins;
 //      a single override must be self-consistent (resolution ×
-//      resolution ≤ 12000, tof_min_factor > 0, tof_min < tof_max).
+//      resolution ≤ 20000, tof_min_factor > 0, tof_min < tof_max).
 //   4. The match keys used in code (`interplanetary`, `moon`,
 //      `star_approach`, `interstellar`, `binary`, `flyby`,
 //      `gravity_assist`, `course_correction`, `lagrange`,
@@ -109,7 +109,7 @@
         // of a Saturn-class porkchop spans ~30 rendered rows of
         // the 90 solved rows, so the per-cell TOF resolution on
         // the cheap-transfer basin is now ~5.8 d at Saturn (~17
-        // d at 70 × 70).  8100 cells is well under the 12000-cell
+        // d at 70 × 70).  8100 cells is well under the 20000-cell
         // budget enforced by validator rule #1, and the rebuild
         // cost at ~0.3 ms/cell is ~2.4 s worst case — still inside
         // the 3-day staleness window so the deferred build path
@@ -123,7 +123,7 @@
         // 2-day t_dep step, 3-day TOF step — see
         // `MAX_T_DEP_STEP_DAYS` and `MAX_TOF_STEP_DAYS` in
         // `src/fleets/porkchop.rs`).  Total cells are clamped at
-        // 12000 by shrinking whichever dimension has the looser
+        // 20000 by shrinking whichever dimension has the looser
         // step first.  This is the structural fix for
         // Earth→Mercury via Venus GA, where the Earth↔Venus
         // synodic window (~614 d) demands finer t_dep sampling
@@ -178,7 +178,7 @@
         // cheapest cell is off-grid. Bumped from 50×40 to 70×50
         // (3500 cells) so the cheap-transfer basin is sampled finely
         // enough to land near the optimal Hohmann phase on every
-        // build. Below the 12000-cell ceiling.
+        // build. Below the 20000-cell ceiling.
         (
             match_key: "moon",
             t_dep_window_days: 14.0,
@@ -246,7 +246,7 @@
         // candidate.
         //
         // GRA-386: bumped the resolution from 20×15 = 300 cells to
-        // 50×40 = 2000 cells (still well under the 12000-cell
+        // 50×40 = 2000 cells (still well under the 20000-cell
         // ceiling). The previous 20×15 sizing was for the legacy
         // non-clickable sub-grid; now that the GA grid IS the panel
         // (GRA-385 view-mode toggle), 300 cells gives only a ~3-day
@@ -268,7 +268,7 @@
         // budget at 1 yr/s sim speed is still respected.
         //
         // Resolution bump: 80×60 → 90×90 = 8100 cells (under the
-        // 12000-cell ceiling). 90 cols over the same 614-day
+        // 20000-cell ceiling). 90 cols over the same 614-day
         // synodic window gives 6.8 d/column at the floor, and
         // `adaptive_resolution` pushes cols to ~307 (2.0 d/col)
         // for the wide-window case while keeping rows at the 3-day

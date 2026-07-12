@@ -2569,6 +2569,9 @@ mod tests {
                 None
             },
             star_approach_au: None,
+            // GRA-NNN: shell-cache fields for the orbit-shell resolver.
+            rotation_period_s: None,
+            habitable_outer_au: None,
         }
     }
 
@@ -2759,6 +2762,9 @@ mod tests {
                     visual_radius: 1.0,
                     asteroid_class: None,
                     star_approach_au: None,
+                    // GRA-NNN: shell-cache fields for the orbit-shell resolver.
+                    rotation_period_s: None,
+                    habitable_outer_au: None,
                 },
                 SurveyState::default(),
             ))
@@ -2773,6 +2779,9 @@ mod tests {
                     visual_radius: 0.5,
                     asteroid_class: None,
                     star_approach_au: None,
+                    // GRA-NNN: shell-cache fields for the orbit-shell resolver.
+                    rotation_period_s: None,
+                    habitable_outer_au: None,
                 },
                 SurveyState::default(),
             ))
@@ -2845,6 +2854,9 @@ mod tests {
                     visual_radius: 1.0,
                     asteroid_class: None,
                     star_approach_au: None,
+                    // GRA-NNN: shell-cache fields for the orbit-shell resolver.
+                    rotation_period_s: None,
+                    habitable_outer_au: None,
                 },
                 SurveyState::default(),
             ))
@@ -2859,6 +2871,9 @@ mod tests {
                     visual_radius: 0.5,
                     asteroid_class: None,
                     star_approach_au: None,
+                    // GRA-NNN: shell-cache fields for the orbit-shell resolver.
+                    rotation_period_s: None,
+                    habitable_outer_au: None,
                 },
                 SurveyState::default(),
             ))
@@ -2873,6 +2888,9 @@ mod tests {
                     visual_radius: 1.0,
                     asteroid_class: None,
                     star_approach_au: None,
+                    // GRA-NNN: shell-cache fields for the orbit-shell resolver.
+                    rotation_period_s: None,
+                    habitable_outer_au: None,
                 },
                 SurveyState::default(),
             ))
@@ -2930,6 +2948,9 @@ mod tests {
                     visual_radius: 1.0,
                     asteroid_class: None,
                     star_approach_au: None,
+                    // GRA-NNN: shell-cache fields for the orbit-shell resolver.
+                    rotation_period_s: None,
+                    habitable_outer_au: None,
                 },
                 SurveyState::default(),
             ))
@@ -2944,6 +2965,9 @@ mod tests {
                     visual_radius: 0.5,
                     asteroid_class: None,
                     star_approach_au: None,
+                    // GRA-NNN: shell-cache fields for the orbit-shell resolver.
+                    rotation_period_s: None,
+                    habitable_outer_au: None,
                 },
                 SurveyState::default(),
             ))
@@ -3036,6 +3060,9 @@ mod tests {
                     visual_radius: 1.0,
                     asteroid_class: None,
                     star_approach_au: None,
+                    // GRA-NNN: shell-cache fields for the orbit-shell resolver.
+                    rotation_period_s: None,
+                    habitable_outer_au: None,
                 },
                 SurveyState::default(),
             ))
@@ -3092,6 +3119,9 @@ mod tests {
                     visual_radius: 1.0,
                     asteroid_class: None,
                     star_approach_au: None,
+                    // GRA-NNN: shell-cache fields for the orbit-shell resolver.
+                    rotation_period_s: None,
+                    habitable_outer_au: None,
                 },
                 SurveyState::default(),
             ))

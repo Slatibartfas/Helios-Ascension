@@ -44,6 +44,9 @@ fn test_body(
         visual_radius,
         asteroid_class: None,
         star_approach_au: None,
+        // GRA-NNN: shell-cache fields for the orbit-shell resolver.
+        rotation_period_s: None,
+        habitable_outer_au: None,
     }
 }
 

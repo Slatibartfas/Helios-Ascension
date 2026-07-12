@@ -51,22 +51,30 @@ const MAX_TOF_STEP_DAYS: f64 = 3.0;
 
 /// Validator cap on the total cell count of the *computed*
 /// grid.  Mirrors the rule `defaults.resolution_t_dep *
-/// defaults.resolution_tof ≤ 12000` (and per-override) enforced
+/// defaults.resolution_tof ≤ 20000` (and per-override) enforced
 /// statically by `PorkchopConfig::validate` in `src/fleets/data.rs`.
 /// `adaptive_resolution` clamps the *runtime* grid to this cap
 /// even when the static RON fields are smaller — so an override
 /// with `resolution_t_dep: 90, resolution_tof: 90 = 8100 cells`
 /// on a 614-day Earth↔Venus-synodic window still ends up under
-/// 12000 cells after the auto-bump.
+/// 20000 cells after the auto-bump.
 ///
-/// Raised 5000 → 12000 to accommodate the tighter step targets
-/// above.  Worst-case Lambert solve is ~0.3 ms/cell → 12000
-/// cells ≈ 3.6 s, still inside the 3-day staleness budget at
-/// 1 yr/s sim speed (the deferred-build path is signalled by
-/// the planner as soon as the player's clock advances past the
-/// buffer's leading edge, so the user never sees a blank frame
-/// during the rebuild).
-const ADAPTIVE_RESOLUTION_CELL_CAP: usize = 12000;
+/// Raised 12000 → 20000 (and previously 5000 → 12000) to give
+/// the rotating buffer enough room to hit the 2-day t_dep step
+/// target without sacrificing rows.  At 12000 cells the buffer
+/// (480 d × 525 d, 240 cols) capped rows at 50 → 10.5 d/row,
+/// producing the "rough" / "vibey" ΔV bands the player reported
+/// at 12× SUPERSAMPLE.  At 20000 cells the same buffer holds
+/// 240 × 83 rows → 6.3 d/row, which the 20× SUPERSAMPLE
+/// texture bake then smooths into a near-photographic gradient.
+///
+/// Worst-case Lambert solve is ~0.3 ms/cell → 20000 cells ≈
+/// 6 s, still inside the 3-day staleness budget at 1 yr/s sim
+/// speed (the deferred-build path is signalled by the planner
+/// as soon as the player's clock advances past the buffer's
+/// leading edge, so the user never sees a blank frame during
+/// the rebuild).
+const ADAPTIVE_RESOLUTION_CELL_CAP: usize = 20000;
 
 /// Metric plotted on the grid.  Currently only `TotalDv` is wired; the
 /// LGD design contract leaves `C3` and `DepartureC3` for follow-up.
@@ -226,9 +234,9 @@ pub struct PorkchopInputs {
 }
 
 /// Build the porkchop grid.  The (cols × rows) loop is bounded by the
-/// LGD contract (≤ 12000 cells); one Earth→Mars default is 90 × 90 = 8100.
+/// LGD contract (≤ 20000 cells); one Earth→Mars default is 90 × 90 = 8100.
 /// Each cell calls `solve_lambert_transfer`; the LGD's 0.3 ms/cell budget
-/// gives ~3.6 s worst case.  Infeasible cells are kept in the grid
+/// gives ~6 s worst case.  Infeasible cells are kept in the grid
 /// (rendered greyed) so the player sees the full topology, including
 /// the no-ballistic-solution basin.
 ///
@@ -239,7 +247,7 @@ pub struct PorkchopInputs {
 /// up if the natural `(t_dep_window, tof_span)` is wider than
 /// the static values can comfortably sample (target: 2-day
 /// t_dep step, 3-day TOF step).  The total cell count is
-/// clamped at 12000 by shrinking whichever dimension has the
+/// clamped at 20000 by shrinking whichever dimension has the
 /// looser step first.  This is the structural fix for the
 /// user-reported Earth→Mercury via Venus GA case, where the
 /// Earth↔Venus-synodic window (~614 d) demands finer t_dep
@@ -537,7 +545,7 @@ pub fn compute_adaptive_tof_bounds(
 /// `span / rows > MAX_TOF_STEP_DAYS`), the helper bumps `cols`
 /// and / or `rows` up so the per-cell step lands in the
 /// 2-day / 3-day ballpark.  The total is clamped to
-/// `ADAPTIVE_RESOLUTION_CELL_CAP` (12000 cells, the static
+/// `ADAPTIVE_RESOLUTION_CELL_CAP` (20000 cells, the static
 /// validator ceiling) by shrinking whichever dimension has the
 /// looser step first — never below the RON minimum.
 ///
@@ -550,7 +558,7 @@ pub fn compute_adaptive_tof_bounds(
 ///      RON minimum.  Falls back to the product-as-is if both
 ///      dimensions are pinned at their minimums and still
 ///      exceed the cap (degenerate but possible if a modder
-///      hand-crafts a 120×100 RON override).
+///      hand-crafts a 150×150 RON override).
 ///
 /// Why this exists: the RON `resolution_t_dep` field is a
 /// fixed count, but the t_dep window varies wildly between
@@ -561,15 +569,15 @@ pub fn compute_adaptive_tof_bounds(
 /// the auto-bump, wide-window transfers render the cheap-assist
 /// basin as 1-cell-wide color stripes (the user-reported
 /// Earth→Mercury screenshot).  With the auto-bump, the same
-/// 614-day window lands at ~307 cols × ~39 rows = 11973 cells
-/// → 2.0 d/column, 6.7 d/row — the basin spans 1.5–2.5 cells
+/// 614-day window lands at ~307 cols × ~65 rows = 19955 cells
+/// → 2.0 d/column, 4.0 d/row — the basin spans 1.5–2.5 cells
 /// of the cheapest color band instead of 0.8.
 ///
 /// Tradeoff: `MAX_T_DEP_STEP_DAYS = 2.0` and
 /// `MAX_TOF_STEP_DAYS = 3.0` are tuned for the LGD's "sub-day
 /// launch-window resolution" target.  Lowering them further
 /// improves grid smoothness but inflates rebuild cost (Lambert
-/// solver runs ~0.3 ms/cell, so 12000 cells ≈ 3.6 s worst case
+/// solver runs ~0.3 ms/cell, so 20000 cells ≈ 6 s worst case
 /// — inside the 3-day staleness budget at 1 yr/s sim speed,
 /// but bumping to a 1-day step target would push past the cap
 /// on wide windows).
@@ -590,9 +598,7 @@ fn adaptive_resolution(
     let mut cols = (window_days / MAX_T_DEP_STEP_DAYS)
         .ceil()
         .max(min_cols as f64) as usize;
-    let mut rows = (span_days / MAX_TOF_STEP_DAYS)
-        .ceil()
-        .max(min_rows as f64) as usize;
+    let mut rows = (span_days / MAX_TOF_STEP_DAYS).ceil().max(min_rows as f64) as usize;
 
     // If we're already under the cap, take the bumps.  This is
     // the common path: narrow-window transfers (Earth→Moon,
@@ -610,8 +616,8 @@ fn adaptive_resolution(
     // Earth→Mercury via Venus GA the row step is naturally
     // looser than the desired 3-day target, so rows get shrunk
     // toward the RON minimum first while cols holds at the
-    // 2-day step target (307 cols × 39 rows = 11973 cells,
-    // under the 12000-cell cap).
+    // 2-day step target (307 cols × 65 rows = 19955 cells,
+    // under the 20000-cell cap).
     while cols * rows > cap {
         let col_step = window_days / cols as f64;
         let row_step = span_days / rows as f64;
@@ -1617,11 +1623,7 @@ pub fn build_star_approach_grid(inputs: &StarApproachInputs) -> PorkchopGrid {
             // `r2_m <= 0.0` guard and every cell would come back
             // infeasible — exactly the bug the Phase 6 snapshot test
             // was originally written to catch.
-            let dest_pos_au = DVec3::new(
-                -r_dest_au * angle.cos(),
-                -r_dest_au * angle.sin(),
-                0.0,
-            );
+            let dest_pos_au = DVec3::new(-r_dest_au * angle.cos(), -r_dest_au * angle.sin(), 0.0);
 
             // The Hohmann star-approach geometry is exactly colinear
             // (parking orbit aphelion opposite photosphere perihelion
@@ -1637,8 +1639,7 @@ pub fn build_star_approach_grid(inputs: &StarApproachInputs) -> PorkchopGrid {
             // parking-orbit circular speed minus the aphelion speed.
             let r2_m = r_dest_au * AU_IN_METERS;
             let a_m = 0.5 * (r1_m + r2_m);
-            let v_aphelion_ms =
-                (inputs.gm_star * (2.0 / r1_m - 1.0 / a_m)).max(0.0).sqrt();
+            let v_aphelion_ms = (inputs.gm_star * (2.0 / r1_m - 1.0 / a_m)).max(0.0).sqrt();
             let tangential_dir = DVec3::new(-angle.sin(), angle.cos(), 0.0);
             let v1_ms_colinear = tangential_dir * v_aphelion_ms;
             let v2_ms_colinear = tangential_dir * v_aphelion_ms; // unused — arrival at perihelion
@@ -2049,22 +2050,21 @@ mod tests {
     // `resolution_t_dep` / `resolution_tof` are MINIMUMS, and the helper
     // bumps `cols` / `rows` up when the natural window is wider than the
     // static values can comfortably sample.  The total is clamped at
-    // `ADAPTIVE_RESOLUTION_CELL_CAP` (12000 cells) by shrinking whichever
+    // `ADAPTIVE_RESOLUTION_CELL_CAP` (20000 cells) by shrinking whichever
     // dimension has the looser step first.
 
     /// Earth→Mercury via Venus GA: ~614-day window, ~263-day TOF span.
     /// The `gravity_assist` override's static `90 × 90 = 8100 cells`
     /// would give 6.8 d/col and 2.9 d/row.  The adaptive bump should
-    /// grow cols further (target 2 d/col) while clamping at 12000
+    /// grow cols further (target 2 d/col) while clamping at 20000
     /// cells by shrinking rows if needed.  Final shape: cols > 90
-    /// (bumped), cols × rows ≤ 12000, and either row step ≤ 3 d OR
+    /// (bumped), cols × rows ≤ 20000, and either row step ≤ 3 d OR
     /// col step ≤ 2 d.
     #[test]
     fn adaptive_resolution_scales_up_wide_window_to_step_target() {
         let window_days = 614.0;
         let span_days = 263.0;
-        let (cols, rows) =
-            adaptive_resolution(90, 90, window_days, span_days);
+        let (cols, rows) = adaptive_resolution(90, 90, window_days, span_days);
         assert!(
             cols >= 90,
             "adaptive_resolution must respect the RON minimum: cols = {cols}, expected ≥ 90"
@@ -2108,12 +2108,10 @@ mod tests {
 
     /// Earth→Mars direct (interplanetary default): ~146-day window,
     /// ~525-day TOF span.  RON `90 × 90 = 8100 cells`.  The desired
-    /// bumps are `73 cols × 175 rows = 12775 cells` — exceeds the
-    /// 12000-cell cap, so the helper shrinks one dimension.  Either
-    /// `69 × 175 = 12075` (shrink cols) or `73 × 164 = 11972`
-    /// (shrink rows; the looser-step dimension shrinks first per
-    /// `adaptive_resolution`).  The contract: `cols × rows ≤ 12000`,
-    /// both ≥ RON minimums.
+    /// bumps are `73 cols × 175 rows = 12775 cells` — under the
+    /// 20000-cell cap, so the helper takes the bump as-is.  The
+    /// contract: `cols × rows ≤ 20000`, both ≥ RON minimums, and
+    /// either col step ≤ 2 d or row step ≤ 3 d.
     #[test]
     fn adaptive_resolution_clamps_at_cell_cap_for_interplanetary() {
         let (cols, rows) = adaptive_resolution(90, 90, 146.0, 525.0);
@@ -2555,14 +2553,14 @@ mod tests {
     #[test]
     fn default_porkchop_config_resolution_within_budget() {
         // Locks in the GRA-style resolution bump: default 90×90 =
-        // 8100 cells, well under the 12000-cell validator ceiling.
+        // 8100 cells, well under the 20000-cell validator ceiling.
         // Catches a regression where a future bump pushes past
-        // the 12000 budget and the validator fails at load time.
+        // the 20000 budget and the validator fails at load time.
         let cfg = PorkchopConfig::default();
         let total = cfg.defaults.resolution_t_dep * cfg.defaults.resolution_tof;
         assert!(
-            total <= 12000,
-            "default resolution {total} exceeds the 12000-cell validator ceiling"
+            total <= 20000,
+            "default resolution {total} exceeds the 20000-cell validator ceiling"
         );
         // Sanity: at least 90 cols and 90 rows so the per-cell
         // ΔV resolution is finer than the previous 70×70

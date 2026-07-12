@@ -75,14 +75,14 @@ pub use game_setup::{
     restore_save, write_save_to_path, GameSetupError, GameSetupPlugin, NewGameCommitted,
     PendingGameWorld, RestoreCommitted,
 };
+pub use handle_sidecar::{
+    apply_handle_sidecar, extract_handle_sidecar, EntityHandles, HandleSidecar,
+};
 pub use io::{write_save_atomic, SaveIoError};
 pub use migrate::{Body, MigrateError, SchemaKind};
 pub use params::{load_new_game_params_defaults, NewGameParams, NewGameParamsDefaults};
 pub use playtime::{tick_playtime_tracker, PlaytimeTracker};
 pub use plugin::SaveLoadPlugin;
-pub use handle_sidecar::{
-    apply_handle_sidecar, extract_handle_sidecar, EntityHandles, HandleSidecar,
-};
 pub use restore::{restore_world, RestoreError, RestoredWorld};
 pub use snapshot::{
     snapshot_world, snapshot_world_with_registry, SaveFile, SaveMetadata, SnapshotError,

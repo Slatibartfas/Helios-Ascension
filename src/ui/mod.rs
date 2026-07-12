@@ -112,6 +112,7 @@ use crate::research::{
     TechTreeEditState, TechnologiesData, Technology,
 };
 use crate::ui::launch::LaunchState;
+use crate::ui::transfer_planner::OrbitShellId;
 
 /// Minimum supported window dimensions before showing the low-resolution warning.
 /// The UI is now intended to remain usable at 1280×720, even though larger
@@ -246,16 +247,13 @@ pub struct FleetUiState {
     pub target_body: Option<Entity>,
     /// Selected Lagrange-point target (mutually exclusive with `target_body`).
     pub target_lagrange: Option<LagrangeTarget>,
-    /// User-controlled arrival-orbit radius (AU) for *any* destination
-    /// type (star, planet, moon).  `(dest_entity, radius_au)`.
-    /// Set by the destination picker: the top-level "Target orbit"
-    /// DragValue (GRA-387) seeds it for planet/moon targets, and the
-    /// `DestEntry::StarApproach` picker (GRA-161) sets it for stars.
-    /// Consumed by `build_planned_transfer` to override the
-    /// per-body `star_approach_radius_au(b)` (for stars) or the
-    /// body's heliocentric SMA / parent-relative LEO proxy (for
-    /// planets / moons).  `None` means "use the per-body default".
-    pub target_arrival_radius: Option<(Entity, f64)>,
+    /// GRA-NNN: orbit shell for the arrival parking orbit.  `(dest_entity,
+    /// shell)` — read by `radius_for_shell(body, shell)` at every
+    /// consumption site.  `None` means "use
+    /// `default_shell_for_body_type(body.body_type)`".
+    /// Supersedes the GRA-161 / GRA-387 free-form `target_arrival_radius`
+    /// DragValue.
+    pub target_orbit_shell: Option<(Entity, OrbitShellId)>,
     /// Selected top-level category in the two-level destination selector.
     /// Holds the category label string (e.g. "Earth", "Mars", "Fleets").
     pub selected_dest_category: Option<String>,
@@ -452,7 +450,8 @@ impl FleetUiState {
         self.target_lagrange = None;
         self.target_fleet = None;
         self.target_star_system = None;
-        self.target_arrival_radius = None;
+        // GRA-NNN: drop the arrival-orbit shell on every target reset.
+        self.target_orbit_shell = None;
         self.selected_dest_category = None;
         self.departure_offset_days = 0.0;
         self.computed_options.clear();
@@ -517,9 +516,9 @@ impl FleetUiState {
         self.target_body = None;
         self.target_fleet = None;
         self.target_star_system = None;
-        // GRA-161: Lagrange targets are not stars — drop any
-        // star-approach parking radius the user had dialed in.
-        self.target_arrival_radius = None;
+        // GRA-NNN: Lagrange targets are not bodies — drop any
+        // arrival-orbit shell the user had picked.
+        self.target_orbit_shell = None;
         self.computed_options.clear();
         self.planned_transfer = None;
         self.selected_option = 0;
@@ -1828,6 +1827,7 @@ mod tests {
     use crate::astronomy::components::LpMarkerInfo;
     use crate::astronomy::selection::apply_body_right_click_target;
     use crate::fleets::orbital_mechanics::TransferOption;
+    use crate::ui::transfer_planner::OrbitShellId;
     use crate::ui::LastLpClick;
     use bevy::ecs::system::RunSystemOnce;
     use bevy::prelude::*;
@@ -2029,7 +2029,7 @@ mod tests {
             target_lagrange: Some(earth_lp(1)),
             target_fleet: Some(Entity::PLACEHOLDER),
             target_star_system: Some((0, "Sol".to_string(), 0.0_f32)),
-            target_arrival_radius: Some((Entity::PLACEHOLDER, 1.0_f64)),
+            target_orbit_shell: Some((Entity::PLACEHOLDER, OrbitShellId::HabitableInner)),
             selected_dest_category: Some("Earth".to_string()),
             computed_options: vec![legacy_option()],
             planned_transfer: None,
@@ -2080,7 +2080,7 @@ mod tests {
         assert!(state.target_lagrange.is_none());
         assert!(state.target_fleet.is_none());
         assert!(state.target_star_system.is_none());
-        assert!(state.target_arrival_radius.is_none());
+        assert!(state.target_orbit_shell.is_none());
         assert!(state.selected_dest_category.is_none());
         assert!(state.computed_options.is_empty());
         assert!(state.planned_transfer.is_none());

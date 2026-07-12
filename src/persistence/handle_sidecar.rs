@@ -113,9 +113,10 @@ impl HandleSidecar {
     /// entirely when there's nothing useful to record.
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
-            || self.entries.iter().all(|e| {
-                e.mesh3d.is_none() && e.mesh_material3d_standard.is_none()
-            })
+            || self
+                .entries
+                .iter()
+                .all(|e| e.mesh3d.is_none() && e.mesh_material3d_standard.is_none())
     }
 }
 
@@ -149,12 +150,10 @@ pub fn extract_handle_sidecar(world: &World) -> HandleSidecar {
             Err(_) => continue,
         };
 
-        let entry = entries_map
-            .entry(entity)
-            .or_insert_with(|| EntityHandles {
-                entity: entity.to_bits(),
-                ..Default::default()
-            });
+        let entry = entries_map.entry(entity).or_insert_with(|| EntityHandles {
+            entity: entity.to_bits(),
+            ..Default::default()
+        });
 
         // Mesh3d — extract asset path from inner Handle<Mesh>.
         // Strong handles without a path yield None (the entity
@@ -292,10 +291,7 @@ mod tests {
 
         // Two entities: one with a (default-handle) Mesh3d, one with
         // a default MeshMaterial3d. Both should round-trip.
-        let e1 = app
-            .world_mut()
-            .spawn(Mesh3d::default())
-            .id();
+        let e1 = app.world_mut().spawn(Mesh3d::default()).id();
         let e2 = app
             .world_mut()
             .spawn(MeshMaterial3d::<StandardMaterial>::default())
@@ -361,7 +357,8 @@ mod tests {
         let mesh_handle: Handle<Mesh> = server.load("models/planet.glb");
         let mat_handle: Handle<StandardMaterial> = server.load("materials/planet.ron");
 
-        app.world_mut().spawn((Mesh3d(mesh_handle), MeshMaterial3d(mat_handle)));
+        app.world_mut()
+            .spawn((Mesh3d(mesh_handle), MeshMaterial3d(mat_handle)));
 
         let sidecar = extract_handle_sidecar(app.world());
         assert_eq!(sidecar.entries.len(), 1);

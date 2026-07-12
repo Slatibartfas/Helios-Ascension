@@ -393,22 +393,30 @@ pub fn porkchop_panel(
             // top-left, so we flip the row index when packing — `row 0`
             // in the grid becomes the image's `tex_rows - K` row).
             //
-            // Supersample factor bumped from 4 → 8 → 12 to eliminate the
+            // Supersample factor bumped from 4 → 8 → 12 → 20 to eliminate the
             // per-row "wavy/flickering" boundary the player reported
             // and to give the bilinear filter enough source density
-            // for a near-photographic gradient (GRA-385 follow-up).
-            // At 12× each grid cell renders as a 12×12 block of the
-            // same colour, giving the GPU's bilinear sampler ~144
-            // source texels per cell to interpolate between.  The
-            // sweet-spot ΔV is much easier to pick because the
-            // gradient between adjacent cells is smooth enough that
-            // tiny mouse movements can land on a 50 m/s difference
-            // — at 8× the same delta looked like a hard edge.
-            // Memory cost: 12×12 = 144 texels per cell.  Worst
-            // case is the 60×60 interplanetary grid = 720×720
-            // RGBA = ~2 MB per bake, still well under VRAM and
-            // uploaded only on identity changes (not per frame).
-            const SUPERSAMPLE: usize = 12;
+            // for a near-photographic gradient (GRA-385 follow-up +
+            // post-resolution-bump follow-up).  At 20× each grid cell
+            // renders as a 20×20 block of the same colour, giving the
+            // GPU's bilinear sampler ~400 source texels per cell to
+            // interpolate between.  The sweet-spot ΔV is much easier
+            // to pick because the gradient between adjacent cells is
+            // smooth enough that tiny mouse movements can land on a
+            // 50 m/s difference — at 12× the same delta read as a
+            // 1-texel-wide transition that looked "rough" on the
+            // rotating buffer (where each visible cell only occupies
+            // ~3 screen pixels).  At 20× the visible cell spans ~5
+            // screen pixels with ~2 pixels of bilinear interpolation
+            // at each boundary, producing a smooth gradient.
+            //
+            // Memory cost: 20×20 = 400 texels per cell.  Worst case
+            // is the 240×50 interplanetary rotating-buffer grid =
+            // 4800×1000 RGBA = ~19 MB per bake, still well under
+            // VRAM (most GPUs ship with 4–8 GB) and uploaded only on
+            // identity changes (not per frame).  For the non-buffer
+            // 60×60 grid the bake drops to 1200×1200 = ~5.5 MB.
+            const SUPERSAMPLE: usize = 20;
             let tex_cols = cols * SUPERSAMPLE;
             let tex_rows = rows * SUPERSAMPLE;
             let mut pixels: Vec<Color32> = Vec::with_capacity(tex_cols * tex_rows);

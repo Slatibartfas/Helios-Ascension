@@ -34,7 +34,8 @@ use crate::plugins::solar_system::{
     LogicalParent, Moon, Planet, Ring, RotationSpeed, Star,
 };
 use crate::plugins::solar_system_data::{
-    calculate_visual_radius, system_visual_scale, AsteroidClass, BodyType,
+    calculate_visual_radius, rotation_period_seconds_from_days, system_visual_scale, AsteroidClass,
+    BodyType,
 };
 use crate::plugins::starmap::{classify_exoplanet_with_mass, PlanetCategory, SystemMetadata};
 
@@ -1403,6 +1404,9 @@ fn populate_host_bodies(
                         visual_radius: max_star_vis,
                         asteroid_class: None,
                         star_approach_au: None,
+                        // GRA-NNN: star spawn-cache for the orbit-shell resolver.
+                        rotation_period_s: None,
+                        habitable_outer_au: Some((star_data.luminosity_sol as f64).sqrt()),
                     });
                 }
             }
@@ -1553,6 +1557,9 @@ fn spawn_star_entity_with_metallicity(
             // Procedural stars have no RON override; planner falls back to
             // STELLAR_APPROACH_AU (0.3 AU) for main-sequence bodies.
             star_approach_au: None,
+            // GRA-NNN: star spawn-cache for the orbit-shell resolver.
+            rotation_period_s: None,
+            habitable_outer_au: Some((star_data.luminosity_sol as f64).sqrt()),
         },
         StellarProperties::new(star_data.luminosity_sol, star_data.temp_k),
         if orbit.is_some() {
@@ -1723,6 +1730,10 @@ fn spawn_confirmed_planet(
             visual_radius,
             asteroid_class: None,
             star_approach_au: None,
+            // GRA-NNN: cache rotation_period_s so `Stationary` shell resolves
+            // without widening the standard body query.
+            rotation_period_s: rotation_period_seconds_from_days(rotation_period_days),
+            habitable_outer_au: None,
         },
         SurfaceTemperature {
             average_celsius: avg_temp,
@@ -1863,6 +1874,9 @@ fn spawn_procedural_planet(
             visual_radius,
             asteroid_class: None,
             star_approach_au: None,
+            // GRA-NNN: cache rotation_period_s for the orbit-shell resolver.
+            rotation_period_s: rotation_period_seconds_from_days(planet.rotation_period_days),
+            habitable_outer_au: None,
         },
         SurfaceTemperature {
             average_celsius: avg_temp,
@@ -1967,6 +1981,9 @@ fn spawn_dwarf_planets(
                 visual_radius,
                 asteroid_class: None,
                 star_approach_au: None,
+                // GRA-NNN: cache rotation_period_s for the orbit-shell resolver.
+                rotation_period_s: rotation_period_seconds_from_days(planet.rotation_period_days),
+                habitable_outer_au: None,
             },
             SurfaceTemperature {
                 average_celsius: avg_temp,
@@ -2116,6 +2133,9 @@ fn spawn_asteroid_belt(
                     * vis_scale,
                 asteroid_class: Some(asteroid_class),
                 star_approach_au: None,
+                // GRA-NNN: asteroids have no measured rotation; resolver falls back to Low.
+                rotation_period_s: None,
+                habitable_outer_au: None,
             },
             SurfaceTemperature {
                 average_celsius: avg_temp,
@@ -2228,6 +2248,9 @@ fn spawn_cometary_cloud(
                 visual_radius: calculate_visual_radius(BodyType::Comet, radius as f32) * vis_scale,
                 asteroid_class: Some(AsteroidClass::PType), // P-type (volatile-rich)
                 star_approach_au: None,
+                // GRA-NNN: comets have no measured rotation; resolver falls back to Low.
+                rotation_period_s: None,
+                habitable_outer_au: None,
             },
             SurfaceTemperature {
                 average_celsius: avg_temp,
@@ -2513,6 +2536,9 @@ fn spawn_procedural_ring(
             visual_radius: outer_radius,
             asteroid_class: None,
             star_approach_au: None,
+            // GRA-NNN: rings have no rotation_period (they're a label, not a body).
+            rotation_period_s: None,
+            habitable_outer_au: None,
         },
         Mesh3d(mesh_handle),
         MeshMaterial3d(mat_handle),
@@ -2803,6 +2829,10 @@ fn spawn_procedural_moons(
                 visual_radius: moon_visual_radius,
                 asteroid_class: None,
                 star_approach_au: None,
+                // GRA-NNN: moons don't carry rotation_period into the spawn path here,
+                // so leave the shell cache unset; the resolver still produces Low/Med/High.
+                rotation_period_s: None,
+                habitable_outer_au: None,
             },
             SurfaceTemperature {
                 average_celsius: avg_temp,

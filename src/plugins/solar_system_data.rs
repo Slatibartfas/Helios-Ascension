@@ -215,6 +215,39 @@ pub struct CelestialBodyData {
     pub star_approach_au: Option<f64>,
 }
 
+impl CelestialBodyData {
+    /// Convert `rotation_period` (Earth days, negative for retrograde) into
+    /// the positive-seconds form the orbit-shell `Stationary` resolver
+    /// expects.  Returns `None` when `rotation_period == 0.0` — the same
+    /// bodies the spawn loop already special-cases to `RotationSpeed(0.0)`
+    /// (asteroids, comets, rings with no measured rotation).
+    ///
+    /// Thin wrapper over [`rotation_period_seconds_from_days`] so both
+    /// `solar_system` (RON-driven spawn, has `&CelestialBodyData`) and
+    /// `system_populator` (procedural spawn, has already-extracted
+    /// `rotation_period_days: f32`) share one implementation.  GRA-NNN.
+    pub fn rotation_period_seconds(&self) -> Option<f64> {
+        rotation_period_seconds_from_days(self.rotation_period)
+    }
+}
+
+/// Convert `rotation_period_days` (Earth days, negative for retrograde) into
+/// the positive-seconds form the orbit-shell `Stationary` resolver expects.
+/// Returns `None` when `rotation_period_days == 0.0` — the same bodies the
+/// spawn loop already special-cases to `RotationSpeed(0.0)` (asteroids,
+/// comets, rings with no measured rotation).  GRA-NNN.
+pub(crate) fn rotation_period_seconds_from_days(rotation_period_days: f32) -> Option<f64> {
+    if rotation_period_days == 0.0 {
+        None
+    } else {
+        Some((rotation_period_days.abs() as f64) * SECONDS_PER_DAY)
+    }
+}
+
+/// Seconds in one Earth day.  Used by [`CelestialBodyData::rotation_period_seconds`]
+/// and the procedural spawn paths that pre-extract `rotation_period_days`.
+const SECONDS_PER_DAY: f64 = 86_400.0;
+
 /// Complete solar system data
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SolarSystemData {

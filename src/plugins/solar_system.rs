@@ -196,6 +196,21 @@ pub struct CelestialBody {
     /// boundary, not 0.3 AU.  This field pins the actual parking radius so the
     /// label can match the math.
     pub star_approach_au: Option<f64>,
+    /// Rotation period in seconds, computed once at spawn from
+    /// `CelestialBodyData::rotation_period` (already `.abs()`'d, so retrograde
+    /// rotators report a positive value).  `None` for bodies with no
+    /// measurable rotation (asteroids, comets, rings).
+    /// Used by `radius_for_shell` to compute the synchronous-orbit shell
+    /// (`r_sync = (GM·T_rot²/4π²)^(1/3)`) without widening the standard 5-tuple
+    /// body query that every transfer-planner helper uses.
+    pub rotation_period_s: Option<f64>,
+    /// Outer edge of the star's habitable zone (AU), precomputed at spawn as
+    /// `sqrt(L_star / L_sol) × 1.0 AU` when `StellarProperties` is present.
+    /// `None` for non-stellar bodies, or for stars whose `StellarProperties`
+    /// is unavailable at spawn time (rare; the loader uses `sol()` defaults so
+    /// the field is normally populated for stars).  Used by the
+    /// `HabitableOuter` orbit shell on the transfer-planner picker.
+    pub habitable_outer_au: Option<f64>,
 }
 
 impl CelestialBody {
@@ -906,6 +921,11 @@ pub fn setup_solar_system(
                     visual_radius,
                     asteroid_class: body_data.asteroid_class,
                     star_approach_au: body_data.star_approach_au,
+                    // GRA-NNN: spawn-time caches for the orbit-shell resolver.
+                    // Stars always receive `StellarProperties::sol()` below (L = 1),
+                    // so `sqrt(L) * 1.0 AU = 1.0 AU` for every star loaded via RON.
+                    rotation_period_s: body_data.rotation_period_seconds(),
+                    habitable_outer_au: Some(1.0),
                 },
                 RotationSpeed(rotation_speed),
                 // Stars sit at the system origin; give them SpaceCoordinates so they
@@ -927,6 +947,9 @@ pub fn setup_solar_system(
                     visual_radius,
                     asteroid_class: body_data.asteroid_class,
                     star_approach_au: body_data.star_approach_au,
+                    // GRA-NNN: spawn-time caches for the orbit-shell resolver.
+                    rotation_period_s: body_data.rotation_period_seconds(),
+                    habitable_outer_au: None,
                 },
                 RotationSpeed(rotation_speed),
                 PlanetCategory(classify_for_spawn(body_data).to_string()),

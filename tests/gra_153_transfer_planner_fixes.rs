@@ -36,6 +36,9 @@ fn test_body(name: &str, body_type: BodyType, mass: f64) -> CelestialBody {
         visual_radius: 12.0,
         asteroid_class: None,
         star_approach_au: None,
+        // GRA-NNN: shell-cache fields for the orbit-shell resolver.
+        rotation_period_s: None,
+        habitable_outer_au: None,
     }
 }
 

@@ -5,6 +5,7 @@ use crate::fleets::porkchop::{
     build_grid_for_body_target, build_rotating_buffer_for_body_target, build_short_hop_grid,
     build_star_approach_grid, StarApproachInputs,
 };
+use serde::{Deserialize, Serialize};
 // GRA-367-E: pull `PorkchopGrid` into the module-level scope so the
 // `try_build_cross_system_hohmann` return type resolves without a
 // local `use` inside the function body.  Phase 5 emits a degenerate
@@ -214,6 +215,178 @@ const MAX_STAR_APPROACH_AU: f64 = 5.0;
 #[inline]
 fn star_approach_radius_au(body: &CelestialBody) -> f64 {
     body.star_approach_au.unwrap_or(STELLAR_APPROACH_AU)
+}
+
+// ── GRA-NNN: orbit-shell picker ─────────────────────────────────────────────
+// Named parking-orbit shells (Terra Invicta-style) replace the free-form
+// `target_arrival_radius: Option<(Entity, f64)>` DragValue.  Each shell
+// resolves to a numeric arrival radius via `radius_for_shell` below, with
+// the math driven by the body's own physical properties (radius, mass,
+// rotation period) — no RON override, no player-editable number.
+//
+// Two shell families:
+//   * Body shells (Low / Medium / High / Stationary) for planets, moons,
+//     rings, dwarf planets, gas giants, asteroids, comets.
+//   * Star shells (CloseApproach / HabitableInner / HabitableOuter /
+//     Cruise) for stars.
+
+/// Identifies a named parking-orbit shell the player can pick for a
+/// destination body.  `radius_for_shell` resolves each id to a numeric
+/// arrival radius (AU).
+///
+/// GRA-NNN.  Supersedes the free-form `target_arrival_radius` DragValue
+/// (GRA-161 / GRA-387).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Reflect)]
+pub enum OrbitShellId {
+    /// 1.05 × body radius (just above the surface / atmosphere edge).
+    /// Procedural scaling keeps small bodies above any residual outgassing.
+    Low,
+    /// 3 × body radius — well clear of LEO debris, parking-stable.
+    Medium,
+    /// 10 × body radius — transfer-staging shell.
+    High,
+    /// Geostationary-equivalent orbit: r_sync = (GM·T_rot²/4π²)^(1/3).
+    /// Falls back to `Low` when the body has no measurable rotation.
+    Stationary,
+    /// Star shell: [`MIN_STAR_APPROACH_AU`] (0.05 AU).  Inside the
+    /// habitable zone but close enough to the photosphere that Δv starts
+    /// to deviate from the two-body model.  Used by M-dwarf overrides.
+    CloseApproach,
+    /// Star shell: `star_approach_radius_au(body)` — re-uses the GRA-149
+    /// C-2 default / per-body override.  Where Earth's orbit lives for
+    /// a Sol-magnitude star.
+    HabitableInner,
+    /// Star shell: `sqrt(L_star / L_sol) × 1.0 AU`.  Cached on
+    /// `CelestialBody.habitable_outer_au` at spawn time.  Outer edge of
+    /// the conservative habitable zone.
+    HabitableOuter,
+    /// Star shell: [`MAX_STAR_APPROACH_AU`] (5.0 AU).  Outer-system
+    /// staging / pre-interstellar cruise parking.
+    Cruise,
+}
+
+impl OrbitShellId {
+    /// Short human-readable label for the picker dropdown.
+    pub fn label(self) -> &'static str {
+        match self {
+            OrbitShellId::Low => "Low",
+            OrbitShellId::Medium => "Medium",
+            OrbitShellId::High => "High",
+            OrbitShellId::Stationary => "Stationary",
+            OrbitShellId::CloseApproach => "Close Approach",
+            OrbitShellId::HabitableInner => "Habitable Inner",
+            OrbitShellId::HabitableOuter => "Habitable Outer",
+            OrbitShellId::Cruise => "Cruise",
+        }
+    }
+
+    /// The set of shells available to a given body type.  Asteroids and
+    /// comets don't expose `Stationary` (no measurable rotation).
+    pub fn shells_for(body_type: BodyType) -> &'static [OrbitShellId] {
+        match body_type {
+            BodyType::Star => &[
+                OrbitShellId::CloseApproach,
+                OrbitShellId::HabitableInner,
+                OrbitShellId::HabitableOuter,
+                OrbitShellId::Cruise,
+            ],
+            BodyType::Asteroid | BodyType::Comet => {
+                &[OrbitShellId::Low, OrbitShellId::Medium, OrbitShellId::High]
+            }
+            _ => &[
+                OrbitShellId::Low,
+                OrbitShellId::Medium,
+                OrbitShellId::High,
+                OrbitShellId::Stationary,
+            ],
+        }
+    }
+}
+
+/// Default shell when no override is set.  `Low` for bodies (matches the
+/// pre-existing LEO-proxy default), `HabitableInner` for stars (matches
+/// the pre-existing `star_approach_radius_au` default and preserves the
+/// GRA-149 C-2 label promise).
+pub fn default_shell_for_body_type(body_type: BodyType) -> OrbitShellId {
+    match body_type {
+        BodyType::Star => OrbitShellId::HabitableInner,
+        _ => OrbitShellId::Low,
+    }
+}
+
+/// Resolve a shell to its numeric parking radius (AU).
+///
+/// Pure on `&CelestialBody` — caller has already destructured the
+/// standard 5-tuple body query.  GRA-NNN.
+///
+/// Body shells (Low / Medium / High) scale off the body's own radius:
+///   Low    = 1.05 × body.radius_km, with a +10 km absolute floor for
+///            small bodies whose 1.05× altitude would dip below any
+///            practical orbital regime.
+///   Medium = 3 × body.radius_km
+///   High   = 10 × body.radius_km
+///   Stationary = (GM · T_rot² / 4π²)^(1/3), or `Low` if the body has
+///                no measurable rotation (asteroids, comets, rings).
+///
+/// Star shells are constant AU values, except `HabitableOuter` which
+/// reads the precomputed `body.habitable_outer_au` cache (falls back to
+/// `2 × star_approach_radius_au(body)` if the cache is `None`).
+pub fn radius_for_shell(body: &CelestialBody, shell: OrbitShellId) -> f64 {
+    use crate::fleets::orbital_mechanics::{AU_IN_METERS, G_CONST};
+    let r_km = body.radius as f64;
+    let r_m = r_km * 1000.0;
+    match shell {
+        OrbitShellId::Low => {
+            // Absolute floor: 10 km above the surface keeps small-body
+            // shells above any residual outgassing / surface irregularities.
+            let shell_m = r_m * 1.05;
+            let floor_m = r_m + 10_000.0;
+            shell_m.max(floor_m) / AU_IN_METERS
+        }
+        OrbitShellId::Medium => r_m * 3.0 / AU_IN_METERS,
+        OrbitShellId::High => r_m * 10.0 / AU_IN_METERS,
+        OrbitShellId::Stationary => match body.rotation_period_s {
+            Some(t) if t > 0.0 => {
+                // r_sync = (GM · T_rot² / 4π²)^(1/3)
+                // `rotation_period_s` is `.abs()`'d at spawn, so sign flip
+                // is unnecessary here.
+                let gm = G_CONST * body.mass;
+                let r_sync_m = (gm * t.powi(2) / (4.0 * std::f64::consts::PI.powi(2))).cbrt();
+                r_sync_m / AU_IN_METERS
+            }
+            _ => radius_for_shell(body, OrbitShellId::Low),
+        },
+        OrbitShellId::CloseApproach => MIN_STAR_APPROACH_AU,
+        OrbitShellId::HabitableInner => star_approach_radius_au(body),
+        OrbitShellId::HabitableOuter => body
+            .habitable_outer_au
+            .unwrap_or_else(|| star_approach_radius_au(body) * 2.0),
+        OrbitShellId::Cruise => MAX_STAR_APPROACH_AU,
+    }
+}
+
+/// Inverse of [`radius_for_shell`]: pick the shell whose resolved radius
+/// is closest to the given numeric value, within the body's available
+/// shell set.  Falls back to [`default_shell_for_body_type`] for the
+/// body's type when no shell is unambiguously closer.
+///
+/// Used by the Commit-2 dual-write path: every existing
+/// `target_arrival_radius: Some((entity, radius_au))` write needs a
+/// matching `target_orbit_shell: Some((entity, shell))` so Commit 3
+/// can drop the numeric field without losing user state.  GRA-NNN.
+pub fn shell_id_for_radius(body: &CelestialBody, radius_au: f64) -> OrbitShellId {
+    let shells = OrbitShellId::shells_for(body.body_type);
+    let mut best_shell = default_shell_for_body_type(body.body_type);
+    let mut best_diff = f64::INFINITY;
+    for &shell in shells {
+        let r = radius_for_shell(body, shell);
+        let diff = (r - radius_au).abs();
+        if diff < best_diff {
+            best_diff = diff;
+            best_shell = shell;
+        }
+    }
+    best_shell
 }
 
 /// Compute the user-selectable `radius_au` bounds for the interactive
@@ -1158,11 +1331,7 @@ fn checked_arrival_timestamp(current_timestamp: i64, total_eta_s: f64) -> Option
 /// offset (legacy `-1.0` "next-window" sentinel) doesn't push the
 /// recorded epoch into the past and immediately trip the
 /// "trajectory is in the past" snap in the visuals layer.
-fn maybe_record_burn_epoch_for_ga(
-    state: &mut FleetUiState,
-    elapsed: f64,
-    offset_days: f64,
-) {
+fn maybe_record_burn_epoch_for_ga(state: &mut FleetUiState, elapsed: f64, offset_days: f64) {
     if matches!(
         state.porkchop_view_mode,
         crate::ui::PorkchopViewMode::GravityAssist(_)
@@ -1469,7 +1638,7 @@ fn try_build_cross_system_hohmann(
 /// Populate every mirrored `TransferPlan` field from `FleetUiState`.
 pub(super) fn sync_plan_from_ui(plan: &mut TransferPlan, ui: &FleetUiState) {
     plan.target_body = ui.target_body;
-    plan.target_arrival_radius = ui.target_arrival_radius;
+    plan.target_orbit_shell = ui.target_orbit_shell;
     plan.target_fleet = ui.target_fleet;
     plan.target_star_system = ui.target_star_system.clone();
     plan.departure_offset_days = ui.departure_offset_days;
@@ -1514,8 +1683,8 @@ pub(super) fn render_reference_frame_indicator(
 ) {
     // No active selection → render nothing (Phase 1: the indicator
     // is informational; suppressing it when empty avoids a useless
-    // `auto` row above an empty picker).  The `target_arrival_radius`
-    // arm is part of the same family: a star-approach-only selection
+    // `auto` row above an empty picker).  The `target_orbit_shell`
+    // arm is part of the same family: a shell-only selection
     // has `target_body = Entity::PLACEHOLDER` and no fleet / system
     // target, so it would otherwise fall through to
     // `resolve_planner_transfer_frame` and render a misleading
@@ -1523,7 +1692,7 @@ pub(super) fn render_reference_frame_indicator(
     if plan.target_body.is_none()
         && plan.target_fleet.is_none()
         && plan.target_star_system.is_none()
-        && plan.target_arrival_radius.is_none()
+        && plan.target_orbit_shell.is_none()
     {
         return;
     }
@@ -1948,11 +2117,9 @@ pub(super) fn render_transfer_planner(
     //     ~50-100 ms on Mars-class resolves, vs the async path's
     //     300-500 ms wait-with-no-panel.
     //
-    // `target_arrival_radius` (formerly `target_star_approach`)
-    // flows into `star_approach_grid_for_target` so the user's parking
-    // override becomes one of the 5 rows of the resulting grid; without
-    // this the player's edited radius stays out-of-sync with the y-axis
-    // values until the next click.
+    // `target_orbit_shell` (formerly `target_arrival_radius`) flows into
+    // `radius_for_shell` and then into `star_approach_grid_for_target` so the
+    // user's shell pick becomes one of the 5 rows of the resulting grid.
     if fleet_ui_state.porkchop_grid.is_none() {
         if let Some(target_entity) = fleet_ui_state.target_body {
             let dest_body_type = body_query
@@ -1961,32 +2128,29 @@ pub(super) fn render_transfer_planner(
                 .map(|(_, b, _, _, _)| b.body_type);
             match dest_body_type {
                 Some(BodyType::Star) => {
-                    // Star-approach sync path.  Reads the user's
-                    // radius override from `target_arrival_radius`.
-                    // Use `star_approach_radius_au` for the
-                    // no-override default — `heliocentric_orbit_for_body`
-                    // returns the star's barycentric (near-zero)
-                    // KeplerOrbit which is not a useful parking
-                    // radius.
-                    let default_au = body_query
-                        .get(target_entity)
-                        .ok()
-                        .map(|(_, b, _, _, _)| star_approach_radius_au(b));
-                    let resolved_default =
-                        match (fleet_ui_state.target_arrival_radius, default_au) {
-                            (Some((_, r)), _) => r,
-                            (None, Some(d)) => d,
-                            // Body vanished mid-frame; let the
-                            // deferred block re-attempt next frame.
-                            (None, None) => 0.0,
-                        };
+                    // GRA-NNN: shell-driven star-approach sync path.  Resolve the
+                    // user's shell choice (or fall back to the per-star default
+                    // shell) and use its numeric radius as the parking seed.
+                    let (shell, radius_au) = match body_query.get(target_entity) {
+                        Ok((_, b, _, _, _)) => {
+                            let shell = fleet_ui_state
+                                .target_orbit_shell
+                                .filter(|(e, _)| *e == target_entity)
+                                .map(|(_, s)| s)
+                                .unwrap_or(default_shell_for_body_type(b.body_type));
+                            (shell, radius_for_shell(b, shell))
+                        }
+                        // Body vanished mid-frame; let the deferred block re-attempt.
+                        Err(_) => (OrbitShellId::HabitableInner, 0.0),
+                    };
+                    let _ = shell; // read for documentation; the value is consumed via radius_au below.
                     let (lo, hi) = star_approach_bounds_au(
                         target_entity,
                         body_query,
                         body_system_ids,
                         current_system_id,
                     );
-                    let radius_au = resolved_default.clamp(lo, hi);
+                    let radius_au = radius_au.clamp(lo, hi);
                     let grid = star_approach_grid_for_target(
                         body_query,
                         orbit.body,
@@ -2618,18 +2782,9 @@ pub(super) fn render_transfer_planner(
             name: String,
             distance_ly: f32,
         },
-        StarApproach {
+        Star {
             entity: Entity,
             name: String,
-            /// Current user-controlled parking radius (AU).
-            radius_au: f64,
-            /// Default parking radius (per-body `star_approach_au` or
-            /// `STELLAR_APPROACH_AU` fallback).
-            default_radius_au: f64,
-            /// Lower clamp for the picker `DragValue`.
-            min_radius_au: f64,
-            /// Upper clamp for the picker `DragValue`.
-            max_radius_au: f64,
         },
     }
 
@@ -3019,27 +3174,15 @@ pub(super) fn render_transfer_planner(
         system_stars.sort_by(|a, b| a.1.cmp(&b.1));
         if !system_stars.is_empty() {
             dest_entries.push(DestEntry::Header("Star Approach".to_string()));
-            for (star_e, star_name, approach_au) in system_stars {
-                let (min_radius_au, max_radius_au) =
-                    star_approach_bounds_au(star_e, body_query, body_system_ids, current_system_id);
-                // Honour a persisted user choice for the same star when
-                // available; otherwise use the per-body default.  Clamp to
-                // the per-star bounds so an out-of-range persisted value
-                // (e.g. loaded from a save with different bounds) cannot
-                // crash the planner.
-                let initial_radius_au = fleet_ui_state
-                    .target_arrival_radius
-                    .filter(|(e, _)| *e == star_e)
-                    .map(|(_, r)| r)
-                    .unwrap_or(approach_au)
-                    .clamp(min_radius_au, max_radius_au);
-                dest_entries.push(DestEntry::StarApproach {
+            for (star_e, star_name, _approach_au) in system_stars {
+                // GRA-NNN: parking radius now resolved by the shell picker via
+                // `target_orbit_shell` rather than a numeric override on each
+                // star row.  Each star contributes a single `Star { entity,
+                // name }` entry; the shell ComboBox below the destination
+                // picker handles the radius.
+                dest_entries.push(DestEntry::Star {
                     entity: star_e,
                     name: star_name,
-                    radius_au: initial_radius_au,
-                    default_radius_au: approach_au,
-                    min_radius_au,
-                    max_radius_au,
                 });
             }
         }
@@ -3178,7 +3321,7 @@ pub(super) fn render_transfer_planner(
                 // "Star Approach" group; recognise it here so the
                 // category ComboBox auto-selects when the player picks
                 // a star via the new interactive picker.
-                DestEntry::StarApproach { entity, .. } => *entity == target,
+                DestEntry::Star { entity, .. } => *entity == target,
                 _ => false,
             }) {
                 correct_category = Some(group.name.clone());
@@ -3268,7 +3411,7 @@ pub(super) fn render_transfer_planner(
                         // radius when the category changes.  The radius is
                         // meaningless once the destination is no longer a
                         // star in the new category.
-                        fleet_ui_state.target_arrival_radius = None;
+                        fleet_ui_state.target_orbit_shell = None;
                         fleet_ui_state.computed_options.clear();
                         fleet_ui_state.planned_transfer = None;
                         fleet_ui_state.selected_option = 0;
@@ -3310,9 +3453,15 @@ pub(super) fn render_transfer_planner(
     } else if let Some((_, ref name, _)) = fleet_ui_state.target_star_system {
         name.clone()
     } else {
-        // GRA-161: extract star_approach before borrowing fleet_ui_state
-        // in the closure so the borrow is released before line 4123.
-        let star_approach = fleet_ui_state.target_arrival_radius;
+        // GRA-NNN: extract the active shell before borrowing fleet_ui_state
+        // in the closure so the borrow is released before the picker ComboBox.
+        let active_shell = fleet_ui_state.target_orbit_shell.and_then(|(e, s)| {
+            if fleet_ui_state.target_body == Some(e) {
+                Some(s)
+            } else {
+                None
+            }
+        });
         fleet_ui_state
             .target_body
             .and_then(|e| {
@@ -3320,12 +3469,10 @@ pub(super) fn render_transfer_planner(
                     if b.body_type == BodyType::Ring {
                         format!("{} 💍", b.name)
                     } else if b.body_type == BodyType::Star {
-                        let r = star_approach
-                            .as_ref()
-                            .filter(|(se, _)| *se == e)
-                            .map(|(_, r)| *r)
-                            .unwrap_or(star_approach_radius_au(b));
-                        format!("🛰 {} ({:.2} AU)", b.name, r)
+                        // GRA-NNN: shell-name label rather than numeric radius.
+                        let shell =
+                            active_shell.unwrap_or(default_shell_for_body_type(b.body_type));
+                        format!("🛰 {} — {}", b.name, shell.label())
                     } else {
                         b.name.clone()
                     }
@@ -3388,7 +3535,7 @@ pub(super) fn render_transfer_planner(
                                         // GRA-161: switching to a non-star
                                         // destination invalidates the
                                         // star-approach parking radius.
-                                        fleet_ui_state.target_arrival_radius = None;
+                                        fleet_ui_state.target_orbit_shell = None;
                                         fleet_ui_state.computed_options.clear();
                                         fleet_ui_state.planned_transfer = None;
                                         fleet_ui_state.selected_option = 0;
@@ -3529,7 +3676,7 @@ pub(super) fn render_transfer_planner(
                                         // GRA-161: switching to a non-star
                                         // destination invalidates the
                                         // star-approach parking radius.
-                                        fleet_ui_state.target_arrival_radius = None;
+                                        fleet_ui_state.target_orbit_shell = None;
                                         fleet_ui_state.computed_options.clear();
                                         fleet_ui_state.planned_transfer = None;
                                         fleet_ui_state.selected_option = 0;
@@ -3686,7 +3833,7 @@ pub(super) fn render_transfer_planner(
                                         fleet_ui_state.target_lagrange = None;
                                         fleet_ui_state.target_star_system = None;
                                         // GRA-161: fleet intercepts are not stars.
-                                        fleet_ui_state.target_arrival_radius = None;
+                                        fleet_ui_state.target_orbit_shell = None;
                                         fleet_ui_state.computed_options.clear();
                                         fleet_ui_state.planned_transfer = None;
                                         fleet_ui_state.selected_option = 0;
@@ -3761,7 +3908,7 @@ pub(super) fn render_transfer_planner(
                                         fleet_ui_state.target_body = None;
                                         fleet_ui_state.target_lagrange = None;
                                         fleet_ui_state.target_fleet = None;
-                                        fleet_ui_state.target_arrival_radius = None;
+                                        fleet_ui_state.target_orbit_shell = None;
                                         fleet_ui_state.computed_options.clear();
                                         fleet_ui_state.planned_transfer = None;
                                         fleet_ui_state.selected_option = 0;
@@ -3789,19 +3936,14 @@ pub(super) fn render_transfer_planner(
                                         fleet_ui_state.cross_system_grid_built_for = None;
                                     }
                                 }
-                                DestEntry::StarApproach {
-                                    entity,
-                                    name,
-                                    radius_au,
-                                    default_radius_au,
-                                    min_radius_au,
-                                    max_radius_au,
-                                } => {
+                                DestEntry::Star { entity, name } => {
                                     first_sub = false;
-                                    // Star-approach rows carry both a `selectable_label`
-                                    // (the star name) and a `DragValue` (the parking
-                                    // radius).  Layout: "  🛰 {name}" on the left and the
-                                    // spinner on the right inside the same row.
+                                    // GRA-NNN: Star rows render only the selectable label
+                                    // — the parking shell is now driven by the top-level
+                                    // "Target orbit" ComboBox below the destination picker,
+                                    // not by a per-row DragValue.  Click handler still seeds
+                                    // `target_body` and rebuilds the porkchop grid against
+                                    // the resolved shell radius.
                                     let is_sel = fleet_ui_state.target_body == Some(*entity)
                                         && fleet_ui_state.target_lagrange.is_none()
                                         && fleet_ui_state.target_fleet.is_none();
@@ -3815,107 +3957,68 @@ pub(super) fn render_transfer_planner(
                                         fleet_ui_state.target_lagrange = None;
                                         fleet_ui_state.target_fleet = None;
                                         fleet_ui_state.target_star_system = None;
-                                        // Persist the current radius on the UI
-                                        // state so the planner consumes it.
-                                        fleet_ui_state.target_arrival_radius =
-                                            Some((*entity, *radius_au));
+                                        // GRA-NNN: parking radius is now shell-driven.
+                                        fleet_ui_state.target_orbit_shell = None;
                                         fleet_ui_state.computed_options.clear();
                                         fleet_ui_state.planned_transfer = None;
                                         fleet_ui_state.selected_option = 0;
                                         fleet_ui_state.selected_gravity_assist = None;
-                                        // GRA-384 star-approach wire-in:
-                                        // populate the cached porkchop grid
-                                        // immediately so the LGD's
-                                        // `PorkchopPanel` renders the
-                                        // parking-radius × t_dep surface
-                                        // instead of falling through to
-                                        // the legacy 3-option row.  The
-                                        // parking-radius list is derived
-                                        // from the per-star bounds the
-                                        // picker already enforces
-                                        // (`min_radius_au`,
-                                        // `default_radius_au`,
-                                        // `max_radius_au`) so the
-                                        // selected row is always inside
-                                        // the visible grid.
+                                        // Rebuild the star-approach grid against the
+                                        // resolved shell radius so the panel reflects
+                                        // the new pick on the same frame.
+                                        //
+                                        // The `&CelestialBody { … }` fallback has to be
+                                        // bound to a `let` *outside* the `match` arm so
+                                        // its lifetime extends past the borrow — Rust
+                                        // E0716 / E0597 reject a temporary dropped while
+                                        // `b` still points at it.  GRA-NNN.
+                                        let fallback_body = CelestialBody {
+                                            name: name.clone(),
+                                            radius: 0.0,
+                                            mass: 0.0,
+                                            body_type: BodyType::Star,
+                                            visual_radius: 0.0,
+                                            asteroid_class: None,
+                                            star_approach_au: None,
+                                            rotation_period_s: None,
+                                            habitable_outer_au: None,
+                                        };
+                                        let fallback_coords = SpaceCoordinates::default();
+                                        let (_, b, _, _, _) = body_query
+                                            .get(*entity)
+                                            .unwrap_or((
+                                                *entity,
+                                                &fallback_body,
+                                                &fallback_coords,
+                                                None,
+                                                None,
+                                            ));
+                                        let shell = fleet_ui_state
+                                            .target_orbit_shell
+                                            .filter(|(e, _)| *e == *entity)
+                                            .map(|(_, s)| s)
+                                            .unwrap_or(default_shell_for_body_type(b.body_type));
+                                        let radius_au = radius_for_shell(b, shell);
+                                        let (lo, hi) = star_approach_bounds_au(
+                                            *entity,
+                                            body_query,
+                                            body_system_ids,
+                                            current_system_id,
+                                        );
+                                        let clamped = radius_au.clamp(lo, hi);
                                         fleet_ui_state.porkchop_grid =
                                             star_approach_grid_for_target(
                                                 body_query,
                                                 orbit.body,
                                                 *entity,
-                                                *radius_au,
-                                                *min_radius_au,
-                                                *max_radius_au,
+                                                clamped,
+                                                lo,
+                                                hi,
                                                 elapsed,
                                             );
                                         fleet_ui_state.porkchop_built_at_s = Some(elapsed);
                                         fleet_ui_state.porkchop_built_for = Some(*entity);
                                         fleet_ui_state.selected_porkchop_cell = None;
-                                    }
-                                    // Inline DragValue for the parking radius.
-                                    // `ui.add_space` keeps the spinner visually
-                                    // inside the same row as the label.  Hover
-                                    // text explains the default and the bounds.
-                                    ui.add_space(4.0);
-                                    let mut r = *radius_au;
-                                    let min_r = *min_radius_au;
-                                    let max_r = *max_radius_au;
-                                    let drag = egui::DragValue::new(&mut r)
-                                        .range(min_r..=max_r)
-                                        .speed(0.01)
-                                        .max_decimals(2)
-                                        .prefix("r=")
-                                        .suffix(" AU");
-                                    let tooltip = format!(
-                                        "Parking orbit radius around {name}. \
-                                         Default {:.2} AU (per-body `star_approach_au`). \
-                                         Clamped to [{min:.2}, {max:.2}] AU.",
-                                        default_radius_au,
-                                        min = min_radius_au,
-                                        max = max_radius_au,
-                                    );
-                                    let drag_response = ui.add(drag).on_hover_text(&tooltip);
-                                    if drag_response.changed() {
-                                        // Clamp defensively in case the user's
-                                        // drag lands exactly on the boundary
-                                        // and a float epsilon flips the value.
-                                        let clamped = r.clamp(*min_radius_au, *max_radius_au);
-                                        if (clamped - *radius_au).abs() > f64::EPSILON {
-                                            // Store in UI state and rebuild
-                                            // the star-approach grid against
-                                            // the new parking radius so the
-                                            // panel reflects the change on
-                                            // the same frame.  The legacy
-                                            // "invalidate and let the
-                                            // deferred build path pick it up"
-                                            // pattern would have shown a
-                                            // blank panel for one frame —
-                                            // GRA-384 wires the rebuild here
-                                            // so the player sees the new
-                                            // parking radius take effect
-                                            // immediately.
-                                            fleet_ui_state.target_arrival_radius =
-                                                Some((*entity, clamped));
-                                            if fleet_ui_state.target_body == Some(*entity) {
-                                                fleet_ui_state.computed_options.clear();
-                                                fleet_ui_state.planned_transfer = None;
-                                                fleet_ui_state.selected_option = 0;
-                                                fleet_ui_state.selected_gravity_assist = None;
-                                            }
-                                            fleet_ui_state.porkchop_grid =
-                                                star_approach_grid_for_target(
-                                                    body_query,
-                                                    orbit.body,
-                                                    *entity,
-                                                    clamped,
-                                                    *min_radius_au,
-                                                    *max_radius_au,
-                                                    elapsed,
-                                                );
-                                            fleet_ui_state.porkchop_built_at_s = Some(elapsed);
-                                            fleet_ui_state.porkchop_built_for = Some(*entity);
-                                            fleet_ui_state.selected_porkchop_cell = None;
-                                        }
                                     }
                                 }
                             }
@@ -3938,168 +4041,62 @@ pub(super) fn render_transfer_planner(
             }
         });
 
-        // ── GRA-387: top-level "Target orbit:" DragValue ─────────────────────
-        // The picker exposes the destination parking radius only when the
-        // destination is a star (via the `DestEntry::StarApproach` row)
-        // — for planets / moons / Lagrange the arrival orbit was the
-        // body's heliocentric SMA with no UI affordance.  This row is
-        // the single uniform "what orbit do you want to insert into"
-        // knob for every destination type.
+        // GRA-NNN: top-level "Target orbit:" shell picker (Terra Invicta style).
+        // Replaces the GRA-387 free-form DragValue.  Each shell resolves to a
+        // numeric AU via `radius_for_shell`; the player picks a shell name from
+        // the dropdown rather than dialing a raw AU value.
         //
-        // Resolves (in order):
-        //   1. `target_arrival_radius` user override (already seeded by
-        //      the StarApproach picker, or by any prior edit here)
-        //   2. The body's heliocentric SMA (via
-        //      `heliocentric_orbit_for_body` — auto-resolves through
-        //      the LogicalParent chain for moons/rings)
-        //   3. A LEO-style 200 km altitude proxy around the destination's
-        //      parent body (for moon destinations where the parent's
-        //      own SMA is the only sane default).
-        //   4. If all three yield None, the row shows "—" (Lagrange /
-        //      fleet target — these have no fixed orbit).
-        if let Some(target_entity) = fleet_ui_state.target_body
+        // The shell set depends on the destination body type.  Lagrange / fleet
+        // / star-system targets have no fixed orbit and render the "—" placeholder.
+        if let Some(target_entity) = fleet_ui_state
+            .target_body
             .or(fleet_ui_state.target_fleet)
-            .or(fleet_ui_state.target_lagrange.as_ref().map(|lp| lp.planet_entity))
+            .or(fleet_ui_state
+                .target_lagrange
+                .as_ref()
+                .map(|lp| lp.planet_entity))
         {
-            let resolved_radius_au: Option<f64> = fleet_ui_state
-                .target_arrival_radius
-                .filter(|(e, _)| *e == target_entity)
-                .map(|(_, r)| r)
-                .or_else(|| {
-                    // For star destinations, fall back to the
-                    // GRA-161 star-approach default (per-body
-                    // `star_approach_au` or 0.30 AU).
-                    body_query
-                        .get(target_entity)
-                        .ok()
-                        .filter(|(_, b, _, _, _)| b.body_type == BodyType::Star)
-                        .map(|(_, b, _, _, _)| star_approach_radius_au(b))
-                })
-                .or_else(|| {
-                    // GRA-388 follow-up: for every non-star
-                    // destination (planet, moon, ring, dwarf), the
-                    // user expects "Target orbit" to mean a parking
-                    // orbit *around* the destination body, not the
-                    // body's heliocentric distance.  Without this
-                    // step the next branch
-                    // (`heliocentric_orbit_for_body`) returns the
-                    // body's heliocentric SMA — for Mercury that's
-                    // 0.3871 AU (the orbital radius around the Sun,
-                    // not an altitude around Mercury), and for Luna
-                    // it's 1.0 AU (Earth's heliocentric orbit, since
-                    // the moon's heliocentric orbit is essentially
-                    // the same as Earth's).  Both read as "distance
-                    // to the Sun" and confuse the user.
-                    //
-                    // Resolve the destination's own surface radius
-                    // and add a 200 km LEO-style altitude proxy.
-                    // The proxy matches the `parking_orbit_radius_au`
-                    // heuristic at `transfer_planner.rs:663` so the
-                    // planner's grid and the DragValue agree on the
-                    // same default.
-                    let body_data = body_query.get(target_entity).ok()?.1;
-                    if body_data.body_type == BodyType::Star {
-                        return None;
-                    }
-                    // Body radius in metres; convert to AU so the
-                    // DragValue stays in the player's mental model
-                    // (AU is what the rest of the planner uses).
-                    let leo_au = (f64::from(body_data.radius) + 200.0_f64)
-                        * 1_000.0_f64
-                        / crate::fleets::orbital_mechanics::AU_IN_METERS;
-                    Some(leo_au)
-                })
-                .or_else(|| {
-                    heliocentric_orbit_for_body(target_entity, body_query)
-                        .map(|ko| ko.semi_major_axis)
-                })
-                .or_else(|| {
-                    // Last-resort: derive a parking-orbit radius
-                    // from the destination's parent body if it's a
-                    // moon/ring.  (The non-star branch above should
-                    // have caught this case first using the
-                    // destination's own radius; this is a safety
-                    // net for any body type that still surfaces a
-                    // LogicalParent but isn't classified as a
-                    // non-star body in the enum sense.)
-                    let (_, _, _, _, lp) = body_query.get(target_entity).ok()?;
-                    let parent = lp?.0;
-                    let (_, parent_body, _, parent_ko, _) = body_query.get(parent).ok()?;
-                    parent_ko.map(|_ko| {
-                        f64::from(parent_body.radius) + 200.0_f64
-                    })
-                });
+            let body_for_picker = body_query.get(target_entity).ok().map(|(_, b, _, _, _)| b);
+
             ui.horizontal(|ui| {
                 ui.label(egui::RichText::new("Target orbit:").size(13.0));
                 ui.add_space(4.0);
-                match resolved_radius_au {
-                    Some(r0) => {
-                        // Clamp envelope: 0.05 AU up to 5× the
-                        // destination's heliocentric SMA (or 1 AU,
-                        // whichever is larger — covers Luna whose
-                        // heliocentric SMA is ~0).  The upper bound
-                        // uses the *SMA* (not `r0` directly) because
-                        // GRA-388 changed `r0` to a LEO-style
-                        // parking-orbit altitude (~1e-4 AU) and
-                        // scaling 5× that would only give ~5e-4 AU
-                        // of headroom, way too tight for the user to
-                        // nudge a parking orbit out to Mercury's
-                        // 0.3871 AU or Saturn's 9.5 AU.
-                        let (lo, hi) = if matches!(
-                            body_query.get(target_entity).ok().map(|(_, b, _, _, _)| b.body_type),
-                            Some(BodyType::Star)
-                        ) {
-                            let (s_lo, s_hi) = star_approach_bounds_au(
-                                target_entity,
-                                body_query,
-                                body_system_ids,
-                                current_system_id,
-                            );
-                            (s_lo.max(0.05), s_hi)
-                        } else {
-                            let sma_au = heliocentric_orbit_for_body(target_entity, body_query)
-                                .map(|ko| ko.semi_major_axis)
-                                .unwrap_or(r0);
-                            let upper = (sma_au * 5.0).max(1.0);
-                            (0.05, upper)
-                        };
-                        let mut r = r0.clamp(lo, hi);
-                        let drag = egui::DragValue::new(&mut r)
-                            .range(lo..=hi)
-                            .speed(0.001)
-                            .max_decimals(4)
-                            .suffix(" AU");
-                        let tooltip = format!(
-                            "Arrival parking orbit around the destination. \
-                             Defaults to the body's natural orbit (heliocentric SMA \
-                             for planets; 200 km LEO proxy for moons).\n\
-                             Min {:.2} AU; max {:.2} AU.",
-                            lo, hi
-                        );
-                        if ui
-                            .add(drag)
-                            .on_hover_text(&tooltip)
-                            .changed()
-                        {
-                            fleet_ui_state.target_arrival_radius =
-                                Some((target_entity, r));
-                            // Invalidate the cached porkchop so the
-                            // next render rebuilds against the new
-                            // radius.  The fast-path sync build at
-                            // GRA-387 catches destinations with no
-                            // grid cached; for destinations with a
-                            // cached grid, the rotation/staleness
-                            // blocks will rebuild against the new
-                            // radius via `grid_for_changed` (cleared
-                            // here so the rebuild fires this frame).
-                            fleet_ui_state.porkchop_grid = None;
-                            fleet_ui_state.porkchop_built_for = None;
-                            fleet_ui_state.selected_porkchop_cell = None;
+                let Some(body) = body_for_picker else {
+                    ui.weak("— (Lagrange / fleet target has no fixed orbit)");
+                    return;
+                };
+                let shells = OrbitShellId::shells_for(body.body_type);
+                let current_shell = fleet_ui_state
+                    .target_orbit_shell
+                    .filter(|(e, _)| *e == target_entity)
+                    .map(|(_, s)| s)
+                    .unwrap_or_else(|| default_shell_for_body_type(body.body_type));
+
+                let mut changed_to: Option<OrbitShellId> = None;
+                egui::ComboBox::from_id_salt(("orbit_shell_picker", target_entity))
+                    .selected_text(format!(
+                        "{} ({:.3} AU)",
+                        current_shell.label(),
+                        radius_for_shell(body, current_shell)
+                    ))
+                    .show_ui(ui, |ui| {
+                        for &shell in shells {
+                            let r = radius_for_shell(body, shell);
+                            let label = format!("{} ({:.3} AU)", shell.label(), r);
+                            let was_clicked =
+                                ui.selectable_label(shell == current_shell, label).clicked();
+                            if was_clicked {
+                                changed_to = Some(shell);
+                            }
                         }
-                    }
-                    None => {
-                        ui.weak("— (Lagrange / fleet target has no fixed orbit)");
-                    }
+                    });
+                if let Some(new_shell) = changed_to {
+                    fleet_ui_state.target_orbit_shell = Some((target_entity, new_shell));
+                    // Invalidate the cached porkchop so the next render
+                    // rebuilds against the new radius.
+                    fleet_ui_state.porkchop_grid = None;
+                    fleet_ui_state.porkchop_built_for = None;
+                    fleet_ui_state.selected_porkchop_cell = None;
                 }
             });
         }
@@ -5887,14 +5884,19 @@ pub(super) fn render_transfer_planner(
                     .ok()
                     .and_then(|(_, _, _, maybe_fo, _)| maybe_fo)
                     .and_then(|fo| {
-                        // GRA-161: pull the user-controlled star-approach
-                        // override from FleetUiState.  `target_arrival_radius`
-                        // is only valid when the destination is the star it
-                        // references; other targets ignore the override.
+                        // GRA-NNN: pull the user-controlled orbit shell from
+                        // FleetUiState.  `target_orbit_shell` is only valid when
+                        // the destination is the body it references; other
+                        // targets fall through to the per-body default.
                         let target_orbit_radius_au = fleet_ui_state
-                            .target_arrival_radius
+                            .target_orbit_shell
                             .filter(|(e, _)| *e == fo.body)
-                            .map(|(_, r)| r);
+                            .and_then(|(_, s)| {
+                                body_query
+                                    .get(fo.body)
+                                    .ok()
+                                    .map(|(_, b, _, _, _)| radius_for_shell(b, s))
+                            });
                         build_planned_transfer(
                             fleet_entity,
                             fleet,
@@ -5910,10 +5912,16 @@ pub(super) fn render_transfer_planner(
                         )
                     })
             } else if let Some(te) = body_target_snap {
+                // GRA-NNN: shell-driven radius.
                 let target_orbit_radius_au = fleet_ui_state
-                    .target_arrival_radius
+                    .target_orbit_shell
                     .filter(|(e, _)| *e == te)
-                    .map(|(_, r)| r);
+                    .and_then(|(_, s)| {
+                        body_query
+                            .get(te)
+                            .ok()
+                            .map(|(_, b, _, _, _)| radius_for_shell(b, s))
+                    });
                 build_planned_transfer(
                     fleet_entity,
                     fleet,
@@ -6179,10 +6187,16 @@ pub(super) fn render_transfer_planner(
                                     .ok()
                                     .and_then(|(_, _, _, maybe_fo, _)| maybe_fo)
                                     .and_then(|fo| {
+                                        // GRA-NNN: shell-driven radius.
                                         let target_orbit_radius_au = fleet_ui_state
-                                            .target_arrival_radius
+                                            .target_orbit_shell
                                             .filter(|(e, _)| *e == fo.body)
-                                            .map(|(_, r)| r);
+                                            .and_then(|(_, s)| {
+                                                body_query
+                                                    .get(fo.body)
+                                                    .ok()
+                                                    .map(|(_, b, _, _, _)| radius_for_shell(b, s))
+                                            });
                                         build_planned_transfer(
                                             fleet_entity,
                                             fleet,
@@ -6216,10 +6230,16 @@ pub(super) fn render_transfer_planner(
                                         .map(|e| e.option.clone());
 
                                     if let Some(flyby) = flyby_e {
+                                        // GRA-NNN: shell-driven radius.
                                         let target_orbit_radius_au = fleet_ui_state
-                                            .target_arrival_radius
+                                            .target_orbit_shell
                                             .filter(|(e, _)| *e == flyby)
-                                            .map(|(_, r)| r);
+                                            .and_then(|(_, s)| {
+                                                body_query
+                                                    .get(flyby)
+                                                    .ok()
+                                                    .map(|(_, b, _, _, _)| radius_for_shell(b, s))
+                                            });
                                         let mut maybe_pt = build_planned_transfer(
                                             fleet_entity,
                                             fleet,
@@ -6373,10 +6393,16 @@ pub(super) fn render_transfer_planner(
                                         }
                                         maybe_pt
                                     } else {
+                                        // GRA-NNN: shell-driven radius.
                                         let target_orbit_radius_au = fleet_ui_state
-                                            .target_arrival_radius
+                                            .target_orbit_shell
                                             .filter(|(e, _)| *e == te)
-                                            .map(|(_, r)| r);
+                                            .and_then(|(_, s)| {
+                                                body_query
+                                                    .get(te)
+                                                    .ok()
+                                                    .map(|(_, b, _, _, _)| radius_for_shell(b, s))
+                                            });
                                         build_planned_transfer(
                                             fleet_entity,
                                             fleet,
@@ -6392,10 +6418,16 @@ pub(super) fn render_transfer_planner(
                                         )
                                     }
                                 } else {
+                                    // GRA-NNN: shell-driven radius.
                                     let target_orbit_radius_au = fleet_ui_state
-                                        .target_arrival_radius
+                                        .target_orbit_shell
                                         .filter(|(e, _)| *e == te)
-                                        .map(|(_, r)| r);
+                                        .and_then(|(_, s)| {
+                                            body_query
+                                                .get(te)
+                                                .ok()
+                                                .map(|(_, b, _, _, _)| radius_for_shell(b, s))
+                                        });
                                     build_planned_transfer(
                                         fleet_entity,
                                         fleet,
@@ -6731,9 +6763,7 @@ pub(super) fn render_transfer_planner(
                         fleet_ui_state.selected_porkchop_cell = None;
                         fleet_ui_state.planned_transfer = None;
                     }
-                    for (idx, candidate) in
-                        candidates.iter().enumerate()
-                    {
+                    for (idx, candidate) in candidates.iter().enumerate() {
                         let ga_selected = matches!(
                             fleet_ui_state.porkchop_view_mode,
                             crate::ui::PorkchopViewMode::GravityAssist(i) if i == idx
@@ -6809,8 +6839,9 @@ pub(super) fn render_transfer_planner(
                     if let Some(cell) = grid_owned.cells.get(sr * grid_owned.resolution.0 + sc) {
                         let (cols_buf, _rows_buf) = grid_owned.resolution;
                         if cols_buf > 0 {
-                            let col_step =
-                                (grid_owned.t_dep_bounds_s.1 - grid_owned.t_dep_bounds_s.0) / cols_buf as f64;
+                            let col_step = (grid_owned.t_dep_bounds_s.1
+                                - grid_owned.t_dep_bounds_s.0)
+                                / cols_buf as f64;
                             let abs_t_dep = grid_owned.t_dep_bounds_s.0 + (sc as f64) * col_step;
                             let abs_tof = cell.tof_s;
                             // Detect "we just re-anchored" by checking
@@ -7204,7 +7235,11 @@ pub(super) fn render_transfer_planner(
                             return;
                         }
                     };
-                    if let Some(cell) = grid_owned.cells.get(sr * grid_owned.resolution.0 + sc).cloned() {
+                    if let Some(cell) = grid_owned
+                        .cells
+                        .get(sr * grid_owned.resolution.0 + sc)
+                        .cloned()
+                    {
                         let can_execute = cell.feasible
                             && cell.total_dv_ms.is_finite()
                             && cell.total_dv_ms <= fleet_max_dv
@@ -7328,8 +7363,7 @@ pub(super) fn render_transfer_planner(
                     .clicked()
                 {
                     fleet_ui_state.selected_gravity_assist = None;
-                    fleet_ui_state.porkchop_view_mode =
-                        crate::ui::PorkchopViewMode::Standard;
+                    fleet_ui_state.porkchop_view_mode = crate::ui::PorkchopViewMode::Standard;
                     fleet_ui_state.computed_options.clear();
                     fleet_ui_state.selected_option = 0;
                     fleet_ui_state.planned_transfer = None;
@@ -8796,6 +8830,9 @@ mod tests {
             visual_radius,
             asteroid_class: None,
             star_approach_au: None,
+            // GRA-NNN: shell-cache fields for the orbit-shell resolver.
+            rotation_period_s: None,
+            habitable_outer_au: None,
         }
     }
 
@@ -8818,6 +8855,9 @@ mod tests {
             visual_radius,
             asteroid_class: None,
             star_approach_au,
+            // GRA-NNN: shell-cache fields for the orbit-shell resolver.
+            rotation_period_s: None,
+            habitable_outer_au: None,
         }
     }
 

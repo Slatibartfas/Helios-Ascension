@@ -305,6 +305,7 @@ fn restore_rejects_too_old_format_version() {
             schema: SchemaKind::SceneRon,
             data: String::new(),
         },
+        handles: None,
     };
     let ron_text = ron::to_string(&envelope).expect("serialize envelope");
     let result = restore_world(&ron_text, build_world);
@@ -333,6 +334,7 @@ fn restore_rejects_too_new_format_version() {
             schema: SchemaKind::SceneRon,
             data: String::new(),
         },
+        handles: None,
     };
     let ron_text = ron::to_string(&envelope).expect("serialize envelope");
     let result = restore_world(&ron_text, build_world);

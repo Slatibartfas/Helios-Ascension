@@ -351,7 +351,11 @@ pub fn snapshot_world(world: &World, metadata: SaveMetadata) -> Result<String, S
     // the asset server. See [`crate::persistence::handle_sidecar`] for
     // the full rationale.
     let handles = extract_handle_sidecar(world);
-    let handles = if handles.is_empty() { None } else { Some(handles) };
+    let handles = if handles.is_empty() {
+        None
+    } else {
+        Some(handles)
+    };
     let file = SaveFile {
         metadata,
         body,
@@ -380,7 +384,11 @@ pub fn snapshot_world_with_registry(
         data: scene_ron,
     };
     let handles = extract_handle_sidecar(world);
-    let handles = if handles.is_empty() { None } else { Some(handles) };
+    let handles = if handles.is_empty() {
+        None
+    } else {
+        Some(handles)
+    };
     let file = SaveFile {
         metadata,
         body,

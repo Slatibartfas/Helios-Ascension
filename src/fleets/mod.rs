@@ -227,6 +227,9 @@ mod ga_transfer_tests {
                     visual_radius: 1.0,
                     asteroid_class: None,
                     star_approach_au: None,
+                    // GRA-NNN: shell-cache fields for the orbit-shell resolver.
+                    rotation_period_s: None,
+                    habitable_outer_au: None,
                 },
             ))
             .id();
@@ -242,6 +245,9 @@ mod ga_transfer_tests {
                     visual_radius: 1.0,
                     asteroid_class: None,
                     star_approach_au: None,
+                    // GRA-NNN: shell-cache fields for the orbit-shell resolver.
+                    rotation_period_s: None,
+                    habitable_outer_au: None,
                 },
             ))
             .id();
