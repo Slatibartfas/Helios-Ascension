@@ -1136,6 +1136,41 @@ fn checked_arrival_timestamp(current_timestamp: i64, total_eta_s: f64) -> Option
     current_timestamp.checked_add(eta_seconds as i64)
 }
 
+/// GRA-388: when the player adjusts the burn offset while the GA
+/// porkchop view is active, also record an absolute epoch in
+/// `selected_abs_t_dep_s` so the on-screen GA trajectory re-anchors
+/// to the new burn time.
+///
+/// Why GA-only: in the Standard non-porkchop path the trajectory
+/// draws against `current_sim_s + departure_offset_days * 86_400`
+/// via the third branch of the three-way clamp in
+/// `fleets/visuals.rs::draw_fleet_transfer_preview` /
+/// `draw_gravity_assist_preview`.  That branch already gives the
+/// player "what if I burn right now" semantics, which is what the
+/// user asked us to preserve ("the current behaviour also matches
+/// the normal porkchop selection").  In GA mode the clamp's first
+/// branch (`selected_abs_t_dep_s` when set) takes precedence, so
+/// when the slider moves we have to refresh the recorded epoch
+/// explicitly or the slider appears inert — the "I can not
+/// influence the departure time" report.
+///
+/// `offset_days` is clamped at zero so a hypothetical negative
+/// offset (legacy `-1.0` "next-window" sentinel) doesn't push the
+/// recorded epoch into the past and immediately trip the
+/// "trajectory is in the past" snap in the visuals layer.
+fn maybe_record_burn_epoch_for_ga(
+    state: &mut FleetUiState,
+    elapsed: f64,
+    offset_days: f64,
+) {
+    if matches!(
+        state.porkchop_view_mode,
+        crate::ui::PorkchopViewMode::GravityAssist(_)
+    ) {
+        state.selected_abs_t_dep_s = Some(elapsed + offset_days.max(0.0) * 86_400.0);
+    }
+}
+
 /// GRA-167 Part 2 dispatch: build a local-frame porkchop grid for
 /// `(origin_body, target_entity)` when the planner frame is
 /// `BodyLocal(parent_entity)` and `parent_entity` is a planet.  The
@@ -3941,19 +3976,56 @@ pub(super) fn render_transfer_planner(
                         .map(|(_, b, _, _, _)| star_approach_radius_au(b))
                 })
                 .or_else(|| {
+                    // GRA-388 follow-up: for every non-star
+                    // destination (planet, moon, ring, dwarf), the
+                    // user expects "Target orbit" to mean a parking
+                    // orbit *around* the destination body, not the
+                    // body's heliocentric distance.  Without this
+                    // step the next branch
+                    // (`heliocentric_orbit_for_body`) returns the
+                    // body's heliocentric SMA — for Mercury that's
+                    // 0.3871 AU (the orbital radius around the Sun,
+                    // not an altitude around Mercury), and for Luna
+                    // it's 1.0 AU (Earth's heliocentric orbit, since
+                    // the moon's heliocentric orbit is essentially
+                    // the same as Earth's).  Both read as "distance
+                    // to the Sun" and confuse the user.
+                    //
+                    // Resolve the destination's own surface radius
+                    // and add a 200 km LEO-style altitude proxy.
+                    // The proxy matches the `parking_orbit_radius_au`
+                    // heuristic at `transfer_planner.rs:663` so the
+                    // planner's grid and the DragValue agree on the
+                    // same default.
+                    let body_data = body_query.get(target_entity).ok()?.1;
+                    if body_data.body_type == BodyType::Star {
+                        return None;
+                    }
+                    // Body radius in metres; convert to AU so the
+                    // DragValue stays in the player's mental model
+                    // (AU is what the rest of the planner uses).
+                    let leo_au = (f64::from(body_data.radius) + 200.0_f64)
+                        * 1_000.0_f64
+                        / crate::fleets::orbital_mechanics::AU_IN_METERS;
+                    Some(leo_au)
+                })
+                .or_else(|| {
                     heliocentric_orbit_for_body(target_entity, body_query)
                         .map(|ko| ko.semi_major_axis)
                 })
                 .or_else(|| {
-                    // Last-resort: derive a parking-orbit radius from the
-                    // destination's parent body if it's a moon/ring.
+                    // Last-resort: derive a parking-orbit radius
+                    // from the destination's parent body if it's a
+                    // moon/ring.  (The non-star branch above should
+                    // have caught this case first using the
+                    // destination's own radius; this is a safety
+                    // net for any body type that still surfaces a
+                    // LogicalParent but isn't classified as a
+                    // non-star body in the enum sense.)
                     let (_, _, _, _, lp) = body_query.get(target_entity).ok()?;
                     let parent = lp?.0;
                     let (_, parent_body, _, parent_ko, _) = body_query.get(parent).ok()?;
                     parent_ko.map(|_ko| {
-                        // 200 km altitude LEO proxy (matches the
-                        // `parking_orbit_radius_au` heuristic at
-                        // `transfer_planner.rs:663`).
                         f64::from(parent_body.radius) + 200.0_f64
                     })
                 });
@@ -3962,12 +4034,17 @@ pub(super) fn render_transfer_planner(
                 ui.add_space(4.0);
                 match resolved_radius_au {
                     Some(r0) => {
-                        // Clamp envelope: anything from 0.05 AU down
-                        // to the host star's max parking radius (when
-                        // destination is a star) or 5× the destination
-                        // SMA (planets / moons — the 5× lets the user
-                        // nudge a bit beyond the body's natural orbit
-                        // for elliptical parking orbits).
+                        // Clamp envelope: 0.05 AU up to 5× the
+                        // destination's heliocentric SMA (or 1 AU,
+                        // whichever is larger — covers Luna whose
+                        // heliocentric SMA is ~0).  The upper bound
+                        // uses the *SMA* (not `r0` directly) because
+                        // GRA-388 changed `r0` to a LEO-style
+                        // parking-orbit altitude (~1e-4 AU) and
+                        // scaling 5× that would only give ~5e-4 AU
+                        // of headroom, way too tight for the user to
+                        // nudge a parking orbit out to Mercury's
+                        // 0.3871 AU or Saturn's 9.5 AU.
                         let (lo, hi) = if matches!(
                             body_query.get(target_entity).ok().map(|(_, b, _, _, _)| b.body_type),
                             Some(BodyType::Star)
@@ -3980,7 +4057,10 @@ pub(super) fn render_transfer_planner(
                             );
                             (s_lo.max(0.05), s_hi)
                         } else {
-                            let upper = (r0 * 5.0).max(1.0);
+                            let sma_au = heliocentric_orbit_for_body(target_entity, body_query)
+                                .map(|ko| ko.semi_major_axis)
+                                .unwrap_or(r0);
+                            let upper = (sma_au * 5.0).max(1.0);
                             (0.05, upper)
                         };
                         let mut r = r0.clamp(lo, hi);
@@ -5602,6 +5682,17 @@ pub(super) fn render_transfer_planner(
                             });
                         if ui.add(slider).changed() {
                             fleet_ui_state.departure_offset_days = offset_days as f64;
+                            // GRA-388: in GA mode the trajectory is
+                            // anchored at `selected_abs_t_dep_s` when
+                            // set, so a slider drag must refresh the
+                            // recorded absolute epoch or the slider
+                            // appears inert (the "I can not
+                            // influence the departure time" report).
+                            maybe_record_burn_epoch_for_ga(
+                                fleet_ui_state,
+                                elapsed,
+                                offset_days as f64,
+                            );
                         }
 
                         // Orbit-wait counter: shown when the fleet must loop its parking ring
@@ -5659,6 +5750,11 @@ pub(super) fn render_transfer_planner(
                                 .clicked()
                             {
                                 fleet_ui_state.departure_offset_days = 0.0;
+                                // GRA-388: re-anchor the GA
+                                // trajectory to the new burn epoch
+                                // so the trajectory visibly snaps
+                                // to t = 0.
+                                maybe_record_burn_epoch_for_ga(fleet_ui_state, elapsed, 0.0);
                             }
                             if window_days > 0.5
                                 && ui
@@ -5669,6 +5765,15 @@ pub(super) fn render_transfer_planner(
                                     .clicked()
                             {
                                 fleet_ui_state.departure_offset_days = window_days;
+                                // GRA-388: re-anchor the GA
+                                // trajectory to the next-window
+                                // burn epoch so the trajectory
+                                // moves with the slider snap.
+                                maybe_record_burn_epoch_for_ga(
+                                    fleet_ui_state,
+                                    elapsed,
+                                    window_days,
+                                );
                             }
                         });
                     });
@@ -6385,8 +6490,32 @@ pub(super) fn render_transfer_planner(
                 }
             }
             if !hides_calendar_eta {
-                let dep_s = fleet_ui_state.departure_offset_days * 86_400.0;
-                let total_eta_s = dep_s + sel_option.transfer_time_s;
+                // GRA-388: the burn epoch that drives the
+                // trajectory (used by `draw_fleet_transfer_preview`
+                // and `draw_gravity_assist_preview`) is the recorded
+                // absolute t_dep when one exists, otherwise the
+                // slider's `now + offset` value.  The pre-existing
+                // Arrives computation only used the slider value,
+                // so in GA mode (and after clicking any porkchop
+                // cell) the label disagreed with what the
+                // trajectory was actually drawn against — the
+                // "I can not influence the departure time" report.
+                // Use the effective burn epoch for both labels so
+                // they agree with the on-screen trajectory.
+                let dep_offset_s: f64 = fleet_ui_state
+                    .selected_abs_t_dep_s
+                    .map(|t| (t - elapsed).max(0.0))
+                    .unwrap_or(fleet_ui_state.departure_offset_days.max(0.0) * 86_400.0);
+                let departure_ts = current_timestamp + dep_offset_s as i64;
+                ui.label(
+                    egui::RichText::new(format!(
+                        "Departs  {}",
+                        format_timestamp_date_time(departure_ts)
+                    ))
+                    .size(11.0)
+                    .color(theme::TEXT_DIM),
+                );
+                let total_eta_s = dep_offset_s + sel_option.transfer_time_s;
                 if let Some(arrival_ts) = checked_arrival_timestamp(current_timestamp, total_eta_s)
                 {
                     ui.label(
@@ -6438,7 +6567,7 @@ pub(super) fn render_transfer_planner(
             // (e.g. course corrections, intra-system previews) the
             // legacy 3-option row is rendered as before, so all
             // pre-existing code paths keep working.
-            if let Some(grid) = fleet_ui_state.porkchop_grid.as_ref() {
+            if let Some(grid_owned) = fleet_ui_state.porkchop_grid.as_ref().cloned() {
                 // v0.5.0 follow-up: the legacy planner exposed the
                 // Transfer Window box (synodic period) and the Fleet
                 // stats infobox (ΔV avail, thrust, acceleration) at
@@ -6515,7 +6644,7 @@ pub(super) fn render_transfer_planner(
                 // fall back to Standard.
                 let display_grid: crate::fleets::porkchop::PorkchopGrid =
                     match fleet_ui_state.porkchop_view_mode {
-                        crate::ui::PorkchopViewMode::Standard => grid.clone(),
+                        crate::ui::PorkchopViewMode::Standard => grid_owned.clone(),
                         crate::ui::PorkchopViewMode::GravityAssist(idx) => {
                             // Build the GA grid on demand from the candidate
                             // data.  This is cheap (~hundreds of microseconds
@@ -6544,7 +6673,7 @@ pub(super) fn render_transfer_planner(
                                 // something useful.
                                 fleet_ui_state.porkchop_view_mode =
                                     crate::ui::PorkchopViewMode::Standard;
-                                grid.clone()
+                                grid_owned.clone()
                             }
                         }
                     };
@@ -6568,6 +6697,16 @@ pub(super) fn render_transfer_planner(
                 // small_button-style pills so the planner doesn't
                 // gain vertical space when GA candidates aren't
                 // available (the row collapses to just "Standard").
+                //
+                // GRA-388: clone the candidates list here so the
+                // closure body can take a mutable borrow of
+                // `fleet_ui_state` (the per-pill click handlers
+                // mutate `porkchop_view_mode`, `selected_gravity_assist`,
+                // and (after GRA-388) `selected_abs_t_dep_s`).
+                // Iterating `fleet_ui_state.gravity_assist_candidates`
+                // directly would create an immutable borrow that
+                // blocks the mutable borrow inside the loop body.
+                let candidates = fleet_ui_state.gravity_assist_candidates.clone();
                 ui.add_space(4.0);
                 ui.horizontal(|ui| {
                     ui.label(
@@ -6593,7 +6732,7 @@ pub(super) fn render_transfer_planner(
                         fleet_ui_state.planned_transfer = None;
                     }
                     for (idx, candidate) in
-                        fleet_ui_state.gravity_assist_candidates.iter().enumerate()
+                        candidates.iter().enumerate()
                     {
                         let ga_selected = matches!(
                             fleet_ui_state.porkchop_view_mode,
@@ -6616,6 +6755,26 @@ pub(super) fn render_transfer_planner(
                             fleet_ui_state.selected_option = 0;
                             fleet_ui_state.selected_porkchop_cell = None;
                             fleet_ui_state.planned_transfer = None;
+                            // GRA-388: seed the absolute burn epoch
+                            // from the current slider value so the
+                            // first frame of GA mode renders a
+                            // trajectory anchored at the slider's
+                            // burn time (either the legacy -1.0
+                            // sentinel resolved by
+                            // `transfer_planner.rs:4719-4726` to the
+                            // next Hohmann window, or whatever
+                            // offset the player last dialled in).
+                            // Without this seed the trajectory
+                            // would render against the previous
+                            // cell's absolute epoch (or
+                            // immediate-departure fallback) and the
+                            // user would see no visual response to
+                            // the view-mode switch.
+                            maybe_record_burn_epoch_for_ga(
+                                fleet_ui_state,
+                                elapsed,
+                                fleet_ui_state.departure_offset_days,
+                            );
                         }
                     }
                 });
@@ -6647,12 +6806,12 @@ pub(super) fn render_transfer_planner(
                     // clicked a new cell or the planner just re-anchored
                     // to a matching (sc, sr) and we're back to the
                     // first frame of the next rotation cycle).
-                    if let Some(cell) = grid.cells.get(sr * grid.resolution.0 + sc) {
-                        let (cols_buf, _rows_buf) = grid.resolution;
+                    if let Some(cell) = grid_owned.cells.get(sr * grid_owned.resolution.0 + sc) {
+                        let (cols_buf, _rows_buf) = grid_owned.resolution;
                         if cols_buf > 0 {
                             let col_step =
-                                (grid.t_dep_bounds_s.1 - grid.t_dep_bounds_s.0) / cols_buf as f64;
-                            let abs_t_dep = grid.t_dep_bounds_s.0 + (sc as f64) * col_step;
+                                (grid_owned.t_dep_bounds_s.1 - grid_owned.t_dep_bounds_s.0) / cols_buf as f64;
+                            let abs_t_dep = grid_owned.t_dep_bounds_s.0 + (sc as f64) * col_step;
                             let abs_tof = cell.tof_s;
                             // Detect "we just re-anchored" by checking
                             // if the recorded abs t_dep already
@@ -6703,7 +6862,7 @@ pub(super) fn render_transfer_planner(
                             }
                         }
                     }
-                    if let Some(cell) = grid.cells.get(sr * grid.resolution.0 + sc) {
+                    if let Some(cell) = grid_owned.cells.get(sr * grid_owned.resolution.0 + sc) {
                         if cell.feasible {
                             // v0.5.0 follow-up: the legacy 3-option row
                             // printed ΔV + Est. fuel side-by-side.
@@ -6735,7 +6894,36 @@ pub(super) fn render_transfer_planner(
                             ui.label(
                                 egui::RichText::new(format!(
                                     "Selected cell: t_dep = {:.0} d, TOF = {:.0} d, ΔV = {:.2} km/s",
-                                    cell.t_dep_s / crate::ui::porkchop_panel::SECONDS_PER_DAY,
+                                    // GRA-388: show the *visual* t_dep
+                                    // (relative to current sim time),
+                                    // not the cell's intrinsic t_dep_s
+                                    // (relative to the grid's
+                                    // t_dep_bounds_s.0).  The cell
+                                    // highlight slides via the
+                                    // fractional UV scroll
+                                    // (`scroll = shift_s / col_step_s`)
+                                    // so the on-screen position
+                                    // advances toward the "Now" line
+                                    // every frame, but the intrinsic
+                                    // t_dep_s is a baked-in grid
+                                    // property that doesn't change
+                                    // between rebuilds.  Reading the
+                                    // intrinsic value made the cell
+                                    // appear "fixed" even though the
+                                    // highlight was visibly sliding
+                                    // — the user-reported
+                                    // "rolling up to the 'now' mark
+                                    // is broken" symptom.  Subtracting
+                                    // `shift_s` (sim seconds since the
+                                    // grid was built) yields the
+                                    // t_dep from *now*, which
+                                    // decreases toward 0 as the
+                                    // recorded burn approaches, then
+                                    // the re-anchor fires and the
+                                    // cell sticks at "Now".
+                                    ((cell.t_dep_s - shift_s)
+                                        .max(0.0)
+                                        / crate::ui::porkchop_panel::SECONDS_PER_DAY),
                                     cell.tof_s / crate::ui::porkchop_panel::SECONDS_PER_DAY,
                                     cell.total_dv_ms / 1000.0,
                                 ))
@@ -6814,7 +7002,7 @@ pub(super) fn render_transfer_planner(
                 // ghost arc disappears instead of going stale.
                 fleet_ui_state.planned_transfer = match fleet_ui_state.selected_porkchop_cell {
                     Some((sc, sr)) => {
-                        let cell = grid.cells.get(sr * grid.resolution.0 + sc);
+                        let cell = grid_owned.cells.get(sr * grid_owned.resolution.0 + sc);
                         match (cell, body_target_snap) {
                             // Loosened guard: any feasible cell with
                             // finite ΔV produces a preview, even if
@@ -6894,7 +7082,7 @@ pub(super) fn render_transfer_planner(
                                 // interior visibly evolves.
                                 let planned_departure_time_s = fleet_ui_state
                                     .selected_abs_t_dep_s
-                                    .unwrap_or(grid.t_dep_bounds_s.0 + cell.t_dep_s);
+                                    .unwrap_or(grid_owned.t_dep_bounds_s.0 + cell.t_dep_s);
                                 // Sync `departure_offset_days` so the
                                 // side-panel "Arrives:" timestamp and
                                 // `waiting_orbit_count` reflect the
@@ -7016,7 +7204,7 @@ pub(super) fn render_transfer_planner(
                             return;
                         }
                     };
-                    if let Some(cell) = grid.cells.get(sr * grid.resolution.0 + sc).cloned() {
+                    if let Some(cell) = grid_owned.cells.get(sr * grid_owned.resolution.0 + sc).cloned() {
                         let can_execute = cell.feasible
                             && cell.total_dv_ms.is_finite()
                             && cell.total_dv_ms <= fleet_max_dv
@@ -7047,7 +7235,7 @@ pub(super) fn render_transfer_planner(
                             // drifting forward by `elapsed`.
                             let planned_departure_time_s = fleet_ui_state
                                 .selected_abs_t_dep_s
-                                .unwrap_or(grid.t_dep_bounds_s.0 + cell.t_dep_s);
+                                .unwrap_or(grid_owned.t_dep_bounds_s.0 + cell.t_dep_s);
                             let (cell_sma_au, cell_ecc) = cell
                                 .transfer_orbit
                                 .as_ref()
@@ -8572,6 +8760,13 @@ fn build_planned_transfer_lp(
 
 #[cfg(test)]
 mod tests {
+    // `FleetUiState` has many `Option` / `Vec` / texture fields
+    // (porkchop cache, gravity-assist candidates, etc.) that tests
+    // need to poke in non-default states — struct init would be
+    // unreadable.  Allow `field_reassign_with_default` here so the
+    // pattern stays a `Default::default()` + targeted assignments.
+    #![allow(clippy::field_reassign_with_default)]
+
     use super::build_planned_transfer;
     use super::transfer_absolute_position;
     use super::{build_lagrange_target, hill_radius_au, lagrange_picker_label};
@@ -10990,6 +11185,86 @@ mod tests {
         assert!(
             (pt.leg2_start_s - ga_leg1_time_s).abs() < 1.0,
             "Hohmann fallback must set leg2_start_s = ga_leg1_time_s"
+        );
+    }
+
+    /// GRA-388: `maybe_record_burn_epoch_for_ga` is the helper the
+    /// Planned Departure slider / Depart Now / Next Window buttons /
+    /// view-mode toggle all use to keep the GA trajectory's
+    /// `selected_abs_t_dep_s` in sync with `departure_offset_days`.
+    /// Behaviour contract:
+    /// - In Standard mode, the helper is a no-op (the three-way
+    ///   clamp in `fleets/visuals.rs` falls through to the slider
+    ///   branch, which is what the user wants to preserve).
+    /// - In GravityAssist mode, the helper writes
+    ///   `Some(elapsed + max(0, offset_days) * 86_400)` to
+    ///   `selected_abs_t_dep_s` so the trajectory re-anchors to
+    ///   the new burn time on the next frame.
+    /// - Negative `offset_days` (the legacy -1.0 "next-window"
+    ///   sentinel) is clamped at 0 so the recorded epoch doesn't
+    ///   jump into the past and immediately trip the past-epoch
+    ///   snap in the visuals layer.
+    #[test]
+    fn maybe_record_burn_epoch_for_ga_writes_absolute_epoch_only_in_ga_mode() {
+        use super::maybe_record_burn_epoch_for_ga;
+        use crate::ui::{FleetUiState, PorkchopViewMode};
+
+        let elapsed = 30.0 * 86_400.0_f64; // 30 sim days
+        let offset_days = 5.0_f64; // burn in 5 sim days
+        let expected = elapsed + offset_days * 86_400.0;
+
+        // Standard mode: no-op.  Even with a fresh `offset_days`,
+        // `selected_abs_t_dep_s` stays None so the visuals clamp
+        // falls through to the slider branch (`current_sim_s +
+        // offset`).
+        let mut state = FleetUiState::default();
+        state.porkchop_view_mode = PorkchopViewMode::Standard;
+        assert!(state.selected_abs_t_dep_s.is_none());
+        maybe_record_burn_epoch_for_ga(&mut state, elapsed, offset_days);
+        assert!(
+            state.selected_abs_t_dep_s.is_none(),
+            "Standard mode must leave selected_abs_t_dep_s untouched"
+        );
+
+        // GravityAssist mode: writes the absolute burn epoch.
+        let mut state = FleetUiState::default();
+        state.porkchop_view_mode = PorkchopViewMode::GravityAssist(0);
+        assert!(state.selected_abs_t_dep_s.is_none());
+        maybe_record_burn_epoch_for_ga(&mut state, elapsed, offset_days);
+        assert_eq!(
+            state.selected_abs_t_dep_s,
+            Some(expected),
+            "GA mode must write elapsed + offset*86400 to selected_abs_t_dep_s"
+        );
+
+        // Negative offset is clamped at 0 (legacy -1.0 sentinel).
+        let mut state = FleetUiState::default();
+        state.porkchop_view_mode = PorkchopViewMode::GravityAssist(0);
+        maybe_record_burn_epoch_for_ga(&mut state, elapsed, -1.0);
+        assert_eq!(
+            state.selected_abs_t_dep_s,
+            Some(elapsed),
+            "Negative offset must clamp to 0 (epoch = elapsed, no jump-into-the-past)"
+        );
+
+        // Zero offset → epoch = elapsed (immediate departure).
+        let mut state = FleetUiState::default();
+        state.porkchop_view_mode = PorkchopViewMode::GravityAssist(2);
+        maybe_record_burn_epoch_for_ga(&mut state, elapsed, 0.0);
+        assert_eq!(state.selected_abs_t_dep_s, Some(elapsed));
+
+        // Multiple successive calls overwrite the recorded epoch
+        // (the slider/button handler can fire every frame while the
+        // player drags the slider, so the helper must be idempotent
+        // in the "later call wins" sense).
+        let mut state = FleetUiState::default();
+        state.porkchop_view_mode = PorkchopViewMode::GravityAssist(0);
+        maybe_record_burn_epoch_for_ga(&mut state, elapsed, 5.0);
+        maybe_record_burn_epoch_for_ga(&mut state, elapsed, 10.0);
+        assert_eq!(
+            state.selected_abs_t_dep_s,
+            Some(elapsed + 10.0 * 86_400.0),
+            "later call must overwrite earlier recorded epoch"
         );
     }
 }

@@ -407,11 +407,17 @@ pub struct FleetUiState {
     /// `porkchop_texture`: `(t_dep_bounds_s_anchor, min_cell)`.
     /// The t_dep anchor shifts every rotation trigger; the
     /// `(col, row)` of the min cell shifts with phase.  Compared
-    /// on every render; mismatch triggers a re-bake.  The pair
-    /// is unique per build without needing to thread `Entity`
-    /// into the panel signature.
+    /// on every render; mismatch triggers a re-bake.  The
+    /// `(target_body, resolution, min_cell, anchor_bits)` quartet
+    /// is unique per build: the `t_dep_bounds_s.0` anchor advances
+    /// on every rotating-buffer rebuild, forcing a rebake even
+    /// when the min_cell happens to land on the same `(col, row)`
+    /// between rebuilds (the remote's 3-tuple identity omitted
+    /// the anchor, so the cells' colours stayed frozen on the old
+    /// bake between rebuilds).  The `u64` is the `f64::to_bits()`
+    /// representation so the tuple stays `Eq`-comparable.
     pub porkchop_texture_built_for:
-        Option<(Option<Entity>, (usize, usize), Option<(usize, usize)>)>,
+        Option<(Option<Entity>, (usize, usize), Option<(usize, usize)>, u64)>,
     /// GRA-343 (GRA-328b) / GRA-367-E: cached cross-system Hohmann
     /// grid for the current `(system_id)` target.  Populated by
     /// `try_build_cross_system_hohmann` in `transfer_planner.rs` when
@@ -1820,6 +1826,7 @@ mod tests {
 
     use super::{ui_lp_click_handler, FleetUiState, LagrangeTarget};
     use crate::astronomy::components::LpMarkerInfo;
+    use crate::astronomy::selection::apply_body_right_click_target;
     use crate::fleets::orbital_mechanics::TransferOption;
     use crate::ui::LastLpClick;
     use bevy::ecs::system::RunSystemOnce;
@@ -1999,5 +2006,151 @@ mod tests {
         state.clear_target();
         assert!(state.porkchop_grid.is_none());
         assert!(state.selected_porkchop_cell.is_none());
+    }
+
+    /// GRA-388: a 3D-scene right-click on a celestial body with a fleet
+    /// selected must drop the entire porkchop-grid cache so a same-target
+    /// re-click produces a grid anchored to the *current* sim time.  The
+    /// previous hand-rolled field-clear only touched per-target slots and
+    /// left `porkchop_grid`/`porkchop_built_at_s`/`selected_porkchop_cell`
+    /// /`porkchop_texture`/`cross_system_grid` alive, so re-clicking the
+    /// same body surfaced a stale grid whose "Now" tick no longer aligned
+    /// with current sim time (the "weird porkchop" report).  This test
+    /// pre-fills every cached field on `FleetUiState`, calls
+    /// `apply_body_right_click_target`, and asserts each one is cleared.
+    #[test]
+    fn right_click_clears_porkchop_grid_cache() {
+        // Pre-populate every cached field that `clear_target` should
+        // drop.  Use struct init (not field-reassign) to satisfy
+        // `clippy::field_reassign_with_default`.
+        let mut state = FleetUiState {
+            // Identity slots the right-click is allowed to overwrite:
+            target_body: Some(Entity::PLACEHOLDER),
+            target_lagrange: Some(earth_lp(1)),
+            target_fleet: Some(Entity::PLACEHOLDER),
+            target_star_system: Some((0, "Sol".to_string(), 0.0_f32)),
+            target_arrival_radius: Some((Entity::PLACEHOLDER, 1.0_f64)),
+            selected_dest_category: Some("Earth".to_string()),
+            computed_options: vec![legacy_option()],
+            planned_transfer: None,
+            selected_option: 3,
+            // Porkchop-grid cache — the fields the bug specifically
+            // left populated.  None of these have meaningful
+            // non-default values we can construct cheaply, so we
+            // assert on `is_none()` after the call instead of
+            // building an instance.
+            porkchop_grid: None,
+            porkchop_built_for: Some(Entity::PLACEHOLDER),
+            porkchop_built_at_s: Some(123_456.0_f64),
+            porkchop_last_real_build_s: Some(456.0_f64),
+            porkchop_grid_pending_rebuild: true,
+            porkchop_build_in_flight: true,
+            porkchop_texture: None,
+            porkchop_texture_built_for: None,
+            selected_porkchop_cell: Some((4, 7)),
+            selected_abs_t_dep_s: Some(2_000_000.0_f64),
+            selected_abs_tof_s: Some(500_000.0_f64),
+            selected_gravity_assist: Some(2),
+            waiting_orbit_count: 5,
+            cross_system_grid: None,
+            cross_system_grid_built_for: Some(7),
+            ..Default::default()
+        };
+
+        // Right-click on entity PLACEHOLDER.  Note that
+        // `selected_fleet` must be `Some(_)` for the production
+        // right-click arm to fire — but we exercise the free
+        // function directly, so the fleet-selection check doesn't
+        // apply (this is the function the system calls *after*
+        // verifying `selected_fleet.is_some()`).
+        let new_target = Entity::from_raw_u32(42).unwrap();
+        apply_body_right_click_target(&mut state, new_target);
+
+        // Identity slots: target_body is the right-clicked entity,
+        // show_transfer_popup is on, departure_offset_days is the
+        // -1.0 sentinel.
+        assert_eq!(state.target_body, Some(new_target));
+        assert!(state.show_transfer_popup);
+        assert!(
+            (state.departure_offset_days - -1.0).abs() < f64::EPSILON,
+            "departure_offset_days must be -1.0 (next-window sentinel)"
+        );
+
+        // Every other per-target slot cleared:
+        assert!(state.target_lagrange.is_none());
+        assert!(state.target_fleet.is_none());
+        assert!(state.target_star_system.is_none());
+        assert!(state.target_arrival_radius.is_none());
+        assert!(state.selected_dest_category.is_none());
+        assert!(state.computed_options.is_empty());
+        assert!(state.planned_transfer.is_none());
+        assert_eq!(state.selected_option, 0);
+        assert!(state.selected_gravity_assist.is_none());
+        assert_eq!(state.waiting_orbit_count, 0);
+
+        // Porkchop-grid cache: the bug.  Every field that was
+        // pre-populated must now be empty.
+        assert!(state.porkchop_grid.is_none());
+        assert!(state.porkchop_built_for.is_none());
+        assert!(state.porkchop_built_at_s.is_none());
+        assert!(state.porkchop_last_real_build_s.is_none());
+        assert!(!state.porkchop_grid_pending_rebuild);
+        assert!(!state.porkchop_build_in_flight);
+        assert!(state.porkchop_build_result_rx.is_none());
+        assert!(state.porkchop_texture.is_none());
+        assert!(state.porkchop_texture_built_for.is_none());
+        assert!(state.selected_porkchop_cell.is_none());
+        assert!(state.selected_abs_t_dep_s.is_none());
+        assert!(state.selected_abs_tof_s.is_none());
+
+        // Cross-system cache also dropped.
+        assert!(state.cross_system_grid.is_none());
+        assert!(state.cross_system_grid_built_for.is_none());
+    }
+
+    /// GRA-388: same-target right-click is the canonical "weird
+    /// porkchop" trigger.  Pre-populate a fully-warmed cache,
+    /// right-click the *same* target twice (simulating two
+    /// consecutive right-clicks on Jupiter while a porkchop grid is
+    /// on screen), and assert the second click produces a clean
+    /// cache — which is what tells the planner's staleness check
+    /// (`porkchop_built_for != target_body`) to rebuild against
+    /// the current sim epoch on the next frame.
+    #[test]
+    fn right_click_same_target_resets_cache_between_clicks() {
+        let jupiter = Entity::from_raw_u32(99).unwrap();
+        let mut state = FleetUiState::default();
+        state.target_body = Some(jupiter);
+
+        // First right-click: primes the cache via `clear_target`
+        // and re-sets `target_body`.
+        apply_body_right_click_target(&mut state, jupiter);
+        assert_eq!(state.target_body, Some(jupiter));
+
+        // Imagine a few frames pass and the per-frame dispatch
+        // warms the porkchop cache: a grid is built, a cell is
+        // selected, an absolute burn epoch is recorded.
+        state.porkchop_grid = None; // no real grid, but the
+                                    // built_for / built_at_s pair
+                                    // is the field the staleness
+                                    // check actually keys on.
+        state.porkchop_built_for = Some(jupiter);
+        state.porkchop_built_at_s = Some(7_500.0_f64);
+        state.selected_porkchop_cell = Some((1, 2));
+        state.selected_abs_t_dep_s = Some(8_000.0_f64);
+
+        // Second right-click on the *same* body — without the
+        // fix this would leave `porkchop_built_for == target_body`
+        // and `porkchop_built_at_s` stuck on the old epoch.
+        apply_body_right_click_target(&mut state, jupiter);
+
+        // After the fix, both are gone — the staleness check sees
+        // `porkchop_built_for.is_none() != Some(jupiter)` and
+        // schedules a rebuild anchored to the current sim time.
+        assert!(state.porkchop_built_for.is_none());
+        assert!(state.porkchop_built_at_s.is_none());
+        assert!(state.selected_porkchop_cell.is_none());
+        assert!(state.selected_abs_t_dep_s.is_none());
+        assert_eq!(state.target_body, Some(jupiter));
     }
 }

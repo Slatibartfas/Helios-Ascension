@@ -466,19 +466,63 @@ pub fn handle_body_selection(
             selection_state.last_clicked_entity = Some(entity);
         } else if right_click && ui.fleet_ui_state.selected_fleet.is_some() {
             info!("Right clicked celestial body: {} (entity {:?}) with fleet selected, opening transfer planner", name, entity);
-            ui.fleet_ui_state.target_body = Some(entity);
-            ui.fleet_ui_state.target_lagrange = None;
-            ui.fleet_ui_state.target_fleet = None;
-            ui.fleet_ui_state.computed_options.clear();
-            ui.fleet_ui_state.planned_transfer = None;
-            ui.fleet_ui_state.selected_option = 0;
-            ui.fleet_ui_state.selected_gravity_assist = None;
-            ui.fleet_ui_state.show_transfer_popup = true;
-            ui.fleet_ui_state.departure_offset_days = -1.0; // Signal to auto-set to next window
+            // GRA-388: route the right-click through
+            // `apply_body_right_click_target` so the porkchop-grid
+            // cache (`porkchop_grid`, `porkchop_built_at_s`,
+            // `porkchop_built_for`, `selected_porkchop_cell`,
+            // `selected_abs_t_dep_s`, `porkchop_texture`,
+            // `cross_system_grid`, …) is dropped atomically with the
+            // other per-target state.  The previous hand-rolled
+            // field clears only touched the per-target slots and
+            // left the grid anchored to the *previous* sim epoch,
+            // so re-clicking the same body surfaced a stale grid
+            // whose "Now" tick no longer aligned with the current
+            // sim time and whose min-cell highlight pointed at a
+            // launch in the past (the "weird porkchop" report).
+            // The new build path is fired on the next frame by the
+            // standard `porkchop_built_for != target_body` check
+            // (which now always sees a mismatch after `clear_target`).
+            apply_body_right_click_target(&mut ui.fleet_ui_state, entity);
         }
     } else if left_click {
         selection_state.last_clicked_entity = None;
     }
+}
+
+/// GRA-388: mutate [`FleetUiState`] for a 3D-scene right-click on a
+/// celestial body with a fleet selected.  Free function so the
+/// mutation contract is unit-testable without standing up the
+/// full click-handling system (camera, mouse input, ray cast, …).
+///
+/// Behaviour contract:
+/// - All per-target state — `target_body` / `target_lagrange` /
+///   `target_fleet` / `target_star_system` / `computed_options` /
+///   `planned_transfer` / `selected_option` /
+///   `selected_gravity_assist` / `porkchop_grid` /
+///   `porkchop_built_for` / `porkchop_built_at_s` /
+///   `porkchop_last_real_build_s` / `porkchop_grid_pending_rebuild` /
+///   `porkchop_build_in_flight` / `porkchop_build_result_rx` /
+///   `porkchop_texture` / `porkchop_texture_built_for` /
+///   `selected_porkchop_cell` / `selected_abs_t_dep_s` /
+///   `selected_abs_tof_s` / `cross_system_grid` /
+///   `cross_system_grid_built_for` — is dropped via
+///   [`FleetUiState::clear_target`] so re-clicking the *same* body
+///   also rebuilds the grid (the stale-grid bug).
+/// - `target_body` is then re-set to the clicked entity.
+/// - `show_transfer_popup` flips on so the popup renders.
+/// - `departure_offset_days = -1.0` is the existing "auto-set to
+///   next window" sentinel consumed in
+///   `src/ui/transfer_planner.rs` near line 4719.
+///
+/// Fleet selection (`selected_fleet`, `spawn_location_body`,
+/// `editing_fleet_name`, `disband_confirm_fleet`, …) is preserved —
+/// the right-click is a destination-pick, not a fleet-pick.
+pub fn apply_body_right_click_target(state: &mut FleetUiState, entity: Entity) {
+    state.clear_target();
+    state.target_body = Some(entity);
+    state.show_transfer_popup = true;
+    // Signal to auto-set to next window.
+    state.departure_offset_days = -1.0;
 }
 
 /// System that handles celestial body hover detection via mouse position

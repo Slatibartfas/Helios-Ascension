@@ -27,31 +27,46 @@ const SECONDS_PER_YEAR: f64 = 365.25 * SECONDS_PER_DAY;
 /// Maximum acceptable t_dep step (days) for the rendered grid.
 /// `adaptive_resolution` scales `resolution_t_dep` up so the
 /// per-column step on the natural `(t_dep_window, tof_span)`
-/// stays at or below this value.  Conservative: 3 days matches
-/// the inner-planet synodic-period alignment tolerance — a
-/// launch-window resolution of ~3 days is enough to pick the
-/// cheapest Hohmann phase to within ±1.5 days.
-const MAX_T_DEP_STEP_DAYS: f64 = 3.0;
+/// stays at or below this value.  Tightened 3.0 → 2.0 days:
+/// the previous 3-day step left visible 1-cell-wide ΔV stripes
+/// on the cheap-transfer basin of mid-window interplanetary
+/// plots (the user-reported "porkchops still look a bit coarse"
+/// feedback).  2-day step matches the inner-planet
+/// synodic-period alignment tolerance and lets the basin span
+/// 1.5–2.5 cells instead of 0.8.
+const MAX_T_DEP_STEP_DAYS: f64 = 2.0;
 
 /// Maximum acceptable TOF step (days) for the rendered grid.
 /// `adaptive_resolution` scales `resolution_tof` up so the
-/// per-row step stays at or below this value.  Conservative:
-/// 5 days keeps the colormap band smooth on Saturn-class
-/// porkchops where the adaptive Y-axis trim
-/// (`compute_adaptive_tof_bounds`) already compresses rows onto
-/// the populated band.
-const MAX_TOF_STEP_DAYS: f64 = 5.0;
+/// per-row step stays at or below this value.  Tightened
+/// 5.0 → 3.0 days: the previous 5-day step combined with the
+/// 5000-cell cap meant wide-window transfers (Mars-class)
+/// ended up with rows at ~40 d/row, producing the visible
+/// blocky Y-axis bands the player reported.  3-day step
+/// keeps the colormap band smooth on Saturn-class porkchops
+/// even after the adaptive Y-axis trim
+/// (`compute_adaptive_tof_bounds`) compresses rows onto the
+/// populated band.
+const MAX_TOF_STEP_DAYS: f64 = 3.0;
 
 /// Validator cap on the total cell count of the *computed*
 /// grid.  Mirrors the rule `defaults.resolution_t_dep *
-/// defaults.resolution_tof ≤ 5000` (and per-override) enforced
+/// defaults.resolution_tof ≤ 12000` (and per-override) enforced
 /// statically by `PorkchopConfig::validate` in `src/fleets/data.rs`.
 /// `adaptive_resolution` clamps the *runtime* grid to this cap
 /// even when the static RON fields are smaller — so an override
-/// with `resolution_t_dep: 80, resolution_tof: 60 = 4800 cells`
+/// with `resolution_t_dep: 90, resolution_tof: 90 = 8100 cells`
 /// on a 614-day Earth↔Venus-synodic window still ends up under
-/// 5000 cells after the auto-bump.
-const ADAPTIVE_RESOLUTION_CELL_CAP: usize = 5000;
+/// 12000 cells after the auto-bump.
+///
+/// Raised 5000 → 12000 to accommodate the tighter step targets
+/// above.  Worst-case Lambert solve is ~0.3 ms/cell → 12000
+/// cells ≈ 3.6 s, still inside the 3-day staleness budget at
+/// 1 yr/s sim speed (the deferred-build path is signalled by
+/// the planner as soon as the player's clock advances past the
+/// buffer's leading edge, so the user never sees a blank frame
+/// during the rebuild).
+const ADAPTIVE_RESOLUTION_CELL_CAP: usize = 12000;
 
 /// Metric plotted on the grid.  Currently only `TotalDv` is wired; the
 /// LGD design contract leaves `C3` and `DepartureC3` for follow-up.
@@ -211,9 +226,9 @@ pub struct PorkchopInputs {
 }
 
 /// Build the porkchop grid.  The (cols × rows) loop is bounded by the
-/// LGD contract (≤ 5000 cells); one Earth→Mars default is 70 × 70 = 4900.
+/// LGD contract (≤ 12000 cells); one Earth→Mars default is 90 × 90 = 8100.
 /// Each cell calls `solve_lambert_transfer`; the LGD's 0.3 ms/cell budget
-/// gives ~1.5 s worst case.  Infeasible cells are kept in the grid
+/// gives ~3.6 s worst case.  Infeasible cells are kept in the grid
 /// (rendered greyed) so the player sees the full topology, including
 /// the no-ballistic-solution basin.
 ///
@@ -222,9 +237,9 @@ pub struct PorkchopInputs {
 /// absolutes.  `build_porkchop_grid_with_params` runs them
 /// through `adaptive_resolution`, which bumps `cols` / `rows`
 /// up if the natural `(t_dep_window, tof_span)` is wider than
-/// the static values can comfortably sample (target: 3-day
-/// t_dep step, 5-day TOF step).  The total cell count is
-/// clamped at 5000 by shrinking whichever dimension has the
+/// the static values can comfortably sample (target: 2-day
+/// t_dep step, 3-day TOF step).  The total cell count is
+/// clamped at 12000 by shrinking whichever dimension has the
 /// looser step first.  This is the structural fix for the
 /// user-reported Earth→Mercury via Venus GA case, where the
 /// Earth↔Venus-synodic window (~614 d) demands finer t_dep
@@ -293,7 +308,7 @@ pub fn build_porkchop_grid_with_params(
     // Earth↔Venus-synodic window spans ~614 d but the static
     // 50-col `gravity_assist` override gave 12.3 d/col), bump
     // `cols` / `rows` up so the per-cell step lands in the
-    // 3-day / 5-day ballpark.  See `adaptive_resolution` for the
+    // 2-day / 3-day ballpark.  See `adaptive_resolution` for the
     // contract and `MAX_T_DEP_STEP_DAYS` / `MAX_TOF_STEP_DAYS`
     // for the step targets.
     let window_days = max_t_dep_rel_s / SECONDS_PER_DAY;
@@ -521,8 +536,8 @@ pub fn compute_adaptive_tof_bounds(
 /// (i.e. `window / cols > MAX_T_DEP_STEP_DAYS` or
 /// `span / rows > MAX_TOF_STEP_DAYS`), the helper bumps `cols`
 /// and / or `rows` up so the per-cell step lands in the
-/// 3-day / 5-day ballpark.  The total is clamped to
-/// `ADAPTIVE_RESOLUTION_CELL_CAP` (5000 cells, the static
+/// 2-day / 3-day ballpark.  The total is clamped to
+/// `ADAPTIVE_RESOLUTION_CELL_CAP` (12000 cells, the static
 /// validator ceiling) by shrinking whichever dimension has the
 /// looser step first — never below the RON minimum.
 ///
@@ -535,29 +550,29 @@ pub fn compute_adaptive_tof_bounds(
 ///      RON minimum.  Falls back to the product-as-is if both
 ///      dimensions are pinned at their minimums and still
 ///      exceed the cap (degenerate but possible if a modder
-///      hand-crafts a 90×60 RON override).
+///      hand-crafts a 120×100 RON override).
 ///
 /// Why this exists: the RON `resolution_t_dep` field is a
 /// fixed count, but the t_dep window varies wildly between
-/// categories.  Earth→Moon's 14-day window over 70 cols gives
-/// 0.2 d/column (excellent), but Earth→Mercury via Venus GA
+/// categories.  Earth→Moon's 14-day window over 90 cols gives
+/// 0.16 d/column (excellent), but Earth→Mercury via Venus GA
 /// inherits a ~614-day Earth↔Venus-synodic window over the
-/// `gravity_assist` override's 80 cols → 7.7 d/column.  Without
+/// `gravity_assist` override's 90 cols → 6.8 d/column.  Without
 /// the auto-bump, wide-window transfers render the cheap-assist
 /// basin as 1-cell-wide color stripes (the user-reported
 /// Earth→Mercury screenshot).  With the auto-bump, the same
-/// 614-day window lands at ~94 cols × ~53 rows = 4982 cells
-/// → 6.5 d/column, 5.0 d/row — the basin spans 1.5–2.5 cells
+/// 614-day window lands at ~307 cols × ~39 rows = 11973 cells
+/// → 2.0 d/column, 6.7 d/row — the basin spans 1.5–2.5 cells
 /// of the cheapest color band instead of 0.8.
 ///
-/// Tradeoff: `MAX_T_DEP_STEP_DAYS = 3.0` and
-/// `MAX_TOF_STEP_DAYS = 5.0` are tuned for the LGD's "sub-day
-/// launch-window resolution" target.  Lowering them improves
-/// grid smoothness but inflates rebuild cost (Lambert solver
-/// runs ~0.3 ms/cell, so 5000 cells ≈ 1.5 s worst case — inside
-/// the 3-day staleness budget at 1 yr/s sim speed, but bumping
-/// to a 1-day step target would push past the cap on wide
-/// windows).
+/// Tradeoff: `MAX_T_DEP_STEP_DAYS = 2.0` and
+/// `MAX_TOF_STEP_DAYS = 3.0` are tuned for the LGD's "sub-day
+/// launch-window resolution" target.  Lowering them further
+/// improves grid smoothness but inflates rebuild cost (Lambert
+/// solver runs ~0.3 ms/cell, so 12000 cells ≈ 3.6 s worst case
+/// — inside the 3-day staleness budget at 1 yr/s sim speed,
+/// but bumping to a 1-day step target would push past the cap
+/// on wide windows).
 fn adaptive_resolution(
     min_cols: usize,
     min_rows: usize,
@@ -593,8 +608,10 @@ fn adaptive_resolution(
     // This keeps the more-sensitive axis (smaller step) at its
     // current size and only trims the less-sensitive one.  For
     // Earth→Mercury via Venus GA the row step is naturally
-    // tighter (5 d vs the 7.7 d col step), so rows stay at 53
-    // and cols shrinks until `cols * 53 ≤ 5000` → cols = 94.
+    // looser than the desired 3-day target, so rows get shrunk
+    // toward the RON minimum first while cols holds at the
+    // 2-day step target (307 cols × 39 rows = 11973 cells,
+    // under the 12000-cell cap).
     while cols * rows > cap {
         let col_step = window_days / cols as f64;
         let row_step = span_days / rows as f64;
@@ -2032,30 +2049,29 @@ mod tests {
     // `resolution_t_dep` / `resolution_tof` are MINIMUMS, and the helper
     // bumps `cols` / `rows` up when the natural window is wider than the
     // static values can comfortably sample.  The total is clamped at
-    // `ADAPTIVE_RESOLUTION_CELL_CAP` (5000 cells) by shrinking whichever
+    // `ADAPTIVE_RESOLUTION_CELL_CAP` (12000 cells) by shrinking whichever
     // dimension has the looser step first.
 
     /// Earth→Mercury via Venus GA: ~614-day window, ~263-day TOF span.
-    /// The `gravity_assist` override's static `80 × 60 = 4800 cells`
-    /// would give 7.7 d/col and 4.4 d/row — too coarse for the
-    /// cheap-assist basin.  The adaptive bump should grow cols
-    /// further (target 3 d/col) while clamping at 5000 cells by
-    /// shrinking rows if needed.  Final shape: cols > 80 (bumped),
-    /// cols × rows ≤ 5000, and either row step ≤ 5 d OR col step
-    /// ≤ 3 d.
+    /// The `gravity_assist` override's static `90 × 90 = 8100 cells`
+    /// would give 6.8 d/col and 2.9 d/row.  The adaptive bump should
+    /// grow cols further (target 2 d/col) while clamping at 12000
+    /// cells by shrinking rows if needed.  Final shape: cols > 90
+    /// (bumped), cols × rows ≤ 12000, and either row step ≤ 3 d OR
+    /// col step ≤ 2 d.
     #[test]
     fn adaptive_resolution_scales_up_wide_window_to_step_target() {
         let window_days = 614.0;
         let span_days = 263.0;
         let (cols, rows) =
-            adaptive_resolution(80, 60, window_days, span_days);
+            adaptive_resolution(90, 90, window_days, span_days);
         assert!(
-            cols >= 80,
-            "adaptive_resolution must respect the RON minimum: cols = {cols}, expected ≥ 80"
+            cols >= 90,
+            "adaptive_resolution must respect the RON minimum: cols = {cols}, expected ≥ 90"
         );
         assert!(
-            rows >= 60,
-            "adaptive_resolution must respect the RON minimum: rows = {rows}, expected ≥ 60"
+            rows >= 90,
+            "adaptive_resolution must respect the RON minimum: rows = {rows}, expected ≥ 90"
         );
         assert!(
             cols * rows <= ADAPTIVE_RESOLUTION_CELL_CAP,
@@ -2091,17 +2107,18 @@ mod tests {
     }
 
     /// Earth→Mars direct (interplanetary default): ~146-day window,
-    /// ~525-day TOF span.  RON `70 × 70 = 4900 cells`.  The desired
-    /// bumps are `49 cols × 105 rows = 5145 cells` — exceeds the
-    /// 5000-cell cap, so the helper shrinks one dimension.  Either
-    /// `49 × 102 = 4998` (shrink rows) or `48 × 105 = 5040` (shrink
-    /// cols but that exceeds the cap, so this branch is unlikely).
-    /// The contract: `cols × rows ≤ 5000`, both ≥ RON minimums.
+    /// ~525-day TOF span.  RON `90 × 90 = 8100 cells`.  The desired
+    /// bumps are `73 cols × 175 rows = 12775 cells` — exceeds the
+    /// 12000-cell cap, so the helper shrinks one dimension.  Either
+    /// `69 × 175 = 12075` (shrink cols) or `73 × 164 = 11972`
+    /// (shrink rows; the looser-step dimension shrinks first per
+    /// `adaptive_resolution`).  The contract: `cols × rows ≤ 12000`,
+    /// both ≥ RON minimums.
     #[test]
     fn adaptive_resolution_clamps_at_cell_cap_for_interplanetary() {
-        let (cols, rows) = adaptive_resolution(70, 70, 146.0, 525.0);
+        let (cols, rows) = adaptive_resolution(90, 90, 146.0, 525.0);
         assert!(
-            cols >= 70 && rows >= 70,
+            cols >= 90 && rows >= 90,
             "RON minimums violated: cols = {cols}, rows = {rows}"
         );
         assert!(
@@ -2537,22 +2554,22 @@ mod tests {
 
     #[test]
     fn default_porkchop_config_resolution_within_budget() {
-        // Locks in the GRA-style resolution bump: default 60×60 =
-        // 3600 cells, well under the 5000-cell validator ceiling.
+        // Locks in the GRA-style resolution bump: default 90×90 =
+        // 8100 cells, well under the 12000-cell validator ceiling.
         // Catches a regression where a future bump pushes past
-        // the 5000 budget and the validator fails at load time.
+        // the 12000 budget and the validator fails at load time.
         let cfg = PorkchopConfig::default();
         let total = cfg.defaults.resolution_t_dep * cfg.defaults.resolution_tof;
         assert!(
-            total <= 5000,
-            "default resolution {total} exceeds the 5000-cell validator ceiling"
+            total <= 12000,
+            "default resolution {total} exceeds the 12000-cell validator ceiling"
         );
-        // Sanity: at least 60 cols and 50 rows so the per-cell
-        // ΔV resolution is finer than the previous 40×50
+        // Sanity: at least 90 cols and 90 rows so the per-cell
+        // ΔV resolution is finer than the previous 70×70
         // baseline.  Anything below this regresses the user's
         // "I want higher resolution" request.
-        assert!(cfg.defaults.resolution_t_dep >= 60);
-        assert!(cfg.defaults.resolution_tof >= 60);
+        assert!(cfg.defaults.resolution_t_dep >= 90);
+        assert!(cfg.defaults.resolution_tof >= 90);
     }
 
     /// End-to-end sanity: the rendered bounds for Earth→Mars and
@@ -3455,12 +3472,18 @@ mod planner_wiring_tests {
             (buffer_width - 8.0 * baseline_width).abs() < 1.0,
             "buffer width {buffer_width} should be ≈ 8× baseline {baseline_width}"
         );
-        // Buffer has 2× the columns so each visible column keeps
-        // baseline's per-column ΔV resolution.
-        assert_eq!(
+        // Buffer has ≥ 2× the columns so each visible column keeps
+        // baseline's per-column ΔV resolution.  The `≥` (rather
+        // than `==`) reflects `adaptive_resolution` bumping cols
+        // further on the wider buffer window to hit the 2-day
+        // t_dep step target — the buffer inherits the same RON
+        // minimums ×2, then `adaptive_resolution` pushes cols
+        // above that when the 8× window demands it.
+        assert!(
+            buffer.resolution.0 >= baseline.resolution.0 * 2,
+            "buffer cols ({}) should be ≥ 2× baseline cols ({})",
             buffer.resolution.0,
-            baseline.resolution.0 * 2,
-            "buffer cols should be 2× baseline cols"
+            baseline.resolution.0
         );
         assert!(
             buffer.cells.iter().any(|c| c.feasible),

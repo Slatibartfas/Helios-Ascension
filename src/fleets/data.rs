@@ -119,18 +119,18 @@ impl PorkchopConfig {
                 ));
             }
         }
-        if self.defaults.resolution_t_dep * self.defaults.resolution_tof > 5000 {
+        if self.defaults.resolution_t_dep * self.defaults.resolution_tof > 12000 {
             violations.push(format!(
-                "defaults.resolution_t_dep * defaults.resolution_tof must be ≤ 5000 (got {} × {} = {})",
+                "defaults.resolution_t_dep * defaults.resolution_tof must be ≤ 12000 (got {} × {} = {})",
                 self.defaults.resolution_t_dep,
                 self.defaults.resolution_tof,
                 self.defaults.resolution_t_dep * self.defaults.resolution_tof
             ));
         }
         for (i, ov) in self.category_overrides.iter().enumerate() {
-            if ov.resolution_t_dep * ov.resolution_tof > 5000 {
+            if ov.resolution_t_dep * ov.resolution_tof > 12000 {
                 violations.push(format!(
-                    "category_overrides[{}] ({}): resolution product {} × {} = {} > 5000",
+                    "category_overrides[{}] ({}): resolution product {} × {} = {} > 12000",
                     i,
                     ov.match_key,
                     ov.resolution_t_dep,
@@ -200,12 +200,12 @@ mod tests {
     }
 
     #[test]
-    fn porkchop_config_resolution_over_5000_fails_validation() {
+    fn porkchop_config_resolution_over_12000_fails_validation() {
         let mut cfg = PorkchopConfig::default();
-        cfg.defaults.resolution_t_dep = 100;
-        cfg.defaults.resolution_tof = 100;
+        cfg.defaults.resolution_t_dep = 120;
+        cfg.defaults.resolution_tof = 120;
         let v = cfg.validate().unwrap_err();
-        assert!(v.iter().any(|s| s.contains("5000")));
+        assert!(v.iter().any(|s| s.contains("12000")));
     }
 
     /// Strict load of the actual `assets/data/porkchop_config.ron` file.
@@ -225,7 +225,7 @@ mod tests {
             .unwrap_or_else(|e| panic!("porkchop_config.ron failed to parse: {e}"));
         // Validation must also pass — covers the case where RON deserializes
         // but a per-override invariant (e.g. tof_min > tof_max, resolution
-        // product > 5000) is violated.
+        // product > 12000) is violated.
         if let Err(violations) = cfg.validate() {
             panic!("porkchop_config.ron failed validation: {violations:#?}");
         }
