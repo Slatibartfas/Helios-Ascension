@@ -3167,6 +3167,8 @@ dependencies = [
  "bevy_a11y",
  "bevy_camera",
  "bevy_egui",
+ "bevy_mesh",
+ "bevy_pbr",
  "bevy_scene",
  "bevy_time",
  "bevy_winit",

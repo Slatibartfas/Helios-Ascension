@@ -223,6 +223,45 @@ fn configure_builder<'a>(
         // interest in persisting. See the regression test
         // `snapshot_skips_visibility_class_component` below.
         .deny_component::<bevy_camera::visibility::VisibilityClass>()
+        // `bevy_mesh::Mesh3d` wraps `Handle<Mesh>`, whose
+        // `Handle::Strong(Arc<StrongHandle>)` variant holds a
+        // process-local pointer (the `StrongHandle` is opaque and
+        // the `Arc` strong-count isn't stable across builds).
+        // Bevy's scene serializer raises "type
+        // `bevy_platform::sync::Arc<bevy_asset::handle::StrongHandle>`
+        // did not register the `ReflectSerialize`" and the snapshot
+        // errors out.
+        //
+        // TRADE-OFF: this breaks visual fidelity on load — saves
+        // retain gameplay state (positions, fleets, colonies, ship
+        // instances, orbits, etc.) but the entity archetypes
+        // restored from the snapshot no longer carry their Mesh3d,
+        // so rendered bodies / ships / markers come back invisible.
+        // The proper fix is to register custom ReflectSerialize
+        // type data for `Handle<T>` that round-trips as asset-path
+        // strings (so a fresh Handle<Mesh> resolves to the same
+        // asset on the new world via the asset server). That is a
+        // larger change scoped for a follow-up — for now, deny the
+        // component so autosave at least produces a save file
+        // every interval. See the regression tests
+        // `snapshot_skips_mesh3d_component` and
+        // `snapshot_skips_mesh_material3d_component` below.
+        .deny_component::<bevy_mesh::Mesh3d>()
+        // Same problem for material refs: `MeshMaterial3d<M>`
+        // wraps `Handle<M>`, and `StandardMaterial` is the
+        // material used on most planet / fleet / marker entities
+        // (see e.g. `src/astronomy/selection.rs` and
+        // `src/fleets/visuals.rs`). The generic instance
+        // `MeshMaterial3d<StandardMaterial>` is the specific
+        // component type we deny; Helios's custom materials
+        // (`OceanMaterial`, `AtmosphereMaterial`,
+        // `StarGlowMaterial`, `StarDiffractionMaterial`) carry the
+        // same Handle<T> problem and would need their own deny
+        // calls if they end up on save-time entities with
+        // Handle::Strong. None currently do — those materials are
+        // attached by setup code that re-runs on world rebuild, so
+        // they come back fresh on load.
+        .deny_component::<bevy_pbr::MeshMaterial3d<bevy_pbr::StandardMaterial>>()
         .extract_entities(entities.iter().copied())
         // IMPORTANT: apply the resource denylist BEFORE calling
         // `extract_resources()`.  `extract_resources` reads the
@@ -416,6 +455,72 @@ mod tests {
         assert!(
             !ron.contains("VisibilityClass"),
             "denylist failed — VisibilityClass serialised into save: {ron}"
+        );
+    }
+
+    #[test]
+    fn snapshot_skips_mesh3d_component() {
+        // Regression test for the second in-game autosave failure:
+        // every rendered body carries a `bevy_mesh::Mesh3d`
+        // component whose inner `Handle<Mesh>` contains a
+        // `Strong(Arc<StrongHandle>)` — a process-local pointer
+        // Bevy can't reflect-serialise. Without the
+        // `deny_component::<Mesh3d>` call in `configure_builder`,
+        // `SceneSerializer` raises "type `Arc<StrongHandle>` did not
+        // register the ReflectSerialize" and the snapshot errors
+        // out, so the autosave timer logs `autosave failed: save
+        // serialise failed: …` every interval and no save file is
+        // written.
+        //
+        // NB: `Mesh3d::default()` produces a `Handle::Uuid` (not the
+        // failing `Handle::Strong`), so the inner `Arc<StrongHandle>`
+        // failure path isn't directly reproducible in this test —
+        // the snapshot succeeds either way. What the test DOES verify
+        // is the denylist end: the saved RON must not mention
+        // `Mesh3d`, confirming the component was filtered out before
+        // `extract_entities` recorded it. The custom-handle failure
+        // path is exercised by the user's runtime autosave (every
+        // interval), which is why the deny is in place.
+        let mut world = World::new();
+        world.init_resource::<AppTypeRegistry>();
+        // Mesh3d has `#[require(Transform)]` so spawning it pulls
+        // Transform in too — harmless for the snapshot.
+        world.spawn(bevy_mesh::Mesh3d::default());
+        let ron = snapshot_world(&world, SaveMetadata::new_now(0, 0, "test"))
+            .expect("snapshot must skip Mesh3d component");
+        assert!(
+            !ron.contains("Mesh3d"),
+            "denylist failed — Mesh3d serialised into save: {ron}"
+        );
+    }
+
+    #[test]
+    fn snapshot_skips_mesh_material3d_component() {
+        // Regression test for the same family of failures as
+        // `snapshot_skips_mesh3d_component`: `MeshMaterial3d<M>`
+        // wraps `Handle<M>` and the standard-material instance is
+        // on every planet / fleet / marker entity (see
+        // `src/astronomy/selection.rs`, `src/fleets/visuals.rs`,
+        // `src/plugins/starmap.rs`). Without the
+        // `deny_component::<MeshMaterial3d<StandardMaterial>>`
+        // call in `configure_builder`, the same
+        // "type `Arc<StrongHandle>` did not register" failure
+        // surfaces — typically on the next component after the
+        // Mesh3d deny is in place, since these two components
+        // usually travel together on the same entity archetype.
+        //
+        // Same caveat as the Mesh3d test: `MeshMaterial3d::default()`
+        // gives `Handle::Uuid`, so the inner Arc failure isn't
+        // reproduced here — we just verify the denylist keeps the
+        // component out of the saved scene blob.
+        let mut world = World::new();
+        world.init_resource::<AppTypeRegistry>();
+        world.spawn(bevy_pbr::MeshMaterial3d::<bevy_pbr::StandardMaterial>::default());
+        let ron = snapshot_world(&world, SaveMetadata::new_now(0, 0, "test"))
+            .expect("snapshot must skip MeshMaterial3d component");
+        assert!(
+            !ron.contains("MeshMaterial3d"),
+            "denylist failed — MeshMaterial3d serialised into save: {ron}"
         );
     }
 }
