@@ -246,13 +246,16 @@ pub struct FleetUiState {
     pub target_body: Option<Entity>,
     /// Selected Lagrange-point target (mutually exclusive with `target_body`).
     pub target_lagrange: Option<LagrangeTarget>,
-    /// User-controlled parking radius (AU) for a star-approach target.
-    /// `(star_entity, radius_au)`.  Set by the interactive
-    /// `DestEntry::StarApproach` picker (GRA-161); consumed by
-    /// `build_planned_transfer` to override `star_approach_radius_au(b)`
-    /// for the destination star.  `None` means "use the per-body default
-    /// from `CelestialBody.star_approach_au`".
-    pub target_star_approach: Option<(Entity, f64)>,
+    /// User-controlled arrival-orbit radius (AU) for *any* destination
+    /// type (star, planet, moon).  `(dest_entity, radius_au)`.
+    /// Set by the destination picker: the top-level "Target orbit"
+    /// DragValue (GRA-387) seeds it for planet/moon targets, and the
+    /// `DestEntry::StarApproach` picker (GRA-161) sets it for stars.
+    /// Consumed by `build_planned_transfer` to override the
+    /// per-body `star_approach_radius_au(b)` (for stars) or the
+    /// body's heliocentric SMA / parent-relative LEO proxy (for
+    /// planets / moons).  `None` means "use the per-body default".
+    pub target_arrival_radius: Option<(Entity, f64)>,
     /// Selected top-level category in the two-level destination selector.
     /// Holds the category label string (e.g. "Earth", "Mars", "Fleets").
     pub selected_dest_category: Option<String>,
@@ -443,7 +446,7 @@ impl FleetUiState {
         self.target_lagrange = None;
         self.target_fleet = None;
         self.target_star_system = None;
-        self.target_star_approach = None;
+        self.target_arrival_radius = None;
         self.selected_dest_category = None;
         self.departure_offset_days = 0.0;
         self.computed_options.clear();
@@ -496,7 +499,7 @@ impl FleetUiState {
     /// `ui_lp_click_handler` so both paths mutate state through one contract.
     ///
     /// Also clears the GRA-159 porkchop-grid cache and the GRA-161
-    /// `target_star_approach` so the planner does not render a stale panel
+    /// `target_arrival_radius` so the planner does not render a stale panel
     /// for a previous target.
     ///
     /// The porkchop-grid build for the new origin/dest pair is intentionally
@@ -510,7 +513,7 @@ impl FleetUiState {
         self.target_star_system = None;
         // GRA-161: Lagrange targets are not stars — drop any
         // star-approach parking radius the user had dialed in.
-        self.target_star_approach = None;
+        self.target_arrival_radius = None;
         self.computed_options.clear();
         self.planned_transfer = None;
         self.selected_option = 0;

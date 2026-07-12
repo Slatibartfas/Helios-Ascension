@@ -1155,6 +1155,14 @@ impl InterstellarPropulsionPolicy {
 ///
 /// GRA-381 (Phase-6 dispatcher + FrameOverride widget) is the next child
 /// to consume the new variants in `transfer_planner::render_transfer_planner`.
+///
+/// GRA-387: `Hohmann3Option` was removed.  It was a Phase-2 migration
+/// target mirroring `FleetUiState.computed_options` + `selected_option`,
+/// but the legacy 3-option row is intentionally routed through the same
+/// `Porkchop { grid: … }` envelope (a degenerate 3-cell grid) by
+/// `build_short_hop_grid` and the GA / cross-system dispatchers, so a
+/// dedicated variant was redundant.  No test fixtures referenced the
+/// variant.
 #[derive(Debug, Clone, Default)]
 pub enum SelectionSource {
     /// No active selection.
@@ -1184,12 +1192,6 @@ pub enum SelectionSource {
     /// Star-approach porkchop grid (Phase 6 / GRA-367-F).  1×N scan
     /// of parking-radius × TOF.
     StarApproach { grid: PorkchopGrid },
-    /// Legacy 3-option row (Hohmann / moderate / fast).  Mirrors
-    /// `FleetUiState.computed_options` + `selected_option`.
-    Hohmann3Option {
-        options: Vec<TransferOption>,
-        selected: usize,
-    },
     /// Gravity-assist candidates.  Mirrors
     /// `FleetUiState.gravity_assist_candidates` + `selected_gravity_assist`.
     /// When `selected` is `None` the renderer shows the summary card; when
@@ -1217,9 +1219,10 @@ pub struct TransferPlan {
     /// Target body chosen for transfer planning.  Mutually exclusive
     /// with `target_fleet` / `target_star_system`.
     pub target_body: Option<Entity>,
-    /// `(star_entity, radius_au)` for a star-approach target.  See
-    /// `FleetUiState::target_star_approach` for semantics (GRA-161).
-    pub target_star_approach: Option<(Entity, f64)>,
+    /// `(dest_entity, radius_au)` for the arrival parking orbit,
+    /// uniform across star, planet, and moon destinations.  See
+    /// `FleetUiState::target_arrival_radius` for semantics (GRA-387).
+    pub target_arrival_radius: Option<(Entity, f64)>,
     /// Fleet entity targeted for an intercept course.  Mutually
     /// exclusive with `target_body` / `target_star_system`.
     pub target_fleet: Option<Entity>,
@@ -1286,12 +1289,14 @@ impl TransferPlan {
     }
 }
 
-// Sync helpers live in `crate::ui::transfer_planner` (Phase 1) because
-// `FleetUiState` lives in `crate::ui` and pulling it into `fleets`
-// would invert the module dependency (today `ui` depends on
-// `fleets`, not the other way around).  The free fns are:
+// The forward-sync helper `sync_plan_from_ui(plan, ui)` lives in
+// `crate::ui::transfer_planner` because `FleetUiState` lives in
+// `crate::ui` and pulling it into `fleets` would invert the module
+// dependency (today `ui` depends on `fleets`, not the other way around).
+// It is `pub(super)` so the planner module owns it.
 //
-//   pub fn sync_plan_from_ui(plan: &mut TransferPlan, ui: &FleetUiState);
-//   pub fn sync_ui_from_plan(plan: &TransferPlan, ui: &mut FleetUiState);
-//
-// Both are `pub(super)` so the planner module owns them.
+// GRA-387: the reverse-sync helper (`sync_ui_from_plan`) was removed.
+// Phase 1 keeps `FleetUiState` as the writer-of-record, so the planner
+// never needs to push data back from `TransferPlan` into the UI state.
+// If a later phase flips ownership, that helper can be reintroduced
+// alongside the phase's actual data-flow consumer.

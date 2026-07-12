@@ -710,7 +710,7 @@ fn short_hop_grid_for_moon(
 /// single-cell Hohmann fallback.  Five log-spaced parking radii are
 /// sampled across `[min_radius_au, max_radius_au]` with the player's
 /// `selected_radius_au` always included so the picker value lands
-/// inside the visible grid (the `target_star_approach` snapshot is
+/// inside the visible grid (the `target_arrival_radius` snapshot is
 /// only used by `build_planned_transfer`, not by the grid itself).
 ///
 /// Returns `None` if the star's GM cannot be resolved (defensive —
@@ -1434,7 +1434,7 @@ fn try_build_cross_system_hohmann(
 /// Populate every mirrored `TransferPlan` field from `FleetUiState`.
 pub(super) fn sync_plan_from_ui(plan: &mut TransferPlan, ui: &FleetUiState) {
     plan.target_body = ui.target_body;
-    plan.target_star_approach = ui.target_star_approach;
+    plan.target_arrival_radius = ui.target_arrival_radius;
     plan.target_fleet = ui.target_fleet;
     plan.target_star_system = ui.target_star_system.clone();
     plan.departure_offset_days = ui.departure_offset_days;
@@ -1458,34 +1458,6 @@ pub(super) fn sync_plan_from_ui(plan: &mut TransferPlan, ui: &FleetUiState) {
     // reintroduce the call once it has a real consumer.
 }
 
-/// Write every mirrored `TransferPlan` field back into `FleetUiState`.
-///
-/// Phase 1 keeps `FleetUiState` as the writer-of-record so this
-/// helper is unused (clippy `-D dead_code` rejects it).  Phase 2
-/// flips ownership and the planner will call this every frame
-/// before reading the cached `FleetUiState` fields.  The
-/// `#[allow(dead_code)]` keeps the helper compile-clean while
-/// unused, so the Phase 2 PR can drop the allow and use it.
-#[allow(dead_code)]
-pub(super) fn sync_ui_from_plan(plan: &TransferPlan, ui: &mut FleetUiState) {
-    ui.target_body = plan.target_body;
-    ui.target_star_approach = plan.target_star_approach;
-    ui.target_fleet = plan.target_fleet;
-    ui.target_star_system = plan.target_star_system.clone();
-    ui.departure_offset_days = plan.departure_offset_days;
-    ui.selected_option = plan.selected_option;
-    ui.computed_options = plan.computed_options.clone();
-    ui.porkchop_grid = plan.porkchop_grid.clone();
-    ui.porkchop_built_for = plan.porkchop_built_for;
-    ui.porkchop_built_at_s = plan.porkchop_built_at_s;
-    ui.porkchop_last_real_build_s = plan.porkchop_last_real_build_s;
-    ui.porkchop_grid_pending_rebuild = plan.porkchop_grid_pending_rebuild;
-    ui.selected_porkchop_cell = plan.selected_porkchop_cell;
-    ui.selected_abs_t_dep_s = plan.selected_abs_t_dep_s;
-    ui.selected_abs_tof_s = plan.selected_abs_tof_s;
-    ui.planned_transfer = plan.planned_transfer.clone();
-}
-
 /// Render the read-only 1-line reference-frame indicator above the
 /// planner picker.  Phase 1 displays the auto-resolved frame (the
 /// same value `resolve_planner_transfer_frame` already computes
@@ -1507,7 +1479,7 @@ pub(super) fn render_reference_frame_indicator(
 ) {
     // No active selection → render nothing (Phase 1: the indicator
     // is informational; suppressing it when empty avoids a useless
-    // `auto` row above an empty picker).  The `target_star_approach`
+    // `auto` row above an empty picker).  The `target_arrival_radius`
     // arm is part of the same family: a star-approach-only selection
     // has `target_body = Entity::PLACEHOLDER` and no fleet / system
     // target, so it would otherwise fall through to
@@ -1516,7 +1488,7 @@ pub(super) fn render_reference_frame_indicator(
     if plan.target_body.is_none()
         && plan.target_fleet.is_none()
         && plan.target_star_system.is_none()
-        && plan.target_star_approach.is_none()
+        && plan.target_arrival_radius.is_none()
     {
         return;
     }
@@ -1911,6 +1883,169 @@ pub(super) fn render_transfer_planner(
     // GRA-153 follow-up).  Porkchop grids remain visible on bodies where
     // a local-frame solver applies; the legacy row keeps appearing for
     // anything else.
+
+    // ── GRA-387 fast-path synchronous porkchop build ────────────────────────
+    // The 3D-scene right-click handler (`astronomy/selection.rs:467-478`)
+    // sets `target_body` and `show_transfer_popup = true` without firing
+    // the Body picker click handler, so on frame 0 of the popup the
+    // `porkchop_grid` cache can be empty for a destination whose
+    // previous session had a stale cache (e.g. the player right-clicked
+    // a new star after previously targeting Mars) — the legacy
+    // Efficient / Moderate / Fast fallback row would leak into view
+    // because the existing deferred build's `porkchop_built_for !=
+    // target_body` gate sees `built_for = Some(prev_dest)` and skips
+    // the rebuild.
+    //
+    // The fast-path block below *only* fires when the cache is truly
+    // empty (`porkchop_grid.is_none()`).  It does NOT touch
+    // `porkchop_built_at_s` / `porkchop_last_real_build_s` so the
+    // existing staleness / rotation logic at lines 2080+ keeps its
+    // own contract and the post-panel "scrolled past Now" re-anchor
+    // at line 2150 continues to find a valid recorded abs_t_dep.
+    //
+    // Builders (all sync — must complete in one frame so the panel
+    // renders at frame 1, not frame 2 after a worker round-trip):
+    //   * `star_approach_grid_for_target` — star destinations; one-shot,
+    //     deterministic ~few-ms solve.
+    //   * `short_hop_grid_for_moon` — moon / ring (when RON `short_hop`
+    //     override is present); sync by contract.
+    //   * `build_grid_for_body_target` — interplanetary Lambert grid;
+    //     ~50-100 ms on Mars-class resolves, vs the async path's
+    //     300-500 ms wait-with-no-panel.
+    //
+    // `target_arrival_radius` (formerly `target_star_approach`)
+    // flows into `star_approach_grid_for_target` so the user's parking
+    // override becomes one of the 5 rows of the resulting grid; without
+    // this the player's edited radius stays out-of-sync with the y-axis
+    // values until the next click.
+    if fleet_ui_state.porkchop_grid.is_none() {
+        if let Some(target_entity) = fleet_ui_state.target_body {
+            let dest_body_type = body_query
+                .get(target_entity)
+                .ok()
+                .map(|(_, b, _, _, _)| b.body_type);
+            match dest_body_type {
+                Some(BodyType::Star) => {
+                    // Star-approach sync path.  Reads the user's
+                    // radius override from `target_arrival_radius`.
+                    // Use `star_approach_radius_au` for the
+                    // no-override default — `heliocentric_orbit_for_body`
+                    // returns the star's barycentric (near-zero)
+                    // KeplerOrbit which is not a useful parking
+                    // radius.
+                    let default_au = body_query
+                        .get(target_entity)
+                        .ok()
+                        .map(|(_, b, _, _, _)| star_approach_radius_au(b));
+                    let resolved_default =
+                        match (fleet_ui_state.target_arrival_radius, default_au) {
+                            (Some((_, r)), _) => r,
+                            (None, Some(d)) => d,
+                            // Body vanished mid-frame; let the
+                            // deferred block re-attempt next frame.
+                            (None, None) => 0.0,
+                        };
+                    let (lo, hi) = star_approach_bounds_au(
+                        target_entity,
+                        body_query,
+                        body_system_ids,
+                        current_system_id,
+                    );
+                    let radius_au = resolved_default.clamp(lo, hi);
+                    let grid = star_approach_grid_for_target(
+                        body_query,
+                        orbit.body,
+                        target_entity,
+                        radius_au,
+                        lo,
+                        hi,
+                        elapsed,
+                    );
+                    if let Some(grid) = grid {
+                        fleet_ui_state.porkchop_grid = Some(grid);
+                        // Only stamp `porkchop_built_for` so the
+                        // deferred block sees a "same target" and
+                        // skips the async rebuild.  Do NOT update
+                        // `porkchop_built_at_s` / `porkchop_last_real_
+                        // build_s` — those remain at the values the
+                        // previous cache had so the staleness check
+                        // and the post-panel re-anchor keep working.
+                        fleet_ui_state.porkchop_built_for = Some(target_entity);
+                    }
+                }
+                Some(BodyType::Moon) | Some(BodyType::Ring) => {
+                    let n = porkchop_config
+                        .category_overrides
+                        .iter()
+                        .find(|o| o.match_key == "short_hop")
+                        .and_then(|o| o.short_hop_options);
+                    if let Some(n) = n {
+                        let grid = short_hop_grid_for_moon(
+                            body_query,
+                            porkchop_config,
+                            orbit.body,
+                            target_entity,
+                            n,
+                            elapsed,
+                        );
+                        if let Some(grid) = grid {
+                            fleet_ui_state.porkchop_grid = Some(grid);
+                            fleet_ui_state.porkchop_built_for = Some(target_entity);
+                        }
+                    }
+                }
+                Some(BodyType::Planet) | Some(BodyType::Asteroid) | Some(BodyType::Comet) => {
+                    let orbits = (
+                        heliocentric_orbit_for_body(orbit.body, body_query),
+                        heliocentric_orbit_for_body(target_entity, body_query),
+                    );
+                    if let (Some(origin_orbit), Some(dest_orbit)) = orbits {
+                        let origin_name = body_query
+                            .get(orbit.body)
+                            .ok()
+                            .map(|(_, b, _, _, _)| b.name.clone())
+                            .unwrap_or_else(|| "Origin".to_string());
+                        let dest_name = body_query
+                            .get(target_entity)
+                            .ok()
+                            .map(|(_, b, _, _, _)| b.name.clone())
+                            .unwrap_or_else(|| "Dest".to_string());
+                        let dest_parent = body_query
+                            .get(target_entity)
+                            .ok()
+                            .and_then(|(_, _, _, _, lp)| lp)
+                            .map(|lp| lp.0);
+                        let origin_parent = body_query
+                            .get(orbit.body)
+                            .ok()
+                            .and_then(|(_, _, _, _, lp)| lp)
+                            .map(|lp| lp.0);
+                        let category = crate::fleets::porkchop::classify_body_transfer_category(
+                            dest_body_type.unwrap_or(BodyType::Planet),
+                            dest_parent,
+                            origin_parent,
+                        );
+                        let grid = crate::fleets::porkchop::build_grid_for_body_target(
+                            porkchop_config,
+                            origin_orbit,
+                            dest_orbit,
+                            origin_name,
+                            dest_name,
+                            category,
+                            elapsed,
+                        );
+                        fleet_ui_state.porkchop_grid = Some(grid);
+                        fleet_ui_state.porkchop_built_for = Some(target_entity);
+                    }
+                }
+                _ => {
+                    // Lagrange / FleetTarget / StarSystem — leave
+                    // the grid as None so the legacy 3-option row +
+                    // GA summary card keeps its correct behaviour.
+                }
+            }
+        }
+    }
 
     // ── GRA-159 deferred porkchop build ─────────────────────────────────────
     // The porkchop grid is normally built by the Body/Ring click handlers in
@@ -2858,7 +2993,7 @@ pub(super) fn render_transfer_planner(
                 // (e.g. loaded from a save with different bounds) cannot
                 // crash the planner.
                 let initial_radius_au = fleet_ui_state
-                    .target_star_approach
+                    .target_arrival_radius
                     .filter(|(e, _)| *e == star_e)
                     .map(|(_, r)| r)
                     .unwrap_or(approach_au)
@@ -3098,7 +3233,7 @@ pub(super) fn render_transfer_planner(
                         // radius when the category changes.  The radius is
                         // meaningless once the destination is no longer a
                         // star in the new category.
-                        fleet_ui_state.target_star_approach = None;
+                        fleet_ui_state.target_arrival_radius = None;
                         fleet_ui_state.computed_options.clear();
                         fleet_ui_state.planned_transfer = None;
                         fleet_ui_state.selected_option = 0;
@@ -3142,7 +3277,7 @@ pub(super) fn render_transfer_planner(
     } else {
         // GRA-161: extract star_approach before borrowing fleet_ui_state
         // in the closure so the borrow is released before line 4123.
-        let star_approach = fleet_ui_state.target_star_approach;
+        let star_approach = fleet_ui_state.target_arrival_radius;
         fleet_ui_state
             .target_body
             .and_then(|e| {
@@ -3218,7 +3353,7 @@ pub(super) fn render_transfer_planner(
                                         // GRA-161: switching to a non-star
                                         // destination invalidates the
                                         // star-approach parking radius.
-                                        fleet_ui_state.target_star_approach = None;
+                                        fleet_ui_state.target_arrival_radius = None;
                                         fleet_ui_state.computed_options.clear();
                                         fleet_ui_state.planned_transfer = None;
                                         fleet_ui_state.selected_option = 0;
@@ -3359,7 +3494,7 @@ pub(super) fn render_transfer_planner(
                                         // GRA-161: switching to a non-star
                                         // destination invalidates the
                                         // star-approach parking radius.
-                                        fleet_ui_state.target_star_approach = None;
+                                        fleet_ui_state.target_arrival_radius = None;
                                         fleet_ui_state.computed_options.clear();
                                         fleet_ui_state.planned_transfer = None;
                                         fleet_ui_state.selected_option = 0;
@@ -3477,7 +3612,7 @@ pub(super) fn render_transfer_planner(
                                         // GRA-160: shared state-mutation contract via
                                         // `select_lagrange_target` — clears
                                         // `target_body`/`target_fleet`/`target_star_system`/
-                                        // `target_star_approach` and resets the per-target
+                                        // `target_arrival_radius` and resets the per-target
                                         // transfer-planning fields. The 3D-scene click
                                         // path (`ui_lp_click_handler`) reuses the same
                                         // helper so the two entry points cannot drift.
@@ -3516,7 +3651,7 @@ pub(super) fn render_transfer_planner(
                                         fleet_ui_state.target_lagrange = None;
                                         fleet_ui_state.target_star_system = None;
                                         // GRA-161: fleet intercepts are not stars.
-                                        fleet_ui_state.target_star_approach = None;
+                                        fleet_ui_state.target_arrival_radius = None;
                                         fleet_ui_state.computed_options.clear();
                                         fleet_ui_state.planned_transfer = None;
                                         fleet_ui_state.selected_option = 0;
@@ -3591,7 +3726,7 @@ pub(super) fn render_transfer_planner(
                                         fleet_ui_state.target_body = None;
                                         fleet_ui_state.target_lagrange = None;
                                         fleet_ui_state.target_fleet = None;
-                                        fleet_ui_state.target_star_approach = None;
+                                        fleet_ui_state.target_arrival_radius = None;
                                         fleet_ui_state.computed_options.clear();
                                         fleet_ui_state.planned_transfer = None;
                                         fleet_ui_state.selected_option = 0;
@@ -3647,7 +3782,7 @@ pub(super) fn render_transfer_planner(
                                         fleet_ui_state.target_star_system = None;
                                         // Persist the current radius on the UI
                                         // state so the planner consumes it.
-                                        fleet_ui_state.target_star_approach =
+                                        fleet_ui_state.target_arrival_radius =
                                             Some((*entity, *radius_au));
                                         fleet_ui_state.computed_options.clear();
                                         fleet_ui_state.planned_transfer = None;
@@ -3724,7 +3859,7 @@ pub(super) fn render_transfer_planner(
                                             // so the player sees the new
                                             // parking radius take effect
                                             // immediately.
-                                            fleet_ui_state.target_star_approach =
+                                            fleet_ui_state.target_arrival_radius =
                                                 Some((*entity, clamped));
                                             if fleet_ui_state.target_body == Some(*entity) {
                                                 fleet_ui_state.computed_options.clear();
@@ -3767,6 +3902,127 @@ pub(super) fn render_transfer_planner(
                 );
             }
         });
+
+        // ── GRA-387: top-level "Target orbit:" DragValue ─────────────────────
+        // The picker exposes the destination parking radius only when the
+        // destination is a star (via the `DestEntry::StarApproach` row)
+        // — for planets / moons / Lagrange the arrival orbit was the
+        // body's heliocentric SMA with no UI affordance.  This row is
+        // the single uniform "what orbit do you want to insert into"
+        // knob for every destination type.
+        //
+        // Resolves (in order):
+        //   1. `target_arrival_radius` user override (already seeded by
+        //      the StarApproach picker, or by any prior edit here)
+        //   2. The body's heliocentric SMA (via
+        //      `heliocentric_orbit_for_body` — auto-resolves through
+        //      the LogicalParent chain for moons/rings)
+        //   3. A LEO-style 200 km altitude proxy around the destination's
+        //      parent body (for moon destinations where the parent's
+        //      own SMA is the only sane default).
+        //   4. If all three yield None, the row shows "—" (Lagrange /
+        //      fleet target — these have no fixed orbit).
+        if let Some(target_entity) = fleet_ui_state.target_body
+            .or(fleet_ui_state.target_fleet)
+            .or(fleet_ui_state.target_lagrange.as_ref().map(|lp| lp.planet_entity))
+        {
+            let resolved_radius_au: Option<f64> = fleet_ui_state
+                .target_arrival_radius
+                .filter(|(e, _)| *e == target_entity)
+                .map(|(_, r)| r)
+                .or_else(|| {
+                    // For star destinations, fall back to the
+                    // GRA-161 star-approach default (per-body
+                    // `star_approach_au` or 0.30 AU).
+                    body_query
+                        .get(target_entity)
+                        .ok()
+                        .filter(|(_, b, _, _, _)| b.body_type == BodyType::Star)
+                        .map(|(_, b, _, _, _)| star_approach_radius_au(b))
+                })
+                .or_else(|| {
+                    heliocentric_orbit_for_body(target_entity, body_query)
+                        .map(|ko| ko.semi_major_axis)
+                })
+                .or_else(|| {
+                    // Last-resort: derive a parking-orbit radius from the
+                    // destination's parent body if it's a moon/ring.
+                    let (_, _, _, _, lp) = body_query.get(target_entity).ok()?;
+                    let parent = lp?.0;
+                    let (_, parent_body, _, parent_ko, _) = body_query.get(parent).ok()?;
+                    parent_ko.map(|_ko| {
+                        // 200 km altitude LEO proxy (matches the
+                        // `parking_orbit_radius_au` heuristic at
+                        // `transfer_planner.rs:663`).
+                        f64::from(parent_body.radius) + 200.0_f64
+                    })
+                });
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new("Target orbit:").size(13.0));
+                ui.add_space(4.0);
+                match resolved_radius_au {
+                    Some(r0) => {
+                        // Clamp envelope: anything from 0.05 AU down
+                        // to the host star's max parking radius (when
+                        // destination is a star) or 5× the destination
+                        // SMA (planets / moons — the 5× lets the user
+                        // nudge a bit beyond the body's natural orbit
+                        // for elliptical parking orbits).
+                        let (lo, hi) = if matches!(
+                            body_query.get(target_entity).ok().map(|(_, b, _, _, _)| b.body_type),
+                            Some(BodyType::Star)
+                        ) {
+                            let (s_lo, s_hi) = star_approach_bounds_au(
+                                target_entity,
+                                body_query,
+                                body_system_ids,
+                                current_system_id,
+                            );
+                            (s_lo.max(0.05), s_hi)
+                        } else {
+                            let upper = (r0 * 5.0).max(1.0);
+                            (0.05, upper)
+                        };
+                        let mut r = r0.clamp(lo, hi);
+                        let drag = egui::DragValue::new(&mut r)
+                            .range(lo..=hi)
+                            .speed(0.001)
+                            .max_decimals(4)
+                            .suffix(" AU");
+                        let tooltip = format!(
+                            "Arrival parking orbit around the destination. \
+                             Defaults to the body's natural orbit (heliocentric SMA \
+                             for planets; 200 km LEO proxy for moons).\n\
+                             Min {:.2} AU; max {:.2} AU.",
+                            lo, hi
+                        );
+                        if ui
+                            .add(drag)
+                            .on_hover_text(&tooltip)
+                            .changed()
+                        {
+                            fleet_ui_state.target_arrival_radius =
+                                Some((target_entity, r));
+                            // Invalidate the cached porkchop so the
+                            // next render rebuilds against the new
+                            // radius.  The fast-path sync build at
+                            // GRA-387 catches destinations with no
+                            // grid cached; for destinations with a
+                            // cached grid, the rotation/staleness
+                            // blocks will rebuild against the new
+                            // radius via `grid_for_changed` (cleared
+                            // here so the rebuild fires this frame).
+                            fleet_ui_state.porkchop_grid = None;
+                            fleet_ui_state.porkchop_built_for = None;
+                            fleet_ui_state.selected_porkchop_cell = None;
+                        }
+                    }
+                    None => {
+                        ui.weak("— (Lagrange / fleet target has no fixed orbit)");
+                    }
+                }
+            });
+        }
     }
 
     // ── Intercept parameters (shown only when a fleet is targeted) ────────────
@@ -5527,11 +5783,11 @@ pub(super) fn render_transfer_planner(
                     .and_then(|(_, _, _, maybe_fo, _)| maybe_fo)
                     .and_then(|fo| {
                         // GRA-161: pull the user-controlled star-approach
-                        // override from FleetUiState.  `target_star_approach`
+                        // override from FleetUiState.  `target_arrival_radius`
                         // is only valid when the destination is the star it
                         // references; other targets ignore the override.
                         let target_orbit_radius_au = fleet_ui_state
-                            .target_star_approach
+                            .target_arrival_radius
                             .filter(|(e, _)| *e == fo.body)
                             .map(|(_, r)| r);
                         build_planned_transfer(
@@ -5550,7 +5806,7 @@ pub(super) fn render_transfer_planner(
                     })
             } else if let Some(te) = body_target_snap {
                 let target_orbit_radius_au = fleet_ui_state
-                    .target_star_approach
+                    .target_arrival_radius
                     .filter(|(e, _)| *e == te)
                     .map(|(_, r)| r);
                 build_planned_transfer(
@@ -5652,9 +5908,11 @@ pub(super) fn render_transfer_planner(
             // class now routes through the unified `build_selected_card`
             // dispatcher driven by `transfer_plan.source`
             // (`SelectionSource::{Interstellar, Binary, ShortHop,
-            // StarApproach, Hohmann3Option, GravityAssist, Porkchop,
-            // Empty}`).  The supplement still carries the fields that
-            // haven't migrated onto `SelectionSource` yet (GA candidates
+            // StarApproach, GravityAssist, Porkchop, Empty}` —
+            // `Hohmann3Option` was removed in GRA-387 because the
+            // legacy 3-option row now uses a degenerate Porkchop grid).
+            // The supplement still carries the fields that haven't
+            // migrated onto `SelectionSource` yet (GA candidates
             // + cross-system grid + interstellar display name); the next
             // Phase-6 dispatcher (GRA-381) will narrow it as the
             // `SelectionSource` variants pick up consumers.  Until then
@@ -5817,7 +6075,7 @@ pub(super) fn render_transfer_planner(
                                     .and_then(|(_, _, _, maybe_fo, _)| maybe_fo)
                                     .and_then(|fo| {
                                         let target_orbit_radius_au = fleet_ui_state
-                                            .target_star_approach
+                                            .target_arrival_radius
                                             .filter(|(e, _)| *e == fo.body)
                                             .map(|(_, r)| r);
                                         build_planned_transfer(
@@ -5854,7 +6112,7 @@ pub(super) fn render_transfer_planner(
 
                                     if let Some(flyby) = flyby_e {
                                         let target_orbit_radius_au = fleet_ui_state
-                                            .target_star_approach
+                                            .target_arrival_radius
                                             .filter(|(e, _)| *e == flyby)
                                             .map(|(_, r)| r);
                                         let mut maybe_pt = build_planned_transfer(
@@ -6011,7 +6269,7 @@ pub(super) fn render_transfer_planner(
                                         maybe_pt
                                     } else {
                                         let target_orbit_radius_au = fleet_ui_state
-                                            .target_star_approach
+                                            .target_arrival_radius
                                             .filter(|(e, _)| *e == te)
                                             .map(|(_, r)| r);
                                         build_planned_transfer(
@@ -6030,7 +6288,7 @@ pub(super) fn render_transfer_planner(
                                     }
                                 } else {
                                     let target_orbit_radius_au = fleet_ui_state
-                                        .target_star_approach
+                                        .target_arrival_radius
                                         .filter(|(e, _)| *e == te)
                                         .map(|(_, r)| r);
                                     build_planned_transfer(
@@ -6853,6 +7111,43 @@ pub(super) fn render_transfer_planner(
                 return;
             }
 
+            // GRA-387 follow-up: when a gravity assist is selected and
+            // there is no porkchop grid on screen, the player is
+            // stranded on the GA summary card with no way back to the
+            // standard transfer — the GRA-385 view-mode toggle row
+            // (rendered above as part of the porkchop branch) never
+            // reached this frame because the `if let Some(grid)`
+            // skipped it.  Surface a single "Switch to Standard"
+            // button here so the GA-only path can still return to
+            // direct mode without closing the planner.
+            if fleet_ui_state.selected_gravity_assist.is_some()
+                && fleet_ui_state.porkchop_grid.is_none()
+            {
+                ui.add_space(4.0);
+                if ui
+                    .add(
+                        egui::Button::new(
+                            egui::RichText::new("↩ Switch to standard transfer")
+                                .size(11.0)
+                                .color(theme::RP_BLUE),
+                        )
+                        .min_size(egui::Vec2::new(160.0, 24.0)),
+                    )
+                    .on_hover_text(
+                        "Clears the current gravity-assist selection and returns to the \
+                         standard transfer mode (Efficient / Moderate / Fast / Porkchop).",
+                    )
+                    .clicked()
+                {
+                    fleet_ui_state.selected_gravity_assist = None;
+                    fleet_ui_state.porkchop_view_mode =
+                        crate::ui::PorkchopViewMode::Standard;
+                    fleet_ui_state.computed_options.clear();
+                    fleet_ui_state.selected_option = 0;
+                    fleet_ui_state.planned_transfer = None;
+                }
+                return;
+            }
             // GRA-154 H-2 follow-up: when a gravity assist is selected the
             // legacy Efficient / Moderate / Fast row must NOT reappear.
             // The assist branch in `build_planned_transfer` (above) uses the
@@ -7099,7 +7394,7 @@ pub(super) fn render_transfer_planner(
 ///     back to a Hohmann conic with plane-derived orbital elements so
 ///     the Leg-2 arc still points the right way.
 ///   * `leg2_start_s` = Leg-1 half-period (`ga_leg1_time_s`).
-#[allow(clippy::too_many_arguments, dead_code)]
+#[allow(clippy::too_many_arguments)]
 fn build_planned_transfer_with_flyby(
     _fleet_entity: Entity,
     fleet: &Fleet,
