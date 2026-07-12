@@ -4274,10 +4274,19 @@ pub(super) fn render_transfer_planner(
                                                 }
                                                 fleet_ui_state.selected_porkchop_cell =
                                                     Some((best_col, shell_row));
-                                                fleet_ui_state.selected_abs_t_dep_s =
-                                                    Some(t_dep_min_for_abs);
-                                                fleet_ui_state.selected_abs_tof_s =
-                                                    Some(tof_min_for_abs);
+                                                // Don't touch `selected_abs_t_dep_s`
+                                                // here — setting it to the grid's
+                                                // window start jumps the preview
+                                                // arc to a launch epoch the player
+                                                // didn't pick.  Leave it as the
+                                                // player's prior value (typically
+                                                // None → arc anchors at "Now") so the
+                                                // arc stays continuous across the
+                                                // build.  Re-anchor logic at line
+                                                // 2465 will clamp to `elapsed` if
+                                                // the cell is in the past.
+                                                let _ = t_dep_min_for_abs;
+                                                let _ = tof_min_for_abs;
                                             }
                                             fleet_ui_state.porkchop_grid = Some(grid);
                                         } else {
@@ -4310,15 +4319,19 @@ pub(super) fn render_transfer_planner(
         // numeric AU via `radius_for_shell`; the player picks a shell name from
         // the dropdown rather than dialing a raw AU value.
         //
-        // The shell set depends on the destination body type.  Lagrange / fleet
-        // / star-system targets have no fixed orbit and render the "—" placeholder.
-        if let Some(target_entity) = fleet_ui_state
+        // The shell set depends on the destination body type.  For Lagrange
+        // targets the picker is hidden entirely — `direct_lp_transfer_options`
+        // does a heliocentric-style Hohmann which doesn't honour planet-shell
+        // parking altitudes (planet-moon Lagrange has a different L-frame,
+        // heliocentric needs shell-aware PATCHED CONIC — follow-up ticket).
+        // Showing the picker for Lagrange was misleading the user into
+        // believing the orbit shell drove the displayed ΔV.
+        if fleet_ui_state.target_lagrange.is_some() {
+            // Skip the orbit shell picker — Lagrange legacy 3-option stays.
+            // The "Direct LP Transfer" card above is the canonical L-point UI.
+        } else if let Some(target_entity) = fleet_ui_state
             .target_body
             .or(fleet_ui_state.target_fleet)
-            .or(fleet_ui_state
-                .target_lagrange
-                .as_ref()
-                .map(|lp| lp.planet_entity))
         {
             let body_for_picker = body_query.get(target_entity).ok().map(|(_, b, _, _, _)| b);
 
