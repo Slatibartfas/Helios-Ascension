@@ -883,28 +883,61 @@ fn solve_cell(
                     (v1_speed_ms - v_circ_at_r1_helio_ms).abs(),
                 ),
             };
-            // Destination leg: parking at heliocentric SMA.  Full
-            // local-frame arrival (v_circ at body+altitude) is a much
-            // larger solver refactor and is deferred — note that
-            // `arr_burn` is still the heliocentric-SMA interpretation
-            // even when origin uses a parking-orbit-aware value, so the
-            // destination accuracy mirrors the previous solver but the
-            // origin honours the shell pick.
+            // Destination leg: parking at heliocentric SMA by default,
+            // or at the player's shell altitude (symmetric to origin).
+            // GRA-NNN: when `parking_radius_au` is set, treat the
+            // destination's circular parking orbit as being at that
+            // radius around `body_gm`.  v_circ at the parking orbit,
+            // v_esc = sqrt(2)·v_circ, and the burn from the transfer
+            // ellipse to circular parking are derived from c3 (the
+            // trajectory's invariant hyperbolic-excess energy) plus
+            // the parking-orbit escape velocity.  This makes "Low"
+            // cost more ΔV at both ends of the transfer.
             let r2_m = (dest_pos_au * super::orbital_mechanics::AU_IN_METERS).length();
-            let v_circ_arr_ms = (inputs.system_gm / r2_m).sqrt();
+            let v_circ_arr_helio_ms = (inputs.system_gm / r2_m).sqrt();
             let v2_speed_ms = v2_ms.length();
-            // arr_burn: how much we must change speed from the transfer
-            // ellipse to the destination's circular parking orbit
-            // (heliocentric SMA — see comment above).  `.abs()` so
-            // inner-planet arrivals where v2 > v_circ show the correct
-            // retrofire burn instead of 0 km/s.
-            let arr_burn_ms = (v_circ_arr_ms - v2_speed_ms).abs();
+            // Compute `c3` at the destination side (v_inf² for the
+            // trajectory).  Same c3 as origin (geometrically invariant)
+            // for Hohmann, but `.abs()` keeps retrograde and prograde
+            // arrivals symmetric.
+            let v_inf_arr_helio_ms = (v2_speed_ms - v_circ_arr_helio_ms).abs();
+            let c3_arr = v_inf_arr_helio_ms * v_inf_arr_helio_ms;
+            let (v_circ_arr_ms, arr_burn_ms) = match inputs.parking_radius_au {
+                Some(r2_au_arr) => {
+                    // Parking at the shell altitude around the
+                    // destination body.  Use the same `body_gm` as the
+                    // origin (a per-leg GM would let origin/destination
+                    // use different bodies' GMs, but the shell picker
+                    // is single-valued and the common case is
+                    // interplanetary with both ends at the same
+                    // body-class).
+                    let r2_m_park = r2_au_arr * super::orbital_mechanics::AU_IN_METERS;
+                    let v_circ_park = (inputs.body_gm / r2_m_park).sqrt();
+                    let v_esc_sq_park = 2.0 * v_circ_park * v_circ_park;
+                    let v_arr_sq = c3_arr + v_esc_sq_park;
+                    let v_arr_p = if v_arr_sq > 0.0 { v_arr_sq.sqrt() } else { 0.0 };
+                    // arr_burn: how much we must change speed from the
+                    // transfer ellipse to circular parking.  `.abs()`
+                    // so inward-Hohmann arrivals where v_arr > v_circ
+                    // show the correct retrofire burn instead of 0 km/s.
+                    let dv = (v_arr_p - v_circ_park).abs();
+                    (v_circ_park, dv)
+                }
+                // No parking_radius_au — legacy "parking at
+                // heliocentric SMA" assumption.  Keep for save-compat
+                // and tests that don't care about the player's shell.
+                None => (
+                    v_circ_arr_helio_ms,
+                    (v_circ_arr_helio_ms - v2_speed_ms).abs(),
+                ),
+            };
             // v_inf_arrival: the *hyperbolic excess* at the destination
             // (the speed the spacecraft is moving *above* circular
-            // orbital speed at r2).  Only positive when v2 > v_circ_arr;
-            // for inward-Hohmann arrivals the entire delta-v is a real
-            // brake burn (captured by `arr_burn_ms` above), not an
-            // unbrakeable hyperbolic excess.
+            // orbital speed at the parking radius).  Only positive when
+            // v_arr > v_circ_park; for inward-Hohmann arrivals the
+            // entire delta-v is a real brake burn (captured by
+            // `arr_burn_ms` above), not an unbrakeable hyperbolic
+            // excess.
             let v_inf_arrival_ms = (v2_speed_ms - v_circ_arr_ms).max(0.0);
             let total = dep_burn_ms + arr_burn_ms;
             PorkchopCell {
@@ -3557,7 +3590,7 @@ mod planner_wiring_tests {
             "Mars".to_string(),
             "interplanetary",
             0.0,
-            None, // GRA-NNN parking_radius_au: see above.
+            None,                                     // GRA-NNN parking_radius_au: see above.
             crate::fleets::orbital_mechanics::GM_SUN, // GRA-NNN body_gm: legacy = system_gm.
         );
         // Buffer covers 4× the baseline's t_dep window.

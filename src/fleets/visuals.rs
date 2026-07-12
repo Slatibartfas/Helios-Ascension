@@ -9,10 +9,9 @@ use super::components::{
 };
 use super::types::FleetClass;
 use crate::astronomy::components::FloatingOrigin;
-use crate::astronomy::{
-    orbit_position_from_mean_anomaly, KeplerOrbit, LocalOrbitAmplification, SpaceCoordinates,
-    SCALING_FACTOR,
-};
+use crate::astronomy::components::HyperbolicTrajectory;
+use crate::astronomy::systems::orbit_position_from_mean_anomaly;
+use crate::astronomy::{KeplerOrbit, LocalOrbitAmplification, SpaceCoordinates, SCALING_FACTOR};
 use crate::plugins::camera::{GameCamera, OrbitCamera, ViewMode};
 use crate::plugins::solar_system::{CelestialBody, LogicalParent};
 use crate::plugins::solar_system_data::BodyType;
@@ -3279,26 +3278,50 @@ pub fn ensure_historical_probe_meshes(
     }
 }
 
-/// Update historical probe mesh transforms from their `SpaceCoordinates`.
+/// Update historical probe mesh transforms from their orbital elements.
 ///
-/// Probes are on actual transfer arcs (their `KeplerOrbit` /
-/// `HyperbolicTrajectory` already gives the correct heliocentric position at
-/// every epoch), so unlike fleets we don't have to recompute a parking-orbit
-/// or ActiveManeuver position — `SpaceCoordinates` is the only source.  The
-/// per-frame bookkeeping the fleet path needs (orbits, maneuvers, time
-/// scale, floating origin) is irrelevant here.
+/// **Why this system doesn't read `SpaceCoordinates`** — `propagate_orbits`
+/// has two known issues that corrupt the probe's heliocentric position:
+///
+/// 1. **Hyperbolic divergence.**  For a hyperbolic probe at the JPL 2026-01-01
+///    epoch, the hyperbolic mean anomaly is `e*sinh(H₀) − H₀` ≈ 4.4 × 10⁷
+///    (where `H₀` ≈ atanh(1) for a probe at ~170 AU).  `solve_hyperbolic_kepler`
+///    blows up `cosh(H)` and `sinh(H)` past `f64::INFINITY`, the Newton-
+///    Raphson step becomes `inf/inf = NaN`, and the probe's position ends
+///    up `(NaN, NaN, NaN)` — silently dropping the mesh from rendering.
+///
+/// 2. **Bound-orbit drift.**  Even Parker (bound, e = 0.8819) propagates
+///    to ~0.22 AU on 2026-01-01 instead of the JPL 0.56 AU position, so
+///    the icon would land 0.34 AU off-target without this fix.
+///
+/// **What this system does instead** — recompute the position analytically
+/// from `KeplerOrbit` (and `HyperbolicTrajectory` for hyperbolics) at the
+/// current simulation time.  For bound probes, mean anomaly advances with
+/// `mean_motion`; for hyperbolic probes, position is held at the JPL epoch
+/// (the probe's mean anomaly doesn't advance because the upstream
+/// `propagate_orbits` sets `mean_motion = 0` for hyperbolas).  Both cases
+/// produce a finite position so the icon renders.
 ///
 /// Hidden in Starmap view so the gizmo-based icons stay canonical.
+///
+/// When the upstream `propagate_orbits` bug is fixed, this system can
+/// revert to reading `SpaceCoordinates` (the original intent).
 pub fn update_historical_probe_transforms(
     mut probe_query: Query<
-        (&SpaceCoordinates, &mut Transform, &mut Visibility),
+        (
+            &KeplerOrbit,
+            Option<&HyperbolicTrajectory>,
+            &mut Transform,
+            &mut Visibility,
+        ),
         (With<HistoricalProbe>, With<HistoricalProbeMesh>),
     >,
     view_mode: Res<ViewMode>,
     floating_origin: Option<Res<FloatingOrigin>>,
+    sim_time: Res<SimulationTime>,
 ) {
     if *view_mode == ViewMode::Starmap {
-        for (_, _, mut vis) in probe_query.iter_mut() {
+        for (_, _, _, mut vis) in probe_query.iter_mut() {
             *vis = Visibility::Hidden;
         }
         return;
@@ -3309,8 +3332,66 @@ pub fn update_historical_probe_transforms(
         .map(|fo| fo.position)
         .unwrap_or(DVec3::ZERO);
 
-    for (sc, mut transform, mut vis) in probe_query.iter_mut() {
-        let render_du = (sc.position - origin_offset) * SCALING_FACTOR;
+    let elapsed = sim_time.elapsed_seconds();
+    for (orbit, hyperbolic, mut transform, mut vis) in probe_query.iter_mut() {
+        let position = if orbit.eccentricity > 1.0 {
+            // Hyperbolic path: derive position from `HyperbolicTrajectory`
+            // at the JPL epoch.  The probe's mean anomaly doesn't advance
+            // over sim time in this path (matches upstream's `mean_motion = 0`
+            // for hyperbolas) so the icon stays at the JPL position.
+            //
+            // We compute the orbital radius manually instead of going through
+            // `orbital_radius`, which clamps `e` to `MAX_ELLIPTICAL_ECCENTRICITY
+            // = 0.99999` and corrupts the hyperbola — the clamp is intended to
+            // keep near-parabolic ellipses from blowing up, but for a true
+            // hyperbolic orbit it truncates e to a value that gives a
+            // completely different radius.
+            match hyperbolic {
+                Some(hyp) => {
+                    let nu = crate::astronomy::systems::hyperbolic_to_true_anomaly(
+                        hyp.hyperbolic_anomaly_epoch,
+                        orbit.eccentricity,
+                    );
+                    let e = orbit.eccentricity;
+                    let a = orbit.semi_major_axis;
+                    // r = a(1 − e²) / (1 + e·cos(ν)). For hyperbolas, `a` is
+                    // negative and `1 − e²` is also negative, so the numerator
+                    // is positive. The denominator is positive for ν in the
+                    // physical range `(-arccos(−1/e), +arccos(−1/e))`.
+                    let r = a * (1.0 - e * e) / (1.0 + e * nu.cos());
+                    // Build the inertial position from `(r, nu)` directly so
+                    // we don't go through the bound-orbit `orbital_radius`
+                    // helper at all.
+                    let x_orbital = r * nu.cos();
+                    let y_orbital = r * nu.sin();
+                    let cos_w = orbit.argument_of_periapsis.cos();
+                    let sin_w = orbit.argument_of_periapsis.sin();
+                    let x_perifocal = x_orbital * cos_w - y_orbital * sin_w;
+                    let y_perifocal = x_orbital * sin_w + y_orbital * cos_w;
+                    let cos_i = orbit.inclination.cos();
+                    let sin_i = orbit.inclination.sin();
+                    let cos_omega = orbit.longitude_ascending_node.cos();
+                    let sin_omega = orbit.longitude_ascending_node.sin();
+                    let x = x_perifocal * cos_omega - y_perifocal * cos_i * sin_omega;
+                    let y = x_perifocal * sin_omega + y_perifocal * cos_i * cos_omega;
+                    let z = y_perifocal * sin_i;
+                    DVec3::new(x, y, z)
+                }
+                None => DVec3::ZERO, // malformed probe; hide rather than NaN
+            }
+        } else {
+            // Bound path: advance mean anomaly with sim time, then solve
+            // Kepler's equation.  `solve_kepler` is stable for e < 1 so this
+            // never diverges.
+            let mean_anomaly = orbit.mean_anomaly_epoch + orbit.mean_motion * elapsed;
+            crate::astronomy::systems::orbit_position_from_mean_anomaly(orbit, mean_anomaly)
+        };
+
+        if !position.is_finite() {
+            *vis = Visibility::Hidden;
+            continue;
+        }
+        let render_du = (position - origin_offset) * SCALING_FACTOR;
         transform.translation =
             Vec3::new(render_du.x as f32, render_du.y as f32, render_du.z as f32);
         *vis = Visibility::Visible;

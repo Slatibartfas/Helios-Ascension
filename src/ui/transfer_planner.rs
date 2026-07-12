@@ -4329,9 +4329,8 @@ pub(super) fn render_transfer_planner(
         if fleet_ui_state.target_lagrange.is_some() {
             // Skip the orbit shell picker — Lagrange legacy 3-option stays.
             // The "Direct LP Transfer" card above is the canonical L-point UI.
-        } else if let Some(target_entity) = fleet_ui_state
-            .target_body
-            .or(fleet_ui_state.target_fleet)
+        } else if let Some(target_entity) =
+            fleet_ui_state.target_body.or(fleet_ui_state.target_fleet)
         {
             let body_for_picker = body_query.get(target_entity).ok().map(|(_, b, _, _, _)| b);
 
