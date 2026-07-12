@@ -5406,57 +5406,64 @@ pub(super) fn render_transfer_planner(
             }
         } else if let Some(ref lp) = lp_target_snap {
             // Lagrange-point transfer.
-            // GRA-NNN: when the player has picked a shell for the parent planet,
-            // use the shell-resolved parking radius as `r1_lp` so the visible
-            // 3-option ΔV tracks the shell pick.  Read the shell keyed by
-            // `lp.planet_entity` (the planner's shell picker for Lagrange
-            // targets is keyed on the parent planet — see
-            // `render_transfer_planner` line ~4129).
-            let shell_resolved_r1_lp: Option<f64> = fleet_ui_state
-                .target_orbit_shell
-                .filter(|(e, _)| *e == lp.planet_entity)
-                .and_then(|(_, s)| {
-                    body_query
-                        .get(lp.planet_entity)
-                        .ok()
-                        .map(|(_, b, _, _, _)| radius_for_shell(b, s))
-                });
-            // Determine the fleet's current heliocentric SMA, walking up to
-            // the planet's SMA when the fleet is parked at a moon/sub-body.
+            //
+            // GRA-NNN follow-up (revert of 07b34e7's Lagrange shell fix):
+            // the previous fix used `radius_for_shell(planet, shell)` as
+            // `r1_lp` and passed it straight to `direct_lp_transfer_options`,
+            // which does a heliocentric-style Hohmann and assumes both r1
+            // and r2 sit in the *central* body's potential.  For
+            // planet-moon Lagrange (e.g. Saturn-Prometheus L1) `lp.gm` is
+            // Saturn's GM, but `radius_for_shell(Saturn, Medium)` is
+            // ~0.001 AU around Saturn — the Hohmann solver then computes
+            // `v_peri ≈ 230 km/s` (escape velocity from Saturn's well at
+            // that radius) and the player sees ΔV ≈ 240 km/s.  Real ΔV
+            // for L1 from Saturn's parking is single-digit km/s.
+            //
+            // The shell picker cannot drive L1 transfers until the solver
+            // switches to a local-frame patched-conic model (different
+            // r1 / r2 / gm regime than the heliocentric porkchop grid).
+            // Until that lands, L1 transfers use the legacy r1_lp
+            // resolution: the moon's orbit around the planet for
+            // planet-moon L-points, or the planet's heliocentric SMA for
+            // Sun-Earth class L-points.  The shell picker is visible for
+            // Lagrange targets but does not drive the calculation —
+            // the 3-option row is the only rendered output until the
+            // patched-conic solver lands as a separate ticket.
+            //
+            // Determine the fleet's current SMA, walking up to the
+            // planet's SMA when the fleet is parked at a moon/sub-body.
             // When orbiting the star directly (e.g. after a previous LP transfer),
             // use the fleet's parking radius if available, otherwise the LP planet's SMA.
-            let r1_lp = shell_resolved_r1_lp.unwrap_or_else(|| {
-                body_query
-                    .get(orbit.body)
-                    .ok()
-                    .and_then(|(_, body, _, ko, _)| {
-                        if body.body_type == BodyType::Star {
-                            // Fleet parked around the star — use its parking orbit radius
-                            // or fall back to the target LP's planet SMA.
-                            if orbit.radius_au > 0.01 {
-                                Some(orbit.radius_au)
-                            } else {
-                                Some(lp.planet_sma_au)
-                            }
+            let r1_lp = body_query
+                .get(orbit.body)
+                .ok()
+                .and_then(|(_, body, _, ko, _)| {
+                    if body.body_type == BodyType::Star {
+                        // Fleet parked around the star — use its parking orbit radius
+                        // or fall back to the target LP's planet SMA.
+                        if orbit.radius_au > 0.01 {
+                            Some(orbit.radius_au)
                         } else {
-                            ko.map(|ko| ko.semi_major_axis)
+                            Some(lp.planet_sma_au)
                         }
-                    })
-                    .or_else(|| {
-                        body_query
-                            .get(orbit.body)
-                            .ok()
-                            .and_then(|(_, _, _, _, parent)| parent)
-                            .and_then(|lpp| {
-                                body_query
-                                    .get(lpp.0)
-                                    .ok()
-                                    .and_then(|(_, _, _, ko, _)| ko)
-                                    .map(|ko| ko.semi_major_axis)
-                            })
-                    })
-                    .unwrap_or(lp.planet_sma_au)
-            });
+                    } else {
+                        ko.map(|ko| ko.semi_major_axis)
+                    }
+                })
+                .or_else(|| {
+                    body_query
+                        .get(orbit.body)
+                        .ok()
+                        .and_then(|(_, _, _, _, parent)| parent)
+                        .and_then(|lpp| {
+                            body_query
+                                .get(lpp.0)
+                                .ok()
+                                .and_then(|(_, _, _, ko, _)| ko)
+                                .map(|ko| ko.semi_major_axis)
+                        })
+                })
+                .unwrap_or(lp.planet_sma_au);
 
             // L3/L4/L5 are co-orbital with the planet (same heliocentric radius,
             // different phase angle).  A Hohmann gives 0 Delta-V in this case.
