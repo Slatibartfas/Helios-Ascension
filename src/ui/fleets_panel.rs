@@ -634,7 +634,7 @@ pub(super) fn ui_fleets_panel(
                             // component, no transfer orders), so we render
                             // them as a separate non-interactive table
                             // below the player fleet list.
-                            render_historical_probes_section(ui, &historical_probes);
+                            render_historical_probes_section(ui, &historical_probes, &sim_time);
                         });
                     },
                 );
@@ -921,6 +921,7 @@ fn render_historical_probes_section(
         ),
         With<HistoricalProbe>,
     >,
+    sim_time: &crate::ui::time::SimulationTime,
 ) {
     // Collect + sort by HistoricalProbeKind ordinal for stable ordering.
     // `iter()` on the query returns references in arbitrary order, so we
@@ -933,6 +934,7 @@ fn render_historical_probes_section(
         is_hyperbolic: bool,
         destination_label: &'static str,
         target_distance_au: Option<f64>,
+        silent_year: Option<i32>,
     }
     let mut rows: Vec<(HistoricalProbeKind, ProbeRow)> = probe_query
         .iter()
@@ -948,9 +950,19 @@ fn render_historical_probes_section(
             // canonical destination alongside the probe metadata).  The `Option`
             // here is defensive — if a save predates this PR, fall back to the
             // historical-probes baseline so the row still renders.
-            let (destination_label, target_distance_au) = transfer
-                .map(|t| (t.destination_label, t.target_distance_au))
-                .unwrap_or(("Interstellar medium (canonical)", None));
+            let (destination_label, target_distance_au, silent_year) = transfer
+                .map(|t| {
+                    let silent = t.silent_since_jd_tdb.map(|jd| {
+                        // Convert TDB Julian Date → calendar year.
+                        // Approximate: a year is 365.25 days from JD
+                        // 2_451_545.0 (J2000).  Good enough for a
+                        // "Silent since YYYY" display label.
+                        let days_from_j2000 = jd - 2_451_545.0;
+                        2000 + (days_from_j2000 / 365.25) as i32
+                    });
+                    (t.destination_label, t.target_distance_au, silent)
+                })
+                .unwrap_or(("Interstellar medium (canonical)", None, None));
             (
                 probe.kind,
                 ProbeRow {
@@ -961,6 +973,7 @@ fn render_historical_probes_section(
                     is_hyperbolic,
                     destination_label,
                     target_distance_au,
+                    silent_year,
                 },
             )
         })
@@ -1039,6 +1052,10 @@ fn render_historical_probes_section(
         });
 
     for (_, row) in &rows {
+        let silent_now = row
+            .silent_year
+            .map(|y| sim_time.elapsed_seconds() / (365.25 * 86_400.0) >= (y - 2026) as f64)
+            .unwrap_or(false);
         egui::Grid::new(format!("historical_probe_row_{}", row.name))
             .num_columns(6)
             .spacing([10.0, 2.0])
@@ -1051,11 +1068,25 @@ fn render_historical_probes_section(
                         ui.allocate_exact_size(egui::vec2(8.0, 8.0), egui::Sense::hover());
                     ui.painter()
                         .rect_filled(swatch_rect, 1.5, theme::PROBE_ORBIT);
+                    let name_color = if silent_now {
+                        theme::TEXT_DIM
+                    } else {
+                        theme::TEXT_VALUE
+                    };
                     ui.label(
                         egui::RichText::new(row.name)
                             .font(theme::body(12.0))
-                            .color(theme::TEXT_VALUE),
+                            .color(name_color),
                     );
+                    if silent_now {
+                        if let Some(y) = row.silent_year {
+                            ui.label(
+                                egui::RichText::new(format!("· silent {y}"))
+                                    .font(theme::body(10.0))
+                                    .color(theme::TEXT_HINT),
+                            );
+                        }
+                    }
                 });
                 ui.label(
                     egui::RichText::new(row.agency)

@@ -97,7 +97,7 @@ const NEW_HORIZONS_STATE_KM: (DVec3, DVec3) = (
 /// trigger uses `(sim_day >= 0)` rather than a precise TDB comparison — but
 /// the value is preserved on the `HyperbolicTrajectory` companion for any
 /// future per-probe time-stamping that needs it.
-const EPOCH_2026_JD_TDB: f64 = 2_461_046.5;
+pub(crate) const EPOCH_2026_JD_TDB: f64 = 2_461_046.5;
 
 /// GM of the Sun in km³/s² (IAU 2012 nominal value, ≈ 1.32712440018 × 10¹¹).
 /// 1 m³/s² = 1e-9 km³/s², so the km-units value is 1.32712440018e11, NOT
@@ -893,5 +893,47 @@ mod tests {
         // The test asserts only the non-finite / plausible-range guarantees
         // above; do not re-add a strict JPL-distance check until the bound
         // path's drift is also fixed.
+    }
+
+    /// Verify the silent-date catalog.  Each probe's canonical
+    /// `HistoricalProbeTransfer` carries a `silent_since_jd_tdb` that
+    /// drives the 3D icon hide and the orbit-path fade.  This test pins
+    /// the catalog so a future edit doesn't accidentally make a probe
+    /// stay "active" forever — the player's diagnostic that "the probe
+    /// disappeared, where did it go?" only works if the dates are stable.
+    /// Parker is `None` because it's on a bound orbit and its RTG is sized
+    /// for an extended primary mission through the game-epoch start.
+    #[test]
+    fn silent_date_catalog_is_stable() {
+        let v1 = HistoricalProbeTransfer::canonical_for_kind(HistoricalProbeKind::Voyager1);
+        let v1_silent = v1.silent_since_jd_tdb.expect("V1 must have a silent date");
+        assert!(
+            (v1_silent - 2_462_507.5).abs() < 1.0,
+            "Voyager 1 silent date drifted (got {})",
+            v1_silent,
+        );
+
+        let v2 = HistoricalProbeTransfer::canonical_for_kind(HistoricalProbeKind::Voyager2);
+        let v2_silent = v2.silent_since_jd_tdb.expect("V2 must have a silent date");
+        assert!(
+            (v2_silent - 2_462_507.5).abs() < 1.0,
+            "Voyager 2 silent date drifted (got {})",
+            v2_silent,
+        );
+
+        let parker = HistoricalProbeTransfer::canonical_for_kind(HistoricalProbeKind::Parker);
+        assert!(
+            parker.silent_since_jd_tdb.is_none(),
+            "Parker should have no silent date (still active); got {:?}",
+            parker.silent_since_jd_tdb,
+        );
+
+        let nh = HistoricalProbeTransfer::canonical_for_kind(HistoricalProbeKind::NewHorizons);
+        let nh_silent = nh.silent_since_jd_tdb.expect("NH must have a silent date");
+        assert!(
+            (nh_silent - 2_466_525.5).abs() < 1.0,
+            "New Horizons silent date drifted (got {})",
+            nh_silent,
+        );
     }
 }

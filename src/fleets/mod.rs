@@ -113,12 +113,19 @@ impl Plugin for FleetPlugin {
                     visuals::update_fleet_transforms
                         .after(systems::update_fleet_orbit_positions)
                         .after(systems::update_fleet_maneuver_positions),
-                    // Historical probe icons (separate from the fleet icon path
-                    // because probes are not `Fleet` entities — see
-                    // `HistoricalProbeMesh` in `src/fleets/visuals.rs`).
+                ),
+            )
+            // Historical probe icons live in a second `.add_systems` call so
+            // the system tuple stays under Bevy 0.18's 20-element limit.
+            // Probes are not `Fleet` entities so the two groups share no
+            // query resources; ordering between them is irrelevant.
+            .add_systems(
+                Update,
+                (
                     visuals::ensure_historical_probe_meshes,
                     visuals::update_historical_probe_transforms
                         .after(visuals::ensure_historical_probe_meshes),
+                    visuals::update_historical_probe_orbit_path_visibility,
                 ),
             );
     }

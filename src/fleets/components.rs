@@ -838,7 +838,25 @@ pub struct HistoricalProbeTransfer {
     /// Julian Date (TDB) of the canonical launch — used to compute
     /// "M years, N days in transit" without an extra lookup.
     pub launch_jd_tdb: f64,
+    /// Julian Date (TDB) at which the probe is expected to "go silent"
+    /// (RTG power drops below the comms threshold, no further contact).
+    /// `None` = probe is still active indefinitely (Parker Solar Probe
+    /// is in a bound orbit, not an escape trajectory, and its RTG budget
+    /// is sized for an extended primary mission).  The 3D icon and the
+    /// orbit path fade out over the `ORBIT_PATH_FADE_DURATION_S` window
+    /// after this date, leaving the panel's "Silent since YYYY" badge
+    /// as the only persistent reference.
+    pub silent_since_jd_tdb: Option<f64>,
 }
+
+/// How long the probe's orbit path stays visible after the
+/// `silent_since_jd_tdb` date.  Inside the window the color alpha fades
+/// linearly from full to zero; after the window the path is hidden
+/// (`OrbitPath.visible = false`).  5 years is long enough that the
+/// ghost-trail feel registers, short enough that a player advancing
+/// sim-time a few years past the silent date won't have a stale ring
+/// cluttering the system view forever.
+pub const ORBIT_PATH_FADE_DURATION_S: f64 = 5.0 * 365.25 * 86_400.0;
 
 impl HistoricalProbeTransfer {
     /// Canonical probe-to-target map for the four JPL Horizons probes
@@ -852,12 +870,19 @@ impl HistoricalProbeTransfer {
                 target_distance_au: None,
                 // Voyager 1 launched 1977-09-05 00:00 TDB = JD 2_443_372.5.
                 launch_jd_tdb: 2_443_372.5,
+                // Voyager 1's RTG was at ~225 W by 2024 and is on track to
+                // drop below the comms threshold around 2025–2030.  2030-01-01
+                // is a conservative estimate that lines up with the JPL
+                // mission-extension projections.
+                silent_since_jd_tdb: Some(2_462_507.5),
             },
             HistoricalProbeKind::Voyager2 => Self {
                 destination_label: "Interstellar medium",
                 target_distance_au: None,
                 // Voyager 2 launched 1977-08-20 00:00 TDB = JD 2_443_356.5.
                 launch_jd_tdb: 2_443_356.5,
+                // Same RTG trajectory as V1.
+                silent_since_jd_tdb: Some(2_462_507.5),
             },
             HistoricalProbeKind::Parker => Self {
                 destination_label: "Solar corona (perihelion series)",
@@ -866,6 +891,10 @@ impl HistoricalProbeTransfer {
                 // (no precise TDB reference available in the historical-probes table;
                 // rounded to the calendar midnight).
                 launch_jd_tdb: 2_458_343.5,
+                // Parker is on a bound orbit and its RTG budget is sized
+                // for the extended primary mission through at least 2026
+                // (the game-epoch start).  No silent date.
+                silent_since_jd_tdb: None,
             },
             HistoricalProbeKind::NewHorizons => Self {
                 destination_label: "Arrokoth / Kuiper Belt",
@@ -877,6 +906,9 @@ impl HistoricalProbeTransfer {
                 target_distance_au: Some(43.13),
                 // New Horizons launched 2006-01-19 00:00 UTC = JD 2_453_755.5.
                 launch_jd_tdb: 2_453_755.5,
+                // NH RTG is still strong as of 2024.  2040 is the late-2030s
+                // upper bound per mission-extension projections.
+                silent_since_jd_tdb: Some(2_466_525.5),
             },
         }
     }

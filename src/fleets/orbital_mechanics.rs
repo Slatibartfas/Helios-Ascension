@@ -1751,6 +1751,169 @@ pub fn hohmann_transfer(r1_au: f64, r2_au: f64, gm: f64) -> (f64, f64, f64, f64,
     (dv1, dv2, t_transfer, a / AU_IN_METERS, ecc)
 }
 
+/// Compute transfer options for an L1 / L2 Lagrange-point target,
+/// using a **patched-conic** model that honours the player's shell
+/// pick on the parent body.  GRA-NNN.
+///
+/// Two regimes:
+///
+/// 1. **Planet-moon L1/L2** (e.g. Saturn-Prometheus L1) — the parent
+///    body is the planet, parking is around the planet, the L-point
+///    distance is local (`lp.radius_au` is the L1 distance from the
+///    planet).  Single Hohmann around `lp.gm` between the parking
+///    shell and `lp.radius_au`.  ΔV at the parking shell scales with
+///    the shell: Low (LEO analog) costs the most, High (close to L1)
+///    costs the least.  Mirrors the body-target shell-driven math.
+///
+/// 2. **Heliocentric L1/L2** (e.g. Sun-Earth L1) — the parent body is
+///    the Sun, but the shell picker parks around the planet (Earth).
+///    Modeled as 3 burns: escape the planet's well using the shell,
+///    heliocentric Hohmann between the planet's heliocentric orbit
+///    and the L1 heliocentric distance, capture at the L1.
+///
+/// L4/L5 still use `co_orbital_phasing_options` (co-orbital, not
+/// patched-conic).
+///
+/// # Args
+///
+/// * `shell_radius_au` — the parking radius around the *parent body*.
+///   For planet-moon L1/L2 this is the shell pick for the planet
+///   (e.g. Saturn Medium = 1.17e-3 AU).  For heliocentric L1/L2
+///   this is the shell pick for the planet (e.g. Earth Low =
+///   4.5e-5 AU).
+/// * `lp_radius_au` — `LagrangeTarget::radius_au`.  For planet-moon
+///   case: L-point distance from the planet.  For heliocentric case:
+///   L-point heliocentric distance from the Sun.
+/// * `lp_gm` — `LagrangeTarget::gm`.  For planet-moon case:
+///   planet's GM.  For heliocentric case: Sun's GM.
+/// * `heliocentric_parking_au` — only used for heliocentric case.
+///   The planet's heliocentric SMA (e.g. 1.0 AU for Earth).
+/// * `heliocentric_system_gm` — only used for heliocentric case.
+///   The Sun's GM (so the heliocentric Hohmann uses the Sun's
+///   gravitational well).
+pub fn lp_transfer_options(
+    shell_radius_au: f64,
+    lp_radius_au: f64,
+    lp_gm: f64,
+    heliocentric_parking_au: f64,
+    heliocentric_system_gm: f64,
+) -> Vec<TransferOption> {
+    if shell_radius_au <= 0.0 || lp_radius_au <= 0.0 || lp_gm <= 0.0 {
+        return Vec::new();
+    }
+    if (shell_radius_au - lp_radius_au).abs() < 1e-12 {
+        return vec![TransferOption {
+            label: "Same orbit",
+            total_delta_v_ms: 0.0,
+            delta_v1_ms: 0.0,
+            delta_v2_ms: 0.0,
+            plane_change_dv_ms: 0.0,
+            transfer_time_s: 0.0,
+            sma_au: shell_radius_au,
+            eccentricity: 0.0,
+            energy_multiplier: 1.0,
+            burn_time_s: 0.0,
+            is_thrust_limited: false,
+            transfer_orbit_override: None,
+        }];
+    }
+
+    // Detect regime: planet-moon vs heliocentric.  Saturn GM is
+    // ~1/3500 of Sun GM; Jupiter ~1/1000.  0.5 * Sun GM is comfortably
+    // above any planet's GM and below the Sun's.
+    let is_heliocentric = lp_gm > 0.5 * crate::fleets::orbital_mechanics::GM_SUN;
+
+    if !is_heliocentric {
+        // ── Planet-moon L1/L2: single Hohmann around the parent body ─
+        let (dv1, dv2, t_h, sma, ecc) = hohmann_transfer(shell_radius_au, lp_radius_au, lp_gm);
+        let (efficient, moderate, fast) = lp_3_option_skeletons(dv1, dv2, t_h, sma, ecc);
+        vec![efficient, moderate, fast]
+    } else {
+        // ── Heliocentric L1/L2: 3-burn patched conic ─
+        // Burn 1: parking → hyperbolic escape with v_inf = heliocentric ΔV.
+        // Burn 2: heliocentric Hohmann between planet's orbit and L1.
+        // Burn 3: capture at L1.
+        let r_park_m = shell_radius_au * AU_IN_METERS;
+        let v_circ_park = (lp_gm / r_park_m).sqrt();
+        let v_esc_park = v_circ_park * 2.0_f64.sqrt();
+
+        let r_helio_park_m = heliocentric_parking_au * AU_IN_METERS;
+        let r_lp_helio_m = lp_radius_au * AU_IN_METERS;
+        let a_helio = (r_helio_park_m + r_lp_helio_m) / 2.0;
+        let v_dep_helio = (2.0 * heliocentric_system_gm / r_helio_park_m
+            - heliocentric_system_gm / a_helio)
+            .sqrt();
+        let v_circ_park_helio = (heliocentric_system_gm / r_helio_park_m).sqrt();
+        let v_circ_lp_helio = (heliocentric_system_gm / r_lp_helio_m).sqrt();
+
+        let dv_hoh_dep = (v_dep_helio - v_circ_park_helio).abs();
+
+        // Burn 1: parking → hyperbolic escape with v_inf = dv_hoh_dep.
+        let v_inf = dv_hoh_dep;
+        let v_depart_sq = v_esc_park * v_esc_park + v_inf * v_inf;
+        let v_depart = v_depart_sq.sqrt();
+        let dv1 = (v_depart - v_circ_park).abs();
+
+        // Burn 3: capture at L1.  v_arr = v_depart (energy invariant).
+        let dv3 = (v_depart - v_circ_lp_helio).abs();
+
+        // For Moderate/Fast, scale the Hohmann pair (B1+B3) by 1.3 / 2.0.
+        let total = |mult: f64| -> f64 {
+            let dv1m = dv1 * mult;
+            let dv2m = dv_hoh_dep * 0.5 * mult;
+            let dv3m = dv3 * mult;
+            dv1m + dv2m + dv3m
+        };
+        let mk_opt = |label: &'static str, mult: f64| TransferOption {
+            label,
+            total_delta_v_ms: total(mult),
+            delta_v1_ms: dv1 * mult,
+            delta_v2_ms: dv3 * mult,
+            plane_change_dv_ms: 0.0,
+            transfer_time_s: std::f64::consts::PI
+                * (a_helio.powi(3) / heliocentric_system_gm).sqrt(),
+            sma_au: a_helio / AU_IN_METERS,
+            eccentricity: ((r_lp_helio_m - r_helio_park_m).abs() / (r_lp_helio_m + r_helio_park_m)),
+            energy_multiplier: mult,
+            burn_time_s: 0.0,
+            is_thrust_limited: false,
+            transfer_orbit_override: None,
+        };
+        vec![
+            mk_opt("Efficient", 1.0),
+            mk_opt("Moderate", 1.3),
+            mk_opt("Fast", 2.0),
+        ]
+    }
+}
+
+/// Build the standard 3-option `TransferOption` skeletons (Efficient /
+/// Moderate / Fast) from a Hohmann's (dv1, dv2, t_h, sma, ecc).
+fn lp_3_option_skeletons(
+    dv1_h: f64,
+    dv2_h: f64,
+    t_h: f64,
+    sma: f64,
+    ecc: f64,
+) -> (TransferOption, TransferOption, TransferOption) {
+    let total_h = dv1_h + dv2_h;
+    let mk = |label: &'static str, mult: f64| TransferOption {
+        label,
+        total_delta_v_ms: total_h * mult,
+        delta_v1_ms: dv1_h * mult,
+        delta_v2_ms: dv2_h * mult,
+        plane_change_dv_ms: 0.0,
+        transfer_time_s: t_h * mult,
+        sma_au: sma,
+        eccentricity: ecc,
+        energy_multiplier: mult,
+        burn_time_s: 0.0,
+        is_thrust_limited: false,
+        transfer_orbit_override: None,
+    };
+    (mk("Efficient", 1.0), mk("Moderate", 1.3), mk("Fast", 2.0))
+}
+
 /// Compute the 3D velocity vector (m/s) of a body on a Keplerian orbit at
 /// the given mean anomaly.
 ///

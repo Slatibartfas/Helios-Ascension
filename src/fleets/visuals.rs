@@ -5,11 +5,13 @@ use bevy::prelude::*;
 use bevy::time::Real;
 
 use super::components::{
-    ActiveManeuver, Fleet, FleetOrbit, HistoricalProbe, PlannedTransfer, TransferReferenceFrame,
+    ActiveManeuver, Fleet, FleetOrbit, HistoricalProbe, HistoricalProbeTransfer, PlannedTransfer,
+    TransferReferenceFrame, ORBIT_PATH_FADE_DURATION_S,
 };
 use super::types::FleetClass;
 use crate::astronomy::components::FloatingOrigin;
 use crate::astronomy::components::HyperbolicTrajectory;
+use crate::astronomy::components::OrbitPath;
 use crate::astronomy::systems::orbit_position_from_mean_anomaly;
 use crate::astronomy::{KeplerOrbit, LocalOrbitAmplification, SpaceCoordinates, SCALING_FACTOR};
 use crate::plugins::camera::{GameCamera, OrbitCamera, ViewMode};
@@ -1047,9 +1049,10 @@ fn tangential_ring_arrival_point(
 mod tests {
     use super::{
         compute_barycentric_visual_arc, compute_gravity_assist_arc, compute_transfer_arc,
+        sample_polyline, sampled_transfer_orbit_points_with_center,
         should_sample_planned_transfer_preview, tangential_ring_arrival_point,
     };
-    use crate::astronomy::KeplerOrbit;
+    use crate::astronomy::{orbit_position_from_mean_anomaly, KeplerOrbit, SCALING_FACTOR};
     use crate::fleets::{PlannedTransfer, TransferReferenceFrame};
     use bevy::math::DVec3;
     use bevy::prelude::Vec3;
@@ -1303,6 +1306,129 @@ mod tests {
             leg2_mid,
             (leg1_mid - leg2_mid).length()
         );
+    }
+
+    // GRA-NNN (regression for the "transfer arc rotates / never reaches
+    // Jupiter" bug): the in-transit polyline must trace the fleet's actual
+    // Keplerian half-orbit exactly.  The four buggy call-sites
+    // (`draw_fleet_trajectories` × 3, `update_fleet_transforms` × 1) used
+    // `mean_motion * sim_elapsed` as the polyline anchor, which (a) shifted
+    // the polyline forward in orbital phase every frame so it visibly
+    // rotated around the Sun, and (b) doubled the icon's apparent orbital
+    // rate, so the fleet icon lapped the actual fleet position on every
+    // transit.  The fix anchors the polyline at `mean_anomaly_epoch` —
+    // the mean anomaly at `departure_time` per the `ActiveManeuver`
+    // convention in `src/fleets/components.rs`.  This test pins both
+    // invariants: the polyline endpoint must be at the apoapsis (Jupiter),
+    // and every polyline point must equal the direct Keplerian formula at
+    // the matching mean anomaly.
+    #[test]
+    fn in_transit_polyline_traces_keplerian_half_orbit() {
+        // Hohmann transfer Earth (1 AU) → Jupiter (5.2 AU).  Outbound so
+        // periapsis = origin, mean_anomaly_epoch = 0, half-ellipse runs
+        // MA ∈ [0, π].
+        let r_earth_au = 1.0_f64;
+        let r_jupiter_au = 5.2_f64;
+        let sma_au = (r_earth_au + r_jupiter_au) / 2.0;
+        let ecc = (r_jupiter_au - r_earth_au) / (r_jupiter_au + r_earth_au);
+        // mean_motion is arbitrary — the polyline shape is independent of
+        // its absolute scale.  1.0 rad/s makes the half-period π s.
+        let mean_motion = 1.0_f64;
+        let transfer_orbit = KeplerOrbit {
+            semi_major_axis: sma_au,
+            eccentricity: ecc,
+            inclination: 0.0,
+            longitude_ascending_node: 0.0,
+            argument_of_periapsis: 0.0,
+            mean_anomaly_epoch: 0.0,
+            mean_motion,
+        };
+        let duration_s = std::f64::consts::PI / mean_motion; // half-period
+        let total_ma_travel = mean_motion * duration_s;
+
+        // The fix: anchor the polyline at mean_anomaly_epoch (NOT
+        // mean_motion * elapsed).  Sun at origin keeps the test pure-math.
+        let start_mean_anomaly = transfer_orbit.mean_anomaly_epoch;
+        let points = sampled_transfer_orbit_points_with_center(
+            &transfer_orbit,
+            start_mean_anomaly,
+            total_ma_travel,
+            0.0,
+            128,
+            |_| Vec3::ZERO,
+        );
+
+        // The polyline operates in Bevy render units (AU × SCALING_FACTOR).
+        let scale = SCALING_FACTOR as f64;
+
+        // (1) Endpoint must be Jupiter's orbit (apoapsis = r_jupiter_au),
+        //     not rotated past it by `mean_motion * elapsed` as the bug did.
+        let last = points.last().expect("polyline non-empty");
+        let last_radius = last.length() as f64;
+        let expected_last_radius = r_jupiter_au * scale;
+        assert!(
+            (last_radius - expected_last_radius).abs() < 1.0,
+            "polyline endpoint must be at apoapsis ({r_jupiter_au} AU = {expected_last_radius} render units); \
+             got {last_radius} render units (drift = {} render units = {} AU)",
+            last_radius - expected_last_radius,
+            (last_radius - expected_last_radius) / scale,
+        );
+
+        // (2) Startpoint must be Earth's orbit (periapsis = r_earth_au).
+        let first = points.first().expect("polyline non-empty");
+        let first_radius = first.length() as f64;
+        let expected_first_radius = r_earth_au * scale;
+        assert!(
+            (first_radius - expected_first_radius).abs() < 1.0,
+            "polyline startpoint must be at periapsis ({r_earth_au} AU = {expected_first_radius} render units); \
+             got {first_radius} render units",
+        );
+
+        // (3) Every polyline point must equal the direct Keplerian formula
+        //     at MA = mean_anomaly_epoch + total_ma_travel * f, scaled into
+        //     render units.  This is the core "polyline == physics path"
+        //     invariant the four buggy sites violated.
+        for (i, point) in points.iter().enumerate() {
+            let f = i as f64 / (points.len() - 1) as f64;
+            let expected_ma = start_mean_anomaly + total_ma_travel * f;
+            let expected_au = orbit_position_from_mean_anomaly(&transfer_orbit, expected_ma);
+            let expected_v = Vec3::new(
+                (expected_au.x * scale) as f32,
+                (expected_au.y * scale) as f32,
+                (expected_au.z * scale) as f32,
+            );
+            let dist = point.distance(expected_v);
+            assert!(
+                dist < 1.0,
+                "polyline point at f={f} diverged from Keplerian arc: \
+                 got {point:?}, expected {expected_v:?} (MA={expected_ma:.6}, dist={dist})",
+            );
+        }
+
+        // (4) Sample at progress = (elapsed - departure)/duration must land
+        //     on the fleet's actual Keplerian position at that moment:
+        //     MA = mean_anomaly_epoch + mean_motion * (elapsed - departure).
+        //     This pins the property that `update_fleet_transforms`'s icon
+        //     sampler agrees with `update_fleet_maneuver_positions`'s
+        //     physics propagation — the property the icon-lap bug broke.
+        for fraction in [0.0_f32, 0.1, 0.25, 0.5, 0.75, 0.9, 1.0] {
+            let dt_in_orbit = fraction as f64 * duration_s;
+            let expected_ma =
+                transfer_orbit.mean_anomaly_epoch + transfer_orbit.mean_motion * dt_in_orbit;
+            let expected_au = orbit_position_from_mean_anomaly(&transfer_orbit, expected_ma);
+            let expected_v = Vec3::new(
+                (expected_au.x * scale) as f32,
+                (expected_au.y * scale) as f32,
+                (expected_au.z * scale) as f32,
+            );
+            let polyline_pos = sample_polyline(&points, fraction);
+            let dist = polyline_pos.distance(expected_v);
+            assert!(
+                dist < 1.0,
+                "polyline sample at fraction {fraction} diverged from physics MA {expected_ma}: \
+                 got {polyline_pos:?}, expected {expected_v:?} (dist={dist})",
+            );
+        }
     }
 }
 
@@ -3311,6 +3437,7 @@ pub fn update_historical_probe_transforms(
         (
             &KeplerOrbit,
             Option<&HyperbolicTrajectory>,
+            &HistoricalProbeTransfer,
             &mut Transform,
             &mut Visibility,
         ),
@@ -3321,7 +3448,7 @@ pub fn update_historical_probe_transforms(
     sim_time: Res<SimulationTime>,
 ) {
     if *view_mode == ViewMode::Starmap {
-        for (_, _, _, mut vis) in probe_query.iter_mut() {
+        for (_, _, _, _, mut vis) in probe_query.iter_mut() {
             *vis = Visibility::Hidden;
         }
         return;
@@ -3333,7 +3460,20 @@ pub fn update_historical_probe_transforms(
         .unwrap_or(DVec3::ZERO);
 
     let elapsed = sim_time.elapsed_seconds();
-    for (orbit, hyperbolic, mut transform, mut vis) in probe_query.iter_mut() {
+    for (orbit, hyperbolic, transfer, mut transform, mut vis) in probe_query.iter_mut() {
+        // Silent-probe guard: hide the icon once sim_time crosses the
+        // probe's canonical `silent_since_jd_tdb`.  Orbit path fade is
+        // handled by `update_historical_probe_orbit_path_visibility`
+        // on the same schedule so the icon and its ring disappear
+        // together.
+        if let Some(silent_jd) = transfer.silent_since_jd_tdb {
+            let silent_sim_s =
+                (silent_jd - crate::fleets::historical_probes::EPOCH_2026_JD_TDB) * 86_400.0;
+            if elapsed > silent_sim_s {
+                *vis = Visibility::Hidden;
+                continue;
+            }
+        }
         let position = if orbit.eccentricity > 1.0 {
             // Hyperbolic path: derive position from `HyperbolicTrajectory`
             // at the JPL epoch.  The probe's mean anomaly doesn't advance
@@ -3396,6 +3536,75 @@ pub fn update_historical_probe_transforms(
             Vec3::new(render_du.x as f32, render_du.y as f32, render_du.z as f32);
         *vis = Visibility::Visible;
     }
+}
+
+/// Fade the orbit path's color alpha over `ORBIT_PATH_FADE_DURATION_S`
+/// after the probe's `silent_since_jd_tdb` date, then hide the path
+/// entirely.  Mirrors the icon-hide logic in
+/// `update_historical_probe_transforms` so the icon and its orbit ring
+/// disappear together.  The original `OrbitPath.color` is captured on
+/// the first visit into a small `OrbitPathBaseColor` marker so the
+/// ramp can re-compute from the base alpha each frame without
+/// compounding the multiplicative decay.
+pub fn update_historical_probe_orbit_path_visibility(
+    mut commands: Commands,
+    mut probe_query: Query<
+        (
+            Entity,
+            &HistoricalProbeTransfer,
+            &mut OrbitPath,
+            Option<&OrbitPathBaseColor>,
+        ),
+        With<HistoricalProbe>,
+    >,
+    sim_time: Res<SimulationTime>,
+) {
+    let elapsed = sim_time.elapsed_seconds();
+    for (entity, transfer, mut path, base) in probe_query.iter_mut() {
+        let Some(silent_jd) = transfer.silent_since_jd_tdb else {
+            // Probe is still active indefinitely; if the path was
+            // previously faded, restore the base color and re-show.
+            if let Some(b) = base {
+                path.color = b.color;
+                path.visible = true;
+            }
+            continue;
+        };
+        let silent_sim_s =
+            (silent_jd - crate::fleets::historical_probes::EPOCH_2026_JD_TDB) * 86_400.0;
+        let dt = elapsed - silent_sim_s;
+        if dt <= 0.0 {
+            // Not yet silent — stash the base color on first visit.
+            if base.is_none() {
+                commands
+                    .entity(entity)
+                    .insert(OrbitPathBaseColor { color: path.color });
+            }
+            path.visible = true;
+            continue;
+        }
+        if dt < ORBIT_PATH_FADE_DURATION_S {
+            let base_alpha = base
+                .map(|b| b.color.alpha())
+                .unwrap_or_else(|| path.color.alpha());
+            let fade = 1.0_f32 - (dt / ORBIT_PATH_FADE_DURATION_S) as f32;
+            let new_alpha = base_alpha * fade;
+            let mut rgba = path.color.to_srgba();
+            rgba.alpha = new_alpha;
+            path.color = Color::Srgba(rgba);
+            path.visible = true;
+        } else {
+            path.visible = false;
+        }
+    }
+}
+
+/// Stores the pre-fade `OrbitPath.color` so the fade ramp can be
+/// re-computed from the original alpha each frame without compounding
+/// the multiplicative decay.
+#[derive(Component, Debug, Clone, Copy)]
+pub struct OrbitPathBaseColor {
+    pub color: Color,
 }
 
 /// Draw dashed orbit rings in System view:
