@@ -32,6 +32,7 @@ use bevy::prelude::*;
 use super::components::{
     HistoricalProbe, HistoricalProbeKind, HistoricalProbeTransfer, HistoricalProbesInTransit,
 };
+use crate::plugins::camera::{CameraAnchor, GameCamera, OrbitCamera};
 use crate::astronomy::components::{
     HyperbolicTrajectory, KeplerOrbit, OrbitPath, SpaceCoordinates, SystemId,
 };
@@ -108,6 +109,17 @@ const MU_SUN_KM3_S2: f64 = 1.32712440018e11;
 const AU_KM: f64 = 1.495_978_707_00e8;
 
 // ── Idempotency resources ───────────────────────────────────────────────────
+
+/// Fired when the player double-clicks a probe entry in the fleet
+/// manager panel.  The handler in `FleetsPlugin` reads these events
+/// and re-anchors the 3D camera on the probe's current
+/// `SpaceCoordinates`.
+///
+/// Lives in `historical_probes` rather than `components` so the
+/// historical-probe code-path owns the API surface the fleet panel
+/// imports.
+#[derive(bevy::ecs::event::Event, Debug, Clone, Copy)]
+pub struct JumpCameraToEntity(pub Entity);
 
 /// Marker resource recording that the four historical probe entities have
 /// been spawned.  Mirrors `DayOneFleetSpawned` from PR #167 but is
@@ -501,6 +513,52 @@ const HISTORICAL_PROBE_SCAN_BONUS_RP: f64 = 0.5;
 
 /// `Update`-schedule system that grants the one-time `+0.5 RP` science
 /// bonus per probe per save.  Idempotent: fires only on the first tick
+/// Re-anchor the 3D camera on the entity written to a
+/// [`JumpCameraToEntity`] event.  Fired by the fleet-panel
+/// double-click handler so the player can click any row in the
+/// "DEEP SPACE PROBES" section and the camera recentres on the
+/// probe's current `SpaceCoordinates`.
+///
+/// The handler reads the probe's heliocentric position (in AU) and
+/// converts it to render units (`SCALING_FACTOR`), then sets both
+/// the `CameraAnchor` to the probe entity and `OrbitCamera.target_center`
+/// to the probe's position.  `pan_offset` is cleared so the
+/// recenter doesn't carry the previous focus's pan into the new one.
+pub fn jump_camera_to_handler(
+    mut events: EventReader<JumpCameraToEntity>,
+    mut anchor_query: Query<(&mut CameraAnchor, &mut OrbitCamera), With<GameCamera>>,
+    probe_query: Query<&SpaceCoordinates, With<HistoricalProbe>>,
+) {
+    use crate::astronomy::SCALING_FACTOR;
+
+    for event in events.read() {
+        let Ok(sc) = probe_query.get(event.0) else {
+            // The probe entity is gone (or wasn't a probe) — drop the
+            // event without action.  The camera shouldn't desync.
+            bevy::log::warn!(
+                "jump_camera_to_handler: entity {:?} is not a HistoricalProbe",
+                event.0
+            );
+            continue;
+        };
+
+        if let Ok((mut anchor, mut orbit)) = anchor_query.single_mut() {
+            anchor.0 = Some(event.0);
+            // Convert AU → render units using the same SCALING_FACTOR
+            // the rest of the renderer uses, so the camera ends up
+            // centred exactly on the probe's Transform.translation
+            // (which `update_historical_probe_transforms` already
+            // bakes into the entity's translation).
+            orbit.target_center = bevy::math::Vec3::new(
+                (sc.position.x * SCALING_FACTOR) as f32,
+                (sc.position.y * SCALING_FACTOR) as f32,
+                (sc.position.z * SCALING_FACTOR) as f32,
+            );
+            orbit.pan_offset = bevy::math::Vec3::ZERO;
+        }
+    }
+}
+
 /// after spawn for each probe, gated on `SimulationTime` (so save/load
 /// restores the marker and the bonus never re-applies).  The bonus is
 /// credited to the unallocated `research_points_available` pool.

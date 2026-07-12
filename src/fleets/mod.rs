@@ -128,6 +128,16 @@ impl Plugin for FleetPlugin {
                     visuals::update_historical_probe_orbit_path_visibility,
                     visuals::draw_historical_probe_trajectories,
                 ),
+            )
+            // Listen for "jump camera to probe" events fired by the
+            // fleet panel double-click handler.  The handler binds the
+            // camera to the probe entity and recentres on its current
+            // heliocentric position.
+            .add_event::<historical_probes::JumpCameraToEntity>()
+            .add_systems(
+                Update,
+                historical_probes::jump_camera_to_handler
+                    .after(systems::update_fleet_maneuver_positions),
             );
     }
 }

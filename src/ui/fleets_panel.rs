@@ -1,5 +1,6 @@
 use super::transfer_planner::render_transfer_planner;
 use super::*;
+use bevy::prelude::*;
 use crate::astronomy::components::{HyperbolicTrajectory, SpaceCoordinates};
 use crate::astronomy::KeplerOrbit;
 use crate::economy::hohmann_round_trip_seconds;
@@ -11,6 +12,7 @@ use crate::economy::ResourceRequest;
 use crate::fleets::components::{
     HistoricalProbe, HistoricalProbeKind, HistoricalProbeTransfer, ShipInfo,
 };
+use crate::fleets::historical_probes::JumpCameraToEntity;
 
 /// Filter applied to the fleet list when navigating from the Private
 /// Shipping overview panel (GRA-37.e).  `None` shows every fleet
@@ -292,6 +294,7 @@ fn render_ship_manifest_row(
 pub(super) fn ui_fleets_panel(
     mut contexts: EguiContexts,
     active_menu: Res<ActiveMenu>,
+    mut jump_events: EventWriter<JumpCameraToEntity>,
     fleet_query: Query<(
         Entity,
         &Fleet,
@@ -634,7 +637,12 @@ pub(super) fn ui_fleets_panel(
                             // component, no transfer orders), so we render
                             // them as a separate non-interactive table
                             // below the player fleet list.
-                            render_historical_probes_section(ui, &historical_probes, &sim_time);
+                            render_historical_probes_section(
+                                ui,
+                                &historical_probes,
+                                &sim_time,
+                                &mut jump_events,
+                            );
                         });
                     },
                 );
@@ -913,6 +921,7 @@ fn render_historical_probes_section(
     ui: &mut egui::Ui,
     probe_query: &Query<
         (
+            Entity,
             &SpaceCoordinates,
             &KeplerOrbit,
             Option<&HyperbolicTrajectory>,
@@ -922,11 +931,13 @@ fn render_historical_probes_section(
         With<HistoricalProbe>,
     >,
     sim_time: &crate::ui::time::SimulationTime,
+    mut jump_events: EventWriter<JumpCameraToEntity>,
 ) {
     // Collect + sort by HistoricalProbeKind ordinal for stable ordering.
     // `iter()` on the query returns references in arbitrary order, so we
     // materialise into a Vec and sort.
     struct ProbeRow {
+        entity: Entity,
         name: &'static str,
         agency: &'static str,
         launch_year: u16,
@@ -938,7 +949,7 @@ fn render_historical_probes_section(
     }
     let mut rows: Vec<(HistoricalProbeKind, ProbeRow)> = probe_query
         .iter()
-        .map(|(coords, orbit, hyper, probe, transfer)| {
+        .map(|(entity, coords, orbit, hyper, probe, transfer)| {
             // The orbit's `semi_major_axis` is signed: positive for
             // bound ellipses, negative for hyperbolas.  But the brief
             // asks us to classify from `eccentricity` directly so the
@@ -966,6 +977,7 @@ fn render_historical_probes_section(
             (
                 probe.kind,
                 ProbeRow {
+                    entity,
                     name: probe.name,
                     agency: probe.agency,
                     launch_year: probe.launch_year,
@@ -1052,11 +1064,20 @@ fn render_historical_probes_section(
         });
 
     for (_, row) in &rows {
+        let probe_entity = row.entity;
         let silent_now = row
             .silent_year
             .map(|y| sim_time.elapsed_seconds() / (365.25 * 86_400.0) >= (y - 2026) as f64)
             .unwrap_or(false);
-        egui::Grid::new(format!("historical_probe_row_{}", row.name))
+        // Wrap the row in a transparent Frame so the Frame's own
+        // `Response` carries the click sense for the full row
+        // width.  `Frame::NONE` paints no chrome (unlike
+        // `Frame::group`) and just delegates layout to its inner
+        // closure, so the row looks identical to the inline Grid
+        // layout — but the player can double-click anywhere on the
+        // row to fire the camera-jump event.
+        let frame_response = egui::Frame::NONE.show(ui, |ui| {
+            egui::Grid::new(format!("historical_probe_row_{}", row.name))
             .num_columns(6)
             .spacing([10.0, 2.0])
             .min_col_width(60.0)
@@ -1131,6 +1152,20 @@ fn render_historical_probes_section(
                 );
                 ui.end_row();
             });
+        })
+        .response;
+        // Hover-highlight the row when the player is targeting it.
+        if frame_response.hovered() {
+            let row_rect = frame_response.rect;
+            ui.painter_at(row_rect).rect_filled(
+                row_rect,
+                0.0,
+                egui::Color32::from_rgba_premultiplied(255, 255, 255, 8),
+            );
+        }
+        if frame_response.double_clicked() {
+            jump_events.send(JumpCameraToEntity(probe_entity));
+        }
     }
 
     if rows.is_empty() {
