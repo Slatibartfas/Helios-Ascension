@@ -945,7 +945,7 @@ fn star_approach_grid_for_target(
     min_radius_au: f64,
     max_radius_au: f64,
     sim_time_s: f64,
-) -> Option<PorkchopGrid> {
+) -> Option<(PorkchopGrid, usize)> {
     // Bail if the star lookup fails — without a CelestialBody we
     // can't resolve `gm_star` or `dest_name`, so the grid builder
     // would otherwise build against bogus inputs (the previous
@@ -979,6 +979,16 @@ fn star_approach_grid_for_target(
     let mut parking_options_au = vec![lo, mid_a, mid_b, clamped_selected, hi];
     parking_options_au.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
     parking_options_au.dedup_by(|a, b| (*a - *b).abs() < 1.0e-9);
+    // GRA-NNN follow-up: capture which row carries the player's chosen
+    // shell so the planner can auto-select the cell at that row.
+    // Without this the "selected cell" ΔV reads from a row that has
+    // nothing to do with the player's pick and the shell change appears
+    // to do nothing numerically — the user-reported "the orbit doesn't
+    // affect the calculations" symptom.
+    let selected_row = parking_options_au
+        .iter()
+        .position(|&p| (p - clamped_selected).abs() < 1.0e-9)
+        .unwrap_or(parking_options_au.len().saturating_sub(1));
     let inputs = StarApproachInputs {
         origin_name,
         dest_name,
@@ -991,7 +1001,7 @@ fn star_approach_grid_for_target(
         resolution_t_dep: Some(60),
         dest_radius_au: None,
     };
-    Some(build_star_approach_grid(&inputs))
+    Some((build_star_approach_grid(&inputs), selected_row))
 }
 
 pub fn transfer_absolute_position(
@@ -2194,7 +2204,7 @@ pub(super) fn render_transfer_planner(
                         current_system_id,
                     );
                     let radius_au = radius_au.clamp(lo, hi);
-                    let grid = star_approach_grid_for_target(
+                    let build_result = star_approach_grid_for_target(
                         body_query,
                         orbit.body,
                         target_entity,
@@ -2203,7 +2213,30 @@ pub(super) fn render_transfer_planner(
                         hi,
                         elapsed,
                     );
-                    if let Some(grid) = grid {
+                    if let Some((grid, shell_row)) = build_result {
+                        // GRA-NNN: auto-select the cell at the row whose
+                        // parking matches the shell so the visible ΔV
+                        // updates when the player picks a different
+                        // shell.  Computed against the local `grid`
+                        // reference before it's moved into the cache so
+                        // the post-selection block can still borrow it.
+                        let (cols, rows) = grid.resolution;
+                        let auto_selected_cell = if cols > 0 && rows > 0 && shell_row < rows {
+                            let mut best_col = 0usize;
+                            let mut best_dv = f64::INFINITY;
+                            for c in 0..cols {
+                                let cell_idx = shell_row * cols + c;
+                                if let Some(cell) = grid.cells.get(cell_idx) {
+                                    if cell.feasible && cell.total_dv_ms < best_dv {
+                                        best_dv = cell.total_dv_ms;
+                                        best_col = c;
+                                    }
+                                }
+                            }
+                            Some((best_col, shell_row))
+                        } else {
+                            None
+                        };
                         fleet_ui_state.porkchop_grid = Some(grid);
                         // Only stamp `porkchop_built_for` so the
                         // deferred block sees a "same target" and
@@ -2213,6 +2246,7 @@ pub(super) fn render_transfer_planner(
                         // previous cache had so the staleness check
                         // and the post-panel re-anchor keep working.
                         fleet_ui_state.porkchop_built_for = Some(target_entity);
+                        fleet_ui_state.selected_porkchop_cell = auto_selected_cell;
                     }
                 }
                 Some(BodyType::Moon) | Some(BodyType::Ring) => {
@@ -4049,19 +4083,63 @@ pub(super) fn render_transfer_planner(
                                             current_system_id,
                                         );
                                         let clamped = radius_au.clamp(lo, hi);
-                                        fleet_ui_state.porkchop_grid =
-                                            star_approach_grid_for_target(
-                                                body_query,
-                                                orbit.body,
-                                                *entity,
-                                                clamped,
-                                                lo,
-                                                hi,
-                                                elapsed,
-                                            );
+                                        let build_result = star_approach_grid_for_target(
+                                            body_query,
+                                            orbit.body,
+                                            *entity,
+                                            clamped,
+                                            lo,
+                                            hi,
+                                            elapsed,
+                                        );
                                         fleet_ui_state.porkchop_built_at_s = Some(elapsed);
                                         fleet_ui_state.porkchop_built_for = Some(*entity);
+                                        // Default: clear selection so the
+                                        // legacy 3-option row stays
+                                        // out of the way.  Auto-select
+                                        // at the shell's row below.
                                         fleet_ui_state.selected_porkchop_cell = None;
+                                        if let Some((grid, shell_row)) = build_result {
+                                            // Capture the cheap fields out
+                                            // of `grid` first so we can
+                                            // both pick a min-ΔV col in
+                                            // the shell's row AND store
+                                            // the grid afterwards.
+                                            // `PorkchopGrid` is not Copy
+                                            // so we can't `move` it
+                                            // twice.
+                                            let t_dep_min_for_abs = grid.t_dep_bounds_s.0;
+                                            let tof_min_for_abs = grid.tof_bounds_s.0;
+                                            let (cols, rows) = grid.resolution;
+                                            if cols > 0 && rows > 0 && shell_row < rows {
+                                                let mut best_col = 0usize;
+                                                let mut best_dv = f64::INFINITY;
+                                                for c in 0..cols {
+                                                    let cell_idx =
+                                                        shell_row * cols + c;
+                                                    if let Some(cell) =
+                                                        grid.cells.get(cell_idx)
+                                                    {
+                                                        if cell.feasible
+                                                            && cell.total_dv_ms
+                                                                < best_dv
+                                                        {
+                                                            best_dv = cell.total_dv_ms;
+                                                            best_col = c;
+                                                        }
+                                                    }
+                                                }
+                                                fleet_ui_state.selected_porkchop_cell =
+                                                    Some((best_col, shell_row));
+                                                fleet_ui_state.selected_abs_t_dep_s =
+                                                    Some(t_dep_min_for_abs);
+                                                fleet_ui_state.selected_abs_tof_s =
+                                                    Some(tof_min_for_abs);
+                                            }
+                                            fleet_ui_state.porkchop_grid = Some(grid);
+                                        } else {
+                                            fleet_ui_state.porkchop_grid = None;
+                                        }
                                     }
                                 }
                             }
@@ -7446,9 +7524,7 @@ pub(super) fn render_transfer_planner(
                 && fleet_ui_state.porkchop_build_in_flight
                 && fleet_ui_state
                     .target_body
-                    .map(|te| {
-                        should_build_porkchop_for_destination(body_query, te)
-                    })
+                    .map(|te| should_build_porkchop_for_destination(body_query, te))
                     .unwrap_or(false)
             {
                 ui.add_space(20.0);
