@@ -231,6 +231,22 @@ pub struct PorkchopInputs {
     pub sim_time_s: f64,
     /// Category match key for `PorkchopConfig::resolve`.
     pub category: String,
+    /// GRA-NNN: when `Some`, treat the origin parking orbit as a
+    /// circular orbit at this heliocentric radius (AU) — overriding
+    /// the legacy "parking at heliocentric SMA" assumption.
+    /// `solve_cell` still runs the Lambert solver with the heliocentric
+    /// r1 (the geometry is the same — only the burn ΔV at the
+    /// parking orbit changes), then recomputes ΔV₁ from `c3 = v_inf²`
+    /// plus the parking-orbit escape velocity so picking "Low" (LEO
+    /// analog) costs more ΔV than "High" the way real physics
+    /// demands.  Without this the player could pick Low and get the
+    /// heliocentric-SMA ΔV for free — the bug that prompted this
+    /// refactor.
+    ///
+    /// Destination arrival parking still uses the heliocentric SMA
+    /// `v_circ` (full local-frame arrival is a much larger solver
+    /// refactor and is deferred to a follow-up ticket).
+    pub parking_radius_au: Option<f64>,
 }
 
 /// Build the porkchop grid.  The (cols × rows) loop is bounded by the
@@ -770,12 +786,14 @@ fn solve_cell(
 
     match solve_lambert_transfer(origin_pos_au, dest_pos_au, tof_s, inputs.system_gm) {
         Some((v1_ms, v2_ms, orbit)) => {
-            // v_inf at departure = |v_departure| − circular orbital speed at r1.
-            // For interplanetary (GM_SUN) this is the hyperbolic excess speed.
-            let r1_m = (origin_pos_au * super::orbital_mechanics::AU_IN_METERS).length();
-            let v_circ_ms = (inputs.system_gm / r1_m).sqrt();
+            // v_inf at departure uses the heliocentric r1 (the solver's
+            // frame).  c3 = v_inf² — geometrically invariant, this is the
+            // energy "left over" after climbing out of the central body's
+            // potential well and equals (v_dep² - v_esc²) at any r1.
+            let r1_helio_m = (origin_pos_au * super::orbital_mechanics::AU_IN_METERS).length();
+            let v_circ_at_r1_helio_ms = (inputs.system_gm / r1_helio_m).sqrt();
             let v1_speed_ms = v1_ms.length();
-            let v_inf_dep_ms = (v1_speed_ms - v_circ_ms).max(0.0);
+            let v_inf_dep_ms = (v1_speed_ms - v_circ_at_r1_helio_ms).max(0.0);
             let c3 = v_inf_dep_ms * v_inf_dep_ms; // m²/s²
             if !c3.is_finite() || c3 > c3_ceiling_ms2 {
                 return PorkchopCell {
@@ -794,43 +812,58 @@ fn solve_cell(
                     transfer_orbit: None,
                 };
             }
-            // ΔV₁ is the burn from the origin body's parking-orbit speed up
-            // to the transfer-ellipse departure speed.  We approximate the
-            // total as |v_dep| + |v_arr|, where:
-            //   * |v_dep| = |v1 − v_circ_dep|.  For an *outward* Hohmann
-            //     (e.g. Earth→Mars) v1 > v_circ_dep (prograde boost at
-            //     perihelion); for an *inward* Hohmann (e.g. Earth→Mercury)
-            //     v1 < v_circ_dep (retrograde burn at aphelion — the
-            //     transfer ellipse's aphelion is Earth's orbit).  Both
-            //     directions require a real burn, so we use `.abs()` rather
-            //     than clamping to zero.  The previous `.max(0.0)` formula
-            //     produced 0 km/s porkchop cells for every inner-planet
-            //     transfer (Earth→Venus, Earth→Mercury), because the
-            //     retrograde-departure case was indistinguishable from
-            //     "no burn required".
-            //   * |v_arr| = |v_circ_arr − v2|.  Symmetric to dep_burn:
-            //     outward transfers brake into the parking orbit (v_circ >
-            //     v2), inward transfers boost into the parking orbit from
-            //     a faster-than-circular arrival (v2 > v_circ).  Both need
-            //     a real burn, so we use `.abs()`.
-            // The two are added because they happen at opposite ends of the
-            // transfer arc — total ΔV is the per-burn magnitude sum, the
-            // standard porkchop convention.
+            // ΔV₁ is the burn from the *player's parking orbit* up to the
+            // transfer-ellipse departure hyperbolic trajectory.  When the
+            // player picked a shell (`inputs.parking_radius_m = Some`),
+            // honour it: compute the parking-orbit circular speed at the
+            // shell's radius, then derive the hyperbolic-departure speed
+            // from c3 + v_esc²_parking so a Low shell (LEO) costs more
+            // ΔV than a High shell (above the atmosphere).  Without this,
+            // the planet grid would show the heliocentric-SMA ΔV
+            // regardless of shell pick — the bug that motivated the
+            // GRA-NNN follow-up.
+            //
+            // Convention: `v_esc² = 2 GM / r` and `v_circ² = GM / r`, so
+            // `v_esc² = 2 v_circ²`.  v_dep²(hyperbolic) = c3 + v_esc².
+            // ΔV₁ = |v_dep − v_circ_parking|.
+            let (_v_circ_parking_ms, dep_burn_ms) = match inputs.parking_radius_au {
+                Some(r1_au_parking) => {
+                    let r1_m_parking = r1_au_parking * super::orbital_mechanics::AU_IN_METERS;
+                    let v_circ_p = (inputs.system_gm / r1_m_parking).sqrt();
+                    let v_esc_sq_p = 2.0 * v_circ_p * v_circ_p;
+                    let v_dep_sq = c3 + v_esc_sq_p;
+                    let v_dep_p = if v_dep_sq > 0.0 { v_dep_sq.sqrt() } else { 0.0 };
+                    // ΔV₁ is the |v_dep − v_circ| magnitude.  Prograde
+                    // burns have v_dep > v_circ (outward Hohmann);
+                    // retrograde burns have v_dep < v_circ (inward
+                    // Hohmann — the previous `v1 − v_circ` formula gave
+                    // 0 km/s for these).  `.abs()` preserves both.
+                    let dv = (v_dep_p - v_circ_p).abs();
+                    (v_circ_p, dv)
+                }
+                // No parking_radius_au — legacy "parking at
+                // heliocentric SMA" assumption, kept for save-compat
+                // and tests that don't care about the player's shell.
+                None => (
+                    v_circ_at_r1_helio_ms,
+                    (v1_speed_ms - v_circ_at_r1_helio_ms).abs(),
+                ),
+            };
+            // Destination leg: parking at heliocentric SMA.  Full
+            // local-frame arrival (v_circ at body+altitude) is a much
+            // larger solver refactor and is deferred — note that
+            // `arr_burn` is still the heliocentric-SMA interpretation
+            // even when origin uses a parking-orbit-aware value, so the
+            // destination accuracy mirrors the previous solver but the
+            // origin honours the shell pick.
             let r2_m = (dest_pos_au * super::orbital_mechanics::AU_IN_METERS).length();
             let v_circ_arr_ms = (inputs.system_gm / r2_m).sqrt();
             let v2_speed_ms = v2_ms.length();
-            // dep_burn: how much we must change speed from the parking
-            // orbit at r1 to the transfer ellipse.  Sign of (v1 − v_circ)
-            // indicates burn direction (prograde vs retrograde), magnitude
-            // is the ΔV required.  `.abs()` so inner-planet transfers
-            // (where the Lambert solver returns v1 < v_circ) show the
-            // correct retrograde burn instead of 0 km/s.
-            let dep_burn_ms = (v1_speed_ms - v_circ_ms).abs();
             // arr_burn: how much we must change speed from the transfer
-            // ellipse to the destination's circular parking orbit.
-            // Symmetric to dep_burn: outer planets brake (v_circ > v2),
-            // inner planets retrofire at perihelion to circularise from
-            // a faster-than-circular arrival (v2 > v_circ).
+            // ellipse to the destination's circular parking orbit
+            // (heliocentric SMA — see comment above).  `.abs()` so
+            // inner-planet arrivals where v2 > v_circ show the correct
+            // retrofire burn instead of 0 km/s.
             let arr_burn_ms = (v_circ_arr_ms - v2_speed_ms).abs();
             // v_inf_arrival: the *hyperbolic excess* at the destination
             // (the speed the spacecraft is moving *above* circular
@@ -1856,6 +1889,11 @@ mod tests {
             system_gm: crate::fleets::orbital_mechanics::GM_SUN,
             sim_time_s: 0.0,
             category: category.to_string(),
+            // GRA-NNN: tests in this module use the legacy
+            // "parking at heliocentric SMA" assumption (None) by
+            // default — see Parking-aware tests below for the
+            // shell-picks branch.
+            parking_radius_au: None,
         }
     }
 
@@ -3277,6 +3315,8 @@ pub fn build_grid_for_body_target(
     dest_name: String,
     category: &str,
     sim_time_s: f64,
+    // GRA-NNN: see `PorkchopInputs::parking_radius_au` for the math.
+    parking_radius_au: Option<f64>,
 ) -> PorkchopGrid {
     let inputs = PorkchopInputs {
         origin_name,
@@ -3293,6 +3333,7 @@ pub fn build_grid_for_body_target(
         system_gm: GM_SUN,
         sim_time_s,
         category: category.to_string(),
+        parking_radius_au,
     };
     build_porkchop_grid(cfg, &inputs)
 }
@@ -3324,6 +3365,8 @@ pub fn build_rotating_buffer_for_body_target(
     dest_name: String,
     category: &str,
     sim_time_s: f64,
+    // GRA-NNN: see `PorkchopInputs::parking_radius_au` for the math.
+    parking_radius_au: Option<f64>,
 ) -> PorkchopGrid {
     // Resolve the per-category params, then quadruple
     // `t_dep_window_days` and double `resolution_t_dep` so the
@@ -3347,6 +3390,7 @@ pub fn build_rotating_buffer_for_body_target(
         system_gm: GM_SUN,
         sim_time_s,
         category: category.to_string(),
+        parking_radius_au,
     };
     build_porkchop_grid_with_params(params, &inputs)
 }
@@ -3424,6 +3468,7 @@ mod planner_wiring_tests {
             "Mars".to_string(),
             "interplanetary",
             0.0,
+            None, // GRA-NNN parking_radius_au: tests use legacy heliocentric-SMA parking.
         );
         assert!(
             grid.cells.iter().any(|c| c.feasible),
@@ -3453,6 +3498,7 @@ mod planner_wiring_tests {
             "Mars".to_string(),
             "interplanetary",
             0.0,
+            None, // GRA-NNN parking_radius_au: tests default to None.
         );
         let baseline = build_grid_for_body_target(
             &cfg,
@@ -3462,6 +3508,7 @@ mod planner_wiring_tests {
             "Mars".to_string(),
             "interplanetary",
             0.0,
+            None, // GRA-NNN parking_radius_au: see above.
         );
         // Buffer covers 4× the baseline's t_dep window.
         let baseline_width = baseline.t_dep_bounds_s.1 - baseline.t_dep_bounds_s.0;
@@ -3543,6 +3590,7 @@ mod planner_wiring_tests {
             "Mars".to_string(),
             "interplanetary",
             0.0,
+            None, // GRA-NNN parking_radius_au: legacy heliocentric-SMA parking.
         );
         let half_year = 0.5 * 365.25 * 86_400.0;
         let grid_at_thalf = build_grid_for_body_target(
@@ -3553,6 +3601,7 @@ mod planner_wiring_tests {
             "Mars".to_string(),
             "interplanetary",
             half_year,
+            None, // GRA-NNN parking_radius_au: legacy heliocentric-SMA parking.
         );
         // Pick a feasible cell from each grid (col 20, row 25) and
         // verify the planet positions differ.  Without the fix the
@@ -3666,6 +3715,7 @@ mod planner_wiring_tests {
             "Luna".to_string(),
             "moon",
             0.0,
+            None, // GRA-NNN parking_radius_au: legacy heliocentric-SMA parking.
         );
         // The moon override's ±7 day half-window should be the bound.
         let half_window_d = (grid.t_dep_bounds_s.1 - grid.t_dep_bounds_s.0) * 0.5 / SECONDS_PER_DAY;
@@ -3696,6 +3746,7 @@ mod planner_wiring_tests {
             system_gm: GM_SUN,
             sim_time_s: 0.0,
             category: "interplanetary".to_string(),
+            parking_radius_au: None,
         };
         let grid = build_porkchop_grid(&cfg, &inputs);
         state.porkchop_grid = Some(grid);
@@ -3746,6 +3797,7 @@ mod planner_wiring_tests {
             "Mars".to_string(),
             "interplanetary",
             0.0,
+            None, // GRA-NNN parking_radius_au: legacy heliocentric-SMA parking.
         );
         assert_eq!(
             grid_at_t0.t_dep_bounds_s.0, 0.0,
@@ -3762,6 +3814,7 @@ mod planner_wiring_tests {
             "Mars".to_string(),
             "interplanetary",
             one_year_s,
+            None, // GRA-NNN parking_radius_au: legacy heliocentric-SMA parking.
         );
         assert!(
             (grid_at_1yr.t_dep_bounds_s.0 - one_year_s).abs() < 1.0,
@@ -3822,6 +3875,7 @@ mod planner_wiring_tests {
             "Mars".to_string(),
             "interplanetary",
             0.0,
+            None, // GRA-NNN parking_radius_au: legacy heliocentric-SMA parking.
         );
         // Second build half a rotation later — past the trigger.
         let half_year_s = 0.5 * 365.25 * 86_400.0;
@@ -3833,6 +3887,7 @@ mod planner_wiring_tests {
             "Mars".to_string(),
             "interplanetary",
             half_year_s,
+            None, // GRA-NNN parking_radius_au: legacy heliocentric-SMA parking.
         );
         // Both grids are anchored at their respective sim_time_s.
         assert_eq!(grid_a.t_dep_bounds_s.0, 0.0);
