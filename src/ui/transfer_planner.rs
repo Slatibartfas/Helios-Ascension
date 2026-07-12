@@ -365,6 +365,49 @@ pub fn radius_for_shell(body: &CelestialBody, shell: OrbitShellId) -> f64 {
     }
 }
 
+/// Format a shell's parking radius for picker display, picking a unit
+/// appropriate to the destination body:
+///   * `BodyType::Star` → AU (matches interplanetary mental model;
+///     `0.30 AU` reads as "inside the habitable zone" while
+///     `44 Mkm` would not).
+///   * Every other body → metres / kilometres / megakilometres
+///     depending on magnitude.  Earth LEO at 6.7e-5 AU is a 6-digit
+///     `0.000` AU to anyone scanning the picker — relabelling to
+///     `6,689 km` is the only way the value lands.  Thresholds
+///     mirror the existing `km` convention used by
+///     `dossier_panel` (orbital SMA) and `fleets_panel`
+///     (intercept passing distance).
+fn format_shell_radius_label(body: &CelestialBody, shell: OrbitShellId) -> String {
+    let r_au = radius_for_shell(body, shell);
+    if body.body_type == BodyType::Star {
+        // GRA-149 C-2: stars stay in AU (0.05–5.0 AU range).
+        format!("{} ({:.2} AU)", shell.label(), r_au)
+    } else {
+        // Bodies: convert back to metres so we can pick the right unit.
+        let r_m = r_au * crate::fleets::orbital_mechanics::AU_IN_METERS;
+        format!("{} ({})", shell.label(), format_distance_label_m(r_m))
+    }
+}
+
+/// Render a distance in metres as `X m` / `X km` / `X Mkm`, picking
+/// the unit that keeps the numeric part ≤ 6 digits.  Used by
+/// [`format_shell_radius_label`].  GRA-NNN.
+fn format_distance_label_m(m: f64) -> String {
+    let abs_m = m.abs();
+    if abs_m < 1_000.0 {
+        format!("{:.0} m", m)
+    } else if abs_m < 100_000_000.0 {
+        // 1 km to ~100 000 km — covers Earth LEO through Jupiter Low.
+        format!("{:.0} km", m / 1_000.0)
+    } else {
+        // ≥ 100 000 km — use Mkm so Jupiter High reads as `699.1 Mkm`
+        // instead of a 6-digit km number.  Mkm = megakilometre
+        // (1 000 km), matches Helios's other km-based distance
+        // labels and stays inside the project's `km` convention.
+        format!("{:.1} Mkm", m / 1_000_000.0)
+    }
+}
+
 /// Inverse of [`radius_for_shell`]: pick the shell whose resolved radius
 /// is closest to the given numeric value, within the body's available
 /// shell set.  Falls back to [`default_shell_for_body_type`] for the
@@ -4074,15 +4117,10 @@ pub(super) fn render_transfer_planner(
 
                 let mut changed_to: Option<OrbitShellId> = None;
                 egui::ComboBox::from_id_salt(("orbit_shell_picker", target_entity))
-                    .selected_text(format!(
-                        "{} ({:.3} AU)",
-                        current_shell.label(),
-                        radius_for_shell(body, current_shell)
-                    ))
+                    .selected_text(format_shell_radius_label(body, current_shell))
                     .show_ui(ui, |ui| {
                         for &shell in shells {
-                            let r = radius_for_shell(body, shell);
-                            let label = format!("{} ({:.3} AU)", shell.label(), r);
+                            let label = format_shell_radius_label(body, shell);
                             let was_clicked =
                                 ui.selectable_label(shell == current_shell, label).clicked();
                             if was_clicked {
