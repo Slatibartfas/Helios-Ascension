@@ -126,6 +126,7 @@ impl Plugin for FleetPlugin {
                     visuals::update_historical_probe_transforms
                         .after(visuals::ensure_historical_probe_meshes),
                     visuals::update_historical_probe_orbit_path_visibility,
+                    visuals::draw_historical_probe_trajectories,
                 ),
             );
     }

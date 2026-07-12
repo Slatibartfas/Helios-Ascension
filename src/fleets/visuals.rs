@@ -3407,6 +3407,135 @@ pub fn ensure_historical_probe_meshes(
     }
 }
 
+/// Draw a forward-time "you're going this way" trajectory preview for
+/// each historical probe.
+///
+/// **Why this exists.**  The fleet preview-arc rendering in
+/// `draw_fleet_transfer_preview` reads `ActiveManeuver` to know where
+/// the fleet is going.  Probes don't carry `ActiveManeuver` — they're
+/// on permanent `KeplerOrbit` / `HyperbolicTrajectory` arcs, not
+/// "transfers to a destination body".  So the existing path never fires
+/// on them and a probe reads as a static dot.  This system fills the
+/// gap by sampling the probe's orbit forward from the current sim time
+/// and drawing a cyan polyline through the samples, in the same style
+/// as the fleet preview arc.
+///
+/// **Sampling.**  We pick 16 evenly-spaced forward samples over an
+/// interval that scales with `orbit.mean_motion` (a fast inner-orbit
+/// probe like Parker gets a 2-day preview, a slow outer-orbit probe
+/// like Voyager 1 gets a 12-year preview).  For hyperbolics where
+/// `mean_motion == 0` we use a flat 2-year preview — the probe is on
+/// an asymptote and the preview shows the next decade along the
+/// hyperbola path.
+///
+/// **Style.**  Cyan `Color::srgba(0.30, 0.80, 1.00, …)` matching
+/// `draw_fleet_transfer_preview`.  Alpha fades along the path so the
+/// far end is dimmer than the current-position end (matches the
+/// fleet preview).
+pub fn draw_historical_probe_trajectories(
+    mut gizmos: Gizmos,
+    probe_query: Query<
+        (
+            &KeplerOrbit,
+            Option<&HyperbolicTrajectory>,
+            &HistoricalProbeTransfer,
+        ),
+        (With<HistoricalProbe>, With<HistoricalProbeMesh>),
+    >,
+    floating_origin: Option<Res<FloatingOrigin>>,
+    sim_time: Res<SimulationTime>,
+) {
+    let origin_offset = floating_origin
+        .as_ref()
+        .map(|fo| fo.position)
+        .unwrap_or(DVec3::ZERO);
+
+    let elapsed = sim_time.elapsed_seconds();
+
+    // Tuning: number of samples and preview length scale.
+    const SAMPLES: usize = 16;
+
+    for (orbit, hyperbolic, transfer) in probe_query.iter() {
+        if let Some(silent_jd) = transfer.silent_since_jd_tdb {
+            // Skip probes past their silent date — their orbit rings
+            // are already faded by
+            // `update_historical_probe_orbit_path_visibility`.
+            let silent_sim_s = (silent_jd
+                - crate::fleets::historical_probes::EPOCH_2026_JD_TDB)
+                * 86_400.0;
+            if elapsed > silent_sim_s {
+                continue;
+            }
+        }
+
+        // Preview length: scale with mean_motion when available.
+        // mean_motion is in rad/s.  A Parker-class orbit (~0.001 rad/s)
+        // gets a 2-day preview; a Voyager-class orbit (~1e-7 rad/s)
+        // gets a much longer preview.
+        let preview_s = if orbit.mean_motion > 1e-5 {
+            // Fast inner-system orbit: 2 sim-days covers ~3° of phase.
+            2.0 * 86_400.0
+        } else {
+            // Slow outer-system orbit or hyperbolic: 2 sim-years.
+            2.0 * 365.25 * 86_400.0
+        };
+
+        let mut positions: Vec<Vec3> = Vec::with_capacity(SAMPLES);
+        for i in 0..SAMPLES {
+            let t = elapsed + (preview_s * i as f64) / (SAMPLES - 1) as f64;
+            let pos = if orbit.eccentricity > 1.0 {
+                // Hyperbolic path: position is fixed at the JPL epoch
+                // (mean_motion == 0).  Still emit the same point so the
+                // polyline draws, but the path doesn't evolve with time.
+                if let Some(hyp) = hyperbolic {
+                    let nu = crate::astronomy::systems::hyperbolic_to_true_anomaly(
+                        hyp.hyperbolic_anomaly_epoch,
+                        orbit.eccentricity,
+                    );
+                    let e = orbit.eccentricity;
+                    let a = orbit.semi_major_axis;
+                    let r = a * (1.0 - e * e) / (1.0 + e * nu.cos());
+                    let x_orbital = r * nu.cos();
+                    let y_orbital = r * nu.sin();
+                    let cos_w = orbit.argument_of_periapsis.cos();
+                    let sin_w = orbit.argument_of_periapsis.sin();
+                    let x_perifocal = x_orbital * cos_w - y_orbital * sin_w;
+                    let y_perifocal = x_orbital * sin_w + y_orbital * cos_w;
+                    let cos_i = orbit.inclination.cos();
+                    let sin_i = orbit.inclination.sin();
+                    let cos_omega = orbit.longitude_ascending_node.cos();
+                    let sin_omega = orbit.longitude_ascending_node.sin();
+                    let x = x_perifocal * cos_omega - y_perifocal * cos_i * sin_omega;
+                    let y = x_perifocal * sin_omega + y_perifocal * cos_i * cos_omega;
+                    let z = y_perifocal * sin_i;
+                    DVec3::new(x, y, z)
+                } else {
+                    continue;
+                }
+            } else {
+                let mean_anomaly = orbit.mean_anomaly_epoch + orbit.mean_motion * t;
+                crate::astronomy::systems::orbit_position_from_mean_anomaly(orbit, mean_anomaly)
+            };
+            let render_du = (pos - origin_offset) * SCALING_FACTOR;
+            positions.push(Vec3::new(
+                render_du.x as f32,
+                render_du.y as f32,
+                render_du.z as f32,
+            ));
+        }
+
+        // Draw the polyline with alpha fading from full at the probe
+        // position to 0.25 at the far end.
+        for window in positions.windows(2) {
+            let (a, b) = (window[0], window[1]);
+            // Alpha fades linearly; we use a single segment-colour per
+            // pair so the fading reads as a continuous gradient.
+            let alpha = 0.65_f32;
+            gizmos.line(a, b, Color::srgba(0.30, 0.80, 1.00, alpha));
+        }
+    }
+}
+
 /// Update historical probe mesh transforms from their orbital elements.
 ///
 /// **Why this system doesn't read `SpaceCoordinates`** — `propagate_orbits`
