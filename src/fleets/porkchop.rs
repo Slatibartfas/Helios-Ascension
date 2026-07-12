@@ -227,6 +227,13 @@ pub struct PorkchopInputs {
     pub origin_orbit: KeplerOrbit,
     pub dest_orbit: KeplerOrbit,
     pub system_gm: f64,
+    /// GRA-NNN: GM of the body whose local parking orbit the shell
+    /// picker modifies.  `solve_cell` uses this (not `system_gm`) to
+    /// compute the parking-orbit circular speed — see
+    /// `parking_radius_au` doc below for why.  Defaults to
+    /// `system_gm` for tests and legacy code-paths that don't care
+    /// about the shell pick.
+    pub body_gm: f64,
     /// `sim_time_s` — the "now" epoch the player is planning from.
     pub sim_time_s: f64,
     /// Category match key for `PorkchopConfig::resolve`.
@@ -242,6 +249,21 @@ pub struct PorkchopInputs {
     /// demands.  Without this the player could pick Low and get the
     /// heliocentric-SMA ΔV for free — the bug that prompted this
     /// refactor.
+    ///
+    /// The parking circular speed is computed from the body's GM
+    /// (`body_gm`) divided by `r_parking_m` — the shell radius is
+    /// always a local orbit around the parent body (Low/Medium/High
+    /// sit at ~1×, 3×, 10× body radius), so the parking orbit lives
+    /// in the body's gravitational well, not the Sun's.  Using
+    /// `system_gm` for LEO-scale parking gives v_circ ≈ 4,354 km/s at
+    /// Earth (sqrt(GM_Sun / 7000 km)) and a completely nonsensical
+    /// ΔV.
+    ///
+    /// When the player picks a planet shell (Saturn High = 0.00389
+    /// AU around Saturn, etc.) this is implicitly "parking around the
+    /// planet" — the body's GM is what matters, not the Sun's.
+    /// `body_gm` defaults to `system_gm` (= GM_Sun) for tests and
+    /// legacy code-paths that don't care about the shell pick.
     ///
     /// Destination arrival parking still uses the heliocentric SMA
     /// `v_circ` (full local-frame arrival is a much larger solver
@@ -793,7 +815,11 @@ fn solve_cell(
             let r1_helio_m = (origin_pos_au * super::orbital_mechanics::AU_IN_METERS).length();
             let v_circ_at_r1_helio_ms = (inputs.system_gm / r1_helio_m).sqrt();
             let v1_speed_ms = v1_ms.length();
-            let v_inf_dep_ms = (v1_speed_ms - v_circ_at_r1_helio_ms).max(0.0);
+            // GRA-NNN: keep `.abs()` (not `.max(0.0)`) so retrograde burns
+            // (inward Hohmann like Earth→Mercury where the Lambert solver
+            // returns v1 < v_circ) keep their ΔV.  Squaring gives c3 =
+            // v_inf² which is geometrically invariant regardless of sign.
+            let v_inf_dep_ms = (v1_speed_ms - v_circ_at_r1_helio_ms).abs();
             let c3 = v_inf_dep_ms * v_inf_dep_ms; // m²/s²
             if !c3.is_finite() || c3 > c3_ceiling_ms2 {
                 return PorkchopCell {
@@ -828,8 +854,16 @@ fn solve_cell(
             // ΔV₁ = |v_dep − v_circ_parking|.
             let (_v_circ_parking_ms, dep_burn_ms) = match inputs.parking_radius_au {
                 Some(r1_au_parking) => {
+                    // GRA-NNN: parking_v_circ uses `body_gm` — the shell
+                    // picker always picks a radius in the body's local
+                    // frame (Low/Medium/High are 1×/3×/10× body
+                    // radius), so the parking orbit lives in the body's
+                    // gravitational well, not the Sun's.  Using
+                    // system_gm at LEO scale gives v_circ ≈ 4 350 km/s
+                    // at Earth and a 1 800 km/s ΔV — see the new
+                    // `body_gm` field's docs for the math.
                     let r1_m_parking = r1_au_parking * super::orbital_mechanics::AU_IN_METERS;
-                    let v_circ_p = (inputs.system_gm / r1_m_parking).sqrt();
+                    let v_circ_p = (inputs.body_gm / r1_m_parking).sqrt();
                     let v_esc_sq_p = 2.0 * v_circ_p * v_circ_p;
                     let v_dep_sq = c3 + v_esc_sq_p;
                     let v_dep_p = if v_dep_sq > 0.0 { v_dep_sq.sqrt() } else { 0.0 };
@@ -1887,6 +1921,10 @@ mod tests {
             origin_orbit: origin,
             dest_orbit: dest,
             system_gm: crate::fleets::orbital_mechanics::GM_SUN,
+            // GRA-NNN: tests default to `body_gm = system_gm` (no
+            // shell pick → legacy heliocentric-SMA parking).  The
+            // shell-pick branch is exercised in dedicated tests below.
+            body_gm: crate::fleets::orbital_mechanics::GM_SUN,
             sim_time_s: 0.0,
             category: category.to_string(),
             // GRA-NNN: tests in this module use the legacy
@@ -3317,6 +3355,10 @@ pub fn build_grid_for_body_target(
     sim_time_s: f64,
     // GRA-NNN: see `PorkchopInputs::parking_radius_au` for the math.
     parking_radius_au: Option<f64>,
+    // GM of the body whose local parking orbit the shell picker
+    // modifies (typically the parent body's GM for the destination
+    // selection).  Pass `system_gm` (= GM_Sun) when no shell pick.
+    body_gm: f64,
 ) -> PorkchopGrid {
     let inputs = PorkchopInputs {
         origin_name,
@@ -3331,6 +3373,7 @@ pub fn build_grid_for_body_target(
         // 3-option row, which is correct (we're scoping GRA-159 to
         // the heliocentric body path).
         system_gm: GM_SUN,
+        body_gm,
         sim_time_s,
         category: category.to_string(),
         parking_radius_au,
@@ -3367,6 +3410,9 @@ pub fn build_rotating_buffer_for_body_target(
     sim_time_s: f64,
     // GRA-NNN: see `PorkchopInputs::parking_radius_au` for the math.
     parking_radius_au: Option<f64>,
+    // GM of the body whose local parking orbit the shell picker
+    // modifies.
+    body_gm: f64,
 ) -> PorkchopGrid {
     // Resolve the per-category params, then quadruple
     // `t_dep_window_days` and double `resolution_t_dep` so the
@@ -3388,6 +3434,7 @@ pub fn build_rotating_buffer_for_body_target(
         origin_orbit,
         dest_orbit,
         system_gm: GM_SUN,
+        body_gm,
         sim_time_s,
         category: category.to_string(),
         parking_radius_au,
@@ -3469,6 +3516,7 @@ mod planner_wiring_tests {
             "interplanetary",
             0.0,
             None, // GRA-NNN parking_radius_au: tests use legacy heliocentric-SMA parking.
+            crate::fleets::orbital_mechanics::GM_SUN, // GRA-NNN body_gm: legacy = system_gm.
         );
         assert!(
             grid.cells.iter().any(|c| c.feasible),
@@ -3499,6 +3547,7 @@ mod planner_wiring_tests {
             "interplanetary",
             0.0,
             None, // GRA-NNN parking_radius_au: tests default to None.
+            crate::fleets::orbital_mechanics::GM_SUN, // GRA-NNN body_gm: legacy = system_gm.
         );
         let baseline = build_grid_for_body_target(
             &cfg,
@@ -3509,6 +3558,7 @@ mod planner_wiring_tests {
             "interplanetary",
             0.0,
             None, // GRA-NNN parking_radius_au: see above.
+            crate::fleets::orbital_mechanics::GM_SUN, // GRA-NNN body_gm: legacy = system_gm.
         );
         // Buffer covers 4× the baseline's t_dep window.
         let baseline_width = baseline.t_dep_bounds_s.1 - baseline.t_dep_bounds_s.0;
@@ -3591,6 +3641,7 @@ mod planner_wiring_tests {
             "interplanetary",
             0.0,
             None, // GRA-NNN parking_radius_au: legacy heliocentric-SMA parking.
+            crate::fleets::orbital_mechanics::GM_SUN, // GRA-NNN body_gm: legacy = system_gm.
         );
         let half_year = 0.5 * 365.25 * 86_400.0;
         let grid_at_thalf = build_grid_for_body_target(
@@ -3602,6 +3653,7 @@ mod planner_wiring_tests {
             "interplanetary",
             half_year,
             None, // GRA-NNN parking_radius_au: legacy heliocentric-SMA parking.
+            crate::fleets::orbital_mechanics::GM_SUN, // GRA-NNN body_gm: legacy = system_gm.
         );
         // Pick a feasible cell from each grid (col 20, row 25) and
         // verify the planet positions differ.  Without the fix the
@@ -3716,6 +3768,7 @@ mod planner_wiring_tests {
             "moon",
             0.0,
             None, // GRA-NNN parking_radius_au: legacy heliocentric-SMA parking.
+            crate::fleets::orbital_mechanics::GM_SUN, // GRA-NNN body_gm: legacy.
         );
         // The moon override's ±7 day half-window should be the bound.
         let half_window_d = (grid.t_dep_bounds_s.1 - grid.t_dep_bounds_s.0) * 0.5 / SECONDS_PER_DAY;
@@ -3744,6 +3797,7 @@ mod planner_wiring_tests {
             origin_orbit: KeplerOrbit::circular(1.0, 1.0),
             dest_orbit: KeplerOrbit::circular(1.524, 1.0),
             system_gm: GM_SUN,
+            body_gm: GM_SUN,
             sim_time_s: 0.0,
             category: "interplanetary".to_string(),
             parking_radius_au: None,
@@ -3798,6 +3852,7 @@ mod planner_wiring_tests {
             "interplanetary",
             0.0,
             None, // GRA-NNN parking_radius_au: legacy heliocentric-SMA parking.
+            crate::fleets::orbital_mechanics::GM_SUN, // GRA-NNN body_gm: legacy.
         );
         assert_eq!(
             grid_at_t0.t_dep_bounds_s.0, 0.0,
@@ -3815,6 +3870,7 @@ mod planner_wiring_tests {
             "interplanetary",
             one_year_s,
             None, // GRA-NNN parking_radius_au: legacy heliocentric-SMA parking.
+            crate::fleets::orbital_mechanics::GM_SUN, // GRA-NNN body_gm: legacy.
         );
         assert!(
             (grid_at_1yr.t_dep_bounds_s.0 - one_year_s).abs() < 1.0,
@@ -3876,6 +3932,7 @@ mod planner_wiring_tests {
             "interplanetary",
             0.0,
             None, // GRA-NNN parking_radius_au: legacy heliocentric-SMA parking.
+            crate::fleets::orbital_mechanics::GM_SUN, // GRA-NNN body_gm: legacy.
         );
         // Second build half a rotation later — past the trigger.
         let half_year_s = 0.5 * 365.25 * 86_400.0;
@@ -3888,6 +3945,7 @@ mod planner_wiring_tests {
             "interplanetary",
             half_year_s,
             None, // GRA-NNN parking_radius_au: legacy heliocentric-SMA parking.
+            crate::fleets::orbital_mechanics::GM_SUN, // GRA-NNN body_gm: legacy.
         );
         // Both grids are anchored at their respective sim_time_s.
         assert_eq!(grid_a.t_dep_bounds_s.0, 0.0);

@@ -2305,9 +2305,13 @@ pub(super) fn render_transfer_planner(
                         // the solver so picking "Low" (LEO analog) costs
                         // more ΔV than "High" — see
                         // `PorkchopInputs::parking_radius_au` for the
-                        // physics.  Falls back to None (legacy
-                        // heliocentric-SMA assumption) when no shell is
-                        // set or when the body's lookup fails.
+                        // physics.  `body_gm` is the parent body's GM
+                        // so parking-orbit circular speed is in the right
+                        // well (Earth's GM for LEO, Saturn's GM for Saturn
+                        // High, etc.) — using `GM_Sun` at LEO scale gives
+                        // v_circ ≈ 4 350 km/s and a 1 800 km/s ΔV.  When
+                        // no shell is picked, pass `system_gm` (Sun) for
+                        // the legacy heliocentric-SMA parking assumption.
                         let parking_radius_au = fleet_ui_state
                             .target_orbit_shell
                             .filter(|(e, _)| *e == target_entity)
@@ -2317,6 +2321,16 @@ pub(super) fn render_transfer_planner(
                                     .ok()
                                     .map(|(_, b, _, _, _)| radius_for_shell(b, s))
                             });
+                        let body_gm = parking_radius_au
+                            .map(|_| {
+                                crate::fleets::orbital_mechanics::G_CONST
+                                    * body_query
+                                        .get(target_entity)
+                                        .ok()
+                                        .map(|(_, b, _, _, _)| b.mass)
+                                        .unwrap_or(0.0)
+                            })
+                            .unwrap_or(crate::fleets::orbital_mechanics::GM_SUN);
                         let grid = crate::fleets::porkchop::build_grid_for_body_target(
                             porkchop_config,
                             origin_orbit,
@@ -2326,6 +2340,7 @@ pub(super) fn render_transfer_planner(
                             category,
                             elapsed,
                             parking_radius_au,
+                            body_gm,
                         );
                         fleet_ui_state.porkchop_grid = Some(grid);
                         fleet_ui_state.porkchop_built_for = Some(target_entity);
@@ -2802,6 +2817,20 @@ pub(super) fn render_transfer_planner(
                             .ok()
                             .map(|(_, b, _, _, _)| radius_for_shell(b, s))
                     });
+                // GRA-NNN: capture `body_gm` alongside `parking_radius_au`
+                // so the worker thread has everything it needs without
+                // re-borrowing `body_query`.  See the planet fast-path
+                // sync build above for the full derivation.
+                let body_gm = parking_radius_au
+                    .map(|_| {
+                        crate::fleets::orbital_mechanics::G_CONST
+                            * body_query
+                                .get(target_entity)
+                                .ok()
+                                .map(|(_, b, _, _, _)| b.mass)
+                                .unwrap_or(0.0)
+                    })
+                    .unwrap_or(crate::fleets::orbital_mechanics::GM_SUN);
                 // Async build (Phase B++): spawn a worker thread
                 // to solve the Lambert grid off the main thread.
                 // The egui pass continues immediately; the polling
@@ -2816,14 +2845,16 @@ pub(super) fn render_transfer_planner(
                 // 'static data — `&PorkchopConfig` borrows the Bevy
                 // `Res<PorkchopConfig>` whose lifetime is tied to the
                 // world.  Cloning the parking radius is a single
-                // `Option<f64>` copy.
+                // `Option<f64>` copy.  `body_gm` is a plain `f64`.
                 let cfg = porkchop_config.clone();
                 let parking_radius_au_thread = parking_radius_au;
+                let body_gm_thread = body_gm;
                 let (tx, rx) = std::sync::mpsc::channel();
                 std::thread::Builder::new()
                     .name("porkchop-build".to_string())
                     .spawn(move || {
                         let parking_radius_au = parking_radius_au_thread;
+                        let body_gm = body_gm_thread;
                         let grid = build_rotating_buffer_for_body_target(
                             &cfg,
                             origin_orbit,
@@ -2833,6 +2864,7 @@ pub(super) fn render_transfer_planner(
                             category,
                             elapsed,
                             parking_radius_au,
+                            body_gm,
                         );
                         // `tx.send` returns Err if the receiver was
                         // dropped (e.g. target changed mid-solve) —
@@ -3745,6 +3777,24 @@ pub(super) fn render_transfer_planner(
                                                                     },
                                                                 )
                                                         });
+                                                // GRA-NNN: derive `body_gm`
+                                                // alongside `parking_radius_au`
+                                                // so the solver uses the
+                                                // correct GM for the
+                                                // parking-orbit well.
+                                                // See the planet fast-path
+                                                // build above for full
+                                                // derivation.
+                                                let body_gm = parking_radius_au
+                                                    .map(|_| {
+                                                        crate::fleets::orbital_mechanics::G_CONST
+                                                            * body_query
+                                                                .get(*entity)
+                                                                .ok()
+                                                                .map(|(_, b, _, _, _)| b.mass)
+                                                                .unwrap_or(0.0)
+                                                    })
+                                                    .unwrap_or(crate::fleets::orbital_mechanics::GM_SUN);
                                                 Some(build_grid_for_body_target(
                                                     porkchop_config,
                                                     origin_orbit,
@@ -3754,6 +3804,7 @@ pub(super) fn render_transfer_planner(
                                                     category,
                                                     elapsed,
                                                     parking_radius_au,
+                                                    body_gm,
                                                 ))
                                             })()
                                             } else if let Some(n) = porkchop_config
@@ -3887,6 +3938,19 @@ pub(super) fn render_transfer_planner(
                                                                 .ok()
                                                                 .map(|(_, b, _, _, _)| radius_for_shell(b, s))
                                                         });
+                                                    // GRA-NNN: same `body_gm` derivation
+                                                    // as the planet fast-path build
+                                                    // and the other click handler.
+                                                    let body_gm = parking_radius_au
+                                                        .map(|_| {
+                                                            crate::fleets::orbital_mechanics::G_CONST
+                                                                * body_query
+                                                                    .get(*entity)
+                                                                    .ok()
+                                                                    .map(|(_, b, _, _, _)| b.mass)
+                                                                    .unwrap_or(0.0)
+                                                        })
+                                                        .unwrap_or(crate::fleets::orbital_mechanics::GM_SUN);
                                                     Some(build_grid_for_body_target(
                                                         porkchop_config,
                                                         origin_orbit,
@@ -3896,6 +3960,7 @@ pub(super) fn render_transfer_planner(
                                                         category,
                                                         elapsed,
                                                         parking_radius_au,
+                                                        body_gm,
                                                     ))
                                                 })()
                                             } else {
