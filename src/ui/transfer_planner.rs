@@ -2415,6 +2415,17 @@ pub(super) fn render_transfer_planner(
         }
     }
 
+    // Clear the in_flight flag the fast-path sync build set at entry
+    // (see the `if fleet_ui_state.porkchop_grid.is_none() || pending_rebuild`
+    // block at the top of this section).  The async rotating-buffer path
+    // clears it from its polling block, but the fast-path is sync within
+    // the same egui pass and never reaches that polling code.  Without
+    // this clear, outwards transfers (Earth→Jupiter, Earth→Saturn) that
+    // build the grid here would leave `in_flight = true` forever and
+    // the panel would be stuck on the "Calculating..." spinner.
+    // GRA-NNN.
+    fleet_ui_state.porkchop_build_in_flight = false;
+
     // ── GRA-159 deferred porkchop build ─────────────────────────────────────
     // The porkchop grid is normally built by the Body/Ring click handlers in
     // the destination picker below.  But there are entry points that set

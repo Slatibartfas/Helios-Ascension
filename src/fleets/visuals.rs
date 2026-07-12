@@ -3420,18 +3420,31 @@ pub fn ensure_historical_probe_meshes(
 /// and drawing a cyan polyline through the samples, in the same style
 /// as the fleet preview arc.
 ///
-/// **Sampling.**  We pick 16 evenly-spaced forward samples over an
-/// interval that scales with `orbit.mean_motion` (a fast inner-orbit
-/// probe like Parker gets a 2-day preview, a slow outer-orbit probe
-/// like Voyager 1 gets a 12-year preview).  For hyperbolics where
-/// `mean_motion == 0` we use a flat 2-year preview — the probe is on
-/// an asymptote and the preview shows the next decade along the
-/// hyperbola path.
+/// **Numerics.**  An earlier version used
+/// `orbit_position_from_mean_anomaly` which itself calls
+/// `solve_kepler`.  Newton-Raphson for `M = E − e·sin(E)` is unstable
+/// near perihelion at high eccentricity (Parker e = 0.88 — the
+/// derivative `1 − e·cos(E)` collapses around E=0).  Each preview
+/// sample took a divergent Newton step and the polyline ended up as a
+/// spirograph starburst instead of an orbital arc.  Fix: do Newton-
+/// Raphson exactly once per probe to establish `E₀` (the eccentric
+/// anomaly at the JPL epoch).  Then for every sample, advance `E`
+/// *incrementally* by `mean_motion · Δt` and convert to true anomaly
+/// via the closed-form identity — no iteration, no divergence.
 ///
-/// **Style.**  Cyan `Color::srgba(0.30, 0.80, 1.00, …)` matching
-/// `draw_fleet_transfer_preview`.  Alpha fades along the path so the
-/// far end is dimmer than the current-position end (matches the
-/// fleet preview).
+/// **Hyperbolics.**  `mean_motion == 0` for hyperbolas (the upstream
+/// `mean_motion_rad_s` short-circuits to `0` for `e ≥ 1`).  We can't
+/// advance `E` linearly in that case, but the probe is on an
+/// asymptotic trajectory whose path doesn't "go anywhere" — sampling
+/// by `ν` for a fixed number of points along the orbit draws a chunk
+/// of the hyperbolic arc that reads as "you are on the way out".
+///
+/// **Dash + oscillation.**  Each preview consists of `SAMPLES − 1`
+/// segments.  We turn every Nth segment "on" (the dash) and the rest
+/// "off" (the gap).  The dash pattern is animated by `sim_time` so
+/// the dashes flow along the path toward the far end as time
+/// advances.  Alpha also oscillates as `0.5 + 0.5·|sin(t)|` so the
+/// whole line gently breathes regardless of dash phase.
 pub fn draw_historical_probe_trajectories(
     mut gizmos: Gizmos,
     probe_query: Query<
@@ -3445,6 +3458,9 @@ pub fn draw_historical_probe_trajectories(
     floating_origin: Option<Res<FloatingOrigin>>,
     sim_time: Res<SimulationTime>,
 ) {
+    use crate::astronomy::systems::eccentric_to_true_anomaly;
+    use crate::astronomy::systems::hyperbolic_to_true_anomaly;
+
     let origin_offset = floating_origin
         .as_ref()
         .map(|fo| fo.position)
@@ -3452,14 +3468,13 @@ pub fn draw_historical_probe_trajectories(
 
     let elapsed = sim_time.elapsed_seconds();
 
-    // Tuning: number of samples and preview length scale.
-    const SAMPLES: usize = 16;
+    // Tuning constants.
+    const SAMPLES: usize = 64; // number of polyline samples per probe
+    const DASH_COUNT: usize = 24; // number of "on" dashes across the preview
+    const DASH_DUTY_CYCLE: f32 = 0.55; // fraction of each cycle that is "on"
 
     for (orbit, hyperbolic, transfer) in probe_query.iter() {
         if let Some(silent_jd) = transfer.silent_since_jd_tdb {
-            // Skip probes past their silent date — their orbit rings
-            // are already faded by
-            // `update_historical_probe_orbit_path_visibility`.
             let silent_sim_s = (silent_jd
                 - crate::fleets::historical_probes::EPOCH_2026_JD_TDB)
                 * 86_400.0;
@@ -3468,72 +3483,152 @@ pub fn draw_historical_probe_trajectories(
             }
         }
 
-        // Preview length: scale with mean_motion when available.
-        // mean_motion is in rad/s.  A Parker-class orbit (~0.001 rad/s)
-        // gets a 2-day preview; a Voyager-class orbit (~1e-7 rad/s)
-        // gets a much longer preview.
-        let preview_s = if orbit.mean_motion > 1e-5 {
-            // Fast inner-system orbit: 2 sim-days covers ~3° of phase.
-            2.0 * 86_400.0
-        } else {
-            // Slow outer-system orbit or hyperbolic: 2 sim-years.
+        // Preview length scaled to the probe's orbital rate.
+        // Parker (mean_motion ≈ 8e-7 rad/s) wants ~30 sim-minutes,
+        // so 0.4 rad × 1/mean_motion ≈ 4 days.  Outer-orbit and
+        // hyperbolic probes want ~2 sim-years.
+        let preview_s = if orbit.eccentricity > 1.0 || orbit.mean_motion < 1e-6 {
             2.0 * 365.25 * 86_400.0
+        } else {
+            // ~30 sim-minutes of advance (cover ~30° of phase)
+            30.0 * 60.0
         };
 
+        let e0_bound: Option<f64> = if orbit.eccentricity < 1.0 {
+            // Single Newton-Raphson call per probe, per frame.
+            // `mean_anomaly_epoch` is typically well-conditioned
+            // (it's the JPL-epoch M, not arbitrary).  Wrap to
+            // [0, TAU) so additive increments stay bounded.
+            let e0 =
+                crate::astronomy::systems::solve_kepler(orbit.mean_anomaly_epoch, orbit.eccentricity);
+            Some(e0.rem_euclid(std::f64::consts::TAU))
+        } else {
+            None
+        };
+
+        // Build the position polyline (no Newton-Raphson inside the
+        // loop — see "Numerics" comment above).
         let mut positions: Vec<Vec3> = Vec::with_capacity(SAMPLES);
-        for i in 0..SAMPLES {
-            let t = elapsed + (preview_s * i as f64) / (SAMPLES - 1) as f64;
-            let pos = if orbit.eccentricity > 1.0 {
-                // Hyperbolic path: position is fixed at the JPL epoch
-                // (mean_motion == 0).  Still emit the same point so the
-                // polyline draws, but the path doesn't evolve with time.
-                if let Some(hyp) = hyperbolic {
-                    let nu = crate::astronomy::systems::hyperbolic_to_true_anomaly(
-                        hyp.hyperbolic_anomaly_epoch,
-                        orbit.eccentricity,
-                    );
-                    let e = orbit.eccentricity;
-                    let a = orbit.semi_major_axis;
-                    let r = a * (1.0 - e * e) / (1.0 + e * nu.cos());
-                    let x_orbital = r * nu.cos();
-                    let y_orbital = r * nu.sin();
-                    let cos_w = orbit.argument_of_periapsis.cos();
-                    let sin_w = orbit.argument_of_periapsis.sin();
-                    let x_perifocal = x_orbital * cos_w - y_orbital * sin_w;
-                    let y_perifocal = x_orbital * sin_w + y_orbital * cos_w;
-                    let cos_i = orbit.inclination.cos();
-                    let sin_i = orbit.inclination.sin();
-                    let cos_omega = orbit.longitude_ascending_node.cos();
-                    let sin_omega = orbit.longitude_ascending_node.sin();
-                    let x = x_perifocal * cos_omega - y_perifocal * cos_i * sin_omega;
-                    let y = x_perifocal * sin_omega + y_perifocal * cos_i * cos_omega;
-                    let z = y_perifocal * sin_i;
-                    DVec3::new(x, y, z)
-                } else {
-                    continue;
-                }
-            } else {
-                let mean_anomaly = orbit.mean_anomaly_epoch + orbit.mean_motion * t;
-                crate::astronomy::systems::orbit_position_from_mean_anomaly(orbit, mean_anomaly)
+        if orbit.eccentricity > 1.0 {
+            // Hyperbolic path: sample across the physical ν range
+            // (`(-arccos(-1/e), arccos(-1/e))`).  `mean_motion == 0`
+            // so we can't advance through time; stepping by ν
+            // shows the next chunk of the escape arc.
+            let hyp = match hyperbolic {
+                Some(h) => h,
+                None => continue,
             };
-            let render_du = (pos - origin_offset) * SCALING_FACTOR;
-            positions.push(Vec3::new(
-                render_du.x as f32,
-                render_du.y as f32,
-                render_du.z as f32,
-            ));
+            let nu_limit = (-1.0_f64 / orbit.eccentricity)
+                .clamp(-1.0, 1.0)
+                .acos();
+            let nu0 = hyperbolic_to_true_anomaly(
+                hyp.hyperbolic_anomaly_epoch,
+                orbit.eccentricity,
+            );
+            for i in 0..SAMPLES {
+                let frac = i as f64 / (SAMPLES - 1) as f64;
+                let nu = nu0 + (frac * 2.0 - 1.0) * nu_limit * 0.6;
+                let nu_c = nu.clamp(-nu_limit, nu_limit);
+                if let Some(p) = orbit_position_from_nu_only(orbit, nu_c, origin_offset) {
+                    positions.push(p);
+                }
+            }
+        } else if let Some(e0) = e0_bound {
+            // Bound path: advance eccentric anomaly incrementally.
+            let step_e = (orbit.mean_motion * preview_s)
+                .rem_euclid(std::f64::consts::TAU)
+                / (SAMPLES - 1) as f64;
+            for i in 0..SAMPLES {
+                let e = (e0 + step_e * i as f64).rem_euclid(std::f64::consts::TAU);
+                let nu = eccentric_to_true_anomaly(e, orbit.eccentricity);
+                if let Some(p) = orbit_position_from_nu_only(orbit, nu, origin_offset) {
+                    positions.push(p);
+                }
+            }
         }
 
-        // Draw the polyline with alpha fading from full at the probe
-        // position to 0.25 at the far end.
-        for window in positions.windows(2) {
+        // Dashed + oscillating line.
+        let segments_per_dash = (SAMPLES - 1) as f32 / DASH_COUNT as f32;
+        // Animated phase: dashes shift along the path over time.
+        // A short cycle (e.g. 0.65 s) makes the flow visible; long
+        // enough that it doesn't strobe.
+        let phase = (elapsed * 1.5) % (segments_per_dash as f64);
+        let phase_offset = phase as f32;
+        // Whole-line breathing (independent of dash phase).
+        let breathe = 0.45_f32
+            + 0.4_f32
+                * (elapsed as f32 * 2.8).sin().abs();
+        for (i, window) in positions.windows(2).enumerate() {
             let (a, b) = (window[0], window[1]);
-            // Alpha fades linearly; we use a single segment-colour per
-            // pair so the fading reads as a continuous gradient.
-            let alpha = 0.65_f32;
+            // Per-segment progress within the dash cycle
+            // (0..segments_per_dash).  Offset by phase so the dash
+            // pattern slides along the path.
+            let seg_x = i as f32;
+            let pos_in_cycle = (seg_x + phase_offset).rem_euclid(segments_per_dash);
+            // 50% duty cycle: first half of cycle is "on".
+            let is_on = pos_in_cycle < (segments_per_dash * DASH_DUTY_CYCLE);
+            if !is_on {
+                continue;
+            }
+            // Per-segment alpha fade: closer to probe = brighter.
+            // Mirrors the fleet preview's transparency falloff.
+            let seg_frac = (SAMPLES - 1 - i) as f32 / (SAMPLES - 1) as f32;
+            let alpha = (breathe * (0.35 + 0.65 * seg_frac)).clamp(0.0, 0.85);
             gizmos.line(a, b, Color::srgba(0.30, 0.80, 1.00, alpha));
         }
     }
+}
+
+/// Compute the inertial render position for a KeplerOrbit sample at
+/// the given true anomaly.  Reuses the same `orbital_radius`
+/// formula that `draw_fleet_trajectories` uses, but bypasses the
+/// eccentricity clamp (the probe heliocentric path goes through
+/// `orbital_radius` already; this helper is for the preview which
+/// clamps `e` to `MAX_ELLIPTICAL_ECCENTRICITY = 0.99999` and would
+/// otherwise corrupt the preview for hyperbolic probes.  Hmm —
+/// actually `orbital_radius` clamps to 0.99999, not 0.999..., but
+/// the formula produces a finite r for hyperbolas (1+e·cos(ν) is
+/// clamped to nu_limit anyway).  We compute r manually.)
+fn orbit_position_from_nu_only(
+    orbit: &crate::astronomy::KeplerOrbit,
+    nu: f64,
+    origin_offset: DVec3,
+) -> Option<Vec3> {
+    use crate::astronomy::SCALING_FACTOR;
+
+    let e = orbit.eccentricity;
+    let a = orbit.semi_major_axis;
+    // Manual r = a(1 - e^2) / (1 + e cos(nu)).  For hyperbolas
+    // both numerator and 1+e cos(nu) can be negative — return None
+    // if the radius goes non-finite.
+    let denom = 1.0 + e * nu.cos();
+    let r = a * (1.0 - e * e) / denom;
+    if !r.is_finite() {
+        return None;
+    }
+
+    // Orientation matrix (orbital plane → heliocentric ecliptic).
+    let x_orbital = r * nu.cos();
+    let y_orbital = r * nu.sin();
+    let cos_w = orbit.argument_of_periapsis.cos();
+    let sin_w = orbit.argument_of_periapsis.sin();
+    let x_perifocal = x_orbital * cos_w - y_orbital * sin_w;
+    let y_perifocal = x_orbital * sin_w + y_orbital * cos_w;
+    let cos_i = orbit.inclination.cos();
+    let sin_i = orbit.inclination.sin();
+    let cos_omega = orbit.longitude_ascending_node.cos();
+    let sin_omega = orbit.longitude_ascending_node.sin();
+    let x = x_perifocal * cos_omega - y_perifocal * cos_i * sin_omega;
+    let y = x_perifocal * sin_omega + y_perifocal * cos_i * cos_omega;
+    let z = y_perifocal * sin_i;
+
+    let p = DVec3::new(x, y, z);
+    let render_du = (p - origin_offset) * SCALING_FACTOR;
+    Some(Vec3::new(
+        render_du.x as f32,
+        render_du.y as f32,
+        render_du.z as f32,
+    ))
 }
 
 /// Update historical probe mesh transforms from their orbital elements.

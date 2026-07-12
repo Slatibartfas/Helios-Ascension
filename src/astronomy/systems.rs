@@ -194,7 +194,7 @@ pub fn orbit_position_from_mean_anomaly(orbit: &KeplerOrbit, mean_anomaly: f64) 
 ///
 /// # Returns
 /// True anomaly ν in radians
-fn eccentric_to_true_anomaly(eccentric_anomaly: f64, eccentricity: f64) -> f64 {
+pub fn eccentric_to_true_anomaly(eccentric_anomaly: f64, eccentricity: f64) -> f64 {
     // For circular orbits
     if eccentricity < 1e-10 {
         return eccentric_anomaly;
