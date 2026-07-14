@@ -721,7 +721,6 @@ pub fn draw_orbit_paths(
                 parent_offset,
                 is_selected,
                 is_hovered,
-                origin_offset,
             );
             continue;
         }
@@ -845,16 +844,10 @@ pub fn draw_orbit_paths(
                 continue;
             }
 
-            // Subtract the floating origin so the polyline stays anchored to
-            // the body's icon.  `parent_offset` is already origin-recentered
-            // (see line 701-707), so both summands live in the same frame.
-            // Without this, the orbit ring drifts `origin_offset *
-            // SCALING_FACTOR` Bevy units away from the icon whenever the
-            // camera anchor shifts — visible as flicker for long-distance
-            // bodies (e.g. Voyager 1 at ~170 AU).
-            let sample_au = (position_au - origin_offset) * SCALING_FACTOR * amp;
-            let point = Vec3::new(sample_au.x as f32, sample_au.y as f32, sample_au.z as f32)
-                + parent_offset;
+            let scaled_x = (position_au.x * SCALING_FACTOR * amp) as f32;
+            let scaled_y = (position_au.y * SCALING_FACTOR * amp) as f32;
+            let scaled_z = (position_au.z * SCALING_FACTOR * amp) as f32;
+            let point = Vec3::new(scaled_x, scaled_y, scaled_z) + parent_offset;
 
             if let Some(prev) = prev_point {
                 // t goes from 0.0 (at the body/head) to 1.0 (full orbit behind)
@@ -930,7 +923,6 @@ fn draw_hyperbolic_orbit_arc(
     parent_offset: Vec3,
     is_selected: bool,
     is_hovered: bool,
-    origin_offset: DVec3,
 ) {
     // Solve r(ν) = q (e + cos(ν)) / (1 + e cos(ν)) = max_distance
     // ⇒ cos(ν) = (q - max_distance) / (e * max_distance - q)
@@ -1024,11 +1016,10 @@ fn draw_hyperbolic_orbit_arc(
             continue;
         }
 
-        // Subtract the floating origin so the polyline stays anchored to
-        // the body's icon (see Bug 1 / draw_orbit_paths comment).
-        let sample_au = (position_au - origin_offset) * SCALING_FACTOR * amp;
-        let point = Vec3::new(sample_au.x as f32, sample_au.y as f32, sample_au.z as f32)
-            + parent_offset;
+        let scaled_x = (position_au.x * SCALING_FACTOR * amp) as f32;
+        let scaled_y = (position_au.y * SCALING_FACTOR * amp) as f32;
+        let scaled_z = (position_au.z * SCALING_FACTOR * amp) as f32;
+        let point = Vec3::new(scaled_x, scaled_y, scaled_z) + parent_offset;
 
         if let Some(prev) = prev_point {
             // t goes 0 (at -nu_max) → 0.5 (at periapsis) → 1 (at +nu_max)
