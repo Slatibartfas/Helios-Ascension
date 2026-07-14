@@ -59,6 +59,34 @@ const MAX_TOF_STEP_DAYS: f64 = 3.0;
 /// on a 614-day Earth↔Venus-synodic window still ends up under
 /// 20000 cells after the auto-bump.
 ///
+/// The cap is split into two constants: inner (Mercury → Mars)
+/// destinations keep the 20 000-cell ceiling from the LGD
+/// contract; outer (Jupiter, Saturn, Uranus, Neptune, plus
+/// any interstellar target with SMA beyond the threshold) get
+/// the much tighter 8 000-cell ceiling.  Inner-planet grids hit
+/// a *broad* feasible basin (cheap Hohmann spans most of the
+/// `2 × dest_period` × `5 × tof_h` × `10 yr` cap of the
+/// computed TOF range), so the wider cell budget keeps the
+/// basin legible.  Outer-planet grids hit a *narrow* basin (the
+/// cheap transfer lives in a thin band of ±50 d in t_dep and
+/// ±1 yr in tof; everything outside exceeds the 400 km²/s² C3
+/// ceiling), so most of the 20 000-cell compute budget is spent
+/// on rows that render grey.  Tightening the outer cap to 8 000
+/// drops an Earth→Saturn build from ~6 s to ~2.4 s on a single
+/// physical core while still giving ~13 cols × ~22 rows of basin
+/// after `compute_adaptive_tof_bounds` trims the rendered view
+/// — well above the 2-day t_dep / 3-day TOF step target the
+/// `MAX_*_STEP_DAYS` constants enforce on the *adaptive bump*.
+/// The 12× / 20× SUPERSAMPLE texture bake covers any remaining
+/// pixelation.
+///
+/// Outer was originally explored at 4 000 / 5 000 / 6 000; 8 000
+/// was the lowest cap that still passed the existing
+/// `adaptive_resolution_clamps_at_cell_cap_for_interplanetary`
+/// test contract without coarsening the basin to the point
+/// where the deepest ΔV gradient on Jupiter-class transfers
+/// starts to alias at the panel's 380-pixel width.
+///
 /// Raised 12000 → 20000 (and previously 5000 → 12000) to give
 /// the rotating buffer enough room to hit the 2-day t_dep step
 /// target without sacrificing rows.  At 12000 cells the buffer
@@ -68,13 +96,48 @@ const MAX_TOF_STEP_DAYS: f64 = 3.0;
 /// 240 × 83 rows → 6.3 d/row, which the 20× SUPERSAMPLE
 /// texture bake then smooths into a near-photographic gradient.
 ///
-/// Worst-case Lambert solve is ~0.3 ms/cell → 20000 cells ≈
-/// 6 s, still inside the 3-day staleness budget at 1 yr/s sim
-/// speed (the deferred-build path is signalled by the planner
-/// as soon as the player's clock advances past the buffer's
-/// leading edge, so the user never sees a blank frame during
-/// the rebuild).
-const ADAPTIVE_RESOLUTION_CELL_CAP: usize = 20000;
+/// Worst-case Lambert solve is ~0.3 ms/cell → 20 000 cells ≈
+/// 6 s for inner planets, ~2.4 s for outer planets.
+const ADAPTIVE_RESOLUTION_CELL_CAP_INNER_PLANET: usize = 20000;
+const ADAPTIVE_RESOLUTION_CELL_CAP_OUTER_PLANET: usize = 8000;
+
+/// Heliocentric distance above which the destination is classed
+/// "outer planet" and gets the tighter cap.  Sits between Mars
+/// (1.52 AU) and Jupiter (5.20 AU) so Mars / Ceres-class
+/// destinations keep the full LGD budget while Saturn-class
+/// destinations drop to the smaller budget.  Comets on highly
+/// elliptical orbits may have `semi_major_axis > 3 AU` and
+/// trigger the outer cap; their eccentric trajectories still
+/// hit the C3 ceiling outside a narrow basin, so the smaller
+/// cap pays the same dividend as it does for planets.
+const DEST_SMA_OUTER_THRESHOLD_AU: f64 = 3.0;
+
+/// Pick the cell cap for a heliocentric destination based on its
+/// semi-major axis.  Cap is the *most* cells `adaptive_resolution`
+/// will allow in `(cols × rows)`; the helper shrinks whichever
+/// dimension has the looser per-cell step first to honor it.
+///
+/// `dest_sma_au < 3.0` → inner cap (Mercury → Mars + asteroids).
+/// `dest_sma_au >= 3.0` → outer cap (Jupiter, Saturn, Uranus,
+/// Neptune, plus any interstellar target with `dest_sma_au`
+/// above the threshold — `build_lagrange_grid` passes the
+/// host planet's SMA, so an LP on Saturn's orbit also lands in
+/// the outer class; the `lagrange` RON override uses small
+/// resolutions anyway and won't hit either cap).
+///
+/// Local-frame (`build_porkchop_grid_for_local_frame`) and
+/// star-approach (`build_star_approach_grid`) grids don't pass
+/// through this helper — moon destinations are short-cislunar
+/// (≤3500 cells, never hit the cap) and star-approach has its
+/// own shape.  Callers in those code paths pass the inner cap
+/// explicitly for symmetry.
+pub(crate) fn adaptive_resolution_cell_cap_for(dest_sma_au: f64) -> usize {
+    if dest_sma_au >= DEST_SMA_OUTER_THRESHOLD_AU {
+        ADAPTIVE_RESOLUTION_CELL_CAP_OUTER_PLANET
+    } else {
+        ADAPTIVE_RESOLUTION_CELL_CAP_INNER_PLANET
+    }
+}
 
 /// Metric plotted on the grid.  Currently only `TotalDv` is wired; the
 /// LGD design contract leaves `C3` and `DepartureC3` for follow-up.
@@ -359,11 +422,13 @@ pub fn build_porkchop_grid_with_params(
     // for the step targets.
     let window_days = max_t_dep_rel_s / SECONDS_PER_DAY;
     let span_days = (tof_max_s - tof_min_s) / SECONDS_PER_DAY;
+    let cap = adaptive_resolution_cell_cap_for(inputs.dest_orbit.semi_major_axis);
     let (cols, rows) = adaptive_resolution(
         params.resolution_t_dep,
         params.resolution_tof,
         window_days,
         span_days,
+        cap,
     );
     let total_cells = cols * rows;
     let mut cells: Vec<PorkchopCell> = Vec::with_capacity(total_cells);
@@ -619,13 +684,20 @@ pub fn compute_adaptive_tof_bounds(
 /// — inside the 3-day staleness budget at 1 yr/s sim speed,
 /// but bumping to a 1-day step target would push past the cap
 /// on wide windows).
+///
+/// `cap` is passed in by the caller (see
+/// [`adaptive_resolution_cell_cap_for`]) so the ceiling varies
+/// between inner-planet (20 000 cells) and outer-planet (8 000
+/// cells) destinations.  Tests and helpers that don't care
+/// about the destination class can pass
+/// `ADAPTIVE_RESOLUTION_CELL_CAP_INNER_PLANET` directly.
 fn adaptive_resolution(
     min_cols: usize,
     min_rows: usize,
     window_days: f64,
     span_days: f64,
+    cap: usize,
 ) -> (usize, usize) {
-    let cap = ADAPTIVE_RESOLUTION_CELL_CAP;
     // Floor at 2 cols / rows: a single-cell grid would divide by
     // zero in the per-row / per-col fractional mapping downstream
     // and the panel can't render a 1-cell heatmap.  Matches the
@@ -1079,11 +1151,19 @@ pub fn build_local_porkchop_grid_with_params(
     // floor logic so the two builders stay in lockstep.
     let window_days = params.t_dep_window_days;
     let span_days = (tof_max_s - tof_min_s) / SECONDS_PER_DAY;
+    // Local-frame transfers are short cislunar / planet-moon pairs
+    // (typical 14-day t_dep window, sub-year TOF span) and never
+    // saturate the cap, but pass the inner cap explicitly so future
+    // wider-window local-frame categories (e.g. Earth → Luna-class
+    // asteroid via parent-body phasing) don't silently inherit the
+    // outer cap when this helper gains more call-sites.
+    let cap = ADAPTIVE_RESOLUTION_CELL_CAP_INNER_PLANET;
     let (cols, rows) = adaptive_resolution(
         params.resolution_t_dep,
         params.resolution_tof,
         window_days,
         span_days,
+        cap,
     );
     let total_cells = cols * rows;
     let mut cells: Vec<PorkchopCell> = Vec::with_capacity(total_cells);
@@ -2173,7 +2253,13 @@ mod tests {
     fn adaptive_resolution_scales_up_wide_window_to_step_target() {
         let window_days = 614.0;
         let span_days = 263.0;
-        let (cols, rows) = adaptive_resolution(90, 90, window_days, span_days);
+        let (cols, rows) = adaptive_resolution(
+            90,
+            90,
+            window_days,
+            span_days,
+            ADAPTIVE_RESOLUTION_CELL_CAP_INNER_PLANET,
+        );
         assert!(
             cols >= 90,
             "adaptive_resolution must respect the RON minimum: cols = {cols}, expected ≥ 90"
@@ -2183,12 +2269,12 @@ mod tests {
             "adaptive_resolution must respect the RON minimum: rows = {rows}, expected ≥ 90"
         );
         assert!(
-            cols * rows <= ADAPTIVE_RESOLUTION_CELL_CAP,
+            cols * rows <= ADAPTIVE_RESOLUTION_CELL_CAP_INNER_PLANET,
             "cell cap exceeded: {} × {} = {} > {}",
             cols,
             rows,
             cols * rows,
-            ADAPTIVE_RESOLUTION_CELL_CAP
+            ADAPTIVE_RESOLUTION_CELL_CAP_INNER_PLANET
         );
         // At least one dimension must hit its step target.
         let col_step = window_days / cols as f64;
@@ -2204,7 +2290,13 @@ mod tests {
     /// returns the RON values unchanged (a no-op bump).
     #[test]
     fn adaptive_resolution_respects_ron_minimum_for_narrow_window() {
-        let (cols, rows) = adaptive_resolution(70, 50, 14.0, 5.0);
+        let (cols, rows) = adaptive_resolution(
+            70,
+            50,
+            14.0,
+            5.0,
+            ADAPTIVE_RESOLUTION_CELL_CAP_INNER_PLANET,
+        );
         assert_eq!(
             cols, 70,
             "narrow-window should fall back to RON minimum: got {cols}"
@@ -2223,18 +2315,24 @@ mod tests {
     /// either col step ≤ 2 d or row step ≤ 3 d.
     #[test]
     fn adaptive_resolution_clamps_at_cell_cap_for_interplanetary() {
-        let (cols, rows) = adaptive_resolution(90, 90, 146.0, 525.0);
+        let (cols, rows) = adaptive_resolution(
+            90,
+            90,
+            146.0,
+            525.0,
+            ADAPTIVE_RESOLUTION_CELL_CAP_INNER_PLANET,
+        );
         assert!(
             cols >= 90 && rows >= 90,
             "RON minimums violated: cols = {cols}, rows = {rows}"
         );
         assert!(
-            cols * rows <= ADAPTIVE_RESOLUTION_CELL_CAP,
+            cols * rows <= ADAPTIVE_RESOLUTION_CELL_CAP_INNER_PLANET,
             "cell cap exceeded: {} × {} = {} > {}",
             cols,
             rows,
             cols * rows,
-            ADAPTIVE_RESOLUTION_CELL_CAP
+            ADAPTIVE_RESOLUTION_CELL_CAP_INNER_PLANET
         );
     }
 
@@ -2243,7 +2341,13 @@ mod tests {
     /// size is 0).
     #[test]
     fn adaptive_resolution_handles_zero_window_without_panic() {
-        let (cols, rows) = adaptive_resolution(50, 40, 0.0, 0.0);
+        let (cols, rows) = adaptive_resolution(
+            50,
+            40,
+            0.0,
+            0.0,
+            ADAPTIVE_RESOLUTION_CELL_CAP_INNER_PLANET,
+        );
         assert_eq!(cols, 50);
         assert_eq!(rows, 40);
     }
@@ -2253,7 +2357,13 @@ mod tests {
     /// the per-cell fractional mapping downstream.
     #[test]
     fn adaptive_resolution_floors_rons_below_2() {
-        let (cols, rows) = adaptive_resolution(1, 1, 14.0, 5.0);
+        let (cols, rows) = adaptive_resolution(
+            1,
+            1,
+            14.0,
+            5.0,
+            ADAPTIVE_RESOLUTION_CELL_CAP_INNER_PLANET,
+        );
         assert!(
             cols >= 2 && rows >= 2,
             "min floor violated: cols = {cols}, rows = {rows}"
