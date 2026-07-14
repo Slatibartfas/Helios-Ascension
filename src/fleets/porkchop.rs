@@ -139,6 +139,55 @@ pub(crate) fn adaptive_resolution_cell_cap_for(dest_sma_au: f64) -> usize {
     }
 }
 
+// === Two-pass refinement (outer-planet destinations) ========================
+//
+// For outer-planet destinations the cheap-transfer basin is a small
+// fraction of the full `(window, span)` surface — the C3 ceiling of
+// 400 km²/s² blocks every cell outside a ~50 d × ~1 yr band around
+// the optimal Hohmann phase.  The full 408 d × 10 yr grid computed
+// by `build_porkchop_grid_with_params` (now class-capped at 8000 cells
+// by `adaptive_resolution_cell_cap_for`) therefore spends most of its
+// compute on rows that render grey.
+//
+// The two-pass refinement solves this by computing a coarse preview
+// first to *find* the basin, then a fine pass restricted to the basin's
+// (t_dep, tof) bounds.  Cells outside the basin are dropped (with a
+// small margin so the basin isn't clipped at the edges), so the
+// panel ends up showing a tightly-cropped view of the cheap basin at
+// full 2-day t_dep / 3-day TOF resolution.
+//
+// `COARSE_PREVIEW_CELL_CAP` is the cap that `adaptive_resolution`
+// applies to the coarse pass.  At the default 25 × 18 RON minimums
+// and a ~408 d × ~10 yr Saturn-class range, adaptive_resolution
+// would otherwise aim for ~204 cols × ~717 rows = 146 268 cells,
+// blowing through this cap; the cap forces a coarse ~500-cell
+// preview that finishes in ~150 ms.  Setting the cap any higher
+// burns extra Lambert solves for detail that the basin detection
+// only consumes as boolean feasibility flags.
+const COARSE_PREVIEW_CELL_CAP: usize = 500;
+
+/// Trim the fine pass to the basin's (t_dep, tof) bounds only if the
+/// detected basin spans less than this fraction of the full range on
+/// at least one axis.  For inner planets (Mars) the basin = full range
+/// so the threshold is never crossed and the build runs at the full
+/// `INNER` cap (preserves the LGD's "show the full search surface"
+/// intent).  For outer planets the basin is a small fraction and the
+/// build trims to it.  0.80 was chosen empirically so Mars-class
+/// destinations still see the full grid (basin spans ~95% of
+/// window × ~85% of span) while Saturn-class destinations trim
+/// (basin spans ~12% × ~9%).
+const BASIN_TRIM_THRESHOLD_FRAC: f64 = 0.80;
+
+/// Buffer added to each edge of the detected basin before the fine
+/// build's bounds are clamped.  Mirrors the `TOF_BOUNDARY_MARGIN_FRAC`
+/// used by `compute_adaptive_tof_bounds` for the rendered-trim
+/// step (10%).  Without this margin, the basin detection's
+/// col_min / col_max sample a coarse 25-col grid and the basin's
+/// first / last feasible column can sit one coarse-column away
+/// from the actual basin's edge, clipping a thin sliver of cheap
+/// cells at the panel boundary.
+const BASIN_BORDER_MARGIN_FRAC: f64 = 0.10;
+
 /// Metric plotted on the grid.  Currently only `TotalDv` is wired; the
 /// LGD design contract leaves `C3` and `DepartureC3` for follow-up.
 /// The grid is colormapped by the active metric — see
@@ -369,6 +418,8 @@ pub fn build_porkchop_grid_with_params(
     params: ResolvedPorkchopParams,
     inputs: &PorkchopInputs,
 ) -> PorkchopGrid {
+    // === Step 1: compute the standard full-extent bounds ===
+    //
     // `dep_window_bounds` returns the *absolute* (t_dep_min_s, t_dep_max_s)
     // in sim-clock units, anchored at the player's current `sim_time_s`.
     // The cell loop iterates a *relative* offset from that anchor
@@ -376,53 +427,155 @@ pub fn build_porkchop_grid_with_params(
     // recover the absolute epoch for the Lambert solver.  This split
     // lets `PorkchopGrid.t_dep_bounds_s` carry the absolute anchor for
     // the panel's date labels without double-offsetting the cell math.
-    let (t_dep_min_abs_s, t_dep_max_abs_s) = dep_window_bounds(inputs, &params);
-    let max_t_dep_rel_s = t_dep_max_abs_s - t_dep_min_abs_s;
+    let (full_t_dep_min_abs_s, full_t_dep_max_abs_s) = dep_window_bounds(inputs, &params);
+    let full_max_t_dep_rel_s = full_t_dep_max_abs_s - full_t_dep_min_abs_s;
     let tof_h = hohmann_time_s(
         inputs.origin_orbit.semi_major_axis,
         inputs.dest_orbit.semi_major_axis,
         inputs.system_gm,
     );
-    let tof_min_s =
+    let full_tof_min_s =
         (params.tof_min_hohmann_factor * tof_h).max(params.tof_floor_days * SECONDS_PER_DAY);
     // Phase D (TWP-parity Y-axis bounds, Option B): the Y-axis max
-    // is the *minimum* of three competing ceilings:
-    //   1. `4 · dest_period` — TWP-style cap. The cheap-transfer basin
-    //      for inner-planet transfers lives in `[hohmann, 2·dest_period]`
-    //      so the chart extends to 4× the destination period to show
-    //      long-arc bi-elliptic-like alternatives. For Earth→Mars this
-    //      widens the visible Y-axis from `5·hohmann = 1290 d` to
-    //      `tof_min + min(4·687 d, 5·258 d, 10 yr) ≈ 1548 d`.
-    //   2. `5 · tof_h` — legacy Hohmann-multiplier cap. Preserved for
-    //      cases where the destination orbit is much larger than
-    //      Hohmann suggests.
-    //   3. `tof_ceiling_years · year` — the 10-year safety cap. Binds
-    //      for outer planets (E→J: `5·hohmann = 13.6 yr` > 10 yr) and
-    //      for the `interstellar` / `star_approach` / `moon` category
-    //      overrides (which carry their own `tof_ceiling_years`).
+    // is the *minimum* of three competing ceilings — see the
+    // history in `compute_adaptive_tof_bounds` below.
     let dest_period_s = std::f64::consts::TAU / inputs.dest_orbit.mean_motion.abs().max(1e-25);
     let dest_period_cap_s = 4.0 * dest_period_s;
     let hohmann_multiplier_cap_s = 5.0 * tof_h;
     let ceiling_cap_s = params.tof_ceiling_years * SECONDS_PER_YEAR;
-    let tof_span_cap_s = dest_period_cap_s
+    let full_tof_span_cap_s = dest_period_cap_s
         .min(hohmann_multiplier_cap_s)
         .min(ceiling_cap_s);
-    let tof_max_s = tof_min_s + tof_span_cap_s;
+    let full_tof_max_s = full_tof_min_s + full_tof_span_cap_s;
 
-    // Adaptive resolution: the RON `resolution_t_dep` /
-    // `resolution_tof` are MINIMUMS, not absolutes.  When the
-    // natural `(t_dep_window, tof_span)` is wider than the
-    // static values can comfortably sample (e.g. the
-    // user-reported Earth→Mercury via Venus GA case, where the
-    // Earth↔Venus-synodic window spans ~614 d but the static
-    // 50-col `gravity_assist` override gave 12.3 d/col), bump
-    // `cols` / `rows` up so the per-cell step lands in the
-    // 2-day / 3-day ballpark.  See `adaptive_resolution` for the
-    // contract and `MAX_T_DEP_STEP_DAYS` / `MAX_TOF_STEP_DAYS`
-    // for the step targets.
-    let window_days = max_t_dep_rel_s / SECONDS_PER_DAY;
-    let span_days = (tof_max_s - tof_min_s) / SECONDS_PER_DAY;
+    // === Step 2: coarse preview pass for basin detection ===
+    //
+    // For outer-planet destinations the cheap-transfer basin is a thin
+    // band (~50 d × ~1 yr around the Hohmann phase) and the full 408 d
+    // × 10 yr grid spends ~80 % of its compute on cells that render
+    // grey (C3 ceiling 400 km²/s² blocks them).  The coarse preview
+    // sweeps the full extent at ~500 cells to find where the basin
+    // actually lives, then the fine pass zooms in on that band only.
+    //
+    // For inner-planet destinations the basin is *itself* the full
+    // range (Hohmann transfers exist at every t_dep), so the basin
+    // detection finds col_min ≈ 0, col_max ≈ last, row_min ≈ 0,
+    // row_max ≈ last, and `BASIN_TRIM_THRESHOLD_FRAC` below keeps
+    // the build at full extent.  The only cost for inner planets is
+    // the ~150 ms coarse preview which is well under 5 % of the
+    // total build even on Mars-class targets.
+    let coarse = build_grid_for_explicit_bounds(
+        inputs,
+        &params,
+        params.c3_ceiling_km2_s2 * 1.0e6,
+        COARSE_PREVIEW_CELL_CAP,
+        0.0,
+        full_max_t_dep_rel_s,
+        full_tof_min_s,
+        full_tof_max_s,
+    );
+
+    // === Step 3: detect basin from coarse cells ===
+    let (coarse_cols, coarse_rows) = coarse.resolution;
+    let basin = detect_basin_bounds(
+        &coarse.cells,
+        coarse_cols,
+        coarse_rows,
+        0.0,
+        full_max_t_dep_rel_s,
+        full_tof_min_s,
+        full_tof_max_s,
+    );
+
+    // === Step 4: decide whether to trim the fine pass ===
+    let (t_dep_min_rel_s, t_dep_max_rel_s, tof_min_s, tof_max_s) = match basin {
+        Some((t_lo, t_hi, f_lo, f_hi)) => {
+            let t_dep_span_full = full_max_t_dep_rel_s;
+            let tof_span_full = full_tof_max_s - full_tof_min_s;
+            let t_dep_span_basin = t_hi - t_lo;
+            let tof_span_basin = f_hi - f_lo;
+
+            // Trim only if the basin is significantly narrower than the
+            // full range on at least one axis.  Otherwise the basin
+            // spans the full extent (inner planets) and trimming would
+            // clip legitimate off-baseline Hohmann alternatives.
+            if t_dep_span_basin < BASIN_TRIM_THRESHOLD_FRAC * t_dep_span_full
+                || tof_span_basin < BASIN_TRIM_THRESHOLD_FRAC * tof_span_full
+            {
+                // Add a 10 % margin on each side so the basin's true
+                // edge (sampled at coarse resolution) isn't clipped at
+                // the panel boundary.  Same shape as the
+                // `TOF_BOUNDARY_MARGIN_FRAC` in
+                // `compute_adaptive_tof_bounds`.
+                let t_margin = BASIN_BORDER_MARGIN_FRAC * t_dep_span_basin;
+                let f_margin = BASIN_BORDER_MARGIN_FRAC * tof_span_basin;
+                let t_lo_clamped = (t_lo - t_margin).max(0.0);
+                let t_hi_clamped = (t_hi + t_margin).min(full_max_t_dep_rel_s);
+                let f_lo_clamped = (f_lo - f_margin).max(full_tof_min_s);
+                let f_hi_clamped = (f_hi + f_margin).min(full_tof_max_s);
+                (t_lo_clamped, t_hi_clamped, f_lo_clamped, f_hi_clamped)
+            } else {
+                (0.0, full_max_t_dep_rel_s, full_tof_min_s, full_tof_max_s)
+            }
+        }
+        // No feasible cells detected in the coarse preview
+        // (degenerate / extreme-budget destination).  Fall back to
+        // the full extent so the panel renders the solver's full
+        // topology with all rows marked infeasible in grey.
+        None => (0.0, full_max_t_dep_rel_s, full_tof_min_s, full_tof_max_s),
+    };
+
+    // === Step 5: fine pass with class-based cap ===
+    //
+    // Resolution: `adaptive_resolution` still uses the configured
+    // `(window_days, span_days)` and the `(cols, rows)` it picks
+    // describe the basin-restricted surface.  For Saturn (basin
+    // 50 d × 365 d) cols = 25 and rows = 122 = 3 050 cells at the
+    // outer cap of 8 000 — well under-budget, so the basin renders
+    // at the full 2-day t_dep / 3-day TOF step target rather than
+    // the step coarser target the cap imposed on the full-range
+    // build.
     let cap = adaptive_resolution_cell_cap_for(inputs.dest_orbit.semi_major_axis);
+    build_grid_for_explicit_bounds(
+        inputs,
+        &params,
+        params.c3_ceiling_km2_s2 * 1.0e6,
+        cap,
+        t_dep_min_rel_s,
+        t_dep_max_rel_s,
+        tof_min_s,
+        tof_max_s,
+    )
+}
+
+/// Inner helper that builds a `PorkchopGrid` for an explicit
+/// `(t_dep_min_rel, t_dep_max_rel, tof_min, tof_max)` bound set.
+///
+/// `build_porkchop_grid_with_params` calls this twice: once for the
+/// coarse preview (cap = `COARSE_PREVIEW_CELL_CAP`) and once for the
+/// fine pass (cap = class-based `INNER` or `OUTER`).  Pulling the
+/// cell-loop / colormap / rendered-trim / atomic-swap logic into one
+/// helper keeps the two call sites identical and the build_porkchop_
+/// grid_with_params orchestrator readable.  Returns the grid PLUS its
+/// `(cols, rows)` resolution and the absolute t_dep bounds so the
+/// orchestrator can do basin detection on the coarse result.
+///
+/// `t_dep_min_rel_s` / `t_dep_max_rel_s` are *relative* offsets
+/// from `inputs.sim_time_s` (matching how `solve_cell` consumes
+/// them); the helper adds `sim_time_s` to produce the absolute
+/// `PorkchopGrid.t_dep_bounds_s` for the panel's date labels.
+fn build_grid_for_explicit_bounds(
+    inputs: &PorkchopInputs,
+    params: &ResolvedPorkchopParams,
+    c3_ceiling_ms2: f64,
+    cap: usize,
+    t_dep_min_rel_s: f64,
+    t_dep_max_rel_s: f64,
+    tof_min_s: f64,
+    tof_max_s: f64,
+) -> PorkchopGrid {
+    let window_days = (t_dep_max_rel_s - t_dep_min_rel_s) / SECONDS_PER_DAY;
+    let span_days = (tof_max_s - tof_min_s) / SECONDS_PER_DAY;
     let (cols, rows) = adaptive_resolution(
         params.resolution_t_dep,
         params.resolution_tof,
@@ -434,8 +587,6 @@ pub fn build_porkchop_grid_with_params(
     let mut cells: Vec<PorkchopCell> = Vec::with_capacity(total_cells);
     let mut min_cell: Option<(usize, usize)> = None;
     let mut min_dv: f64 = f64::INFINITY;
-
-    let c3_ceiling_ms2 = params.c3_ceiling_km2_s2 * 1.0e6; // (km/s)² → (m/s)²
 
     for row in 0..rows {
         let row_frac = if rows > 1 {
@@ -450,10 +601,12 @@ pub fn build_porkchop_grid_with_params(
             } else {
                 0.0
             };
-            // Relative offset from `sim_time_s`.  `solve_cell` adds
-            // `inputs.sim_time_s` to recover the absolute departure
-            // epoch for the Lambert solver.
-            let t_dep_rel_s = col_frac * max_t_dep_rel_s;
+            // Relative offset from the basin's lower edge; the
+            // basin's lower edge itself is `t_dep_min_rel_s` away
+            // from `sim_time_s`.  `solve_cell` adds `sim_time_s`
+            // to recover the absolute departure epoch for the
+            // Lambert solver.
+            let t_dep_rel_s = t_dep_min_rel_s + col_frac * (t_dep_max_rel_s - t_dep_min_rel_s);
             let cell = solve_cell(inputs, t_dep_rel_s, tof_s, c3_ceiling_ms2);
             if cell.feasible && cell.total_dv_ms < min_dv {
                 min_dv = cell.total_dv_ms;
@@ -463,51 +616,25 @@ pub fn build_porkchop_grid_with_params(
         }
     }
 
-    // Adaptive Y-axis trim: clip the configured Y-axis range to the
-    // band that actually contains feasible cells, with a small
-    // margin on each side so the basin isn't pinned to either
-    // panel edge.
-    //
-    // Player feedback driving the trim: with the full configured
-    // range shown (default 0.4× → 5.0× Hohmann, capped at 10 yr),
-    // Earth→Jupiter porkchops rendered 60–70% muted-grey because
-    // the C3 ceiling (`c3_ceiling_km2_s2 = 400`) blocks cells
-    // outside a narrow band around the Hohmann time.  The
-    // colormap band was compressed into the populated row band,
-    // making the cheap basin look like a thin sliver and the
-    // Y-axis labels above the basin read as "more of the same
-    // value" (the user-reported "Y axis is fixed, most tiles
-    // are grey").  Trimming both ends around the populated band
-    // stretches the colormap over the populated region and
-    // restores readable Y-axis labels.
-    //
-    // The trim is *symmetric* — both the bottom and top of the
-    // rendered range are clipped to the populated band:
-    //   * We DO trim the bottom when row 0 is itself infeasible
-    //     (e.g. Earth→Jupiter: short-arc transfers need a C3 the
-    //     ceiling blocks, so row 0 is grey and the trim falls
-    //     to the lowest feasible row, the fastest feasible
-    //     trajectory).  Earlier "always preserve row 0" trims
-    //     failed for this case — the rendered range still
-    //     included the long grey tail at the bottom and the
-    //     colormap was compressed into the middle band.
-    //   * We DO trim the top when the upper rows are entirely
-    //     infeasible (long-arc options that exceed the C3
-    //     ceiling, or outer-planet transfers where Hohmann time
-    //     sits well below the configured maximum).
-    //   * Rows inside the populated band — the cheap transfers
-    //     the player actually wants to see — are never clipped,
-    //     so a 5× Hohmann-time basin still renders in full.
-    //   * Degenerate cases (no feasible cells, or all rows
-    //     feasible) fall back to the full configured range so
-    //     the player sees the solver's full topology.
+    // Rendered-trim: clip the configured Y-axis range to the band
+    // that actually contains feasible cells, with a small margin
+    // on each side so the basin isn't pinned to either panel
+    // edge.  See `compute_adaptive_tof_bounds` for the
+    // player-feedback history of this trim — for outer-planet
+    // (basin-restricted) grids, the trim is largely a no-op since
+    // the build itself was already narrowed to the basin, but it
+    // still keeps the colormap band from sitting on the very top
+    // row when only 1-2 rows are feasible.
     let rendered_tof_bounds_s =
         compute_adaptive_tof_bounds(&cells, cols, rows, tof_min_s, tof_max_s);
 
     PorkchopGrid {
         origin_name: inputs.origin_name.clone(),
         dest_name: inputs.dest_name.clone(),
-        t_dep_bounds_s: (t_dep_min_abs_s, t_dep_max_abs_s),
+        t_dep_bounds_s: (
+            t_dep_min_rel_s + inputs.sim_time_s,
+            t_dep_max_rel_s + inputs.sim_time_s,
+        ),
         tof_bounds_s: (tof_min_s, tof_max_s),
         rendered_tof_bounds_s,
         resolution: (cols, rows),
@@ -515,6 +642,70 @@ pub fn build_porkchop_grid_with_params(
         min_cell,
         metric: PorkchopMetric::TotalDv,
     }
+}
+
+/// Walk a coarse grid and return the `(t_dep_min_rel_s,
+/// t_dep_max_rel_s, tof_min_s, tof_max_s)` bounds of the contiguous
+/// feasible basin, with no margin (the caller applies one).  Returns
+/// `None` if no cell in the grid was feasible (degenerate
+/// destination or extreme-budget transfer where the C3 ceiling
+/// blocks every cell).
+///
+/// Index-to-value mapping mirrors the cell loop in
+/// `build_grid_for_explicit_bounds`: row `r` maps to `tof_min_s +
+/// (r / (rows - 1)) * (tof_max_s - tof_min_s)`, col `c` maps to
+/// `t_dep_min_rel_s + (c / (cols - 1)) * (t_dep_max_rel_s -
+/// t_dep_min_rel_s)`.  The col axes are coarse-resolution, so the
+/// resulting bounds are quantized to `(cols - 1)` and `(rows - 1)`
+/// steps — that's why the caller adds a 10 % margin in
+/// `build_porkchop_grid_with_params`.
+fn detect_basin_bounds(
+    cells: &[PorkchopCell],
+    cols: usize,
+    rows: usize,
+    t_dep_min_rel_s: f64,
+    t_dep_max_rel_s: f64,
+    tof_min_s: f64,
+    tof_max_s: f64,
+) -> Option<(f64, f64, f64, f64)> {
+    let mut col_min: Option<usize> = None;
+    let mut col_max: Option<usize> = None;
+    let mut row_min: Option<usize> = None;
+    let mut row_max: Option<usize> = None;
+
+    for row in 0..rows {
+        for col in 0..cols {
+            if cells[row * cols + col].feasible {
+                col_min = Some(col_min.map_or(col, |v| v.min(col)));
+                col_max = Some(col_max.map_or(col, |v| v.max(col)));
+                row_min = Some(row_min.map_or(row, |v| v.min(row)));
+                row_max = Some(row_max.map_or(row, |v| v.max(row)));
+            }
+        }
+    }
+
+    let (col_min, col_max, row_min, row_max) = match (col_min, col_max, row_min, row_max) {
+        (Some(a), Some(b), Some(c), Some(d)) => (a, b, c, d),
+        _ => return None,
+    };
+
+    let t_dep_step = if cols > 1 {
+        (t_dep_max_rel_s - t_dep_min_rel_s) / (cols - 1) as f64
+    } else {
+        0.0
+    };
+    let tof_step = if rows > 1 {
+        (tof_max_s - tof_min_s) / (rows - 1) as f64
+    } else {
+        0.0
+    };
+
+    let t_dep_lo = t_dep_min_rel_s + col_min as f64 * t_dep_step;
+    let t_dep_hi = t_dep_min_rel_s + col_max as f64 * t_dep_step;
+    let tof_lo = tof_min_s + row_min as f64 * tof_step;
+    let tof_hi = tof_min_s + row_max as f64 * tof_step;
+
+    Some((t_dep_lo, t_dep_hi, tof_lo, tof_hi))
 }
 
 /// Fraction of the configured `tof_bounds_s` span that must remain
