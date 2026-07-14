@@ -2174,20 +2174,42 @@ pub(super) fn render_transfer_planner(
     // `radius_for_shell` and then into `star_approach_grid_for_target` so the
     // user's shell pick becomes one of the 5 rows of the resulting grid.
     //
-    // GRA-NNN: set `porkchop_build_in_flight = true` for the duration
-    // of the sync build so the spinner shows the "Calculating..." label
-    // for a frame even on fast-path builds (Mars-class).  The build is
-    // < 100 ms but the spinner gives consistent feedback with the
-    // async rotating-buffer path which sets the same flag.  We also
-    // fire when `pending_rebuild` is true (the old grid is still
-    // Some but a new build is queued) so the spinner covers the
-    // inward-transfer case where the build takes seconds and the
-    // panel would otherwise show stale black tiles.
-    if fleet_ui_state.porkchop_grid.is_none()
-        || fleet_ui_state.porkchop_grid_pending_rebuild
-    {
-        fleet_ui_state.porkchop_build_in_flight = true;
-    }
+    // GRA-NNN: the previous unconditional
+    // `if is_none() || pending_rebuild { in_flight = true; }`
+    // block was removed.  It kept the "Calculating..." spinner
+    // visible during the *sync* fast-path (Star / Moon /
+    // Planet) on the same egui pass the build completed in, but
+    // it also re-set `in_flight = true` on every subsequent frame
+    // whenever `pending_rebuild` was true — which collided with
+    // the async-rotating-buffer storm guard at line ~2841
+    // (`if needs_build && !in_flight`).  Net effect for outer-planet
+    // targets: the gate was permanently stuck `false`, no rebuild
+    // ever fired, and the spinner stayed up forever (the bug the
+    // user reported as "infinite loading screen" when selecting
+    // Saturn).
+    //
+    // The right fix is per-build: each sync fast-path that
+    // successfully lands a grid now clears `porkchop_grid_pending_rebuild`
+    // itself (Star at line ~2265, Moon at line ~2286), and the
+    // async rotating-buffer path sets `in_flight = true` itself
+    // at line ~2846.  The spinner condition at line ~7901 still
+    // works for the async case because `in_flight` stays true
+    // across frames until the polling block clears it on line 2729.
+    //
+    // See the bugs covered by this change:
+    //   * GRA-Saturn-freeze — main-thread block from
+    //     `build_grid_for_body_target` on a Saturn-class target
+    //     took ~6 s while the planner open-locked (the dest
+    //     entity click handler → fast-path → 19 488-cell Lambert
+    //     grid).
+    //   * GRA-stuck-spinner — `pending_rebuild` was left set by
+    //     every sync fast-path's success branch, so the
+    //     "Calculating..." spinner was up forever even after the
+    //     grid was populated.
+    //   * GRA-storm-guard-stuck — `in_flight` re-set by line 2186
+    //     prevented the async gate from ever opening, so the
+    //     rotating-buffer worker that was supposed to refresh the
+    //     cache at staleness never spawned.
     if fleet_ui_state.porkchop_grid.is_none() {
         if let Some(target_entity) = fleet_ui_state.target_body {
             let dest_body_type = body_query
@@ -2262,6 +2284,16 @@ pub(super) fn render_transfer_planner(
                         // and the post-panel re-anchor keep working.
                         fleet_ui_state.porkchop_built_for = Some(target_entity);
                         fleet_ui_state.selected_porkchop_cell = auto_selected_cell;
+                        // GRA-NNN: clear `pending_rebuild` so the
+                        // staleness / rotation trigger at line ~2580
+                        // doesn't immediately re-fire against the grid
+                        // we just placed — the legacy code path left
+                        // this flag set, which (combined with the now-
+                        // removed line 2186 in_flight=true block)
+                        // wedged the "Calculating..." spinner at
+                        // line ~7901 even after the grid was
+                        // populated.
+                        fleet_ui_state.porkchop_grid_pending_rebuild = false;
                     }
                 }
                 Some(BodyType::Moon) | Some(BodyType::Ring) => {
@@ -2282,84 +2314,53 @@ pub(super) fn render_transfer_planner(
                         if let Some(grid) = grid {
                             fleet_ui_state.porkchop_grid = Some(grid);
                             fleet_ui_state.porkchop_built_for = Some(target_entity);
+                            // GRA-NNN: see the Star branch above —
+                            // the legacy code never cleared the
+                            // pending-rebuild flag here, which
+                            // wedged the line ~7901 spinner even
+                            // after the cislunar grid landed.  Clear
+                            // it on success.
+                            fleet_ui_state.porkchop_grid_pending_rebuild = false;
                         }
                     }
                 }
                 Some(BodyType::Planet) | Some(BodyType::Asteroid) | Some(BodyType::Comet) => {
-                    let orbits = (
-                        heliocentric_orbit_for_body(orbit.body, body_query),
-                        heliocentric_orbit_for_body(target_entity, body_query),
-                    );
-                    if let (Some(origin_orbit), Some(dest_orbit)) = orbits {
-                        let origin_name = body_query
-                            .get(orbit.body)
-                            .ok()
-                            .map(|(_, b, _, _, _)| b.name.clone())
-                            .unwrap_or_else(|| "Origin".to_string());
-                        let dest_name = body_query
-                            .get(target_entity)
-                            .ok()
-                            .map(|(_, b, _, _, _)| b.name.clone())
-                            .unwrap_or_else(|| "Dest".to_string());
-                        let dest_parent = body_query
-                            .get(target_entity)
-                            .ok()
-                            .and_then(|(_, _, _, _, lp)| lp)
-                            .map(|lp| lp.0);
-                        let origin_parent = body_query
-                            .get(orbit.body)
-                            .ok()
-                            .and_then(|(_, _, _, _, lp)| lp)
-                            .map(|lp| lp.0);
-                        let category = crate::fleets::porkchop::classify_body_transfer_category(
-                            dest_body_type.unwrap_or(BodyType::Planet),
-                            dest_parent,
-                            origin_parent,
-                        );
-                        // GRA-NNN: thread the player's shell pick into
-                        // the solver so picking "Low" (LEO analog) costs
-                        // more ΔV than "High" — see
-                        // `PorkchopInputs::parking_radius_au` for the
-                        // physics.  `body_gm` is the parent body's GM
-                        // so parking-orbit circular speed is in the right
-                        // well (Earth's GM for LEO, Saturn's GM for Saturn
-                        // High, etc.) — using `GM_Sun` at LEO scale gives
-                        // v_circ ≈ 4 350 km/s and a 1 800 km/s ΔV.  When
-                        // no shell is picked, pass `system_gm` (Sun) for
-                        // the legacy heliocentric-SMA parking assumption.
-                        let parking_radius_au = fleet_ui_state
-                            .target_orbit_shell
-                            .filter(|(e, _)| *e == target_entity)
-                            .and_then(|(_, s)| {
-                                body_query
-                                    .get(target_entity)
-                                    .ok()
-                                    .map(|(_, b, _, _, _)| radius_for_shell(b, s))
-                            });
-                        let body_gm = parking_radius_au
-                            .map(|_| {
-                                crate::fleets::orbital_mechanics::G_CONST
-                                    * body_query
-                                        .get(target_entity)
-                                        .ok()
-                                        .map(|(_, b, _, _, _)| b.mass)
-                                        .unwrap_or(0.0)
-                            })
-                            .unwrap_or(crate::fleets::orbital_mechanics::GM_SUN);
-                        let grid = crate::fleets::porkchop::build_grid_for_body_target(
-                            porkchop_config,
-                            origin_orbit,
-                            dest_orbit,
-                            origin_name,
-                            dest_name,
-                            category,
-                            elapsed,
-                            parking_radius_au,
-                            body_gm,
-                        );
-                        fleet_ui_state.porkchop_grid = Some(grid);
-                        fleet_ui_state.porkchop_built_for = Some(target_entity);
-                    }
+                    // GRA-NNN: planets, asteroids, and comets are
+                    // intentionally a no-op here.  The previous
+                    // sync fast-path at this match arm called
+                    // `build_grid_for_body_target` on the main
+                    // thread, which blocks the egui pass for the
+                    // duration of the Lambert solve.  For
+                    // inner-planet destinations (Mars, Venus)
+                    // the build is ~50-100 ms and the freeze is
+                    // unnoticeable, but Earth→Jupiter and
+                    // Earth→Saturn synchronously build 19 488-cell
+                    // grids that take ~6 s of CPU time on the
+                    // render thread — long enough to lock the
+                    // planner open and starve Bevy's 60 Hz loop
+                    // (the user-reported "drastically slowing down
+                    // the game" and "infinite loading screen"
+                    // when selecting an outer planet).
+                    //
+                    // The deferred async rotating-buffer build
+                    // path further down (line ~2842+) handles this
+                    // destination class correctly.  It spawns a
+                    // `porkchop-build` worker thread that calls
+                    // `build_rotating_buffer_for_body_target`,
+                    // hands the result back over an mpsc channel,
+                    // and the polling block at line ~2671 swaps
+                    // it into `porkchop_grid` on the next frame.
+                    // Main thread stays at 60 Hz; the spinner
+                    // shows during the solve.  Because we removed
+                    // the line-2186 unconditional
+                    // `porkchop_build_in_flight = true` block,
+                    // the storm guard at line ~2841 (`if
+                    // needs_build && !in_flight`) is no longer
+                    // permanently wedged against this entry —
+                    // it fires once when `pending_rebuild` is set
+                    // by the target-change branch at line 2613,
+                    // and the polling block at line ~2729
+                    // prevents re-entry after the swap lands.
                 }
                 _ => {
                     // FleetTarget / StarSystem — leave
@@ -2415,16 +2416,36 @@ pub(super) fn render_transfer_planner(
         }
     }
 
-    // Clear the in_flight flag the fast-path sync build set at entry
-    // (see the `if fleet_ui_state.porkchop_grid.is_none() || pending_rebuild`
-    // block at the top of this section).  The async rotating-buffer path
-    // clears it from its polling block, but the fast-path is sync within
-    // the same egui pass and never reaches that polling code.  Without
-    // this clear, outwards transfers (Earth→Jupiter, Earth→Saturn) that
-    // build the grid here would leave `in_flight = true` forever and
-    // the panel would be stuck on the "Calculating..." spinner.
-    // GRA-NNN.
-    fleet_ui_state.porkchop_build_in_flight = false;
+    // Clear `porkchop_build_in_flight` for the *sync fast-path* paths
+    // (Star / Moon), which run inline above and never reach the async
+    // polling block below.  `in_flight` was set true at the function
+    // entry by the (now-removed) line 2186 unconditional block, and
+    // without this clear the Star/Moon sync builds would leave
+    // `in_flight = true` on every subsequent frame — wedging the
+    // async gate at line ~2841 (`if needs_build && !in_flight`)
+    // forever and stuck-spinner-ing the panel.
+    //
+    // GRA-NNN (follow-up, post-planet-deletion): the previous
+    // unconditional `in_flight = false` here was actively harmful
+    // for the async-rotating-buffer path.  The async spawn at line
+    // ~2846 sets `in_flight = true`, then this block wiped it on the
+    // same frame's exit, so the next frame's storm guard always
+    // saw `!in_flight = true` and spawned *another* worker — at
+    // 60 Hz that respawned 60 Saturn-class (~19 500 cell) grids per
+    // real second, starving the main thread and locking the game.
+    // Mars, Jupiter, Saturn all triggered this storm because their
+    // heliocentric grids hit the same cell cap.
+    //
+    // Gate the clear on `porkchop_build_result_rx.is_none()`: if
+    // there's no active async worker, the sync fast-path's leftover
+    // flag is safe to clear; if there IS an active worker (the
+    // typical post-deletion planet flow), preserve the flag so the
+    // storm guard at line ~2841 stays wedged closed until the
+    // polling block at line ~2729 atomically clears it on a
+    // successful swap.
+    if fleet_ui_state.porkchop_build_result_rx.is_none() {
+        fleet_ui_state.porkchop_build_in_flight = false;
+    }
 
     // ── GRA-159 deferred porkchop build ─────────────────────────────────────
     // The porkchop grid is normally built by the Body/Ring click handlers in
@@ -3780,15 +3801,35 @@ pub(super) fn render_transfer_planner(
                                         // 3D-scene right-click handler).  The
                                         // click handler below is still the primary
                                         // path; the deferred build is a safety net.
-                                        fleet_ui_state.porkchop_grid =
-                                            if should_build_porkchop_for_destination(body_query, *entity) {
-                                                (|| -> Option<crate::fleets::porkchop::PorkchopGrid> {
-                                                let origin_orbit = heliocentric_orbit_for_body(
-                                                    orbit.body, body_query,
-                                                )?;
-                                                let dest_orbit = heliocentric_orbit_for_body(
-                                                    *entity, body_query,
-                                                )?;
+                                        //
+                                        // GRA-NNN: the planet / asteroid / comet
+                                        // branch used to call
+                                        // `build_grid_for_body_target` synchronously
+                                        // here on the main thread.  For
+                                        // inner-planet targets that's a ~6 s Lambert
+                                        // solve (Earth→Mars hits the 19 488-cell
+                                        // cap), which locked the egui pass for
+                                        // multiple frames and starved Bevy's 60 Hz
+                                        // loop (the user-reported "drastically
+                                        // slowing down the game" + "infinite
+                                        // loading screen" on outer planets).  We
+                                        // now spawn a `porkchop-build` worker the
+                                        // same way the deferred-build path does,
+                                        // stash the result in an mpsc receiver, and
+                                        // let the polling block at line ~2671 swap
+                                        // it in atomically.  Main thread stays
+                                        // responsive; spinner shows during the
+                                        // build.  Moon/ring destinations still run
+                                        // `short_hop_grid_for_moon` synchronously
+                                        // because the cislunar grid is a few
+                                        // hundred cells and resolves in well under
+                                        // a frame.
+                                        if should_build_porkchop_for_destination(body_query, *entity) {
+                                            let orbits = (
+                                                heliocentric_orbit_for_body(orbit.body, body_query),
+                                                heliocentric_orbit_for_body(*entity, body_query),
+                                            );
+                                            if let (Some(origin_orbit), Some(dest_orbit)) = orbits {
                                                 let origin_name = body_query
                                                     .get(orbit.body)
                                                     .ok()
@@ -3819,43 +3860,17 @@ pub(super) fn render_transfer_planner(
                                                     dest_parent,
                                                     origin_parent,
                                                 );
-                                                // GRA-NNN: pull the shell
-                                                // pick for the click target
-                                                // so the solver honors
-                                                // the player's parking
-                                                // altitude at click time.
-                                                let parking_radius_au =
-                                                    fleet_ui_state
-                                                        .target_orbit_shell
-                                                        .filter(|(e, _)| {
-                                                            *e == *entity
-                                                        })
-                                                        .and_then(|(_, s)| {
-                                                            body_query
-                                                                .get(*entity)
-                                                                .ok()
-                                                                .map(
-                                                                    |(
-                                                                        _,
-                                                                        b,
-                                                                        _,
-                                                                        _,
-                                                                        _,
-                                                                    )| {
-                                                                        radius_for_shell(
-                                                                            b, s,
-                                                                        )
-                                                                    },
-                                                                )
-                                                        });
-                                                // GRA-NNN: derive `body_gm`
-                                                // alongside `parking_radius_au`
-                                                // so the solver uses the
-                                                // correct GM for the
-                                                // parking-orbit well.
-                                                // See the planet fast-path
-                                                // build above for full
-                                                // derivation.
+                                                // See the planet fast-path build above for the
+                                                // full derivation of these two values; same code.
+                                                let parking_radius_au = fleet_ui_state
+                                                    .target_orbit_shell
+                                                    .filter(|(e, _)| *e == *entity)
+                                                    .and_then(|(_, s)| {
+                                                        body_query
+                                                            .get(*entity)
+                                                            .ok()
+                                                            .map(|(_, b, _, _, _)| radius_for_shell(b, s))
+                                                    });
                                                 let body_gm = parking_radius_au
                                                     .map(|_| {
                                                         crate::fleets::orbital_mechanics::G_CONST
@@ -3866,59 +3881,106 @@ pub(super) fn render_transfer_planner(
                                                                 .unwrap_or(0.0)
                                                     })
                                                     .unwrap_or(crate::fleets::orbital_mechanics::GM_SUN);
-                                                Some(build_grid_for_body_target(
-                                                    porkchop_config,
-                                                    origin_orbit,
-                                                    dest_orbit,
-                                                    origin_name,
-                                                    dest_name,
-                                                    category,
-                                                    elapsed,
-                                                    parking_radius_au,
-                                                    body_gm,
-                                                ))
-                                            })()
-                                            } else if let Some(n) = porkchop_config
-                                                .category_overrides
-                                                .iter()
-                                                .find(|o| o.match_key == "short_hop")
-                                                .and_then(|o| o.short_hop_options)
-                                            {
-                                                // GRA-384 short-hop wire-in:
-                                                // `should_build_porkchop_for_destination`
-                                                // returns false for Moon/Ring so
-                                                // the heliocentric Lambert grid
-                                                // can't render, but the RON may
-                                                // configure a `short_hop` override
-                                                // with `short_hop_options: Some(n)`
-                                                // that produces a configurable
-                                                // single-column cislunar bar via
-                                                // `build_short_hop_grid`.  Falls
-                                                // through to the legacy 3-option
-                                                // row when the override is absent
-                                                // (`short_hop_options == None`).
-                                                short_hop_grid_for_moon(
-                                                    body_query,
-                                                    porkchop_config,
-                                                    orbit.body,
-                                                    *entity,
-                                                    n,
-                                                    elapsed,
-                                                )
+
+                                                // Reset the cache to None so the per-frame
+                                                // deferred-build path doesn't double-fire
+                                                // (the gate at line ~2841 stays wedged
+                                                // because `in_flight = true`).
+                                                fleet_ui_state.porkchop_grid = None;
+                                                fleet_ui_state.porkchop_built_at_s = Some(elapsed);
+                                                fleet_ui_state.porkchop_built_for = Some(*entity);
+                                                fleet_ui_state.selected_porkchop_cell = None;
+                                                fleet_ui_state.porkchop_grid_pending_rebuild = false;
+
+                                                // Spawn the worker.  The polling block at
+                                                // line ~2671 picks up the result on a
+                                                // later frame and atomically swaps it in.
+                                                let cfg = porkchop_config.clone();
+                                                let origin_name_thread = origin_name;
+                                                let dest_name_thread = dest_name;
+                                                let parking_radius_au_thread = parking_radius_au;
+                                                let body_gm_thread = body_gm;
+                                                let entity_thread = *entity;
+                                                let (tx, rx) = std::sync::mpsc::channel();
+                                                std::thread::Builder::new()
+                                                    .name("porkchop-click-build".to_string())
+                                                    .spawn(move || {
+                                                        let grid = crate::fleets::porkchop::build_grid_for_body_target(
+                                                            &cfg,
+                                                            origin_orbit,
+                                                            dest_orbit,
+                                                            origin_name_thread,
+                                                            dest_name_thread,
+                                                            category,
+                                                            elapsed,
+                                                            parking_radius_au_thread,
+                                                            body_gm_thread,
+                                                        );
+                                                        let _ = tx.send(grid);
+                                                    })
+                                                    .expect("failed to spawn porkchop-click-build thread");
+                                                fleet_ui_state.porkchop_build_in_flight = true;
+                                                fleet_ui_state.porkchop_build_result_rx =
+                                                    Some(std::sync::Mutex::new(rx));
+                                                let _ = entity_thread; // explicit "we captured but only used for builder name"; keep the binding live for the worker closure shape.
                                             } else {
-                                                None
-                                            };
-                                        // Stamp the build epoch so the
-                                        // planner's staleness check
-                                        // knows when to refresh the
-                                        // grid as sim time advances.
-                                        fleet_ui_state.porkchop_built_at_s = Some(elapsed);
-                                        // Stamp the build target so the
-                                        // staleness check also catches
-                                        // future target-body mutations
-                                        // from non-click paths.
-                                        fleet_ui_state.porkchop_built_for = Some(*entity);
-                                        fleet_ui_state.selected_porkchop_cell = None;
+                                                // Orbits unresolvable — clear cache so the
+                                                // planner renders the empty-state fallback
+                                                // instead of a stale grid.
+                                                fleet_ui_state.porkchop_grid = None;
+                                                fleet_ui_state.porkchop_built_at_s = Some(elapsed);
+                                                fleet_ui_state.porkchop_built_for = Some(*entity);
+                                                fleet_ui_state.selected_porkchop_cell = None;
+                                            }
+                                        } else if let Some(n) = porkchop_config
+                                            .category_overrides
+                                            .iter()
+                                            .find(|o| o.match_key == "short_hop")
+                                            .and_then(|o| o.short_hop_options)
+                                        {
+                                            // GRA-384 short-hop wire-in:
+                                            // `should_build_porkchop_for_destination`
+                                            // returns false for Moon/Ring so
+                                            // the heliocentric Lambert grid
+                                            // can't render, but the RON may
+                                            // configure a `short_hop` override
+                                            // with `short_hop_options: Some(n)`
+                                            // that produces a configurable
+                                            // single-column cislunar bar via
+                                            // `build_short_hop_grid`.  Falls
+                                            // through to the legacy 3-option
+                                            // row when the override is absent
+                                            // (`short_hop_options == None`).
+                                            // Sync here is fine: cislunar builds
+                                            // resolve in well under one frame.
+                                            let moon_grid = short_hop_grid_for_moon(
+                                                body_query,
+                                                porkchop_config,
+                                                orbit.body,
+                                                *entity,
+                                                n,
+                                                elapsed,
+                                            );
+                                            fleet_ui_state.porkchop_built_at_s = Some(elapsed);
+                                            fleet_ui_state.porkchop_built_for = Some(*entity);
+                                            // GRA-NNN: clear `pending_rebuild`
+                                            // on success so the staleness /
+                                            // rotation trigger at line ~2580
+                                            // doesn't immediately re-fire
+                                            // against the grid we just placed.
+                                            fleet_ui_state.porkchop_grid_pending_rebuild = false;
+                                            if let Some(grid) = moon_grid {
+                                                fleet_ui_state.porkchop_grid = Some(grid);
+                                            } else {
+                                                fleet_ui_state.porkchop_grid = None;
+                                            }
+                                            fleet_ui_state.selected_porkchop_cell = None;
+                                        } else {
+                                            fleet_ui_state.porkchop_grid = None;
+                                            fleet_ui_state.porkchop_built_at_s = Some(elapsed);
+                                            fleet_ui_state.porkchop_built_for = Some(*entity);
+                                            fleet_ui_state.selected_porkchop_cell = None;
+                                        }
                                     }
                                 }
                                 DestEntry::Ring { entity, name } => {
