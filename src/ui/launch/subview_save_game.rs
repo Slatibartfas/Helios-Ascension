@@ -434,12 +434,41 @@ mod tests {
         dir
     }
 
-    fn install_userdata(tag: &str) -> PathBuf {
+    /// RAII guard that sets `HELIOS_USERDATA_DIR` for the duration of a
+    /// test and restores the previous value on drop.  Without this
+    /// restore the env var leaks across tests, racing with
+    /// `userdata::resolve_userdata_dir_respects_override` (which sets it
+    /// to `/tmp/helios-override`) and producing intermittent
+    /// "SaveIndex must pick up the file: left: 0, right: 1" failures
+    /// when the rescan reads the wrong dir.
+    struct UserdataDirGuard {
+        prior: Option<std::ffi::OsString>,
+        _dir: PathBuf,
+    }
+
+    impl Drop for UserdataDirGuard {
+        fn drop(&mut self) {
+            // SAFETY: env-var access is single-threaded by Rust's
+            // documented `set_var` contract; we always restore a value
+            // we previously observed.
+            unsafe {
+                match &self.prior {
+                    Some(v) => std::env::set_var("HELIOS_USERDATA_DIR", v),
+                    None => std::env::remove_var("HELIOS_USERDATA_DIR"),
+                }
+            }
+        }
+    }
+
+    fn install_userdata(tag: &str) -> UserdataDirGuard {
         let dir = fresh_dir(tag);
+        let prior = env::var_os("HELIOS_USERDATA_DIR");
+        // SAFETY: see `Drop` impl — we restore `prior` on drop, so no
+        // env var leakage across tests.
         unsafe {
             std::env::set_var("HELIOS_USERDATA_DIR", &dir);
         }
-        dir
+        UserdataDirGuard { prior, _dir: dir }
     }
 
     #[test]
@@ -450,16 +479,15 @@ mod tests {
 
     #[test]
     fn current_slot_path_is_userdata_saves_current_save_ron() {
-        let dir = install_userdata("path");
+        let guard = install_userdata("path");
         let resolved = current_slot_path();
-        assert!(resolved.starts_with(&dir));
+        assert!(resolved.starts_with(&guard._dir));
         assert!(resolved.ends_with(CURRENT_SAVE_FILE));
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn save_panel_save_writes_file_and_rescans_index() {
-        let dir = install_userdata("write-save");
+        let _guard = install_userdata("write-save");
         let mut world = World::new();
         world.init_resource::<LaunchState>();
         world.init_resource::<PendingSavePanelReturn>();
@@ -485,13 +513,11 @@ mod tests {
                 .any(|e| matches!(e, SaveSummary::Valid { path: p, .. } if p == &path)),
             "valid entry must match the path we wrote"
         );
-
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn save_index_state_records_rescan() {
-        let dir = install_userdata("rescan-stamp");
+        let _guard = install_userdata("rescan-stamp");
         let mut world = World::new();
         world.init_resource::<SaveIndexState>();
         world.insert_resource(SaveIndex::default());
@@ -502,8 +528,6 @@ mod tests {
         crate::persistence::rescan_save_index(&mut world);
         let after = world.resource::<SaveIndexState>().last_scanned;
         assert!(after > before, "rescan must advance last_scanned");
-
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

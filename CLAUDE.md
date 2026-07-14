@@ -44,7 +44,7 @@ src/
 ├── astronomy/       # Orbital mechanics, Kepler orbits, ephemeris, exoplanets, nearby stars, Lagrange helpers
 ├── colony/          # Buildings, construction, population growth
 ├── economy/         # Resources, mining, budget, energy grid, logistics, shipping-company AI
-├── fleets/          # Ships, maneuvers, Hohmann transfers, porkchop, Lagrange transfers, historical probes
+├── fleets/          # Ships, maneuvers, Hohmann transfers, porkchop, Lagrange transfers
 ├── personnel/       # Scientists (v0.5.0 data layer; UI pending)
 ├── research/        # Technology tree, engineering, unlock catalogs
 ├── shipbuilding/    # Hull/module data, construction projects, refit, slipways
@@ -60,7 +60,7 @@ src/
 - **Astronomy**: KeplerOrbit propagation, comet tails, Lagrange points, starmap, **exoplanet data model staged (CSV loader deferred to v0.6, see `assets/data/README.md`)**, **JPL-epoch mean-anomaly computation**
 - **Colony**: **52 building types** across 8 categories, construction queue, population
 - **Economy**: **38 resource types**, mining operations, energy grid, per-body stockpiles, **localized logistics**, **shipping-company AI**
-- **Fleets**: 7 ship classes, 6 propulsion types, Hohmann transfers, **porkchop plot planner**, **Lagrange routing (L1–L5)**, **star-approach parking-radius picker**, gravity assists, **historical probes**
+- **Fleets**: 7 ship classes, 6 propulsion types, Hohmann transfers, **porkchop plot planner**, **Lagrange routing (L1–L5)**, **star-approach parking-radius picker**, gravity assists
 - **Research**: 15 technology categories, prerequisite chains, modifiers, **9 v0.5.0 survey / personnel / geology techs**, **tier-1 paid research_cost rebalance**
 - **Survey (v0.5.0)**: 8-dimension model, 17 instruments, 9-mission roster, **6 RON data files**, anomaly confidence, failure modes, recovery missions, **continuous orbital survey station**
 - **Personnel (v0.5.0)**: **Scientists with 8 specialties, 3 seniority tiers, hire & promotion** (data layer shipped; Personnel Roster UI pending)
@@ -153,7 +153,6 @@ The fleet system uses:
 - `ActiveManeuver`: Keplerian transfer arc, propagated analytically each frame
 - `PendingFleetActions`: Thread-safe action queue for spawn/transfer/cancel
 - Transfer planning: Hohmann transfers, gravity assists, phased departures, **porkchop plot planner (GRA-152 → GRA-162)**, **Lagrange-point transfers (L1–L5, GRA-154 → GRA-156)**, **star-approach parking-radius picker (GRA-161)**
-- **Historical probes** (GRA-131, GRA-162): 4 fixed entities (Voyager 1, Voyager 2, Parker Solar Probe, New Horizons) spawned at the 2026-01-01 JPL epoch
 
 Delta-v calculation uses Tsiolkovsky rocket equation: Δv = Isp × g₀ × ln(m_wet / m_dry)
 

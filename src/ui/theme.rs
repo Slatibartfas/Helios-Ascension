@@ -82,15 +82,6 @@ pub const EP_TEAL: egui::Color32 = egui::Color32::from_rgb(100, 255, 200);
 pub const STAR_GOLD: egui::Color32 = egui::Color32::from_rgb(255, 220, 100);
 /// Gravity-assist / flyby purple accent.
 pub const GRAVITY_ASSIST: egui::Color32 = egui::Color32::from_rgb(180, 130, 255);
-/// Pale cyan used for historical probe orbit rings and the read-only
-/// "Deep Space Probes" section in the fleet panel.  Matches the Bevy
-/// `Color::PROBE_ORBIT` literal in the `theme::Color` submodule
-/// (srgba(0.55, 0.85, 1.00, 0.55) → premul 77, 119, 140, 140) so the
-/// on-starmap orbit line and the panel row indicator stay visually
-/// consistent.  Uses `from_rgba_premultiplied` (const) rather than
-/// `from_rgba_unmultiplied` (non-const) so the `pub const` initializer
-/// is valid.
-pub const PROBE_ORBIT: egui::Color32 = egui::Color32::from_rgba_premultiplied(77, 119, 140, 140);
 
 // ─── Text Colours ────────────────────────────────────────────────────────
 
@@ -1018,16 +1009,8 @@ pub mod Color {
 
     // ── Orbit & Trajectory Colours ───────────────────────────────────
     //
-    // Used by `OrbitPath` rendering (Bevy) and the historical-probe
-    // spawn in `src/fleets/historical_probes.rs`.  Picked during the
-    // GRA-131 (historical probes) PR so the probe orbit-ring tint is
-    // distinct from the planet orbit (PLANET_ORBIT) and the comet
-    // (yellow) paths.
-
-    /// Orbit ring drawn for the four historical probes (V1/V2/Parker/NH).
-    /// Light cyan at 55% alpha so the heliocentric background reads
-    /// through the partial-hyperbola path.
-    pub const PROBE_ORBIT: Color = Color::srgba(0.55, 0.85, 1.00, 0.55);
+    // Used by `OrbitPath` rendering (Bevy).  Picked so the planet orbit
+    // (PLANET_ORBIT) is visually distinct from the comet (yellow) path.
 
     // ── Tooltips & Overlays ─────────────────────────────────────────
     //

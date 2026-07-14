@@ -52,7 +52,7 @@ The v0.4.0 building & logistics overhaul shipped — **52 building types** with 
   - Mid-transit course-correction with abort-burn fuel deduction
   - Refuelling from planetary stockpiles
   - Visual trajectory arcs, orbit rings, selection reticules, and starmap icons
-  - **5-ship Day-1 constellation** + **4 historical probes** (Voyager 1/2, Parker Solar Probe, New Horizons) spawned at the 2026-01-01 JPL epoch
+  - **5-ship Day-1 constellation** spawned at the 2026-01-01 JPL epoch
 
 - **Research & Technology**: Unlock new capabilities through scientific advancement
   - **15 technology categories**: Electronics, Military, SpaceTechnology, Biology, Physics, Energy, Sociology, Construction, Propulsion, Materials, Sensors, Weapons, DefensiveSystems, LifeSupport, Industry
@@ -122,7 +122,7 @@ The v0.4.0 building & logistics overhaul shipped — **52 building types** with 
   - Economy Panel: Financial overview and resource tracking
   - **Logistics Panel** (top-level): open `ResourceRequest`s, in-transit shipments, shipping-company registry, per-colony minimum-stockpile editor
   - Starmap Panel: Interstellar navigation and system selection, **system-wide SURVEY %**
-  - Fleet Panel: Full fleet management — spawn fleets, select transfer options, **porkchop plot planner**, gravity assists, **Lagrange-point routing (L1–L5 + star-approach parking-radius picker)**, refuel, abort maneuvers, **assign a fleet to a resource request**, and **4 historical probes**
+  - Fleet Panel: Full fleet management — spawn fleets, select transfer options, **porkchop plot planner**, gravity assists, **Lagrange-point routing (L1–L5 + star-approach parking-radius picker)**, refuel, abort maneuvers, and **assign a fleet to a resource request**
   - Shipbuilding Panel: Native Bevy workspace for hull design, engineering-linked component selection, construction queueing, archive review, and **freighter template selection**
   - **Notifications overlay**: top-right toast panel + dedicated settings modal
   - **Personnel Panel** (UI pending; data layer shipped): scientist roster, analysis-queue assignment, seniority & specialty filters
@@ -233,7 +233,7 @@ helios_ascension/
 │   ├── astronomy/           # Orbital mechanics, ephemeris, exoplanets, nearby stars, Lagrange helpers
 │   ├── colony/              # Colony management, buildings, construction, founding flow
 │   ├── economy/             # Resources, budget, energy grid, logistics, AI shipping companies, mining
-│   ├── fleets/              # Fleet management, orbital mechanics, porkchop, Lagrange transfers, historical probes
+│   ├── fleets/              # Fleet management, orbital mechanics, porkchop, Lagrange transfers
 │   ├── personnel/           # Scientists (data layer shipped; UI pending)
 │   ├── research/            # Technology tree, engineering, and unlock catalogs
 │   ├── shipbuilding/        # Data-driven hulls, modules, projects, refit, and slipways
@@ -262,7 +262,7 @@ The game uses a modular plugin architecture built on Bevy's ECS (Entity Componen
 - **SurveyPlugin** (v0.5.0): 8-dimension `SurveyState`, 9-mission roster, anomaly confidence, failure modes, recovery missions, orbital survey station
 - **PersonnelPlugin** (v0.5.0): Scientist data layer (specialty, seniority, hire, promote) — UI panel pending
 - **NotificationsPlugin** (v0.5.0): toast panel, settings modal, event bridges, coalesce, click-to-focus
-- **FleetPlugin**: Fleet management, orbital transfer planning, gravity assists, **porkchop plot**, **Lagrange-point routing**, **star-approach parking-radius picker**, trajectory rendering, **manual freight assignment**, **historical probes**
+- **FleetPlugin**: Fleet management, orbital transfer planning, gravity assists, **porkchop plot**, **Lagrange-point routing**, **star-approach parking-radius picker**, trajectory rendering, **manual freight assignment**
 - **ShipbuildingPlugin**: Canonical hull/module data, construction queues, design summaries, **freighter template system + legacy `standard_freighter` migration shim**
 - **UIPlugin**: Dashboard with time controls and interactive panels (theme tokens, layout primitives, tab strip, focus rings), including the native shipbuilding workspace, the dossier SURVEY ledger, the per-body resource bar with in-transit indicator, the notifications overlay, and the transfer-planner porkchop
 - **StarmapPlugin**: Interstellar navigation, system icons, visibility toggle, **interstellar probe** support

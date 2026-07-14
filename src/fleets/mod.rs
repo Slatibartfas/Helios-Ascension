@@ -10,7 +10,6 @@ use bevy::prelude::*;
 
 pub mod components;
 pub mod data;
-pub mod historical_probes;
 pub mod orbital_mechanics;
 pub mod porkchop;
 pub mod systems;
@@ -19,13 +18,12 @@ pub mod visuals;
 
 pub use components::{
     AbortToOriginAction, ActiveManeuver, AssignLogisticsRequestAction, AssignShipsAction,
-    CreateFleetFromShipsAction, Fleet, FleetOrbit, HistoricalProbe, HistoricalProbeKind,
-    InterstellarPropulsionPolicy, MergeFleetAction, PendingFleetActions, PlannedTransfer,
-    PorkchopCategoryOverride, PorkchopColorStop, PorkchopConfig, PorkchopGridDefaults,
-    ResolvedPorkchopParams, SelectionSource, ShipInfo, ShipInstance, SpawnFleetAction,
-    StartTransferAction, TransferPlan, TransferReferenceFrame, TransferShipsAction,
+    CreateFleetFromShipsAction, Fleet, FleetOrbit, InterstellarPropulsionPolicy, MergeFleetAction,
+    PendingFleetActions, PlannedTransfer, PorkchopCategoryOverride, PorkchopColorStop,
+    PorkchopConfig, PorkchopGridDefaults, ResolvedPorkchopParams, SelectionSource, ShipInfo,
+    ShipInstance, SpawnFleetAction, StartTransferAction, TransferPlan, TransferReferenceFrame,
+    TransferShipsAction,
 };
-pub use historical_probes::{HistoricalProbeScanState, HistoricalProbesSpawned};
 pub use orbital_mechanics::{
     apply_thrust_limits, calculate_transfer_options, calculate_transfer_options_phased,
     compute_burn_time_s, compute_transfer_window, estimate_fuel_cost_tonnes, format_delta_v,
@@ -56,36 +54,18 @@ impl Plugin for FleetPlugin {
                 PostStartup,
                 (
                     systems::spawn_initial_fleet,
-                    // GRA-131: spawn the four historical probes (Voyager 1,
-                    // Voyager 2, Parker, New Horizons) at the 2026-01-01
-                    // JPL Horizons epoch.  Chained after `spawn_initial_fleet`
-                    // so the player's Day-1 fleet exists by the time the
-                    // probes appear in the world.  The two spawn systems
-                    // share no resources or queries, so the order is purely
-                    // for narrative clarity (Day-1 fleet → historical
-                    // probes) and has no functional effect.
-                    historical_probes::spawn_historical_probes.after(systems::spawn_initial_fleet),
                     // Debug aid: spawn a 1-ship fleet at Earth on an immediate
                     // Hohmann transfer to Jupiter.  Lets the player visually
                     // verify the in-transit rendering path and stress-test
                     // the ActiveManeuver save/load round trip (the
-                    // option_label reflect(ignore) fix).  Chained AFTER both
-                    // `spawn_initial_fleet` and `spawn_historical_probes` so
-                    // Earth/Jupiter/Sol entities exist in the body_query by
-                    // the time the resolver runs.  Idempotent via
+                    // option_label reflect(ignore) fix).  Idempotent via
                     // `DebugEarthJupiterFleetSpawned`.
-                    systems::spawn_debug_earth_jupiter_fleet
-                        .after(historical_probes::spawn_historical_probes),
+                    systems::spawn_debug_earth_jupiter_fleet,
                 ),
             )
             .add_systems(
                 Update,
                 (
-                    // GRA-131: grant the one-time +0.5 RP science bonus per
-                    // probe per save.  Runs once on the first Update tick
-                    // after spawn; the scan-state resource is the
-                    // idempotency gate.
-                    historical_probes::apply_historical_probe_scan_bonuses,
                     systems::process_fleet_actions,
                     systems::sync_fleet_cache_from_ship_entities
                         .after(systems::process_fleet_actions),
@@ -114,30 +94,6 @@ impl Plugin for FleetPlugin {
                         .after(systems::update_fleet_orbit_positions)
                         .after(systems::update_fleet_maneuver_positions),
                 ),
-            )
-            // Historical probe icons live in a second `.add_systems` call so
-            // the system tuple stays under Bevy 0.18's 20-element limit.
-            // Probes are not `Fleet` entities so the two groups share no
-            // query resources; ordering between them is irrelevant.
-            .add_systems(
-                Update,
-                (
-                    visuals::ensure_historical_probe_meshes,
-                    visuals::update_historical_probe_transforms
-                        .after(visuals::ensure_historical_probe_meshes),
-                    visuals::update_historical_probe_orbit_path_visibility,
-                    visuals::draw_historical_probe_trajectories,
-                ),
-            )
-            // Listen for "jump camera to probe" events fired by the
-            // fleet panel double-click handler.  The handler binds the
-            // camera to the probe entity and recentres on its current
-            // heliocentric position.
-            .add_event::<historical_probes::JumpCameraToEntity>()
-            .add_systems(
-                Update,
-                historical_probes::jump_camera_to_handler
-                    .after(systems::update_fleet_maneuver_positions),
             );
     }
 }

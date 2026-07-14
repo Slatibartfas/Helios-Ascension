@@ -229,7 +229,7 @@ fn find_closest_orbit_to_ray<'a>(
     closest
 }
 
-/// System that handles celestial body selection via mouse clicks
+/// System that handles celestial body selection via mouse clicks.
 #[allow(clippy::too_many_arguments)]
 pub fn handle_body_selection(
     view_mode: Res<ViewMode>,
@@ -525,7 +525,7 @@ pub fn apply_body_right_click_target(state: &mut FleetUiState, entity: Entity) {
     state.departure_offset_days = -1.0;
 }
 
-/// System that handles celestial body hover detection via mouse position
+/// System that handles celestial body hover detection via mouse position.
 pub fn handle_body_hover(
     view_mode: Res<ViewMode>,
     windows: Query<&Window, With<PrimaryWindow>>,

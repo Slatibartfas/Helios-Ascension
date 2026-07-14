@@ -317,10 +317,6 @@ Courier, Frigate, Destroyer, Cruiser, ResearchVessel, Freighter, Station
 - Destination state-mutation contract (GRA-160) — single Hohmann fallback when L4 is empty
 - Interactive star-approach parking-radius picker (GRA-161) for cross-system transfers
 
-**Historical Probes (`src/fleets/historical_probes.rs`, GRA-131):**
-- 4 historical probes (Voyager 1, Voyager 2, Parker Solar Probe, New Horizons) spawned at the 2026-01-01 JPL epoch
-- Surfaced in the Fleet panel via `feat(ui): expose 4 historical probes in fleet panel` (GRA-162)
-
 **Orbital Mechanics (`src/fleets/orbital_mechanics.rs`):**
 - `hohmann_transfer()`: Minimum-energy co-planar transfer between circular orbits
 - `calculate_transfer_options()`: Returns 3 transfer options (efficient / moderate / fast)
@@ -456,7 +452,7 @@ src/
 │   └── mod.rs           # AstronomyPlugin
 ├── colony/              # Colony management, buildings, construction, founding flow
 ├── economy/             # Resources, budget, energy grid, logistics, AI shipping companies, mining
-├── fleets/              # Fleet management, orbital mechanics, porkchop, Lagrange transfers, historical probes
+├── fleets/              # Fleet management, orbital mechanics, porkchop, Lagrange transfers
 ├── personnel/           # Scientists (v0.5.0 data layer; UI panel pending)
 ├── research/            # Technology tree, engineering, and unlock catalogs
 ├── shipbuilding/        # Data-driven hulls, modules, projects, refit, and slipways
@@ -486,7 +482,7 @@ src/
     ├── research_panel.rs      # Research/engineering UI and tech tree
     ├── construction_panel.rs  # Construction queue UI with yield chip & depletion timeline
     ├── economy_panel.rs       # Economy/budget UI + Logistics subpanel
-    ├── fleets_panel.rs        # Fleet management, transfer planner, FleetUiState, historical probes
+    ├── fleets_panel.rs        # Fleet management, transfer planner, FleetUiState
     ├── transfer_planner.rs    # Transfer-window planner (Hohmann / moderate / fast)
     ├── porkchop_panel.rs      # Porkchop plot (GRA-152) with interactive cursor
     ├── shipbuilding_workspace.rs  # Native Bevy UI shipbuilding workspace

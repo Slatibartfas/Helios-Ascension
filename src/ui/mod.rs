@@ -87,14 +87,14 @@ use crate::economy::{
 use crate::fleets::orbital_mechanics::{
     apply_thrust_limits, calculate_transfer_options, calculate_transfer_options_phased,
     co_orbital_phasing_options, compute_burn_time_s, compute_transfer_window,
-    course_correction_transfer_options, direct_lp_transfer_options, find_gravity_assist_options,
-    format_delta_v, format_duration, hohmann_transfer, keplerian_velocity_vector,
-    kinematic_transfer_options, plane_change_angle, GravityAssistOption,
+    course_correction_transfer_options, find_gravity_assist_options, format_delta_v,
+    format_duration, hohmann_transfer, keplerian_velocity_vector, kinematic_transfer_options,
+    plane_change_angle, GravityAssistOption,
 };
 use crate::fleets::{
-    AbortToOriginAction, ActiveManeuver, Fleet, FleetOrbit, MergeFleetAction, PendingFleetActions,
-    PlannedTransfer, StartTransferAction, TransferOption, TransferPlan, TransferReferenceFrame,
-    TransferWindowInfo, AU_IN_METERS, GM_SUN, G_CONST,
+    AbortToOriginAction, ActiveManeuver, Fleet, FleetOrbit, MergeFleetAction,
+    PendingFleetActions, PlannedTransfer, StartTransferAction, TransferOption, TransferPlan,
+    TransferReferenceFrame, TransferWindowInfo, AU_IN_METERS, GM_SUN, G_CONST,
 };
 use crate::game_state::{ActiveMenu, GameMenu};
 use crate::plugins::camera::{
@@ -1449,7 +1449,6 @@ fn ui_hover_tooltip(
 
     // Display hover tooltip if a body is hovered
     if let Ok((body, category_opt, ocean_props)) = hovered_query.single() {
-        // Anchor the tooltip near the mouse pointer so it appears over the 3D view
         let available_rect = ctx.available_rect();
         let tooltip_pos = ctx
             .input(|i| i.pointer.hover_pos())

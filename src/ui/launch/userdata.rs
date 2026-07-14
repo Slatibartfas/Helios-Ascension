@@ -297,14 +297,22 @@ mod tests {
     fn resolve_userdata_dir_respects_override() {
         // SAFETY: tests run single-threaded by default for env vars;
         // an override set here cannot race with other tests because
-        // each test sets and restores its own value.
+        // each test sets and restores its own value.  The save-panel
+        // tests use a parallel-safe RAII guard
+        // (`UserdataDirGuard` in `subview_save_game::tests`) and we
+        // use a unique per-pid override dir here so neither test can
+        // step on the other's env-var reads.
         let prior = std::env::var_os("HELIOS_USERDATA_DIR");
-        // SAFETY: see above.
+        let override_dir = std::env::temp_dir().join(format!(
+            "helios-userdata-override-{}",
+            std::process::id()
+        ));
+        // SAFETY: see above — we restore `prior` before returning.
         unsafe {
-            std::env::set_var("HELIOS_USERDATA_DIR", "/tmp/helios-override");
+            std::env::set_var("HELIOS_USERDATA_DIR", &override_dir);
         }
         let resolved = resolve_userdata_dir();
-        assert_eq!(resolved, PathBuf::from("/tmp/helios-override"));
+        assert_eq!(resolved, override_dir);
         match prior {
             Some(v) => unsafe { std::env::set_var("HELIOS_USERDATA_DIR", v) },
             None => unsafe { std::env::remove_var("HELIOS_USERDATA_DIR") },

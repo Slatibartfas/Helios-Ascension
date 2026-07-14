@@ -721,6 +721,7 @@ pub fn draw_orbit_paths(
                 parent_offset,
                 is_selected,
                 is_hovered,
+                origin_offset,
             );
             continue;
         }
@@ -844,11 +845,16 @@ pub fn draw_orbit_paths(
                 continue;
             }
 
-            let scaled_x = (position_au.x * SCALING_FACTOR * amp) as f32;
-            let scaled_y = (position_au.y * SCALING_FACTOR * amp) as f32;
-            let scaled_z = (position_au.z * SCALING_FACTOR * amp) as f32;
-
-            let point = Vec3::new(scaled_x, scaled_y, scaled_z) + parent_offset;
+            // Subtract the floating origin so the polyline stays anchored to
+            // the body's icon.  `parent_offset` is already origin-recentered
+            // (see line 701-707), so both summands live in the same frame.
+            // Without this, the orbit ring drifts `origin_offset *
+            // SCALING_FACTOR` Bevy units away from the icon whenever the
+            // camera anchor shifts — visible as flicker for long-distance
+            // bodies (e.g. Voyager 1 at ~170 AU).
+            let sample_au = (position_au - origin_offset) * SCALING_FACTOR * amp;
+            let point = Vec3::new(sample_au.x as f32, sample_au.y as f32, sample_au.z as f32)
+                + parent_offset;
 
             if let Some(prev) = prev_point {
                 // t goes from 0.0 (at the body/head) to 1.0 (full orbit behind)
@@ -924,6 +930,7 @@ fn draw_hyperbolic_orbit_arc(
     parent_offset: Vec3,
     is_selected: bool,
     is_hovered: bool,
+    origin_offset: DVec3,
 ) {
     // Solve r(ν) = q (e + cos(ν)) / (1 + e cos(ν)) = max_distance
     // ⇒ cos(ν) = (q - max_distance) / (e * max_distance - q)
@@ -965,6 +972,16 @@ fn draw_hyperbolic_orbit_arc(
         0.0
     };
 
+    // Pre-compute trig of argument of periapsis and node so the inner loop
+    // stays branch-light.
+    let cos_w = orbit.argument_of_periapsis.cos();
+    let sin_w = orbit.argument_of_periapsis.sin();
+    let cos_i = orbit.inclination.cos();
+    let sin_i = orbit.inclination.sin();
+    let cos_omega = orbit.longitude_ascending_node.cos();
+    let sin_omega = orbit.longitude_ascending_node.sin();
+    let a = orbit.semi_major_axis;
+
     // Sample ν from -nu_max through 0 (periapsis) to +nu_max.  Periapsis
     // (ν=0) is the brightest point; alpha fades toward both ends.
     let mut prev_point: Option<Vec3> = None;
@@ -972,16 +989,46 @@ fn draw_hyperbolic_orbit_arc(
     for i in 0..=total_segments {
         // i = 0 → -nu_max, i = half → 0 (periapsis), i = total → +nu_max
         let nu = -nu_max + (i as f64) * step;
-        let position_au = orbit_position_from_true_anomaly(orbit, nu);
+        let (sin_nu, cos_nu) = nu.sin_cos();
+
+        // Inline r = a·(1 − e²) / (1 + e·cos ν) so we bypass the
+        // `orbital_radius` eccentricity clamp at MAX_ELLIPTICAL_ECCENTRICITY =
+        // 0.99999.  The clamp was written for the elliptical Kepler solver;
+        // for hyperbolic e>1 it produced a degenerate ellipse near the Sun.
+        // Inline the conic radius formula so we bypass the eccentricity clamp.
+        let denom = 1.0 + e * cos_nu;
+        if denom.abs() < 1e-10 {
+            // At/near the asymptote the radius diverges — break the polyline.
+            prev_point = None;
+            continue;
+        }
+        let r = a * (1.0 - e * e) / denom;
+        if !r.is_finite() {
+            prev_point = None;
+            continue;
+        }
+
+        // Build the position from `(r, ν)` directly in the orbital frame.
+        let x_orbital = r * cos_nu;
+        let y_orbital = r * sin_nu;
+        let x_perifocal = x_orbital * cos_w - y_orbital * sin_w;
+        let y_perifocal = x_orbital * sin_w + y_orbital * cos_w;
+        let x = x_perifocal * cos_omega - y_perifocal * cos_i * sin_omega;
+        let y = x_perifocal * sin_omega + y_perifocal * cos_i * cos_omega;
+        let z = y_perifocal * sin_i;
+        let position_au = DVec3::new(x, y, z);
+
         let distance_au = position_au.length();
         if distance_au > max_d {
             prev_point = None;
             continue;
         }
-        let scaled_x = (position_au.x * SCALING_FACTOR * amp) as f32;
-        let scaled_y = (position_au.y * SCALING_FACTOR * amp) as f32;
-        let scaled_z = (position_au.z * SCALING_FACTOR * amp) as f32;
-        let point = Vec3::new(scaled_x, scaled_y, scaled_z) + parent_offset;
+
+        // Subtract the floating origin so the polyline stays anchored to
+        // the body's icon (see Bug 1 / draw_orbit_paths comment).
+        let sample_au = (position_au - origin_offset) * SCALING_FACTOR * amp;
+        let point = Vec3::new(sample_au.x as f32, sample_au.y as f32, sample_au.z as f32)
+            + parent_offset;
 
         if let Some(prev) = prev_point {
             // t goes 0 (at -nu_max) → 0.5 (at periapsis) → 1 (at +nu_max)

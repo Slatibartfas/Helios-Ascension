@@ -15,7 +15,7 @@ The 0.4.0 building & logistics overhaul is fully shipped. v0.5.0 is mostly shipp
 - ✅ Transfer planner hardening (porkchop plot, Lagrange routing L1–L5, star-approach parking-radius picker) — GRA-149 → GRA-162
 - 🟡 Personnel system (data layer shipped: `Scientist` component, 8 specialties, 3 seniority tiers, hire & promotion systems; `PersonnelRoster` UI panel pending — design contract in `docs/UI.md` §8.3)
 - 🟡 Progressive expansion (5.3) — outpost founding flow shipped; probes → rovers → stations → bases fleet is partially modelled; fuel depots and asteroid mining UI still pending
-- ✅ 5-ship Day-1 constellation + 4 historical probes at the 2026-01-01 JPL epoch — GRA-128, GRA-131
+- ✅ 5-ship Day-1 constellation at the 2026-01-01 JPL epoch — GRA-128
 - ✅ 9 new survey / personnel / geology techs (GRA-106) + tier-1 paid `research_cost` rebalance (GRA-127)
 
 ---
@@ -299,7 +299,7 @@ The Kardashev scale is the spine of the long game. Progression from K0.7 (curren
 - Porkchop plot planner (GRA-152 → GRA-162) — shipped
 - Lagrange-point transfers L1 / L2 / L3 / L4 / L5 (GRA-154 → GRA-156) — shipped
 - Star-approach parking-radius picker (GRA-161) — shipped
-- 5-ship Day-1 constellation + 4 historical probes at the 2026-01-01 JPL epoch — GRA-128, GRA-131
+- 5-ship Day-1 constellation at the 2026-01-01 JPL epoch — GRA-128
 - Generals / Governors / Personnel Roster UI — **pending**
 
 ### Upcoming (next)
