@@ -7454,7 +7454,6 @@ pub(super) fn render_transfer_planner(
                                             // through to the helper so the
                                             // preview matches the geometry the
                                             // commit will launch with.
-                                            let target_entity = target_entity;
                                             build_planned_transfer_with_flyby(
                                                 fleet_entity,
                                                 fleet,

@@ -1463,7 +1463,7 @@ mod tests {
         );
 
         // The polyline operates in Bevy render units (AU × SCALING_FACTOR).
-        let scale = SCALING_FACTOR as f64;
+        let scale = SCALING_FACTOR;
 
         // (1) Endpoint must be Jupiter's orbit (apoapsis = r_jupiter_au),
         //     not rotated past it by `mean_motion * elapsed` as the bug did.
