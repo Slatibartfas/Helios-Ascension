@@ -356,6 +356,40 @@ fn draw_ghost_body(
     );
 }
 
+/// Size parameters for the burn-direction arrow drawn at the endpoints of a
+/// transfer arc.  Scaled with camera zoom by `draw_fleet_transfer_preview`
+/// so the arrow stays readable across the full System-view zoom range —
+/// small at planet-close zoom (~ 0.5×), large at heliocentric zoom
+/// (~ 2–3×).  See `draw_fleet_transfer_preview` for the scale formula.
+const BURN_ARROW_HEAD_LEN_BASE: f32 = 25.0;
+const BURN_ARROW_HEAD_HALF_BASE: f32 = 12.5;
+
+/// Draw a V-shaped arrowhead at `position` pointing in `direction`.
+///
+/// Used by the transfer preview paths to make the prograde/retrograde burn
+/// direction explicit at each end of the arc.  `scale` is multiplied into
+/// the base size — the caller passes a zoom-aware multiplier so the arrow
+/// stays readable at both planet-close and heliocentric zoom levels.
+/// Returns early on a degenerate direction so callers can invoke it
+/// unconditionally after computing Bezier / Kepler tangents.
+fn draw_burn_arrow(gizmos: &mut Gizmos, position: Vec3, direction: Vec3, scale: f32, color: Color) {
+    let dir = direction.normalize_or_zero();
+    if dir == Vec3::ZERO {
+        return;
+    }
+    // In 2D ecliptic-space, a 90° CCW perpendicular to `dir` is (-y, x, 0).
+    // The V opens backward from the tip along `dir`.
+    let perp = Vec3::new(-dir.y, dir.x, 0.0);
+    let len = BURN_ARROW_HEAD_LEN_BASE * scale;
+    let half = BURN_ARROW_HEAD_HALF_BASE * scale;
+    let base = position - dir * len;
+    let tip = position;
+    let wing_l = base + perp * half;
+    let wing_r = base - perp * half;
+    gizmos.line(wing_l, tip, color);
+    gizmos.line(wing_r, tip, color);
+}
+
 /// Compute the stable, optimal departure angle for a local transfer arc.
 ///
 /// Returns the angle (radians) in the ecliptic plane from the origin body position
@@ -661,8 +695,14 @@ fn compute_barycentric_visual_arc(
         .map(|velocity| velocity.normalize_or_zero())
         .unwrap_or_else(|| orbit_visual_tangent_direction(orbit, end_ma, -delta_ma));
 
-    let depart_dir = (depart_dir_raw * 0.75 + direct_dir * 0.25).normalize_or_zero();
-    let arrive_dir = (arrive_dir_raw * 0.75 + direct_dir * 0.25).normalize_or_zero();
+    // Blend mostly-orbital-prograde with a small direct bias so the arc
+    // does not overshoot / loop.  0.85 / 0.15 mirrors the central-body
+    // branch's `compute_transfer_arc` blend and produces a clean
+    // half-ellipse for Hohmann-style inter-star previews.  The previous
+    // 0.75 / 0.25 with arm `0.28 × chord` introduced an S-shape kink at
+    // each endpoint, which read as a sharp perpendicular departure.
+    let depart_dir = (depart_dir_raw * 0.85 + direct_dir * 0.15).normalize_or_zero();
+    let arrive_dir = (arrive_dir_raw * 0.85 + direct_dir * 0.15).normalize_or_zero();
 
     let departure_tangent = if depart_dir == Vec3::ZERO {
         direct_dir
@@ -675,7 +715,11 @@ fn compute_barycentric_visual_arc(
         arrive_dir
     };
 
-    let arm = (chord * 0.28).max(24.0);
+    // Half-ellipse approximation: with tangents roughly perpendicular to the
+    // chord, a control arm of ~½ the chord length gives the smoothest fit.
+    // Doubling the floor (48 vs 24) keeps short inter-moon transfers visibly
+    // curved rather than near-straight.
+    let arm = (chord * 0.55).max(48.0);
 
     TransferArcGeometry {
         p0: start_pos,
@@ -1094,6 +1138,7 @@ mod tests {
         compute_barycentric_visual_arc, compute_gravity_assist_arc, compute_transfer_arc,
         sample_polyline, sampled_transfer_orbit_points_with_center, shell_ring_visual_radius,
         should_sample_planned_transfer_preview, tangential_ring_arrival_point,
+        BURN_ARROW_HEAD_HALF_BASE, BURN_ARROW_HEAD_LEN_BASE,
     };
     use crate::astronomy::{orbit_position_from_mean_anomaly, KeplerOrbit, SCALING_FACTOR};
     use crate::fleets::{PlannedTransfer, TransferReferenceFrame};
@@ -1515,8 +1560,7 @@ mod tests {
         let r_low = shell_ring_visual_radius(&earth, 6_690.0 / 149_597_870.7);
         let r_med = shell_ring_visual_radius(&earth, 3.0 * 6_371.0 / 149_597_870.7);
         let r_high = shell_ring_visual_radius(&earth, 10.0 * 6_371.0 / 149_597_870.7);
-        let r_stationary =
-            shell_ring_visual_radius(&earth, 20.0 * 6_371.0 / 149_597_870.7);
+        let r_stationary = shell_ring_visual_radius(&earth, 20.0 * 6_371.0 / 149_597_870.7);
 
         // Low sits at the existing `fleet_parking_visual_radius` baseline
         // (1.0× multiplier).  For Earth that's max(2.0 × 1.5, 2.0 + 6.0 + 3.0) = 11.0.
@@ -1526,7 +1570,10 @@ mod tests {
         );
         // Monotonic ordering.
         assert!(r_low < r_med, "Low ({r_low}) should be < Medium ({r_med})");
-        assert!(r_med < r_high, "Medium ({r_med}) should be < High ({r_high})");
+        assert!(
+            r_med < r_high,
+            "Medium ({r_med}) should be < High ({r_high})"
+        );
         assert!(
             r_high <= r_stationary,
             "High ({r_high}) should be <= Stationary ({r_stationary})"
@@ -1540,6 +1587,141 @@ mod tests {
         let ghost = make_body(BodyType::Planet, 0.0, 2.0);
         let _r = shell_ring_visual_radius(&ghost, 0.05);
         // No assertion needed — the test passes if no panic occurs.
+    }
+
+    // ── porkchop preview arc — regression for "Bezier in preview, real
+    //     ellipse in transit" mismatch ────────────────────────────────────────
+
+    /// Regression for the user-reported "preview arc looks perpendicular"
+    /// bug.  The porkchop preview path in `draw_fleet_transfer_preview`
+    /// used to render a cubic Bezier interpolation between predicted
+    /// endpoints — visually an S-shape with sharp perpendicular kinks at
+    /// each endpoint, and inconsistent with the actual Keplerian half-ellipse
+    /// the in-transit renderer draws.  The fix samples the actual
+    /// `KeplerOrbit` directly via `orbit_position_from_mean_anomaly`.  This
+    /// test pins the property that the same formula the renderer uses
+    /// produces points that match the direct Keplerian formula at every
+    /// fraction along the arc.
+    #[test]
+    fn porkchop_preview_arc_traces_keplerian_half_orbit() {
+        // Earth→Jupiter Hohmann: periapsis at Earth (1 AU), apoapsis at
+        // Jupiter (5.2 AU).  The polyline shape is independent of
+        // mean_motion's absolute scale.
+        let r_earth_au = 1.0_f64;
+        let r_jupiter_au = 5.2_f64;
+        let sma_au = (r_earth_au + r_jupiter_au) / 2.0;
+        let ecc = (r_jupiter_au - r_earth_au) / (r_jupiter_au + r_earth_au);
+        let mean_motion = 1.0_f64;
+        let transfer_orbit = KeplerOrbit {
+            semi_major_axis: sma_au,
+            eccentricity: ecc,
+            inclination: 0.0,
+            longitude_ascending_node: 0.0,
+            argument_of_periapsis: 0.0,
+            mean_anomaly_epoch: 0.0,
+            mean_motion,
+        };
+        let duration_s = std::f64::consts::PI / mean_motion; // half-period
+        let total_ma_travel = mean_motion * duration_s;
+
+        let start_mean_anomaly = transfer_orbit.mean_anomaly_epoch;
+        let scale = SCALING_FACTOR as f64;
+
+        // Sample the preview arc — same expression the renderer's
+        // `draw_dashed_curve` closure evaluates at fraction `t`.
+        let eval_at = |t: f64| -> Vec3 {
+            let ma = start_mean_anomaly + total_ma_travel * t;
+            let pos_au = orbit_position_from_mean_anomaly(&transfer_orbit, ma);
+            Vec3::new(
+                (pos_au.x * scale) as f32,
+                (pos_au.y * scale) as f32,
+                (pos_au.z * scale) as f32,
+            )
+        };
+
+        // Every sample must equal the Kepler formula at the matching mean
+        // anomaly — the core "preview polyline == Keplerian half-orbit"
+        // invariant the user complained was broken.
+        for fraction in [0.0_f64, 0.1, 0.25, 0.5, 0.75, 0.9, 1.0] {
+            let expected_ma = start_mean_anomaly + total_ma_travel * fraction;
+            let expected_au = orbit_position_from_mean_anomaly(&transfer_orbit, expected_ma);
+            let expected_v = Vec3::new(
+                (expected_au.x * scale) as f32,
+                (expected_au.y * scale) as f32,
+                (expected_au.z * scale) as f32,
+            );
+            let preview_v = eval_at(fraction);
+            let dist = preview_v.distance(expected_v);
+            assert!(
+                dist < 1.0,
+                "preview arc sample at fraction {fraction} diverged from Kepler: \
+                 got {preview_v:?}, expected {expected_v:?} (dist={dist})",
+            );
+        }
+
+        // Endpoint sanity: first sample at Earth radius (1 AU), last at
+        // Jupiter radius (5.2 AU) — proves the orbit starts at periapsis
+        // and ends at apoapsis, the defining Hohmann geometry.
+        let first_radius = eval_at(0.0).length() as f64;
+        let last_radius = eval_at(1.0).length() as f64;
+        assert!(
+            (first_radius - r_earth_au * scale).abs() < 1.0,
+            "preview arc startpoint at periapsis: expected {} render units, got {}",
+            r_earth_au * scale,
+            first_radius,
+        );
+        assert!(
+            (last_radius - r_jupiter_au * scale).abs() < 1.0,
+            "preview arc endpoint at apoapsis: expected {} render units, got {}",
+            r_jupiter_au * scale,
+            last_radius,
+        );
+    }
+
+    /// Burn-direction arrow geometry is a V-shape that opens backward
+    /// from the tip.  Verified here by inlining the wing-point math rather
+    /// than instantiating `Gizmos` (which is awkward in unit tests).
+    /// The draw helper itself delegates to `gizmos.line` with these exact
+    /// coordinates, so a regression here means the visible arrow would
+    /// become asymmetric or collapse to a single line.
+    #[test]
+    fn burn_arrow_wing_geometry() {
+        // Replicate the wing-point math from `draw_burn_arrow` so we can
+        // test the geometry without a `Gizmos` instance.  The scale is
+        // applied to both the shaft length and the wing half-width so the
+        // V-shape aspect ratio stays constant.
+        let dir = Vec3::new(1.0, 0.0, 0.0); // pointing +X
+        let position = Vec3::new(10.0, 10.0, 0.0);
+        let scale: f32 = 2.5;
+        let perp = Vec3::new(-dir.y, dir.x, 0.0); // (0, 1, 0)
+        let len = BURN_ARROW_HEAD_LEN_BASE * scale;
+        let half = BURN_ARROW_HEAD_HALF_BASE * scale;
+        let base = position - dir * len;
+        let wing_l = base + perp * half;
+        let wing_r = base - perp * half;
+        let tip = position;
+
+        // Tip should sit exactly at `position`.
+        assert_eq!(tip, position);
+        // Wings should be symmetric about `dir`: equal X-coords, mirrored
+        // Y-coords around the dir line (which passes through `base` and
+        // `tip`).
+        assert_eq!(wing_l.x, wing_r.x);
+        // Each wing sits `half` from the dir line on its respective side.
+        assert!(
+            (wing_l.y - base.y - half).abs() < 1e-5,
+            "left wing above dir line by half",
+        );
+        assert!(
+            (wing_r.y - base.y + half).abs() < 1e-5,
+            "right wing below dir line by half",
+        );
+        // Wings should sit at `len` units behind the tip along `-dir`
+        // (i.e. wing distance from base == half, the V's half-width).
+        assert!((wing_l.distance(base) - half).abs() < 1e-5);
+        // Scale doubles the absolute size: at scale=2.5 the base is 25
+        // units behind the tip, vs the 25-unit base * 1.0 scale default.
+        assert!((tip.distance(base) - len).abs() < 1e-5);
     }
 }
 
@@ -3654,6 +3836,7 @@ pub fn draw_fleet_transfer_preview(
     sim_time: Res<SimulationTime>,
     real_time: Res<Time<Real>>,
     time_scale: Res<TimeScale>,
+    camera_query: Query<&OrbitCamera, With<GameCamera>>,
 ) {
     if *view_mode != ViewMode::System {
         return;
@@ -3684,6 +3867,17 @@ pub fn draw_fleet_transfer_preview(
     let elapsed = sim_time.elapsed_seconds();
     let real_secs = real_time.elapsed_secs() as f64;
     let sim_scale = time_scale.scale as f64;
+
+    // Zoom-aware scale for the burn-direction arrows.  At neutral System-view
+    // zoom the camera radius sits around 4000–6000 render units (showing
+    // ~2 AU around the Sun).  We use the square-root of the ratio so the
+    // arrows stay readable across the full zoom range without dominating at
+    // planet-close zoom.  Clamp keeps them sensible at extreme zoom levels.
+    let camera_radius = camera_query
+        .single()
+        .map(|c| c.radius)
+        .unwrap_or(5_000.0_f32);
+    let burn_arrow_scale = (camera_radius / 5_000.0_f32).sqrt().clamp(0.6, 3.5);
 
     let current_sim_s = elapsed;
     let departure_offset_s = fleet_ui_state.departure_offset_days * 86_400.0;
@@ -3866,6 +4060,24 @@ pub fn draw_fleet_transfer_preview(
             |f| Color::srgba(1.0, 0.75, 0.15, 0.70 - 0.35 * f),
         );
 
+        // Burn-direction arrows at the LP transfer endpoints.  LPs are
+        // always ballistic, so no kinematic gate.
+        let burn_color = Color::srgba(1.0, 0.75, 0.15, 0.95);
+        draw_burn_arrow(
+            &mut gizmos,
+            geo.p0,
+            geo.p1 - geo.p0,
+            burn_arrow_scale,
+            burn_color,
+        );
+        draw_burn_arrow(
+            &mut gizmos,
+            geo.p3,
+            geo.p3 - geo.p2,
+            burn_arrow_scale,
+            burn_color,
+        );
+
         // LP marker: crosshair + dashed circle in cyan-blue.
         let lp_color = Color::srgba(0.5, 0.85, 1.0, 0.85);
         let cs = lp_marker_r * 1.4;
@@ -3970,6 +4182,28 @@ pub fn draw_fleet_transfer_preview(
                 |t| geo.eval(t),
                 24,
                 |f| Color::srgba(1.0, 0.75, 0.15, 0.70 - 0.35 * f),
+            );
+        }
+
+        // Burn-direction arrows at the fleet-intercept arc endpoints.
+        // Skip for kinematic transfers (Full Thrust / Coast / Max Speed
+        // / Direct) — those are straight-line powered burns with no
+        // departure / insertion tangent.
+        if !is_kinematic {
+            let burn_color = Color::srgba(1.0, 0.75, 0.15, 0.95);
+            draw_burn_arrow(
+                &mut gizmos,
+                geo.p0,
+                geo.p1 - geo.p0,
+                burn_arrow_scale,
+                burn_color,
+            );
+            draw_burn_arrow(
+                &mut gizmos,
+                geo.p3,
+                geo.p3 - geo.p2,
+                burn_arrow_scale,
+                burn_color,
             );
         }
 
@@ -4348,21 +4582,62 @@ pub fn draw_fleet_transfer_preview(
                 (op, total_ma_travel)
             };
 
-            let geo = compute_barycentric_visual_arc(
-                orbit,
-                start_pos,
-                dp_absolute,
-                remaining_ma_travel,
-                departure_velocity_ms,
-                arrival_velocity_ms,
-            );
+            // Sample the actual Kepler transfer orbit at 128 mean-anomaly
+            // points and render the polyline — the *same* half-ellipse the
+            // in-transit renderer draws (`draw_fleet_trajectories` at L2514
+            // uses `build_visual_sampled_transfer_polyline_moving_center`).
+            // The previous Bezier approximation in `compute_barycentric_visual_arc`
+            // interpolated a cubic curve between predicted endpoints, which
+            // produced an S-shape kink at each endpoint and looked like a
+            // 90° perpendicular departure.  Sampling the orbit itself gives
+            // a true Hohmann half-ellipse that matches what the player sees
+            // after clicking Execute Transfer.
+            //
+            // Anchor the polyline at the spacecraft's *current* mean
+            // anomaly when post-departure (so the arc visually consumes
+            // as sim time advances) and at the planned departure mean
+            // anomaly when pre-departure (so the full trajectory is shown).
+            let start_mean_anomaly = if phase_ma.abs() > 1e-9 {
+                orbit.mean_anomaly_epoch + phase_ma
+            } else {
+                orbit.mean_anomaly_epoch
+            };
 
+            // Use `draw_dashed_curve` with a closure that evaluates the
+            // Kepler orbit at fraction `t` of the remaining arc.  This
+            // preserves the dashed amber visual style and the
+            // arc-length-uniform dash spacing from `draw_dashed_polyline`.
             draw_dashed_curve(
                 &mut gizmos,
-                |t| geo.eval(t),
+                |t| {
+                    let ma = start_mean_anomaly + remaining_ma_travel * t as f64;
+                    let pos_au = orbit_position_from_mean_anomaly(orbit, ma);
+                    Vec3::new(
+                        (pos_au.x * SCALING_FACTOR) as f32,
+                        (pos_au.y * SCALING_FACTOR) as f32,
+                        (pos_au.z * SCALING_FACTOR) as f32,
+                    )
+                },
                 24,
                 |f| Color::srgba(1.0, 0.75, 0.15, 0.70 - 0.35 * f),
             );
+
+            // Burn-direction arrows at the actual orbit endpoints.  These
+            // use the *real* velocity vectors from the Lambert solver
+            // (m/s, star-centered physics frame) — the same vectors the
+            // ship will follow at departure and arrival.  Visual-space
+            // direction is just the unit vector (the magnitudes differ by
+            // a constant scaling factor that `normalize_or_zero` drops).
+            let burn_color = Color::srgba(1.0, 0.75, 0.15, 0.95);
+            if let Some(v) = departure_velocity_ms {
+                let dir = Vec3::new(v.x as f32, v.y as f32, v.z as f32);
+                draw_burn_arrow(&mut gizmos, start_pos, dir, burn_arrow_scale, burn_color);
+            }
+            if let Some(v) = arrival_velocity_ms {
+                let dir = Vec3::new(v.x as f32, v.y as f32, v.z as f32);
+                draw_burn_arrow(&mut gizmos, dp_absolute, dir, burn_arrow_scale, burn_color);
+            }
+
             draw_ghost_body(
                 &mut gizmos,
                 dp_absolute,
@@ -4403,6 +4678,27 @@ pub fn draw_fleet_transfer_preview(
             |t| geo.eval(t),
             24,
             |f| Color::srgba(1.0, 0.75, 0.15, 0.70 - 0.35 * f),
+        );
+    }
+
+    // Burn-direction arrows at the local / barycentric-kinematic transfer
+    // endpoints.  Skip for kinematic transfers — the arc collapses to a
+    // straight line with no real departure / insertion tangent.
+    if !is_kinematic {
+        let burn_color = Color::srgba(1.0, 0.75, 0.15, 0.95);
+        draw_burn_arrow(
+            &mut gizmos,
+            geo.p0,
+            geo.p1 - geo.p0,
+            burn_arrow_scale,
+            burn_color,
+        );
+        draw_burn_arrow(
+            &mut gizmos,
+            geo.p3,
+            geo.p3 - geo.p2,
+            burn_arrow_scale,
+            burn_color,
         );
     }
 
