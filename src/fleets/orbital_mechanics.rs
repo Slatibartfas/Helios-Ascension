@@ -13,7 +13,11 @@ use super::components::{Fleet, InterstellarPropulsionPolicy};
 // needed at module scope for the function return types.
 use super::porkchop::PorkchopGrid;
 use crate::astronomy::{orbit_position_from_mean_anomaly, KeplerOrbit};
+use crate::plugins::solar_system::CelestialBody;
+use crate::plugins::solar_system_data::BodyType;
 use bevy::math::DVec3;
+use bevy::prelude::Reflect;
+use serde::{Deserialize, Serialize};
 
 /// Gravitational parameter of the Sun (m³ s⁻²)
 pub const GM_SUN: f64 = 1.327_124_4e20;
@@ -3985,5 +3989,304 @@ mod tests {
         );
         // And the value should be physically meaningful (positive, finite).
         assert!(new_dv_ms > 0.0 && new_dv_ms.is_finite());
+    }
+}
+
+// ── GRA-NNN: orbit-shell picker (moved from `src/ui/transfer_planner.rs`) ────
+//
+// These primitives used to live in the UI module but are pure orbital
+// mechanics — they don't depend on any egui / Bevy-UI state.  Moving them
+// here lets the renderer (`src/fleets/visuals.rs`) reuse them without
+// dragging the entire `crate::ui::*` tree into the fleets module graph.
+
+/// Default star-approach parking radius (AU) used when a star entity has no
+/// per-body `star_approach_au` override.  0.3 AU is well outside the
+/// photospheres of all main-sequence stars but close enough that the planner
+/// can still display a meaningful arrival orbit.  GRA-149 C-2 makes this
+/// the global default; per-body overrides live in `CelestialBody.star_approach_au`
+/// (e.g. an M-dwarf can park at 0.05 AU above its surface).
+pub const STELLAR_APPROACH_AU: f64 = 0.3;
+
+/// Minimum allowed star-approach parking radius (AU) for the interactive
+/// destination picker.  0.05 AU is well above the photospheres of all
+/// main-sequence stars (the Sun's photosphere is ~4.7 × 10⁻³ AU; M-dwarfs
+/// are even smaller) and is the value GRA-149 C-2 uses for tight M-dwarf
+/// overrides.  Clamping below this would let the player pick an orbit
+/// inside the star's corona where Δv cannot be modelled as a two-body
+/// assist.  GRA-161.
+pub const MIN_STAR_APPROACH_AU: f64 = 0.05;
+
+/// Maximum allowed star-approach parking radius (AU) for the interactive
+/// destination picker.  5.00 AU sits inside Jupiter's orbit in the Sol
+/// system and outside the closest planet in most M-dwarf systems.  The
+/// picker computes a per-star upper bound (closest-planet SMA × 0.9) for
+/// the arrival so the parking orbit cannot be placed inside an existing
+/// planetary orbit.  GRA-161.
+pub const MAX_STAR_APPROACH_AU: f64 = 5.0;
+
+/// Resolve the star-approach parking radius (AU) for a star body.
+///
+/// Returns `body.star_approach_au` if set (per-body override from RON or
+/// procedural data); otherwise falls back to [`STELLAR_APPROACH_AU`] (0.3 AU).
+/// Caller is responsible for clamping against the host planet's SMA to keep
+/// the parking orbit outside the origin planet.
+#[inline]
+pub fn star_approach_radius_au(body: &CelestialBody) -> f64 {
+    body.star_approach_au.unwrap_or(STELLAR_APPROACH_AU)
+}
+
+/// Identifies a named parking-orbit shell the player can pick for a
+/// destination body.  [`radius_for_shell`] resolves each id to a numeric
+/// arrival radius (AU).
+///
+/// GRA-NNN.  Supersedes the free-form `target_arrival_radius` DragValue
+/// (GRA-161 / GRA-387).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Reflect)]
+pub enum OrbitShellId {
+    /// 1.05 × body radius (just above the surface / atmosphere edge).
+    /// Procedural scaling keeps small bodies above any residual outgassing.
+    Low,
+    /// 3 × body radius — well clear of LEO debris, parking-stable.
+    Medium,
+    /// 10 × body radius — transfer-staging shell.
+    High,
+    /// Geostationary-equivalent orbit: r_sync = (GM·T_rot²/4π²)^(1/3).
+    /// Falls back to `Low` when the body has no measurable rotation.
+    Stationary,
+    /// Star shell: [`MIN_STAR_APPROACH_AU`] (0.05 AU).  Inside the
+    /// habitable zone but close enough to the photosphere that Δv starts
+    /// to deviate from the two-body model.  Used by M-dwarf overrides.
+    CloseApproach,
+    /// Star shell: [`star_approach_radius_au(body)`](star_approach_radius_au) — re-uses the GRA-149
+    /// C-2 default / per-body override.  Where Earth's orbit lives for
+    /// a Sol-magnitude star.
+    HabitableInner,
+    /// Star shell: `sqrt(L_star / L_sol) × 1.0 AU`.  Cached on
+    /// `CelestialBody.habitable_outer_au` at spawn time.  Outer edge of
+    /// the conservative habitable zone.
+    HabitableOuter,
+    /// Star shell: [`MAX_STAR_APPROACH_AU`] (5.0 AU).  Outer-system
+    /// staging / pre-interstellar cruise parking.
+    Cruise,
+}
+
+impl OrbitShellId {
+    /// Short human-readable label for the picker dropdown.
+    pub fn label(self) -> &'static str {
+        match self {
+            OrbitShellId::Low => "Low",
+            OrbitShellId::Medium => "Medium",
+            OrbitShellId::High => "High",
+            OrbitShellId::Stationary => "Stationary",
+            OrbitShellId::CloseApproach => "Close Approach",
+            OrbitShellId::HabitableInner => "Habitable Inner",
+            OrbitShellId::HabitableOuter => "Habitable Outer",
+            OrbitShellId::Cruise => "Cruise",
+        }
+    }
+
+    /// The set of shells available to a given body type.  Asteroids and
+    /// comets don't expose `Stationary` (no measurable rotation).
+    pub fn shells_for(body_type: BodyType) -> &'static [OrbitShellId] {
+        match body_type {
+            BodyType::Star => &[
+                OrbitShellId::CloseApproach,
+                OrbitShellId::HabitableInner,
+                OrbitShellId::HabitableOuter,
+                OrbitShellId::Cruise,
+            ],
+            BodyType::Asteroid | BodyType::Comet => {
+                &[OrbitShellId::Low, OrbitShellId::Medium, OrbitShellId::High]
+            }
+            _ => &[
+                OrbitShellId::Low,
+                OrbitShellId::Medium,
+                OrbitShellId::High,
+                OrbitShellId::Stationary,
+            ],
+        }
+    }
+}
+
+/// Default shell when no override is set.  `Low` for bodies (matches the
+/// pre-existing LEO-proxy default), `HabitableInner` for stars (matches
+/// the pre-existing `star_approach_radius_au` default and preserves the
+/// GRA-149 C-2 label promise).
+pub fn default_shell_for_body_type(body_type: BodyType) -> OrbitShellId {
+    match body_type {
+        BodyType::Star => OrbitShellId::HabitableInner,
+        _ => OrbitShellId::Low,
+    }
+}
+
+/// Resolve a shell to its numeric parking radius (AU).
+///
+/// Pure on `&CelestialBody` — caller has already destructured the
+/// standard 5-tuple body query.  GRA-NNN.
+///
+/// Body shells (Low / Medium / High) scale off the body's own radius:
+///   Low    = 1.05 × body.radius_km, with a +10 km absolute floor for
+///            small bodies whose 1.05× altitude would dip below any
+///            practical orbital regime.
+///   Medium = 3 × body.radius_km
+///   High   = 10 × body.radius_km
+///   Stationary = (GM · T_rot² / 4π²)^(1/3), or `Low` if the body has
+///                no measurable rotation (asteroids, comets, rings).
+/// Star shells are constant AU values, except `HabitableOuter` which
+/// reads the precomputed `body.habitable_outer_au` cache (falls back to
+/// `2 × star_approach_radius_au(body)` if the cache is `None`).
+pub fn radius_for_shell(body: &CelestialBody, shell: OrbitShellId) -> f64 {
+    let r_km = body.radius as f64;
+    let r_m = r_km * 1000.0;
+    match shell {
+        OrbitShellId::Low => {
+            // Absolute floor: 10 km above the surface keeps small-body
+            // shells above any residual outgassing / surface irregularities.
+            let shell_m = r_m * 1.05;
+            let floor_m = r_m + 10_000.0;
+            shell_m.max(floor_m) / AU_IN_METERS
+        }
+        OrbitShellId::Medium => r_m * 3.0 / AU_IN_METERS,
+        OrbitShellId::High => r_m * 10.0 / AU_IN_METERS,
+        OrbitShellId::Stationary => match body.rotation_period_s {
+            Some(t) if t > 0.0 => {
+                // r_sync = (GM · T_rot² / 4π²)^(1/3)
+                // `rotation_period_s` is `.abs()`'d at spawn, so sign flip
+                // is unnecessary here.
+                let gm = G_CONST * body.mass;
+                let r_sync_m = (gm * t.powi(2) / (4.0 * std::f64::consts::PI.powi(2))).cbrt();
+                r_sync_m / AU_IN_METERS
+            }
+            _ => radius_for_shell(body, OrbitShellId::Low),
+        },
+        OrbitShellId::CloseApproach => MIN_STAR_APPROACH_AU,
+        OrbitShellId::HabitableInner => star_approach_radius_au(body),
+        OrbitShellId::HabitableOuter => body
+            .habitable_outer_au
+            .unwrap_or_else(|| star_approach_radius_au(body) * 2.0),
+        OrbitShellId::Cruise => MAX_STAR_APPROACH_AU,
+    }
+}
+
+/// Inverse of [`radius_for_shell`]: pick the shell whose resolved radius
+/// is closest to the given numeric value, within the body's available
+/// shell set.  Falls back to [`default_shell_for_body_type`] for the
+/// body's type when no shell is unambiguously closer.
+///
+/// Used by the Commit-2 dual-write path: every existing
+/// `target_arrival_radius: Some((entity, radius_au))` write needs a
+/// matching `target_orbit_shell: Some((entity, shell))` so Commit 3
+/// can drop the numeric field without losing user state.  GRA-NNN.
+pub fn shell_id_for_radius(body: &CelestialBody, radius_au: f64) -> OrbitShellId {
+    let shells = OrbitShellId::shells_for(body.body_type);
+    let mut best_shell = default_shell_for_body_type(body.body_type);
+    let mut best_diff = f64::INFINITY;
+    for &shell in shells {
+        let r = radius_for_shell(body, shell);
+        let diff = (r - radius_au).abs();
+        if diff < best_diff {
+            best_diff = diff;
+            best_shell = shell;
+        }
+    }
+    best_shell
+}
+
+#[cfg(test)]
+mod orbit_shell_tests {
+    use super::*;
+
+    fn make_body(
+        body_type: BodyType,
+        radius_km: f64,
+        mass_kg: f64,
+        rot_s: Option<f64>,
+    ) -> CelestialBody {
+        CelestialBody {
+            name: "TestBody".to_string(),
+            radius: radius_km as f32,
+            mass: mass_kg,
+            body_type,
+            visual_radius: 2.0,
+            asteroid_class: None,
+            star_approach_au: None,
+            rotation_period_s: rot_s,
+            habitable_outer_au: None,
+        }
+    }
+
+    #[test]
+    fn star_shells_resolve_to_constant_au() {
+        let sol = make_body(BodyType::Star, 695_700.0, 1.989e30, Some(25.4 * 86_400.0));
+        // CloseApproach is the absolute floor (0.05 AU).
+        assert!(
+            (radius_for_shell(&sol, OrbitShellId::CloseApproach) - MIN_STAR_APPROACH_AU).abs()
+                < 1e-12
+        );
+        // Cruise is the absolute ceiling (5.0 AU).
+        assert!(
+            (radius_for_shell(&sol, OrbitShellId::Cruise) - MAX_STAR_APPROACH_AU).abs() < 1e-12
+        );
+        // HabitableInner falls back to STELLAR_APPROACH_AU when no override.
+        assert!(
+            (radius_for_shell(&sol, OrbitShellId::HabitableInner) - STELLAR_APPROACH_AU).abs()
+                < 1e-12
+        );
+        // HabitableOuter falls back to 2 × STELLAR_APPROACH_AU when no cache.
+        assert!(
+            (radius_for_shell(&sol, OrbitShellId::HabitableOuter) - 2.0 * STELLAR_APPROACH_AU)
+                .abs()
+                < 1e-12
+        );
+    }
+
+    #[test]
+    fn planet_shells_monotonic_low_lt_medium_lt_high() {
+        let earth = make_body(BodyType::Planet, 6_371.0, 5.97e24, Some(86_400.0));
+        let r_low = radius_for_shell(&earth, OrbitShellId::Low);
+        let r_med = radius_for_shell(&earth, OrbitShellId::Medium);
+        let r_high = radius_for_shell(&earth, OrbitShellId::High);
+        assert!(r_low < r_med, "Low ({r_low}) should be < Medium ({r_med})");
+        assert!(
+            r_med < r_high,
+            "Medium ({r_med}) should be < High ({r_high})"
+        );
+    }
+
+    #[test]
+    fn shell_id_for_radius_round_trips() {
+        let earth = make_body(BodyType::Planet, 6_371.0, 5.97e24, Some(86_400.0));
+        for &shell in OrbitShellId::shells_for(BodyType::Planet) {
+            let r = radius_for_shell(&earth, shell);
+            assert_eq!(
+                shell_id_for_radius(&earth, r),
+                shell,
+                "round-trip failed for {shell:?} (radius {r} AU)"
+            );
+        }
+    }
+
+    #[test]
+    fn default_shell_for_body_type_test() {
+        assert_eq!(
+            default_shell_for_body_type(BodyType::Star),
+            OrbitShellId::HabitableInner
+        );
+        assert_eq!(
+            default_shell_for_body_type(BodyType::Planet),
+            OrbitShellId::Low
+        );
+        assert_eq!(
+            default_shell_for_body_type(BodyType::Moon),
+            OrbitShellId::Low
+        );
+        assert_eq!(
+            default_shell_for_body_type(BodyType::Asteroid),
+            OrbitShellId::Low
+        );
+        assert_eq!(
+            default_shell_for_body_type(BodyType::Comet),
+            OrbitShellId::Low
+        );
     }
 }

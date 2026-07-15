@@ -2481,13 +2481,8 @@ mod tests {
     /// returns the RON values unchanged (a no-op bump).
     #[test]
     fn adaptive_resolution_respects_ron_minimum_for_narrow_window() {
-        let (cols, rows) = adaptive_resolution(
-            70,
-            50,
-            14.0,
-            5.0,
-            ADAPTIVE_RESOLUTION_CELL_CAP_INNER_PLANET,
-        );
+        let (cols, rows) =
+            adaptive_resolution(70, 50, 14.0, 5.0, ADAPTIVE_RESOLUTION_CELL_CAP_INNER_PLANET);
         assert_eq!(
             cols, 70,
             "narrow-window should fall back to RON minimum: got {cols}"
@@ -2532,13 +2527,8 @@ mod tests {
     /// size is 0).
     #[test]
     fn adaptive_resolution_handles_zero_window_without_panic() {
-        let (cols, rows) = adaptive_resolution(
-            50,
-            40,
-            0.0,
-            0.0,
-            ADAPTIVE_RESOLUTION_CELL_CAP_INNER_PLANET,
-        );
+        let (cols, rows) =
+            adaptive_resolution(50, 40, 0.0, 0.0, ADAPTIVE_RESOLUTION_CELL_CAP_INNER_PLANET);
         assert_eq!(cols, 50);
         assert_eq!(rows, 40);
     }
@@ -2548,13 +2538,8 @@ mod tests {
     /// the per-cell fractional mapping downstream.
     #[test]
     fn adaptive_resolution_floors_rons_below_2() {
-        let (cols, rows) = adaptive_resolution(
-            1,
-            1,
-            14.0,
-            5.0,
-            ADAPTIVE_RESOLUTION_CELL_CAP_INNER_PLANET,
-        );
+        let (cols, rows) =
+            adaptive_resolution(1, 1, 14.0, 5.0, ADAPTIVE_RESOLUTION_CELL_CAP_INNER_PLANET);
         assert!(
             cols >= 2 && rows >= 2,
             "min floor violated: cols = {cols}, rows = {rows}"
@@ -3764,8 +3749,7 @@ mod tests {
             "L3 destination must be a finite heliocentric point"
         );
         assert!(
-            (l3_dest_pos.length() - PI).abs() < 0.1
-                || (l3_dest_pos.length() < 1.5),
+            (l3_dest_pos.length() - PI).abs() < 0.1 || (l3_dest_pos.length() < 1.5),
             "L3 dest_pos_au sits near the planet's orbit at 1 AU (got {:.4})",
             l3_dest_pos.length()
         );
@@ -3789,14 +3773,8 @@ mod tests {
         // Both L4 and L5 are co-orbital at planet_sma.  Their
         // first-cell destinations should sit at planet_sma radius
         // (±r_hill, which is small) but their phases differ by 2·π/3.
-        let l4_phase = l4.cells[0]
-            .dest_pos_au
-            .y
-            .atan2(l4.cells[0].dest_pos_au.x);
-        let l5_phase = l5.cells[0]
-            .dest_pos_au
-            .y
-            .atan2(l5.cells[0].dest_pos_au.x);
+        let l4_phase = l4.cells[0].dest_pos_au.y.atan2(l4.cells[0].dest_pos_au.x);
+        let l5_phase = l5.cells[0].dest_pos_au.y.atan2(l5.cells[0].dest_pos_au.x);
         let phase_diff = (l4_phase - l5_phase).abs();
         // phase_diff should be ≈ 2·π/3 (≈ 2.094 rad); allow ±0.1 rad tolerance.
         assert!(

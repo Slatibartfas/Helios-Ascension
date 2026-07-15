@@ -91,10 +91,11 @@ use crate::fleets::orbital_mechanics::{
     format_duration, hohmann_transfer, keplerian_velocity_vector, kinematic_transfer_options,
     plane_change_angle, GravityAssistOption,
 };
+use crate::fleets::OrbitShellId;
 use crate::fleets::{
-    AbortToOriginAction, ActiveManeuver, Fleet, FleetOrbit, MergeFleetAction,
-    PendingFleetActions, PlannedTransfer, StartTransferAction, TransferOption, TransferPlan,
-    TransferReferenceFrame, TransferWindowInfo, AU_IN_METERS, GM_SUN, G_CONST,
+    AbortToOriginAction, ActiveManeuver, Fleet, FleetOrbit, MergeFleetAction, PendingFleetActions,
+    PlannedTransfer, StartTransferAction, TransferOption, TransferPlan, TransferReferenceFrame,
+    TransferWindowInfo, AU_IN_METERS, GM_SUN, G_CONST,
 };
 use crate::game_state::{ActiveMenu, GameMenu};
 use crate::plugins::camera::{
@@ -112,7 +113,6 @@ use crate::research::{
     TechTreeEditState, TechnologiesData, Technology,
 };
 use crate::ui::launch::LaunchState;
-use crate::ui::transfer_planner::OrbitShellId;
 
 /// Minimum supported window dimensions before showing the low-resolution warning.
 /// The UI is now intended to remain usable at 1280×720, even though larger
@@ -1826,7 +1826,7 @@ mod tests {
     use crate::astronomy::components::LpMarkerInfo;
     use crate::astronomy::selection::apply_body_right_click_target;
     use crate::fleets::orbital_mechanics::TransferOption;
-    use crate::ui::transfer_planner::OrbitShellId;
+    use crate::fleets::OrbitShellId;
     use crate::ui::LastLpClick;
     use bevy::ecs::system::RunSystemOnce;
     use bevy::prelude::*;

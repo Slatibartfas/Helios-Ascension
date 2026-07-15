@@ -917,10 +917,26 @@ fn bilinear_cell_color(
 ) -> Color32 {
     // Per-corner ΔV; infeasible → +∞ so the σ-clamped ramp lands at
     // its red end and the boundary gradient stays inside the colormap.
-    let dv_tl = if tl.feasible { tl.total_dv_ms / 1000.0 } else { f64::INFINITY };
-    let dv_tr = if tr.feasible { tr.total_dv_ms / 1000.0 } else { f64::INFINITY };
-    let dv_bl = if bl.feasible { bl.total_dv_ms / 1000.0 } else { f64::INFINITY };
-    let dv_br = if br.feasible { br.total_dv_ms / 1000.0 } else { f64::INFINITY };
+    let dv_tl = if tl.feasible {
+        tl.total_dv_ms / 1000.0
+    } else {
+        f64::INFINITY
+    };
+    let dv_tr = if tr.feasible {
+        tr.total_dv_ms / 1000.0
+    } else {
+        f64::INFINITY
+    };
+    let dv_bl = if bl.feasible {
+        bl.total_dv_ms / 1000.0
+    } else {
+        f64::INFINITY
+    };
+    let dv_br = if br.feasible {
+        br.total_dv_ms / 1000.0
+    } else {
+        f64::INFINITY
+    };
     // Fully-infeasible neighbourhood: keep the dark grey sentinel so
     // the basin still pops visually.
     if !dv_tl.is_finite() && !dv_tr.is_finite() && !dv_bl.is_finite() && !dv_br.is_finite() {
@@ -1131,7 +1147,11 @@ mod tests {
             .map(|&dv| PorkchopCell {
                 t_dep_s: 0.0,
                 tof_s: 0.0,
-                total_dv_ms: if dv.is_finite() { dv * 1000.0 } else { f64::INFINITY },
+                total_dv_ms: if dv.is_finite() {
+                    dv * 1000.0
+                } else {
+                    f64::INFINITY
+                },
                 c3_departure: 0.0,
                 v_inf_arrival_ms: 0.0,
                 delta_v1_ms: 0.0,
@@ -1168,12 +1188,8 @@ mod tests {
         let grid = make_grid_2d(2, 2, &[1.0, 2.0, 3.0, 4.0]);
         let ramp = PorkchopColorRamp::from_grid(&grid);
         let cells = &grid.cells;
-        let c_corner = bilinear_cell_color(
-            &cells[0], &cells[1],
-            &cells[2], &cells[3],
-            0.0, 0.0,
-            &ramp,
-        );
+        let c_corner =
+            bilinear_cell_color(&cells[0], &cells[1], &cells[2], &cells[3], 0.0, 0.0, &ramp);
         let direct = cell_color(&cells[0], &ramp);
         assert_eq!(c_corner, direct, "TL corner must weight TL cell at 100%");
     }
@@ -1191,28 +1207,18 @@ mod tests {
         let grid = make_grid_2d(2, 2, &[1.0, 2.0, 3.0, 4.0]);
         let ramp = PorkchopColorRamp::from_grid(&grid);
         let cells = &grid.cells;
-        let c_tl = bilinear_cell_color(
-            &cells[0], &cells[1],
-            &cells[2], &cells[3],
-            0.0, 0.0,
-            &ramp,
+        let c_tl = bilinear_cell_color(&cells[0], &cells[1], &cells[2], &cells[3], 0.0, 0.0, &ramp);
+        let c_centre =
+            bilinear_cell_color(&cells[0], &cells[1], &cells[2], &cells[3], 0.5, 0.5, &ramp);
+        let c_br = bilinear_cell_color(&cells[0], &cells[1], &cells[2], &cells[3], 1.0, 1.0, &ramp);
+        assert_ne!(
+            c_tl, c_centre,
+            "TL and centre must differ — constant-fill regression"
         );
-        let c_centre = bilinear_cell_color(
-            &cells[0], &cells[1],
-            &cells[2], &cells[3],
-            0.5, 0.5,
-            &ramp,
+        assert_ne!(
+            c_centre, c_br,
+            "centre and BR must differ — constant-fill regression"
         );
-        let c_br = bilinear_cell_color(
-            &cells[0], &cells[1],
-            &cells[2], &cells[3],
-            1.0, 1.0,
-            &ramp,
-        );
-        assert_ne!(c_tl, c_centre,
-            "TL and centre must differ — constant-fill regression");
-        assert_ne!(c_centre, c_br,
-            "centre and BR must differ — constant-fill regression");
     }
 
     /// When *all* four corners are infeasible, the helper must return
@@ -1226,14 +1232,11 @@ mod tests {
         let grid = make_grid_2d(2, 2, &[f64::INFINITY; 4]);
         let ramp = PorkchopColorRamp::from_grid(&grid);
         let cells = &grid.cells;
-        let c = bilinear_cell_color(
-            &cells[0], &cells[1],
-            &cells[2], &cells[3],
-            0.5, 0.5,
-            &ramp,
+        let c = bilinear_cell_color(&cells[0], &cells[1], &cells[2], &cells[3], 0.5, 0.5, &ramp);
+        assert_eq!(
+            c, INFEASIBLE_COLOR,
+            "fully-infeasible neighbourhood must short-circuit to grey"
         );
-        assert_eq!(c, INFEASIBLE_COLOR,
-            "fully-infeasible neighbourhood must short-circuit to grey");
     }
 
     /// Partial-infeasibility check: when only some corners are
@@ -1246,35 +1249,27 @@ mod tests {
     #[test]
     fn bilinear_cell_color_partial_infeasibility_is_finite() {
         // 2x2 grid where only BL (cell index 2) is feasible.
-        let grid = make_grid_2d(
-            2, 2,
-            &[f64::INFINITY, f64::INFINITY, 5.0, f64::INFINITY],
-        );
+        let grid = make_grid_2d(2, 2, &[f64::INFINITY, f64::INFINITY, 5.0, f64::INFINITY]);
         let ramp = PorkchopColorRamp::from_grid(&grid);
         let cells = &grid.cells;
         let direct_bl = cell_color(&cells[2], &ramp);
         // (tx=0, ty=1): BL has weight 1, the rest are zero-weighted
         // AND infeasible.  After renormalisation, only BL
         // contributes → result must equal cell_color(BL).
-        let c_bl = bilinear_cell_color(
-            &cells[0], &cells[1],
-            &cells[2], &cells[3],
-            0.0, 1.0,
-            &ramp,
+        let c_bl = bilinear_cell_color(&cells[0], &cells[1], &cells[2], &cells[3], 0.0, 1.0, &ramp);
+        assert_eq!(
+            c_bl, direct_bl,
+            "BL corner must dominate at (0, 1) after renormalisation"
         );
-        assert_eq!(c_bl, direct_bl,
-            "BL corner must dominate at (0, 1) after renormalisation");
         // (tx=0, ty=0.5): half weight on TL (infeasible, filtered) +
         // half weight on BL (feasible).  Renormalised: dv = (0.5 ×
         // 5.0) ÷ 0.5 = 5.0 km/s — same colour as BL.
-        let c_halfway = bilinear_cell_color(
-            &cells[0], &cells[1],
-            &cells[2], &cells[3],
-            0.0, 0.5,
-            &ramp,
+        let c_halfway =
+            bilinear_cell_color(&cells[0], &cells[1], &cells[2], &cells[3], 0.0, 0.5, &ramp);
+        assert_eq!(
+            c_halfway, direct_bl,
+            "BL must remain the only contributor after renormalisation"
         );
-        assert_eq!(c_halfway, direct_bl,
-            "BL must remain the only contributor after renormalisation");
     }
 
     /// Sanity check: a Keplerian orbit is buildable through the

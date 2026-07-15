@@ -610,7 +610,6 @@ pub(super) fn ui_fleets_panel(
                                     }
                                 }
                             }
-
                         });
                     },
                 );

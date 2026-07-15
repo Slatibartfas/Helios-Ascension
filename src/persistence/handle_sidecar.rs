@@ -110,6 +110,12 @@ pub struct EntityHandles {
     /// Asset path for `MeshMaterial3d<StarDiffractionMaterial>`'s
     /// `Handle<StarDiffractionMaterial>`, if any.
     pub mesh_material3d_star_diffraction: Option<String>,
+    /// Asset path for `MeshMaterial3d<StarCorona3dMaterial>`'s
+    /// `Handle<StarCorona3dMaterial>`, if any.
+    pub mesh_material3d_star_corona_3d: Option<String>,
+    /// Asset path for `MeshMaterial3d<StarHalo3dMaterial>`'s
+    /// `Handle<StarHalo3dMaterial>`, if any.
+    pub mesh_material3d_star_halo_3d: Option<String>,
     /// Asset path for `MeshMaterial3d<NightMaterial>`'s
     /// `Handle<NightMaterial>`, if any.
     pub mesh_material3d_night: Option<String>,
@@ -142,6 +148,8 @@ impl HandleSidecar {
                     && e.mesh_material3d_star_glow.is_none()
                     && e.mesh_material3d_star_surface.is_none()
                     && e.mesh_material3d_star_diffraction.is_none()
+                    && e.mesh_material3d_star_corona_3d.is_none()
+                    && e.mesh_material3d_star_halo_3d.is_none()
                     && e.mesh_material3d_night.is_none()
                     && e.mesh_material3d_skybox.is_none()
             })
@@ -225,6 +233,16 @@ pub fn extract_handle_sidecar(world: &World) -> HandleSidecar {
             .get::<MeshMaterial3d<crate::plugins::star_materials::StarDiffractionMaterial>>()
         {
             entry.mesh_material3d_star_diffraction = mat.0.path().map(|p| p.to_string());
+        }
+        if let Some(mat) =
+            entity_ref.get::<MeshMaterial3d<crate::plugins::star_materials::StarCorona3dMaterial>>()
+        {
+            entry.mesh_material3d_star_corona_3d = mat.0.path().map(|p| p.to_string());
+        }
+        if let Some(mat) =
+            entity_ref.get::<MeshMaterial3d<crate::plugins::star_materials::StarHalo3dMaterial>>()
+        {
+            entry.mesh_material3d_star_halo_3d = mat.0.path().map(|p| p.to_string());
         }
         if let Some(mat) =
             entity_ref.get::<MeshMaterial3d<crate::plugins::visual_effects::NightMaterial>>()
@@ -322,6 +340,16 @@ pub fn apply_handle_sidecar(
         }
         if let Some(path) = &entry.mesh_material3d_star_diffraction {
             let handle: Handle<crate::plugins::star_materials::StarDiffractionMaterial> =
+                asset_server.load(path);
+            entity_mut.insert(MeshMaterial3d(handle));
+        }
+        if let Some(path) = &entry.mesh_material3d_star_corona_3d {
+            let handle: Handle<crate::plugins::star_materials::StarCorona3dMaterial> =
+                asset_server.load(path);
+            entity_mut.insert(MeshMaterial3d(handle));
+        }
+        if let Some(path) = &entry.mesh_material3d_star_halo_3d {
+            let handle: Handle<crate::plugins::star_materials::StarHalo3dMaterial> =
                 asset_server.load(path);
             entity_mut.insert(MeshMaterial3d(handle));
         }

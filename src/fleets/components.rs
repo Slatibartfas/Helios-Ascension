@@ -1162,7 +1162,7 @@ pub struct TransferPlan {
     /// `sync_plan_from_ui`.  Resolved to a numeric radius via
     /// `radius_for_shell(body, shell)` at every consumption site.
     /// Supersedes the GRA-161 / GRA-387 `target_arrival_radius: Option<(Entity, f64)>`.
-    pub target_orbit_shell: Option<(Entity, crate::ui::transfer_planner::OrbitShellId)>,
+    pub target_orbit_shell: Option<(Entity, crate::fleets::OrbitShellId)>,
     /// Fleet entity targeted for an intercept course.  Mutually
     /// exclusive with `target_body` / `target_star_system`.
     pub target_fleet: Option<Entity>,

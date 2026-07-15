@@ -5,7 +5,6 @@ use crate::fleets::porkchop::{
     build_grid_for_body_target, build_rotating_buffer_for_body_target, build_short_hop_grid,
     build_star_approach_grid, StarApproachInputs,
 };
-use serde::{Deserialize, Serialize};
 // GRA-367-E: pull `PorkchopGrid` into the module-level scope so the
 // `try_build_cross_system_hohmann` return type resolves without a
 // local `use` inside the function body.  Phase 5 emits a degenerate
@@ -18,6 +17,19 @@ use crate::fleets::PorkchopConfig;
 // for fn-signature type aliases.  `InterstellarPropulsionPolicy` is
 // re-exported through `crate::fleets` and needs the explicit path.
 use crate::fleets::InterstellarPropulsionPolicy;
+// GRA-NNN: orbit-shell primitives (`OrbitShellId`, `radius_for_shell`,
+// `default_shell_for_body_type`, `shell_id_for_radius`,
+// `star_approach_radius_au`, and the `MIN_STAR_APPROACH_AU` /
+// `MAX_STAR_APPROACH_AU` / `STELLAR_APPROACH_AU` constants) were moved
+// out of this module into `crate::fleets::orbital_mechanics` so the
+// renderer (`crate::fleets::visuals`) can reuse them without dragging
+// `crate::ui::*` into the fleets module graph.  They are re-exported
+// through `crate::fleets` (see `src/fleets/mod.rs`) — bring them into
+// scope here for the picker / shell-cache code below.
+use crate::fleets::{
+    default_shell_for_body_type, radius_for_shell, star_approach_radius_au, OrbitShellId,
+    MAX_STAR_APPROACH_AU, MIN_STAR_APPROACH_AU,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PlannerTransferFrame {
@@ -181,190 +193,6 @@ pub(super) fn porkchop_grid_is_stale(
 #[allow(dead_code)] // Reserved for future stellar-flyby assist code (GRA-149 C-1).
 const STELLAR_FLYBY_RADIUS_KM_MULTIPLIER: f64 = 1_500.0; // = 1_000 m/km × 1.5 ≈ 1.5 R★
 
-/// Default star-approach parking radius (AU) used when a star entity has no
-/// per-body `star_approach_au` override.  0.3 AU is well outside the
-/// photospheres of all main-sequence stars but close enough that the planner
-/// can still display a meaningful arrival orbit.  GRA-149 C-2 makes this
-/// the global default; per-body overrides live in `CelestialBody.star_approach_au`
-/// (e.g. an M-dwarf can park at 0.05 AU above its surface).
-const STELLAR_APPROACH_AU: f64 = 0.3;
-
-/// Minimum allowed star-approach parking radius (AU) for the interactive
-/// destination picker.  0.05 AU is well above the photospheres of all
-/// main-sequence stars (the Sun's photosphere is ~4.7 × 10⁻³ AU; M-dwarfs
-/// are even smaller) and is the value GRA-149 C-2 uses for tight M-dwarf
-/// overrides.  Clamping below this would let the player pick an orbit
-/// inside the star's corona where Δv cannot be modelled as a two-body
-/// assist.  GRA-161.
-const MIN_STAR_APPROACH_AU: f64 = 0.05;
-
-/// Maximum allowed star-approach parking radius (AU) for the interactive
-/// destination picker.  5.00 AU sits inside Jupiter's orbit in the Sol
-/// system and outside the closest planet in most M-dwarf systems.  The
-/// picker computes a per-star upper bound (closest-planet SMA × 0.9) for
-/// the arrival so the parking orbit cannot be placed inside an existing
-/// planetary orbit.  GRA-161.
-const MAX_STAR_APPROACH_AU: f64 = 5.0;
-
-/// Resolve the star-approach parking radius (AU) for a star body.
-///
-/// Returns `body.star_approach_au` if set (per-body override from RON or
-/// procedural data); otherwise falls back to [`STELLAR_APPROACH_AU`] (0.3 AU).
-/// Caller is responsible for clamping against the host planet's SMA to keep
-/// the parking orbit outside the origin planet.
-#[inline]
-fn star_approach_radius_au(body: &CelestialBody) -> f64 {
-    body.star_approach_au.unwrap_or(STELLAR_APPROACH_AU)
-}
-
-// ── GRA-NNN: orbit-shell picker ─────────────────────────────────────────────
-// Named parking-orbit shells (Terra Invicta-style) replace the free-form
-// `target_arrival_radius: Option<(Entity, f64)>` DragValue.  Each shell
-// resolves to a numeric arrival radius via `radius_for_shell` below, with
-// the math driven by the body's own physical properties (radius, mass,
-// rotation period) — no RON override, no player-editable number.
-//
-// Two shell families:
-//   * Body shells (Low / Medium / High / Stationary) for planets, moons,
-//     rings, dwarf planets, gas giants, asteroids, comets.
-//   * Star shells (CloseApproach / HabitableInner / HabitableOuter /
-//     Cruise) for stars.
-
-/// Identifies a named parking-orbit shell the player can pick for a
-/// destination body.  `radius_for_shell` resolves each id to a numeric
-/// arrival radius (AU).
-///
-/// GRA-NNN.  Supersedes the free-form `target_arrival_radius` DragValue
-/// (GRA-161 / GRA-387).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Reflect)]
-pub enum OrbitShellId {
-    /// 1.05 × body radius (just above the surface / atmosphere edge).
-    /// Procedural scaling keeps small bodies above any residual outgassing.
-    Low,
-    /// 3 × body radius — well clear of LEO debris, parking-stable.
-    Medium,
-    /// 10 × body radius — transfer-staging shell.
-    High,
-    /// Geostationary-equivalent orbit: r_sync = (GM·T_rot²/4π²)^(1/3).
-    /// Falls back to `Low` when the body has no measurable rotation.
-    Stationary,
-    /// Star shell: [`MIN_STAR_APPROACH_AU`] (0.05 AU).  Inside the
-    /// habitable zone but close enough to the photosphere that Δv starts
-    /// to deviate from the two-body model.  Used by M-dwarf overrides.
-    CloseApproach,
-    /// Star shell: `star_approach_radius_au(body)` — re-uses the GRA-149
-    /// C-2 default / per-body override.  Where Earth's orbit lives for
-    /// a Sol-magnitude star.
-    HabitableInner,
-    /// Star shell: `sqrt(L_star / L_sol) × 1.0 AU`.  Cached on
-    /// `CelestialBody.habitable_outer_au` at spawn time.  Outer edge of
-    /// the conservative habitable zone.
-    HabitableOuter,
-    /// Star shell: [`MAX_STAR_APPROACH_AU`] (5.0 AU).  Outer-system
-    /// staging / pre-interstellar cruise parking.
-    Cruise,
-}
-
-impl OrbitShellId {
-    /// Short human-readable label for the picker dropdown.
-    pub fn label(self) -> &'static str {
-        match self {
-            OrbitShellId::Low => "Low",
-            OrbitShellId::Medium => "Medium",
-            OrbitShellId::High => "High",
-            OrbitShellId::Stationary => "Stationary",
-            OrbitShellId::CloseApproach => "Close Approach",
-            OrbitShellId::HabitableInner => "Habitable Inner",
-            OrbitShellId::HabitableOuter => "Habitable Outer",
-            OrbitShellId::Cruise => "Cruise",
-        }
-    }
-
-    /// The set of shells available to a given body type.  Asteroids and
-    /// comets don't expose `Stationary` (no measurable rotation).
-    pub fn shells_for(body_type: BodyType) -> &'static [OrbitShellId] {
-        match body_type {
-            BodyType::Star => &[
-                OrbitShellId::CloseApproach,
-                OrbitShellId::HabitableInner,
-                OrbitShellId::HabitableOuter,
-                OrbitShellId::Cruise,
-            ],
-            BodyType::Asteroid | BodyType::Comet => {
-                &[OrbitShellId::Low, OrbitShellId::Medium, OrbitShellId::High]
-            }
-            _ => &[
-                OrbitShellId::Low,
-                OrbitShellId::Medium,
-                OrbitShellId::High,
-                OrbitShellId::Stationary,
-            ],
-        }
-    }
-}
-
-/// Default shell when no override is set.  `Low` for bodies (matches the
-/// pre-existing LEO-proxy default), `HabitableInner` for stars (matches
-/// the pre-existing `star_approach_radius_au` default and preserves the
-/// GRA-149 C-2 label promise).
-pub fn default_shell_for_body_type(body_type: BodyType) -> OrbitShellId {
-    match body_type {
-        BodyType::Star => OrbitShellId::HabitableInner,
-        _ => OrbitShellId::Low,
-    }
-}
-
-/// Resolve a shell to its numeric parking radius (AU).
-///
-/// Pure on `&CelestialBody` — caller has already destructured the
-/// standard 5-tuple body query.  GRA-NNN.
-///
-/// Body shells (Low / Medium / High) scale off the body's own radius:
-///   Low    = 1.05 × body.radius_km, with a +10 km absolute floor for
-///            small bodies whose 1.05× altitude would dip below any
-///            practical orbital regime.
-///   Medium = 3 × body.radius_km
-///   High   = 10 × body.radius_km
-///   Stationary = (GM · T_rot² / 4π²)^(1/3), or `Low` if the body has
-///                no measurable rotation (asteroids, comets, rings).
-///
-/// Star shells are constant AU values, except `HabitableOuter` which
-/// reads the precomputed `body.habitable_outer_au` cache (falls back to
-/// `2 × star_approach_radius_au(body)` if the cache is `None`).
-pub fn radius_for_shell(body: &CelestialBody, shell: OrbitShellId) -> f64 {
-    use crate::fleets::orbital_mechanics::{AU_IN_METERS, G_CONST};
-    let r_km = body.radius as f64;
-    let r_m = r_km * 1000.0;
-    match shell {
-        OrbitShellId::Low => {
-            // Absolute floor: 10 km above the surface keeps small-body
-            // shells above any residual outgassing / surface irregularities.
-            let shell_m = r_m * 1.05;
-            let floor_m = r_m + 10_000.0;
-            shell_m.max(floor_m) / AU_IN_METERS
-        }
-        OrbitShellId::Medium => r_m * 3.0 / AU_IN_METERS,
-        OrbitShellId::High => r_m * 10.0 / AU_IN_METERS,
-        OrbitShellId::Stationary => match body.rotation_period_s {
-            Some(t) if t > 0.0 => {
-                // r_sync = (GM · T_rot² / 4π²)^(1/3)
-                // `rotation_period_s` is `.abs()`'d at spawn, so sign flip
-                // is unnecessary here.
-                let gm = G_CONST * body.mass;
-                let r_sync_m = (gm * t.powi(2) / (4.0 * std::f64::consts::PI.powi(2))).cbrt();
-                r_sync_m / AU_IN_METERS
-            }
-            _ => radius_for_shell(body, OrbitShellId::Low),
-        },
-        OrbitShellId::CloseApproach => MIN_STAR_APPROACH_AU,
-        OrbitShellId::HabitableInner => star_approach_radius_au(body),
-        OrbitShellId::HabitableOuter => body
-            .habitable_outer_au
-            .unwrap_or_else(|| star_approach_radius_au(body) * 2.0),
-        OrbitShellId::Cruise => MAX_STAR_APPROACH_AU,
-    }
-}
-
 /// Format a shell's parking radius for picker display, picking a unit
 /// appropriate to the destination body:
 ///   * `BodyType::Star` → AU (matches interplanetary mental model;
@@ -408,35 +236,8 @@ fn format_distance_label_m(m: f64) -> String {
     }
 }
 
-/// Inverse of [`radius_for_shell`]: pick the shell whose resolved radius
-/// is closest to the given numeric value, within the body's available
-/// shell set.  Falls back to [`default_shell_for_body_type`] for the
-/// body's type when no shell is unambiguously closer.
-///
-/// Used by the Commit-2 dual-write path: every existing
-/// `target_arrival_radius: Some((entity, radius_au))` write needs a
-/// matching `target_orbit_shell: Some((entity, shell))` so Commit 3
-/// can drop the numeric field without losing user state.  GRA-NNN.
-pub fn shell_id_for_radius(body: &CelestialBody, radius_au: f64) -> OrbitShellId {
-    let shells = OrbitShellId::shells_for(body.body_type);
-    let mut best_shell = default_shell_for_body_type(body.body_type);
-    let mut best_diff = f64::INFINITY;
-    for &shell in shells {
-        let r = radius_for_shell(body, shell);
-        let diff = (r - radius_au).abs();
-        if diff < best_diff {
-            best_diff = diff;
-            best_shell = shell;
-        }
-    }
-    best_shell
-}
-
 /// Compute the user-selectable `radius_au` bounds for the interactive
 /// star-approach picker (`DestEntry::StarApproach`).
-///
-/// Lower bound: [`MIN_STAR_APPROACH_AU`] (0.05 AU) — above the photosphere
-/// of all main-sequence stars.
 /// Upper bound: 90 % of the closest planet's orbital SMA in the host
 /// system (so the parking orbit sits well inside the innermost planet)
 /// or [`MAX_STAR_APPROACH_AU`] (5.0 AU) if no planet is closer than that.
@@ -4457,13 +4258,13 @@ pub(super) fn render_transfer_planner(
         // solver that dispatches on `lp.gm` (planet-moon vs heliocentric),
         // so picking Low/Medium/High changes the displayed ΔV consistently
         // with body targets.  GRA-NNN.
-        if let Some(target_entity) =
-            fleet_ui_state.target_body.or(fleet_ui_state.target_fleet).or(
-                fleet_ui_state
-                    .target_lagrange
-                    .as_ref()
-                    .map(|lp| lp.planet_entity),
-            )
+        if let Some(target_entity) = fleet_ui_state
+            .target_body
+            .or(fleet_ui_state.target_fleet)
+            .or(fleet_ui_state
+                .target_lagrange
+                .as_ref()
+                .map(|lp| lp.planet_entity))
         {
             let body_for_picker = body_query.get(target_entity).ok().map(|(_, b, _, _, _)| b);
 
@@ -5742,13 +5543,14 @@ pub(super) fn render_transfer_planner(
                         }
                     })
                     .unwrap_or(lp.planet_sma_au);
-                fleet_ui_state.computed_options = crate::fleets::orbital_mechanics::lp_transfer_options(
-                    shell_radius_au,
-                    lp.radius_au,
-                    lp.gm,
-                    helio_parking_au,
-                    crate::fleets::orbital_mechanics::GM_SUN,
-                );
+                fleet_ui_state.computed_options =
+                    crate::fleets::orbital_mechanics::lp_transfer_options(
+                        shell_radius_au,
+                        lp.radius_au,
+                        lp.gm,
+                        helio_parking_au,
+                        crate::fleets::orbital_mechanics::GM_SUN,
+                    );
                 apply_thrust_limits(
                     &mut fleet_ui_state.computed_options,
                     fleet.min_accel_ms2(),
@@ -7496,11 +7298,9 @@ pub(super) fn render_transfer_planner(
                         // the 3D ghost arc freezes.
                         let lp_cell_owned: Option<crate::fleets::porkchop::PorkchopCell> =
                             cell.cloned();
-                        if let (Some(lp), None, Some(cell)) = (
-                            lp_target_snap.as_ref(),
-                            body_target_snap,
-                            lp_cell_owned,
-                        ) {
+                        if let (Some(lp), None, Some(cell)) =
+                            (lp_target_snap.as_ref(), body_target_snap, lp_cell_owned)
+                        {
                             if cell.feasible
                                 && cell.total_dv_ms.is_finite()
                                 && cell.delta_v1_ms.is_finite()
@@ -7544,145 +7344,162 @@ pub(super) fn render_transfer_planner(
                                 // Loosened guard: any feasible cell with
                                 // finite ΔV produces a preview, even if
                                 // the cell is out-of-budget for this
-                            // fleet.  The Execute button below has
-                            // its own `can_execute` check (which does
-                            // include the fleet-budget guard) so
-                            // out-of-budget cells are still rejected
-                            // at commit time — but the trajectory
-                            // preview is the player's primary way to
-                            // compare cells, so we let them see the
-                            // ghost arc for *any* feasible cell.  The
-                            // previous "preview stays None on
-                            // out-of-budget click" behaviour made the
-                            // 3D arc look frozen whenever the player
-                            // hovered over a red cell, which read as
-                            // "trajectory never updates".
-                            (Some(cell), Some(target_entity))
-                                if cell.feasible
-                                    && cell.total_dv_ms.is_finite()
-                                    && cell.delta_v1_ms.is_finite()
-                                    && cell.delta_v2_ms.is_finite() =>
-                            {
-                                let (cell_sma_au, cell_ecc) = cell
-                                    .transfer_orbit
-                                    .as_ref()
-                                    .map(|o| (o.semi_major_axis, o.eccentricity))
-                                    .unwrap_or((0.0, 0.0));
-                                let synthetic_option =
-                                    crate::fleets::orbital_mechanics::TransferOption {
-                                        label: "Porkchop Cell",
-                                        total_delta_v_ms: cell.total_dv_ms,
-                                        delta_v1_ms: cell.delta_v1_ms,
-                                        delta_v2_ms: cell.delta_v2_ms,
-                                        transfer_time_s: cell.tof_s,
-                                        sma_au: cell_sma_au,
-                                        eccentricity: cell_ecc,
-                                        energy_multiplier: 1.0,
-                                        burn_time_s: 0.0,
-                                        plane_change_dv_ms: 0.0,
-                                        is_thrust_limited: false,
-                                        // `cell.transfer_orbit` is
-                                        // `Option<KeplerOrbit>` (Copy);
-                                        // the orbit is just a few
-                                        // floats, so pass by value
-                                        // instead of cloning.
-                                        transfer_orbit_override: cell.transfer_orbit,
-                                    };
-                                // Anchor the planned burn at the cell's
-                                // *absolute* epoch (`selected_abs_t_dep_s`,
-                                // recorded at click and re-anchored across
-                                // buffer rotations) rather than the
-                                // relative `elapsed + cell.t_dep_s`.  The
-                                // relative formula drifts forward by
-                                // `elapsed` every frame, which keeps
-                                // `planet(burn_time) - planet(current)`
-                                // constant — so the trajectory's start
-                                // slides around the orbit at the planet's
-                                // own orbital rate and visually looks
-                                // "glued" to the planet between grid
-                                // rebuilds.  Anchoring absolutely freezes
-                                // the burn epoch, so the burn-time planet
-                                // position advances in world space and the
-                                // visible separation between trajectory
-                                // start and live planet shrinks as sim
-                                // time approaches the burn — which is the
-                                // "consume toward now" behaviour the user
-                                // expects as the chart cell slides left.
-                                //
-                                // The Lambert solution is still re-solved
-                                // every frame in `build_planned_transfer`
-                                // with planet positions evaluated at this
-                                // fixed absolute burn time, so the
-                                // transfer orbit's `mean_anomaly_epoch` /
-                                // `mean_motion` / `departure_velocity_ms`
-                                // refresh per frame and the Bezier
-                                // interior visibly evolves.
-                                let planned_departure_time_s = fleet_ui_state
-                                    .selected_abs_t_dep_s
-                                    .unwrap_or(grid_owned.t_dep_bounds_s.0 + cell.t_dep_s);
-                                // Sync `departure_offset_days` so the
-                                // side-panel "Arrives:" timestamp and
-                                // `waiting_orbit_count` reflect the
-                                // porkchop cell's t_dep.  The slider is
-                                // hidden in porkchop mode so the cell
-                                // is the only source of t_dep; without
-                                // this sync, downstream code that reads
-                                // `departure_offset_days` would still
-                                // see the last slider value.
-                                fleet_ui_state.departure_offset_days =
-                                    cell.t_dep_s / crate::ui::porkchop_panel::SECONDS_PER_DAY;
-                                let target_orbit_radius_au: Option<f64> = None;
-                                // GRA-386: when the player is in a GA
-                                // view-mode toggle AND has a cell
-                                // selected, build a two-leg
-                                // `PlannedTransfer` via the flyby body so
-                                // the 3D preview arc shows the
-                                // origin → flyby → destination slingshot.
-                                // Without this branch the cell-click path
-                                // would produce a single Lambert arc
-                                // straight to the destination, hiding the
-                                // flyby entirely.
-                                if let crate::ui::PorkchopViewMode::GravityAssist(ga_idx) =
-                                    fleet_ui_state.porkchop_view_mode
+                                // fleet.  The Execute button below has
+                                // its own `can_execute` check (which does
+                                // include the fleet-budget guard) so
+                                // out-of-budget cells are still rejected
+                                // at commit time — but the trajectory
+                                // preview is the player's primary way to
+                                // compare cells, so we let them see the
+                                // ghost arc for *any* feasible cell.  The
+                                // previous "preview stays None on
+                                // out-of-budget click" behaviour made the
+                                // 3D arc look frozen whenever the player
+                                // hovered over a red cell, which read as
+                                // "trajectory never updates".
+                                (Some(cell), Some(target_entity))
+                                    if cell.feasible
+                                        && cell.total_dv_ms.is_finite()
+                                        && cell.delta_v1_ms.is_finite()
+                                        && cell.delta_v2_ms.is_finite() =>
                                 {
-                                    if let Some(candidate) =
-                                        fleet_ui_state.gravity_assist_candidates.get(ga_idx)
+                                    let (cell_sma_au, cell_ecc) = cell
+                                        .transfer_orbit
+                                        .as_ref()
+                                        .map(|o| (o.semi_major_axis, o.eccentricity))
+                                        .unwrap_or((0.0, 0.0));
+                                    let synthetic_option =
+                                        crate::fleets::orbital_mechanics::TransferOption {
+                                            label: "Porkchop Cell",
+                                            total_delta_v_ms: cell.total_dv_ms,
+                                            delta_v1_ms: cell.delta_v1_ms,
+                                            delta_v2_ms: cell.delta_v2_ms,
+                                            transfer_time_s: cell.tof_s,
+                                            sma_au: cell_sma_au,
+                                            eccentricity: cell_ecc,
+                                            energy_multiplier: 1.0,
+                                            burn_time_s: 0.0,
+                                            plane_change_dv_ms: 0.0,
+                                            is_thrust_limited: false,
+                                            // `cell.transfer_orbit` is
+                                            // `Option<KeplerOrbit>` (Copy);
+                                            // the orbit is just a few
+                                            // floats, so pass by value
+                                            // instead of cloning.
+                                            transfer_orbit_override: cell.transfer_orbit,
+                                        };
+                                    // Anchor the planned burn at the cell's
+                                    // *absolute* epoch (`selected_abs_t_dep_s`,
+                                    // recorded at click and re-anchored across
+                                    // buffer rotations) rather than the
+                                    // relative `elapsed + cell.t_dep_s`.  The
+                                    // relative formula drifts forward by
+                                    // `elapsed` every frame, which keeps
+                                    // `planet(burn_time) - planet(current)`
+                                    // constant — so the trajectory's start
+                                    // slides around the orbit at the planet's
+                                    // own orbital rate and visually looks
+                                    // "glued" to the planet between grid
+                                    // rebuilds.  Anchoring absolutely freezes
+                                    // the burn epoch, so the burn-time planet
+                                    // position advances in world space and the
+                                    // visible separation between trajectory
+                                    // start and live planet shrinks as sim
+                                    // time approaches the burn — which is the
+                                    // "consume toward now" behaviour the user
+                                    // expects as the chart cell slides left.
+                                    //
+                                    // The Lambert solution is still re-solved
+                                    // every frame in `build_planned_transfer`
+                                    // with planet positions evaluated at this
+                                    // fixed absolute burn time, so the
+                                    // transfer orbit's `mean_anomaly_epoch` /
+                                    // `mean_motion` / `departure_velocity_ms`
+                                    // refresh per frame and the Bezier
+                                    // interior visibly evolves.
+                                    let planned_departure_time_s = fleet_ui_state
+                                        .selected_abs_t_dep_s
+                                        .unwrap_or(grid_owned.t_dep_bounds_s.0 + cell.t_dep_s);
+                                    // Sync `departure_offset_days` so the
+                                    // side-panel "Arrives:" timestamp and
+                                    // `waiting_orbit_count` reflect the
+                                    // porkchop cell's t_dep.  The slider is
+                                    // hidden in porkchop mode so the cell
+                                    // is the only source of t_dep; without
+                                    // this sync, downstream code that reads
+                                    // `departure_offset_days` would still
+                                    // see the last slider value.
+                                    fleet_ui_state.departure_offset_days =
+                                        cell.t_dep_s / crate::ui::porkchop_panel::SECONDS_PER_DAY;
+                                    let target_orbit_radius_au: Option<f64> = None;
+                                    // GRA-386: when the player is in a GA
+                                    // view-mode toggle AND has a cell
+                                    // selected, build a two-leg
+                                    // `PlannedTransfer` via the flyby body so
+                                    // the 3D preview arc shows the
+                                    // origin → flyby → destination slingshot.
+                                    // Without this branch the cell-click path
+                                    // would produce a single Lambert arc
+                                    // straight to the destination, hiding the
+                                    // flyby entirely.
+                                    if let crate::ui::PorkchopViewMode::GravityAssist(ga_idx) =
+                                        fleet_ui_state.porkchop_view_mode
                                     {
-                                        // `sweep_gravity_assist_grid`
-                                        // stores the Leg-2 conic on
-                                        // `cell.transfer_orbit`; pass it
-                                        // through to the helper so the
-                                        // preview matches the geometry the
-                                        // commit will launch with.
-                                        let target_entity = target_entity;
-                                        build_planned_transfer_with_flyby(
-                                            fleet_entity,
-                                            fleet,
-                                            orbit,
-                                            candidate.flyby_entity,
-                                            target_entity,
-                                            &synthetic_option,
-                                            // Leg-1 half-period for the
-                                            // leg2_start_s timestamp.
-                                            // `synthetic_option.transfer_time_s`
-                                            // is the full TOF (= leg1 + leg2)
-                                            // so we approximate leg1 as half.
-                                            // The active-transit renderer
-                                            // only uses this as a hint for
-                                            // the leg-switch timestamp; small
-                                            // inaccuracy is fine.
-                                            cell.tof_s * 0.5,
-                                            planned_departure_time_s,
-                                            body_query,
-                                            course_correction_sc,
-                                            body_system_ids,
-                                            current_system_id,
-                                            target_orbit_radius_au,
-                                            cell.transfer_orbit,
-                                        )
+                                        if let Some(candidate) =
+                                            fleet_ui_state.gravity_assist_candidates.get(ga_idx)
+                                        {
+                                            // `sweep_gravity_assist_grid`
+                                            // stores the Leg-2 conic on
+                                            // `cell.transfer_orbit`; pass it
+                                            // through to the helper so the
+                                            // preview matches the geometry the
+                                            // commit will launch with.
+                                            let target_entity = target_entity;
+                                            build_planned_transfer_with_flyby(
+                                                fleet_entity,
+                                                fleet,
+                                                orbit,
+                                                candidate.flyby_entity,
+                                                target_entity,
+                                                &synthetic_option,
+                                                // Leg-1 half-period for the
+                                                // leg2_start_s timestamp.
+                                                // `synthetic_option.transfer_time_s`
+                                                // is the full TOF (= leg1 + leg2)
+                                                // so we approximate leg1 as half.
+                                                // The active-transit renderer
+                                                // only uses this as a hint for
+                                                // the leg-switch timestamp; small
+                                                // inaccuracy is fine.
+                                                cell.tof_s * 0.5,
+                                                planned_departure_time_s,
+                                                body_query,
+                                                course_correction_sc,
+                                                body_system_ids,
+                                                current_system_id,
+                                                target_orbit_radius_au,
+                                                cell.transfer_orbit,
+                                            )
+                                        } else {
+                                            // Stale GA index — fall through
+                                            // to the direct-transfer path.
+                                            build_planned_transfer(
+                                                fleet_entity,
+                                                fleet,
+                                                orbit,
+                                                target_entity,
+                                                planned_departure_time_s,
+                                                body_query,
+                                                &synthetic_option,
+                                                course_correction_sc,
+                                                body_system_ids,
+                                                current_system_id,
+                                                target_orbit_radius_au,
+                                            )
+                                        }
                                     } else {
-                                        // Stale GA index — fall through
-                                        // to the direct-transfer path.
+                                        // Standard view-mode: direct Lambert
+                                        // arc, unchanged from before.
                                         build_planned_transfer(
                                             fleet_entity,
                                             fleet,
@@ -7697,26 +7514,9 @@ pub(super) fn render_transfer_planner(
                                             target_orbit_radius_au,
                                         )
                                     }
-                                } else {
-                                    // Standard view-mode: direct Lambert
-                                    // arc, unchanged from before.
-                                    build_planned_transfer(
-                                        fleet_entity,
-                                        fleet,
-                                        orbit,
-                                        target_entity,
-                                        planned_departure_time_s,
-                                        body_query,
-                                        &synthetic_option,
-                                        course_correction_sc,
-                                        body_system_ids,
-                                        current_system_id,
-                                        target_orbit_radius_au,
-                                    )
                                 }
+                                _ => None,
                             }
-                            _ => None,
-                        }
                         }
                     }
                     None => None,
@@ -7740,9 +7540,7 @@ pub(super) fn render_transfer_planner(
                     // never coexist with `target_body`.
                     let target_entity = match body_target_snap {
                         Some(te) => Some(te),
-                        None => lp_target_snap
-                            .as_ref()
-                            .map(|lp| lp.planet_entity),
+                        None => lp_target_snap.as_ref().map(|lp| lp.planet_entity),
                     };
                     let target_entity = match target_entity {
                         Some(te) => te,
@@ -7827,7 +7625,9 @@ pub(super) fn render_transfer_planner(
                             // is based on.  Falls back to
                             // `build_planned_transfer(target_entity)` for
                             // every non-LP path.
-                            let committed = if let (None, Some(lp)) = (body_target_snap, lp_target_snap.as_ref()) {
+                            let committed = if let (None, Some(lp)) =
+                                (body_target_snap, lp_target_snap.as_ref())
+                            {
                                 build_planned_transfer_lp(
                                     fleet_entity,
                                     fleet,

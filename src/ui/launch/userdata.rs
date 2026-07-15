@@ -303,10 +303,8 @@ mod tests {
         // use a unique per-pid override dir here so neither test can
         // step on the other's env-var reads.
         let prior = std::env::var_os("HELIOS_USERDATA_DIR");
-        let override_dir = std::env::temp_dir().join(format!(
-            "helios-userdata-override-{}",
-            std::process::id()
-        ));
+        let override_dir =
+            std::env::temp_dir().join(format!("helios-userdata-override-{}", std::process::id()));
         // SAFETY: see above — we restore `prior` before returning.
         unsafe {
             std::env::set_var("HELIOS_USERDATA_DIR", &override_dir);

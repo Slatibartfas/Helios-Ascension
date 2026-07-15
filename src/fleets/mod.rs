@@ -26,10 +26,12 @@ pub use components::{
 };
 pub use orbital_mechanics::{
     apply_thrust_limits, calculate_transfer_options, calculate_transfer_options_phased,
-    compute_burn_time_s, compute_transfer_window, estimate_fuel_cost_tonnes, format_delta_v,
-    format_duration, hohmann_transfer, kinematic_transfer_options, phase_dv_factor,
-    rocket_equation_fuel_fraction, GravityAssistOption, TransferOption, TransferWindowInfo,
-    AU_IN_METERS, GM_SUN, G_CONST,
+    compute_burn_time_s, compute_transfer_window, default_shell_for_body_type,
+    estimate_fuel_cost_tonnes, format_delta_v, format_duration, hohmann_transfer,
+    kinematic_transfer_options, phase_dv_factor, radius_for_shell, rocket_equation_fuel_fraction,
+    shell_id_for_radius, star_approach_radius_au, GravityAssistOption, OrbitShellId,
+    TransferOption, TransferWindowInfo, AU_IN_METERS, GM_SUN, G_CONST, MAX_STAR_APPROACH_AU,
+    MIN_STAR_APPROACH_AU, STELLAR_APPROACH_AU,
 };
 pub use systems::activate_scheduled_departures;
 pub use systems::DayOneFleetSpawned;

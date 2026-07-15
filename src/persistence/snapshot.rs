@@ -269,7 +269,8 @@ fn configure_builder<'a>(
         //
         // Helios's custom materials (`AtmosphereMaterial`,
         // `OceanMaterial`, `StarGlowMaterial`, `StarSurfaceMaterial`,
-        // `StarDiffractionMaterial`, `NightMaterial`, `SkyboxMaterial`)
+        // `StarDiffractionMaterial`, `StarCorona3dMaterial`,
+        // `StarHalo3dMaterial`, `NightMaterial`, `SkyboxMaterial`)
         // carry the same `Handle<T>` problem AND live on
         // save-persistent entity archetypes (populated solar-system
         // bodies, oceans, stars). Each `MeshMaterial3d<T>` is its own
@@ -286,6 +287,17 @@ fn configure_builder<'a>(
         .deny_component::<bevy_pbr::MeshMaterial3d<crate::plugins::star_materials::StarGlowMaterial>>()
         .deny_component::<bevy_pbr::MeshMaterial3d<crate::plugins::star_materials::StarSurfaceMaterial>>()
         .deny_component::<bevy_pbr::MeshMaterial3d<crate::plugins::star_materials::StarDiffractionMaterial>>()
+        // 3D volumetric star shells — added in the same pass as
+        // `StarGlowMaterial` / `StarDiffractionMaterial` (see
+        // `update_star_corona_3d_lod` in `src/plugins/star_materials.rs`).
+        // Without these denials, the corona inner shell and halo outer
+        // shell around every populated star trip Bevy's scene
+        // serializer with `type `Arc<StrongHandle>` did not register
+        // the ReflectSerialize`, aborting the snapshot. Companion
+        // sidecar fields live in
+        // [`crate::persistence::handle_sidecar::EntityHandles`].
+        .deny_component::<bevy_pbr::MeshMaterial3d<crate::plugins::star_materials::StarCorona3dMaterial>>()
+        .deny_component::<bevy_pbr::MeshMaterial3d<crate::plugins::star_materials::StarHalo3dMaterial>>()
         .deny_component::<bevy_pbr::MeshMaterial3d<crate::plugins::visual_effects::NightMaterial>>()
         .deny_component::<bevy_pbr::MeshMaterial3d<crate::render::backdrop::SkyboxMaterial>>()
         .extract_entities(entities.iter().copied())
@@ -641,5 +653,70 @@ mod tests {
             "DynamicSceneBuilder emitted an empty entity list"
         );
         let _ = entity;
+    }
+
+    #[test]
+    fn snapshot_skips_mesh_material3d_star_corona_3d_component() {
+        // Regression test for the 3D volumetric corona shell — sibling to
+        // `snapshot_skips_mesh_material3d_star_halo_3d_component` below.
+        // `StarCorona3dMaterial` lives on the inner 3D shell around every
+        // populated star (see `setup_solar_system` in
+        // `src/plugins/solar_system.rs`, which spawns the corona inner
+        // shell on top of the surface sphere). Without
+        // `deny_component::<MeshMaterial3d<StarCorona3dMaterial>>()` in
+        // `configure_builder`, `SceneSerializer` raises "type
+        // `Arc<StrongHandle>` did not register the ReflectSerialize"
+        // and the autosave timer logs
+        // `autosave failed: save serialise failed: …` every interval.
+        //
+        // Same caveat as the standard-material test: a default
+        // `MeshMaterial3d` produces `Handle::Uuid`, so the inner Arc
+        // failure path isn't reproduced here — we just verify the
+        // denylist keeps the component out of the saved scene blob.
+        // The custom-handle failure path is exercised by the runtime
+        // autosave (every interval), which is why the deny is in place.
+        let mut world = World::new();
+        world.init_resource::<AppTypeRegistry>();
+        world.spawn(bevy_pbr::MeshMaterial3d::<
+            crate::plugins::star_materials::StarCorona3dMaterial,
+        >::default());
+        let snapshot = snapshot_world(&world, SaveMetadata::new_now(0, 0, "test"))
+            .expect("snapshot must skip StarCorona3dMaterial component");
+        assert!(
+            !snapshot.contains("StarCorona3dMaterial"),
+            "denylist failed — StarCorona3dMaterial serialised into save: {snapshot}"
+        );
+    }
+
+    #[test]
+    fn snapshot_skips_mesh_material3d_star_halo_3d_component() {
+        // Regression test for the in-game autosave failure the user
+        // reported: every populated star has a 3D halo shell entity
+        // (set up in `setup_solar_system`) carrying
+        // `MeshMaterial3d<StarHalo3dMaterial>`. The inner
+        // `Handle<StarHalo3dMaterial>` is a `Strong(Arc<StrongHandle>)`
+        // — a process-local pointer Bevy can't reflect-serialise.
+        // Without the corresponding `deny_component` in
+        // `configure_builder`, `SceneSerializer` raises "type
+        // `Arc<StrongHandle>` did not register the ReflectSerialize"
+        // and the autosave timer logs
+        // `autosave failed: save serialise failed: …` every interval
+        // while at least one star is in view.
+        //
+        // Same caveat as the standard-material test: a default
+        // `MeshMaterial3d` produces `Handle::Uuid`, so the inner Arc
+        // failure path isn't reproduced here — we just verify the
+        // denylist keeps the component out of the saved scene blob.
+        let mut world = World::new();
+        world.init_resource::<AppTypeRegistry>();
+        world.spawn(bevy_pbr::MeshMaterial3d::<
+            crate::plugins::star_materials::StarHalo3dMaterial,
+        >::default());
+        let snapshot = snapshot_world(&world, SaveMetadata::new_now(0, 0, "test"))
+            .expect("snapshot must skip StarHalo3dMaterial component");
+        assert!(
+            !snapshot.contains("StarHalo3dMaterial"),
+            "denylist failed — StarHalo3dMaterial serialised into save: {snapshot}"
+        );
     }
 }

@@ -11,6 +11,7 @@ use super::types::FleetClass;
 use crate::astronomy::components::FloatingOrigin;
 use crate::astronomy::systems::orbit_position_from_mean_anomaly;
 use crate::astronomy::{KeplerOrbit, LocalOrbitAmplification, SpaceCoordinates, SCALING_FACTOR};
+use crate::fleets::orbital_mechanics::AU_IN_METERS;
 use crate::plugins::camera::{GameCamera, OrbitCamera, ViewMode};
 use crate::plugins::solar_system::{CelestialBody, LogicalParent};
 use crate::plugins::solar_system_data::BodyType;
@@ -43,6 +44,68 @@ pub(super) fn fleet_parking_visual_radius(body_visual_radius: f32) -> f32 {
     let proportional = body_visual_radius * FLEET_ORBIT_RADIUS_MULT;
     let minimum = body_visual_radius + FLEET_SPHERE_RADIUS + FLEET_ORBIT_MIN_GAP;
     proportional.max(minimum)
+}
+
+/// Convert a parking-orbit radius (AU) into a visual-space radius for the
+/// dashed orbit ring drawn around a body in System view.
+///
+/// For **stars**, the AU value is the source of truth — Lagrange points at
+/// `1 AU` and Cruise at `5 AU` both render directly via `SCALING_FACTOR` so
+/// the ring matches the body's actual orbit position to the pixel.
+///
+/// For **planets / moons / asteroids**, the AU value (LEO ≈ 4.5e-5 AU for
+/// Earth) is *much* smaller than the body's `visual_radius` (e.g. 2.0
+/// visual units for Earth) — drawing the ring at the true AU altitude
+/// would put it inside the body's on-screen sphere.  Instead we scale
+/// [`fleet_parking_visual_radius`] by a per-shell multiplier picked from
+/// the parking altitude's ratio to the body radius:
+///
+/// | Shell      | ratio `r_km / body.radius_km` | Multiplier |
+/// | ---------- | ----------------------------- | ---------- |
+/// | Low        | < 2.0                         | 1.0×       |
+/// | Medium     | 2.0 – 5.0                     | 1.6×       |
+/// | High       | 5.0 – 20.0                    | 2.6×       |
+/// | Stationary | ≥ 20.0 / fallback             | 3.5×       |
+///
+/// These produce visually distinguishable rings for any planet — Low hugs
+/// the body, Medium sits clearly farther out, High is a transfer-staging
+/// shell, and Stationary is at the geostationary altitude.  For ratios
+/// `≥ 20.0` (rare; only truly high-altitude parking) we cap at the
+/// Stationary multiplier.
+///
+/// Defensive: a `body.radius == 0.0` falls through to the `1.0×` default
+/// (which preserves the legacy `fleet_parking_visual_radius` behaviour).
+#[inline]
+pub(super) fn shell_ring_visual_radius(body: &CelestialBody, radius_au: f64) -> f32 {
+    if body.body_type == BodyType::Star {
+        // Direct AU → visual-space conversion.  Crucially, this matches the
+        // star-orbiting fleet's render position in `update_fleet_transforms`
+        // (which also uses `orbit.radius_au * SCALING_FACTOR` for star
+        // bodies), so the green orbit ring lines up with the fleet mesh.
+        (radius_au as f32) * (SCALING_FACTOR as f32)
+    } else {
+        let body_r_km = body.radius as f64;
+        let r_km = if body_r_km > 0.0 {
+            radius_au * AU_IN_METERS / 1000.0
+        } else {
+            0.0
+        };
+        let ratio = if body_r_km > 0.0 {
+            r_km / body_r_km
+        } else {
+            1.05
+        };
+        let mult: f32 = if ratio < 2.0 {
+            1.0
+        } else if ratio < 5.0 {
+            1.6
+        } else if ratio < 20.0 {
+            2.6
+        } else {
+            3.5
+        };
+        fleet_parking_visual_radius(body.visual_radius) * mult
+    }
 }
 
 // ── Dashed-curve helpers ──────────────────────────────────────────────────────
@@ -255,8 +318,9 @@ pub(super) fn predict_body_physics_pos(
 /// * Dashed amber ring at `ring_r` — the arrival orbit ring (skipped when
 ///   `skip_outer_ring` is true, e.g. when the destination is the orbit centre and
 ///   `draw_fleet_orbit_rings` already draws a cyan arrival ring at the same radius).
+///   Callers pass a *shell-driven* radius so the ring scales with the player's
+///   `Target orbit:` pick — Cruise (5 AU) for Sol, Low (6,689 km) for Earth, etc.
 /// * Smaller dashed amber circle at approximately the body's visual size.
-/// * Crosshair in the centre.
 fn draw_ghost_body(
     gizmos: &mut Gizmos,
     center: Vec3,
@@ -290,12 +354,6 @@ fn draw_ghost_body(
         12,
         |_| Color::srgba(1.0, 0.75, 0.15, 0.28),
     );
-
-    // Centre crosshair.
-    let cs = ring_r * 0.18;
-    let cross_color = Color::srgba(1.0, 0.75, 0.15, 0.65);
-    gizmos.line(center - Vec3::X * cs, center + Vec3::X * cs, cross_color);
-    gizmos.line(center - Vec3::Y * cs, center + Vec3::Y * cs, cross_color);
 }
 
 /// Compute the stable, optimal departure angle for a local transfer arc.
@@ -1034,13 +1092,29 @@ fn tangential_ring_arrival_point(
 mod tests {
     use super::{
         compute_barycentric_visual_arc, compute_gravity_assist_arc, compute_transfer_arc,
-        sample_polyline, sampled_transfer_orbit_points_with_center,
+        sample_polyline, sampled_transfer_orbit_points_with_center, shell_ring_visual_radius,
         should_sample_planned_transfer_preview, tangential_ring_arrival_point,
     };
     use crate::astronomy::{orbit_position_from_mean_anomaly, KeplerOrbit, SCALING_FACTOR};
     use crate::fleets::{PlannedTransfer, TransferReferenceFrame};
+    use crate::plugins::solar_system::CelestialBody;
+    use crate::plugins::solar_system_data::BodyType;
     use bevy::math::DVec3;
     use bevy::prelude::Vec3;
+
+    fn make_body(body_type: BodyType, radius_km: f32, visual_radius: f32) -> CelestialBody {
+        CelestialBody {
+            name: "TestBody".to_string(),
+            radius: radius_km,
+            mass: 0.0,
+            body_type,
+            visual_radius,
+            asteroid_class: None,
+            star_approach_au: None,
+            rotation_period_s: None,
+            habitable_outer_au: None,
+        }
+    }
 
     fn test_planned_transfer(preserve_orbit_geometry: bool) -> PlannedTransfer {
         PlannedTransfer {
@@ -1415,6 +1489,58 @@ mod tests {
             );
         }
     }
+
+    // ── shell_ring_visual_radius ─────────────────────────────────────────────
+
+    /// Stars scale directly via `SCALING_FACTOR` — no shell-multiplier
+    /// table involved.  Cruise at 5 AU must equal 5 × 1500 = 7500 visual
+    /// units; CloseApproach at 0.05 AU must equal 75 visual units.
+    #[test]
+    fn shell_ring_visual_radius_star_direct_au_conversion() {
+        let sol = make_body(BodyType::Star, 695_700.0, 10.0);
+        assert!((shell_ring_visual_radius(&sol, 5.0) - 5.0 * 1500.0).abs() < 1e-3);
+        assert!((shell_ring_visual_radius(&sol, 0.05) - 0.05 * 1500.0).abs() < 1e-3);
+        assert!((shell_ring_visual_radius(&sol, 1.0) - 1500.0).abs() < 1e-3);
+    }
+
+    /// For planets, the visual radius depends on the ratio of the
+    /// parking-altitude (km) to the body's own radius (km).  Earth LEO
+    /// (≈ 6,690 km, ratio 1.05×) must produce the same ring as the
+    /// existing `fleet_parking_visual_radius` baseline.  Medium (3×),
+    /// High (10×), and Stationary (≥20×) must all sit visibly farther
+    /// out, in that order.
+    #[test]
+    fn shell_ring_visual_radius_planet_low_medium_high_stationary() {
+        let earth = make_body(BodyType::Planet, 6_371.0, 2.0);
+        let r_low = shell_ring_visual_radius(&earth, 6_690.0 / 149_597_870.7);
+        let r_med = shell_ring_visual_radius(&earth, 3.0 * 6_371.0 / 149_597_870.7);
+        let r_high = shell_ring_visual_radius(&earth, 10.0 * 6_371.0 / 149_597_870.7);
+        let r_stationary =
+            shell_ring_visual_radius(&earth, 20.0 * 6_371.0 / 149_597_870.7);
+
+        // Low sits at the existing `fleet_parking_visual_radius` baseline
+        // (1.0× multiplier).  For Earth that's max(2.0 × 1.5, 2.0 + 6.0 + 3.0) = 11.0.
+        assert!(
+            (r_low - 11.0).abs() < 1e-3,
+            "Low ({r_low}) should equal the fleet_parking_visual_radius baseline (11.0)"
+        );
+        // Monotonic ordering.
+        assert!(r_low < r_med, "Low ({r_low}) should be < Medium ({r_med})");
+        assert!(r_med < r_high, "Medium ({r_med}) should be < High ({r_high})");
+        assert!(
+            r_high <= r_stationary,
+            "High ({r_high}) should be <= Stationary ({r_stationary})"
+        );
+    }
+
+    /// Body with `radius == 0.0` (defensive) must fall back to the
+    /// `1.0×` multiplier rather than panic.
+    #[test]
+    fn shell_ring_visual_radius_zero_radius_body_does_not_panic() {
+        let ghost = make_body(BodyType::Planet, 0.0, 2.0);
+        let _r = shell_ring_visual_radius(&ghost, 0.05);
+        // No assertion needed — the test passes if no panic occurs.
+    }
 }
 
 #[test]
@@ -1650,6 +1776,17 @@ pub fn draw_fleet_trajectories(
                     )
                 })
                 .unwrap_or((0.0, 0.0));
+            // Shell-driven destination ring radius: scales the dashed
+            // amber ghost-body ring at the destination to the player's
+            // chosen arrival shell (Low / Medium / High / Stationary /
+            // HabitableInner / Cruise / etc.).  `dest_ring_r` (above)
+            // stays as the small geometry offset for `compute_transfer_arc`
+            // — splitting them lets us re-shape the visual ring without
+            // warping the Bezier arc.
+            let dest_orbit_ring_r = body_query
+                .get(maneuver.destination_body)
+                .map(|(_, b, _)| shell_ring_visual_radius(b, maneuver.arrival_orbit_radius_au))
+                .unwrap_or(0.0);
 
             let origin_visual = body_query
                 .get(maneuver.origin_body)
@@ -1976,12 +2113,14 @@ pub fn draw_fleet_trajectories(
                 // Suppress the outer ring when the destination IS the orbit centre
                 // (e.g. Moon → Earth): draw_fleet_orbit_rings already draws a cyan
                 // arrival ring at that same radius, and the two rings overlapping looks
-                // visually strange.
+                // visually strange.  Pass `dest_orbit_ring_r` (the shell-driven
+                // radius) rather than `dest_ring_r` (the geometry offset) so the
+                // dashed amber ring scales with the player's chosen arrival shell.
                 let dest_is_orbit_center = origin_lp == Some(maneuver.destination_body);
                 draw_ghost_body(
                     &mut gizmos,
                     dp,
-                    dest_ring_r,
+                    dest_orbit_ring_r,
                     dest_visual_r,
                     dest_is_orbit_center,
                 );
@@ -2017,6 +2156,17 @@ pub fn draw_fleet_trajectories(
                     )
                 })
                 .unwrap_or((0.0, 0.0));
+            // Shell-driven destination ring radius: scales the dashed
+            // amber ghost-body ring at the destination to the player's
+            // chosen arrival shell (Low / Medium / High / Stationary /
+            // HabitableInner / Cruise / etc.).  `dest_ring_r` (above)
+            // stays as the small geometry offset for `compute_transfer_arc`
+            // — splitting them lets us re-shape the visual ring without
+            // warping the Bezier arc.
+            let dest_orbit_ring_r = body_query
+                .get(maneuver.destination_body)
+                .map(|(_, b, _)| shell_ring_visual_radius(b, maneuver.arrival_orbit_radius_au))
+                .unwrap_or(0.0);
             let is_inter_star = maneuver.reference_frame.is_barycentric();
 
             // ── Departure point (op) ─────────────────────────────────────────
@@ -2266,7 +2416,7 @@ pub fn draw_fleet_trajectories(
                     prev = Some(pos);
                 }
 
-                draw_ghost_body(&mut gizmos, dp, dest_ring_r, dest_visual_r, false);
+                draw_ghost_body(&mut gizmos, dp, dest_orbit_ring_r, dest_visual_r, false);
                 continue;
             }
 
@@ -2337,7 +2487,13 @@ pub fn draw_fleet_trajectories(
                         prev = Some(pos);
                     }
 
-                    draw_ghost_body(&mut gizmos, dp_absolute, dest_ring_r, dest_visual_r, false);
+                    draw_ghost_body(
+                        &mut gizmos,
+                        dp_absolute,
+                        dest_orbit_ring_r,
+                        dest_visual_r,
+                        false,
+                    );
                     continue;
                 }
 
@@ -2394,7 +2550,13 @@ pub fn draw_fleet_trajectories(
                 };
                 draw_sampled_transfer_orbit(&mut gizmos, &visual_points, progress_t, traj_color);
 
-                draw_ghost_body(&mut gizmos, sampled_dest, dest_ring_r, dest_visual_r, false);
+                draw_ghost_body(
+                    &mut gizmos,
+                    sampled_dest,
+                    dest_orbit_ring_r,
+                    dest_visual_r,
+                    false,
+                );
                 continue;
             }
 
@@ -2462,7 +2624,7 @@ pub fn draw_fleet_trajectories(
                 prev = Some(pos);
             }
 
-            draw_ghost_body(&mut gizmos, dp, dest_ring_r, dest_visual_r, false);
+            draw_ghost_body(&mut gizmos, dp, dest_orbit_ring_r, dest_visual_r, false);
             continue;
         }
 
@@ -3352,7 +3514,6 @@ pub fn update_fleet_transforms(
     }
 }
 
-
 /// Draw dashed orbit rings in System view:
 ///
 /// - **Parked** fleet (selected): one ring around the orbit body.
@@ -3403,11 +3564,12 @@ pub fn draw_fleet_orbit_rings(
             // For star-orbiting fleets (Lagrange points), the orbit radius is
             // heliocentric AU — convert to visual units.  This draws a large
             // ring matching the fleet's actual heliocentric orbital path.
-            let ring_radius = if body.body_type == BodyType::Star {
-                orbit.radius_au as f32 * SCALING_FACTOR as f32
-            } else {
-                fleet_parking_visual_radius(body.visual_radius)
-            };
+            // Parked source ring — scales with the fleet's actual parking
+            // orbit (Low / Medium / High / Stationary for planets; AU for
+            // stars), so different parking altitudes around the same body
+            // render at visibly distinct radii.  `shell_ring_visual_radius`
+            // does the star-vs-planet visual-scale translation.
+            let ring_radius = shell_ring_visual_radius(body, orbit.radius_au);
             draw_ring(
                 &mut gizmos,
                 body_transform.translation,
@@ -3902,6 +4064,27 @@ pub fn draw_fleet_transfer_preview(
     let dest_visual_r = dest_body_data.visual_radius;
     let default_dest_ring_r = fleet_parking_visual_radius(dest_visual_r);
 
+    // ── Shell-driven target orbit ring ─────────────────────────────────────
+    // The player's `Target orbit:` picker writes a shell id (Low / Medium /
+    // High / Stationary / CloseApproach / HabitableInner / HabitableOuter /
+    // Cruise) keyed by destination entity.  We resolve it to a numeric
+    // arrival radius (AU) and feed that through `shell_ring_visual_radius`
+    // to scale the dashed amber ghost-body ring at the destination.  When
+    // the player hasn't picked a shell we fall back to the body's default
+    // shell — Star → HabitableInner (≈ 0.3 AU around Sol), everything else
+    // → Low (the LEO-proxy default).
+    //
+    // `dest_ring_r` (above) is the geometry offset used by
+    // `compute_*_transfer_arc` and is **untouched** — splitting the two
+    // lets us re-shape the visual ring without warping the Bezier arc.
+    let target_shell = fleet_ui_state
+        .target_orbit_shell
+        .filter(|(entity, _)| *entity == target_entity)
+        .map(|(_, shell)| shell)
+        .unwrap_or_else(|| crate::fleets::default_shell_for_body_type(dest_body_data.body_type));
+    let target_orbit_au = crate::fleets::radius_for_shell(dest_body_data, target_shell);
+    let dest_orbit_ring_r = shell_ring_visual_radius(dest_body_data, target_orbit_au);
+
     let star_centered_preview_candidate = planned_transfer
         .map(|transfer| {
             let center_is_star = matches!(
@@ -4180,7 +4363,13 @@ pub fn draw_fleet_transfer_preview(
                 24,
                 |f| Color::srgba(1.0, 0.75, 0.15, 0.70 - 0.35 * f),
             );
-            draw_ghost_body(&mut gizmos, dp_absolute, dest_ring_r, dest_visual_r, false);
+            draw_ghost_body(
+                &mut gizmos,
+                dp_absolute,
+                dest_orbit_ring_r,
+                dest_visual_r,
+                false,
+            );
             return;
         }
     }
@@ -4219,8 +4408,11 @@ pub fn draw_fleet_transfer_preview(
 
     // Ghost body at predicted arrival position.
     // In the preview the destination is the body we are flying TO, not the orbit
-    // centre, so the outer ring is always wanted here.
-    draw_ghost_body(&mut gizmos, dp, dest_ring_r, dest_visual_r, false);
+    // centre, so the outer ring is always wanted here.  We pass
+    // `dest_orbit_ring_r` (the shell-driven radius) rather than `dest_ring_r`
+    // (the geometry offset) so the dashed amber ring scales with the
+    // player's `Target orbit:` pick instead of hugging the body's visual rim.
+    draw_ghost_body(&mut gizmos, dp, dest_orbit_ring_r, dest_visual_r, false);
 }
 
 /// Draw the two-leg slingshot arc when a gravity-assist flyby is selected.
@@ -4332,6 +4524,20 @@ pub fn draw_gravity_assist_preview(
     let origin_ring_r = fleet_parking_visual_radius(origin_bd.visual_radius);
     let dest_ring_r = fleet_parking_visual_radius(dest_bd.visual_radius);
 
+    // Shell-driven destination ring radius: scales the dashed amber
+    // ghost-body ring at the destination to the player's chosen arrival
+    // shell (`Target orbit:` picker).  `dest_ring_r` (above) stays as
+    // the geometry offset for `compute_gravity_assist_arc` — splitting
+    // them lets us re-shape the visual ring without warping the
+    // slingshot arc.
+    let ga_target_shell = fleet_ui_state
+        .target_orbit_shell
+        .filter(|(entity, _)| *entity == target_entity)
+        .map(|(_, shell)| shell)
+        .unwrap_or_else(|| crate::fleets::default_shell_for_body_type(dest_bd.body_type));
+    let ga_target_orbit_au = crate::fleets::radius_for_shell(dest_bd, ga_target_shell);
+    let dest_orbit_ring_r = shell_ring_visual_radius(dest_bd, ga_target_orbit_au);
+
     // Predict flyby body position at end of Leg 1
     let fp = predict_body_visual_pos(
         flyby_entity,
@@ -4396,5 +4602,14 @@ pub fn draw_gravity_assist_preview(
     );
 
     // ── Destination ghost ─────────────────────────────────────────────────────
-    draw_ghost_body(&mut gizmos, dp, dest_ring_r, dest_bd.visual_radius, false);
+    // `dest_orbit_ring_r` (shell-driven) instead of `dest_ring_r`
+    // (geometry offset) so the dashed amber ring scales with the
+    // player's chosen arrival shell rather than hugging the body's rim.
+    draw_ghost_body(
+        &mut gizmos,
+        dp,
+        dest_orbit_ring_r,
+        dest_bd.visual_radius,
+        false,
+    );
 }
