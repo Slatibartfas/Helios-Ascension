@@ -62,8 +62,10 @@ fn make_inputs(
         origin_orbit: origin,
         dest_orbit: dest,
         system_gm: GM_SUN,
+        body_gm: GM_SUN,
         sim_time_s: 0.0,
         category: category.to_string(),
+        parking_radius_au: None,
     }
 }
 
