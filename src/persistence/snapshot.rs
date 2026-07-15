@@ -300,6 +300,52 @@ fn configure_builder<'a>(
         .deny_component::<bevy_pbr::MeshMaterial3d<crate::plugins::star_materials::StarHalo3dMaterial>>()
         .deny_component::<bevy_pbr::MeshMaterial3d<crate::plugins::visual_effects::NightMaterial>>()
         .deny_component::<bevy_pbr::MeshMaterial3d<crate::render::backdrop::SkyboxMaterial>>()
+        // Bevy `bevy_camera::camera::Camera` and its `#[require]`
+        // chain are Bevy-runtime state, not gameplay state — the
+        // Camera entity is spawned once at startup by Bevy's
+        // `CameraPlugin` (and by Helios's `spawn_camera` in
+        // `src/plugins/camera.rs`) and re-created on every launch,
+        // so persisting it serves no purpose AND multiple
+        // auto-required companions trip Bevy's scene serializer:
+        //
+        // - `CameraMainTextureUsages(pub TextureUsages)` —
+        //   `wgpu_types` bitflags, no `ReflectSerialize`
+        //   registration. This is the active error every
+        //   interval — the autosave timer logs
+        //   `autosave failed: save serialise failed: type
+        //   CameraMainTextureUsages did not register …`.
+        // - `RenderTarget::Image(ImageRenderTarget { handle:
+        //   Handle<Image> })` — `Arc<StrongHandle>` inner Handle,
+        //   same family of failure as `Mesh3d` /
+        //   `MeshMaterial3d`. Will fail the first time we render
+        //   to an off-screen image target.
+        // - `Projection::Custom(CustomProjection { dyn_projection:
+        //   Box<dyn DynCameraProjection> })` — trait object Bevy
+        //   can't reflect-serialise.
+        // - `Exposure` uses `#[reflect(opaque)]`, which
+        //   `SceneSerializer` walks as a typed value with no
+        //   field-level ReflectSerialize data and aborts.
+        //
+        // The denylist below keeps the Camera entity out of the
+        // scene blob. The Helios-side camera state
+        // (`OrbitCamera`, `GameCamera`, `CameraAnchor`) is
+        // unaffected — it lives on separate `#[reflect(Component)]`
+        // types and continues to round-trip via the existing
+        // snapshot path. Restoring the saved `OrbitCamera` values
+        // to the freshly-spawned camera on load is a separate fix
+        // (a post-load one-shot system); until that lands, load
+        // defaults camera controls to `OrbitCamera::default()` —
+        // same behaviour the player had before this fix, when
+        // autosave errored every interval. See the regression
+        // tests `snapshot_skips_camera_main_texture_usages_component`
+        // and `snapshot_skips_render_target_component` below.
+        .deny_component::<bevy_camera::Camera>()
+        .deny_component::<bevy_camera::Camera2d>()
+        .deny_component::<bevy_camera::Camera3d>()
+        .deny_component::<bevy_camera::CameraMainTextureUsages>()
+        .deny_component::<bevy_camera::RenderTarget>()
+        .deny_component::<bevy_camera::Exposure>()
+        .deny_component::<bevy_camera::Projection>()
         .extract_entities(entities.iter().copied())
         // IMPORTANT: apply the resource denylist BEFORE calling
         // `extract_resources()`.  `extract_resources` reads the
@@ -717,6 +763,71 @@ mod tests {
         assert!(
             !snapshot.contains("StarHalo3dMaterial"),
             "denylist failed — StarHalo3dMaterial serialised into save: {snapshot}"
+        );
+    }
+
+    #[test]
+    fn snapshot_skips_camera_main_texture_usages_component() {
+        // Regression test for the in-game autosave failure that
+        // surfaces once `Mesh3d` / `MeshMaterial3d<T>` are denied:
+        // the `Camera3d` entity spawned by `spawn_camera` in
+        // `src/plugins/camera.rs` has `CameraMainTextureUsages` as
+        // an auto-required component, whose inner
+        // `wgpu_types::TextureUsages` is a bitflags type Bevy does
+        // not register `ReflectSerialize` for. Without
+        // `deny_component::<CameraMainTextureUsages>()` in
+        // `configure_builder`, `SceneSerializer` raises "type
+        // `TextureUsages` did not register the ReflectSerialize"
+        // and the autosave timer logs
+        // `autosave failed: save serialise failed: …` every
+        // interval.
+        //
+        // Same caveat as the material tests: the inner
+        // `TextureUsages` failure path is only reproducible on a
+        // world where Bevy plugins have registered the component
+        // in `AppTypeRegistry`. The minimal test verifies the
+        // denylist keeps the component out of the saved scene
+        // blob end-to-end; the runtime autosave (every interval)
+        // exercises the full failure path.
+        let mut world = World::new();
+        world.init_resource::<AppTypeRegistry>();
+        world.spawn(bevy_camera::CameraMainTextureUsages::default());
+        let snapshot = snapshot_world(&world, SaveMetadata::new_now(0, 0, "test"))
+            .expect("snapshot must skip CameraMainTextureUsages component");
+        assert!(
+            !snapshot.contains("CameraMainTextureUsages"),
+            "denylist failed — CameraMainTextureUsages serialised into save: {snapshot}"
+        );
+    }
+
+    #[test]
+    fn snapshot_skips_render_target_component() {
+        // Regression test for the next camera-chain failure after
+        // `CameraMainTextureUsages`: `RenderTarget::Image`
+        // wraps `Handle<Image>` (the same `Arc<StrongHandle>`-
+        // bearing inner Handle that broke `Mesh3d` /
+        // `MeshMaterial3d<T>`). The default `RenderTarget` for
+        // a `Camera3d` spawned via Helios's `spawn_camera` is
+        // `RenderTarget::Window(WindowRef::default())`, which is
+        // reflect-serialisable — but the *moment* Helios ever
+        // attaches an off-screen image target the inner Handle
+        // raises the same failure we already saw and fixed for
+        // `Mesh3d`. Deny preemptively so the next autosave error
+        // doesn't surface.
+        //
+        // Same caveat as the material tests: `RenderTarget::Window`
+        // default has no `Handle<Image>` inner, so the inner Arc
+        // failure path isn't directly reproducible here — we just
+        // verify the denylist keeps the component out of the
+        // saved scene blob.
+        let mut world = World::new();
+        world.init_resource::<AppTypeRegistry>();
+        world.spawn(bevy_camera::RenderTarget::default());
+        let snapshot = snapshot_world(&world, SaveMetadata::new_now(0, 0, "test"))
+            .expect("snapshot must skip RenderTarget component");
+        assert!(
+            !snapshot.contains("RenderTarget"),
+            "denylist failed — RenderTarget serialised into save: {snapshot}"
         );
     }
 }
