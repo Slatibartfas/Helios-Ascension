@@ -1625,7 +1625,7 @@ mod tests {
         let total_ma_travel = mean_motion * duration_s;
 
         let start_mean_anomaly = transfer_orbit.mean_anomaly_epoch;
-        let scale = SCALING_FACTOR as f64;
+        let scale = SCALING_FACTOR;
 
         // Sample the preview arc — same expression the renderer's
         // `draw_dashed_curve` closure evaluates at fraction `t`.
