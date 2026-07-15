@@ -434,17 +434,53 @@ pub fn porkchop_panel(
             let tex_cols = cols * supersample;
             let tex_rows = rows * supersample;
             let mut pixels: Vec<Color32> = Vec::with_capacity(tex_cols * tex_rows);
+            // Per-corner bilinear fill: each texture pixel maps to a
+            // fractional grid coordinate `(row_f, col_f) ∈ [0, rows)×
+            // [0, cols)`, then samples the four integer-clamped
+            // surrounding cells via [`bilinear_cell_color`].  The
+            // previous loop used a flat block fill (one colour per
+            // cell), which made each cell read as a hard rectangle
+            // even with `TextureOptions::LINEAR` filtering — the GPU
+            // bilinear filter could only blend *between* cells, not
+            // synthesise gradients *inside* them.  Now each destination
+            // pixel sees ~`supersample²` source texels interpolating
+            // between four ΔV values, so the basin gradient is smooth
+            // from edge to edge.  Bake cost rises from 1 cell lookup
+            // to 4 per texel, but the bake only fires on identity
+            // changes (target / resolution / min-cell / t_dep
+            // anchor) — never per frame — so the panel's per-frame
+            // cost is unchanged.
+            //
+            // The Y-axis flip folds into the row-coordinate mapping:
+            // image row 0 is at the top-left of the texture, but grid
+            // row 0 (lowest TOF) renders at the panel BOTTOM (NASA /
+            // JPL convention).  `row_f = (tex_rows - 1 - img_row) /
+            // supersample` therefore places image row 0 near
+            // `grid_row = rows - 1` and image row `tex_rows - 1`
+            // exactly at `grid_row = 0`, which the four corner clamps
+            // then reduce to safe `usize` indices.
+            let inv_supersample = 1.0_f32 / supersample as f32;
             for img_row in 0..tex_rows {
-                // Map this texture pixel to its grid row.  Each grid row
-                // occupies `supersample` texture rows; the Y-axis flip
-                // (NASA convention) is folded in here so the GPU
-                // texture's `(0, 0)` corresponds to grid row
-                // `rows - 1`.
-                let orig_row = (tex_rows - 1 - img_row) / supersample;
+                let row_f = (tex_rows - 1 - img_row) as f32 * inv_supersample;
+                let r_top_i = row_f.floor() as i32;
+                let r_bot_i = r_top_i + 1;
+                let r_top = r_top_i.clamp(0, rows as i32 - 1) as usize;
+                let r_bot = r_bot_i.clamp(0, rows as i32 - 1) as usize;
+                let ty = (row_f - r_top_i as f32).clamp(0.0, 1.0);
+                let row_t = r_top * cols;
+                let row_b = r_bot * cols;
                 for col in 0..tex_cols {
-                    let orig_col = col / supersample;
-                    let cell = &grid.cells[orig_row * cols + orig_col];
-                    pixels.push(cell_color(cell, &ramp));
+                    let col_f = col as f32 * inv_supersample;
+                    let c_left_i = col_f.floor() as i32;
+                    let c_right_i = c_left_i + 1;
+                    let c_left = c_left_i.clamp(0, cols as i32 - 1) as usize;
+                    let c_right = c_right_i.clamp(0, cols as i32 - 1) as usize;
+                    let tx = (col_f - c_left_i as f32).clamp(0.0, 1.0);
+                    let tl = &grid.cells[row_t + c_left];
+                    let tr = &grid.cells[row_t + c_right];
+                    let bl = &grid.cells[row_b + c_left];
+                    let br = &grid.cells[row_b + c_right];
+                    pixels.push(bilinear_cell_color(tl, tr, bl, br, tx, ty, &ramp));
                 }
             }
             let image = egui::ColorImage {
@@ -825,12 +861,107 @@ fn draw_dashed_vertical(painter: &egui::Painter, x: f32, top: f32, bottom: f32, 
 ///   * 7-anchor piecewise palette (blue→cyan→green→yellow→orange→red)
 ///     sampled into a 512-entry table;
 ///   * infeasible cells bypass the ramp entirely (dark grey sentinel).
+///
+/// This function stays around for unit tests (and as the per-cell
+/// colour when the bake loop needs the *single-cell* colour, e.g.
+/// for hover tooltips or any future "draw the cell on demand" path).
+/// The texture bake itself uses [`bilinear_cell_color`] so the source
+/// pixels encode a smooth gradient for the GPU's bilinear sampler to
+/// pick up.
+#[cfg(test)]
 fn cell_color(cell: &PorkchopCell, ramp: &PorkchopColorRamp) -> Color32 {
     if !cell.feasible {
         return INFEASIBLE_COLOR;
     }
     let dv_km_s = cell.total_dv_ms / 1000.0;
     ramp.color_for(dv_km_s)
+}
+
+/// Per-corner bilinear blend of ΔV across the four surrounding grid
+/// cells (`tl`, `tr`, `bl`, `br`) at fractional position `(tx, ty)`,
+/// followed by a single ramp lookup so the resulting colour is also
+/// continuous across cell boundaries.  This is the texture-bake
+/// counterpart of [`cell_color`]: where `cell_color` produces one flat
+/// colour per cell (which the GPU bilinear sampler can only blend at
+/// the seam), `bilinear_cell_color` produces a smoothly-varying
+/// source so each destination pixel sees ~`supersample²` source
+/// texels interpolating between four finite-cost neighbours.
+///
+/// Why this lives on the CPU rather than as a fragment shader:
+///   * egui doesn't expose a programmable pipeline at the panel
+///     level — the texture is the only channel available.
+///   * The bake is one-shot per identity change
+///     (`target / resolution / min-cell / t_dep anchor`), so a few
+///     extra milliseconds of CPU fill is invisible next to the
+///     texture upload.
+///
+/// Infeasibility handling: a corner cell contributes `f64::INFINITY`
+/// (i.e. "worst possible ΔV") to the weighted sum.  The ramp's
+/// σ-clamp absorbs that infinity at its red end (mean + 2σ), so the
+/// feasible-side of the boundary grazes red instead of warping toward
+/// grey.  To avoid the `0 × ∞ = NaN` trap at corner texels where the
+/// weight on an infeasible corner is exactly zero, the function
+/// renormalises the weighted sum against the **finite** corners only.
+/// When *all four* corners are infeasible the function returns
+/// [`INFEASIBLE_COLOR`] directly so fully-infeasible regions stay
+/// dark grey.
+#[inline]
+fn bilinear_cell_color(
+    tl: &PorkchopCell,
+    tr: &PorkchopCell,
+    bl: &PorkchopCell,
+    br: &PorkchopCell,
+    tx: f32,
+    ty: f32,
+    ramp: &PorkchopColorRamp,
+) -> Color32 {
+    // Per-corner ΔV; infeasible → +∞ so the σ-clamped ramp lands at
+    // its red end and the boundary gradient stays inside the colormap.
+    let dv_tl = if tl.feasible { tl.total_dv_ms / 1000.0 } else { f64::INFINITY };
+    let dv_tr = if tr.feasible { tr.total_dv_ms / 1000.0 } else { f64::INFINITY };
+    let dv_bl = if bl.feasible { bl.total_dv_ms / 1000.0 } else { f64::INFINITY };
+    let dv_br = if br.feasible { br.total_dv_ms / 1000.0 } else { f64::INFINITY };
+    // Fully-infeasible neighbourhood: keep the dark grey sentinel so
+    // the basin still pops visually.
+    if !dv_tl.is_finite() && !dv_tr.is_finite() && !dv_bl.is_finite() && !dv_br.is_finite() {
+        return INFEASIBLE_COLOR;
+    }
+    let tx_f = tx as f64;
+    let ty_f = ty as f64;
+    let w_tl = (1.0 - tx_f) * (1.0 - ty_f);
+    let w_tr = tx_f * (1.0 - ty_f);
+    let w_bl = (1.0 - tx_f) * ty_f;
+    let w_br = tx_f * ty_f;
+    // Renormalise against the *finite* corner weights so a corner that
+    // happens to have weight zero doesn't poison the sum with
+    // `0 × ∞ = NaN`.  This collapses cleanly to the standard bilinear
+    // interp when all four corners are feasible.
+    let mut sum = 0.0_f64;
+    let mut w_sum = 0.0_f64;
+    if dv_tl.is_finite() {
+        sum += w_tl * dv_tl;
+        w_sum += w_tl;
+    }
+    if dv_tr.is_finite() {
+        sum += w_tr * dv_tr;
+        w_sum += w_tr;
+    }
+    if dv_bl.is_finite() {
+        sum += w_bl * dv_bl;
+        w_sum += w_bl;
+    }
+    if dv_br.is_finite() {
+        sum += w_br * dv_br;
+        w_sum += w_br;
+    }
+    // Defence in depth: if the early-return above missed the case
+    // (e.g. all weights zero from a degenerate 0×0 grid branch),
+    // fall back to the infeasible sentinel rather than divide by
+    // zero.
+    if w_sum == 0.0 {
+        return INFEASIBLE_COLOR;
+    }
+    ramp.color_for(sum / w_sum)
 }
 
 fn format_cell_tooltip(cell: &PorkchopCell) -> String {
@@ -965,6 +1096,185 @@ mod tests {
         let c_cheap = cell_color(&grid.cells[0], &ramp);
         let c_mid = cell_color(&grid.cells[4], &ramp);
         assert_ne!(c_cheap, c_mid, "cheap and mid cells must differ");
+    }
+
+    // ----------------------------------------------------------------
+    // Bilinear-per-corner fill tests (smoothed porkchop texture).
+    //
+    // The texture bake uses `bilinear_cell_color` instead of
+    // `cell_color` so each destination pixel samples the four
+    // surrounding cells at its fractional `(tx, ty)` position,
+    // producing a smooth colour gradient instead of constant-fill
+    // rectangles.  These tests pin the helper down at four levels:
+    //   1. corner-equality — `(tx=0, ty=0)` weighted entirely on TL
+    //      must equal `cell_color(TL)`;
+    //   2. smoothness — two texels at different fractional positions
+    //      must produce *different* colours whenever the four
+    //      corners differ (the regression guard for "I shipped the
+    //      constant-fill bug back in");
+    //   3. all-infeasible — a fully-infeasible neighbourhood returns
+    //      the dark grey sentinel regardless of position;
+    //   4. partial-infeasibility — a mix of feasible and infeasible
+    //      corners renormalises against the finite subset and
+    //      avoids the `0 × ∞ = NaN` poison at boundary texels.
+    // ----------------------------------------------------------------
+
+    /// Build a synthetic 2D `PorkchopGrid` with the given ΔV values
+    /// in row-major order (`dvs[row * cols + col]`, in km/s).  Used
+    /// by the `bilinear_cell_color` tests below to construct
+    /// multi-cell neighbourhoods without going through the full
+    /// Lambert solver.
+    fn make_grid_2d(rows: usize, cols: usize, dvs_km_s: &[f64]) -> PorkchopGrid {
+        assert_eq!(dvs_km_s.len(), rows * cols);
+        let cells: Vec<PorkchopCell> = dvs_km_s
+            .iter()
+            .map(|&dv| PorkchopCell {
+                t_dep_s: 0.0,
+                tof_s: 0.0,
+                total_dv_ms: if dv.is_finite() { dv * 1000.0 } else { f64::INFINITY },
+                c3_departure: 0.0,
+                v_inf_arrival_ms: 0.0,
+                delta_v1_ms: 0.0,
+                delta_v2_ms: 0.0,
+                feasible: dv.is_finite() && dv > 0.0,
+                origin_pos_au: DVec3::ZERO,
+                dest_pos_au: DVec3::ZERO,
+                v_departure_ms: DVec3::ZERO,
+                v_arrival_ms: DVec3::ZERO,
+                transfer_orbit: None,
+            })
+            .collect();
+        PorkchopGrid {
+            resolution: (cols, rows),
+            t_dep_bounds_s: (0.0, 1.0),
+            tof_bounds_s: (0.0, 1.0),
+            cells,
+            min_cell: None,
+            metric: PorkchopMetric::TotalDv,
+            origin_name: "Origin".to_string(),
+            dest_name: "Dest".to_string(),
+            rendered_tof_bounds_s: (0.0, 1.0),
+        }
+    }
+
+    /// `(tx=0, ty=0)` places full weight on the TL cell; the
+    /// resulting colour must equal `cell_color(TL)`.  Without this
+    /// guard a future "weight all four corners equally" refactor
+    /// would silently break the corner-pinned texels and the
+    /// panel's hover / selection overlays would point at sub-cell
+    /// positions that read the wrong colour underneath.
+    #[test]
+    fn bilinear_cell_color_at_zero_weights_matches_tl_only() {
+        let grid = make_grid_2d(2, 2, &[1.0, 2.0, 3.0, 4.0]);
+        let ramp = PorkchopColorRamp::from_grid(&grid);
+        let cells = &grid.cells;
+        let c_corner = bilinear_cell_color(
+            &cells[0], &cells[1],
+            &cells[2], &cells[3],
+            0.0, 0.0,
+            &ramp,
+        );
+        let direct = cell_color(&cells[0], &ramp);
+        assert_eq!(c_corner, direct, "TL corner must weight TL cell at 100%");
+    }
+
+    /// The smoothness regression test for this change: two texels at
+    /// different `(tx, ty)` positions inside the same 2×2
+    /// neighbourhood must produce *different* colours whenever the
+    /// four corners have differing ΔV values.  The pre-change
+    /// constant-fill bake emitted identical colours for both — the
+    /// per-cell rect banding the player reported — so a `c_tl ==
+    /// c_centre` assertion failure is the single most reliable
+    /// signal that the smoothing was lost in a future refactor.
+    #[test]
+    fn bilinear_cell_color_smooth_varying_fractional_position() {
+        let grid = make_grid_2d(2, 2, &[1.0, 2.0, 3.0, 4.0]);
+        let ramp = PorkchopColorRamp::from_grid(&grid);
+        let cells = &grid.cells;
+        let c_tl = bilinear_cell_color(
+            &cells[0], &cells[1],
+            &cells[2], &cells[3],
+            0.0, 0.0,
+            &ramp,
+        );
+        let c_centre = bilinear_cell_color(
+            &cells[0], &cells[1],
+            &cells[2], &cells[3],
+            0.5, 0.5,
+            &ramp,
+        );
+        let c_br = bilinear_cell_color(
+            &cells[0], &cells[1],
+            &cells[2], &cells[3],
+            1.0, 1.0,
+            &ramp,
+        );
+        assert_ne!(c_tl, c_centre,
+            "TL and centre must differ — constant-fill regression");
+        assert_ne!(c_centre, c_br,
+            "centre and BR must differ — constant-fill regression");
+    }
+
+    /// When *all* four corners are infeasible, the helper must return
+    /// the `INFEASIBLE_COLOR` sentinel (dark grey) regardless of
+    /// `(tx, ty)`.  Without this guard, the `0 × ∞ = NaN` trap
+    /// would surface as garbage pink and the fully-infeasible tail
+    /// of the plot would no longer read as a clean "can't go here"
+    /// zone.
+    #[test]
+    fn bilinear_cell_color_all_infeasible_returns_grey() {
+        let grid = make_grid_2d(2, 2, &[f64::INFINITY; 4]);
+        let ramp = PorkchopColorRamp::from_grid(&grid);
+        let cells = &grid.cells;
+        let c = bilinear_cell_color(
+            &cells[0], &cells[1],
+            &cells[2], &cells[3],
+            0.5, 0.5,
+            &ramp,
+        );
+        assert_eq!(c, INFEASIBLE_COLOR,
+            "fully-infeasible neighbourhood must short-circuit to grey");
+    }
+
+    /// Partial-infeasibility check: when only some corners are
+    /// feasible, the helper must renormalise against the *finite*
+    /// corner weights and return a finite ramp colour rather than
+    /// NaN.  Without the renormalisation branch a `(tx=0, ty=1)`
+    /// texel whose TL/TR corners are infeasible and BL is feasible
+    /// would compute `0 × ∞ = NaN` and return a junk colour
+    /// instead of `BL`'s true ramp colour.
+    #[test]
+    fn bilinear_cell_color_partial_infeasibility_is_finite() {
+        // 2x2 grid where only BL (cell index 2) is feasible.
+        let grid = make_grid_2d(
+            2, 2,
+            &[f64::INFINITY, f64::INFINITY, 5.0, f64::INFINITY],
+        );
+        let ramp = PorkchopColorRamp::from_grid(&grid);
+        let cells = &grid.cells;
+        let direct_bl = cell_color(&cells[2], &ramp);
+        // (tx=0, ty=1): BL has weight 1, the rest are zero-weighted
+        // AND infeasible.  After renormalisation, only BL
+        // contributes → result must equal cell_color(BL).
+        let c_bl = bilinear_cell_color(
+            &cells[0], &cells[1],
+            &cells[2], &cells[3],
+            0.0, 1.0,
+            &ramp,
+        );
+        assert_eq!(c_bl, direct_bl,
+            "BL corner must dominate at (0, 1) after renormalisation");
+        // (tx=0, ty=0.5): half weight on TL (infeasible, filtered) +
+        // half weight on BL (feasible).  Renormalised: dv = (0.5 ×
+        // 5.0) ÷ 0.5 = 5.0 km/s — same colour as BL.
+        let c_halfway = bilinear_cell_color(
+            &cells[0], &cells[1],
+            &cells[2], &cells[3],
+            0.0, 0.5,
+            &ramp,
+        );
+        assert_eq!(c_halfway, direct_bl,
+            "BL must remain the only contributor after renormalisation");
     }
 
     /// Sanity check: a Keplerian orbit is buildable through the
