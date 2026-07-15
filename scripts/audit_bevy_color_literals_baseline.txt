@@ -19,46 +19,49 @@ src/astronomy/systems.rs:1518  let color = Color::srgba(
 src/astronomy/systems.rs:1575  let color = Color::srgba(
 src/astronomy/systems.rs:1602  let color = Color::srgba(0.9, 0.95, 1.0, coma_alpha * 0.5);
 src/astronomy/systems.rs:1609  let jet_color = Color::srgba(0.95, 0.95, 1.0, coma_alpha * 0.7);
-src/fleets/visuals.rs:278  |_| Color::srgba(1.0, 0.75, 0.15, 0.50),
-src/fleets/visuals.rs:291  |_| Color::srgba(1.0, 0.75, 0.15, 0.28),
-src/fleets/visuals.rs:296  let cross_color = Color::srgba(1.0, 0.75, 0.15, 0.65);
-src/fleets/visuals.rs:1835  Color::linear_rgba(0.50, 0.05, 0.80, 0.10),
-src/fleets/visuals.rs:1860  Color::linear_rgba(0.55, 0.05, 0.85, alpha),
-src/fleets/visuals.rs:1865  let tick_col = Color::linear_rgba(0.65, 0.10, 0.90, 0.65);
-src/fleets/visuals.rs:1901  Color::linear_rgba(0.50, 0.05, 0.80, 0.10),
-src/fleets/visuals.rs:1915  Color::linear_rgba(0.55, 0.05, 0.85, alpha),
-src/fleets/visuals.rs:1921  let tick_col = Color::linear_rgba(0.65, 0.10, 0.90, 0.65);
-src/fleets/visuals.rs:1953  Color::linear_rgba(
-src/fleets/visuals.rs:2180  Color::linear_rgba(
-src/fleets/visuals.rs:2238  Color::linear_rgba(
-src/fleets/visuals.rs:2288  Color::linear_rgba(
-src/fleets/visuals.rs:2443  Color::linear_rgba(
-src/fleets/visuals.rs:2490  Color::linear_rgba(
-src/fleets/visuals.rs:2631  let color = Color::srgba(0.15, 1.0, 0.35, 1.0);
-src/fleets/visuals.rs:2632  let dim = Color::srgba(0.15, 1.0, 0.35, 0.35);
-src/fleets/visuals.rs:2684  Color::srgba(0.3, 0.8, 1.0, 0.9) // cyan while in transit
-src/fleets/visuals.rs:2686  Color::srgba(0.2, 0.9, 0.3, 0.9) // green while in orbit
-src/fleets/visuals.rs:2735  Color::srgba(0.3, 0.8, 1.0, 1.0) // cyan in transit
-src/fleets/visuals.rs:2737  Color::srgba(0.2, 0.9, 0.3, 1.0) // green in orbit
-src/fleets/visuals.rs:2761  base_color: Color::srgb(0.3, 0.9, 0.4),
-src/fleets/visuals.rs:2795  mat.base_color = Color::srgb(1.0, 0.92, 0.2);
-src/fleets/visuals.rs:2799  mat.base_color = Color::srgb(0.3, 0.9, 0.4);
-src/fleets/visuals.rs:3414  Color::srgba(0.2, 0.9, 0.3, 0.30),
-src/fleets/visuals.rs:3433  Color::srgba(0.2, 0.9, 0.3, 0.15),
-src/fleets/visuals.rs:3441  Color::srgba(0.3, 0.8, 1.0, 0.35),
-src/fleets/visuals.rs:3453  Color::srgba(0.2, 0.9, 0.3, 0.20),
-src/fleets/visuals.rs:3462  Color::srgba(0.3, 0.8, 1.0, 0.35),
-src/fleets/visuals.rs:3703  |f| Color::srgba(1.0, 0.75, 0.15, 0.70 - 0.35 * f),
-src/fleets/visuals.rs:3707  let lp_color = Color::srgba(0.5, 0.85, 1.0, 0.85);
-src/fleets/visuals.rs:3802  |f| Color::srgba(1.0, 0.75, 0.15, 0.70 - 0.35 * f),
-src/fleets/visuals.rs:3809  |f| Color::srgba(1.0, 0.75, 0.15, 0.70 - 0.35 * f),
-src/fleets/visuals.rs:3814  let fleet_color = Color::srgba(1.0, 0.4, 0.1, 0.9);
-src/fleets/visuals.rs:4180  |f| Color::srgba(1.0, 0.75, 0.15, 0.70 - 0.35 * f),
-src/fleets/visuals.rs:4208  |f| Color::srgba(1.0, 0.75, 0.15, 0.70 - 0.35 * f),
-src/fleets/visuals.rs:4215  |f| Color::srgba(1.0, 0.75, 0.15, 0.70 - 0.35 * f),
-src/fleets/visuals.rs:4376  Color::srgba(0.3, 1.0, 0.4, 0.80 - 0.35 * f)
-src/fleets/visuals.rs:4381  Color::srgba(1.0, 0.3, 0.8, 0.80 - 0.35 * f)
-src/fleets/visuals.rs:4386  let node_color = Color::srgba(1.0, 1.0, 0.3, 0.9);
+src/fleets/visuals.rs:342  |_| Color::srgba(1.0, 0.75, 0.15, 0.50),
+src/fleets/visuals.rs:355  |_| Color::srgba(1.0, 0.75, 0.15, 0.28),
+src/fleets/visuals.rs:2154  Color::linear_rgba(0.50, 0.05, 0.80, 0.10),
+src/fleets/visuals.rs:2179  Color::linear_rgba(0.55, 0.05, 0.85, alpha),
+src/fleets/visuals.rs:2184  let tick_col = Color::linear_rgba(0.65, 0.10, 0.90, 0.65);
+src/fleets/visuals.rs:2220  Color::linear_rgba(0.50, 0.05, 0.80, 0.10),
+src/fleets/visuals.rs:2234  Color::linear_rgba(0.55, 0.05, 0.85, alpha),
+src/fleets/visuals.rs:2240  let tick_col = Color::linear_rgba(0.65, 0.10, 0.90, 0.65);
+src/fleets/visuals.rs:2272  Color::linear_rgba(
+src/fleets/visuals.rs:2512  Color::linear_rgba(
+src/fleets/visuals.rs:2570  Color::linear_rgba(
+src/fleets/visuals.rs:2620  Color::linear_rgba(
+src/fleets/visuals.rs:2787  Color::linear_rgba(
+src/fleets/visuals.rs:2834  Color::linear_rgba(
+src/fleets/visuals.rs:2975  let color = Color::srgba(0.15, 1.0, 0.35, 1.0);
+src/fleets/visuals.rs:2976  let dim = Color::srgba(0.15, 1.0, 0.35, 0.35);
+src/fleets/visuals.rs:3028  Color::srgba(0.3, 0.8, 1.0, 0.9) // cyan while in transit
+src/fleets/visuals.rs:3030  Color::srgba(0.2, 0.9, 0.3, 0.9) // green while in orbit
+src/fleets/visuals.rs:3079  Color::srgba(0.3, 0.8, 1.0, 1.0) // cyan in transit
+src/fleets/visuals.rs:3081  Color::srgba(0.2, 0.9, 0.3, 1.0) // green in orbit
+src/fleets/visuals.rs:3105  base_color: Color::srgb(0.3, 0.9, 0.4),
+src/fleets/visuals.rs:3139  mat.base_color = Color::srgb(1.0, 0.92, 0.2);
+src/fleets/visuals.rs:3143  mat.base_color = Color::srgb(0.3, 0.9, 0.4);
+src/fleets/visuals.rs:3759  Color::srgba(0.2, 0.9, 0.3, 0.30),
+src/fleets/visuals.rs:3778  Color::srgba(0.2, 0.9, 0.3, 0.15),
+src/fleets/visuals.rs:3786  Color::srgba(0.3, 0.8, 1.0, 0.35),
+src/fleets/visuals.rs:3798  Color::srgba(0.2, 0.9, 0.3, 0.20),
+src/fleets/visuals.rs:3807  Color::srgba(0.3, 0.8, 1.0, 0.35),
+src/fleets/visuals.rs:4060  |f| Color::srgba(1.0, 0.75, 0.15, 0.70 - 0.35 * f),
+src/fleets/visuals.rs:4065  let burn_color = Color::srgba(1.0, 0.75, 0.15, 0.95);
+src/fleets/visuals.rs:4082  let lp_color = Color::srgba(0.5, 0.85, 1.0, 0.85);
+src/fleets/visuals.rs:4177  |f| Color::srgba(1.0, 0.75, 0.15, 0.70 - 0.35 * f),
+src/fleets/visuals.rs:4184  |f| Color::srgba(1.0, 0.75, 0.15, 0.70 - 0.35 * f),
+src/fleets/visuals.rs:4193  let burn_color = Color::srgba(1.0, 0.75, 0.15, 0.95);
+src/fleets/visuals.rs:4211  let fleet_color = Color::srgba(1.0, 0.4, 0.1, 0.9);
+src/fleets/visuals.rs:4622  |f| Color::srgba(1.0, 0.75, 0.15, 0.70 - 0.35 * f),
+src/fleets/visuals.rs:4631  let burn_color = Color::srgba(1.0, 0.75, 0.15, 0.95);
+src/fleets/visuals.rs:4673  |f| Color::srgba(1.0, 0.75, 0.15, 0.70 - 0.35 * f),
+src/fleets/visuals.rs:4680  |f| Color::srgba(1.0, 0.75, 0.15, 0.70 - 0.35 * f),
+src/fleets/visuals.rs:4688  let burn_color = Color::srgba(1.0, 0.75, 0.15, 0.95);
+src/fleets/visuals.rs:4879  Color::srgba(0.3, 1.0, 0.4, 0.80 - 0.35 * f)
+src/fleets/visuals.rs:4884  Color::srgba(1.0, 0.3, 0.8, 0.80 - 0.35 * f)
+src/fleets/visuals.rs:4889  let node_color = Color::srgba(1.0, 1.0, 0.3, 0.9);
 src/main.rs:125  color: Color::srgb(0.7, 0.75, 1.0), // Cool blue-white starlight tint
 src/main.rs:136  color: Color::srgb(0.6, 0.65, 0.8), // Slightly cool galactic tint
 src/main.rs:148  commands.insert_resource(ClearColor(Color::srgb(0.01, 0.01, 0.02)));
