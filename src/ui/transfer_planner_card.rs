@@ -575,6 +575,15 @@ fn build_ga_card_with_phase_aware(
                 None => "n/a".to_owned(),
             }
         }
+        // No feasible cell at the user's t_dep.  Fall back to the
+        // Hohmann baseline time for "Extra time" so the row still
+        // reads a meaningful GA-overhead number rather than silently
+        // sticking at `0.0 h`.  The ΔV string above already reads
+        // `n/a` in this branch.
+        _ if finite => {
+            extra_time = total_via - phase.t_hohmann_direct_s;
+            "n/a".to_owned()
+        }
         _ => "n/a".to_owned(),
     };
     let sign = if extra_time >= 0.0 { "+" } else { "" };

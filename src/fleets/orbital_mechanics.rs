@@ -701,6 +701,14 @@ pub struct PhaseAwareGaOption {
     /// the slider along, so the per-time cell is the right reference
     /// for "how much longer than direct at *this* burn epoch?".
     pub t_dep_abs_s: f64,
+    /// Hohmann half-period for the direct transfer between the
+    /// origin and destination bodies (s).  Independent of the slider
+    /// (depends only on orbital radii + central-body GM) and used by
+    /// the GA panel as the **fallback** for the "Extra time" row when
+    /// the porkchop closest-cell search finds no feasible cell at
+    /// the user's t_dep — without this, the row silently reverts to
+    /// `0.0 h` and the user reads it as a bug.
+    pub t_hohmann_direct_s: f64,
 }
 
 /// Solve a phase-aware gravity-assist trajectory for a specific departure
@@ -747,6 +755,12 @@ pub fn solve_phase_aware_ga_option(
     let tof_leg1 = (total_time_s * 0.5).max(GA_GRID_MIN_LEG_TOF_S);
     let tof_leg2 = (total_time_s - tof_leg1).max(GA_GRID_MIN_LEG_TOF_S);
 
+    // Hohmann baseline time + ΔV — captured up-front so the early-
+    // return sites (Lambert failure) can also stash `t_hohmann_direct_s`
+    // for the panel's "Extra time" fallback.
+    let (dv_d1, dv_d2, t_hohmann_direct_s, _, _) =
+        hohmann_transfer(origin_radius_au, dest_radius_au, gm);
+
     let flyby_pos_au = orbit_position_from_mean_anomaly(
         flyby_orbit,
         flyby_orbit.mean_anomaly_epoch + flyby_orbit.mean_motion * (t_dep_abs + tof_leg1),
@@ -788,6 +802,7 @@ pub fn solve_phase_aware_ga_option(
                 leg1_orbit: None,
                 leg2_orbit: None,
                 t_dep_abs_s: t_dep_abs,
+                t_hohmann_direct_s,
             };
         }
     };
@@ -806,6 +821,7 @@ pub fn solve_phase_aware_ga_option(
                 leg1_orbit: None,
                 leg2_orbit: None,
                 t_dep_abs_s: t_dep_abs,
+                t_hohmann_direct_s,
             };
         }
     };
@@ -831,7 +847,10 @@ pub fn solve_phase_aware_ga_option(
     let total = dep_burn_ms + ga_kick + arr_burn_ms;
 
     // ΔV savings vs the direct Hohmann (positive = GA saves propellant).
-    let (dv_d1, dv_d2, _t_direct, _, _) = hohmann_transfer(origin_radius_au, dest_radius_au, gm);
+    // `t_hohmann_direct_s` was captured up-front (above the early-return
+    // sites) so it can also serve as the panel's "Extra time"
+    // fallback when the porkchop closest-cell search finds no feasible
+    // cell at the user's slider t_dep.
     let total_dv_direct = dv_d1 + dv_d2;
     let dv_savings_ms = total_dv_direct - total;
 
@@ -847,6 +866,7 @@ pub fn solve_phase_aware_ga_option(
         leg1_orbit: Some(leg1_orbit),
         leg2_orbit: Some(leg2_orbit),
         t_dep_abs_s: t_dep_abs,
+        t_hohmann_direct_s,
     }
 }
 
