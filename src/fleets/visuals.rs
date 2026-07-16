@@ -2475,15 +2475,67 @@ pub fn draw_fleet_trajectories(
                     .unwrap_or(0.0);
                 let flyby_ring_r = fleet_parking_visual_radius(flyby_visual_r);
 
-                // geometry for the two legs — shared helper produces C1-continuous slingshot
-                let ga_geo = compute_gravity_assist_arc(
-                    op,
-                    fp,
-                    dp,
-                    actual_origin_ring_r,
-                    flyby_ring_r,
-                    dest_ring_r,
-                );
+                // Geometry for the two legs: sample each leg from the actual
+                // Kepler orbit (`maneuver.transfer_orbit` for leg 1,
+                // `maneuver.leg2_orbit` for leg 2).  This replaces the
+                // previous `compute_gravity_assist_arc` Bezier, which
+                // interpolated a smooth curve through the three control
+                // points without any orbital-mechanics fidelity — the
+                // user-visible shape did not match the ship's actual
+                // path.  Each orbit's mean_anomaly_epoch is set when the
+                // orbit is built and `leg1_time_s` / `leg2_time_s` define
+                // how far the mean anomaly advances over the leg, so
+                // sampling the orbit directly produces the *real*
+                // position-vs-time trajectory the spacecraft follows.
+                //
+                // For inter-star gravity assists the floating origin is
+                // the departure star; for same-star gravity assists it is
+                // the orbit-centre body (typically the Sun).  Either way
+                // the orbit-centre local position is zero in the render
+                // frame, so the closure evaluates `orbit_position_from_mean_anomaly`
+                // against a star frame.
+                let leg1_orbit = &maneuver.transfer_orbit;
+                let Some(leg2_orbit) = maneuver.leg2_orbit.as_ref() else {
+                    // Defensive: the outer `if let` guarantees this, but
+                    // be explicit so future refactors don't silently
+                    // fall through to the (now-deleted) Bezier branch.
+                    continue;
+                };
+                let leg1_total_ma = leg1_orbit.mean_motion * maneuver.leg2_start_s.abs();
+                let leg2_total_ma = leg2_orbit.mean_motion
+                    * ((maneuver.arrival_time - maneuver.departure_time) - maneuver.leg2_start_s)
+                        .abs();
+                let cv_for_orbit = if is_inter_star {
+                    Vec3::ZERO
+                } else {
+                    // Same-star gravity assist: anchor the orbit around
+                    // the orbit-centre body's predicted departure-time
+                    // position so the leg 1 arc tracks the planet.
+                    flyby_center_departure
+                };
+                // The closure evaluates the orbit in the local frame of
+                // its orbit centre; `op`-style absolute positions are not
+                // relevant — only the relative shape matters for the
+                // in-transit arc, which the planet's drift compensates
+                // for via the `flyby_center_departure` shift below.
+                let leg1_point_at = |t: f32| -> Vec3 {
+                    let ma = leg1_orbit.mean_anomaly_epoch + leg1_total_ma * t as f64;
+                    let pos_au = orbit_position_from_mean_anomaly(leg1_orbit, ma);
+                    Vec3::new(
+                        (pos_au.x * SCALING_FACTOR) as f32,
+                        (pos_au.y * SCALING_FACTOR) as f32,
+                        (pos_au.z * SCALING_FACTOR) as f32,
+                    ) + cv_for_orbit
+                };
+                let leg2_point_at = |t: f32| -> Vec3 {
+                    let ma = leg2_orbit.mean_anomaly_epoch + leg2_total_ma * t as f64;
+                    let pos_au = orbit_position_from_mean_anomaly(leg2_orbit, ma);
+                    Vec3::new(
+                        (pos_au.x * SCALING_FACTOR) as f32,
+                        (pos_au.y * SCALING_FACTOR) as f32,
+                        (pos_au.z * SCALING_FACTOR) as f32,
+                    ) + cv_for_orbit
+                };
 
                 // fractions along total t range where leg switch happens
                 let leg1_frac = if maneuver.arrival_time > maneuver.departure_time {
@@ -2517,12 +2569,12 @@ pub fn draw_fleet_trajectories(
                     )
                 };
 
-                // draw remaining piecewise along ga_geo leg1/leg2
+                // draw remaining piecewise along the two real-orbit legs
                 let eval_at = |t_frac: f32| -> Vec3 {
                     if t_frac < leg1_frac {
-                        ga_geo.eval_leg1(t_frac / leg1_frac)
+                        leg1_point_at(t_frac / leg1_frac.max(1e-6))
                     } else {
-                        ga_geo.eval_leg2((t_frac - leg1_frac) / leg2_frac.max(1e-6))
+                        leg2_point_at((t_frac - leg1_frac) / leg2_frac.max(1e-6))
                     }
                 };
                 let mut prev: Option<Vec3> = Some(eval_at(progress_t));
@@ -2577,21 +2629,33 @@ pub fn draw_fleet_trajectories(
 
                 let total_ma_travel = maneuver.transfer_orbit.mean_motion
                     * (maneuver.arrival_time - maneuver.departure_time);
-                let geo = compute_barycentric_visual_arc(
-                    &maneuver.transfer_orbit,
-                    op,
-                    dp,
-                    total_ma_travel,
-                    maneuver.departure_velocity_ms,
-                    maneuver.arrival_velocity_ms,
-                );
-                let mut prev: Option<Vec3> = Some(geo.eval(progress_t));
+                // Sample the actual inter-star `transfer_orbit` instead
+                // of interpolating a Bezier between predicted endpoints.
+                // For inter-star transfers the floating origin is the
+                // departure star (`Vec3::ZERO`); the orbit's local frame
+                // matches AU, so SCALING_FACTOR is the only transform.
+                // Mirror what `build_visual_sampled_transfer_polyline`
+                // does, but inline because this branch needs to gate
+                // rendering on `progress_t` and `t_frac` directly rather
+                // than route through the helper's `start_fraction`
+                // parameter.
+                let orbit = &maneuver.transfer_orbit;
+                let orbit_point = |t: f32| -> Vec3 {
+                    let ma = orbit.mean_anomaly_epoch + total_ma_travel * t as f64;
+                    let pos_au = orbit_position_from_mean_anomaly(orbit, ma);
+                    Vec3::new(
+                        (pos_au.x * SCALING_FACTOR) as f32,
+                        (pos_au.y * SCALING_FACTOR) as f32,
+                        (pos_au.z * SCALING_FACTOR) as f32,
+                    )
+                };
+                let mut prev: Option<Vec3> = Some(orbit_point(progress_t));
                 for i in 0..=SEGMENTS {
                     let t_frac = i as f32 / SEGMENTS as f32;
                     if t_frac <= progress_t {
                         continue;
                     }
-                    let pos = geo.eval(t_frac);
+                    let pos = orbit_point(t_frac);
                     if let Some(prev_pos) = prev {
                         gizmos.line(prev_pos, pos, traj_color(t_frac));
                     }
@@ -2648,21 +2712,30 @@ pub fn draw_fleet_trajectories(
                 {
                     let total_ma_travel = maneuver.transfer_orbit.mean_motion
                         * (maneuver.arrival_time - maneuver.departure_time);
-                    let geo = compute_barycentric_visual_arc(
-                        &maneuver.transfer_orbit,
-                        op,
-                        dp_absolute,
-                        total_ma_travel,
-                        maneuver.departure_velocity_ms,
-                        maneuver.arrival_velocity_ms,
-                    );
-                    let mut prev: Option<Vec3> = Some(geo.eval(progress_t));
+                    // Sample the actual `maneuver.transfer_orbit` for
+                    // same-star heliocentric transfers that carry full
+                    // planned-transfer data (departure/arrival velocity
+                    // and AU endpoints).  This unifies the in-transit
+                    // rendering with the porkchop preview path which
+                    // already uses actual orbit sampling — both produce
+                    // the *same* real Keplerian half-ellipse, no Bezier.
+                    let orbit = &maneuver.transfer_orbit;
+                    let orbit_point = |t: f32| -> Vec3 {
+                        let ma = orbit.mean_anomaly_epoch + total_ma_travel * t as f64;
+                        let pos_au = orbit_position_from_mean_anomaly(orbit, ma);
+                        Vec3::new(
+                            (pos_au.x * SCALING_FACTOR) as f32,
+                            (pos_au.y * SCALING_FACTOR) as f32,
+                            (pos_au.z * SCALING_FACTOR) as f32,
+                        )
+                    };
+                    let mut prev: Option<Vec3> = Some(orbit_point(progress_t));
                     for i in 0..=SEGMENTS {
                         let t_frac = i as f32 / SEGMENTS as f32;
                         if t_frac <= progress_t {
                             continue;
                         }
-                        let pos = geo.eval(t_frac);
+                        let pos = orbit_point(t_frac);
                         if let Some(prev_pos) = prev {
                             gizmos.line(prev_pos, pos, traj_color(t_frac));
                         }
