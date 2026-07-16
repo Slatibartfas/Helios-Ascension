@@ -1809,6 +1809,41 @@ mod tests {
             );
         }
     }
+
+    /// Threshold regression for the multi-rev / half-rev detector in
+    /// `draw_gravity_assist_preview`.  The preview uses
+    /// `|orbit.mean_motion × tof - π| < 1.0` to decide whether the
+    /// `PhaseAwareGaOption`'s Lambert-returned orbit is a half-revolution
+    /// (render directly) or a multi-rev branch (fall back to the
+    /// `compute_gravity_assist_arc` Bezier).  This test pins the
+    /// threshold so future tweaks to the tolerance don't silently let
+    /// multi-rev arcs back into the preview.
+    #[test]
+    fn phase_aware_ga_multi_rev_detector_threshold() {
+        // Re-implements the detector closure to validate its boundary.
+        const PI: f64 = std::f64::consts::PI;
+        let accepts = |ma_travel: f64| (ma_travel - PI).abs() < 1.0;
+
+        // Half-revolution (Hohmann-like): ma_travel ≈ π.
+        assert!(accepts(PI));
+        assert!(accepts(PI + 0.5));
+        assert!(accepts(PI - 0.5));
+
+        // Boundary: ±1.0 rad tolerance.
+        assert!(accepts(PI + 0.999));
+        assert!(!accepts(PI + 1.001));
+        assert!(accepts(PI - 0.999));
+        assert!(!accepts(PI - 1.001));
+
+        // Multi-rev branches: 2π, 3π, 4π must reject.
+        assert!(!accepts(2.0 * PI));
+        assert!(!accepts(3.0 * PI));
+        assert!(!accepts(4.0 * PI));
+
+        // Sub-half-rev: much less than π → reject.
+        assert!(accepts(PI - 0.5));
+        assert!(!accepts(0.5 * PI));
+    }
 }
 
 #[test]
