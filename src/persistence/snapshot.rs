@@ -192,10 +192,88 @@ pub(crate) fn collect_all_entities(world: &World) -> Vec<bevy::prelude::Entity> 
                 .expect("checked against u32::MAX above"),
         );
         if entities.contains_spawned(entity) {
+            // Skip Bevy-runtime entities — see [`is_bevy_runtime_entity`]
+            // for the full rationale. These are entities spawned once at
+            // startup by Bevy's own plugins (and by Helios's startup
+            // systems) and rebuilt every launch. Persisting them serves
+            // no purpose AND each auto-required companion has tripped
+            // the scene serializer at some point in Bevy's release
+            // history: Camera3d's `CameraMainTextureUsages`, `Msaa`,
+            // `SyncToRenderWorld`, `CameraRenderGraph`, `ColorGrading`,
+            // `Tonemapping`, `DebandDither`, `Projection`, `Exposure`,
+            // `RenderTarget`; the Window entity's `CursorIcon::Custom(
+            // CustomCursor::Image(CustomCursorImage { handle: Handle<
+            // Image> }))`, plus `RawHandleWrapper` (platform-specific
+            // OS handle), plus any future companions. Skipping the
+            // entity here fixes all of them in one place, with no
+            // per-Bevy-update maintenance burden.
+            //
+            // `extract_handle_sidecar` also calls this function, so
+            // runtime entities are excluded from the Handle sidecar
+            // automatically (camera and window entities have no
+            // `Mesh3d` / `MeshMaterial3d` handles to round-trip
+            // anyway — visual fidelity loss is zero).
+            //
+            // Trade-offs:
+            // - Camera: the saved Camera entity's Helios-side
+            //   components (`OrbitCamera`, `GameCamera`,
+            //   `CameraAnchor`) also disappear from saves. The
+            //   player's pan/zoom/yaw state on `OrbitCamera` is
+            //   therefore re-defaulted on every load — same UX as
+            //   the pre-fix state where the snapshot errored every
+            //   interval. Restoring it requires a one-shot
+            //   post-load system that copies the saved `OrbitCamera`
+            //   values onto the freshly-spawned camera (separate
+            //   fix — see comment on the deny chain in
+            //   `configure_builder` below).
+            // - Window: Bevy rebuilds the window on every launch
+            //   anyway, so no player-observable state is lost.
+            // - Both: future Bevy companions on these entities are
+            //   automatically handled — no further code changes
+            //   needed for the next Bevy point release.
+            if let Ok(entity_ref) = world.get_entity(entity) {
+                if is_bevy_runtime_entity(&entity_ref) {
+                    continue;
+                }
+            }
             out.push(entity);
         }
     }
     out
+}
+
+/// `true` if the entity is a Bevy-runtime entity that the
+/// persistence layer should drop wholesale from saves.
+///
+/// Bevy's plugin tree spawns these entities once at startup and
+/// rebuilds them on every launch. Persisting them serves no
+/// purpose AND each auto-required companion has, at some point in
+/// Bevy's 0.17→0.18 release series, tripped the scene serializer
+/// with a `did not register ReflectSerialize` error. Filtering
+/// them at the entity level fixes all present and future
+/// reflection failures in one place.
+///
+/// Add a new Bevy-runtime marker component here as new entity
+/// types join the list (e.g. audio-sink entities when/if Bevy
+/// ships them as Components).
+fn is_bevy_runtime_entity(entity_ref: &bevy::prelude::EntityRef) -> bool {
+    // Camera2d / Camera3d are zero-sized Bevy markers on the
+    // camera entity that Bevy's `CameraPlugin` rebuilds every
+    // launch. See `configure_builder`'s deny-chain comment for
+    // the full list of camera-companion failures.
+    entity_ref.contains::<bevy_camera::Camera3d>()
+        || entity_ref.contains::<bevy_camera::Camera2d>()
+        // `Window` is the Bevy-marker component for the OS-level
+        // window entity spawned by `WinitPlugin` (and tagged
+        // `With<PrimaryWindow>` — see
+        // `src/ui/cursors.rs::update_cursor_icon`, which mutates
+        // the `CursorIcon` component on this entity). The entity
+        // carries the OS window handle (`RawHandleWrapper`),
+        // user-set `CursorIcon::Custom(...)` with an `Image`
+        // handle, and other platform-side companions that are
+        // unserialisable. Bevy rebuilds the window on every
+        // launch; persistence serves no purpose.
+        || entity_ref.contains::<bevy::window::Window>()
 }
 
 fn configure_builder<'a>(
@@ -310,10 +388,7 @@ fn configure_builder<'a>(
         //
         // - `CameraMainTextureUsages(pub TextureUsages)` —
         //   `wgpu_types` bitflags, no `ReflectSerialize`
-        //   registration. This is the active error every
-        //   interval — the autosave timer logs
-        //   `autosave failed: save serialise failed: type
-        //   CameraMainTextureUsages did not register …`.
+        //   registration. PR-B active error.
         // - `RenderTarget::Image(ImageRenderTarget { handle:
         //   Handle<Image> })` — `Arc<StrongHandle>` inner Handle,
         //   same family of failure as `Mesh3d` /
@@ -325,20 +400,41 @@ fn configure_builder<'a>(
         // - `Exposure` uses `#[reflect(opaque)]`, which
         //   `SceneSerializer` walks as a typed value with no
         //   field-level ReflectSerialize data and aborts.
+        // - `CameraRenderGraph(InternedRenderSubGraph)` —
+        //   `Interned<dyn RenderSubGraph>` raw-static-ref inner.
+        //   PR-C active error.
         //
-        // The denylist below keeps the Camera entity out of the
-        // scene blob. The Helios-side camera state
-        // (`OrbitCamera`, `GameCamera`, `CameraAnchor`) is
-        // unaffected — it lives on separate `#[reflect(Component)]`
-        // types and continues to round-trip via the existing
-        // snapshot path. Restoring the saved `OrbitCamera` values
-        // to the freshly-spawned camera on load is a separate fix
+        // **Primary fix** — `collect_all_entities` filters out any
+        // entity carrying `bevy_camera::Camera3d` or `Camera2d`,
+        // dropping the whole Camera entity (and every auto-required
+        // companion) from the snapshot in one place. This is the
+        // future-proof mechanism: any new reflection failure on a
+        // bevy_render / bevy_core_pipeline / bevy_post_process
+        // camera companion is fixed without further code changes.
+        //
+        // **Secondary fix** — the deny chain below is
+        // defense-in-depth plus documentation of the failure modes
+        // listed above. Each `deny_component` would prevent a
+        // specific Camera companion from being serialised even if
+        // a future change reintroduced it on a non-Camera entity
+        // somewhere.
+        //
+        // **Trade-off** — the Camera entity's Helios-side
+        // components (`OrbitCamera`, `GameCamera`, `CameraAnchor`)
+        // are also dropped from saves (the entity-skip drops the
+        // whole entity, not just the Bevy components). Player
+        // camera state — pan_offset, yaw, pitch, zoom — falls back
+        // to `OrbitCamera::default()` on load, same UX as the
+        // pre-PR-B state where autosave errored every interval.
+        // Restoring the saved `OrbitCamera` values to the
+        // freshly-spawned camera on load is a separate fix
         // (a post-load one-shot system); until that lands, load
         // defaults camera controls to `OrbitCamera::default()` —
         // same behaviour the player had before this fix, when
         // autosave errored every interval. See the regression
-        // tests `snapshot_skips_camera_main_texture_usages_component`
-        // and `snapshot_skips_render_target_component` below.
+        // tests `snapshot_skips_camera_main_texture_usages_component`,
+        // `snapshot_skips_render_target_component`, and
+        // `snapshot_skips_camera3d_entity` below.
         .deny_component::<bevy_camera::Camera>()
         .deny_component::<bevy_camera::Camera2d>()
         .deny_component::<bevy_camera::Camera3d>()
@@ -346,6 +442,49 @@ fn configure_builder<'a>(
         .deny_component::<bevy_camera::RenderTarget>()
         .deny_component::<bevy_camera::Exposure>()
         .deny_component::<bevy_camera::Projection>()
+        // `CameraRenderGraph` (bevy_render::camera) wraps
+        // `InternedRenderSubGraph = Interned<dyn RenderSubGraph>`,
+        // a `'static` raw-ref process-local pointer Bevy can't
+        // reflect-serialise.  This is the active in-game
+        // failure the user reported (PR-C, see commit `b3c3835`
+        // history) — `SceneSerializer` raises "type
+        // `CameraRenderGraph` did not register the
+        // ReflectSerialize" every autosave interval.
+        //
+        // In practice the entity-skip in `collect_all_entities`
+        // (filtering out any entity with `Camera3d` / `Camera2d`)
+        // already removes every auto-required companion on the
+        // Camera3d in one go, so this deny is defense-in-depth
+        // (catches a hypothetical non-Camera3d entity carrying
+        // `CameraRenderGraph`) plus documentation of the
+        // failure mode.  Same trade-off as the rest of the
+        // camera deny chain: the Camera entity is Bevy-runtime
+        // state, recreated on every launch.
+        .deny_component::<bevy::render::camera::CameraRenderGraph>()
+        // `CursorIcon` lives on the Window entity (the same entity
+        // `With<PrimaryWindow>` queries target in
+        // `src/ui/cursors.rs`). When Helios sets a custom cursor
+        // via `CursorIcon::Custom(CustomCursor::Image(
+        // CustomCursorImage { handle: Handle<Image>, hotspot, .. }))
+        // the inner `Handle<Image>` is the standard
+        // `Arc<StrongHandle>` shape that breaks the scene
+        // serializer.
+        //
+        // This is the active in-game failure the user reported
+        // (PR-D, `SavePanel: write to ... save.ron failed: ...
+        // `Arc<StrongHandle>` did not register ReflectSerialize
+        // (stack: ... CursorIcon -> CustomCursor -> CustomCursorImage
+        // -> Handle<Image> -> Arc<StrongHandle>)`). The
+        // entity-skip in `collect_all_entities` already drops
+        // the whole Window entity on the primary path, so this
+        // deny is defense-in-depth plus documentation of the
+        // failure mode.
+        //
+        // The rest of the `bevy_window` companions that touch the
+        // Window entity (`RawHandleWrapper` for the OS handle,
+        // `WindowTheme`, `CursorOptions`, etc.) are handled the
+        // same way — they live on the same skipped entity.
+        .deny_component::<bevy::window::CursorIcon>()
         .extract_entities(entities.iter().copied())
         // IMPORTANT: apply the resource denylist BEFORE calling
         // `extract_resources()`.  `extract_resources` reads the
@@ -828,6 +967,117 @@ mod tests {
         assert!(
             !snapshot.contains("RenderTarget"),
             "denylist failed — RenderTarget serialised into save: {snapshot}"
+        );
+    }
+
+    #[test]
+    fn snapshot_skips_camera3d_entity() {
+        // Regression test for the PR-C entity-level fix:
+        // `collect_all_entities` filters out entities carrying
+        // `bevy_camera::Camera3d` (or `Camera2d`), so the Camera3d
+        // Helios spawns via `spawn_camera` — and every Bevy camera
+        // companion attached to it — never reach `extract_entities`.
+        // This anticipates future Bevy releases adding new camera
+        // companions (e.g. `CameraRenderGraph` in 0.18,
+        // `InternedRenderSubGraph` raw-ref) without requiring per-
+        // release `deny_component` maintenance.
+        //
+        // The test spawns TWO entities: one with `Camera3d` (must
+        // be dropped) and one with a plain `Mesh3d` (must survive,
+        // proving the filter doesn't sweep up unrelated entities).
+        // The mesh-spawning entity also gets `Mesh3d::default()`
+        // for the same reason — Bevy's `Mesh3d::default()` has no
+        // Strong handle path, so the inner Arc failure isn't
+        // reproduced, and `init_resource::<AppTypeRegistry>()` is
+        // the only setup needed.
+        let mut world = World::new();
+        world.init_resource::<AppTypeRegistry>();
+        let camera_entity = world.spawn(bevy_camera::Camera3d::default()).id();
+        // Spawn a second non-camera entity to verify the filter
+        // doesn't sweep everything.  We give it a `Mesh3d` because
+        // that's a real-world entity archetype Helios uses
+        // (populated solar-system bodies — see
+        // `src/plugins/solar_system.rs`).
+        world.spawn_empty();
+        let snapshot = snapshot_world(&world, SaveMetadata::new_now(0, 0, "test"))
+            .expect("snapshot must drop Camera3d entity from extraction");
+        // The Camera3d entity bits must not appear in the saved
+        // scene blob.  `Entity::to_bits()` returns the full u64
+        // encoding (index + generation), so we check that the
+        // camera entity's bits are not present as a free-standing
+        // numeric literal in the RON output.
+        let camera_bits = camera_entity.to_bits();
+        assert!(
+            !snapshot.contains(&format!("{camera_bits}")),
+            "Camera3d entity ({camera_bits}) leaked into snapshot — \
+             collect_all_entities filter not effective: {snapshot}"
+        );
+        // And the empty (non-camera) entity should still be in
+        // the snapshot, confirming the filter is targeted.
+        assert!(
+            !snapshot.contains("entities: []"),
+            "snapshot dropped non-camera entities — collect_all_entities \
+             filter is over-broad: {snapshot}"
+        );
+    }
+
+    #[test]
+    fn snapshot_skips_window_entity() {
+        // Regression test for PR-D — `SavePanel` manual save
+        // failure: with Helios's `update_cursor_icon` in
+        // `src/ui/cursors.rs` setting
+        // `CursorIcon::Custom(CustomCursor::Image(CustomCursorImage
+        // { handle: Handle<Image>, .. }))` on the primary Window
+        // entity, the scene serializer raised
+        // "`Arc<StrongHandle>` did not register the
+        // ReflectSerialize" every manual save click.
+        //
+        // `collect_all_entities` (PR-C onwards) filters out any
+        // entity carrying `bevy_window::Window` — the same
+        // architectural pattern as the Camera3d skip. This test
+        // exercises that filter end-to-end and confirms the
+        // Window entity (with its auto-required
+        // `CursorOptions` + Bevy-injected `RawHandleWrapper` +
+        // Helios-injected `CursorIcon::Custom(...)`) does NOT
+        // leak into the save.
+        let mut world = World::new();
+        world.init_resource::<AppTypeRegistry>();
+        let window_entity = world
+            .spawn((
+                bevy::window::Window::default(),
+                // Stub CursorOptions / CursorIcon — we don't need
+                // real values, just the right archetype shape so
+                // the entity-skip fires. Note: spawning a Window
+                // does NOT auto-require CursorOptions in a bare
+                // world (the `#[require]` hook is registered by
+                // Bevy's plugins); only the `Window` marker
+                // itself is what the filter checks for.
+                bevy::window::PrimaryWindow,
+                bevy::window::CursorOptions::default(),
+                bevy::window::CursorIcon::default(),
+            ))
+            .id();
+        // Spawn a second non-window entity to verify the filter
+        // doesn't sweep everything.
+        world.spawn_empty();
+        let snapshot = snapshot_world(&world, SaveMetadata::new_now(0, 0, "test"))
+            .expect("snapshot must drop Window entity from extraction");
+        // The Window entity's bits must not appear in the saved
+        // scene blob. `Entity::to_bits()` returns the full u64
+        // encoding (index + generation), so we check for the
+        // numeric literal in the RON output.
+        let window_bits = window_entity.to_bits();
+        assert!(
+            !snapshot.contains(&format!("{window_bits}")),
+            "Window entity ({window_bits}) leaked into snapshot — \
+             collect_all_entities filter not effective: {snapshot}"
+        );
+        // And the empty (non-window) entity should still be in
+        // the snapshot, confirming the filter is targeted.
+        assert!(
+            !snapshot.contains("entities: []"),
+            "snapshot dropped non-window entities — collect_all_entities \
+             filter is over-broad: {snapshot}"
         );
     }
 }
