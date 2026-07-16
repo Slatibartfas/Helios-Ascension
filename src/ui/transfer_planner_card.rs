@@ -169,7 +169,17 @@ pub fn build_selected_card(
                 // the one the planner just re-solved — guard with
                 // equality to avoid mixing.
                 if let Some(phase) = sup.ga_phase_aware.as_ref() {
-                    return build_ga_card_with_phase_aware(entry, phase);
+                    // Cross-system (Phase-5 collapsed) grids live on
+                    // `cross_system_grid`; same-star Lambert grids
+                    // live on the plan itself (`plan.porkchop_grid`).
+                    // For the GA-direct comparison we want whichever
+                    // is available so the row reflects the active
+                    // planner session.
+                    let ga_porkchop = sup
+                        .cross_system_grid
+                        .as_ref()
+                        .or(plan.porkchop_grid.as_ref());
+                    return build_ga_card_with_phase_aware(entry, phase, ga_porkchop);
                 }
                 return build_ga_card(entry);
             }
@@ -409,15 +419,22 @@ fn build_ga_card(entry: &GravityAssistEntry) -> CardWidget {
 ///   2. Burns — departure / mid-course / arrival breakdown so the
 ///      player can plan propellant budgets per leg.  Mid-course
 ///      zero collapses out (no GA kick).
-///   3. ΔV saved — the headline gain vs the direct Hohmann baseline.
-///   4. Direct Hohmann ΔV — the comparison anchor.  Computed as
+///   3. Direct same-TOF ΔV — closest-feasible-cell cost from the
+///      porkchop grid at this transfer's total time.  Lets the
+///      player ground "is the GA actually cheaper than direct?" in a
+///      single row, since both numbers are plotted at the same burn
+///      window.  Skipped silently when the grid is unavailable or no
+///      feasible cell exists in the matching TOF band.
+///   4. ΔV saved — the headline gain vs the direct Hohmann baseline.
+///   5. Direct Hohmann ΔV — the comparison anchor.  Computed as
 ///      `(total + savings)` from the phase-aware solve so the savings
 ///      are auditable: `saved + total = direct` exactly.
-///   5. Extra time / Window every / v∞ — unchanged from the previous
+///   6. Extra time / Window every / v∞ — unchanged from the previous
 ///      build.  v∞ still describes the Mars flyby's hyperbolic excess.
 fn build_ga_card_with_phase_aware(
     entry: &GravityAssistEntry,
     phase: &crate::fleets::orbital_mechanics::PhaseAwareGaOption,
+    porkchop_grid: Option<&PorkchopGrid>,
 ) -> CardWidget {
     let opt = &entry.option;
     let total_via = phase.leg1_time_s + phase.leg2_time_s;
@@ -465,6 +482,53 @@ fn build_ga_card_with_phase_aware(
     } else {
         "n/a".to_owned()
     };
+    // Closest-feasible-cell cost from the planner's porkchop grid at
+    // the GA's two-leg time-of-flight.  Searches by `tof_s` only
+    // (the slider's t_dep is a separate axis the user controls via
+    // the slider, and porkchop cells carry a per-row t_dep profile
+    // the slider can cross-check directly).  Picks the cell with
+    // minimum `|tof − leg1 + leg2|` whose `feasible` flag is set, and
+    // returns "n/a" when the grid is missing / has no feasible cells /
+    // the GA ΔV is itself unreliable.
+    let direct_same_tof_str = match porkchop_grid {
+        Some(grid)
+            if finite
+                && grid
+                    .cells
+                    .iter()
+                    .any(|c| c.feasible && c.total_dv_ms.is_finite()) =>
+        {
+            let target_tof = total_via;
+            let best = grid
+                .cells
+                .iter()
+                .filter(|c| c.feasible && c.total_dv_ms.is_finite())
+                .min_by(|a, b| {
+                    let da = (a.tof_s - target_tof).abs();
+                    let db = (b.tof_s - target_tof).abs();
+                    da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
+                });
+            match best {
+                Some(cell) => {
+                    let delta = cell.total_dv_ms - phase.total_dv_ms;
+                    let prefix = if delta > 100.0 {
+                        format!("+{} ", format_delta_v(delta))
+                    } else if delta < -100.0 {
+                        format!("{} ", format_delta_v(delta))
+                    } else {
+                        "≈  ".to_string()
+                    };
+                    format!(
+                        "{}{}",
+                        prefix,
+                        format_delta_v(cell.total_dv_ms)
+                    )
+                }
+                None => "n/a".to_owned(),
+            }
+        }
+        _ => "n/a".to_owned(),
+    };
     let sign = if extra_time >= 0.0 { "+" } else { "" };
     let win_str = if opt.window_period_s.is_finite() {
         format_duration(opt.window_period_s).to_string()
@@ -492,6 +556,17 @@ fn build_ga_card_with_phase_aware(
             CardRow {
                 label: "Burns".to_string(),
                 value: burn_str,
+                severity: Severity::Neutral,
+            },
+            CardRow {
+                // Closes the v0.5.0 follow-up "relate GA to porkchop"
+                // gap: lets the player ground "is this GA actually
+                // cheaper than direct?" in a single row.  The value
+                // string prefixes `+ΔV` (more than GA), `ΔV` (less
+                // than GA), or `≈` (within rounding) so the relative
+                // cost reads at a glance.
+                label: "Direct same-TOF ΔV".to_string(),
+                value: direct_same_tof_str,
                 severity: Severity::Neutral,
             },
             CardRow {
