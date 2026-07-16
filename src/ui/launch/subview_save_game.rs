@@ -195,7 +195,7 @@ pub fn ui_save_panel_subview(
                             SaveSummary::Valid { path, header } => {
                                 let label = format!(
                                     "{}  ·  {}",
-                                    header.saved_at.clone().unwrap_or_else(|| "?".to_string()),
+                                    header.formatted_saved_at(),
                                     path.file_name()
                                         .map(|n| n.to_string_lossy().to_string())
                                         .unwrap_or_default(),

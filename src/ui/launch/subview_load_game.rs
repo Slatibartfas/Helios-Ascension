@@ -7,8 +7,8 @@
 //!
 //! Layout:
 //! - One row per [`SaveSummary`] entry, with metadata columns
-//!   derived from [`SaveHeader`] (version, saved_at, playtime_s,
-//!   seed).
+//!   derived from [`SaveHeader`] (helios_version,
+//!   saved_at_unix_s, playtime_s, seed).
 //! - Broken saves render in [`theme::RED`] and are not selectable.
 //! - Back button returns to [`LaunchState::MainMenu`].
 //!
@@ -165,40 +165,18 @@ pub fn ui_load_game_subview(
 /// line keeps the row scannable on small windows. Multi-column
 /// rendering can land behind a `show_columns` toggle in a later
 /// PR.
+///
+/// All formatting is delegated to [`SaveHeader`]'s `formatted_*`
+/// helpers so the menu HUD and the in-game HUD stay consistent
+/// (both render the same playtime / timestamp shape).
 fn save_row_label(header: &crate::ui::launch::save_index::SaveHeader) -> String {
-    let version = header.version.clone().unwrap_or_else(|| "?".to_string());
-    let saved_at = header
-        .saved_at
-        .clone()
-        .unwrap_or_else(|| "Unknown".to_string());
-    let playtime = header
-        .playtime_s
-        .map(format_playtime)
-        .unwrap_or_else(|| "—".to_string());
-    let seed = header
-        .seed
-        .map(|s| s.to_string())
-        .unwrap_or_else(|| "—".to_string());
     format!(
         "{}  ·  {}  ·  {}  ·  seed {}",
-        version, saved_at, playtime, seed
+        header.formatted_version(),
+        header.formatted_saved_at(),
+        header.formatted_playtime(),
+        header.formatted_seed(),
     )
-}
-
-/// Format a playtime in seconds as `Hh MMm` (e.g. `3h 12m`).
-/// Sub-hour playtimes render as `MMm SSs`; sub-minute as `SSs`.
-fn format_playtime(seconds: f64) -> String {
-    let total = seconds.max(0.0) as u64;
-    let hours = total / 3600;
-    let minutes = (total % 3600) / 60;
-    let secs = total % 60;
-    if hours > 0 {
-        format!("{}h {:02}m", hours, minutes)
-    } else if minutes > 0 {
-        format!("{}m {:02}s", minutes, secs)
-    } else {
-        format!("{}s", secs)
-    }
 }
 
 /// Register the Load Game subview render system in
@@ -225,37 +203,60 @@ mod tests {
     }
 
     #[test]
-    fn format_playtime_hours_minutes() {
-        assert_eq!(format_playtime(3.0 * 3600.0 + 12.0 * 60.0 + 45.0), "3h 12m");
+    fn save_header_formatted_playtime_hours_minutes() {
+        // The SaveHeader's formatted_playtime helper is now the
+        // source of truth for the menu's playtime column (it
+        // lives in save_index.rs to keep both the menu and the
+        // in-game HUD consistent). This test exercises the
+        // Same/Some path.
+        let h = SaveHeader {
+            playtime_s: Some(3 * 3600 + 12 * 60 + 45),
+            ..Default::default()
+        };
+        assert_eq!(h.formatted_playtime(), "3h 12m");
     }
 
     #[test]
-    fn format_playtime_minutes_seconds() {
-        assert_eq!(format_playtime(12.0 * 60.0 + 45.0), "12m 45s");
+    fn save_header_formatted_playtime_minutes_seconds() {
+        let h = SaveHeader {
+            playtime_s: Some(12 * 60 + 45),
+            ..Default::default()
+        };
+        assert_eq!(h.formatted_playtime(), "12m 45s");
     }
 
     #[test]
-    fn format_playtime_seconds_only() {
-        assert_eq!(format_playtime(45.0), "45s");
+    fn save_header_formatted_playtime_seconds_only() {
+        let h = SaveHeader {
+            playtime_s: Some(45),
+            ..Default::default()
+        };
+        assert_eq!(h.formatted_playtime(), "45s");
     }
 
     #[test]
-    fn format_playtime_zero() {
-        assert_eq!(format_playtime(0.0), "0s");
+    fn save_header_formatted_playtime_zero() {
+        let h = SaveHeader {
+            playtime_s: Some(0),
+            ..Default::default()
+        };
+        assert_eq!(h.formatted_playtime(), "0s");
     }
 
     #[test]
-    fn format_playtime_negative_clamped_to_zero() {
-        // Defensive: a corrupt header could yield negative seconds.
-        assert_eq!(format_playtime(-10.0), "0s");
+    fn save_header_formatted_playtime_none_is_em_dash() {
+        let h = SaveHeader::default();
+        assert_eq!(h.formatted_playtime(), "—");
     }
 
     #[test]
     fn save_row_label_includes_all_header_fields() {
         let header = SaveHeader {
-            version: Some("0.5.0".into()),
-            saved_at: Some("2026-07-03T22:00:00Z".into()),
-            playtime_s: Some(3.0 * 3600.0 + 12.0 * 60.0),
+            format_version: Some(1),
+            helios_version: Some("0.5.0".into()),
+            // 2026-07-03 22:00:00 UTC = unix 1788688800
+            saved_at_unix_s: Some(1_788_688_800),
+            playtime_s: Some(3 * 3600 + 12 * 60),
             seed: Some(42),
         };
         let label = save_row_label(&header);

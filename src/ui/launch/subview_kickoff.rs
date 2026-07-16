@@ -334,7 +334,7 @@ mod tests {
         index.entries.push(SaveSummary::Valid {
             path: PathBuf::from("/tmp/zeta_save.ron"),
             header: crate::ui::launch::save_index::SaveHeader {
-                version: Some("0.4.0".into()),
+                helios_version: Some("0.4.0".into()),
                 ..Default::default()
             },
         });
