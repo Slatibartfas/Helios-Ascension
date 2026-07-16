@@ -398,6 +398,23 @@ fn build_ga_card(entry: &GravityAssistEntry) -> CardWidget {
 /// phase-aware model (depends only on orbital radii + mean motions), so
 /// the cached `window_period_s` from the GA candidate is reused.  Extra
 /// time = `phase.total_time_s - cached.total_time_s`.
+///
+/// Row ordering rationale (closes the v0.5.0 follow-up gap where the
+/// GA card only displayed ΔV savings, not the absolute fuel cost —
+/// the user could not tell whether the savings were worth the trip):
+///   1. Total ΔV — the absolute fuel requirement for this GA at the
+///      slider's burn epoch.  The single most important number for
+///      "can my fleet afford this?".  Falls back to "n/a" when the
+///      Lambert solver failed (extremely off-optimal geometry).
+///   2. Burns — departure / mid-course / arrival breakdown so the
+///      player can plan propellant budgets per leg.  Mid-course
+///      zero collapses out (no GA kick).
+///   3. ΔV saved — the headline gain vs the direct Hohmann baseline.
+///   4. Direct Hohmann ΔV — the comparison anchor.  Computed as
+///      `(total + savings)` from the phase-aware solve so the savings
+///      are auditable: `saved + total = direct` exactly.
+///   5. Extra time / Window every / v∞ — unchanged from the previous
+///      build.  v∞ still describes the Mars flyby's hyperbolic excess.
 fn build_ga_card_with_phase_aware(
     entry: &GravityAssistEntry,
     phase: &crate::fleets::orbital_mechanics::PhaseAwareGaOption,
@@ -405,10 +422,46 @@ fn build_ga_card_with_phase_aware(
     let opt = &entry.option;
     let total_via = phase.leg1_time_s + phase.leg2_time_s;
     let extra_time = total_via - opt.total_time_s;
+    let finite = phase.total_dv_ms.is_finite();
+    let total_str = if finite {
+        format_delta_v(phase.total_dv_ms)
+    } else {
+        "n/a".to_owned()
+    };
+    // Breakdown of the three burns (dep / mid / arr).  Collapses
+    // "mid" out when the GA kick is zero so the row doesn't waste
+    // space on a 0 + X = Y display.
+    let burn_str = if finite {
+        if phase.dv_mid_ms.abs() > 1.0 {
+            format!(
+                "dep {} + mid {} + arr {}",
+                format_delta_v(phase.dv_depart_ms),
+                format_delta_v(phase.dv_mid_ms),
+                format_delta_v(phase.dv_arrive_ms),
+            )
+        } else {
+            format!(
+                "dep {} + arr {}",
+                format_delta_v(phase.dv_depart_ms),
+                format_delta_v(phase.dv_arrive_ms),
+            )
+        }
+    } else {
+        "n/a".to_owned()
+    };
     let savings_str = if phase.dv_savings_ms.is_finite() && phase.dv_savings_ms > 100.0 {
         format_delta_v(phase.dv_savings_ms)
     } else if phase.dv_savings_ms.is_finite() {
         format!("+{} (sub-optimal)", format_delta_v(-phase.dv_savings_ms))
+    } else {
+        "n/a".to_owned()
+    };
+    // Direct Hohmann ΔV = total + savings (the phase-aware solve
+    // computes both internally; total_dv_direct = hohmann_transfer
+    // sum, total_dv = total_assisted, savings = direct - assisted).
+    let direct_str = if finite && phase.dv_savings_ms.is_finite() {
+        let direct_ms = phase.total_dv_ms + phase.dv_savings_ms;
+        format_delta_v(direct_ms)
     } else {
         "n/a".to_owned()
     };
@@ -428,6 +481,20 @@ fn build_ga_card_with_phase_aware(
         subtitle: None,
         rows: vec![
             CardRow {
+                label: "Total ΔV".to_string(),
+                value: total_str,
+                severity: if finite {
+                    Severity::Positive
+                } else {
+                    Severity::Warn
+                },
+            },
+            CardRow {
+                label: "Burns".to_string(),
+                value: burn_str,
+                severity: Severity::Neutral,
+            },
+            CardRow {
                 label: "ΔV saved".to_string(),
                 value: savings_str,
                 severity: if phase.dv_savings_ms.is_finite() && phase.dv_savings_ms > 100.0 {
@@ -435,6 +502,11 @@ fn build_ga_card_with_phase_aware(
                 } else {
                     Severity::Warn
                 },
+            },
+            CardRow {
+                label: "Direct Hohmann ΔV".to_string(),
+                value: direct_str,
+                severity: Severity::Neutral,
             },
             CardRow {
                 label: "Extra time".to_string(),
