@@ -16,7 +16,9 @@
 //! its variant lands on `SelectionSource`.
 
 use crate::fleets::components::{TransferPlan, TransferReferenceFrame};
-use crate::fleets::orbital_mechanics::{format_delta_v, format_duration, TransferOption};
+use crate::fleets::orbital_mechanics::{
+    format_delta_v, format_duration, PhaseAwareGaOption, TransferOption,
+};
 use crate::fleets::porkchop::{PorkchopCell, PorkchopGrid};
 use crate::ui::theme;
 use crate::ui::GravityAssistEntry;
@@ -88,6 +90,12 @@ pub struct CardWidget {
 pub struct CardSupplement {
     pub gravity_assist_candidates: Vec<GravityAssistEntry>,
     pub selected_gravity_assist: Option<usize>,
+    /// Phase-aware gravity-assist solve for the slider's current
+    /// departure epoch.  When `Some`, the GA card uses these values
+    /// (ΔV / v∞ / leg times) instead of the cached optimal-window
+    /// candidate so the panel reflects the user's actual burn window.
+    /// See [`solve_phase_aware_ga_option`](crate::fleets::orbital_mechanics::solve_phase_aware_ga_option).
+    pub ga_phase_aware: Option<PhaseAwareGaOption>,
     pub cross_system_grid: Option<PorkchopGrid>,
     pub cross_system_selected: Option<(usize, usize)>,
     /// System-barycentric distance to the cross-star target (ly).
@@ -150,6 +158,19 @@ pub fn build_selected_card(
     if let Some(sup) = supplement {
         if let Some(idx) = sup.selected_gravity_assist {
             if let Some(entry) = sup.gravity_assist_candidates.get(idx) {
+                // When the planner has a phase-aware solve for the
+                // *selected* flyby + the slider's burn epoch, route
+                // the card through it so ΔV / v∞ / leg times reflect
+                // the user's actual window instead of the cached
+                // optimal-window snapshot.  See
+                // `solve_phase_aware_ga_option` in
+                // `fleets/orbital_mechanics.rs`.  The phase-aware solve
+                // is only populated when the selected index matches
+                // the one the planner just re-solved — guard with
+                // equality to avoid mixing.
+                if let Some(phase) = sup.ga_phase_aware.as_ref() {
+                    return build_ga_card_with_phase_aware(entry, phase);
+                }
                 return build_ga_card(entry);
             }
         } else if !sup.gravity_assist_candidates.is_empty() {
@@ -365,6 +386,89 @@ fn build_ga_card(entry: &GravityAssistEntry) -> CardWidget {
             CardLeg {
                 leg_label: "Leg 2".to_string(),
                 summary: format!("{} flyby → destination", opt.body_name),
+            },
+        ],
+        frame_caption: None,
+    }
+}
+
+/// Variant of `build_ga_card` that overrides the cached `GravityAssistOption`
+/// fields with the phase-aware `PhaseAwareGaOption` values for the slider's
+/// current departure epoch.  Synodic window period is constant in the
+/// phase-aware model (depends only on orbital radii + mean motions), so
+/// the cached `window_period_s` from the GA candidate is reused.  Extra
+/// time = `phase.total_time_s - cached.total_time_s`.
+fn build_ga_card_with_phase_aware(
+    entry: &GravityAssistEntry,
+    phase: &crate::fleets::orbital_mechanics::PhaseAwareGaOption,
+) -> CardWidget {
+    let opt = &entry.option;
+    let total_via = phase.leg1_time_s + phase.leg2_time_s;
+    let extra_time = total_via - opt.total_time_s;
+    let savings_str = if phase.dv_savings_ms.is_finite() && phase.dv_savings_ms > 100.0 {
+        format_delta_v(phase.dv_savings_ms)
+    } else if phase.dv_savings_ms.is_finite() {
+        format!("+{} (sub-optimal)", format_delta_v(-phase.dv_savings_ms))
+    } else {
+        "n/a".to_owned()
+    };
+    let sign = if extra_time >= 0.0 { "+" } else { "" };
+    let win_str = if opt.window_period_s.is_finite() {
+        format_duration(opt.window_period_s).to_string()
+    } else {
+        "∞".to_owned()
+    };
+    let v_inf_str = if phase.v_inf_ms.is_finite() {
+        format_delta_v(phase.v_inf_ms)
+    } else {
+        "n/a".to_owned()
+    };
+    CardWidget {
+        title: format!("⚡ via {}", opt.body_name),
+        subtitle: None,
+        rows: vec![
+            CardRow {
+                label: "ΔV saved".to_string(),
+                value: savings_str,
+                severity: if phase.dv_savings_ms.is_finite() && phase.dv_savings_ms > 100.0 {
+                    Severity::Positive
+                } else {
+                    Severity::Warn
+                },
+            },
+            CardRow {
+                label: "Extra time".to_string(),
+                value: format!("{sign}{}", format_duration(extra_time.abs())),
+                severity: Severity::Neutral,
+            },
+            CardRow {
+                label: "Window every".to_string(),
+                value: win_str,
+                severity: Severity::Neutral,
+            },
+            CardRow {
+                label: "v∞".to_string(),
+                value: v_inf_str,
+                severity: Severity::Neutral,
+            },
+        ],
+        warn: None,
+        legs: vec![
+            CardLeg {
+                leg_label: "Leg 1".to_string(),
+                summary: format!(
+                    "Origin → {} flyby  ·  TOF {}",
+                    opt.body_name,
+                    format_duration(phase.leg1_time_s)
+                ),
+            },
+            CardLeg {
+                leg_label: "Leg 2".to_string(),
+                summary: format!(
+                    "{} flyby → destination  ·  TOF {}",
+                    opt.body_name,
+                    format_duration(phase.leg2_time_s)
+                ),
             },
         ],
         frame_caption: None,

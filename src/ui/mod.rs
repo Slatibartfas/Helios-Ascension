@@ -89,7 +89,7 @@ use crate::fleets::orbital_mechanics::{
     co_orbital_phasing_options, compute_burn_time_s, compute_transfer_window,
     course_correction_transfer_options, find_gravity_assist_options, format_delta_v,
     format_duration, hohmann_transfer, keplerian_velocity_vector, kinematic_transfer_options,
-    plane_change_angle, GravityAssistOption,
+    plane_change_angle, solve_phase_aware_ga_option, GravityAssistOption, PhaseAwareGaOption,
 };
 use crate::fleets::OrbitShellId;
 use crate::fleets::{
@@ -322,6 +322,15 @@ pub struct FleetUiState {
     pub gravity_assist_candidates: Vec<GravityAssistEntry>,
     /// Index of the currently chosen gravity-assist candidate (`None` = direct transfer).
     pub selected_gravity_assist: Option<usize>,
+    /// Phase-aware gravity-assist solve for `(selected_gravity_assist,
+    /// selected_abs_t_dep_s | departure_offset_days)`.  Recomputed by the
+    /// transfer planner whenever any of those change (slider drag, flyby
+    /// reselection, target reselection).  Holds the per-time ΔV breakdown
+    /// plus the per-leg `KeplerOrbit`s so the preview renders the actual
+    /// trajectory for the user's selected window instead of the cached
+    /// optimal-window candidate.  See
+    /// [`solve_phase_aware_ga_option`](crate::fleets::orbital_mechanics::solve_phase_aware_ga_option).
+    pub ga_phase_aware: Option<PhaseAwareGaOption>,
     /// GRA-385 view-mode toggle: which grid the porkchop panel
     /// renders.  `Standard` shows the direct Lambert `(t_dep, tof)`
     /// grid for the active target.  `GravityAssist(idx)` switches
@@ -479,6 +488,7 @@ impl FleetUiState {
         self.selected_option = 0;
         self.gravity_assist_candidates.clear();
         self.selected_gravity_assist = None;
+        self.ga_phase_aware = None;
         self.editing_fleet_name = None;
         self.waiting_orbit_count = 0;
         // GRA-343 (GRA-328b): clear cross-system Hohmann cache so a

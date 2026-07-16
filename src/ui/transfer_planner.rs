@@ -5300,6 +5300,96 @@ pub(super) fn render_transfer_planner(
                 fleet_ui_state.selected_gravity_assist = None;
             }
 
+            // ── Phase-aware gravity-assist recompute ──────────────────────
+            //
+            // `find_gravity_assist_options` returns phase-naive snapshots
+            // (orbital radii only — no `t_dep`).  When the user drags the
+            // departure slider we need ΔV + v∞ + leg times for the
+            // *actual* burn epoch, otherwise the panel shows stale
+            // numbers and the GA preview draws the wrong arc.  We
+            // re-solve via `solve_phase_aware_ga_option` for the
+            // currently-selected flyby every frame the planner is
+            // open.  Two Lambert solves + a GA-kick calc per frame is
+            // well under the planner's per-frame budget (the panel is
+            // only open while the user is planning).
+            //
+            // Inputs:
+            //   * Origin / destination / flyby `KeplerOrbit`s — resolves
+            //     via `heliocentric_orbit_for_body` so Moon/Ring bodies
+            //     walk up to their parent (GRA-159 fix).
+            //   * Origin radius = origin orbit's semi-major axis (AU).
+            //   * Flyby GM / periapsis — from the cached candidate so
+            //     we stay consistent with what `find_gravity_assist_options`
+            //     computed.
+            //   * `t_dep_rel_s` = the slider's relative offset (clamped
+            //     to ≥ 0; the absolute-epoch path falls back to 0
+            //     relative when the recorded epoch is in the past).
+            //   * `total_time_s` — the cached candidate's `total_time_s`
+            //     so we re-use the same total TOF the grid bake picked.
+            if let Some(sel_ga_idx) = fleet_ui_state.selected_gravity_assist {
+                if let Some(sel_ga_entry) = fleet_ui_state.gravity_assist_candidates.get(sel_ga_idx)
+                {
+                    let flyby_entity = sel_ga_entry.flyby_entity;
+                    // Resolve the three heliocentric orbits.
+                    let origin_orbit_opt = heliocentric_orbit_for_body(orbit.body, body_query);
+                    let dest_orbit_opt = heliocentric_orbit_for_body(
+                        body_target_snap
+                            .expect("GA candidates are only built when target body is Some"),
+                        body_query,
+                    );
+                    let flyby_orbit_opt = heliocentric_orbit_for_body(flyby_entity, body_query);
+                    if let (Some(origin_orbit), Some(dest_orbit), Some(flyby_orbit)) =
+                        (origin_orbit_opt, dest_orbit_opt, flyby_orbit_opt)
+                    {
+                        // The flyby's GM + safe periapsis from the GA
+                        // body.  Reuse the cached candidate's `(gm_p,
+                        // min_peri)` by recomputing them from the body's
+                        // mass + radius (mirrors the candidate-builder
+                        // path at L5244-5248) — guaranteed to match.
+                        let (_, flyby_body_data, _, _, _) =
+                            body_query.get(flyby_entity).ok().unwrap();
+                        let flyby_gm = G_CONST * flyby_body_data.mass;
+                        let radius_km = flyby_body_data.radius as f64;
+                        let multiplier = PLANETARY_FLYBY_RADIUS_KM_MULTIPLIER;
+                        let flyby_periapsis_au =
+                            ((radius_km * multiplier) / AU_IN_METERS).max(1e-6);
+                        let flyby_radius_au = flyby_orbit.semi_major_axis;
+                        let origin_radius_au = origin_orbit.semi_major_axis;
+                        let dest_radius_au = dest_orbit.semi_major_axis;
+                        let total_time_s = sel_ga_entry.option.total_time_s;
+                        // Slider-drag drop to "Now" sets the recorded
+                        // absolute epoch to `current_sim_s + 0` —
+                        // either way we feed the relative offset here.
+                        let dep_offset_days = fleet_ui_state.departure_offset_days.max(0.0);
+                        let t_dep_rel_s = dep_offset_days * 86_400.0;
+                        let phase_aware = solve_phase_aware_ga_option(
+                            &origin_orbit,
+                            &flyby_orbit,
+                            &dest_orbit,
+                            origin_radius_au,
+                            flyby_radius_au,
+                            dest_radius_au,
+                            gm,
+                            flyby_gm,
+                            flyby_periapsis_au,
+                            t_dep_rel_s,
+                            total_time_s,
+                            elapsed,
+                        );
+                        fleet_ui_state.ga_phase_aware = Some(phase_aware);
+                    } else {
+                        // Couldn't resolve one of the orbits (e.g.
+                        // destruction of a query) — fall back to None
+                        // so the panel renders the cached candidate.
+                        fleet_ui_state.ga_phase_aware = None;
+                    }
+                } else {
+                    fleet_ui_state.ga_phase_aware = None;
+                }
+            } else {
+                fleet_ui_state.ga_phase_aware = None;
+            }
+
             // If a gravity assist is selected, prepend it as option 0 so the
             // regular execute/select logic treats it uniformly.
             //
@@ -6345,6 +6435,7 @@ pub(super) fn render_transfer_planner(
                 let card_supplement = crate::ui::transfer_planner_card::CardSupplement {
                     gravity_assist_candidates: fleet_ui_state.gravity_assist_candidates.clone(),
                     selected_gravity_assist: fleet_ui_state.selected_gravity_assist,
+                    ga_phase_aware: fleet_ui_state.ga_phase_aware.clone(),
                     cross_system_grid: fleet_ui_state.cross_system_grid.clone(),
                     cross_system_selected: None,
                     // Source the system-barycentric distance from

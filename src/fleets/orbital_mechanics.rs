@@ -660,6 +660,171 @@ pub fn sweep_gravity_assist_grid(
     cells
 }
 
+/// Result of a phase-aware gravity-assist solve: ΔV breakdown plus the two
+/// transfer orbits sampled from `solve_lambert_transfer` for leg 1 and leg 2.
+///
+/// This is the per-(departure-time, flyby-body, total-tof) counterpart to
+/// the optimal-window snapshot returned by [`compute_gravity_assist`] /
+/// [`find_gravity_assist_options`].  Use it when the planner needs to
+/// recompute ΔV and surface real `KeplerOrbit`s for the preview after the
+/// user drags the departure-time slider away from the cached optimal
+/// window.
+#[derive(Debug, Clone)]
+pub struct PhaseAwareGaOption {
+    /// The phase-aware ΔV breakdown and timing — same shape as
+    /// [`GravityAssistOption`] but re-derived for the user's actual burn
+    /// epoch and selected total time-of-flight.  `f64::INFINITY` if the
+    /// solver failed (Lambert didn't converge for this `(t_dep, tof_total)`
+    /// pair — geometrically infeasible).
+    pub total_dv_ms: f64,
+    pub dv_savings_ms: f64,
+    pub v_inf_ms: f64,
+    /// Departure / arrival / mid-course burn breakdown (m/s).
+    pub dv_depart_ms: f64,
+    pub dv_mid_ms: f64,
+    pub dv_arrive_ms: f64,
+    /// Half-period of leg 1 / leg 2 — equals the Lambert time-of-flight
+    /// used for each leg.  Stored so the panel can show the per-time leg
+    /// split without falling back to the cached candidate.
+    pub leg1_time_s: f64,
+    pub leg2_time_s: f64,
+    /// Per-leg transfer Kepler orbits.  Sample these with
+    /// `orbit_position_from_mean_anomaly` to render the actual preview
+    /// arc — same code path as the porkchop preview fix.
+    pub leg1_orbit: Option<KeplerOrbit>,
+    pub leg2_orbit: Option<KeplerOrbit>,
+}
+
+/// Solve a phase-aware gravity-assist trajectory for a specific departure
+/// epoch and total two-leg time-of-flight.  Mirrors one cell of
+/// [`sweep_gravity_assist_grid`] but returns a `PhaseAwareGaOption` (with
+/// the leg orbits + ΔV breakdown) instead of a flat porkchop `PorkchopCell`.
+///
+/// `t_dep_rel_s` is the **relative** departure offset from `sim_time_s`
+/// (so `t_dep_abs = sim_time_s + t_dep_rel_s`); mirror the convention
+/// used by `sweep_gravity_assist_grid` / `solve_cell` in `porkchop.rs`.
+/// `total_time_s` is the **total** two-leg time-of-flight (leg1 + leg2).
+/// Leg times are split 50/50 by default (matching the grid sweep's
+/// Phase-4 simplification).
+pub fn solve_phase_aware_ga_option(
+    origin_orbit: &KeplerOrbit,
+    flyby_orbit: &KeplerOrbit,
+    dest_orbit: &KeplerOrbit,
+    origin_radius_au: f64,
+    flyby_radius_au: f64,
+    dest_radius_au: f64,
+    gm: f64,
+    flyby_gm: f64,
+    flyby_periapsis_au: f64,
+    t_dep_rel_s: f64,
+    total_time_s: f64,
+    sim_time_s: f64,
+) -> PhaseAwareGaOption {
+    let t_dep_abs = sim_time_s + t_dep_rel_s;
+    let origin_pos_au = orbit_position_from_mean_anomaly(
+        origin_orbit,
+        origin_orbit.mean_anomaly_epoch + origin_orbit.mean_motion * t_dep_abs,
+    );
+    let r1_m = origin_radius_au * AU_IN_METERS;
+    let r2_m = dest_radius_au * AU_IN_METERS;
+    let r_fly_m = flyby_radius_au * AU_IN_METERS;
+    let r_peri_m = flyby_periapsis_au * AU_IN_METERS;
+    let v_circ_origin = (gm / r1_m).sqrt();
+    let v_circ_dest = (gm / r2_m).sqrt();
+    let v_planet_at_flyby = (gm / r_fly_m).sqrt();
+
+    // 50/50 leg split (Phase-4 GA grid convention).  Clamp to a minimum
+    // so very-short-Tof picks don't fall into the Lambert bracket-search
+    // dead zone.
+    let tof_leg1 = (total_time_s * 0.5).max(GA_GRID_MIN_LEG_TOF_S);
+    let tof_leg2 = (total_time_s - tof_leg1).max(GA_GRID_MIN_LEG_TOF_S);
+
+    let flyby_pos_au = orbit_position_from_mean_anomaly(
+        flyby_orbit,
+        flyby_orbit.mean_anomaly_epoch + flyby_orbit.mean_motion * (t_dep_abs + tof_leg1),
+    );
+    let dest_pos_at_arrival_au = orbit_position_from_mean_anomaly(
+        dest_orbit,
+        dest_orbit.mean_anomaly_epoch + dest_orbit.mean_motion * (t_dep_abs + total_time_s),
+    );
+
+    let leg1 = solve_lambert_transfer(origin_pos_au, flyby_pos_au, tof_leg1, gm);
+    let leg2 = solve_lambert_transfer(flyby_pos_au, dest_pos_at_arrival_au, tof_leg2, gm);
+
+    let (v_dep_ms, v_at_flyby_in_ms, leg1_orbit) = match leg1 {
+        Some(sol) => sol,
+        None => {
+            return PhaseAwareGaOption {
+                total_dv_ms: f64::INFINITY,
+                dv_savings_ms: 0.0,
+                v_inf_ms: 0.0,
+                dv_depart_ms: 0.0,
+                dv_mid_ms: 0.0,
+                dv_arrive_ms: 0.0,
+                leg1_time_s: tof_leg1,
+                leg2_time_s: tof_leg2,
+                leg1_orbit: None,
+                leg2_orbit: None,
+            };
+        }
+    };
+    let (_v_at_flyby_out_ms, v_arr_ms, leg2_orbit) = match leg2 {
+        Some(sol) => sol,
+        None => {
+            return PhaseAwareGaOption {
+                total_dv_ms: f64::INFINITY,
+                dv_savings_ms: 0.0,
+                v_inf_ms: 0.0,
+                dv_depart_ms: 0.0,
+                dv_mid_ms: 0.0,
+                dv_arrive_ms: 0.0,
+                leg1_time_s: tof_leg1,
+                leg2_time_s: tof_leg2,
+                leg1_orbit: None,
+                leg2_orbit: None,
+            };
+        }
+    };
+
+    // Hyperbolic excess velocity at the flyby = relative speed between
+    // spacecraft and flyby body at the flyby epoch (mirrors
+    // `sweep_gravity_assist_grid` L592-594).
+    let v_inf = (v_at_flyby_in_ms.length() - v_planet_at_flyby).abs();
+
+    // GA kick magnitude (mirror `compute_gravity_assist`).
+    let ga_kick = if flyby_gm > 0.0 && v_inf > MIN_VIABLE_V_INF_MS {
+        let term = r_peri_m * v_inf * v_inf / flyby_gm;
+        let sin_half = 1.0 / (1.0 + term);
+        (2.0 * v_inf * sin_half).max(0.0)
+    } else {
+        0.0
+    };
+
+    // ΔV breakdown (dep + GA kick + arr), same convention as
+    // `solve_cell` in porkchop.rs.
+    let dep_burn_ms = (v_dep_ms.length() - v_circ_origin).abs();
+    let arr_burn_ms = (v_circ_dest - v_arr_ms.length()).abs();
+    let total = dep_burn_ms + ga_kick + arr_burn_ms;
+
+    // ΔV savings vs the direct Hohmann (positive = GA saves propellant).
+    let (dv_d1, dv_d2, _t_direct, _, _) = hohmann_transfer(origin_radius_au, dest_radius_au, gm);
+    let total_dv_direct = dv_d1 + dv_d2;
+    let dv_savings_ms = total_dv_direct - total;
+
+    PhaseAwareGaOption {
+        total_dv_ms: total,
+        dv_savings_ms,
+        v_inf_ms: v_inf,
+        dv_depart_ms: dep_burn_ms,
+        dv_mid_ms: ga_kick,
+        dv_arrive_ms: arr_burn_ms,
+        leg1_time_s: tof_leg1,
+        leg2_time_s: tof_leg2,
+        leg1_orbit: Some(leg1_orbit),
+        leg2_orbit: Some(leg2_orbit),
+    }
+}
+
 /// Compute phase-aware transfer options for a planned departure.
 ///
 /// This is the preferred alternative to [`calculate_transfer_options`] when

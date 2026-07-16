@@ -4938,22 +4938,74 @@ pub fn draw_gravity_assist_preview(
     )
     .unwrap_or(dest_t.translation);
 
-    // ── Shared geometry via the same helper used during active transit ───────
+    // ── Geometry: prefer phase-aware real orbits when available ───────────
+    //
+    // The planner stores a `ga_phase_aware: Option<PhaseAwareGaOption>`
+    // with `leg1_orbit` / `leg2_orbit` sampled from Lambert for the
+    // slider's actual burn epoch.  Render those as the preview arcs
+    // when present — they trace the real Kepler half-ellipses the ship
+    // would fly.  Fall back to the `compute_gravity_assist_arc` Bezier
+    // when the planner hasn't populated the phase-aware field yet (e.g.
+    // the user just opened the planner and the first per-frame solve
+    // hasn't run, or the body/entity queries failed to resolve).
     let flyby_ring_r = fleet_parking_visual_radius(flyby_bd.visual_radius);
-    let ga_geo = compute_gravity_assist_arc(op, fp, dp, origin_ring_r, flyby_ring_r, dest_ring_r);
+    let phase_aware_legs = fleet_ui_state
+        .ga_phase_aware
+        .as_ref()
+        .and_then(|p| Some((p.leg1_orbit.as_ref()?, p.leg2_orbit.as_ref()?)));
 
-    let leg1 = |t: f32| ga_geo.eval_leg1(t);
-    let leg2 = |t: f32| ga_geo.eval_leg2(t);
+    let eval_leg1: Box<dyn Fn(f32) -> Vec3> = if let Some((leg1_orbit, _)) = phase_aware_legs {
+        // Anchor in star frame (Vec3::ZERO) — same-star heliocentric GA.
+        let orbit = leg1_orbit;
+        Box::new(move |t: f32| {
+            let ma = orbit.mean_anomaly_epoch + (orbit.mean_motion * leg1_time) * t as f64;
+            let pos_au = orbit_position_from_mean_anomaly(orbit, ma);
+            Vec3::new(
+                (pos_au.x * SCALING_FACTOR) as f32,
+                (pos_au.y * SCALING_FACTOR) as f32,
+                (pos_au.z * SCALING_FACTOR) as f32,
+            )
+        })
+    } else {
+        // Bezier fallback.
+        let ga_geo =
+            compute_gravity_assist_arc(op, fp, dp, origin_ring_r, flyby_ring_r, dest_ring_r);
+        Box::new(move |t: f32| ga_geo.eval_leg1(t))
+    };
+    let eval_leg2: Box<dyn Fn(f32) -> Vec3> = if let Some((_, leg2_orbit)) = phase_aware_legs {
+        // Leg 2 starts at the flyby epoch and runs to arrival; the
+        // `mean_anomaly_epoch` of the leg2 orbit corresponds to the
+        // Lambert solve's periapsis start, so we advance mean_motion *
+        // (t_dep_rel + leg1_time + t_of_leg2 * t).
+        let orbit = leg2_orbit;
+        let adv = orbit.mean_motion * leg1_time;
+        Box::new(move |t: f32| {
+            let ma = orbit.mean_anomaly_epoch
+                + adv
+                + (orbit.mean_motion * (total_time - leg1_time)) * t as f64;
+            let pos_au = orbit_position_from_mean_anomaly(orbit, ma);
+            Vec3::new(
+                (pos_au.x * SCALING_FACTOR) as f32,
+                (pos_au.y * SCALING_FACTOR) as f32,
+                (pos_au.z * SCALING_FACTOR) as f32,
+            )
+        })
+    } else {
+        // Bezier fallback.
+        let ga_geo =
+            compute_gravity_assist_arc(op, fp, dp, origin_ring_r, flyby_ring_r, dest_ring_r);
+        Box::new(move |t: f32| ga_geo.eval_leg2(t))
+    };
 
     // ── Draw both legs with arc-length-uniform dashing ───────────────────────
 
     // Leg 1: lime-green approach arc.
-    draw_dashed_curve(&mut gizmos, leg1, 24, |f| {
+    draw_dashed_curve(&mut gizmos, &eval_leg1, 24, |f| {
         Color::srgba(0.3, 1.0, 0.4, 0.80 - 0.35 * f)
     });
 
     // Leg 2: magenta departure arc.
-    draw_dashed_curve(&mut gizmos, leg2, 24, |f| {
+    draw_dashed_curve(&mut gizmos, &eval_leg2, 24, |f| {
         Color::srgba(1.0, 0.3, 0.8, 0.80 - 0.35 * f)
     });
 
