@@ -5356,7 +5356,55 @@ pub(super) fn render_transfer_planner(
                         let flyby_radius_au = flyby_orbit.semi_major_axis;
                         let origin_radius_au = origin_orbit.semi_major_axis;
                         let dest_radius_au = dest_orbit.semi_major_axis;
-                        let total_time_s = sel_ga_entry.option.total_time_s;
+                        // Tier 5: re-derive `total_time_s` from the
+                        // optimal **direct** transfer at the user's
+                        // t_dep, not the cached optimal-window Hohmann.
+                        // The cached `sel_ga_entry.option.total_time_s`
+                        // is slider-invariant, so the GA's leg times
+                        // (and therefore `Total ΔV`, `Extra time`,
+                        // `Burns`) never moved with the slider.  The
+                        // closest-feasible-cell search picks the cell
+                        // whose `t_dep_s` is closest to the user's
+                        // burn epoch AND has the lowest ΔV — that's the
+                        // best direct Earth→Saturn transfer at this
+                        // specific slider position.  Its `tof_s` is the
+                        // natural travel time, which the GA's 50/50
+                        // leg split inherits.  Falls back to the
+                        // cached `total_time_s` when the grid is
+                        // missing / has no feasible cell.
+                        let t_dep_abs = elapsed
+                            + (fleet_ui_state.departure_offset_days.max(0.0) * 86_400.0);
+                        let slider_aware_total = fleet_ui_state
+                            .porkchop_grid
+                            .as_ref()
+                            .and_then(|grid| {
+                                if !grid
+                                    .cells
+                                    .iter()
+                                    .any(|c| c.feasible && c.total_dv_ms.is_finite())
+                                {
+                                    return None;
+                                }
+                                grid.cells
+                                    .iter()
+                                    .filter(|c| c.feasible && c.total_dv_ms.is_finite())
+                                    .min_by(|a, b| {
+                                        // Closest t_dep_s to slider.
+                                        let da = (a.t_dep_s - t_dep_abs).abs();
+                                        let db = (b.t_dep_s - t_dep_abs).abs();
+                                        da.partial_cmp(&db)
+                                            .unwrap_or(std::cmp::Ordering::Equal)
+                                            // Lowest ΔV at that t_dep.
+                                            .then_with(|| {
+                                                a.total_dv_ms
+                                                    .partial_cmp(&b.total_dv_ms)
+                                                    .unwrap_or(std::cmp::Ordering::Equal)
+                                            })
+                                    })
+                                    .map(|c| c.tof_s)
+                            });
+                        let total_time_s = slider_aware_total
+                            .unwrap_or(sel_ga_entry.option.total_time_s);
                         // Slider-drag drop to "Now" sets the recorded
                         // absolute epoch to `current_sim_s + 0` —
                         // either way we feed the relative offset here.
