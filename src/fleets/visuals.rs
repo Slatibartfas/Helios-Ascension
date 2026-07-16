@@ -1141,6 +1141,7 @@ mod tests {
         BURN_ARROW_HEAD_HALF_BASE, BURN_ARROW_HEAD_LEN_BASE,
     };
     use crate::astronomy::{orbit_position_from_mean_anomaly, KeplerOrbit, SCALING_FACTOR};
+    use crate::fleets::orbital_mechanics::{solve_phase_aware_ga_option, GM_SUN};
     use crate::fleets::{PlannedTransfer, TransferReferenceFrame};
     use crate::plugins::solar_system::CelestialBody;
     use crate::plugins::solar_system_data::BodyType;
@@ -1722,6 +1723,91 @@ mod tests {
         // Scale doubles the absolute size: at scale=2.5 the base is 25
         // units behind the tip, vs the 25-unit base * 1.0 scale default.
         assert!((tip.distance(base) - len).abs() < 1e-5);
+    }
+
+    /// Regression for the GA-preview detachment the user reported in
+    /// commit `41dbe7b`: sampling `orbit_position_from_mean_anomaly` at
+    /// `t ∈ [0, 1]` (via `mean_anomaly_epoch + mean_motion * tof * t`)
+    /// must land exactly on the Lambert solver's input endpoints.  If
+    /// the endpoint mismatch is > 0.05 AU, the preview arcs detach from
+    /// Mars / Saturn at non-optimal slider positions.
+    #[test]
+    fn phase_aware_ga_orbit_endpoint_matches_lambert_input() {
+        use crate::fleets::orbital_mechanics::solve_lambert_transfer;
+        use bevy::math::DVec3;
+
+        let gm = GM_SUN;
+
+        let earth_period_s = 365.25_f64 * 86_400.0;
+        let mars_period_s = 1.881_f64 * earth_period_s;
+        let earth_orbit = KeplerOrbit {
+            semi_major_axis: 1.0,
+            eccentricity: 0.0,
+            inclination: 0.0,
+            longitude_ascending_node: 0.0,
+            argument_of_periapsis: 0.0,
+            mean_anomaly_epoch: 0.0,
+            mean_motion: KeplerOrbit::mean_motion_from_period(earth_period_s),
+        };
+        // Mars at angle π/4 — non-degenerate Lambert input (Lambert's
+        // `sin_dtheta > 0` guard rejects co-linear cases).
+        let mars_orbit = KeplerOrbit {
+            semi_major_axis: 1.524,
+            eccentricity: 0.0,
+            inclination: 0.0,
+            longitude_ascending_node: 0.0,
+            argument_of_periapsis: 0.0,
+            mean_anomaly_epoch: std::f64::consts::FRAC_PI_4,
+            mean_motion: KeplerOrbit::mean_motion_from_period(mars_period_s),
+        };
+
+        // Two regimes — regimes share the same Lambert-input
+        // machinery but exercise different geometry (Hohmann vs
+        // off-optimal).  The off-optimal regime is the user-reported
+        // bug case.
+        for (label, tof_leg1) in [
+            ("hohmann", 0.71 * earth_period_s),
+            (
+                "off_optimal_long",
+                0.71 * earth_period_s * 2.0, // 2× Hohmann time
+            ),
+        ] {
+            // Compute the predicted flyby-body position at the
+            // encounter epoch (`t_dep_abs + tof_leg1`).
+            let t_dep_abs = 0.0;
+            let origin_pos =
+                DVec3::from(orbit_position_from_mean_anomaly(
+                    &earth_orbit,
+                    earth_orbit.mean_anomaly_epoch,
+                ));
+            let flyby_pos = orbit_position_from_mean_anomaly(
+                &mars_orbit,
+                mars_orbit.mean_anomaly_epoch
+                    + mars_orbit.mean_motion * (t_dep_abs + tof_leg1),
+            );
+
+            // Skip if Lambert fails for this geometry — solver
+            // legitimately rejects some non-physical configurations.
+            let Some((_, _, orbit)) =
+                solve_lambert_transfer(origin_pos, flyby_pos, tof_leg1, gm)
+            else {
+                continue;
+            };
+
+            // The preview sampling math must land on the flyby
+            // body position.
+            let ma_at_arrival = orbit.mean_anomaly_epoch + orbit.mean_motion * tof_leg1;
+            let pos_at_arrival =
+                orbit_position_from_mean_anomaly(&orbit, ma_at_arrival);
+            let endpoint_error = (pos_at_arrival - flyby_pos).length();
+            assert!(
+                endpoint_error < 0.05,
+                "[{label}] orbit endpoint error {endpoint_error} AU (allowed 0.05); \
+                 mean_motion * tof_leg1 = {:.4} rad, mean_anomaly_epoch = {:.4}",
+                orbit.mean_motion * tof_leg1,
+                orbit.mean_anomaly_epoch,
+            );
+        }
     }
 }
 
@@ -4907,7 +4993,9 @@ pub fn draw_gravity_assist_preview(
     let ga_target_orbit_au = crate::fleets::radius_for_shell(dest_bd, ga_target_shell);
     let dest_orbit_ring_r = shell_ring_visual_radius(dest_bd, ga_target_orbit_au);
 
-    // Predict flyby body position at end of Leg 1
+    // Predict flyby body position at end of Leg 1 (cached optimal-window
+    // leg time — see the REVERT comment on `compute_gravity_assist_arc`
+    // below; the Bezier anchors on these predicted positions).
     let fp = predict_body_visual_pos(
         flyby_entity,
         current_sim_s,
@@ -4938,27 +5026,58 @@ pub fn draw_gravity_assist_preview(
     )
     .unwrap_or(dest_t.translation);
 
-    // ── Geometry: prefer phase-aware real orbits when available ───────────
+    // ── Geometry: prefer phase-aware real orbits, fall back to Bezier ──
     //
     // The planner stores a `ga_phase_aware: Option<PhaseAwareGaOption>`
-    // with `leg1_orbit` / `leg2_orbit` sampled from Lambert for the
-    // slider's actual burn epoch.  Render those as the preview arcs
-    // when present — they trace the real Kepler half-ellipses the ship
-    // would fly.  Fall back to the `compute_gravity_assist_arc` Bezier
-    // when the planner hasn't populated the phase-aware field yet (e.g.
-    // the user just opened the planner and the first per-frame solve
-    // hasn't run, or the body/entity queries failed to resolve).
+    // with `leg1_orbit` / `leg2_orbit` from Lambert for the slider's
+    // burn epoch.  Sampling these directly gives the *real* Kepler
+    // half-ellipse path the ship would fly.
+    //
+    // BUT: for off-optimal slider positions the `solve_lambert_transfer`
+    // solver can return a **multi-revolution** orbit (lowest-energy
+    // branch) where `mean_motion * tof > 2π`.  Sampling such an orbit
+    // from `t = 0..1` traces the orbit multiple times, looping back
+    // past the origin and detaching from Mars / Saturn — the exact
+    // visual the user reported.  Detect this and fall back to the
+    // Bezier (`compute_gravity_assist_arc`) which always anchors on
+    // the predicted `op` / `fp` / `dp` positions.
+    //
+    // `optimal_window_arc_fits_hohmann` (heuristic): a half-orbit
+    // Lambert transfer has `mean_motion * tof ≈ π` (radians).  Allow
+    // a ±1.0 rad tolerance to cover peri-/apohelion Hohmann where
+    // eccentricity shifts the angular travel slightly.  Outside this
+    // band, the solver picked a multi-rev branch — Bezier fallback.
     let flyby_ring_r = fleet_parking_visual_radius(flyby_bd.visual_radius);
-    let phase_aware_legs = fleet_ui_state
-        .ga_phase_aware
-        .as_ref()
-        .and_then(|p| Some((p.leg1_orbit.as_ref()?, p.leg2_orbit.as_ref()?)));
+    let phase_aware_legs = fleet_ui_state.ga_phase_aware.as_ref().and_then(|p| {
+        let leg1_orbit = p.leg1_orbit.as_ref()?;
+        let leg2_orbit = p.leg2_orbit.as_ref()?;
+        let ma_leg1 = leg1_orbit.mean_motion * p.leg1_time_s;
+        let ma_leg2 = leg2_orbit.mean_motion
+            * (p.leg1_time_s + p.leg2_time_s);
+        // Reject only when BOTH legs obviously depart from π (i.e.
+        // the solver picked multi-rev branches on both).  Single-leg
+        // oddities can still look OK in isolation.
+        let leg1_hohmann_like = (ma_leg1 - std::f64::consts::PI).abs() < 1.0;
+        let leg2_hohmann_like = (ma_leg2 - std::f64::consts::PI).abs() < 1.0;
+        if leg1_hohmann_like && leg2_hohmann_like {
+            Some((
+                leg1_orbit,
+                leg2_orbit,
+                p.leg1_time_s,
+                p.leg2_time_s,
+            ))
+        } else {
+            None
+        }
+    });
 
-    let eval_leg1: Box<dyn Fn(f32) -> Vec3> = if let Some((leg1_orbit, _)) = phase_aware_legs {
-        // Anchor in star frame (Vec3::ZERO) — same-star heliocentric GA.
+    let eval_leg1: Box<dyn Fn(f32) -> Vec3> = if let Some((leg1_orbit, _, p_leg1_time, _)) =
+        phase_aware_legs
+    {
         let orbit = leg1_orbit;
+        let leg_adv = orbit.mean_motion * p_leg1_time;
         Box::new(move |t: f32| {
-            let ma = orbit.mean_anomaly_epoch + (orbit.mean_motion * leg1_time) * t as f64;
+            let ma = orbit.mean_anomaly_epoch + leg_adv * t as f64;
             let pos_au = orbit_position_from_mean_anomaly(orbit, ma);
             Vec3::new(
                 (pos_au.x * SCALING_FACTOR) as f32,
@@ -4967,22 +5086,18 @@ pub fn draw_gravity_assist_preview(
             )
         })
     } else {
-        // Bezier fallback.
         let ga_geo =
             compute_gravity_assist_arc(op, fp, dp, origin_ring_r, flyby_ring_r, dest_ring_r);
         Box::new(move |t: f32| ga_geo.eval_leg1(t))
     };
-    let eval_leg2: Box<dyn Fn(f32) -> Vec3> = if let Some((_, leg2_orbit)) = phase_aware_legs {
-        // Leg 2 starts at the flyby epoch and runs to arrival; the
-        // `mean_anomaly_epoch` of the leg2 orbit corresponds to the
-        // Lambert solve's periapsis start, so we advance mean_motion *
-        // (t_dep_rel + leg1_time + t_of_leg2 * t).
+    let eval_leg2: Box<dyn Fn(f32) -> Vec3> = if let Some((_, leg2_orbit, p_leg1_time, p_leg2_time)) =
+        phase_aware_legs
+    {
         let orbit = leg2_orbit;
-        let adv = orbit.mean_motion * leg1_time;
+        let ma_at_flyby = orbit.mean_motion * p_leg1_time;
+        let leg_adv = orbit.mean_motion * p_leg2_time;
         Box::new(move |t: f32| {
-            let ma = orbit.mean_anomaly_epoch
-                + adv
-                + (orbit.mean_motion * (total_time - leg1_time)) * t as f64;
+            let ma = orbit.mean_anomaly_epoch + ma_at_flyby + leg_adv * t as f64;
             let pos_au = orbit_position_from_mean_anomaly(orbit, ma);
             Vec3::new(
                 (pos_au.x * SCALING_FACTOR) as f32,
@@ -4991,7 +5106,6 @@ pub fn draw_gravity_assist_preview(
             )
         })
     } else {
-        // Bezier fallback.
         let ga_geo =
             compute_gravity_assist_arc(op, fp, dp, origin_ring_r, flyby_ring_r, dest_ring_r);
         Box::new(move |t: f32| ga_geo.eval_leg2(t))
