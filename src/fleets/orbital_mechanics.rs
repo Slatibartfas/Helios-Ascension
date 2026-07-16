@@ -693,6 +693,14 @@ pub struct PhaseAwareGaOption {
     /// arc — same code path as the porkchop preview fix.
     pub leg1_orbit: Option<KeplerOrbit>,
     pub leg2_orbit: Option<KeplerOrbit>,
+    /// Absolute sim time (s) of the burn epoch the solve was run for.
+    /// Stashed so the GA panel can pick the porkchop cell with the
+    /// closest matching `t_dep_s` (rather than the closest `tof_s`)
+    /// when computing the "Extra time" / "Direct same-TOF ΔV"
+    /// comparisons — `t_dep_s` is the axis the user actually moves
+    /// the slider along, so the per-time cell is the right reference
+    /// for "how much longer than direct at *this* burn epoch?".
+    pub t_dep_abs_s: f64,
 }
 
 /// Solve a phase-aware gravity-assist trajectory for a specific departure
@@ -779,6 +787,7 @@ pub fn solve_phase_aware_ga_option(
                 leg2_time_s: tof_leg2,
                 leg1_orbit: None,
                 leg2_orbit: None,
+                t_dep_abs_s: t_dep_abs,
             };
         }
     };
@@ -796,6 +805,7 @@ pub fn solve_phase_aware_ga_option(
                 leg2_time_s: tof_leg2,
                 leg1_orbit: None,
                 leg2_orbit: None,
+                t_dep_abs_s: t_dep_abs,
             };
         }
     };
@@ -836,6 +846,7 @@ pub fn solve_phase_aware_ga_option(
         leg2_time_s: tof_leg2,
         leg1_orbit: Some(leg1_orbit),
         leg2_orbit: Some(leg2_orbit),
+        t_dep_abs_s: t_dep_abs,
     }
 }
 

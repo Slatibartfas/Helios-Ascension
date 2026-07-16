@@ -498,14 +498,24 @@ fn build_ga_card_with_phase_aware(
     // algebraically collapses to the cached `total_dv_direct` which
     // depends only on orbital radii, not the slider.  A row that
     // doesn't move with the slider reads as a bug to the player.)
-    // Closest-feasible-cell cost from the planner's porkchop grid at
-    // the GA's two-leg time-of-flight.  Searches by `tof_s` only
-    // (the slider's t_dep is a separate axis the user controls via
-    // the slider, and porkchop cells carry a per-row t_dep profile
-    // the slider can cross-check directly).  Picks the cell with
-    // minimum `|tof − leg1 + leg2|` whose `feasible` flag is set, and
-    // returns "n/a" when the grid is missing / has no feasible cells /
-    // the GA ΔV is itself unreliable.
+    // Direct comparison: find the **optimal direct transfer at the
+    // user's slider burn epoch**, i.e. the porkchop cell with the
+    // closest `t_dep_s` to `phase.t_dep_abs_s` AND the lowest
+    // `total_dv_ms` among that column.  This is the *right* reference
+    // for both `Direct same-TOF ΔV` and `Extra time`:
+    //
+    //   * `Extra time` needs the direct's *time* at the slider's t_dep
+    //     — a cell with matching t_dep gives a meaningful, slider-
+    //     responsive number.  The previous search (closest `tof_s`)
+    //     always found a cell with the same time as the GA, so
+    //     `extra_time ≈ 0` regardless of slider.
+    //   * `Direct same-TOF ΔV` benefits from the same column match
+    //     because the slider actually moves the t_dep axis — a
+    //     "nearest tof" cell at a different t_dep is a different
+    //     epoch's direct, not the user's.
+    //
+    // Falls back to "n/a" when the grid is missing / has no feasible
+    // cell at the user's t_dep, or the GA ΔV itself is unreliable.
     let direct_same_tof_str = match porkchop_grid {
         Some(grid)
             if finite
@@ -514,27 +524,39 @@ fn build_ga_card_with_phase_aware(
                     .iter()
                     .any(|c| c.feasible && c.total_dv_ms.is_finite()) =>
         {
-            let target_tof = total_via;
+            let target_t_dep = phase.t_dep_abs_s;
+            // Best direct at the user's slider burn epoch: closest
+            // `t_dep_s` to `target_t_dep`, then lowest `total_dv_ms`
+            // (the optimal direct at that column).  Tie-broken by
+            // closest `tof_s` to the GA's time so the row's travel
+            // time matches the GA as closely as possible.
             let best = grid
                 .cells
                 .iter()
                 .filter(|c| c.feasible && c.total_dv_ms.is_finite())
                 .min_by(|a, b| {
-                    let da = (a.tof_s - target_tof).abs();
-                    let db = (b.tof_s - target_tof).abs();
-                    da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
+                    // Primary: closest `t_dep_s` to user's slider.
+                    let dt_a = (a.t_dep_s - target_t_dep).abs();
+                    let dt_b = (b.t_dep_s - target_t_dep).abs();
+                    dt_a
+                        .partial_cmp(&dt_b)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                        // Secondary: lower ΔV (cheapest direct at that t_dep).
+                        .then_with(|| {
+                            a.total_dv_ms
+                                .partial_cmp(&b.total_dv_ms)
+                                .unwrap_or(std::cmp::Ordering::Equal)
+                        })
+                        // Tertiary: closer tof to GA total (for
+                        // nicer `Extra time` numbers).
+                        .then_with(|| {
+                            let da = (a.tof_s - total_via).abs();
+                            let db = (b.tof_s - total_via).abs();
+                            da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
+                        })
                 });
             match best {
                 Some(cell) => {
-                    // The cell's `tof_s` is the direct transfer's
-                    // travel time at the slider's burn epoch — the
-                    // correct reference for the GA's time overhead.
-                    // The cached `opt.total_time_s` is the *optimal*
-                    // Hohmann total and would give a constant
-                    // `total_via − opt.total_time_s ≈ 0`; using the
-                    // closest-cell `tof_s` makes this row slide with
-                    // the slider, like `Total ΔV` and `Direct same-TOF
-                    // ΔV` do.
                     extra_time = total_via - cell.tof_s;
                     let delta = cell.total_dv_ms - phase.total_dv_ms;
                     let prefix = if delta > 100.0 {
