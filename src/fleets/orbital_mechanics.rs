@@ -995,17 +995,41 @@ pub fn calculate_transfer_options(
 }
 
 fn mean_anomaly_from_true_anomaly(eccentricity: f64, true_anomaly: f64) -> f64 {
-    use std::f64::consts::{PI, TAU};
+    use std::f64::consts::PI;
+
+    let cos_nu = true_anomaly.cos();
+    let sin_nu = true_anomaly.sin();
+
+    // Hyperbolic branch: `tanh(H/2) = sqrt((e-1)/(e+1)) * tan(ν/2)`.
+    // Solve `M = e sinh(H) - H` via Newton-Raphson (the standard
+    // elliptic Kepler solver is wrong for e > 1).
+    if eccentricity > 1.0 {
+        let ratio = ((eccentricity - 1.0) / (eccentricity + 1.0)).max(0.0).sqrt();
+        let tan_h_half = ratio * (true_anomaly * 0.5).tan();
+        let h = 2.0 * tan_h_half.asinh();
+        // Newton-Raphson on `f(H) = e sinh H - H - M = 0`.
+        let m = eccentricity * h.sinh() - h;
+        let mut h_iter = h;
+        for _ in 0..32 {
+            let f = eccentricity * h_iter.sinh() - h_iter - m;
+            let fp = eccentricity * h_iter.cosh() - 1.0;
+            if fp.abs() < 1e-15 {
+                break;
+            }
+            let delta = f / fp;
+            h_iter -= delta;
+            if delta.abs() < 1e-10 {
+                break;
+            }
+        }
+        return eccentricity * h_iter.sinh() - h_iter;
+    }
 
     // Handle edge cases at apoapsis (true_anomaly = π)
     // When true_anomaly = π, the spacecraft is at apoapsis and:
     // - cos(true_anomaly) = -1
     // - The formula denominator: 1 + e * cos(ν) = 1 - e
     // - At e ≈ 1 (parabolic), this approaches 0
-    let cos_nu = true_anomaly.cos();
-    let sin_nu = true_anomaly.sin();
-
-    // For high-e orbits near apoapsis, use the direct formula
     let denom = 1.0 + eccentricity * cos_nu;
 
     // Special case: true_anomaly = π (apoapsis) - eccentric anomaly is also π
@@ -1016,8 +1040,8 @@ fn mean_anomaly_from_true_anomaly(eccentricity: f64, true_anomaly: f64) -> f64 {
 
     let cos_e = ((eccentricity + cos_nu) / denom).clamp(-1.0, 1.0);
     let sin_e = ((1.0 - eccentricity * eccentricity).max(0.0)).sqrt() * sin_nu / denom;
-    let eccentric_anomaly = sin_e.atan2(cos_e).rem_euclid(TAU);
-    (eccentric_anomaly - eccentricity * eccentric_anomaly.sin()).rem_euclid(TAU)
+    let eccentric_anomaly = sin_e.atan2(cos_e).rem_euclid(std::f64::consts::TAU);
+    (eccentric_anomaly - eccentricity * eccentric_anomaly.sin()).rem_euclid(std::f64::consts::TAU)
 }
 
 fn circular_escape_injection_dv(gm: f64, radius_au: f64) -> f64 {

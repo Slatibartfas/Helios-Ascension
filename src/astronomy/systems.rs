@@ -145,19 +145,43 @@ pub fn hyperbolic_to_true_anomaly(hyperbolic_anomaly: f64, eccentricity: f64) ->
 ///
 /// # Arguments
 /// * `orbit` - Keplerian orbital elements
-/// * `mean_anomaly` - Mean anomaly in radians
+/// * `mean_anomaly` - Mean anomaly in radians (elliptic: 0..2π;
+///   hyperbolic: unbounded — the time-since-periapsis in radians
+///   at mean-motion rate, allowed to grow past 2π once `t > t_period`).
 ///
 /// # Returns
 /// Position in AU in the orbit's reference frame
 pub fn orbit_position_from_mean_anomaly(orbit: &KeplerOrbit, mean_anomaly: f64) -> DVec3 {
-    // Solve Kepler's equation for eccentric anomaly
-    let eccentric_anomaly = solve_kepler(mean_anomaly, orbit.eccentricity);
-
-    // Convert to true anomaly
-    let true_anomaly = eccentric_to_true_anomaly(eccentric_anomaly, orbit.eccentricity);
-
-    // Calculate orbital radius
-    let radius = orbital_radius(orbit.semi_major_axis, orbit.eccentricity, true_anomaly);
+    // Branch on orbit class.  Hyperbolic orbits (e > 1) need
+    // hyperbolic Kepler solving + hyperbolic true-anomaly conversion;
+    // the elliptic solver's eccentricity clamp would otherwise
+    // collapse the orbit to a degenerate ellipse.
+    let (true_anomaly, radius) = if orbit.eccentricity > 1.0 {
+        let h = solve_hyperbolic_kepler(mean_anomaly, orbit.eccentricity);
+        let nu = hyperbolic_to_true_anomaly(h, orbit.eccentricity);
+        // r = a * (1 - e²) / (1 + e*cos(ν)).  For hyperbolic
+        // orbits `a` is negative and `1 - e²` is negative (since
+        // e² > 1), so the product is positive — the formula is
+        // valid without sign flips.
+        let denom = 1.0 + orbit.eccentricity * nu.cos();
+        let r = if denom.abs() < 1e-10 {
+            // ν ≈ π (apoapsis = ∞); fall back to perihelion radius.
+            orbit.semi_major_axis.abs() * (1.0 - orbit.eccentricity)
+        } else {
+            (orbit.semi_major_axis * (1.0 - orbit.eccentricity * orbit.eccentricity) / denom).max(0.0)
+        };
+        (nu, r)
+    } else {
+        // Solve Kepler's equation for eccentric anomaly.
+        let eccentric_anomaly = solve_kepler(mean_anomaly, orbit.eccentricity);
+        // Convert to true anomaly.
+        let true_anomaly = eccentric_to_true_anomaly(eccentric_anomaly, orbit.eccentricity);
+        // Elliptic / circular orbit radius (clamps eccentricity
+        // to < 1 internally to avoid the division-by-zero near
+        // parabolic limit).
+        let radius = orbital_radius(orbit.semi_major_axis, orbit.eccentricity, true_anomaly);
+        (true_anomaly, radius)
+    };
 
     // Position in the orbital plane
     let x_orbital = radius * true_anomaly.cos();
