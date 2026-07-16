@@ -451,7 +451,14 @@ fn build_ga_card_with_phase_aware(
 ) -> CardWidget {
     let opt = &entry.option;
     let total_via = phase.leg1_time_s + phase.leg2_time_s;
-    let extra_time = total_via - opt.total_time_s;
+    // `extra_time` is computed below from the closest-feasible-cell
+    // search (the direct transfer at this slider's burn time), not from
+    // the cached `opt.total_time_s`.  The latter is the optimal-window
+    // Hohmann baseline total time — slider-invariant — and produced a
+    // constant 0.0 h, which the user read as a bug.  Reassigned after
+    // the closest-cell search so both rows share the same "slider's
+    // direct" anchor.
+    let mut extra_time = 0.0_f64;
     let finite = phase.total_dv_ms.is_finite();
     let total_str = if finite {
         format_delta_v(phase.total_dv_ms)
@@ -519,6 +526,16 @@ fn build_ga_card_with_phase_aware(
                 });
             match best {
                 Some(cell) => {
+                    // The cell's `tof_s` is the direct transfer's
+                    // travel time at the slider's burn epoch — the
+                    // correct reference for the GA's time overhead.
+                    // The cached `opt.total_time_s` is the *optimal*
+                    // Hohmann total and would give a constant
+                    // `total_via − opt.total_time_s ≈ 0`; using the
+                    // closest-cell `tof_s` makes this row slide with
+                    // the slider, like `Total ΔV` and `Direct same-TOF
+                    // ΔV` do.
+                    extra_time = total_via - cell.tof_s;
                     let delta = cell.total_dv_ms - phase.total_dv_ms;
                     let prefix = if delta > 100.0 {
                         format!("+{} ", format_delta_v(delta))
