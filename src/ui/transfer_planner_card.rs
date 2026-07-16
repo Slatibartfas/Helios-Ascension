@@ -425,12 +425,25 @@ fn build_ga_card(entry: &GravityAssistEntry) -> CardWidget {
 ///      single row, since both numbers are plotted at the same burn
 ///      window.  Skipped silently when the grid is unavailable or no
 ///      feasible cell exists in the matching TOF band.
-///   4. ΔV saved — the headline gain vs the direct Hohmann baseline.
-///   5. Direct Hohmann ΔV — the comparison anchor.  Computed as
-///      `(total + savings)` from the phase-aware solve so the savings
-///      are auditable: `saved + total = direct` exactly.
-///   6. Extra time / Window every / v∞ — unchanged from the previous
+///   4. ΔV saved — the headline gain vs the **direct Hohmann baseline**.
+///      The baseline is `hohmann_transfer(origin_au, dest_au, gm)` — the
+///      best-case direct transfer for the bodies involved, which
+///      depends only on orbital radii (not on phase).  So this row's
+///      number reflects the cost difference between the GA and the
+///      *cached optimal-window* Hohmann.  For the *slider's* window
+///      comparison use the **Direct same-TOF ΔV** row above.
+///   5. Extra time / Window every / v∞ — unchanged from the previous
 ///      build.  v∞ still describes the Mars flyby's hyperbolic excess.
+///
+/// Earlier Tier 4a also rendered a `Direct Hohmann ΔV` row computed
+/// as `(total + savings)` from the phase-aware solve.  But
+/// `savings = total_dv_direct - total`, so the sum algebraically
+/// collapses to the constant `total_dv_direct` — the row did not move
+/// with the slider, which the user read as a bug.  Removed: the
+/// `ΔV saved` row already carries the Hohmann baseline as its
+/// reference (savings vs Hohmann), and the `Direct same-TOF ΔV` row
+/// above is the slider-time comparison.  Keeping a third, redundant,
+/// non-moving row was noise.
 fn build_ga_card_with_phase_aware(
     entry: &GravityAssistEntry,
     phase: &crate::fleets::orbital_mechanics::PhaseAwareGaOption,
@@ -473,15 +486,11 @@ fn build_ga_card_with_phase_aware(
     } else {
         "n/a".to_owned()
     };
-    // Direct Hohmann ΔV = total + savings (the phase-aware solve
-    // computes both internally; total_dv_direct = hohmann_transfer
-    // sum, total_dv = total_assisted, savings = direct - assisted).
-    let direct_str = if finite && phase.dv_savings_ms.is_finite() {
-        let direct_ms = phase.total_dv_ms + phase.dv_savings_ms;
-        format_delta_v(direct_ms)
-    } else {
-        "n/a".to_owned()
-    };
+    // (The "Direct Hohmann ΔV" row was removed in Tier 4c — see the
+    // doc comment for build_ga_card_with_phase_aware.  `total + savings`
+    // algebraically collapses to the cached `total_dv_direct` which
+    // depends only on orbital radii, not the slider.  A row that
+    // doesn't move with the slider reads as a bug to the player.)
     // Closest-feasible-cell cost from the planner's porkchop grid at
     // the GA's two-leg time-of-flight.  Searches by `tof_s` only
     // (the slider's t_dep is a separate axis the user controls via
@@ -577,11 +586,6 @@ fn build_ga_card_with_phase_aware(
                 } else {
                     Severity::Warn
                 },
-            },
-            CardRow {
-                label: "Direct Hohmann ΔV".to_string(),
-                value: direct_str,
-                severity: Severity::Neutral,
             },
             CardRow {
                 label: "Extra time".to_string(),
