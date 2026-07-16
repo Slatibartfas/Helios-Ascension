@@ -1069,7 +1069,7 @@ fn solve_cell(
         };
     }
 
-    match solve_lambert_transfer(origin_pos_au, dest_pos_au, tof_s, inputs.system_gm) {
+    match solve_lambert_transfer(origin_pos_au, dest_pos_au, tof_s, inputs.system_gm, false) {
         Some((v1_ms, v2_ms, orbit)) => {
             // v_inf at departure uses the heliocentric r1 (the solver's
             // frame).  c3 = v_inf² — geometrically invariant, this is the
@@ -1465,7 +1465,7 @@ fn solve_local_cell(
         };
     }
 
-    match solve_lambert_transfer(origin_pos_au, dest_pos_au, tof_s, inputs.parent_gm) {
+    match solve_lambert_transfer(origin_pos_au, dest_pos_au, tof_s, inputs.parent_gm, false) {
         Some((v1_ms, v2_ms, orbit)) => {
             let v_circ_dep_ms = (inputs.parent_gm / r1_m).sqrt();
             let v_circ_arr_ms = (inputs.parent_gm / r2_m).sqrt();
@@ -1754,7 +1754,7 @@ pub fn build_short_hop_grid(
             // The body's gravity dominates the parking-orbit scale, so
             // this is a short-cislunar-class solve (microseconds) — well
             // inside the per-row budget.
-            let cell = match solve_lambert_transfer(origin_pos_au, dest_pos_au, tof_s, gm) {
+            let cell = match solve_lambert_transfer(origin_pos_au, dest_pos_au, tof_s, gm, false) {
                 Some((v1_ms, v2_ms, orbit)) => {
                     let v1_speed_ms = v1_ms.length();
                     let v2_speed_ms = v2_ms.length();
@@ -2070,7 +2070,7 @@ pub fn build_star_approach_grid(inputs: &StarApproachInputs) -> PorkchopGrid {
                     }
                 }
             } else {
-                match solve_lambert_transfer(origin_pos_au, dest_pos_au, tof_s, inputs.gm_star) {
+                match solve_lambert_transfer(origin_pos_au, dest_pos_au, tof_s, inputs.gm_star, false) {
                     Some((v1_ms, v2_ms, orbit)) => {
                         let v1_speed_ms = v1_ms.length();
                         let dep_burn_ms = (v1_speed_ms - v_circ_ms).max(0.0);

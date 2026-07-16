@@ -560,9 +560,9 @@ pub fn sweep_gravity_assist_grid(
             );
 
             // Try Lambert leg 1 (origin → flyby).
-            let leg1 = solve_lambert_transfer(origin_pos_au, flyby_pos_au, tof_leg1, gm);
+            let leg1 = solve_lambert_transfer(origin_pos_au, flyby_pos_au, tof_leg1, gm, false);
             // Try Lambert leg 2 (flyby → destination).
-            let leg2 = solve_lambert_transfer(flyby_pos_au, dest_pos_at_arrival_au, tof_leg2, gm);
+            let leg2 = solve_lambert_transfer(flyby_pos_au, dest_pos_at_arrival_au, tof_leg2, gm, false);
 
             let (
                 Some((v_dep_ms, v_at_flyby_in_ms, _orbit1)),
@@ -748,8 +748,22 @@ pub fn solve_phase_aware_ga_option(
         dest_orbit.mean_anomaly_epoch + dest_orbit.mean_motion * (t_dep_abs + total_time_s),
     );
 
-    let leg1 = solve_lambert_transfer(origin_pos_au, flyby_pos_au, tof_leg1, gm);
-    let leg2 = solve_lambert_transfer(flyby_pos_au, dest_pos_at_arrival_au, tof_leg2, gm);
+    // `prefer_half_rev = true` constrains Lambert's z-universal-variable
+    // bracket to `[-π², π²]`, forcing the lowest-speed branch to land
+    // on a half-revolution rather than a multi-revolution orbit.  The
+    // preview then samples `mean_motion × p_leg_time ≈ π` (vs ≥ 2π for
+    // multi-rev) so the arc endpoint lands on the flyby body instead
+    // of looping back past the origin.  When no half-rev solution
+    // exists in the bracket (e.g. the requested TOF is too short to
+    // complete a half-orbit at any energy), fall back to the existing
+    // full-z-range solver — the orbit may be multi-rev but it gives
+    // valid ΔV numbers for the panel.
+    let leg1 = solve_lambert_transfer(origin_pos_au, flyby_pos_au, tof_leg1, gm, true)
+        .or_else(|| solve_lambert_transfer(origin_pos_au, flyby_pos_au, tof_leg1, gm, false));
+    let leg2 = solve_lambert_transfer(flyby_pos_au, dest_pos_at_arrival_au, tof_leg2, gm, true)
+        .or_else(|| {
+            solve_lambert_transfer(flyby_pos_au, dest_pos_at_arrival_au, tof_leg2, gm, false)
+        });
 
     let (v_dep_ms, v_at_flyby_in_ms, leg1_orbit) = match leg1 {
         Some(sol) => sol,
@@ -1160,6 +1174,7 @@ fn solve_lambert_transfer_branch(
     transfer_time_s: f64,
     system_gm: f64,
     sin_sign: f64,
+    prefer_half_rev: bool,
 ) -> Option<(DVec3, DVec3, KeplerOrbit)> {
     let r1_vec = origin_pos_au * AU_IN_METERS;
     let r2_vec = dest_pos_au * AU_IN_METERS;
@@ -1180,8 +1195,16 @@ fn solve_lambert_transfer_branch(
         return None;
     }
 
-    let z_min = -4.0 * std::f64::consts::PI * std::f64::consts::PI;
-    let z_max = 4.0 * std::f64::consts::PI * std::f64::consts::PI;
+    let z_min = if prefer_half_rev {
+        -1.0 * std::f64::consts::PI * std::f64::consts::PI
+    } else {
+        -4.0 * std::f64::consts::PI * std::f64::consts::PI
+    };
+    let z_max = if prefer_half_rev {
+        std::f64::consts::PI * std::f64::consts::PI
+    } else {
+        4.0 * std::f64::consts::PI * std::f64::consts::PI
+    };
     let mut bracket: Option<(f64, f64)> = None;
     let mut previous: Option<(f64, f64)> = None;
     for step in 0..=512 {
@@ -1268,6 +1291,7 @@ pub(crate) fn solve_lambert_transfer(
     dest_pos_au: DVec3,
     transfer_time_s: f64,
     system_gm: f64,
+    prefer_half_rev: bool,
 ) -> Option<(DVec3, DVec3, KeplerOrbit)> {
     let plane_normal = origin_pos_au.cross(dest_pos_au);
     let plane_normal_len_sq = plane_normal.length_squared();
@@ -1283,6 +1307,7 @@ pub(crate) fn solve_lambert_transfer(
             transfer_time_s,
             system_gm,
             sin_sign,
+            prefer_half_rev,
         ) else {
             continue;
         };
@@ -1588,7 +1613,7 @@ pub fn calculate_cross_star_ballistic_options(
     ] {
         let tof_s = base_tof_s * time_factor;
         let Some((v_depart_ms, v_arrive_ms, orbit)) =
-            solve_lambert_transfer(origin_pos_au, dest_pos_au, tof_s, system_gm)
+            solve_lambert_transfer(origin_pos_au, dest_pos_au, tof_s, system_gm, false)
         else {
             continue;
         };
@@ -2855,9 +2880,9 @@ mod tests {
         let dest_b = DVec3::new(0.2001, 1.4, 0.0);
         let tof_s = 220.0 * 86_400.0;
 
-        let (v1_a, _, _) = solve_lambert_transfer(origin, dest_a, tof_s, GM_SUN)
+        let (v1_a, _, _) = solve_lambert_transfer(origin, dest_a, tof_s, GM_SUN, false)
             .expect("first Lambert solution should exist");
-        let (v1_b, _, _) = solve_lambert_transfer(origin, dest_b, tof_s, GM_SUN)
+        let (v1_b, _, _) = solve_lambert_transfer(origin, dest_b, tof_s, GM_SUN, false)
             .expect("second Lambert solution should exist");
 
         let h_a = (origin * AU_IN_METERS).cross(v1_a);

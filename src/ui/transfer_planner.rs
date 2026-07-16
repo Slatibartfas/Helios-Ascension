@@ -1305,7 +1305,7 @@ fn try_build_local_porkchop(
         dest_orbit_au * dest_phase.sin(),
         0.0,
     );
-    solve_lambert_transfer(r1_pos, r2_pos, tof_h, parent_gm)?;
+    solve_lambert_transfer(r1_pos, r2_pos, tof_h, parent_gm, false)?;
 
     let inputs = LocalPorkchopInputs {
         origin_name: parent_name.clone(),
@@ -8928,6 +8928,7 @@ pub fn build_planned_transfer(
                 destination_arrival,
                 option.transfer_time_s,
                 gm,
+                false,
             )
         } else {
             None
@@ -8965,7 +8966,7 @@ pub fn build_planned_transfer(
     let lambert_barycentric_solution =
         if reference_frame.is_barycentric() && option.transfer_orbit_override.is_some() {
             barycentric_start_end.and_then(|(origin_future, dest_future)| {
-                solve_lambert_transfer(origin_future, dest_future, option.transfer_time_s, gm)
+                solve_lambert_transfer(origin_future, dest_future, option.transfer_time_s, gm, false)
             })
         } else {
             None

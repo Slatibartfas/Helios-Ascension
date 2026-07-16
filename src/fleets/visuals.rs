@@ -1789,7 +1789,7 @@ mod tests {
             // Skip if Lambert fails for this geometry — solver
             // legitimately rejects some non-physical configurations.
             let Some((_, _, orbit)) =
-                solve_lambert_transfer(origin_pos, flyby_pos, tof_leg1, gm)
+                solve_lambert_transfer(origin_pos, flyby_pos, tof_leg1, gm, false)
             else {
                 continue;
             };
