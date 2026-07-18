@@ -538,8 +538,7 @@ fn build_ga_card_with_phase_aware(
                     // Primary: closest `t_dep_s` to user's slider.
                     let dt_a = (a.t_dep_s - target_t_dep).abs();
                     let dt_b = (b.t_dep_s - target_t_dep).abs();
-                    dt_a
-                        .partial_cmp(&dt_b)
+                    dt_a.partial_cmp(&dt_b)
                         .unwrap_or(std::cmp::Ordering::Equal)
                         // Secondary: lower ΔV (cheapest direct at that t_dep).
                         .then_with(|| {
@@ -566,11 +565,7 @@ fn build_ga_card_with_phase_aware(
                     } else {
                         "≈  ".to_string()
                     };
-                    format!(
-                        "{}{}",
-                        prefix,
-                        format_delta_v(cell.total_dv_ms)
-                    )
+                    format!("{}{}", prefix, format_delta_v(cell.total_dv_ms))
                 }
                 None => "n/a".to_owned(),
             }

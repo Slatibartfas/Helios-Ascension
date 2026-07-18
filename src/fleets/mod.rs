@@ -52,19 +52,10 @@ impl Plugin for FleetPlugin {
                     data::load_interstellar_propulsion_policy,
                 ),
             )
-            .add_systems(
-                PostStartup,
-                (
-                    systems::spawn_initial_fleet,
-                    // Debug aid: spawn a 1-ship fleet at Earth on an immediate
-                    // Hohmann transfer to Jupiter.  Lets the player visually
-                    // verify the in-transit rendering path and stress-test
-                    // the ActiveManeuver save/load round trip (the
-                    // option_label reflect(ignore) fix).  Idempotent via
-                    // `DebugEarthJupiterFleetSpawned`.
-                    systems::spawn_debug_earth_jupiter_fleet,
-                ),
-            )
+            // Note: `spawn_initial_fleet` and `spawn_debug_earth_jupiter_fleet`
+            // were previously registered here at `PostStartup`. They are now
+            // owned by `crate::boot_init::BootInitPlugin` so the splash can hide
+            // the work. See `src/boot_init.rs`.
             .add_systems(
                 Update,
                 (

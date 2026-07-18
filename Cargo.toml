@@ -119,10 +119,13 @@ codegen-units = 1
 opt-level = 3
 strip = true
 
-# Fast compile profile for development
+# Fast compile profile for local iteration.
+# Keep this close to the dev profile rather than inheriting release,
+# otherwise incremental rebuilds become much slower and the experience
+# feels closer to a release build than a rapid dev loop.
 [profile.fast]
-inherits = "release"
-lto = false
+inherits = "dev"
+debug = "line-tables-only"
 codegen-units = 16
 strip = false
 

@@ -1775,15 +1775,13 @@ mod tests {
             // Compute the predicted flyby-body position at the
             // encounter epoch (`t_dep_abs + tof_leg1`).
             let t_dep_abs = 0.0;
-            let origin_pos =
-                DVec3::from(orbit_position_from_mean_anomaly(
-                    &earth_orbit,
-                    earth_orbit.mean_anomaly_epoch,
-                ));
+            let origin_pos = DVec3::from(orbit_position_from_mean_anomaly(
+                &earth_orbit,
+                earth_orbit.mean_anomaly_epoch,
+            ));
             let flyby_pos = orbit_position_from_mean_anomaly(
                 &mars_orbit,
-                mars_orbit.mean_anomaly_epoch
-                    + mars_orbit.mean_motion * (t_dep_abs + tof_leg1),
+                mars_orbit.mean_anomaly_epoch + mars_orbit.mean_motion * (t_dep_abs + tof_leg1),
             );
 
             // Skip if Lambert fails for this geometry — solver
@@ -1797,8 +1795,7 @@ mod tests {
             // The preview sampling math must land on the flyby
             // body position.
             let ma_at_arrival = orbit.mean_anomaly_epoch + orbit.mean_motion * tof_leg1;
-            let pos_at_arrival =
-                orbit_position_from_mean_anomaly(&orbit, ma_at_arrival);
+            let pos_at_arrival = orbit_position_from_mean_anomaly(&orbit, ma_at_arrival);
             let endpoint_error = (pos_at_arrival - flyby_pos).length();
             assert!(
                 endpoint_error < 0.05,
@@ -4038,6 +4035,22 @@ pub fn draw_fleet_transfer_preview(
     if !fleet_ui_state.show_transfer_popup {
         return;
     }
+    // Suppress the arc preview until the porkchop grid has landed.
+    // The early target-snap block at `transfer_planner.rs:~6318`
+    // sets `planned_transfer = Some(planned_to_target)` (an Efficient
+    // Hohmann) the moment `show_transfer_popup = true` flips —
+    // *before* the async build finishes — so a check on
+    // `planned_transfer.is_none()` would not gate the arc.  Gate on
+    // the grid instead: the arc only draws once the porkchop has
+    // produced a real cell for the planner to size against.  Until
+    // then the player sees "Calculating transfer…" with no arc, then
+    // a single arc appears using the auto-picked cell's TOF.
+    //
+    // Note: this also suppresses the arc for cross-star / interstellar
+    // targets that never build a porkchop grid (no-op case for v0.5).
+    if fleet_ui_state.porkchop_grid.is_none() {
+        return;
+    }
     let Some(fleet_entity) = fleet_ui_state.selected_fleet else {
         return;
     };
@@ -5087,64 +5100,56 @@ pub fn draw_gravity_assist_preview(
         let leg1_orbit = p.leg1_orbit.as_ref()?;
         let leg2_orbit = p.leg2_orbit.as_ref()?;
         let ma_leg1 = leg1_orbit.mean_motion * p.leg1_time_s;
-        let ma_leg2 = leg2_orbit.mean_motion
-            * (p.leg1_time_s + p.leg2_time_s);
+        let ma_leg2 = leg2_orbit.mean_motion * (p.leg1_time_s + p.leg2_time_s);
         // Reject only when BOTH legs obviously depart from π (i.e.
         // the solver picked multi-rev branches on both).  Single-leg
         // oddities can still look OK in isolation.
         let leg1_hohmann_like = (ma_leg1 - std::f64::consts::PI).abs() < 1.0;
         let leg2_hohmann_like = (ma_leg2 - std::f64::consts::PI).abs() < 1.0;
         if leg1_hohmann_like && leg2_hohmann_like {
-            Some((
-                leg1_orbit,
-                leg2_orbit,
-                p.leg1_time_s,
-                p.leg2_time_s,
-            ))
+            Some((leg1_orbit, leg2_orbit, p.leg1_time_s, p.leg2_time_s))
         } else {
             None
         }
     });
 
-    let eval_leg1: Box<dyn Fn(f32) -> Vec3> = if let Some((leg1_orbit, _, p_leg1_time, _)) =
-        phase_aware_legs
-    {
-        let orbit = leg1_orbit;
-        let leg_adv = orbit.mean_motion * p_leg1_time;
-        Box::new(move |t: f32| {
-            let ma = orbit.mean_anomaly_epoch + leg_adv * t as f64;
-            let pos_au = orbit_position_from_mean_anomaly(orbit, ma);
-            Vec3::new(
-                (pos_au.x * SCALING_FACTOR) as f32,
-                (pos_au.y * SCALING_FACTOR) as f32,
-                (pos_au.z * SCALING_FACTOR) as f32,
-            )
-        })
-    } else {
-        let ga_geo =
-            compute_gravity_assist_arc(op, fp, dp, origin_ring_r, flyby_ring_r, dest_ring_r);
-        Box::new(move |t: f32| ga_geo.eval_leg1(t))
-    };
-    let eval_leg2: Box<dyn Fn(f32) -> Vec3> = if let Some((_, leg2_orbit, p_leg1_time, p_leg2_time)) =
-        phase_aware_legs
-    {
-        let orbit = leg2_orbit;
-        let ma_at_flyby = orbit.mean_motion * p_leg1_time;
-        let leg_adv = orbit.mean_motion * p_leg2_time;
-        Box::new(move |t: f32| {
-            let ma = orbit.mean_anomaly_epoch + ma_at_flyby + leg_adv * t as f64;
-            let pos_au = orbit_position_from_mean_anomaly(orbit, ma);
-            Vec3::new(
-                (pos_au.x * SCALING_FACTOR) as f32,
-                (pos_au.y * SCALING_FACTOR) as f32,
-                (pos_au.z * SCALING_FACTOR) as f32,
-            )
-        })
-    } else {
-        let ga_geo =
-            compute_gravity_assist_arc(op, fp, dp, origin_ring_r, flyby_ring_r, dest_ring_r);
-        Box::new(move |t: f32| ga_geo.eval_leg2(t))
-    };
+    let eval_leg1: Box<dyn Fn(f32) -> Vec3> =
+        if let Some((leg1_orbit, _, p_leg1_time, _)) = phase_aware_legs {
+            let orbit = leg1_orbit;
+            let leg_adv = orbit.mean_motion * p_leg1_time;
+            Box::new(move |t: f32| {
+                let ma = orbit.mean_anomaly_epoch + leg_adv * t as f64;
+                let pos_au = orbit_position_from_mean_anomaly(orbit, ma);
+                Vec3::new(
+                    (pos_au.x * SCALING_FACTOR) as f32,
+                    (pos_au.y * SCALING_FACTOR) as f32,
+                    (pos_au.z * SCALING_FACTOR) as f32,
+                )
+            })
+        } else {
+            let ga_geo =
+                compute_gravity_assist_arc(op, fp, dp, origin_ring_r, flyby_ring_r, dest_ring_r);
+            Box::new(move |t: f32| ga_geo.eval_leg1(t))
+        };
+    let eval_leg2: Box<dyn Fn(f32) -> Vec3> =
+        if let Some((_, leg2_orbit, p_leg1_time, p_leg2_time)) = phase_aware_legs {
+            let orbit = leg2_orbit;
+            let ma_at_flyby = orbit.mean_motion * p_leg1_time;
+            let leg_adv = orbit.mean_motion * p_leg2_time;
+            Box::new(move |t: f32| {
+                let ma = orbit.mean_anomaly_epoch + ma_at_flyby + leg_adv * t as f64;
+                let pos_au = orbit_position_from_mean_anomaly(orbit, ma);
+                Vec3::new(
+                    (pos_au.x * SCALING_FACTOR) as f32,
+                    (pos_au.y * SCALING_FACTOR) as f32,
+                    (pos_au.z * SCALING_FACTOR) as f32,
+                )
+            })
+        } else {
+            let ga_geo =
+                compute_gravity_assist_arc(op, fp, dp, origin_ring_r, flyby_ring_r, dest_ring_r);
+            Box::new(move |t: f32| ga_geo.eval_leg2(t))
+        };
 
     // ── Draw both legs with arc-length-uniform dashing ───────────────────────
 

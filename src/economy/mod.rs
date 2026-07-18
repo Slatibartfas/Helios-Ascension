@@ -76,18 +76,12 @@ impl Plugin for EconomyPlugin {
             // Logistics resources
             .init_resource::<PendingResourceRequests>()
             .init_resource::<ShippingCompanies>()
-            // Startup systems
-            .add_systems(
-                PostStartup,
-                (
-                    init_procedural_rng,
-                    generate_solar_system_resources,
-                    generate_ring_resources,
-                )
-                    .chain()
-                    .before(generation::stamp_resource_phases),
-            )
-            .add_systems(PostStartup, generation::stamp_resource_phases)
+            // Note: `init_procedural_rng`, `generate_solar_system_resources`,
+            // `generate_ring_resources`, and `stamp_resource_phases` were
+            // previously registered here at `PostStartup`. They are now
+            // owned by `crate::boot_init::BootInitPlugin` so the splash
+            // can hide the work. The chained ordering is preserved
+            // inside the boot-init chain. See `src/boot_init.rs`.
             // Update systems
             .add_systems(
                 Update,

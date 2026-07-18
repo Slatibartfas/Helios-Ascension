@@ -670,6 +670,61 @@ pub fn tooltip_frame() -> egui::Frame {
         .corner_radius(4.0)
 }
 
+// ─── Liquid-Glass Tokens (Menu) ──────────────────────────────────────────
+//
+// Translucent fill + soft cyan stroke + multi-layer hover glow. Used by
+// `src/ui/launch/menu.rs::render_glass_button` so the bottom-row menu
+// buttons read as glass tiles that the rotating-Earth backdrop bleeds
+// through. The hover glow is painter-driven (three concentric strokes) to
+// approximate a bloom effect without coupling egui to Bevy's HDR pipeline.
+
+/// Liquid-glass panel fill — same dark-navy hue as `BG` at ~63% alpha so
+/// the Earth + skybox backdrop shows through subtly behind each button.
+pub const MENU_GLASS_FILL: egui::Color32 =
+    egui::Color32::from_rgba_unmultiplied_const(14, 22, 38, 160);
+
+/// Liquid-glass hover fill — same hue, +40 alpha (clamped to 255).
+pub const MENU_GLASS_HOVER_FILL: egui::Color32 =
+    egui::Color32::from_rgba_unmultiplied_const(20, 32, 52, 200);
+
+/// Liquid-glass panel border — soft cyan at ~28% alpha for the rest state.
+pub const MENU_GLASS_STROKE: egui::Color32 =
+    egui::Color32::from_rgba_unmultiplied_const(0, 242, 255, 72);
+
+/// Outer glow ring for the hover state — 6 px stroke at ~12% cyan alpha.
+pub const MENU_GLASS_GLOW_OUTER: egui::Color32 =
+    egui::Color32::from_rgba_unmultiplied_const(0, 242, 255, 30);
+
+/// Mid glow ring for the hover state — 3 px stroke at ~24% cyan alpha.
+pub const MENU_GLASS_GLOW_MID: egui::Color32 =
+    egui::Color32::from_rgba_unmultiplied_const(0, 242, 255, 60);
+
+/// Transparent central-panel frame for the menu — leaves the 3D backdrop
+/// visible. Same margins as `central_frame()` but the fill is fully
+/// transparent. Used by the main menu render system and by every launch
+/// subview (New Game / Load Game / Settings / Save Game) so the rotating
+/// Earth backdrop remains visible behind the form widgets.
+pub fn menu_transparent_frame() -> egui::Frame {
+    egui::Frame::NONE
+        .fill(egui::Color32::TRANSPARENT)
+        .stroke(egui::Stroke::new(1.0_f32, BORDER))
+        .inner_margin(egui::Margin::same(Spacing::sm as i8))
+}
+
+/// Top-to-bottom darkening scrim drawn on top of the backdrop but below
+/// the subview content. Top edge is fully transparent so the Earth stays
+/// visible up high; bottom edge fades to ~40% navy so form widgets near the
+/// bottom of the screen remain legible against the rotating planet.
+pub fn glass_subview_scrim() -> egui::Frame {
+    // egui's `Frame` doesn't support gradient fills directly, so we use
+    // a uniform semi-transparent fill that biases legibility. Subviews can
+    // layer additional painter-driven gradients on top if they need a
+    // true top→bottom ramp.
+    egui::Frame::NONE
+        .fill(egui::Color32::from_rgba_unmultiplied_const(8, 13, 26, 100))
+        .inner_margin(egui::Margin::ZERO)
+}
+
 /// Thin horizontal tactical divider.
 pub fn divider(ui: &mut egui::Ui) {
     ui.add_space(4.0);
@@ -1025,6 +1080,19 @@ pub mod Color {
     pub const TOOLTIP_BORDER: Color = Color::srgb(0.22, 0.72, 0.86);
     /// Tooltip title text — light cyan, mirrors `PANEL_TITLE`.
     pub const TOOLTIP_TITLE: Color = Color::srgb(0.55, 0.95, 1.0);
+
+    // ── Liquid-Glass (Menu) ──────────────────────────────────────────
+    //
+    // Bevy-UI mirror of `MENU_GLASS_FILL` / `MENU_GLASS_HOVER_FILL` so any
+    // future Bevy-UI variant of the menu buttons can opt into the glass
+    // aesthetic without re-rolling the literal `Color::srgba(...)`. The
+    // egui constants are the source of truth (used by the current menu
+    // implementation); these mirrors stay in sync for future consumers.
+
+    /// Liquid-glass panel fill — mirrors `MENU_GLASS_FILL`.
+    pub const MENU_GLASS_FILL: Color = Color::srgba(0.055, 0.086, 0.149, 0.627);
+    /// Liquid-glass hover fill — mirrors `MENU_GLASS_HOVER_FILL`.
+    pub const MENU_GLASS_HOVER_FILL: Color = Color::srgba(0.078, 0.125, 0.204, 0.784);
 
     // ── Panel Containers (workspace shells) ─────────────────────────
     //

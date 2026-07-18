@@ -150,8 +150,7 @@ pub fn main_menu_render_system(
 fn is_menu_state(state: LaunchState) -> bool {
     matches!(
         state,
-        LaunchState::Splash
-            | LaunchState::MainMenu
+        LaunchState::MainMenu
             | LaunchState::NewGame
             | LaunchState::LoadGame
             | LaunchState::Settings
@@ -447,9 +446,11 @@ mod tests {
 
     #[test]
     fn menu_state_predicate_matches_all_pre_in_game_states() {
-        // Splash and every menu shell / subview variant — used as the
-        // keyboard-shortcut guard.
-        assert!(is_menu_state(LaunchState::Splash));
+        // Every menu shell / subview variant — used as the
+        // keyboard-shortcut guard. `Splash` was removed when the
+        // splash moved to a pre-main Bevy app
+        // (`splash_standalone`); the game app boots straight
+        // into `MainMenu` and never observes a Splash variant.
         assert!(is_menu_state(LaunchState::MainMenu));
         assert!(is_menu_state(LaunchState::NewGame));
         assert!(is_menu_state(LaunchState::LoadGame));

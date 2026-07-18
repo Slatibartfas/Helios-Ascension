@@ -24,7 +24,7 @@ use std::fs;
 use std::path::Path;
 
 use crate::economy::types::ResourceType;
-use crate::plugins::solar_system::{setup_solar_system, CelestialBody};
+use crate::plugins::solar_system::CelestialBody;
 use crate::plugins::solar_system_data::{AsteroidClass, BodyType};
 
 // ── Sidecar schema ────────────────────────────────────────────────────────
@@ -682,7 +682,10 @@ pub struct AsteroidRegistryPlugin;
 impl Plugin for AsteroidRegistryPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<AsteroidRegistry>()
-            .add_systems(Startup, load_asteroid_registry.after(setup_solar_system))
+            // Note: `load_asteroid_registry` was previously registered
+            // here at `Startup, .after(setup_solar_system)`. The
+            // startup ordering is preserved inside
+            // `crate::boot_init::BootInitPlugin`. See `src/boot_init.rs`.
             .add_systems(Update, no_op_asteroid_system.in_set(AsteroidSystemSet));
     }
 }

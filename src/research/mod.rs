@@ -182,15 +182,12 @@ impl Plugin for ResearchPlugin {
             .add_message::<ResearchEvent>()
             // Startup systems
             .add_systems(Startup, load_technologies)
-            .add_systems(
-                PostStartup,
-                (
-                    systems::merge_ship_module_engineering_catalog,
-                    initialize_baseline_technology,
-                    initialize_baseline_engineering,
-                )
-                    .chain(),
-            )
+            // Note: `merge_ship_module_engineering_catalog`,
+            // `initialize_baseline_technology`, and
+            // `initialize_baseline_engineering` were previously
+            // registered here at `PostStartup`. They are now owned
+            // by `crate::boot_init::BootInitPlugin` so the splash
+            // can hide the work. See `src/boot_init.rs`.
             // Update systems
             .add_systems(
                 Update,

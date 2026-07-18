@@ -168,7 +168,8 @@ pub fn orbit_position_from_mean_anomaly(orbit: &KeplerOrbit, mean_anomaly: f64) 
             // ν ≈ π (apoapsis = ∞); fall back to perihelion radius.
             orbit.semi_major_axis.abs() * (1.0 - orbit.eccentricity)
         } else {
-            (orbit.semi_major_axis * (1.0 - orbit.eccentricity * orbit.eccentricity) / denom).max(0.0)
+            (orbit.semi_major_axis * (1.0 - orbit.eccentricity * orbit.eccentricity) / denom)
+                .max(0.0)
         };
         (nu, r)
     } else {

@@ -141,6 +141,12 @@ helios_ascension/
 - Minimize entity spawning/despawning in hot loops
 - Profile before optimizing - use `cargo flamegraph` or similar tools
 
+### Build Profile Guidance for Fast Iteration
+- Bevy's documented fast-compile advice is to keep day-to-day builds on the development profile rather than release-style profiles.
+- The project's custom `fast` profile inherits from `dev` so incremental rebuilds stay responsive and preserve useful debug information.
+- Prefer `cargo check` for quick iteration and `cargo run --profile fast` for local playtests; use `cargo build --release` only for final optimization, profiling, or packaging.
+- Avoid switching to release-like settings for regular development, because they can make Bevy rebuilds feel much slower than the documented “fast compile” experience.
+
 ## Coding Standards
 
 Follow standard Rust best practices:

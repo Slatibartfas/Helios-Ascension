@@ -1,24 +1,36 @@
-//! Launch flow plugin — splash screen, main menu, and the
-//! settings/save persistence that ties them together.
+//! Launch flow plugin — main menu, settings/save persistence, and the
+//! subview handoff.
 //!
 //! Design parent: GRA-309 (`docs/design/gra-309-splash-and-main-menu.md`,
 //! comment id `1abbb963-e10a-460f-a24b-f0ae41cf5137`).
 //!
-//! PR-A (GRA-311) shipped the **skeleton**: types, plugin, RON manifest
-//! loader, [`PersistentSettings`] + userdata helpers, and the read-only
-//! [`SaveIndex`] stub. PR-B / GRA-316 owns splash rendering + the
-//! `Splash → MainMenu` transition; PR-C (GRA-317) owns the main menu
-//! shell. PR-D (GRA-318) wires the three subviews (New / Load /
-//! Settings) and the `kickoff_world_system` that consumes
-//! `PendingLaunchActions` once `LaunchState` reaches `InGame`.
+//! History:
 //!
-//! PR-E (GRA-329) layers the action-consumer system that actually
-//! advances `LaunchState` to `InGame`, fires `AppExit` for `quit`,
-//! and publishes the load-save path into [`PendingLoadSave`].
+//! - PR-A (GRA-311) shipped the **skeleton**: types, plugin, RON
+//!   manifest loader, [`PersistentSettings`] + userdata helpers, and
+//!   the read-only [`SaveIndex`] stub.
+//! - PR-B (GRA-316) added the splash render + `EguiPrimaryContextPass`
+//!   binding on top.
+//! - PR-C (GRA-317) added the main menu shell + `LaunchSystemSet::Menu`
+//!   `EguiPrimaryContextPass` registration.
+//! - PR-D (GRA-318) wired the three subviews (New / Load / Settings)
+//!   and the `kickoff_world_system` that consumes
+//!   `PendingLaunchActions` once `LaunchState` reaches `InGame`.
+//! - PR-E (GRA-329) layered the action-consumer system that actually
+//!   advances `LaunchState` to `InGame`, fires `AppExit` for `quit`,
+//!   and publishes the load-save path into [`PendingLoadSave`].
+//! - GRA-3xx PR-A (this revision) moved the splash into its own
+//!   OS-level Window entity so the player never sees the 1920×1080
+//!   game window during the splash. The splash lives in
+//!   [`crate::ui::launch::splash`] and is registered via
+//!   [`SplashPlugin`] from `src/main.rs`. The launch state machine
+//!   no longer has a `Splash` variant — it boots straight into
+//!   `MainMenu` because the splash window is dismissed before the
+//!   main menu is visible (the main window has `visible: false`
+//!   during the splash).
 //!
-//! Per [[feedback-egui-render-tests]], no egui render tests are added
-//! here — the PR-A / PR-C / PR-D test plans are type/IO round-trips
-//! only.
+//! Per [[feedback-egui-render-tests]], no egui render tests are
+//! added here.
 
 pub mod manifest;
 pub mod menu;
@@ -41,7 +53,9 @@ use std::path::PathBuf;
 pub use manifest::{load_launch_ui_manifest, LaunchUiManifest};
 pub use menu::main_menu_render_system;
 pub use save_index::{SaveHeader, SaveIndex, SaveIndexState, SaveSummary, SAVES_SUBDIR};
-pub use splash::{ui_splash_system, SplashImage, SplashTimer};
+// Splash types re-exported so callers can `use crate::ui::launch::SplashPlugin`
+// without reaching into `splash::*` directly.
+pub use splash::{SplashContextPass, SplashImage, SplashPlugin, SplashTimer};
 pub use subview_manifests::{load_difficulty_presets_manifest, load_seed_copy_manifest};
 pub use subview_save_game::{
     consume_in_game_save_request_system, consume_save_actions_system, register_save_panel_subview,
@@ -59,23 +73,17 @@ pub use crate::persistence::params::{
 
 /// Top-level launch-flow state machine (GRA-309 §3.3).
 ///
-/// Default is `Splash` — the app boots into the splash screen and a
-/// PR-B system advances to `MainMenu`. `InGame` represents "past the
-/// menu, simulation running" and is the state the in-game UI
-/// (`MainPanels`, top menu bar) cares about.
+/// `LaunchState::Splash` was removed when the splash moved to a
+/// pre-main Bevy app (see `splash_standalone`); the game app boots
+/// straight into `MainMenu`. The `Splash` variant was a historical
+/// artifact of the in-window splash and is no longer reachable.
 ///
-/// PR-A inserts this resource at Startup; PR-B writes the transition
-/// systems that move between variants.
-///
-/// GRA-358 PR-C adds `SaveGame` — a menu-side subview the player
-/// reaches from the main menu's Save shortcut or from the in-game
-/// top menu's "Save" entry while in InGame. The state shares the
-/// `LaunchSystemSet::Menu` set with the other subviews; the render
-/// system gates itself on the state.
+/// `InGame` represents "past the menu, simulation running" and is
+/// the state the in-game UI (`MainPanels`, top menu bar) cares
+/// about.
 #[derive(Resource, Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum LaunchState {
     #[default]
-    Splash,
     MainMenu,
     NewGame,
     LoadGame,
@@ -85,9 +93,9 @@ pub enum LaunchState {
 }
 
 impl LaunchState {
-    /// True when the in-game UI (`MainPanels`, top menu bar) should be
-    /// drawing. PR-A does not consume this — it is here so PR-B/C can
-    /// gate the splash/menu render without inventing a parallel enum.
+    /// True when the in-game UI (`MainPanels`, top menu bar) should
+    /// be drawing. PR-A does not consume this — it is here so PR-C
+    /// can gate the menu render without inventing a parallel enum.
     pub fn is_in_game(&self) -> bool {
         matches!(self, LaunchState::InGame)
     }
@@ -95,10 +103,8 @@ impl LaunchState {
 
 /// One-shot actions the menu can request (GRA-309 §3.3).
 ///
-/// UI systems write here; a transition system consumes + clears. The
-/// shape is intentionally narrow in PR-A — PR-C (main menu shell) and
-/// PR-D (subviews) will be the only writers, so the PR-A skeleton
-/// can stay minimal.
+/// UI systems write here; a transition system consumes + clears.
+/// PR-D (subviews) is the only writer.
 #[derive(Resource, Debug, Default, PartialEq)]
 pub struct PendingLaunchActions {
     pub start_new_game: Option<NewGameRequest>,
@@ -108,8 +114,8 @@ pub struct PendingLaunchActions {
 }
 
 impl PendingLaunchActions {
-    /// True when at least one action is queued. PR-B/C transition
-    /// systems poll this to decide whether to advance `LaunchState`.
+    /// True when at least one action is queued. Transition systems
+    /// poll this to decide whether to advance `LaunchState`.
     pub fn has_any(&self) -> bool {
         self.start_new_game.is_some()
             || self.continue_recent
@@ -127,7 +133,7 @@ impl PendingLaunchActions {
     }
 }
 
-/// Request payload for "New Game" — populated by PR-D's new-game
+/// Request payload for "New Game" — populated by the new-game
 /// subview from a [`crate::ui::launch::userdata::PersistentSettings`]
 /// snapshot and the selected preset id (LGD-owned
 /// `assets/data/difficulty_presets.ron`).
@@ -147,20 +153,12 @@ pub struct NewGameRequest {
 
 /// System sets for the launch flow (GRA-309 §3.3).
 ///
-/// `Splash` runs while `LaunchState == Splash`; `Menu` runs while
-/// `LaunchState` is `MainMenu`, `NewGame`, `LoadGame`, or `Settings`.
-/// PR-A registered the sets on `Update` for forward-compatibility.
-/// PR-B (GRA-316) added an `EguiPrimaryContextPass` registration for
-/// `LaunchSystemSet::Splash`; PR-C (GRA-317) does the same for
-/// `LaunchSystemSet::Menu` so the egui `main_menu_render_system` can
-/// write to the active egui context (the in-game tooltip hard-rule,
-/// CLAUDE.md "Egui Scheduling"). PR-D (GRA-318) reuses the `Menu`
-/// registration for the three subview render systems + the
-/// `kickoff_world_system`.
+/// `Menu` runs while `LaunchState` is `MainMenu`, `NewGame`,
+/// `LoadGame`, or `Settings`. The `Splash` set was removed when the
+/// splash moved to a pre-main Bevy app (`splash_standalone`); see
+/// the module doc for context.
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum LaunchSystemSet {
-    /// Splash rendering + auto-dismiss logic. PR-B.
-    Splash,
     /// Main menu + subview rendering + key bindings + kickoff
     /// transition. PR-C / PR-D.
     Menu,
@@ -168,13 +166,11 @@ pub enum LaunchSystemSet {
 
 /// Plugin that wires the launch-flow skeleton into Bevy.
 ///
-/// PR-A registered resources, the manifest loader, the
-/// `PersistentSettings` reader, and the `SaveIndex` scanner. PR-B
-/// (GRA-316) layered the splash render + `EguiPrimaryContextPass`
-/// binding for `LaunchSystemSet::Splash` on top. PR-C (GRA-317) did
-/// the same for `LaunchSystemSet::Menu` (the main menu shell). PR-D
-/// (GRA-318) wires the three subview render systems and the
-/// `kickoff_world_system` into the same set.
+/// GRA-3xx PR-A removed the splash render + `EguiPrimaryContextPass`
+/// binding for `LaunchSystemSet::Splash`; the splash now runs in a
+/// pre-main Bevy app (`splash_standalone::build_splash_app`). The
+/// `LaunchState::Splash` variant was removed at the same time; the
+/// game app boots into `LaunchState::MainMenu`.
 pub struct LaunchPlugin;
 
 impl Plugin for LaunchPlugin {
@@ -183,8 +179,6 @@ impl Plugin for LaunchPlugin {
             .init_resource::<PendingLaunchActions>()
             .init_resource::<PendingLoadSave>()
             .init_resource::<PersistentSettings>()
-            .init_resource::<SplashTimer>()
-            .init_resource::<SplashImage>()
             // PR-E (GRA-329) writes `AppExit` via `MessageWriter`.
             // Bevy 0.18 split Events → Messages; `AppExit` is a
             // Message, so register it explicitly to avoid the
@@ -212,28 +206,17 @@ impl Plugin for LaunchPlugin {
             // Startup so the menu has its list before the first
             // frame draws.
             .add_systems(Startup, load_save_index_system)
-            // PR-A reserved the set chain in `Update` so other systems
-            // can join without re-importing the schedule type. PR-B
-            // extended the `Splash` set into `EguiPrimaryContextPass`
-            // for the egui render path; PR-C mirrors that for `Menu`.
-            // PR-D places the kickoff on the same pass because the
-            // queue is mutated by the egui subviews in the same pass
-            // and the kickoff must observe the latest values within
-            // the frame.
-            .configure_sets(
-                Update,
-                (LaunchSystemSet::Splash, LaunchSystemSet::Menu).chain(),
-            )
-            .configure_sets(
-                EguiPrimaryContextPass,
-                (LaunchSystemSet::Splash, LaunchSystemSet::Menu),
-            )
+            // PR-C registered the `Menu` set on `EguiPrimaryContextPass`
+            // so the egui `main_menu_render_system` can write to the
+            // active egui context (the in-game tooltip hard-rule,
+            // CLAUDE.md "Egui Scheduling"). The Splash set is gone —
+            // see `splash_standalone` for where the splash lives
+            // now.
+            .configure_sets(Update, LaunchSystemSet::Menu)
+            .configure_sets(EguiPrimaryContextPass, LaunchSystemSet::Menu)
             .add_systems(
                 EguiPrimaryContextPass,
-                (
-                    ui_splash_system.in_set(LaunchSystemSet::Splash),
-                    main_menu_render_system.in_set(LaunchSystemSet::Menu),
-                ),
+                main_menu_render_system.in_set(LaunchSystemSet::Menu),
             );
 
         // PR-D subviews: each owns its render system + the resource
@@ -258,7 +241,8 @@ impl Plugin for LaunchPlugin {
 }
 
 /// Startup system: read settings from disk into the
-/// [`PersistentSettings`] resource, then run the save-index scanner.
+/// [`PersistentSettings`] resource, then run the save-index
+/// scanner.
 ///
 /// Two distinct calls because settings load touches the resource
 /// directly (`init_resource` already gave us a default), while the
@@ -285,13 +269,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn launch_state_default_is_splash() {
-        assert_eq!(LaunchState::default(), LaunchState::Splash);
+    fn launch_state_default_is_main_menu() {
+        // The splash runs in its own Bevy app before this one
+        // (see splash_standalone), so the game app boots
+        // straight into the main menu rather than cycling
+        // through a Splash state.
+        assert_eq!(LaunchState::default(), LaunchState::MainMenu);
     }
 
     #[test]
     fn launch_state_is_in_game_only_for_in_game_variant() {
-        assert!(!LaunchState::Splash.is_in_game());
         assert!(!LaunchState::MainMenu.is_in_game());
         assert!(!LaunchState::NewGame.is_in_game());
         assert!(!LaunchState::LoadGame.is_in_game());

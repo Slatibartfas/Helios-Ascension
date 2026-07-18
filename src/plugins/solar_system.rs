@@ -42,11 +42,24 @@ impl Plugin for SolarSystemPlugin {
             .add_plugins(MaterialPlugin::<StarCorona3dMaterial>::default())
             .add_plugins(MaterialPlugin::<StarHalo3dMaterial>::default())
             .init_resource::<RingAlphaCombineQueue>()
-            .add_systems(Startup, setup_solar_system)
-            .add_systems(
-                PostStartup,
-                (initial_camera_focus, initialize_colony_stockpiles),
-            )
+            // `LinearImageQueue` is also populated (with the handles
+            // for the just-loaded normal/specular textures) by
+            // `setup_solar_system` at runtime — but `setup_solar_system`
+            // now runs deferred in `Update` (via `BootInitPlugin`),
+            // while `apply_linear_to_images_system` (registered below)
+            // runs in `Update` *unconditionally*. Without this
+            // upfront init, the linear-conversion system would panic
+            // on the first frame because the queue resource hasn't
+            // been inserted yet. The default-initialised queue is
+            // empty (no handles), which is the correct pre-setup
+            // state — `setup_solar_system` later overwrites it with
+            // the populated handles via `commands.insert_resource`.
+            .init_resource::<LinearImageQueue>()
+            // Note: `setup_solar_system`, `initial_camera_focus`, and
+            // `initialize_colony_stockpiles` were previously registered
+            // at `Startup` / `PostStartup` here. They are now owned by
+            // `crate::boot_init::BootInitPlugin` so the splash can
+            // hide the work. See `src/boot_init.rs`.
             .add_systems(
                 Update,
                 (
@@ -1834,7 +1847,11 @@ fn rotate_bodies(
 }
 
 // Sets the initial camera focus to the Sun
-fn initial_camera_focus(
+///
+/// Originally registered at `PostStartup`; now registered at
+/// `Update` via `crate::boot_init::BootInitPlugin`. `pub` so the
+/// boot-init plugin can call it.
+pub fn initial_camera_focus(
     query_bodies: Query<(Entity, &CelestialBody), With<Star>>,
     mut query_camera: Query<&mut CameraAnchor, With<GameCamera>>,
 ) {

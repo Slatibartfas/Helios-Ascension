@@ -562,7 +562,8 @@ pub fn sweep_gravity_assist_grid(
             // Try Lambert leg 1 (origin → flyby).
             let leg1 = solve_lambert_transfer(origin_pos_au, flyby_pos_au, tof_leg1, gm, false);
             // Try Lambert leg 2 (flyby → destination).
-            let leg2 = solve_lambert_transfer(flyby_pos_au, dest_pos_at_arrival_au, tof_leg2, gm, false);
+            let leg2 =
+                solve_lambert_transfer(flyby_pos_au, dest_pos_at_arrival_au, tof_leg2, gm, false);
 
             let (
                 Some((v_dep_ms, v_at_flyby_in_ms, _orbit1)),
@@ -1035,7 +1036,9 @@ fn mean_anomaly_from_true_anomaly(eccentricity: f64, true_anomaly: f64) -> f64 {
     // Solve `M = e sinh(H) - H` via Newton-Raphson (the standard
     // elliptic Kepler solver is wrong for e > 1).
     if eccentricity > 1.0 {
-        let ratio = ((eccentricity - 1.0) / (eccentricity + 1.0)).max(0.0).sqrt();
+        let ratio = ((eccentricity - 1.0) / (eccentricity + 1.0))
+            .max(0.0)
+            .sqrt();
         let tan_h_half = ratio * (true_anomaly * 0.5).tan();
         let h = 2.0 * tan_h_half.asinh();
         // Newton-Raphson on `f(H) = e sinh H - H - M = 0`.

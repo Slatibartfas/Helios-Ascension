@@ -1165,7 +1165,7 @@ fn solve_cell(
             // arrivals symmetric.
             let v_inf_arr_helio_ms = (v2_speed_ms - v_circ_arr_helio_ms).abs();
             let c3_arr = v_inf_arr_helio_ms * v_inf_arr_helio_ms;
-            let (v_circ_arr_ms, arr_burn_ms) = match inputs.parking_radius_au {
+            let (_v_circ_arr_ms, arr_burn_ms) = match inputs.parking_radius_au {
                 Some(r2_au_arr) => {
                     // Parking at the shell altitude around the
                     // destination body.  Use the same `body_gm` as the
@@ -1194,14 +1194,18 @@ fn solve_cell(
                     (v_circ_arr_helio_ms - v2_speed_ms).abs(),
                 ),
             };
-            // v_inf_arrival: the *hyperbolic excess* at the destination
-            // (the speed the spacecraft is moving *above* circular
-            // orbital speed at the parking radius).  Only positive when
-            // v_arr > v_circ_park; for inward-Hohmann arrivals the
-            // entire delta-v is a real brake burn (captured by
-            // `arr_burn_ms` above), not an unbrakeable hyperbolic
-            // excess.
-            let v_inf_arrival_ms = (v2_speed_ms - v_circ_arr_ms).max(0.0);
+            // v_inf_arrival: the heliocentric hyperbolic excess at
+            // arrival, in m/s.  We use `sqrt(c3)` rather than the
+            // legacy `(v2 − v_circ_local).max(0.0)` because the
+            // legacy formula mixed heliocentric and local-Mars
+            // reference frames and so clamped to 0 km/s on every
+            // Hohmann-like transfer (the user's "v_inf almost
+            // always 0" report).  `c3 = v_inf²` is geometrically
+            // invariant for ballistic Lambert arcs and gives the
+            // *magnitude* of the arrival-side hyperbolic excess in
+            // the heliocentric frame — exactly what mission
+            // planners surface as "v∞ at arrival".
+            let v_inf_arrival_ms = c3.sqrt();
             let total = dep_burn_ms + arr_burn_ms;
             PorkchopCell {
                 t_dep_s,
@@ -1492,7 +1496,7 @@ fn solve_local_cell(
                     transfer_orbit: None,
                 };
             }
-            let v_inf_arrival_ms = (v2_speed_ms - v_circ_arr_ms).max(0.0);
+            let v_inf_arrival_ms = c3.sqrt();
             let total = dep_burn_ms + arr_burn_ms;
             PorkchopCell {
                 t_dep_s,
@@ -1779,7 +1783,7 @@ pub fn build_short_hop_grid(
                             transfer_orbit: None,
                         }
                     } else {
-                        let v_inf_arrival_ms = (v2_speed_ms - v_circ_arr_ms).max(0.0);
+                        let v_inf_arrival_ms = c3.sqrt();
                         let total = dep_burn_ms + arr_burn_ms + plane_change_penalty_ms;
                         PorkchopCell {
                             t_dep_s: cell_t_dep_s,
@@ -2070,7 +2074,13 @@ pub fn build_star_approach_grid(inputs: &StarApproachInputs) -> PorkchopGrid {
                     }
                 }
             } else {
-                match solve_lambert_transfer(origin_pos_au, dest_pos_au, tof_s, inputs.gm_star, false) {
+                match solve_lambert_transfer(
+                    origin_pos_au,
+                    dest_pos_au,
+                    tof_s,
+                    inputs.gm_star,
+                    false,
+                ) {
                     Some((v1_ms, v2_ms, orbit)) => {
                         let v1_speed_ms = v1_ms.length();
                         let dep_burn_ms = (v1_speed_ms - v_circ_ms).max(0.0);

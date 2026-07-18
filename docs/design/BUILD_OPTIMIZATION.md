@@ -36,7 +36,8 @@ A dedicated test profile has been added with balanced optimization levels:
 - **Configuration**: `Cargo.toml` - `[profile.test]`
 - **How it works**: Balances compilation speed with test execution speed
 - **Benefit**: Tests compile faster while still running efficiently
-
+### Fast profile guidance
+Bevy's quick-start guidance recommends keeping iterative builds on the development profile rather than using release-style settings. The `fast` profile in this repository now inherits from `dev` so `cargo build --profile fast` stays closer to a normal edit/build loop instead of paying release-build costs.
 ### 4. Cargo Nextest Integration
 **Impact**: Parallel test execution for faster test runs
 

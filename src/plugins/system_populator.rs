@@ -18,7 +18,6 @@ use std::collections::{HashMap, HashSet};
 use crate::astronomy::components::{CurrentStarSystem, OrbitCenter, SystemId};
 use crate::astronomy::exoplanets::RealPlanet;
 use crate::astronomy::infer_ocean_properties;
-use crate::astronomy::nearby_stars::load_nearby_stars_data;
 use crate::astronomy::nearby_stars::{BinaryOrbitData, NearbyStarsData, PlanetData, StarData};
 use crate::astronomy::{
     calculate_frost_line, generate_procedural_atmosphere,
@@ -27,7 +26,6 @@ use crate::astronomy::{
     SpaceCoordinates, StellarProperties, SurfaceTemperature, SCALING_FACTOR,
 };
 use crate::economy::components::{OrbitsBody, SpectralClass, StarSystem};
-use crate::economy::generation::generate_solar_system_resources;
 use crate::game_state::GameSeed;
 use crate::plugins::solar_system::{
     create_ring_mesh, Asteroid, AxialTilt, CelestialBody, ClickExcluded, Comet, DwarfPlanet,
@@ -71,20 +69,24 @@ struct SpawnedPlanetSummary {
 }
 
 impl Plugin for SystemPopulatorPlugin {
-    fn build(&self, app: &mut App) {
-        app.add_systems(
-            Startup,
-            populate_nearby_systems
-                .after(load_nearby_stars_data)
-                .before(generate_solar_system_resources),
-        );
+    fn build(&self, _app: &mut App) {
+        // Note: `populate_nearby_systems` was previously registered
+        // here at `Startup`. It is now owned by
+        // `crate::boot_init::BootInitPlugin` so the splash can hide
+        // the work. The `.after(load_nearby_stars_data)` and
+        // `.before(generate_solar_system_resources)` ordering is
+        // preserved inside the boot-init chain. See `src/boot_init.rs`.
     }
 }
 
 /// Main system that populates nearby star systems with procedural bodies
 /// This runs after the initial solar system is set up and uses the GameSeed
 /// for deterministic generation
-fn populate_nearby_systems(
+///
+/// Originally registered at `Startup` (in `SystemPopulatorPlugin`); now
+/// registered at `Update` via `crate::boot_init::BootInitPlugin` so the
+/// splash can hide the work. `pub` so the boot-init plugin can call it.
+pub fn populate_nearby_systems(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,

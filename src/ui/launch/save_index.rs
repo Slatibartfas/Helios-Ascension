@@ -118,10 +118,7 @@ fn format_unix_timestamp_utc(ts: u64) -> String {
     let Some(dt) = dt else {
         return format!("@{ts}");
     };
-    let total = dt
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
+    let total = dt.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
     // Seconds-since-epoch → civil date via the algorithm in
     // `std::time::SystemTime`'s docs (Howard Hinnant's
     // civil_from_days). Inline so we don't pull in `chrono`.
@@ -333,8 +330,7 @@ pub fn parse_header_from_file(path: &Path) -> Result<SaveHeader, String> {
         return Err("file is empty".to_string());
     }
     let text = std::str::from_utf8(&bytes).map_err(|e| format!("not valid UTF-8: {}", e))?;
-    let file: SaveFile = ron::from_str(text)
-        .map_err(|e| format!("RON parse failed: {e}"))?;
+    let file: SaveFile = ron::from_str(text).map_err(|e| format!("RON parse failed: {e}"))?;
     Ok(SaveHeader::from_metadata(&file.metadata))
 }
 
@@ -410,9 +406,7 @@ mod tests {
             .entries
             .iter()
             .find_map(|e| match e {
-                SaveSummary::Valid { path, header } if path.ends_with("alpha.ron") => {
-                    Some(header)
-                }
+                SaveSummary::Valid { path, header } if path.ends_with("alpha.ron") => Some(header),
                 _ => None,
             })
             .expect("alpha entry exists");

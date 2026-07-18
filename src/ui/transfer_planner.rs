@@ -5372,12 +5372,10 @@ pub(super) fn render_transfer_planner(
                         // leg split inherits.  Falls back to the
                         // cached `total_time_s` when the grid is
                         // missing / has no feasible cell.
-                        let t_dep_abs = elapsed
-                            + (fleet_ui_state.departure_offset_days.max(0.0) * 86_400.0);
-                        let slider_aware_total = fleet_ui_state
-                            .porkchop_grid
-                            .as_ref()
-                            .and_then(|grid| {
+                        let t_dep_abs =
+                            elapsed + (fleet_ui_state.departure_offset_days.max(0.0) * 86_400.0);
+                        let slider_aware_total =
+                            fleet_ui_state.porkchop_grid.as_ref().and_then(|grid| {
                                 if !grid
                                     .cells
                                     .iter()
@@ -5403,8 +5401,8 @@ pub(super) fn render_transfer_planner(
                                     })
                                     .map(|c| c.tof_s)
                             });
-                        let total_time_s = slider_aware_total
-                            .unwrap_or(sel_ga_entry.option.total_time_s);
+                        let total_time_s =
+                            slider_aware_total.unwrap_or(sel_ga_entry.option.total_time_s);
                         // Slider-drag drop to "Now" sets the recorded
                         // absolute epoch to `current_sim_s + 0` —
                         // either way we feed the relative offset here.
@@ -9014,7 +9012,13 @@ pub fn build_planned_transfer(
     let lambert_barycentric_solution =
         if reference_frame.is_barycentric() && option.transfer_orbit_override.is_some() {
             barycentric_start_end.and_then(|(origin_future, dest_future)| {
-                solve_lambert_transfer(origin_future, dest_future, option.transfer_time_s, gm, false)
+                solve_lambert_transfer(
+                    origin_future,
+                    dest_future,
+                    option.transfer_time_s,
+                    gm,
+                    false,
+                )
             })
         } else {
             None

@@ -4,7 +4,7 @@ use bevy::prelude::*;
 use bevy::render::view::Hdr;
 #[cfg(target_os = "windows")]
 use bevy::render::view::NoIndirectDrawing;
-use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass, EguiStartupSet};
+use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass, EguiStartupSet, PrimaryEguiContext};
 
 use crate::astronomy::components::{CurrentStarSystem, SystemId};
 use crate::astronomy::{update_render_transform, SCALING_FACTOR};
@@ -12,6 +12,7 @@ use crate::game_state::ActiveMenu;
 use crate::plugins::solar_system::CelestialBody;
 use crate::plugins::solar_system_data::BodyType;
 use crate::plugins::starmap::SystemMetadata;
+use crate::ui::launch::LaunchState;
 
 /// Base zoom threshold multiplier. The actual threshold is calculated as
 /// `bounding_radius_au * SCALING_FACTOR * THRESHOLD_MULTIPLIER`.
@@ -148,6 +149,15 @@ impl Default for OrbitCamera {
 }
 
 fn spawn_camera(mut commands: Commands) {
+    // The main game camera carries `PrimaryEguiContext` so that
+    // `EguiContexts::ctx_mut()` (used by the main menu + in-game
+    // egui panels) resolves to this camera's egui context. The
+    // splash window has its own camera + context (see
+    // `src/ui/launch/splash.rs::setup_splash_window`).
+    //
+    // We disable `EguiGlobalSettings::auto_create_primary_context`
+    // so neither camera picks up an `EguiContext` implicitly; the
+    // markers below tell bevy_egui which is which.
     #[cfg(target_os = "windows")]
     commands.spawn((
         Camera3d::default(),
@@ -160,6 +170,7 @@ fn spawn_camera(mut commands: Commands) {
         GameCamera,
         CameraAnchor(None),
         OrbitCamera::default(),
+        PrimaryEguiContext,
     ));
 
     #[cfg(not(target_os = "windows"))]
@@ -174,6 +185,7 @@ fn spawn_camera(mut commands: Commands) {
         GameCamera,
         CameraAnchor(None),
         OrbitCamera::default(),
+        PrimaryEguiContext,
     ));
 }
 
@@ -189,6 +201,7 @@ pub fn capture_egui_panel_bounds(mut contexts: EguiContexts, mut bounds: ResMut<
 
 fn orbit_camera_controls(
     mut contexts: EguiContexts,
+    launch_state: Res<LaunchState>,
     active_menu: Res<ActiveMenu>,
     mouse: Res<ButtonInput<MouseButton>>,
     keyboard: Res<ButtonInput<KeyCode>>,
@@ -198,6 +211,19 @@ fn orbit_camera_controls(
     mut query: Query<&mut OrbitCamera>,
     panel_bounds: Res<EguiPanelBounds>,
 ) {
+    // GRA-XYZ: gate gameplay camera controls on `LaunchState::is_in_game()`.
+    // While the launch flow is on Splash / MainMenu / any subview, the
+    // menu backdrop owns the camera (see `src/ui/launch/menu_backdrop.rs`)
+    // and the player should not be able to override its framing. Note: the
+    // existing `active_menu.current.blocks_world_interaction()` guard
+    // handles in-game top-bar menus (Survey / Settings / Shipbuilding);
+    // the launch-flow guard is orthogonal.
+    if !launch_state.is_in_game() {
+        motion_events.clear();
+        scroll_events.clear();
+        return;
+    }
+
     let mut camera = query.single_mut().unwrap();
 
     // Block camera control when in full-screen UI modes (i.e. menus that block world interaction)
@@ -289,11 +315,20 @@ fn update_camera_transform(
     // Read the target body's Transform (not GlobalTransform) so we see the
     // current frame's position written by update_render_transform.
     // GlobalTransform is only flushed in PostUpdate, so it lags one frame.
+    launch_state: Res<LaunchState>,
     mut param_set: ParamSet<(
         Query<(&mut Transform, &mut OrbitCamera, &CameraAnchor)>,
         Query<&Transform, Without<GameCamera>>,
     )>,
 ) {
+    // GRA-XYZ: while the launch flow owns the camera (Splash / MainMenu /
+    // subviews), `MenuBackdropPlugin` writes the camera transform directly.
+    // Without this guard `update_camera_transform` would overwrite the
+    // backdrop's framing every frame from stale `OrbitCamera` state.
+    if !launch_state.is_in_game() {
+        return;
+    }
+
     // Step 1: extract the anchor entity while holding the camera borrow.
     let anchor_entity: Option<Entity> =
         param_set.p0().single().map(|(_, _, a)| a.0).unwrap_or(None);
@@ -333,9 +368,18 @@ fn update_camera_transform(
 fn update_min_zoom(
     view_mode: Res<ViewMode>,
     current_system: Res<CurrentStarSystem>,
+    launch_state: Res<LaunchState>,
     mut camera_query: Query<(&mut OrbitCamera, &CameraAnchor)>,
     body_query: Query<(&CelestialBody, Option<&SystemId>)>,
 ) {
+    // GRA-XYZ: gameplay zoom clamps don't apply during the launch flow —
+    // the menu backdrop sets `orbit.min_radius = 0.5` for its close-up
+    // framing and a fresh `update_min_zoom` would push it back up to 5.0
+    // (or worse, to `visual_radius * 2.5` for the in-game Earth).
+    if !launch_state.is_in_game() {
+        return;
+    }
+
     let Ok((mut orbit, anchor)) = camera_query.single_mut() else {
         return;
     };
@@ -418,8 +462,16 @@ fn update_view_mode(
     camera_query: Query<&OrbitCamera, With<GameCamera>>,
     current_system: Res<CurrentStarSystem>,
     system_metadata: Res<SystemMetadata>,
+    launch_state: Res<LaunchState>,
     mut view_mode: ResMut<ViewMode>,
 ) {
+    // GRA-XYZ: the menu backdrop's `orbit.radius = 1_400.0` would
+    // otherwise flip `ViewMode` to `Starmap` mid-menu (because the
+    // starmap threshold for the default system is 75_000 game units).
+    if !launch_state.is_in_game() {
+        return;
+    }
+
     let Ok(orbit) = camera_query.single() else {
         return;
     };

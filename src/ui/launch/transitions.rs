@@ -129,7 +129,13 @@ mod tests {
 
         let messages = app.world().resource::<Messages<AppExit>>();
         assert!(!messages.is_empty());
-        assert_eq!(*app.world().resource::<LaunchState>(), LaunchState::Splash);
+        // The state is unchanged by a quit-only action. Default is
+        // `MainMenu` (the splash moved to a pre-main Bevy app,
+        // see `splash_standalone`).
+        assert_eq!(
+            *app.world().resource::<LaunchState>(),
+            LaunchState::MainMenu
+        );
         assert!(!app.world().resource::<PendingLaunchActions>().has_any());
     }
 }

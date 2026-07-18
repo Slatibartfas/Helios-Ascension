@@ -1,3 +1,4 @@
+use bevy::log::LogPlugin;
 use bevy::prelude::*;
 #[cfg(target_os = "windows")]
 use bevy::render::settings::{Backends, RenderCreation, WgpuSettings};
@@ -6,6 +7,7 @@ use bevy::window::{PresentMode, WindowResizeConstraints, WindowResolution};
 use bevy_egui::EguiPlugin;
 
 pub mod astronomy;
+pub mod boot_init;
 pub mod colony;
 pub mod economy;
 pub mod fleets;
@@ -21,6 +23,7 @@ pub mod survey;
 pub mod ui;
 
 use astronomy::AstronomyPlugin;
+use boot_init::BootInitPlugin;
 use colony::ColonyPlugin;
 use economy::EconomyPlugin;
 use fleets::FleetPlugin;
@@ -36,66 +39,118 @@ use render::backdrop::BackdropPlugin;
 use research::ResearchPlugin;
 use shipbuilding::ShipbuildingPlugin;
 use survey::SurveyPlugin;
+use ui::launch::SplashPlugin;
 use ui::UIPlugin;
 
-/// Minimum supported window dimensions.
+/// Minimum supported window dimensions for the main game.
 ///
-/// The UI is now responsive enough to remain usable below 1080p, which avoids
-/// forcing oversized swap chains on smaller Windows displays.
+/// The UI is now responsive enough to remain usable below 1080p, which
+/// avoids forcing oversized swap chains on smaller Windows displays.
 const MIN_WINDOW_WIDTH: f32 = 1280.0;
 const MIN_WINDOW_HEIGHT: f32 = 720.0;
 
+/// Entry point: build the game app and run it. The splash lives
+/// inside the same Bevy app as the main game (see
+/// [`crate::ui::launch::splash`]) — winit 0.30 forbids creating a
+/// second `EventLoop` after the first exits, so a "pre-main splash
+/// Bevy app" isn't an option. The splash uses a separate `Window`
+/// entity, sized to the logo PNG and visible by default; the main
+/// game window exists from boot but has `visible: false`. Splash
+/// dismissal flips the two visibility bits.
+///
+/// See [`build_game_app`] for the main game configuration and
+/// [`SplashPlugin`] for the splash window + camera setup.
 fn main() {
-    App::new()
-        // Bevy default plugins with custom window configuration
-        .add_plugins(
-            DefaultPlugins
-                .set(WindowPlugin {
-                    primary_window: Some(Window {
-                        title: "Helios Ascension".to_string(),
-                        resolution: WindowResolution::new(1920, 1080),
-                        present_mode: PresentMode::Fifo,
-                        resize_constraints: WindowResizeConstraints {
-                            min_width: MIN_WINDOW_WIDTH,
-                            min_height: MIN_WINDOW_HEIGHT,
-                            ..default()
-                        },
+    let mut app = build_game_app();
+    app.run();
+}
+
+/// Build the main game Bevy app. Pulled out of `main` so the splash
+/// boot (above) and the game boot share a clean top-level structure
+/// without inlining the entire app in `main`.
+fn build_game_app() -> App {
+    let mut app = App::new();
+    app.add_plugins(
+        // Bevy default plugins with custom window configuration.
+        // The main window is `visible: false` at boot — the splash
+        // window owns the screen until it dismisses
+        // ([`crate::ui::launch::splash::ui_splash_system`] flips the
+        // bit). Keeping the window hidden instead of not spawning it
+        // avoids the winit event-loop-recreation issue described in
+        // `main`.
+        DefaultPlugins
+            // Keep normal Bevy/application startup information while
+            // suppressing DX12's generated HLSL source and Naga's
+            // per-binding translation diagnostics. Both are emitted
+            // at `info` during normal shader compilation and can
+            // otherwise produce thousands of startup lines.
+            .set(LogPlugin {
+                filter: "info,helios_ascension=info,wgpu_hal::dx12::device=warn,naga::back::hlsl::writer=warn".to_string(),
+                level: bevy::log::Level::INFO,
+                custom_layer: |_app| None,
+                fmt_layer: |_app| None,
+            })
+            .set(WindowPlugin {
+                primary_window: Some(Window {
+                    title: "Helios Ascension".to_string(),
+                    resolution: WindowResolution::new(1920, 1080),
+                    present_mode: PresentMode::Fifo,
+                    visible: false, // hidden until splash dismisses
+                    resize_constraints: WindowResizeConstraints {
+                        min_width: MIN_WINDOW_WIDTH,
+                        min_height: MIN_WINDOW_HEIGHT,
                         ..default()
-                    }),
+                    },
                     ..default()
-                })
-                .set(render_plugin_settings()),
-        )
-        // Debug UI (egui)
-        .add_plugins(EguiPlugin::default())
-        // Game plugins - Order matters for dependencies
-        .add_plugins(GameStatePlugin)
-        .add_plugins(AstronomyPlugin)
-        .add_plugins(CameraPlugin)
-        .add_plugins(BackdropPlugin)
-        .add_plugins(VisualEffectsPlugin)
-        .add_plugins(AtmospherePlugin)
-        // OceanPlugin disabled — the shader doesn't account for sun direction,
-        // causing uniform brightening on both day and night sides.  Ocean data
-        // (OceanProperties component) is still inserted for UI display.
-        .add_plugins(SolarSystemPlugin)
-        .add_plugins(StarmapPlugin)
-        .add_plugins(EconomyPlugin)
-        .add_plugins(ColonyPlugin)
-        .add_plugins(ResearchPlugin)
-        .add_plugins(SurveyPlugin)
-        .add_plugins(PersonnelPlugin)
-        .add_plugins(FleetPlugin)
-        .add_plugins(ShipbuildingPlugin)
-        .add_plugins(SystemPopulatorPlugin)
-        .add_plugins(UIPlugin)
-        .add_plugins(PersistencePlugin)
-        .add_plugins(SaveLoadPlugin)
-        .add_plugins(GameSetupPlugin)
-        .add_plugins(MusicPlugin)
-        // Systems
-        .add_systems(Startup, setup)
-        .run();
+                }),
+                ..default()
+            })
+            .set(render_plugin_settings()),
+    )
+    // Debug UI (egui)
+    .add_plugins(EguiPlugin::default())
+    // Splash plugin — registered BEFORE LaunchPlugin so the splash
+    // window is spawned before the main menu's render system runs.
+    // The main menu's render is gated on `LaunchState::MainMenu`,
+    // so it no-ops during the splash — but the splash window itself
+    // must be set up first to be visible.
+    .add_plugins(SplashPlugin)
+    // Boot-init plugin — defers game-state init (solar system,
+    // 60-system population, baseline tech / engineering / debug
+    // fleet, camera focus, asteroid registry, resource generation)
+    // into `Update`, gated by `BootState::Loading`. The splash
+    // window dismisses once `BootState` flips to `Ready`, so the
+    // boot-init work happens behind the splash. See
+    // `src/boot_init.rs` for the chain order.
+    .add_plugins(BootInitPlugin)
+    // Game plugins - Order matters for dependencies
+    .add_plugins(GameStatePlugin)
+    .add_plugins(AstronomyPlugin)
+    .add_plugins(CameraPlugin)
+    .add_plugins(BackdropPlugin)
+    .add_plugins(VisualEffectsPlugin)
+    .add_plugins(AtmospherePlugin)
+    // OceanPlugin disabled — the shader doesn't account for sun direction,
+    // causing uniform brightening on both day and night sides.  Ocean data
+    // (OceanProperties component) is still inserted for UI display.
+    .add_plugins(SolarSystemPlugin)
+    .add_plugins(StarmapPlugin)
+    .add_plugins(EconomyPlugin)
+    .add_plugins(ColonyPlugin)
+    .add_plugins(ResearchPlugin)
+    .add_plugins(SurveyPlugin)
+    .add_plugins(PersonnelPlugin)
+    .add_plugins(FleetPlugin)
+    .add_plugins(ShipbuildingPlugin)
+    .add_plugins(SystemPopulatorPlugin)
+    .add_plugins(UIPlugin)
+    .add_plugins(PersistencePlugin)
+    .add_plugins(SaveLoadPlugin)
+    .add_plugins(GameSetupPlugin)
+    .add_plugins(MusicPlugin)
+    // Systems
+    .add_systems(Startup, setup);
+    app
 }
 
 fn render_plugin_settings() -> RenderPlugin {

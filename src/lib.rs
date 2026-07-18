@@ -1,4 +1,5 @@
 pub mod astronomy;
+pub mod boot_init;
 pub mod colony;
 pub mod economy;
 pub mod fleets;
