@@ -111,15 +111,22 @@ impl Plugin for AstronomyPlugin {
                     // Destruction and lifecycle
                     check_natural_destruction.after(propagate_orbits),
                     fade_destroyed_bodies.after(check_natural_destruction),
-                    // Selection/hover markers
-                    spawn_selection_markers,
+                    // Selection/hover marker lifecycle. The explicit ordering
+                    // flushes deferred despawns before later systems query the
+                    // marker set, preventing two systems from queuing cleanup
+                    // for the same entity in one frame.
                     despawn_selection_markers,
                     cleanup_stale_selection_markers.after(despawn_selection_markers),
-                    restore_suppressed_markers.after(cleanup_stale_selection_markers),
-                    spawn_hover_markers,
                     despawn_hover_markers,
-                    animate_marker_dots,
-                    scale_markers_with_zoom,
+                    spawn_selection_markers
+                        .after(cleanup_stale_selection_markers)
+                        .after(despawn_hover_markers),
+                    spawn_hover_markers
+                        .after(spawn_selection_markers)
+                        .after(despawn_hover_markers),
+                    restore_suppressed_markers.after(spawn_hover_markers),
+                    scale_markers_with_zoom.after(restore_suppressed_markers),
+                    animate_marker_dots.after(scale_markers_with_zoom),
                 ),
             )
             .add_systems(

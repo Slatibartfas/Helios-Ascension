@@ -180,7 +180,7 @@ fn menu_backdrop_transition_system(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     asset_server: Res<AssetServer>,
-    marker_query: Query<Entity, With<MenuBackdropMarker>>,
+    marker_query: Query<Entity, (With<MenuBackdropMarker>, Without<ChildOf>)>,
     mut camera_query: Query<(&mut OrbitCamera, &mut Transform), With<GameCamera>>,
 ) {
     if !launch_state.is_changed() {
@@ -201,8 +201,11 @@ fn menu_backdrop_transition_system(
         active.0 = true;
     } else if !is_menu_launch_state(*launch_state) && active.0 {
         // ── Leaving the menu family: despawn backdrop + restore camera.
+        // Despawn only backdrop roots. In Bevy 0.18, despawning the Earth
+        // cascades through its clouds child; explicitly queuing the child as
+        // well would target it again after the parent removes it.
         for entity in marker_query.iter() {
-            commands.entity(entity).despawn_recursive();
+            commands.entity(entity).despawn();
         }
         if let (Some(saved), Ok((mut orbit, mut transform))) =
             (saved_state.saved, camera_query.single_mut())

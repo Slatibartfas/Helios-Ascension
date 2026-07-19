@@ -28,7 +28,10 @@
 //!
 //! Dismissal: the splash render system hides the splash window +
 //! shows the main window. The system self-gates on splash-window
-//! visibility, so once dismissed it stops rendering.
+//! visibility, so once dismissed it stops rendering. The hidden native
+//! window stays alive until application exit: removing a secondary
+//! window at runtime causes winit on Windows to deliver final focus and
+//! destruction events after Bevy has removed its WindowId mapping.
 
 use bevy::camera::RenderTarget;
 use bevy::ecs::schedule::ScheduleLabel;
@@ -61,9 +64,9 @@ struct SplashWindowEntity(Entity);
 #[derive(Component)]
 pub struct SplashCamera;
 
-/// Marker attached to splash-owned entities when the splash
-/// dismisses. The `Last`-schedule cleanup system despawns them only
-/// after bevy_egui's pass loop has released its context borrows.
+/// Marker attached to the splash camera when the splash dismisses. The
+/// `Last`-schedule cleanup system despawns it only after bevy_egui's pass
+/// loop has released its context borrows.
 #[derive(Component)]
 pub struct SplashCleanupPending;
 
@@ -141,14 +144,15 @@ impl Plugin for SplashPlugin {
             .add_systems(SplashContextPass, ui_splash_system)
             // `Last` runs after `PreUpdate` (where the egui pass
             // loop iterates egui contexts) and after `Update` (where
-            // dismissal tags both splash-owned entities). Despawning
-            // here avoids invalidating a context borrow mid-pass.
+            // dismissal tags the splash camera). Despawning it here
+            // avoids invalidating a context borrow mid-pass.
             .add_systems(Last, cleanup_dismissed_splash);
     }
 }
 
-/// Despawn splash-owned entities after the egui pass loop has
-/// finished for the dismissal frame.
+/// Despawn the splash camera after the egui pass loop has finished for
+/// the dismissal frame. The hidden splash window remains alive until the
+/// application exits so winit can retain its native WindowId mapping.
 fn cleanup_dismissed_splash(
     mut commands: Commands,
     cleanup_pending: Query<Entity, With<SplashCleanupPending>>,
@@ -256,7 +260,7 @@ fn size_window_to_image(
 pub fn ui_splash_system(
     commands: Commands,
     mut contexts: EguiContexts,
-    mut splash_window: Query<(Entity, &mut Window), With<SplashWindow>>,
+    mut splash_window: Query<&mut Window, With<SplashWindow>>,
     mut main_window: Query<&mut Window, (With<PrimaryWindow>, Without<SplashWindow>)>,
     splash_cam: Query<Entity, With<SplashCamera>>,
     manifest: Res<LaunchUiManifest>,
@@ -270,7 +274,7 @@ pub fn ui_splash_system(
     // Self-gate: stop rendering once the splash is dismissed. The
     // very last paint + the visibility flip happen on the dismissal
     // frame (see `dismiss_splash`); subsequent frames bail here.
-    let Ok(splash_w_visible) = splash_window.single().map(|(_, w)| w.visible) else {
+    let Ok(splash_w_visible) = splash_window.single().map(|w| w.visible) else {
         return;
     };
     if !splash_w_visible {
@@ -378,13 +382,14 @@ pub fn ui_splash_system(
 /// calling twice doesn't double-flip visibility (both transitions
 /// are no-ops on the second call).
 ///
-/// The actual camera and window despawns are **deferred** to the
-/// `Last` schedule via [`SplashCleanupPending`]. Despawning either
-/// target during the egui pass can invalidate bevy_egui's held
-/// context/window references.
+/// The splash camera despawn is **deferred** to the `Last` schedule via
+/// [`SplashCleanupPending`]. Despawning it during the egui pass can
+/// invalidate bevy_egui's held context references. The hidden splash
+/// window remains alive until application exit to avoid late native-window
+/// events arriving after Bevy has discarded its WindowId mapping.
 fn dismiss_splash(
     mut commands: Commands,
-    splash_window: &mut Query<(Entity, &mut Window), With<SplashWindow>>,
+    splash_window: &mut Query<&mut Window, With<SplashWindow>>,
     main_window: &mut Query<&mut Window, (With<PrimaryWindow>, Without<SplashWindow>)>,
     splash_cam: &Query<Entity, With<SplashCamera>>,
 ) {
@@ -394,9 +399,8 @@ fn dismiss_splash(
     if let Ok(cam_entity) = splash_cam.single() {
         commands.entity(cam_entity).insert(SplashCleanupPending);
     }
-    if let Ok((window_entity, mut splash_w)) = splash_window.single_mut() {
+    if let Ok(mut splash_w) = splash_window.single_mut() {
         splash_w.visible = false;
-        commands.entity(window_entity).insert(SplashCleanupPending);
     }
 }
 

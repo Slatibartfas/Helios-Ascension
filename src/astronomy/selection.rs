@@ -866,7 +866,7 @@ pub fn despawn_selection_markers(
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut removed_selected: RemovedComponents<Selected>,
     marker_query: Query<(Entity, &MarkerOwner), With<SelectionMarker>>,
-    body_query: Query<(&CelestialBody, Option<&Hovered>, &GlobalTransform)>,
+    body_query: Query<(&CelestialBody, Option<&Hovered>, &GlobalTransform), Without<Selected>>,
     camera_query: Query<&GlobalTransform, With<GameCamera>>,
     orbit_camera_query: Query<&OrbitCamera, With<GameCamera>>,
 ) {
@@ -888,7 +888,8 @@ pub fn despawn_selection_markers(
             }
         }
 
-        // If still hovered, add a hover marker (rings are handled separately)
+        // If still hovered and no longer selected, add a hover marker
+        // (rings are handled separately).
         if let Ok((body, Some(_), gtransform)) = body_query.get(entity) {
             if body.body_type == BodyType::Ring {
                 continue;

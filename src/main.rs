@@ -3,7 +3,9 @@ use bevy::prelude::*;
 #[cfg(target_os = "windows")]
 use bevy::render::settings::{Backends, RenderCreation, WgpuSettings};
 use bevy::render::RenderPlugin;
-use bevy::window::{PresentMode, WindowResizeConstraints, WindowResolution};
+use bevy::window::{
+    ExitCondition, PresentMode, WindowResizeConstraints, WindowResolution,
+};
 use bevy_egui::EguiPlugin;
 
 pub mod astronomy;
@@ -103,6 +105,11 @@ fn build_game_app() -> App {
                     },
                     ..default()
                 }),
+                // The dismissed splash window remains hidden until shutdown so
+                // Windows can deliver its final native events while Bevy still
+                // owns the WindowId mapping. Closing the primary window should
+                // therefore end the app even though that hidden window exists.
+                exit_condition: ExitCondition::OnPrimaryClosed,
                 ..default()
             })
             .set(render_plugin_settings()),
