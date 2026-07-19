@@ -143,8 +143,24 @@ impl SimulationHistorySample {
 #[derive(Resource, Debug, Clone, Serialize, Deserialize, Default, Reflect)]
 #[reflect(Resource)]
 pub struct SimulationHistory {
+    /// Real samples recorded by `record_simulation_history`.
+    /// These persist across save/restore.
     #[serde(default)]
     pub samples: Vec<SimulationHistorySample>,
+    /// Cached seeded prehistory, regenerated on every
+    /// `record_snapshot` based on the latest real sample.
+    /// `#[reflect(ignore)]` + `#[serde(skip)]` so the cache
+    /// doesn't bloat save files and is rebuilt fresh after a
+    /// load.
+    #[reflect(ignore)]
+    #[serde(skip)]
+    seeded_prehistory: Vec<SimulationHistorySample>,
+    /// `sim_seconds` of the snapshot the cached seeded
+    /// prehistory was anchored to. Used to detect drift and
+    /// invalidate stale entries.
+    #[reflect(ignore)]
+    #[serde(skip)]
+    seeded_anchor_sim_seconds: f64,
 }
 
 impl SimulationHistory {
@@ -152,40 +168,87 @@ impl SimulationHistory {
         self.samples.last()
     }
 
+    /// Real + seeded samples whose `sim_seconds` falls in
+    /// `[current_sim_seconds - window_seconds, ∞)`. The seeded
+    /// prehistory is regenerated on every call so its anchor
+    /// always matches the current sim_seconds, which means the
+    /// visible "X years ago" curve stays anchored to "now"
+    /// rather than drifting off-window as the game progresses.
     pub fn samples_within_window(
         &self,
         current_sim_seconds: f64,
         window_seconds: f64,
-    ) -> impl Iterator<Item = &SimulationHistorySample> {
+    ) -> Vec<&SimulationHistorySample> {
         let cutoff = current_sim_seconds - window_seconds;
-        self.samples
+        let mut result: Vec<&SimulationHistorySample> = self
+            .samples
             .iter()
-            .filter(move |sample| sample.sim_seconds >= cutoff)
+            .filter(|sample| sample.sim_seconds >= cutoff)
+            .collect();
+
+        for sample in &self.seeded_prehistory {
+            if sample.sim_seconds >= cutoff {
+                result.push(sample);
+            }
+        }
+
+        result.sort_by(|left, right| {
+            left.sim_seconds
+                .partial_cmp(&right.sim_seconds)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        result
     }
 
     fn record_snapshot(&mut self, snapshot: SimulationHistorySample) {
-        if self.samples.is_empty() {
-            self.seed_historic_earth_prehistory(&snapshot);
-        }
-
         if self
             .samples
             .last()
             .is_some_and(|last| (last.sim_seconds - snapshot.sim_seconds).abs() < 1.0)
         {
             if let Some(last) = self.samples.last_mut() {
-                *last = snapshot;
+                *last = snapshot.clone();
             }
         } else {
-            self.samples.push(snapshot);
+            self.samples.push(snapshot.clone());
         }
 
-        let current_sim_seconds = self
-            .samples
-            .last()
-            .map(|sample| sample.sim_seconds)
-            .unwrap_or(0.0);
+        // Always regenerate the seeded prehistory anchored at the
+        // current sim_seconds. Doing this every tick (rather than
+        // once at game start) fixes two bugs:
+        //   1. The first snapshot may be taken before
+        //      `boot_init` finishes populating the energy grid /
+        //      colonies / budgets. Seeding from that empty
+        //      snapshot would freeze every historic value at
+        //      zero. Re-seeding each tick means we eventually
+        //      anchor from the populated world state.
+        //   2. Seeding once at game start fixes `sim_seconds` to
+        //      game-start (=0). Once the player advances past
+        //      `HISTORY_MAX_AGE_SECONDS` the seeded samples fall
+        //      outside the visible window. Re-anchoring every
+        //      tick keeps the curve aligned with "X years before
+        //      now" instead of "X years before game start".
+        self.regenerate_seeded_prehistory(&snapshot);
+
+        let current_sim_seconds = snapshot.sim_seconds;
         self.thin_samples(current_sim_seconds);
+    }
+
+    fn regenerate_seeded_prehistory(&mut self, current: &SimulationHistorySample) {
+        let mut seeded = Vec::new();
+        let mut age_seconds = HISTORY_MAX_AGE_SECONDS;
+        let anchor_sim_seconds = current.sim_seconds;
+
+        while age_seconds > 1.0 {
+            // `build_historic_earth_sample` already sets
+            // `sim_seconds = current.sim_seconds - age_seconds`,
+            // so the seeded sample naturally anchors to "now".
+            seeded.push(build_historic_earth_sample(current, age_seconds));
+            age_seconds -= sample_spacing_for_age(age_seconds);
+        }
+
+        self.seeded_prehistory = seeded;
+        self.seeded_anchor_sim_seconds = anchor_sim_seconds;
     }
 
     fn thin_samples(&mut self, current_sim_seconds: f64) {
@@ -213,18 +276,6 @@ impl SimulationHistory {
 
         kept_reversed.reverse();
         self.samples = kept_reversed;
-    }
-
-    fn seed_historic_earth_prehistory(&mut self, current: &SimulationHistorySample) {
-        let mut seeded_samples = Vec::new();
-        let mut age_seconds = HISTORY_MAX_AGE_SECONDS;
-
-        while age_seconds > 1.0 {
-            seeded_samples.push(build_historic_earth_sample(current, age_seconds));
-            age_seconds -= sample_spacing_for_age(age_seconds);
-        }
-
-        self.samples = seeded_samples;
     }
 }
 
@@ -764,15 +815,101 @@ mod tests {
         let mut history = SimulationHistory::default();
         history.record_snapshot(sample_at(0.0));
 
-        let first = history.samples.first().expect("history should be seeded");
+        // Real samples contain only the latest snapshot.
         let last = history
             .samples
             .last()
             .expect("history should contain current snapshot");
-
-        assert!(first.sim_seconds <= -HISTORY_MAX_AGE_SECONDS + HISTORY_ARCHIVE_STEP_SECONDS);
         assert!((last.sim_seconds - 0.0).abs() < 1.0);
-        assert!(history.samples.len() < 400);
+
+        // Seeded prehistory lives in `seeded_prehistory` (cached on
+        // every record_snapshot) and spans the full 100-year window.
+        assert!(!history.seeded_prehistory.is_empty());
+        let earliest = history
+            .seeded_prehistory
+            .first()
+            .expect("seeded prehistory should have entries");
+        assert!(earliest.sim_seconds <= -HISTORY_MAX_AGE_SECONDS + HISTORY_ARCHIVE_STEP_SECONDS);
+    }
+
+    #[test]
+    fn seeded_history_anchors_to_current_sim_seconds() {
+        // Regression: the seeded prehistory used to be anchored at
+        // game-start sim_seconds (=0) and was generated only on
+        // the first `record_snapshot`. Once the player advanced
+        // past `HISTORY_MAX_AGE_SECONDS`, the seeded samples fell
+        // out of `samples_within_window` and the "X years ago"
+        // curve collapsed to a single spike at "Now". Fix:
+        // regenerate the seeded prehistory on every
+        // `record_snapshot` and anchor it at the current
+        // sim_seconds.
+        let mut history = SimulationHistory::default();
+        history.record_snapshot(sample_at(0.0));
+        history.record_snapshot(sample_at(60.0));
+        history.record_snapshot(sample_at(120.0));
+
+        // Window covers the last 100 years. The seeded prehistory
+        // anchored at sim_seconds=120 should produce samples going
+        // back to roughly `120 - HISTORY_MAX_AGE_SECONDS`.
+        let window = history.samples_within_window(120.0, HISTORY_MAX_AGE_SECONDS);
+        assert!(
+            !window.is_empty(),
+            "expected window to contain seeded prehistory"
+        );
+        let cutoff = 120.0 - HISTORY_MAX_AGE_SECONDS + HISTORY_ARCHIVE_STEP_SECONDS;
+        assert!(
+            window.iter().any(|s| s.sim_seconds <= cutoff),
+            "expected window to contain a pre-1900 sample anchored to current sim_seconds"
+        );
+
+        // Advance "the game clock" by another 100 years and verify
+        // the seeded prehistory slides with it (instead of staying
+        // pinned to game start).
+        let future_sim_seconds = 120.0 + HISTORY_MAX_AGE_SECONDS + 1_000.0;
+        let mut advanced = sample_at(future_sim_seconds);
+        advanced.power_produced_watts = 6.54e14;
+        history.record_snapshot(advanced);
+
+        let late_window =
+            history.samples_within_window(future_sim_seconds, HISTORY_MAX_AGE_SECONDS);
+        let late_cutoff = future_sim_seconds - HISTORY_MAX_AGE_SECONDS;
+        assert!(
+            late_window.iter().any(|s| s.sim_seconds <= late_cutoff + 1.0),
+            "seeded prehistory should still be visible at the new anchor"
+        );
+    }
+
+    #[test]
+    fn seeded_history_tracks_latest_world_state() {
+        // Regression: the original seeding fired on the first
+        // `record_snapshot`, which can happen *before* boot_init
+        // finishes populating the energy grid / colonies. If we
+        // seeded from that empty snapshot, every historic value
+        // would freeze at zero. Fix: regenerate each tick so the
+        // anchor always reflects the populated world state.
+        let mut history = SimulationHistory::default();
+        let empty = sample_at(0.0);
+        history.record_snapshot(empty);
+
+        // Pretend boot_init finishes mid-game: a populated
+        // snapshot arrives and the seeded prehistory must
+        // reflect it.
+        let mut populated = sample_at(60.0);
+        populated.power_produced_watts = 6.54e14;
+        populated.total_population = 8.2e9;
+        history.record_snapshot(populated);
+
+        let window = history.samples_within_window(60.0, HISTORY_MAX_AGE_SECONDS);
+        // 100 years ago should be ~9% of the current power, not zero.
+        let hundred_years_ago = 60.0 - HISTORY_MAX_AGE_SECONDS;
+        let historic = window
+            .iter()
+            .find(|s| (s.sim_seconds - hundred_years_ago).abs() < HISTORY_ARCHIVE_STEP_SECONDS)
+            .expect("expected a sample near 100 years ago");
+        assert!(
+            historic.power_produced_watts > 0.0,
+            "seeded 100y-ago power should track populated world, not be frozen at zero"
+        );
     }
 
     #[test]
@@ -781,6 +918,7 @@ mod tests {
             samples: (0..500)
                 .map(|index| sample_at(index as f64 * HISTORY_RECENT_STEP_SECONDS))
                 .collect(),
+            ..Default::default()
         };
         history.thin_samples(500.0 * HISTORY_RECENT_STEP_SECONDS);
 

@@ -235,4 +235,33 @@ mod tests {
     fn boot_state_is_loading_value(state: BootState) -> bool {
         state == BootState::Loading
     }
+
+    // ── Idempotency-marker re-exports ─────────────────────────────────────
+    //
+    // `SolarSystemSpawned` and `NearbySystemsPopulated` guard
+    // `setup_solar_system` and `populate_nearby_systems` against
+    // duplicate entity spawning when boot_init runs more than once
+    // (e.g. a future save-restore that flips `BootState` back to
+    // `Loading`). These tests assert that the markers are
+    // re-exported from the source modules so boot_init callers
+    // can remove them in the reset path alongside `DayOneFleetSpawned`.
+
+    #[test]
+    fn solar_system_spawned_marker_is_constructible() {
+        // Marker types must be `Default + Resource + Copy` so they
+        // can be inserted via `commands.init_resource` and stored
+        // without wrapping. Construct one to lock in that contract.
+        use crate::plugins::solar_system::SolarSystemSpawned;
+        let marker = SolarSystemSpawned::default();
+        let _copy = marker;
+        let _another = marker;
+    }
+
+    #[test]
+    fn nearby_systems_populated_marker_is_constructible() {
+        use crate::plugins::system_populator::NearbySystemsPopulated;
+        let marker = NearbySystemsPopulated::default();
+        let _copy = marker;
+        let _another = marker;
+    }
 }

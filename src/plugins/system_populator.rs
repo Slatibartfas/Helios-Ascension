@@ -76,8 +76,30 @@ impl Plugin for SystemPopulatorPlugin {
         // the work. The `.after(load_nearby_stars_data)` and
         // `.before(generate_solar_system_resources)` ordering is
         // preserved inside the boot-init chain. See `src/boot_init.rs`.
+        //
+        // The `NearbySystemsPopulated` idempotency marker is NOT
+        // pre-initialised — `populate_nearby_systems` adds it
+        // itself after a successful spawn so a save-restore that
+        // re-runs `boot_init` (i.e. flips `BootState` back to
+        // `Loading`) short-circuits instead of duplicating every
+        // nearby star system. Matches the
+        // `DayOneFleetSpawned` / `SolarSystemSpawned` pattern.
     }
 }
+
+/// Idempotency marker so `populate_nearby_systems` runs exactly
+/// once per save. Without this, a save-restore that resets
+/// `BootState` back to `Loading` would duplicate every nearby star
+/// system (~60 systems × ~10 bodies each ≈ 600+ entities). Strip
+/// this resource in the same reset path as
+/// [`crate::fleets::DayOneFleetSpawned`].
+///
+/// Lives next to the spawn function so the
+/// `marker ↔ spawn function` pairing is obvious. Not registered
+/// into `AppTypeRegistry` — there is no save-time value, only a
+/// "have we spawned yet?" gate.
+#[derive(Resource, Debug, Clone, Copy, Default)]
+pub struct NearbySystemsPopulated;
 
 /// Main system that populates nearby star systems with procedural bodies
 /// This runs after the initial solar system is set up and uses the GameSeed
@@ -86,6 +108,10 @@ impl Plugin for SystemPopulatorPlugin {
 /// Originally registered at `Startup` (in `SystemPopulatorPlugin`); now
 /// registered at `Update` via `crate::boot_init::BootInitPlugin` so the
 /// splash can hide the work. `pub` so the boot-init plugin can call it.
+///
+/// Idempotent via [`NearbySystemsPopulated`]. A second invocation
+/// (e.g. after a save-restore that re-ran boot-init) short-circuits
+/// at the top so we don't duplicate every nearby star system.
 pub fn populate_nearby_systems(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -95,7 +121,25 @@ pub fn populate_nearby_systems(
     game_seed: Res<GameSeed>,
     _current_system: Res<CurrentStarSystem>,
     mut system_metadata: ResMut<SystemMetadata>,
+    populated_marker: Option<Res<NearbySystemsPopulated>>,
 ) {
+    if populated_marker.is_some() {
+        // Idempotency: do not re-spawn. The marker must be removed
+        // by a future "new game" / "fresh save load" path before
+        // this branch is taken. Matches the
+        // `DayOneFleetSpawned` / `AsteroidRegistryLoaded` /
+        // `SolarSystemSpawned` pattern.
+        return;
+    }
+    // Mark spawned up-front so even a mid-population failure does
+    // not re-attempt spawning 60+ star systems on every boot-init
+    // tick. The trade-off: a partial population is sticky. This is
+    // acceptable because the failure modes here are RON parse
+    // errors and asset-handle failures, both of which would
+    // continue to fail on retry anyway. Mirrors the
+    // `AsteroidRegistryLoaded` early-marker pattern (which inserts
+    // on the parse-error path before the body-attach pass).
+    commands.init_resource::<NearbySystemsPopulated>();
     // Use game seed for deterministic generation
     let mut rng = StdRng::seed_from_u64(game_seed.value);
 

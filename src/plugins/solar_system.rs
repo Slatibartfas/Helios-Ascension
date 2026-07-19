@@ -60,6 +60,11 @@ impl Plugin for SolarSystemPlugin {
             // at `Startup` / `PostStartup` here. They are now owned by
             // `crate::boot_init::BootInitPlugin` so the splash can
             // hide the work. See `src/boot_init.rs`.
+            // The `SolarSystemSpawned` idempotency marker is NOT
+            // pre-initialised — `setup_solar_system` adds it itself
+            // after a successful spawn so a save-restore that re-runs
+            // `boot_init` (i.e. flips `BootState` back to `Loading`)
+            // short-circuits instead of duplicating every body.
             .add_systems(
                 Update,
                 (
@@ -601,6 +606,20 @@ pub struct RingAlphaCombineQueue {
     entries: Vec<RingAlphaEntry>,
 }
 
+/// Idempotency marker so `setup_solar_system` runs exactly once per
+/// save. Without this, a save-restore that resets `BootState` back
+/// to `Loading` (or any future "re-run boot-init" path) would
+/// duplicate every celestial body in the active system. Strip this
+/// resource in the same reset path as
+/// [`crate::fleets::DayOneFleetSpawned`].
+///
+/// Lives next to the spawn function so the
+/// `marker ↔ spawn function` pairing is obvious. Not registered
+/// into `AppTypeRegistry` — there is no save-time value, only a
+/// "have we spawned yet?" gate.
+#[derive(Resource, Debug, Clone, Copy, Default)]
+pub struct SolarSystemSpawned;
+
 pub fn setup_solar_system(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -614,7 +633,15 @@ pub fn setup_solar_system(
     asset_server: Res<AssetServer>,
     mut ring_alpha_queue: ResMut<RingAlphaCombineQueue>,
     sim_time: Res<crate::ui::SimulationTime>,
+    solar_system_marker: Option<Res<SolarSystemSpawned>>,
 ) {
+    if solar_system_marker.is_some() {
+        // Idempotency: do not re-spawn. The marker must be removed
+        // by a future "new game" / "fresh save load" path before
+        // this branch is taken. Matches the
+        // `DayOneFleetSpawned` / `AsteroidRegistryLoaded` pattern.
+        return;
+    }
     // Queue to collect normal/specular handles that must be treated as linear textures
     let mut linear_handle_queue: Vec<Handle<Image>> = Vec::new();
 
@@ -623,6 +650,11 @@ pub fn setup_solar_system(
         Ok(data) => data,
         Err(e) => {
             error!("Failed to load solar system data: {}", e);
+            // Mark spawned even on load failure to prevent
+            // boot-init from retrying every tick and spamming the
+            // log. Matches the `AsteroidRegistryLoaded` failure
+            // pattern.
+            commands.init_resource::<SolarSystemSpawned>();
             return;
         }
     };
@@ -1662,6 +1694,10 @@ pub fn setup_solar_system(
     }
 
     info!("Solar system setup complete!");
+    // Mark the system as spawned only on the success path so a
+    // mid-spawn failure can be retried on the next boot-init cycle.
+    // Mirrors `AsteroidRegistryLoaded` / `DayOneFleetSpawned`.
+    commands.init_resource::<SolarSystemSpawned>();
 }
 
 fn combine_ring_alpha_textures(

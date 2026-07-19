@@ -254,6 +254,7 @@ fn build_kardashev_history(
 ) -> Vec<HistoryPoint> {
     simulation_history
         .samples_within_window(current_sim_seconds, HISTORY_PANEL_SECONDS)
+        .into_iter()
         .map(|sample| {
             let power = sample.power_produced_watts.max(1.0);
             let kardashev = crate::economy::kardashev_scale_from_watts(power);
@@ -309,6 +310,7 @@ fn build_history_series(
 ) -> HistorySeriesData {
     let points: Vec<HistoryPoint> = simulation_history
         .samples_within_window(current_sim_seconds, HISTORY_PANEL_SECONDS)
+        .into_iter()
         .map(|sample| {
             let (value, detail_text) = match metric {
                 HistoryPanelMetric::Kardashev => {
