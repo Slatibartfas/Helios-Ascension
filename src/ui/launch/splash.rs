@@ -42,7 +42,20 @@ use bevy::window::{
 };
 use bevy_egui::egui::{self, ColorImage, TextureHandle, TextureOptions};
 use bevy_egui::{EguiContexts, EguiGlobalSettings, EguiMultipassSchedule, EguiStartupSet};
-use image::GenericImageView;
+
+/// Raw decoded splash pixels, decoded synchronously during plugin
+/// construction so the very first painted frame can show the logo.
+///
+/// The decode used to happen lazily inside the splash egui system on the
+/// first rendered frame. Because the heavy boot-init chain (solar-system
+/// spawn, 60-system population, resource generation) now runs behind the
+/// splash in `Update`, the first egui frame could be delayed by hundreds of
+/// milliseconds — leaving the splash window painted solid black for the
+/// whole boot. Decoding here (plugin `build`, before `app.run()`) means the
+/// pixels are ready before winit ever shows the window; the egui upload to a
+/// GPU texture still happens lazily on the first frame, but that's cheap.
+#[derive(Resource, Clone)]
+pub struct SplashImageData(pub Option<ColorImage>);
 
 use super::manifest::LaunchUiManifest;
 
@@ -127,8 +140,20 @@ impl Plugin for SplashPlugin {
             .id();
         app.insert_resource(SplashWindowEntity(splash_window));
 
+        // Decode the splash PNG now — before `app.run()` — so the first
+        // painted frame already has the pixels. This eliminates the black
+        // flash that used to appear while the boot-init chain blocked the
+        // first egui frame. The decode is synchronous disk IO (one PNG,
+        // ~1 MB); it's fast and happens before the window is shown.
+        let splash_pixels = decode_splash_color_image();
+        info!(
+            "splash: decoded logo at build = {}",
+            splash_pixels.as_ref().map(|c| format!("{}x{}", c.width(), c.height())).unwrap_or_else(|| "FAILED".to_string())
+        );
+
         app.init_resource::<SplashTimer>()
             .init_resource::<SplashImage>()
+            .insert_resource(SplashImageData(splash_pixels))
             // Configure egui and create the splash camera before its
             // context initialization set. The window itself already
             // exists in the world and will receive a native winit peer
@@ -211,18 +236,15 @@ fn setup_splash_camera(
 /// accessor, decode it to learn its real dimensions, and resize the
 /// splash window to match. Runs after the manifest loader.
 fn size_window_to_image(
-    manifest: Res<LaunchUiManifest>,
+    splash_pixels: Option<Res<SplashImageData>>,
     mut splash_windows: Query<&mut Window, With<SplashWindow>>,
 ) {
-    let Some(bytes) = load_png_bytes_with_fallback(&manifest) else {
-        // No PNG decodable — leave the placeholder in place. The
-        // render path falls through to the centered text label.
+    // Prefer the pixels decoded at plugin build. Fall back to nothing
+    // (leave the placeholder size) when no decodable PNG was found.
+    let Some(image_data) = splash_pixels.and_then(|d| d.0.clone()) else {
         return;
     };
-    let Ok(img) = image::load_from_memory(&bytes) else {
-        return;
-    };
-    let (w, h) = img.dimensions();
+    let (w, h) = (image_data.width() as u32, image_data.height() as u32);
     let padded_w = w + 2 * SPLASH_WINDOW_PADDING;
     let padded_h = h + 2 * SPLASH_WINDOW_PADDING;
 
@@ -265,6 +287,7 @@ pub fn ui_splash_system(
     splash_cam: Query<Entity, With<SplashCamera>>,
     manifest: Res<LaunchUiManifest>,
     boot_state: Res<crate::boot_init::BootState>,
+    splash_pixels: Option<Res<SplashImageData>>,
     keyboard_input: Res<ButtonInput<KeyCode>>,
     real_time: Res<Time<Real>>,
     mut splash_timer: ResMut<SplashTimer>,
@@ -287,11 +310,19 @@ pub fn ui_splash_system(
         return;
     }
 
-    // ── 1. Load texture on first frame (deferred to egui ctx) ─────
+    // ── 1. Upload the pre-decoded texture on first frame ──────────
+    // The pixels were decoded at plugin build (see `SplashImageData`); we
+    // only upload them to the splash egui context here. This is a cheap GPU
+    // upload, not a decode, so it never delays the first painted frame.
     if splash_image.0.is_none() && !*load_attempted {
         *load_attempted = true;
-        if let Ok(splash_cam_entity) = splash_cam.single() {
-            splash_image.0 = load_splash_texture(&mut contexts, &manifest, splash_cam_entity);
+        if let (Some(pixels), Ok(splash_cam_entity)) =
+            (splash_pixels.and_then(|d| d.0.clone()), splash_cam.single())
+        {
+            if let Ok(ctx) = contexts.ctx_for_entity_mut(splash_cam_entity) {
+                splash_image.0 =
+                    Some(ctx.load_texture("splash_logo", pixels, TextureOptions::LINEAR));
+            }
         }
     }
 
@@ -414,23 +445,24 @@ fn first_input(keyboard_input: &Res<ButtonInput<KeyCode>>) -> bool {
     keyboard_input.get_just_pressed().next().is_some()
 }
 
-/// Decode the configured PNG (with `logo_clean` as fallback) into
-/// an [`egui::ColorImage`], register it with the egui context via
-/// `Context::load_texture`, and return the cached [`TextureHandle`].
-/// Returns `None` on any decode / IO failure; the caller falls
-/// back to a centered text label so the splash never paints blank.
-fn load_splash_texture(
-    contexts: &mut EguiContexts,
-    manifest: &LaunchUiManifest,
-    splash_cam_entity: Entity,
-) -> Option<TextureHandle> {
-    let bytes = load_png_bytes_with_fallback(manifest)?;
+/// Decode the configured splash PNG (with the clean logo as fallback) into
+/// an [`egui::ColorImage`]. Called once during plugin construction so the
+/// pixels are ready before the first frame. Returns `None` on any decode /
+/// IO failure; the caller falls back to a centered text label so the splash
+/// never paints blank.
+///
+/// Reads the same paths the manifest declares (`assets/data/launch_ui.ron`)
+/// via [`LaunchUiManifest::default`], which is the manifest state at plugin
+/// build time. The real manifest resource is loaded later at `Startup`; the
+/// two only differ if a runtime override mutates them, which the launch flow
+/// never does for the logo paths.
+fn decode_splash_color_image() -> Option<ColorImage> {
+    let manifest = LaunchUiManifest::default();
+    let bytes = load_png_bytes_with_fallback(&manifest)?;
     let img = image::load_from_memory(&bytes).ok()?;
     let rgba = img.to_rgba8();
     let (w, h) = (rgba.width() as usize, rgba.height() as usize);
-    let color_image = ColorImage::from_rgba_unmultiplied([w, h], rgba.as_raw());
-    let ctx = contexts.ctx_for_entity_mut(splash_cam_entity).ok()?;
-    Some(ctx.load_texture("splash_logo", color_image, TextureOptions::LINEAR))
+    Some(ColorImage::from_rgba_unmultiplied([w, h], rgba.as_raw()))
 }
 
 /// Try the configured splashscreen path first, fall back to the

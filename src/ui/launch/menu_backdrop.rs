@@ -64,10 +64,12 @@ const MENU_EARTH_VISUAL_RADIUS: f32 = 1_500.0;
 /// Clouds sit 1.5 % above the surface (matches `src/plugins/solar_system.rs:1251-1270`).
 const MENU_EARTH_CLOUD_RADIUS_FACTOR: f32 = 1.015;
 
-/// Camera→Earth distance. 1.0× the planet radius — the camera
-/// sits just outside the planet's surface for a dramatic close-up
-/// shot where the limb curves off every edge of the viewport.
-const MENU_EARTH_DISTANCE: f32 = 1_500.0;
+/// Camera→Earth distance. ~3.4× the planet radius — Earth fills the
+/// frame as a dramatic hero shot with the limb curving off the edges,
+/// while leaving enough breathing room that the Moon and the distant
+/// Sol stay visible. (At 1.0× the radius the camera grazes the surface,
+/// which is what produced the broken point-blank / tiny-dot framing.)
+const MENU_EARTH_DISTANCE: f32 = 5_100.0;
 
 /// Base pitch angle (radians) for the camera. ~+23° tilts the camera
 /// DOWN at Earth so we look down on the surface from a slightly
@@ -76,12 +78,10 @@ const MENU_EARTH_DISTANCE: f32 = 1_500.0;
 /// behind it — the "Earth-and-Sun over-the-shoulder" shot.
 const MENU_CAMERA_BASE_PITCH: f32 = 0.4;
 
-/// Base yaw offset (radians) for the camera. ~-30° orbits the camera
-/// around Earth so Sol — which is on the -X axis at the origin —
-/// appears clearly to the LEFT of Earth in the viewport (well outside
-/// Earth's disc, which fills ~90° of the viewport at MENU_EARTH_DISTANCE
-/// = 1500). Without this base yaw the camera looks directly at the
-/// Sol-Earth axis and Sol projects onto Earth's silhouette.
+/// Base yaw offset (radians) for the camera. Orbits the camera around
+/// Earth for the hero shot. The menu-owned sun disc is placed along the
+/// same direction the sunlight comes from, so the visible sun always
+/// matches the lighting regardless of this yaw.
 const MENU_CAMERA_BASE_YAW: f32 = -0.55;
 
 /// Radius of the Moon's orbit around the menu Earth (in Bevy world
@@ -107,14 +107,22 @@ const MENU_EARTH_YAW_DEG_PER_S: f32 = 4.0;
 /// *counter* to the surface so clouds visibly separate from continents.
 const MENU_EARTH_CLOUD_YAW_DEG_PER_S: f32 = -1.5;
 
-/// Sun offset relative to Earth's position. Sol is at the origin
-/// (1 AU behind Earth on the -X axis). For the directional light to
-/// shine FROM Sol TOWARD Earth (illuminating Earth's camera-facing
-/// side), the light's forward direction must point from Sol (-X
-/// relative to Earth) toward Earth (+X direction). That maps to
-/// `MENU_EARTH_SUN_OFFSET` having a positive X component (the negation
-/// in `spawn_menu_earth` flips it to the light's forward direction).
-const MENU_EARTH_SUN_OFFSET: Vec3 = Vec3::new(1_500.0, 0.0, 0.0);
+/// Menu-owned sun disc. The real in-game Sol is hidden during the menu
+/// because it sits at the world origin only ~1 Earth-radius from the menu
+/// Earth's limb — geometrically glued to the planet's edge at any camera
+/// angle (the "sun embedded in Earth" artefact). Instead we place a menu
+/// sun disc far along the sunlight direction so it reads as a proper
+/// distant sun that agrees with the lighting.
+///
+/// Direction from Earth = normalize(-MENU_EARTH_SUN_OFFSET) = (-1, 0, 0);
+/// we push it out 60 000 units and tilt it slightly up so it sits clear of
+/// Earth's limb in the hero shot.
+const MENU_SUN_DIR: Vec3 = Vec3::new(-0.94, 0.34, 0.0);
+/// Distance of the menu sun disc from Earth (world units).
+const MENU_SUN_DISTANCE: f32 = 60_000.0;
+/// Angular radius of the menu sun disc on screen. 1 800 / 60 000 ≈ 1.7° —
+/// a crisp distant sun, clearly separated from Earth's limb.
+const MENU_SUN_DISC_RADIUS: f32 = 1_800.0;
 
 /// Illuminance of the directional sun. 30 000 lux matches a daylight
 /// surface in Bevy's PBR pipeline.
@@ -234,8 +242,15 @@ pub fn register_menu_backdrop_plugin(app: &mut App) {
 
 /// Detects `LaunchState` edges and spawns/despawns the backdrop
 /// accordingly. Runs in [`MenuBackdropSystemSet::Transition`] inside
-/// `Update`. The `Changed<LaunchState>` filter ensures it fires
-/// exactly once per state edge, not every frame.
+/// `Update`.
+///
+/// The `LaunchState` defaults to `LaunchState::MainMenu` (see
+/// `src/ui/launch/mod.rs`), which means the very first frame is *already*
+/// in the menu family and `LaunchState::is_changed()` is false on every
+/// startup — the spawn branch must therefore also fire when `active.0`
+/// is false and the current state is a menu state, not only on real
+/// state changes. We still gate on `launch_state.is_changed()` for the
+/// *exit* path so we don't despawn backdrop entities every frame.
 fn menu_backdrop_transition_system(
     launch_state: Res<LaunchState>,
     mut active: ResMut<MenuBackdropActive>,
@@ -247,12 +262,12 @@ fn menu_backdrop_transition_system(
     marker_query: Query<Entity, (With<MenuBackdropMarker>, Without<ChildOf>)>,
     mut camera_query: Query<(&mut OrbitCamera, &mut Transform), With<GameCamera>>,
 ) {
-    if !launch_state.is_changed() {
-        return;
-    }
+    let in_menu = is_menu_launch_state(*launch_state);
+    let state_changed = launch_state.is_changed();
 
-    if is_menu_launch_state(*launch_state) && !active.0 {
-        // ── Entering the menu family: spawn backdrop + save camera state.
+    if in_menu && !active.0 {
+        // ── Entering the menu family (first frame OR state edge):
+        // spawn backdrop + save camera state. Idempotent — sets active.0.
         if let Ok((orbit, _transform)) = camera_query.single() {
             saved_state.saved = Some(MenuBackdropSavedCamera {
                 radius: orbit.radius,
@@ -263,7 +278,7 @@ fn menu_backdrop_transition_system(
         }
         spawn_menu_earth(&mut commands, &mut meshes, &mut materials, &asset_server);
         active.0 = true;
-    } else if !is_menu_launch_state(*launch_state) && active.0 {
+    } else if !in_menu && active.0 && state_changed {
         // ── Leaving the menu family: despawn backdrop + restore camera.
         // Despawn only backdrop roots. In Bevy 0.18, despawning the Earth
         // cascades through its clouds child; explicitly queuing the child as
@@ -413,10 +428,12 @@ fn spawn_menu_earth(
     ));
 
     // ── Directional sun light (no shadows — close-up is static enough
-    //    that shadow maps would be wasted GPU work). Shines from Sol's
-    //    actual direction (-X of Earth) toward Earth (+X) so the day/night
-    //    terminator reads correctly for a star-at-Sol-position setup.
-    let sun_dir = -MENU_EARTH_SUN_OFFSET.normalize();
+    //    that shadow maps would be wasted GPU work). Shines FROM the menu
+    //    sun disc's direction TOWARD Earth so the day/night terminator and
+    //    the on-screen sun disc always agree. `looking_at` points the
+    //    light's forward along its argument, so we pass the Earth→sun-disc
+    //    direction negated (i.e. the direction light travels: sun → Earth).
+    let sun_dir = -MENU_SUN_DIR.normalize();
     commands.spawn((
         DirectionalLight {
             color: Color::srgb(1.0, 0.96, 0.88),
@@ -455,6 +472,27 @@ fn spawn_menu_earth(
         MenuBackdropKind::SunLight, // re-use SunLight kind; rotation system skips it
     ));
 
+    // ── Menu-owned sun disc ───────────────────────────────────────────
+    // A small unlit emissive sphere placed far along the sunlight direction
+    // so the visible sun agrees with the directional light. Kept dim enough
+    // to avoid blowing out the frame; the skybox provides the starfield.
+    let sun_disc_pos = MENU_EARTH_POSITION + MENU_SUN_DIR.normalize() * MENU_SUN_DISTANCE;
+    let sun_disc_mesh = meshes.add(Sphere::new(MENU_SUN_DISC_RADIUS).mesh().uv(48, 24));
+    let sun_disc_material = materials.add(StandardMaterial {
+        base_color: Color::srgb(1.0, 0.95, 0.82),
+        emissive: LinearRgba::rgb(1.0, 0.9, 0.7) * 2.0,
+        unlit: true,
+        ..default()
+    });
+    commands.spawn((
+        Mesh3d(sun_disc_mesh),
+        MeshMaterial3d(sun_disc_material),
+        Transform::from_translation(sun_disc_pos),
+        Visibility::default(),
+        MenuBackdropMarker,
+        MenuBackdropKind::SunLight, // rotation system skips it
+    ));
+
     // ── Ambient fill (cool blue tint, raised brightness) ──────────────
     // `GlobalAmbientLight` is the project-wide ambient resource used in
     // `src/main.rs:setup`. We replace it for the menu session; the
@@ -488,12 +526,12 @@ fn spawn_menu_earth(
 fn position_menu_camera(
     active: Res<MenuBackdropActive>,
     time: Res<Time>,
-    mut camera_query: Query<&mut OrbitCamera, With<GameCamera>>,
+    mut camera_query: Query<(&mut OrbitCamera, &mut Transform), With<GameCamera>>,
 ) {
     if !active.0 {
         return;
     }
-    let Ok(mut orbit) = camera_query.single_mut() else {
+    let Ok((mut orbit, mut transform)) = camera_query.single_mut() else {
         return;
     };
 
@@ -509,6 +547,19 @@ fn position_menu_camera(
     // to the LEFT of the visible disc (well outside Earth's silhouette).
     // The parallax wobble layers on top for the breathing effect.
     orbit.yaw = MENU_CAMERA_BASE_YAW + yaw_offset;
+
+    // `update_camera_transform` (src/plugins/camera.rs) is gated on
+    // `LaunchState::is_in_game()`, so while the menu owns the camera nothing
+    // else converts this `OrbitCamera` state into a real `Transform`. Write
+    // it here, mirroring the exact same math the in-game pipeline uses, so
+    // the menu framing (and the on-screen position of Sol) is what the
+    // constants above actually describe.
+    let rot = Quat::from_axis_angle(Vec3::Y, orbit.yaw)
+        * Quat::from_axis_angle(Vec3::X, orbit.pitch);
+    let offset = rot * Vec3::Z * orbit.radius;
+    let position = orbit.target_center + orbit.pan_offset + offset;
+    transform.translation = position;
+    transform.look_at(orbit.target_center + orbit.pan_offset, Vec3::Y);
 }
 
 /// Rotate the Earth surface + clouds at their respective rates, and
@@ -582,8 +633,23 @@ fn rotate_menu_earth(
 fn hide_in_game_solar_system(
     active: Res<MenuBackdropActive>,
     launch_state: Res<LaunchState>,
-    mut planet_query: Query<&mut Visibility, (With<CelestialBody>, With<Planet>)>,
-    mut moon_query: Query<&mut Visibility, (With<CelestialBody>, With<crate::plugins::solar_system::Moon>)>,
+    // Bevy 0.18's B0001 rule forbids two separate `Query<&mut Visibility>`
+    // params that overlap on the same component. Collapse Planet + Moon
+    // into a single `Or<...>` filter so the system uses one query.
+    mut body_query: Query<
+        &mut Visibility,
+        (
+            With<CelestialBody>,
+            Or<(
+                With<Planet>,
+                With<crate::plugins::solar_system::Moon>,
+                With<crate::plugins::solar_system::Star>,
+            )>,
+        ),
+    >,
+    // Star PointLights are children of the star entity (spawned in
+    // `solar_system.rs`); they carry no CelestialBody marker of their own.
+    mut star_light_query: Query<&mut PointLight, Without<CelestialBody>>,
 ) {
     let should_hide = active.0 && is_menu_launch_state(*launch_state);
     let target = if should_hide {
@@ -592,10 +658,21 @@ fn hide_in_game_solar_system(
         Visibility::Inherited
     };
 
-    for mut vis in planet_query.iter_mut().chain(moon_query.iter_mut()) {
+    for mut vis in body_query.iter_mut() {
         if *vis != target {
             *vis = target;
         }
+    }
+
+    // Lights ignore `Visibility`, so dim every star's PointLight while the
+    // menu owns the scene. The in-game Sol's 2.8e11 lux source sits at the
+    // origin and would otherwise light the menu Earth from the wrong
+    // direction (fighting the menu's own directional sun) and leave a
+    // bright glare disc embedded in Earth's limb — the "sun stuck in the
+    // planet" artefact. The menu backdrop provides its own sun light + a
+    // distant menu-owned sun disc, so the real Sol contributes nothing here.
+    for mut light in star_light_query.iter_mut() {
+        light.intensity = if should_hide { 0.0 } else { 2.8e11 };
     }
 }
 
