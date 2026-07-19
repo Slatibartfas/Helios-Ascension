@@ -126,7 +126,11 @@ pub fn ui_save_panel_subview(
     let mut save_clicked = false;
     let mut save_as_target: Option<PathBuf> = None;
 
-    egui::CentralPanel::default().show(ctx, |ui| {
+    // GRA-XYZ: transparent central panel so the rotating-Earth backdrop
+    // stays visible behind the save panel content.
+    egui::CentralPanel::default()
+        .frame(theme::menu_transparent_frame())
+        .show(ctx, |ui| {
         ui.vertical_centered(|ui| {
             ui.add_space(theme::Spacing::xl);
             ui.label(

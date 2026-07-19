@@ -46,19 +46,34 @@ use super::manifest::LaunchUiManifest;
 use super::{LaunchState, NewGameParams, NewGameRequest, PendingLaunchActions, SaveIndex};
 use crate::ui::theme;
 
-/// Fixed minimum width of the action grid column.
+/// Shared width of every menu button in the bottom row.
 ///
-/// `360 px` matches the GRA-309 §3.4 mock-up proportions: a centred
-/// card slightly wider than a typical button row but narrow enough to
-/// read at a glance.
-const MENU_COLUMN_WIDTH: f32 = 360.0;
+/// Sized so that 5 buttons + 4 gaps comfortably fit a 1280 px viewport
+/// (5 × 168 + 4 × 10 = 880 px) with room on either side for the
+/// rotating-Earth backdrop to breathe.
+const MENU_BUTTON_WIDTH: f32 = 168.0;
 
-/// Fixed minimum height of each menu button.
-///
-/// Tall enough to host a 12 px label + 10 px shortcut hint on the
-/// right; keeps the action grid visually balanced against the
-/// `theme::title()` heading above.
-const MENU_BUTTON_HEIGHT: f32 = 44.0;
+/// Height of every menu button. Tall enough to give the glass effect
+/// visual presence without crowding the 720 px minimum-window height.
+const MENU_BUTTON_HEIGHT: f32 = 56.0;
+
+/// Gap between adjacent menu buttons in the bottom row.
+const MENU_BUTTON_GAP: f32 = theme::Spacing::md;
+
+/// Distance from the screen bottom to the bottom edge of the button row.
+const MENU_ROW_BOTTOM_MARGIN: f32 = 56.0;
+
+/// Corner radius of the glass buttons. Larger than egui's default 4 px
+/// gives the buttons their rounded, liquid-glass silhouette.
+const MENU_GLASS_CORNER_RADIUS: f32 = 12.0;
+
+/// How far the button expands on hover. 1.04× reads as a subtle "pop"
+/// without jarring the row layout.
+const MENU_HOVER_SCALE: f32 = 0.04;
+
+/// Time constant for the hover scale animation (seconds). Small enough
+/// to feel snappy.
+const MENU_HOVER_ANIM_S: f32 = 0.12;
 
 /// System: render the main menu shell + handle key bindings.
 ///
@@ -123,7 +138,7 @@ pub fn main_menu_render_system(
     }
 
     egui::CentralPanel::default()
-        .frame(theme::central_frame())
+        .frame(theme::menu_transparent_frame())
         .show(ctx, |ui| {
             render_menu_body(
                 ui,
@@ -159,6 +174,16 @@ fn is_menu_state(state: LaunchState) -> bool {
 }
 
 /// Render the heading + 5-button action grid + footer build label.
+///
+/// Layout (GRA-XYZ redesign):
+/// - Top:    `HELIOS ASCENSION` title in the cyan accent, centered.
+/// - Top:    subtitle "EARTH · SECTOR SOL" in dim caption text.
+/// - Middle: empty (subview content renders here when active; the
+///           rotating-Earth backdrop is visible behind it).
+/// - Bottom: 5 glass-style buttons in a horizontal row, centered,
+///           with the hover-state pop animation and the three-layer
+///           painter-driven bloom.
+/// - Footer: build label, centered under the title.
 fn render_menu_body(
     ui: &mut egui::Ui,
     manifest: &LaunchUiManifest,
@@ -167,26 +192,46 @@ fn render_menu_body(
     pending_actions: &mut PendingLaunchActions,
     next_launch_state: &mut LaunchState,
 ) {
-    ui.vertical_centered(|ui| {
-        ui.add_space(ui.available_height() * 0.18);
+    // We use `egui::Area` for absolute positioning so the button row
+    // and footer land at exact screen-relative coordinates regardless
+    // of how egui's parent layout has sliced the available rect. The
+    // title uses the same trick for the top-centered placement.
+    let available = ui.ctx().available_rect();
 
-        // Heading — title-case "HELIOS ASCENSION" in the dim accent.
-        ui.label(
-            egui::RichText::new("HELIOS ASCENSION")
-                .font(theme::title())
-                .color(theme::ACCENT),
-        );
-        ui.add_space(theme::Spacing::xl);
+    // ── Top: title + subtitle ───────────────────────────────────────
+    // Default Area anchor is `Align2::LEFT_TOP`, so `fixed_pos` sets
+    // the top-left corner. We compute the top-left position by
+    // estimating the title's width and offsetting from `center()`.
+    egui::Area::new("menu_title".into())
+        .fixed_pos(egui::pos2(
+            available.center().x - 100.0,
+            available.top() + theme::Spacing::xl * 2.0,
+        ))
+        .show(ui.ctx(), |ui| {
+            ui.set_min_width(200.0);
+            ui.vertical_centered(|ui| {
+                ui.label(
+                    egui::RichText::new("HELIOS ASCENSION")
+                        .font(theme::title())
+                        .color(theme::ACCENT),
+                );
+                ui.add_space(theme::Spacing::xs);
+                ui.label(theme::caption("EARTH · SECTOR SOL"));
+            });
+        });
 
-        // Action grid: 5 buttons rendered with the resolved label on
-        // the left and the shortcut keycap on the right. Subview
-        // labels switch to "Back" for any state other than MainMenu
-        // (PR-D will overwrite this with its own subview header).
-        let column_width = MENU_COLUMN_WIDTH.min(ui.available_width() - theme::Spacing::xl);
-        ui.allocate_ui_with_layout(
-            egui::vec2(column_width, 0.0),
-            egui::Layout::top_down(egui::Align::Center),
-            |ui| {
+    // ── Bottom: 5-button glass row, anchored to the bottom margin ──
+    // Row width: 5 × 168 + 4 × 10 = 880. Compute top-left from center.
+    let row_width = MENU_BUTTON_WIDTH * 5.0 + MENU_BUTTON_GAP * 4.0;
+    egui::Area::new("menu_button_row".into())
+        .fixed_pos(egui::pos2(
+            available.center().x - row_width * 0.5,
+            available.bottom() - MENU_ROW_BOTTOM_MARGIN - MENU_BUTTON_HEIGHT,
+        ))
+        .show(ui.ctx(), |ui| {
+            ui.set_min_width(row_width);
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = MENU_BUTTON_GAP;
                 render_action_grid(
                     ui,
                     manifest,
@@ -195,17 +240,24 @@ fn render_menu_body(
                     pending_actions,
                     next_launch_state,
                 );
-            },
-        );
+            });
+        });
 
-        ui.add_space(theme::Spacing::xl);
-        ui.label(theme::caption(build_footer_label(manifest)));
-    });
+    // ── Footer: build label at the very bottom ──────────────────────
+    egui::Area::new("menu_footer".into())
+        .fixed_pos(egui::pos2(
+            available.center().x - 100.0,
+            available.bottom() - theme::Spacing::sm,
+        ))
+        .show(ui.ctx(), |ui| {
+            ui.set_min_width(200.0);
+            ui.label(theme::caption(build_footer_label(manifest)));
+        });
 }
 
-/// Render the 5-button action grid (Continue / New Game / Load Game /
-/// Settings / Quit) with shortcut hints and the appropriate state
-/// transitions for each press.
+/// Render the 5 glass buttons in a single horizontal row, centered in
+/// the available rect. Each button is a [`render_glass_button`] call;
+/// click routing stays byte-for-byte identical to the previous design.
 fn render_action_grid(
     ui: &mut egui::Ui,
     manifest: &LaunchUiManifest,
@@ -217,7 +269,7 @@ fn render_action_grid(
     let copy = &manifest.menu;
 
     // Continue
-    if render_menu_button(
+    if render_glass_button(
         ui,
         copy.resolved_continue_label(),
         copy.resolved_continue_shortcut(),
@@ -230,20 +282,15 @@ fn render_action_grid(
         pending_actions.continue_recent = true;
     }
 
-    ui.add_space(theme::Spacing::sm);
+    ui.add_space(MENU_BUTTON_GAP);
 
-    // New Game — subview routing for PR-C; PR-D fills the form.
-    // PR-E (GRA-329) adds a hot-path on MainMenu: clicking New Game
-    // here queues a default `start_new_game` request so the
-    // transition consumer flips LaunchState to InGame immediately.
-    // The full form (seed input + preset dropdown) lands in PR-D' v2
-    // and replaces this hot-path on top.
+    // New Game
     let new_game_label = if launch_state == LaunchState::NewGame {
         "Back"
     } else {
         copy.resolved_new_game_label()
     };
-    if render_menu_button(ui, new_game_label, copy.resolved_new_game_shortcut(), true).clicked() {
+    if render_glass_button(ui, new_game_label, copy.resolved_new_game_shortcut(), true).clicked() {
         if launch_state == LaunchState::MainMenu {
             pending_actions.start_new_game = Some(NewGameRequest {
                 params: NewGameParams::default(),
@@ -255,7 +302,7 @@ fn render_action_grid(
         }
     }
 
-    ui.add_space(theme::Spacing::sm);
+    ui.add_space(MENU_BUTTON_GAP);
 
     // Load Game
     let load_game_label = if launch_state == LaunchState::LoadGame {
@@ -263,7 +310,7 @@ fn render_action_grid(
     } else {
         copy.resolved_load_game_label()
     };
-    if render_menu_button(
+    if render_glass_button(
         ui,
         load_game_label,
         copy.resolved_load_game_shortcut(),
@@ -274,7 +321,7 @@ fn render_action_grid(
         toggle_subview(next_launch_state, launch_state, LaunchState::LoadGame);
     }
 
-    ui.add_space(theme::Spacing::sm);
+    ui.add_space(MENU_BUTTON_GAP);
 
     // Settings
     let settings_label = if launch_state == LaunchState::Settings {
@@ -282,16 +329,14 @@ fn render_action_grid(
     } else {
         copy.resolved_settings_label()
     };
-    if render_menu_button(ui, settings_label, copy.resolved_settings_shortcut(), true).clicked() {
+    if render_glass_button(ui, settings_label, copy.resolved_settings_shortcut(), true).clicked() {
         toggle_subview(next_launch_state, launch_state, LaunchState::Settings);
     }
 
-    ui.add_space(theme::Spacing::md);
+    ui.add_space(MENU_BUTTON_GAP);
 
-    // Quit — no subview toggle; just sets the `quit` flag in
-    // `PendingLaunchActions`. A separate transition system (PR-D /
-    // GRA-318) consumes it and exits the app.
-    if render_menu_button(
+    // Quit
+    if render_glass_button(
         ui,
         copy.resolved_quit_label(),
         copy.resolved_quit_shortcut(),
@@ -303,67 +348,193 @@ fn render_action_grid(
     }
 }
 
-/// Render one row of the action grid: `Label` on the left, `Shortcut`
+/// Render one liquid-glass button: `Label` on the left, `Shortcut`
 /// keycap on the right.
 ///
-/// Disabled state matches `theme::SURFACE` with
+/// Implementation note: we use `ui.allocate_response` + a custom painter
+/// instead of `egui::Button` because the global `apply_global_visuals`
+/// paints an opaque `SURFACE` background under every button — that
+/// visual's bg_fill takes precedence over `Button::fill(...)` in some
+/// egui versions, which is why the previous attempt produced solid
+/// dark rectangles. Drawing on the foreground layer via `ctx.layer_painter`
+/// with the response's id guarantees our paint composites on top of any
+/// visual background.
+///
+/// Three visual states:
+/// - **Rest:** translucent `MENU_GLASS_FILL` + soft cyan `MENU_GLASS_STROKE` border.
+/// - **Hover:** brighter fill + accent border + three concentric painter
+///   strokes that approximate a bloom (outer 6 px, middle 3 px, inner
+///   1.5 px) + slight 1.04× expansion via egui's hover animator.
+/// - **Active/pressed:** the rect expands more (1.08×) while pressed.
+///
+/// Disabled state uses opaque `theme::SURFACE` + `theme::BORDER` +
 /// `theme::TEXT_DIM` so the player can see why Continue is greyed out
-/// (cold boot, no saves). Shortcut hints are intentionally hidden when
-/// the button is disabled — the affordance is meaningless when the
-/// action cannot fire.
-fn render_menu_button(
+/// (cold boot, no saves). The shortcut keycap is hidden when disabled.
+fn render_glass_button(
     ui: &mut egui::Ui,
     label: &str,
     shortcut: &str,
     enabled: bool,
 ) -> egui::Response {
-    let fill = if enabled {
-        theme::SURFACE_RAISED
+    // Allocate the button's rect via egui's response system (handles
+    // hover, focus, click, and layout). We don't put an egui::Button
+    // inside because that would also paint a visual-default background.
+    let (rect, response) = ui.allocate_exact_size(
+        egui::vec2(MENU_BUTTON_WIDTH, MENU_BUTTON_HEIGHT),
+        if enabled {
+            egui::Sense::click()
+        } else {
+            egui::Sense::hover()
+        },
+    );
+
+    // ── Hover + active animation ────────────────────────────────────
+    // `animate_bool_with_time` returns a 0..1 lerp for hover; we read
+    // `is_pointer_button_down_on()` for the active (pressed) state.
+    let hover_t = if enabled {
+        ui.ctx()
+            .animate_bool_with_time(response.id, response.hovered(), MENU_HOVER_ANIM_S)
     } else {
-        theme::SURFACE
+        0.0
     };
-    let stroke = if enabled {
-        egui::Stroke::new(1.0_f32, theme::ACCENT_DIM)
+    let pressed_t = if enabled {
+        ui.ctx()
+            .animate_bool_with_time(
+                response.id.with("pressed"),
+                response.is_pointer_button_down_on(),
+                0.08,
+            )
     } else {
-        egui::Stroke::new(0.5_f32, theme::BORDER)
-    };
-    let label_color = if enabled {
-        theme::TEXT
-    } else {
-        theme::TEXT_DIM
+        0.0
     };
 
-    let button = egui::Button::new(
-        egui::RichText::new(label)
-            .font(theme::body(14.0))
-            .color(label_color),
-    )
-    .fill(fill)
-    .stroke(stroke)
-    .min_size(egui::vec2(MENU_COLUMN_WIDTH, MENU_BUTTON_HEIGHT))
-    .sense(if enabled {
-        egui::Sense::click()
-    } else {
-        egui::Sense::hover()
-    });
+    // Expansion combines hover pop + pressed dip.
+    let expansion = (hover_t * MENU_HOVER_SCALE + pressed_t * MENU_HOVER_SCALE * 0.5)
+        * rect.height()
+        * 0.5;
+    let painted_rect = rect.expand(expansion);
 
-    let response = ui.add(button);
+    // ── Painter on the foreground layer ─────────────────────────────
+    // The response id gives us a stable, widget-scoped layer; painting
+    // on `Order::Foreground` ensures the glass surface sits above any
+    // visual-default background painted by egui.
+    let layer_id = egui::LayerId::new(egui::Order::Foreground, response.id);
+    let painter = ui.ctx().layer_painter(layer_id);
+
     if enabled {
-        // Paint the shortcut keycap on the right edge of the button
-        // using the painter so it doesn't influence layout. We use the
-        // theme helper for consistency with other keycap-style chips
-        // (notifications panel, settings tooltips).
-        let rect = response.rect;
-        let shortcut_pos = egui::pos2(rect.right() - theme::Spacing::lg - 4.0, rect.center().y);
-        ui.painter().text(
+        // ── Fill (lerp rest → hover colour) ─────────────────────────
+        let fill = if hover_t > 0.0 {
+            lerp_color(theme::MENU_GLASS_FILL, theme::MENU_GLASS_HOVER_FILL, hover_t)
+        } else {
+            theme::MENU_GLASS_FILL
+        };
+        painter.rect_filled(painted_rect, MENU_GLASS_CORNER_RADIUS, fill);
+
+        // ── Three-layer hover glow (outer → inner) ──────────────────
+        if hover_t > 0.0 {
+            let glow_color = |base: egui::Color32| -> egui::Color32 {
+                let a = (base.a() as f32 * hover_t) as u8;
+                egui::Color32::from_rgba_unmultiplied(base.r(), base.g(), base.b(), a)
+            };
+            // Outer halo (broadest, faintest)
+            painter.rect_stroke(
+                painted_rect.expand(6.0),
+                MENU_GLASS_CORNER_RADIUS + 6.0,
+                egui::Stroke::new(6.0, glow_color(theme::MENU_GLASS_GLOW_OUTER)),
+                egui::StrokeKind::Outside,
+            );
+            // Mid halo
+            painter.rect_stroke(
+                painted_rect.expand(3.0),
+                MENU_GLASS_CORNER_RADIUS + 3.0,
+                egui::Stroke::new(3.0, glow_color(theme::MENU_GLASS_GLOW_MID)),
+                egui::StrokeKind::Outside,
+            );
+            // Inner accent line — solid cyan, brightest
+            painter.rect_stroke(
+                painted_rect,
+                MENU_GLASS_CORNER_RADIUS,
+                egui::Stroke::new(1.5, theme::ACCENT),
+                egui::StrokeKind::Inside,
+            );
+        } else {
+            // Rest state: subtle border
+            painter.rect_stroke(
+                painted_rect,
+                MENU_GLASS_CORNER_RADIUS,
+                egui::Stroke::new(1.0, theme::MENU_GLASS_STROKE),
+                egui::StrokeKind::Inside,
+            );
+        }
+
+        // ── Label (centre-left) ─────────────────────────────────────
+        let label_color = if hover_t > 0.5 { theme::ACCENT } else { theme::TEXT };
+        let label_pos = egui::pos2(
+            painted_rect.left() + theme::Spacing::lg + 4.0,
+            painted_rect.center().y,
+        );
+        painter.text(
+            label_pos,
+            egui::Align2::LEFT_CENTER,
+            label,
+            theme::body(15.0),
+            label_color,
+        );
+
+        // ── Shortcut keycap (right edge) ─────────────────────────────
+        let shortcut_pos = egui::pos2(
+            painted_rect.right() - theme::Spacing::lg - 4.0,
+            painted_rect.center().y,
+        );
+        painter.text(
             shortcut_pos,
             egui::Align2::RIGHT_CENTER,
             shortcut,
             theme::mono(10.0),
             theme::ACCENT,
         );
+    } else {
+        // Disabled: opaque dim surface so the player sees why Continue
+        // is greyed out (cold boot, no saves).
+        painter.rect_filled(painted_rect, MENU_GLASS_CORNER_RADIUS, theme::SURFACE);
+        painter.rect_stroke(
+            painted_rect,
+            MENU_GLASS_CORNER_RADIUS,
+            egui::Stroke::new(0.5, theme::BORDER),
+            egui::StrokeKind::Inside,
+        );
+
+        // Label + shortcut still rendered, in dim text + grey keycap.
+        let label_pos = egui::pos2(
+            painted_rect.left() + theme::Spacing::lg + 4.0,
+            painted_rect.center().y,
+        );
+        painter.text(
+            label_pos,
+            egui::Align2::LEFT_CENTER,
+            label,
+            theme::body(15.0),
+            theme::TEXT_DIM,
+        );
     }
+
     response
+}
+
+/// Linear interpolation between two RGBA colours, channels separately.
+/// `t` is clamped to `[0, 1]`. Used to animate the button fill from
+/// `MENU_GLASS_FILL` to `MENU_GLASS_HOVER_FILL` on hover.
+fn lerp_color(a: egui::Color32, b: egui::Color32, t: f32) -> egui::Color32 {
+    let t = t.clamp(0.0, 1.0);
+    let blend = |x: u8, y: u8| -> u8 {
+        ((x as f32) + ((y as f32) - (x as f32)) * t).round().clamp(0.0, 255.0) as u8
+    };
+    egui::Color32::from_rgba_unmultiplied(
+        blend(a.r(), b.r()),
+        blend(a.g(), b.g()),
+        blend(a.b(), b.b()),
+        blend(a.a(), b.a()),
+    )
 }
 
 /// Toggle a subview state: clicking the active subview's button sends
@@ -509,5 +680,31 @@ mod tests {
 
         toggle_subview(&mut next, LaunchState::Settings, LaunchState::Settings);
         assert_eq!(next, LaunchState::MainMenu);
+    }
+
+    /// GRA-XYZ redesign: 5 buttons + 4 gaps must fit comfortably on a
+    /// 1280 px viewport so the row doesn't wrap or scroll on the
+    /// minimum-supported window width (CLAUDE.md `MIN_WINDOW_WIDTH`).
+    #[test]
+    fn glass_button_row_fits_in_minimum_window_width() {
+        let total_row_width = MENU_BUTTON_WIDTH * 5.0 + MENU_BUTTON_GAP * 4.0;
+        assert!(
+            total_row_width <= 1280.0,
+            "row width {} exceeds 1280 px design budget",
+            total_row_width
+        );
+    }
+
+    /// GRA-XYZ: button row width + gap + bottom margin must leave the
+    /// title + at least one screen-height of vertical room above so the
+    /// Earth fills the upper two thirds of the viewport.
+    #[test]
+    fn glass_button_row_keeps_vertical_room_for_backdrop() {
+        let row_top_offset = MENU_BUTTON_HEIGHT + MENU_ROW_BOTTOM_MARGIN;
+        assert!(
+            row_top_offset <= 360.0,
+            "button row + margin {} leaves < 360 px for Earth + title",
+            row_top_offset
+        );
     }
 }

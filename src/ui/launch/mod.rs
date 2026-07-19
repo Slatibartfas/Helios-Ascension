@@ -34,6 +34,7 @@
 
 pub mod manifest;
 pub mod menu;
+pub mod menu_backdrop;
 pub mod save_index;
 pub mod splash;
 pub mod transitions;
@@ -52,6 +53,9 @@ use std::path::PathBuf;
 
 pub use manifest::{load_launch_ui_manifest, LaunchUiManifest};
 pub use menu::main_menu_render_system;
+pub use menu_backdrop::{
+    MenuBackdropActive, MenuBackdropKind, MenuBackdropMarker, MenuBackdropPlugin,
+};
 pub use save_index::{SaveHeader, SaveIndex, SaveIndexState, SaveSummary, SAVES_SUBDIR};
 // Splash types re-exported so callers can `use crate::ui::launch::SplashPlugin`
 // without reaching into `splash::*` directly.
@@ -229,6 +233,11 @@ impl Plugin for LaunchPlugin {
         subview_settings::register_settings_subview(app);
         subview_save_game::register_save_panel_subview(app);
         subview_kickoff::register_kickoff_system(app);
+
+        // GRA-XYZ: menu backdrop — spawns the rotating-Earth close-up
+        // and ambient/sun lighting for the menu session, despawns on
+        // the menu→InGame transition. See `menu_backdrop.rs`.
+        menu_backdrop::register_menu_backdrop_plugin(app);
 
         // PR-E (GRA-329): action consumer runs in `Update` (not in
         // `EguiPrimaryContextPass`) — pure resource mutation, no

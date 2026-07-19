@@ -102,7 +102,11 @@ pub fn ui_settings_subview(
     let mut settings_dirty = false;
     let mut post_save = None;
 
-    egui::CentralPanel::default().show(ctx, |ui| {
+    // GRA-XYZ: transparent central panel so the rotating-Earth backdrop
+    // stays visible behind the settings tabs.
+    egui::CentralPanel::default()
+        .frame(theme::menu_transparent_frame())
+        .show(ctx, |ui| {
         ui.vertical_centered(|ui| {
             ui.add_space(theme::Spacing::xl);
             ui.label(

@@ -50,7 +50,12 @@ pub fn ui_load_game_subview(
     let mut clicked_path: Option<std::path::PathBuf> = None;
     let mut back_clicked = false;
 
-    egui::CentralPanel::default().show(ctx, |ui| {
+    // GRA-XYZ: transparent central panel so the rotating-Earth backdrop
+    // stays visible behind the save list. The save list rows provide
+    // their own opaque backgrounds for legibility.
+    egui::CentralPanel::default()
+        .frame(theme::menu_transparent_frame())
+        .show(ctx, |ui| {
         ui.vertical_centered(|ui| {
             ui.add_space(theme::Spacing::xl);
             ui.label(
@@ -254,14 +259,15 @@ mod tests {
         let header = SaveHeader {
             format_version: Some(1),
             helios_version: Some("0.5.0".into()),
-            // 2026-07-03 22:00:00 UTC = unix 1788688800
+            // 2026-09-06 10:00:00 UTC = unix 1788688800 (verified via
+            // `new Date(1788688800 * 1000).toISOString()`).
             saved_at_unix_s: Some(1_788_688_800),
             playtime_s: Some(3 * 3600 + 12 * 60),
             seed: Some(42),
         };
         let label = save_row_label(&header);
         assert!(label.contains("0.5.0"));
-        assert!(label.contains("2026-07-03"));
+        assert!(label.contains("2026-09-06"));
         assert!(label.contains("3h 12m"));
         assert!(label.contains("seed 42"));
     }

@@ -207,7 +207,12 @@ pub fn ui_new_game_subview(
     let active_id = subview_state.effective_preset_id(&manifest).to_string();
     let active_preset = presets.find(&active_id).cloned();
 
-    egui::CentralPanel::default().show(ctx, |ui| {
+    // GRA-XYZ: transparent central panel so the rotating-Earth backdrop
+    // stays visible behind the form widgets. Each widget's own opaque
+    // frame provides legibility where the player needs to read content.
+    egui::CentralPanel::default()
+        .frame(theme::menu_transparent_frame())
+        .show(ctx, |ui| {
         ui.vertical_centered(|ui| {
             ui.add_space(theme::Spacing::xl);
             ui.label(
