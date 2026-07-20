@@ -36,6 +36,7 @@ use plugins::{
     atmosphere::AtmospherePlugin, camera::CameraPlugin, music::MusicPlugin,
     solar_system::SolarSystemPlugin, starmap::StarmapPlugin,
     system_populator::SystemPopulatorPlugin, visual_effects::VisualEffectsPlugin,
+    window_icon::WindowIconPlugin,
 };
 use render::backdrop::BackdropPlugin;
 use research::ResearchPlugin;
@@ -154,6 +155,10 @@ fn build_game_app() -> App {
     .add_plugins(PersistencePlugin)
     .add_plugins(SaveLoadPlugin)
     .add_plugins(GameSetupPlugin)
+    // Window/taskbar icon — must register *after* WindowPlugin and
+    // SplashPlugin so the primary + splash window entities exist in
+    // the world when the Startup system runs.
+    .add_plugins(WindowIconPlugin)
     .add_plugins(MusicPlugin)
     // Systems
     .add_systems(Startup, setup);

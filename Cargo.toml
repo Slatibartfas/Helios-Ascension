@@ -104,14 +104,37 @@ rand = "0.9"
 serde_json = "1.0.149"
 image = "0.25"
 
+# Window-icon support. Bevy 0.18's `Window` doesn't expose an icon
+# field; we set the icon post-creation via
+# `winit::window::Window::set_window_icon` from
+# `bevy_winit::WINIT_WINDOWS`. The version is pinned to match the
+# `winit` version `bevy_winit-0.18` re-exports internally; Cargo's
+# resolver guarantees only one copy ends up in the dep graph.
+winit = "0.30"
+
 # UUIDs for stable entity identification
 uuid = { version = "1.0", features = ["serde", "v4"] }
 
 [profile.dev]
-opt-level = 1
+# Bevy's documented fast-compile guidance is opt-level 0 on the
+# crate itself, with optimization applied to dependencies (see the
+# [profile.dev.package."*"] block below). Setting opt-level > 0 on
+# your own code adds codegen work on every rebuild and cuts the
+# fast-iter loop noticeably.
+opt-level = 0
 # line-tables-only keeps backtraces working but cuts ~40% of .o size vs full
 # debug info, which materially reduces link time on Windows MSVC.
 debug = "line-tables-only"
+# Explicit  keeps Cargo on the incremental
+# codegen path (some crate types fall back to non-incremental
+# otherwise, which is much slower).
+incremental = true
+
+# Dependencies still benefit from full optimization so runtime
+# performance matches what we see in release; we just don't pay
+# that codegen cost on every edit to our own code.
+[profile.dev.package."*"]
+opt-level = 3
 
 [profile.release]
 lto = "thin"
@@ -120,18 +143,25 @@ opt-level = 3
 strip = true
 
 # Fast compile profile for local iteration.
-# Keep this close to the dev profile rather than inheriting release,
-# otherwise incremental rebuilds become much slower and the experience
-# feels closer to a release build than a rapid dev loop.
+#
+# Inherits  so we stay on the documented fast-compile path
+# rather than paying release-build costs on every iteration. We
+# bump codegen units, disable LTO/strip, and force incremental to
+# cut codegen and link cost vs. plain dev on Windows MSVC.
 [profile.fast]
 inherits = "dev"
 debug = "line-tables-only"
-codegen-units = 16
+codegen-units = 256
+lto = false
 strip = false
+incremental = true
 
-# Test profile optimized for fast test compilation and execution
+# Test profile optimized for fast test compilation and execution.
+# Mirrors the dev profile split so test runs don't recompile our
+# code with opt-level 1 and drag cargo test timing.
 [profile.test]
-opt-level = 1
+opt-level = 0
+incremental = true
 
 [profile.test.package."*"]
 opt-level = 2

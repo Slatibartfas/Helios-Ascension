@@ -3179,6 +3179,7 @@ dependencies = [
  "serde",
  "serde_json",
  "uuid",
+ "winit",
 ]
 
 [[package]]
@@ -5936,6 +5937,7 @@ checksum = "1e6dbfc3ac5ef974c92a2235805cc0114033018ae1290a72e474aa8b28cbbdfd"
 dependencies = [
  "dlib",
  "log",
+ "once_cell",
  "pkg-config",
 ]
 

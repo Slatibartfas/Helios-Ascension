@@ -8,3 +8,4 @@ pub mod star_materials;
 pub mod starmap;
 pub mod system_populator;
 pub mod visual_effects;
+pub mod window_icon;
