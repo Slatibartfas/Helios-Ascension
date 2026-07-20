@@ -68,11 +68,12 @@ const PLANETARY_FLYBY_RADIUS_KM_MULTIPLIER: f64 = 3_000.0; // = 1_000 m/km × 3
 /// fast the simulation is running.  Without this scaling, at 1 yr/s
 /// the sim advances ~5.83 days per frame and the staleness fires
 /// immediately after the player clicks a cell, snapping the
-/// selection back to the auto-picked cheapest cell.  3 days at
-/// 1 hr/s (the default speed) is short enough to stay accurate for
-/// inner-planet transfers (where planets move ~1°/day) and long
-/// enough to amortize the 40×30 = 1200-cell Lambert solve (worst-case
-/// ~360 ms) so we don't rebuild every frame.
+/// selection back to the auto-picked fastest (earliest-arrival)
+/// cell.  3 days at 1 hr/s (the default speed) is short enough to
+/// stay accurate for inner-planet transfers (where planets move
+/// ~1°/day) and long enough to amortize the 40×30 = 1200-cell
+/// Lambert solve (worst-case ~360 ms) so we don't rebuild every
+/// frame.
 const PORKCHOP_STALENESS_REAL_S: f64 = 72.0;
 
 /// Upper bound on the staleness threshold in *sim* seconds, used to
@@ -1834,7 +1835,8 @@ pub(super) fn render_transfer_planner(
     // simulation is running.  Without this scaling, at 1 yr/s the
     // sim advances ~5.83 days per frame and the staleness fires
     // immediately after the player clicks a cell, snapping the
-    // selection back to the auto-picked cheapest cell.
+    // selection back to the auto-picked fastest (earliest-arrival)
+    // cell.
     time_scale: f64,
     nearby_stars: &NearbyStarsData,
     current_timestamp: i64,
@@ -2428,9 +2430,9 @@ pub(super) fn render_transfer_planner(
         // rotation.  The (col, row) stays valid in the new buffer
         // (modulo the new buffer's resolution, which the deferred
         // build re-resolves against the same target).  Clearing here
-        // would re-trigger the panel's `min_cell` auto-pick, which
-        // jumps the selection to the cheapest cell of the *new*
-        // buffer every rotation.  We only clear on destination
+        // would re-trigger the panel's fastest-cell auto-pick, which
+        // jumps the selection to the earliest-arrival cell of the
+        // *new* buffer every rotation.  We only clear on destination
         // change or staleness expiry.
         fleet_ui_state.porkchop_grid_pending_rebuild = true;
         // IMPORTANT: do NOT clear `porkchop_built_at_s` here.
@@ -10873,9 +10875,9 @@ mod tests {
     // Second user report: at high `time_scale` (1 day/s or faster) the
     // sim advances so fast that the threshold fires immediately after
     // the player clicks a cell, snapping the selection back to the
-    // auto-picked cheapest cell.  The threshold is now scaled by
-    // `time_scale` so the rebuild fires after a fixed *real-time*
-    // interval regardless of how fast the sim is running.
+    // auto-picked fastest (earliest-arrival) cell.  The threshold is
+    // now scaled by `time_scale` so the rebuild fires after a fixed
+    // *real-time* interval regardless of how fast the sim is running.
     //
     // Third user report: at 1 yr/s the previous scaled-only threshold
     // grew to ~72 sim years, so the grid stayed anchored to its build

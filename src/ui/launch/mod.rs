@@ -59,7 +59,7 @@ pub use menu_backdrop::{
 pub use save_index::{SaveHeader, SaveIndex, SaveIndexState, SaveSummary, SAVES_SUBDIR};
 // Splash types re-exported so callers can `use crate::ui::launch::SplashPlugin`
 // without reaching into `splash::*` directly.
-pub use splash::{SplashContextPass, SplashImage, SplashPlugin, SplashTimer};
+pub use splash::{SplashContextPass, SplashImageData, SplashPlugin, SplashTimer};
 pub use subview_manifests::{load_difficulty_presets_manifest, load_seed_copy_manifest};
 pub use subview_save_game::{
     consume_in_game_save_request_system, consume_save_actions_system, register_save_panel_subview,

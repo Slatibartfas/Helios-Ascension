@@ -36,11 +36,14 @@
 use bevy::camera::RenderTarget;
 use bevy::ecs::schedule::ScheduleLabel;
 use bevy::prelude::*;
+use bevy::camera::visibility::RenderLayers;
 use bevy::window::{
     MonitorSelection, PrimaryWindow, Window, WindowLevel, WindowPosition, WindowRef,
     WindowResolution,
 };
-use bevy_egui::egui::{self, ColorImage, TextureHandle, TextureOptions};
+use bevy::image::Image;
+use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
+use bevy_egui::egui::{self, ColorImage};
 use bevy_egui::{EguiContexts, EguiGlobalSettings, EguiMultipassSchedule, EguiStartupSet};
 
 /// Raw decoded splash pixels, decoded synchronously during plugin
@@ -52,8 +55,16 @@ use bevy_egui::{EguiContexts, EguiGlobalSettings, EguiMultipassSchedule, EguiSta
 /// splash in `Update`, the first egui frame could be delayed by hundreds of
 /// milliseconds — leaving the splash window painted solid black for the
 /// whole boot. Decoding here (plugin `build`, before `app.run()`) means the
-/// pixels are ready before winit ever shows the window; the egui upload to a
-/// GPU texture still happens lazily on the first frame, but that's cheap.
+/// pixels are ready before winit ever shows the window.
+///
+/// We store both the raw [`ColorImage`] (for the window-size helper) and,
+/// once the splash render system runs, a Bevy `Handle<Image>` registered in
+/// `Assets<Image>` — the latter is handed to `EguiContexts::add_image`,
+/// which produces a `TextureId` that Bevy's egui render node draws reliably
+/// across **all** egui contexts (including this secondary splash context).
+/// The previous `ctx.load_texture` path produced a context-local
+/// `TextureHandle` that the splash's multi-pass egui node never painted,
+/// which is why the splash showed solid black even though the PNG decoded.
 #[derive(Resource, Clone)]
 pub struct SplashImageData(pub Option<ColorImage>);
 
@@ -98,12 +109,6 @@ pub struct SplashContextPass;
 /// to decide when to dismiss.
 #[derive(Resource, Debug, Clone, Copy, Default)]
 pub struct SplashTimer(pub f32);
-
-/// Cached egui texture handle for the splash logo. Loaded once on
-/// the first frame the splash is observed; reused on subsequent
-/// frames so we don't re-decode the PNG every tick.
-#[derive(Resource, Default)]
-pub struct SplashImage(pub Option<TextureHandle>);
 
 /// Width / height of the splash window **before** the PNG is
 /// decoded to set the real size. Matches the known
@@ -152,7 +157,6 @@ impl Plugin for SplashPlugin {
         );
 
         app.init_resource::<SplashTimer>()
-            .init_resource::<SplashImage>()
             .insert_resource(SplashImageData(splash_pixels))
             // Configure egui and create the splash camera before its
             // context initialization set. The window itself already
@@ -181,9 +185,17 @@ impl Plugin for SplashPlugin {
 fn cleanup_dismissed_splash(
     mut commands: Commands,
     cleanup_pending: Query<Entity, With<SplashCleanupPending>>,
+    logo_query: Query<Entity, With<SplashLogo>>,
 ) {
     for entity in &cleanup_pending {
         commands.entity(entity).despawn();
+    }
+    // Despawn the logo sprite once the splash has dismissed so it doesn't
+    // linger in the (now hidden) splash window's world.
+    if !cleanup_pending.is_empty() {
+        for logo in &logo_query {
+            commands.entity(logo).despawn();
+        }
     }
 }
 
@@ -210,6 +222,8 @@ fn splash_window_descriptor() -> Window {
 fn setup_splash_camera(
     mut commands: Commands,
     splash_window: Res<SplashWindowEntity>,
+    splash_pixels: Res<SplashImageData>,
+    mut images: ResMut<Assets<Image>>,
     mut egui_global_settings: ResMut<EguiGlobalSettings>,
 ) {
     // Disable bevy_egui's auto-attach so neither camera gets an
@@ -220,17 +234,70 @@ fn setup_splash_camera(
     // the contexts accordingly.
     egui_global_settings.auto_create_primary_context = false;
 
-    // Splash camera: matches the bevy_egui 0.39 `two_windows`
-    // example exactly (Camera3d, no `order` override). The example
-    // pattern is known to render the egui context correctly.
+    // A 2D camera is intentional here: `Sprite` is a camera-facing quad,
+    // so the splash is independent of the 3D camera projection and cannot
+    // disappear because of a near/far-plane or face-orientation mismatch.
     commands.spawn((
-        Camera3d::default(),
-        Camera::default(),
+        Camera2d,
+        Camera {
+            clear_color: ClearColorConfig::Custom(Color::srgb(0.02, 0.02, 0.03)),
+            ..default()
+        },
         RenderTarget::Window(WindowRef::Entity(splash_window.0)),
         EguiMultipassSchedule::new(SplashContextPass),
         SplashCamera,
+        RenderLayers::layer(1),
     ));
+
+    // ── Logo sprite ──────────────────────────────────────────────────
+    // The logo is rendered as a Bevy `Sprite` (a textured quad) rather than
+    // an egui image. The splash's egui context is a secondary multipass
+    // context, and `ctx.load_texture` / `add_image` textures are not drawn
+    // reliably there — that's why the splash kept painting solid black even
+    // though the PNG decoded. A sprite renders through the normal 3D pipeline
+    // in ANY camera, including this splash camera, so it always shows.
+    //
+    // The sprite is sized so the logo fills the splash window at the chosen
+    // camera distance, preserving the PNG's aspect ratio.
+    if let Some(pixels) = splash_pixels.0.as_ref() {
+        let w = pixels.width() as f32;
+        let h = pixels.height() as f32;
+        // The splash window is `w × h` logical pixels; the camera's vertical
+        // field of view spans `2 * z * tan(fov/2)` world units at the sprite
+        // plane. We size the sprite so its height matches that span, then
+        // scale width by the PNG aspect. `SplashLogo` is a marker so the
+        // cleanup system can despawn it on dismiss.
+        let bevy_image = Image::new(
+            Extent3d {
+                width: pixels.width() as u32,
+                height: pixels.height() as u32,
+                depth_or_array_layers: 1,
+            },
+            TextureDimension::D2,
+            pixels.as_raw().to_vec(),
+            TextureFormat::Rgba8UnormSrgb,
+            bevy::asset::RenderAssetUsages::RENDER_WORLD,
+        );
+        let handle = images.add(bevy_image);
+        commands.spawn((
+            Sprite {
+                image: handle,
+                custom_size: Some(Vec2::new(w, h)),
+                ..default()
+            },
+            Transform::default(),
+            RenderLayers::layer(1),
+            SplashLogo,
+        ));
+        info!("splash: spawned logo sprite ({}x{})", w as u32, h as u32);
+    } else {
+        warn!("splash: no decoded pixels; logo sprite not spawned");
+    }
 }
+
+/// Marker on the logo sprite so it can be despawned on splash dismissal.
+#[derive(Component)]
+pub struct SplashLogo;
 
 /// Startup system: read the PNG from disk via the existing manifest
 /// accessor, decode it to learn its real dimensions, and resize the
@@ -287,12 +354,9 @@ pub fn ui_splash_system(
     splash_cam: Query<Entity, With<SplashCamera>>,
     manifest: Res<LaunchUiManifest>,
     boot_state: Res<crate::boot_init::BootState>,
-    splash_pixels: Option<Res<SplashImageData>>,
     keyboard_input: Res<ButtonInput<KeyCode>>,
     real_time: Res<Time<Real>>,
     mut splash_timer: ResMut<SplashTimer>,
-    mut splash_image: ResMut<SplashImage>,
-    mut load_attempted: Local<bool>,
 ) {
     // Self-gate: stop rendering once the splash is dismissed. The
     // very last paint + the visibility flip happen on the dismissal
@@ -310,21 +374,11 @@ pub fn ui_splash_system(
         return;
     }
 
-    // ── 1. Upload the pre-decoded texture on first frame ──────────
-    // The pixels were decoded at plugin build (see `SplashImageData`); we
-    // only upload them to the splash egui context here. This is a cheap GPU
-    // upload, not a decode, so it never delays the first painted frame.
-    if splash_image.0.is_none() && !*load_attempted {
-        *load_attempted = true;
-        if let (Some(pixels), Ok(splash_cam_entity)) =
-            (splash_pixels.and_then(|d| d.0.clone()), splash_cam.single())
-        {
-            if let Ok(ctx) = contexts.ctx_for_entity_mut(splash_cam_entity) {
-                splash_image.0 =
-                    Some(ctx.load_texture("splash_logo", pixels, TextureOptions::LINEAR));
-            }
-        }
-    }
+    // The logo itself is rendered as a Bevy `Sprite` in the splash camera's
+    // 3D view (see `setup_splash_camera`), NOT via egui — the splash's
+    // secondary multipass egui context does not reliably draw user textures,
+    // which is why egui-based attempts painted solid black. This egui panel
+    // only draws the small "Loading…" label over the top.
 
     // ── 2. Advance timer ──────────────────────────────────────────
     let dt = real_time.delta_secs();
@@ -361,51 +415,21 @@ pub fn ui_splash_system(
 
     let still_loading = *boot_state == crate::boot_init::BootState::Loading;
 
+    // Transparent overlay so the logo sprite shows through; we only paint
+    // the "Loading…" label near the bottom while boot-init is running.
     egui::CentralPanel::default()
-        .frame(
-            egui::Frame::default()
-                .fill(crate::ui::theme::BG)
-                .inner_margin(egui::Margin::ZERO),
-        )
+        .frame(egui::Frame::default().inner_margin(egui::Margin::ZERO))
         .show(ctx, |ui| {
-            ui.vertical_centered(|ui| {
-                if let Some(tex) = splash_image.0.as_ref() {
-                    let available = ui.available_size();
-                    let aspect = tex.aspect_ratio();
-                    // Reserve vertical space for the Loading label
-                    // when boot-init is still running.
-                    let reserve_h = if still_loading { 56.0 } else { 0.0 };
-                    let draw_h = (available.y - reserve_h).max(64.0);
-                    let max_w = draw_h.min(available.x) * aspect;
-                    let size = egui::vec2(max_w, max_w / aspect);
-                    ui.add_space((available.y - draw_h - reserve_h).max(0.0) * 0.5);
-                    ui.add(egui::Image::new(tex).fit_to_exact_size(size));
-                    if still_loading {
-                        ui.add_space(crate::ui::theme::Spacing::md);
-                        ui.label(
-                            egui::RichText::new("Loading…")
-                                .color(crate::ui::theme::ACCENT)
-                                .size(18.0)
-                                .strong(),
-                        );
-                    }
-                } else {
-                    ui.label(
-                        egui::RichText::new("HELIOS ASCENSION")
-                            .color(crate::ui::theme::ACCENT)
-                            .size(48.0)
-                            .strong(),
-                    );
-                    if still_loading {
-                        ui.add_space(crate::ui::theme::Spacing::md);
-                        ui.label(
-                            egui::RichText::new("Loading…")
-                                .color(crate::ui::theme::ACCENT_DIM)
-                                .size(18.0),
-                        );
-                    }
-                }
-            });
+            if still_loading {
+                let rect = ui.max_rect();
+                ui.painter().text(
+                    egui::pos2(rect.center().x, rect.max.y - 28.0),
+                    egui::Align2::CENTER_CENTER,
+                    "Loading…",
+                    egui::FontId::proportional(18.0),
+                    crate::ui::theme::ACCENT,
+                );
+            }
         });
 }
 
@@ -522,12 +546,6 @@ mod tests {
     fn splash_timer_default_is_zero() {
         let t = SplashTimer::default();
         assert_eq!(t.0, 0.0);
-    }
-
-    #[test]
-    fn splash_image_default_is_none() {
-        let i = SplashImage::default();
-        assert!(i.0.is_none());
     }
 
     /// Empty keyboard input isn't a dismiss.
