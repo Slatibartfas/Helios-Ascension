@@ -1,6 +1,8 @@
 # Helios-Ascension
 A 4X grand strategy game with realistic orbital mechanics and a big focus on resource management, logistics and research. Climb the Kardashev scale starting at 0.7 and expand your civilization across the stars!
 
+![Helios Ascension splash logo](assets/logo/logo_splashscreen.png)
+
 ## Current Status: v0.5.0 - Exploration & Progression 🟡 IN FLIGHT
 
 The v0.4.0 building & logistics overhaul shipped — **52 building types** with per-body resource stockpiles, player- and AI-driven freighters, and a native Bevy shipbuilding workspace. The v0.5.0 survey rework is **mostly shipped**: the eight-dimension discovery model, six RON-driven data files, a 9-mission roster, anomaly confidence, and the dossier `SURVEY` tab are live on `main`. The notification / event system, the personnel data layer, and the transfer-planner porkchop plot & Lagrange transfers all shipped in May–June 2026. The Personnel panel UI is the last remaining v0.5 surface. See `ROADMAP.md` for the per-item status and the path to v1.0.
