@@ -16,6 +16,7 @@ use crate::plugins::camera::{GameCamera, OrbitCamera, ViewMode};
 use crate::plugins::solar_system::{CelestialBody, LogicalParent};
 use crate::plugins::solar_system_data::BodyType;
 use crate::ui::{FleetUiState, Settings, SimulationTime, TimeScale};
+use crate::ui::launch::LaunchState;
 
 /// Marker component for entities that have a fleet mesh sphere.
 #[derive(Component)]
@@ -2006,7 +2007,11 @@ pub fn draw_fleet_trajectories(
     real_time: Res<Time<Real>>,
     time_scale: Res<TimeScale>,
     settings: Res<Settings>,
+    launch_state: Res<LaunchState>,
 ) {
+    if !launch_state.is_in_game() {
+        return;
+    }
     let origin_offset = floating_origin
         .as_ref()
         .map(|fo| fo.position)
@@ -3128,7 +3133,11 @@ pub fn draw_fleet_selection_reticule(
     floating_origin: Option<Res<FloatingOrigin>>,
     view_mode: Res<ViewMode>,
     camera_query: Query<&OrbitCamera, With<GameCamera>>,
+    launch_state: Res<LaunchState>,
 ) {
+    if !launch_state.is_in_game() {
+        return;
+    }
     let Some(selected) = fleet_ui_state.selected_fleet else {
         return;
     };
@@ -3205,7 +3214,11 @@ pub fn draw_fleet_icons(
         (With<Fleet>, Without<FleetMesh>),
     >,
     floating_origin: Option<Res<FloatingOrigin>>,
+    launch_state: Res<LaunchState>,
 ) {
+    if !launch_state.is_in_game() {
+        return;
+    }
     let origin_offset = floating_origin
         .as_ref()
         .map(|fo| fo.position)
@@ -3902,7 +3915,11 @@ pub fn draw_fleet_orbit_rings(
     transit_query: Query<(Entity, &ActiveManeuver), With<Fleet>>,
     body_query: Query<(&Transform, &CelestialBody), Without<Fleet>>,
     view_mode: Res<ViewMode>,
+    launch_state: Res<LaunchState>,
 ) {
+    if !launch_state.is_in_game() {
+        return;
+    }
     if *view_mode != ViewMode::System {
         return;
     }
@@ -4028,7 +4045,11 @@ pub fn draw_fleet_transfer_preview(
     real_time: Res<Time<Real>>,
     time_scale: Res<TimeScale>,
     camera_query: Query<&OrbitCamera, With<GameCamera>>,
+    launch_state: Res<LaunchState>,
 ) {
+    if !launch_state.is_in_game() {
+        return;
+    }
     if *view_mode != ViewMode::System {
         return;
     }
@@ -4944,7 +4965,11 @@ pub fn draw_gravity_assist_preview(
     sim_time: Res<SimulationTime>,
     real_time: Res<Time<Real>>,
     time_scale: Res<TimeScale>,
+    launch_state: Res<LaunchState>,
 ) {
+    if !launch_state.is_in_game() {
+        return;
+    }
     if *view_mode != ViewMode::System {
         return;
     }

@@ -204,6 +204,7 @@ pub(super) fn update_billboards(
 /// Updates visibility of celestial bodies based on the current star system
 pub(super) fn update_body_visibility(
     current_system: Res<CurrentStarSystem>,
+    launch_state: Res<crate::ui::launch::LaunchState>,
     mut param_set: ParamSet<(
         // Case 1: System Changed - update everyone
         Query<(&mut Visibility, &SystemId), With<CelestialBody>>,
@@ -211,6 +212,17 @@ pub(super) fn update_body_visibility(
         Query<(&mut Visibility, &SystemId), (With<CelestialBody>, Changed<SystemId>)>,
     )>,
 ) {
+    // While the launch menu owns the scene, `hide_in_game_solar_system`
+    // (src/ui/launch/menu_backdrop.rs) hides every in-game body and dims
+    // every star light so the menu backdrop is the only thing rendered.
+    // If we ran here, the per-frame "in current system → Inherited / else
+    // → Hidden" flip would fight that write every tick — the moon and
+    // planets visibly flicker between Hidden and Inherited on the
+    // transition frame and thereafter. Yield to the menu until it exits.
+    if !launch_state.is_in_game() {
+        return;
+    }
+
     if current_system.is_changed() {
         for (mut vis, system_id) in param_set.p0().iter_mut() {
             *vis = if system_id.0 == current_system.0 {

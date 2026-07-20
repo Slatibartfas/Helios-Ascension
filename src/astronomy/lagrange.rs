@@ -9,6 +9,7 @@ use super::components::{
 use super::systems::SCALING_FACTOR;
 use crate::fleets::orbital_mechanics::G_CONST as ORBIT_G;
 use crate::game_state::ActiveMenu;
+use crate::ui::launch::LaunchState;
 use crate::plugins::camera::{CameraAnchor, EguiPanelBounds, GameCamera, ViewMode};
 use crate::plugins::solar_system::{CelestialBody, LogicalParent, Moon};
 
@@ -64,6 +65,7 @@ pub fn draw_lagrange_point_rings(
     mut gizmos: Gizmos,
     view_mode: Res<ViewMode>,
     current_system: Res<CurrentStarSystem>,
+    launch_state: Res<LaunchState>,
     camera_query: Query<&CameraAnchor, With<GameCamera>>,
     selected_bodies: Query<Entity, With<Selected>>,
     body_query: Query<(
@@ -79,6 +81,14 @@ pub fn draw_lagrange_point_rings(
     floating_origin: Option<Res<FloatingOrigin>>,
     mut lp_markers: ResMut<LagrangePointMarkers>,
 ) {
+    // Lagrange gizmos belong only to the gameplay scene. During the splash
+    // and launch menu the gameplay world may already exist, but its gizmos
+    // must not leak into the first game frame or menu backdrop.
+    if !launch_state.is_in_game() {
+        lp_markers.markers.clear();
+        return;
+    }
+
     // Capture hover state before clearing for per-marker colour lookup.
     let hovered_index = lp_markers.hovered_index;
     // Refresh LP marker list every frame (populated below when in System view).
