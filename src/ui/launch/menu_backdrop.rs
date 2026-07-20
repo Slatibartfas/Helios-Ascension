@@ -263,11 +263,11 @@ fn menu_backdrop_transition_system(
     mut camera_query: Query<(&mut OrbitCamera, &mut Transform), With<GameCamera>>,
 ) {
     let in_menu = is_menu_launch_state(*launch_state);
-    let state_changed = launch_state.is_changed();
 
     if in_menu && !active.0 {
         // ── Entering the menu family (first frame OR state edge):
         // spawn backdrop + save camera state. Idempotent — sets active.0.
+        info!("menu_backdrop: spawn branch fired (in_menu={}, active={})", in_menu, active.0);
         if let Ok((orbit, _transform)) = camera_query.single() {
             saved_state.saved = Some(MenuBackdropSavedCamera {
                 radius: orbit.radius,
@@ -278,12 +278,16 @@ fn menu_backdrop_transition_system(
         }
         spawn_menu_earth(&mut commands, &mut meshes, &mut materials, &asset_server);
         active.0 = true;
-    } else if !in_menu && active.0 && state_changed {
+    } else if !in_menu && active.0 {
         // ── Leaving the menu family: despawn backdrop + restore camera.
-        // Despawn only backdrop roots. In Bevy 0.18, despawning the Earth
-        // cascades through its clouds child; explicitly queuing the child as
-        // well would target it again after the parent removes it.
-        for entity in marker_query.iter() {
+        // Runs whenever we're out of the menu and the backdrop is still
+        // marked active (not only on the exact state-change frame) so the
+        // teardown is robust to ordering with `consume_launch_actions_system`.
+        // Idempotent: `active.0` flips false after the first pass.
+        // Despawn only backdrop roots; despawning Earth cascades to clouds.
+        let roots: Vec<Entity> = marker_query.iter().collect();
+        info!("menu_backdrop: despawn branch fired, despawning {} roots", roots.len());
+        for entity in roots {
             commands.entity(entity).despawn();
         }
         if let (Some(saved), Ok((mut orbit, mut transform))) =
