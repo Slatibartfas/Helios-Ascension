@@ -47,12 +47,15 @@
 //! - **Web**: winit's web backend reports success but doesn't actually
 //!   surface the icon (browsers derive it from the page favicon).
 
+use bevy::ecs::system::NonSendMarker;
 use bevy::prelude::*;
-use bevy::window::PrimaryWindow;
+use bevy::window::{PrimaryWindow, Window, WindowCreated};
 use bevy_winit::WINIT_WINDOWS;
 use image::{imageops::FilterType, ImageReader};
+use std::collections::HashSet;
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 use crate::ui::launch::splash::SplashWindow;
 
@@ -80,16 +83,106 @@ const ICON_SOURCE_PRIMARY: &str = "assets/logo/icon.png";
 /// for square icons, but the resize still produces a usable result.
 const ICON_SOURCE_SECONDARY: &str = "assets/logo/logo_large.png";
 
-/// Bevy plugin that installs the `apply_window_icons` startup system.
+/// Cached icon bitmap set, built once on first apply and reused by
+/// every `apply_icons_to_entity` call. Avoids re-decoding all six
+/// PNGs every time a new window is created. Cleared on drop only —
+/// the program lifetime is the cache lifetime.
+static ICON_CACHE: OnceLock<Vec<(Vec<u8>, u32, u32)>> = OnceLock::new();
+
+/// Tracks which window entities we've already applied the icon to,
+/// so the per-frame retry loop doesn't redundantly set the bitmap
+/// every tick. Locked at process scope so the Startup system and
+/// the Update retry can both see writes without a Res<...> plumbing
+/// change. `LazyLock` is the stable-Rust-1.80+ way to do
+/// non-const-init static; on 1.93 (the project's MSRV) this is
+/// strictly better than a `OnceLock<HashSet<...>>` because the
+/// `HashSet` is initialized exactly once on first access.
+static APPLIED_ENTITIES: std::sync::LazyLock<std::sync::Mutex<HashSet<Entity>>> =
+    std::sync::LazyLock::new(|| std::sync::Mutex::new(HashSet::new()));
+
+/// Bevy plugin that installs the `apply_window_icons` startup
+/// system + an Update system that polls
+/// `MessageReader<WindowCreated>` and re-attempts the apply step
+/// once the winit handle exists.
+///
+/// Bevy 0.18's `WindowCreated` derives `Message`, not `Event`, so it
+/// can't be observed via `On<...>`. We use a plain `MessageReader`
+/// system scheduled in `Update` so the OS requesting an icon at
+/// any point after startup picks up the bitmap.
 pub struct WindowIconPlugin;
 
 impl Plugin for WindowIconPlugin {
     fn build(&self, app: &mut App) {
-        // `Startup` runs after the primary window entity is spawned by
-        // `WindowPlugin`, and the splash window entity is spawned by
-        // `SplashPlugin` before `app.run()` (so by `Startup` it's
-        // already in the world).
+        // 1. Startup decodes the asset set + populates the cache,
+        //    and applies to whatever windows already have a winit
+        //    handle (typically the splash window whose
+        //    `SplashPlugin` builds the entity at construction time
+        //    before `app.run()`).
         app.add_systems(Startup, apply_window_icons);
+
+        // 2. Update-loop retry: drains `WindowCreated` messages +
+        //    walks primary / splash windows. Idempotent — uses a
+        //    static `HashSet<Entity>` to remember which entities
+        //    have already received the icon.
+        app.add_systems(Update, apply_pending_window_icons);
+    }
+}
+
+/// Update-loop system: drains `WindowCreated` messages and applies
+/// the icon to any newly-created window. Also opportunistically
+/// re-applies to the primary and splash windows if they exist
+/// (covers the case where `WindowCreated` was emitted before this
+/// system was added, or where the Startup system found no winit
+/// handle yet).
+///
+/// `_main_thread: NonSendMarker` is a dummy parameter whose only
+/// purpose is to mark this system `!Send` — Bevy's scheduler then
+/// pins it to the main thread (where the winit event loop pumps
+/// and `WINIT_WINDOWS` lives). Without this marker the system can
+/// be picked up by a worker thread, and `WINIT_WINDOWS.with(...)`
+/// would read a freshly-initialised, empty thread-local copy
+/// instead of the populated one on the main thread — see the
+/// "thread = Some(\"Compute Task Pool (N)\")" diagnostic in this
+/// module's commit history.
+fn apply_pending_window_icons(
+    mut messages: MessageReader<WindowCreated>,
+    primary_windows: Query<Entity, (With<PrimaryWindow>, With<Window>)>,
+    splash_windows: Query<Entity, (With<SplashWindow>, With<Window>)>,
+    _main_thread: NonSendMarker,
+) {
+    let cache = ICON_CACHE.get();
+    let Some(icons) = cache else {
+        return; // Startup hasn't run yet; nothing to apply.
+    };
+    if icons.is_empty() {
+        return;
+    }
+
+    let mut applied = APPLIED_ENTITIES.lock().unwrap();
+
+    // Apply to the primary + splash windows directly (covers the
+    // Apply to the primary + splash windows directly (covers the
+    // case where the WindowCreated message was already emitted
+    // before this MessageReader was registered). Only mark as
+    // applied on success — if the winit handle is missing, we
+    // retry on the next frame.
+    for entity in primary_windows.iter().chain(splash_windows.iter()) {
+        if applied.contains(&entity) {
+            continue;
+        }
+        if apply_icons_to_entity(entity, icons) {
+            applied.insert(entity);
+        }
+    }
+
+    // Apply to any newly-created windows the reader picked up.
+    for message in messages.read() {
+        if applied.contains(&message.window) {
+            continue;
+        }
+        if apply_icons_to_entity(message.window, icons) {
+            applied.insert(message.window);
+        }
     }
 }
 
@@ -118,7 +211,9 @@ fn resolve_asset(rel: &str) -> Option<PathBuf> {
 fn apply_window_icons(
     primary_windows: Query<Entity, With<PrimaryWindow>>,
     splash_windows: Query<Entity, With<SplashWindow>>,
+    _main_thread: NonSendMarker,
 ) {
+
     // Try the source logos up-front. We need at least one as a
     // runtime fallback for any per-size PNG that's missing.
     // Prefer `icon.png` (the canonical square crop) over
@@ -186,9 +281,22 @@ fn apply_window_icons(
         return;
     }
 
-    // Apply to the primary window first (the one Windows actually
-    // shows in the taskbar). Splash window gets the same icon for
-    // alt-tab/dock consistency.
+    info!(
+        "WindowIconPlugin: prepared {} icon sizes ({:?}); applying now",
+        icons.len(),
+        icons.iter().map(|(_, w, h)| (*w, *h)).collect::<Vec<_>>()
+    );
+
+    // Park the icons in the process-global cache so the WindowCreated
+    // observer (registered below) can re-apply them as soon as each
+    // window's winit handle materialises — typically the splash
+    // window gets its handle during plugin construction (so Startup
+    // catches it), and the primary window gets its handle on the
+    // first `resumed` callback (so the observer catches it).
+    let _ = ICON_CACHE.set(icons.clone());
+
+    // Apply to whichever windows currently have a winit handle.
+    // The observer above handles the rest.
     for entity in &primary_windows {
         apply_icons_to_entity(entity, &icons);
     }
@@ -200,7 +308,12 @@ fn apply_window_icons(
 /// Apply each pre-built icon to one winit window. We try every size
 /// in turn so the OS sees the full set and picks the best fit per
 /// context (title bar vs. taskbar vs. Explorer thumbnail).
-fn apply_icons_to_entity(entity: Entity, icons: &[(Vec<u8>, u32, u32)]) {
+///
+/// Returns `true` if the icon was successfully handed to winit
+/// (or winit already had it from a previous call), `false` if the
+/// entity had no winit handle yet — the caller should retry on
+/// the next frame rather than marking the entity as "applied".
+fn apply_icons_to_entity(entity: Entity, icons: &[(Vec<u8>, u32, u32)]) -> bool {
     // `WINIT_WINDOWS` is a `!Send` resource, so we have to read it
     // from the same thread that called `app.run()`. In a normal
     // Startup system that thread is the main thread, which matches.
@@ -212,17 +325,21 @@ fn apply_icons_to_entity(entity: Entity, icons: &[(Vec<u8>, u32, u32)]) {
         let windows_ref = winit_windows.borrow();
         let Some(window_wrapper) = windows_ref.get_window(entity) else {
             // Window entity exists in Bevy's world but its native
-            // winit handle hasn't materialised yet. On Windows the
-            // primary window's winit handle is created very early
-            // (during the first `resumed` callback), so this branch
-            // is rare in practice — it can happen for the splash
-            // window if the startup ordering ever shifts.
-            warn!(
-                "WindowIconPlugin: winit window handle missing for entity {:?}; icon not applied",
-                entity
-            );
-            return;
+            // winit handle hasn't materialised yet. The retry
+            // system in Update will pick this up on a later frame.
+            // Silent retry — this is the normal startup-ordering
+            // case, not an error.
+            return false;
         };
+
+        // Single info-level log per (entity, cache lifetime). The
+        // retry loop dedups via `APPLIED_ENTITIES`, so we only see
+        // this once per window.
+        info!(
+            "WindowIconPlugin: applied {} icon sizes to winit window {:?}",
+            icons.len(),
+            entity
+        );
 
         for (rgba, w, h) in icons {
             match winit::window::Icon::from_rgba(rgba.clone(), *w, *h) {
@@ -240,7 +357,8 @@ fn apply_icons_to_entity(entity: Entity, icons: &[(Vec<u8>, u32, u32)]) {
                 }
             }
         }
-    });
+        true
+    })
 }
 
 /// Decode a PNG byte slice into raw RGBA bytes + dimensions. No
