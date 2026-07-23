@@ -1145,7 +1145,6 @@ mod tests {
     use crate::fleets::{PlannedTransfer, TransferReferenceFrame};
     use crate::plugins::solar_system::CelestialBody;
     use crate::plugins::solar_system_data::BodyType;
-    use bevy::math::DVec3;
     use bevy::prelude::Vec3;
 
     fn make_body(body_type: BodyType, radius_km: f32, visual_radius: f32) -> CelestialBody {
