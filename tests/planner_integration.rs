@@ -834,6 +834,7 @@ fn should_build_porkchop_rejects_moon_and_ring_destinations() {
 // renders an empty grid.
 #[test]
 fn gra_328a_heliocentric_dispatch_yields_a_grid_for_planet_to_planet() {
+    use helios_ascension::fleets::orbital_mechanics::GM_SUN;
     use helios_ascension::fleets::porkchop::{
         build_grid_for_body_target, classify_body_transfer_category,
     };
@@ -901,6 +902,8 @@ fn gra_328a_heliocentric_dispatch_yields_a_grid_for_planet_to_planet() {
         "Mars".to_string(),
         category,
         0.0,
+        None,   // GRA-386 parking_radius_au: tests default to None.
+        GM_SUN, // GRA-386 body_gm: legacy = system_gm.
     );
     assert_eq!(grid.cells.len(), grid.resolution.0 * grid.resolution.1);
     assert!(

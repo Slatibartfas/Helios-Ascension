@@ -65,6 +65,8 @@ fn gra_169_part_a_buffer_anchored_at_sim_time_s() {
         "Mars".to_string(),
         "interplanetary",
         0.0,
+        None,
+        GM_SUN,
     );
     assert_eq!(grid_t0.t_dep_bounds_s.0, 0.0, "t=0 build anchors at 0");
 
@@ -77,6 +79,8 @@ fn gra_169_part_a_buffer_anchored_at_sim_time_s() {
         "Mars".to_string(),
         "interplanetary",
         one_year_s,
+        None,
+        GM_SUN,
     );
     let lower_t1 = grid_t1.t_dep_bounds_s.0;
     assert!(
@@ -110,6 +114,8 @@ fn gra_169_part_a_buffer_width_invariant_under_sim_time_shift() {
         "Mars".to_string(),
         "interplanetary",
         0.0,
+        None,
+        GM_SUN,
     );
     let half_year_s = 0.5 * 365.25 * SECONDS_PER_DAY;
     let grid_thalf = build_rotating_buffer_for_body_target(
@@ -120,6 +126,8 @@ fn gra_169_part_a_buffer_width_invariant_under_sim_time_shift() {
         "Mars".to_string(),
         "interplanetary",
         half_year_s,
+        None,
+        GM_SUN,
     );
 
     let width_t0 = grid_t0.t_dep_bounds_s.1 - grid_t0.t_dep_bounds_s.0;
@@ -150,6 +158,8 @@ fn gra_169_part_a_cell_t_dep_s_is_relative_offset() {
         "Mars".to_string(),
         "interplanetary",
         0.0,
+        None,
+        GM_SUN,
     );
     let one_year_s = 365.25 * SECONDS_PER_DAY;
     let grid_t1 = build_rotating_buffer_for_body_target(
@@ -160,6 +170,8 @@ fn gra_169_part_a_cell_t_dep_s_is_relative_offset() {
         "Mars".to_string(),
         "interplanetary",
         one_year_s,
+        None,
+        GM_SUN,
     );
 
     let col = 5;
@@ -231,6 +243,8 @@ fn gra_169_part_b_pending_rebuild_keeps_grid_visible() {
         "Mars".to_string(),
         "interplanetary",
         0.0,
+        None,
+        GM_SUN,
     );
 
     let mut state = FleetUiState {
@@ -256,6 +270,8 @@ fn gra_169_part_b_pending_rebuild_keeps_grid_visible() {
         "Mars".to_string(),
         "interplanetary",
         365.25 * SECONDS_PER_DAY,
+        None,
+        GM_SUN,
     );
     state.porkchop_grid = Some(new_grid);
     state.porkchop_grid_pending_rebuild = false;
@@ -290,6 +306,8 @@ fn gra_169_continuous_drift_does_not_snap_back_to_zero() {
             "Mars".to_string(),
             "interplanetary",
             sim_time_s,
+            None,
+            GM_SUN,
         );
         anchors.push(grid.t_dep_bounds_s.0);
     }
@@ -325,8 +343,10 @@ fn _unused_imports_compile() {
         origin_orbit: earth_orbit(),
         dest_orbit: mars_orbit(),
         system_gm: GM_SUN,
+        body_gm: GM_SUN,
         sim_time_s: 0.0,
         category: String::new(),
+        parking_radius_au: None,
     };
 }
 
@@ -598,6 +618,8 @@ fn rotation_trigger_preserves_built_at_during_rebuild() {
             "Mars".to_string(),
             "interplanetary",
             0.0,
+            None,
+            GM_SUN,
         )),
         porkchop_built_at_s: Some(12345.0),
         porkchop_last_real_build_s: Some(67890.0),
@@ -679,6 +701,8 @@ fn gra_rebuild_storm_guard_atomic_swap_clears_in_flight() {
         "Mars".to_string(),
         "interplanetary",
         0.0,
+        None,
+        GM_SUN,
     );
     let mut state = FleetUiState {
         porkchop_grid: Some(grid),
@@ -697,6 +721,8 @@ fn gra_rebuild_storm_guard_atomic_swap_clears_in_flight() {
         "Mars".to_string(),
         "interplanetary",
         365.25 * SECONDS_PER_DAY,
+        None,
+        GM_SUN,
     );
     state.porkchop_grid = Some(new_grid);
     state.porkchop_grid_pending_rebuild = false;
@@ -742,6 +768,8 @@ fn gra_rebuild_storm_guard_blocks_reentry_while_in_flight() {
         "Mars".to_string(),
         "interplanetary",
         0.0,
+        None,
+        GM_SUN,
     );
 
     let mut state = FleetUiState {
@@ -837,6 +865,8 @@ fn gra_async_build_polling_blocks_until_worker_finishes() {
             "Mars".to_string(),
             "interplanetary",
             0.0,
+            None,
+            GM_SUN,
         );
         let _ = tx.send(grid);
     });

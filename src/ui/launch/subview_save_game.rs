@@ -131,131 +131,131 @@ pub fn ui_save_panel_subview(
     egui::CentralPanel::default()
         .frame(theme::menu_transparent_frame())
         .show(ctx, |ui| {
-        ui.vertical_centered(|ui| {
-            ui.add_space(theme::Spacing::xl);
-            ui.label(
-                egui::RichText::new("Save Game")
-                    .font(theme::title())
-                    .color(theme::ACCENT)
-                    .size(28.0),
-            );
-            ui.add_space(theme::Spacing::sm);
-            ui.label(
-                egui::RichText::new("Write your campaign to disk for later")
-                    .color(theme::TEXT_DIM)
-                    .size(11.0),
-            );
+            ui.vertical_centered(|ui| {
+                ui.add_space(theme::Spacing::xl);
+                ui.label(
+                    egui::RichText::new("Save Game")
+                        .font(theme::title())
+                        .color(theme::ACCENT)
+                        .size(28.0),
+                );
+                ui.add_space(theme::Spacing::sm);
+                ui.label(
+                    egui::RichText::new("Write your campaign to disk for later")
+                        .color(theme::TEXT_DIM)
+                        .size(11.0),
+                );
+                ui.add_space(theme::Spacing::lg);
+            });
+
+            // ── Action row ────────────────────────────────────────
+            ui.vertical_centered(|ui| {
+                let save_label = if save_index.valid_count() == 0 {
+                    "Save (no saves yet)"
+                } else {
+                    "Save"
+                };
+                if ui
+                    .add(
+                        egui::Button::new(egui::RichText::new(save_label).color(theme::ACCENT))
+                            .frame(false),
+                    )
+                    .clicked()
+                {
+                    save_clicked = true;
+                }
+                ui.add_space(theme::Spacing::sm);
+                if ui
+                    .add(
+                        egui::Button::new(egui::RichText::new("Save As…").color(theme::TEXT))
+                            .frame(false),
+                    )
+                    .clicked()
+                {
+                    save_as_target = Some(current_slot_path());
+                }
+            });
+
             ui.add_space(theme::Spacing::lg);
-        });
 
-        // ── Action row ────────────────────────────────────────
-        ui.vertical_centered(|ui| {
-            let save_label = if save_index.valid_count() == 0 {
-                "Save (no saves yet)"
-            } else {
-                "Save"
-            };
-            if ui
-                .add(
-                    egui::Button::new(egui::RichText::new(save_label).color(theme::ACCENT))
-                        .frame(false),
-                )
-                .clicked()
-            {
-                save_clicked = true;
-            }
-            ui.add_space(theme::Spacing::sm);
-            if ui
-                .add(
-                    egui::Button::new(egui::RichText::new("Save As…").color(theme::TEXT))
-                        .frame(false),
-                )
-                .clicked()
-            {
-                save_as_target = Some(current_slot_path());
-            }
-        });
-
-        ui.add_space(theme::Spacing::lg);
-
-        // ── SaveAs slot picker ────────────────────────────────
-        ui.label(
-            egui::RichText::new("Existing saves")
-                .color(theme::TEXT_HINT)
-                .size(11.0),
-        );
-        if save_index.entries.is_empty() {
+            // ── SaveAs slot picker ────────────────────────────────
             ui.label(
-                egui::RichText::new("No saves yet — Save As… to create one.")
-                    .color(theme::TEXT_DIM)
+                egui::RichText::new("Existing saves")
+                    .color(theme::TEXT_HINT)
                     .size(11.0),
             );
-        } else {
-            egui::Frame::group(ui.style())
-                .inner_margin(egui::Margin::same(theme::Spacing::md as i8))
-                .show(ui, |ui| {
-                    for entry in save_index.entries.iter() {
-                        match entry {
-                            SaveSummary::Valid { path, header } => {
-                                let label = format!(
-                                    "{}  ·  {}",
-                                    header.formatted_saved_at(),
-                                    path.file_name()
-                                        .map(|n| n.to_string_lossy().to_string())
-                                        .unwrap_or_default(),
-                                );
-                                if ui
-                                    .add(
-                                        egui::Button::new(
-                                            egui::RichText::new(label).color(theme::ACCENT),
-                                        )
-                                        .frame(false),
-                                    )
-                                    .clicked()
-                                {
-                                    save_as_target = Some(path.clone());
-                                }
-                            }
-                            SaveSummary::Broken { path, error } => {
-                                ui.colored_label(
-                                    theme::RED,
-                                    format!(
-                                        "Broken: {} ({})",
+            if save_index.entries.is_empty() {
+                ui.label(
+                    egui::RichText::new("No saves yet — Save As… to create one.")
+                        .color(theme::TEXT_DIM)
+                        .size(11.0),
+                );
+            } else {
+                egui::Frame::group(ui.style())
+                    .inner_margin(egui::Margin::same(theme::Spacing::md as i8))
+                    .show(ui, |ui| {
+                        for entry in save_index.entries.iter() {
+                            match entry {
+                                SaveSummary::Valid { path, header } => {
+                                    let label = format!(
+                                        "{}  ·  {}",
+                                        header.formatted_saved_at(),
                                         path.file_name()
                                             .map(|n| n.to_string_lossy().to_string())
                                             .unwrap_or_default(),
-                                        error,
-                                    ),
-                                );
+                                    );
+                                    if ui
+                                        .add(
+                                            egui::Button::new(
+                                                egui::RichText::new(label).color(theme::ACCENT),
+                                            )
+                                            .frame(false),
+                                        )
+                                        .clicked()
+                                    {
+                                        save_as_target = Some(path.clone());
+                                    }
+                                }
+                                SaveSummary::Broken { path, error } => {
+                                    ui.colored_label(
+                                        theme::RED,
+                                        format!(
+                                            "Broken: {} ({})",
+                                            path.file_name()
+                                                .map(|n| n.to_string_lossy().to_string())
+                                                .unwrap_or_default(),
+                                            error,
+                                        ),
+                                    );
+                                }
                             }
                         }
-                    }
-                });
-        }
-
-        ui.add_space(theme::Spacing::lg);
-
-        ui.label(
-            egui::RichText::new(format!(
-                "Index last scanned: {}",
-                format_instant(save_index_state.last_scanned)
-            ))
-            .color(theme::TEXT_HINT)
-            .size(10.0),
-        );
-
-        ui.add_space(theme::Spacing::lg);
-
-        // ── Back row ──────────────────────────────────────────
-        ui.horizontal(|ui| {
-            if ui
-                .button(egui::RichText::new("Back").color(theme::TEXT_DIM))
-                .clicked()
-            {
-                back_clicked = true;
+                    });
             }
+
+            ui.add_space(theme::Spacing::lg);
+
+            ui.label(
+                egui::RichText::new(format!(
+                    "Index last scanned: {}",
+                    format_instant(save_index_state.last_scanned)
+                ))
+                .color(theme::TEXT_HINT)
+                .size(10.0),
+            );
+
+            ui.add_space(theme::Spacing::lg);
+
+            // ── Back row ──────────────────────────────────────────
+            ui.horizontal(|ui| {
+                if ui
+                    .button(egui::RichText::new("Back").color(theme::TEXT_DIM))
+                    .clicked()
+                {
+                    back_clicked = true;
+                }
+            });
         });
-    });
 
     // ── Post-click state writes ─────────────────────────────
     // Mutate outside the egui closure to avoid `ResMut` borrows held
