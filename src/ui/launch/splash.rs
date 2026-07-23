@@ -35,13 +35,13 @@
 
 use bevy::camera::RenderTarget;
 use bevy::ecs::schedule::ScheduleLabel;
+use bevy::image::Image;
 use bevy::prelude::*;
+use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use bevy::window::{
     MonitorSelection, PrimaryWindow, Window, WindowLevel, WindowPosition, WindowRef,
     WindowResolution,
 };
-use bevy::image::Image;
-use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use bevy_egui::egui::{self, ColorImage};
 use bevy_egui::{
     EguiContexts, EguiGlobalSettings, EguiMultipassSchedule, EguiStartupSet, EguiTextureHandle,
@@ -412,9 +412,9 @@ pub fn ui_splash_system(
     // global `EguiUserTextures` resource; unlike `ctx.load_texture` it
     // doesn't depend on the per-context texture registry, which is what
     // the secondary multipass context couldn't honour.
-    let logo_texture_id = splash_logo_image.as_ref().map(|img| {
-        contexts.add_image(EguiTextureHandle::Strong(img.0.clone()))
-    });
+    let logo_texture_id = splash_logo_image
+        .as_ref()
+        .map(|img| contexts.add_image(EguiTextureHandle::Strong(img.0.clone())));
 
     let Ok(ctx) = contexts.ctx_for_entity_mut(splash_cam_entity) else {
         return;
@@ -434,10 +434,7 @@ pub fn ui_splash_system(
                 ui.painter().image(
                     texture_id,
                     rect,
-                    egui::Rect::from_min_size(
-                        egui::Pos2::ZERO,
-                        egui::Vec2::new(1.0, 1.0),
-                    ),
+                    egui::Rect::from_min_size(egui::Pos2::ZERO, egui::Vec2::new(1.0, 1.0)),
                     egui::Color32::WHITE,
                 );
             }

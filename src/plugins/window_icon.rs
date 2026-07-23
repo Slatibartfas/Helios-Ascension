@@ -213,7 +213,6 @@ fn apply_window_icons(
     splash_windows: Query<Entity, With<SplashWindow>>,
     _main_thread: NonSendMarker,
 ) {
-
     // Try the source logos up-front. We need at least one as a
     // runtime fallback for any per-size PNG that's missing.
     // Prefer `icon.png` (the canonical square crop) over
@@ -243,7 +242,9 @@ fn apply_window_icons(
     for &size in ICON_SIZES {
         let icon = icons_dir
             .as_ref()
-            .and_then(|dir| std::fs::read(dir.join(ICON_PNG_NAME.replace("{size}", &size.to_string()))).ok())
+            .and_then(|dir| {
+                std::fs::read(dir.join(ICON_PNG_NAME.replace("{size}", &size.to_string()))).ok()
+            })
             .and_then(|bytes| decode_png_to_rgba(&bytes));
 
         let icon = match icon {
@@ -537,8 +538,8 @@ mod tests {
         }
         for &size in ICON_SIZES {
             let path = icons_dir.join(ICON_PNG_NAME.replace("{size}", &size.to_string()));
-            let bytes = std::fs::read(&path)
-                .unwrap_or_else(|e| panic!("missing icon {:?}: {}", path, e));
+            let bytes =
+                std::fs::read(&path).unwrap_or_else(|e| panic!("missing icon {:?}: {}", path, e));
             let (rgba, w, h) = decode_png_to_rgba(&bytes)
                 .unwrap_or_else(|| panic!("icon {:?} failed to decode", path));
             assert_eq!(
@@ -572,7 +573,12 @@ mod tests {
         }
         let bytes = std::fs::read(&icon_png).expect("read icon.png");
         let (rgba, w, h) = decode_png_to_rgba(&bytes).expect("decode icon.png");
-        assert!(w >= 16 && h >= 16, "icon.png must be at least 16x16, got {}x{}", w, h);
+        assert!(
+            w >= 16 && h >= 16,
+            "icon.png must be at least 16x16, got {}x{}",
+            w,
+            h
+        );
         assert_eq!(rgba.len(), (w * h * 4) as usize);
 
         // Also confirm it resizes to a target size cleanly — the

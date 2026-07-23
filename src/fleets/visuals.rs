@@ -15,8 +15,8 @@ use crate::fleets::orbital_mechanics::AU_IN_METERS;
 use crate::plugins::camera::{GameCamera, OrbitCamera, ViewMode};
 use crate::plugins::solar_system::{CelestialBody, LogicalParent};
 use crate::plugins::solar_system_data::BodyType;
-use crate::ui::{FleetUiState, Settings, SimulationTime, TimeScale};
 use crate::ui::launch::LaunchState;
+use crate::ui::{FleetUiState, Settings, SimulationTime, TimeScale};
 
 /// Marker component for entities that have a fleet mesh sphere.
 #[derive(Component)]

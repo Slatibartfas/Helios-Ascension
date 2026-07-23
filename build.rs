@@ -21,7 +21,8 @@ fn main() {
             // winresource wires this into a generated .rc that the
             // MSVC linker consumes via embed-resource.
             res.set_icon(ico_path);
-            res.compile().expect("failed to embed Windows icon resource");
+            res.compile()
+                .expect("failed to embed Windows icon resource");
             println!("cargo:rerun-if-changed={}", ico_path);
         } else {
             // Don't fail the build if the icon hasn't been generated

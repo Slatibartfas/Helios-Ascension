@@ -9,9 +9,9 @@ use super::components::{
 use super::systems::SCALING_FACTOR;
 use crate::fleets::orbital_mechanics::G_CONST as ORBIT_G;
 use crate::game_state::ActiveMenu;
-use crate::ui::launch::LaunchState;
 use crate::plugins::camera::{CameraAnchor, EguiPanelBounds, GameCamera, ViewMode};
 use crate::plugins::solar_system::{CelestialBody, LogicalParent, Moon};
+use crate::ui::launch::LaunchState;
 
 /// Approximate solar mass (kg) used for Hill-sphere and L-point calculations.
 const SOLAR_MASS_KG: f64 = 1.989e30;
