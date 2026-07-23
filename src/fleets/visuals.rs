@@ -1145,6 +1145,7 @@ mod tests {
     use crate::fleets::{PlannedTransfer, TransferReferenceFrame};
     use crate::plugins::solar_system::CelestialBody;
     use crate::plugins::solar_system_data::BodyType;
+    use bevy::math::DVec3;
     use bevy::prelude::Vec3;
 
     fn make_body(body_type: BodyType, radius_km: f32, visual_radius: f32) -> CelestialBody {
@@ -1733,7 +1734,6 @@ mod tests {
     #[test]
     fn phase_aware_ga_orbit_endpoint_matches_lambert_input() {
         use crate::fleets::orbital_mechanics::solve_lambert_transfer;
-        use bevy::math::DVec3;
 
         let gm = GM_SUN;
 
