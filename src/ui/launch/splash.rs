@@ -417,8 +417,16 @@ pub fn ui_splash_system(
 
     // Transparent overlay so the logo sprite shows through; we only paint
     // the "Loading…" label near the bottom while boot-init is running.
+    //
+    // CRITICAL: `Frame::NONE` (NOT `Frame::default()`) — a default
+    // frame paints an opaque dark background, which would cover the
+    // Bevy `Sprite` (the logo) and produce a solid-black splash even
+    // though the sprite is rendering correctly behind it. The Label
+    // text below only paints where the glyphs are drawn, so it shows
+    // through to the sprite everywhere else. Use the const `Frame::NONE`
+    // rather than the deprecated `Frame::none()` function call.
     egui::CentralPanel::default()
-        .frame(egui::Frame::default().inner_margin(egui::Margin::ZERO))
+        .frame(egui::Frame::NONE)
         .show(ctx, |ui| {
             if still_loading {
                 let rect = ui.max_rect();
