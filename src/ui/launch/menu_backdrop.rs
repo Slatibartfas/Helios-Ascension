@@ -258,10 +258,7 @@ impl PreloadedMenuAssets {
 /// Populates the [`PreloadedMenuAssets`] resource in place via
 /// `ResMut<PreloadedMenuAssets>` so we don't need to insert a fresh
 /// resource (the plugin already calls `init_resource`).
-fn preload_menu_assets(
-    asset_server: Res<AssetServer>,
-    mut preloaded: ResMut<PreloadedMenuAssets>,
-) {
+fn preload_menu_assets(asset_server: Res<AssetServer>, mut preloaded: ResMut<PreloadedMenuAssets>) {
     if preloaded.is_initialized() {
         // Idempotent: if the system somehow runs twice (e.g. on app
         // hot-reload), don't double-load. `asset_server.load` would
@@ -357,7 +354,10 @@ fn menu_backdrop_transition_system(
     if in_menu && !active.0 {
         // ── Entering the menu family (first frame OR state edge):
         // spawn backdrop + save camera state. Idempotent — sets active.0.
-        info!("menu_backdrop: spawn branch fired (in_menu={}, active={})", in_menu, active.0);
+        info!(
+            "menu_backdrop: spawn branch fired (in_menu={}, active={})",
+            in_menu, active.0
+        );
         if let Ok((orbit, _transform)) = camera_query.single() {
             saved_state.saved = Some(MenuBackdropSavedCamera {
                 radius: orbit.radius,
@@ -382,7 +382,10 @@ fn menu_backdrop_transition_system(
         // Idempotent: `active.0` flips false after the first pass.
         // Despawn only backdrop roots; despawning Earth cascades to clouds.
         let roots: Vec<Entity> = marker_query.iter().collect();
-        info!("menu_backdrop: despawn branch fired, despawning {} roots", roots.len());
+        info!(
+            "menu_backdrop: despawn branch fired, despawning {} roots",
+            roots.len()
+        );
         for entity in roots {
             commands.entity(entity).despawn();
         }
