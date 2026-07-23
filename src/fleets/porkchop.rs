@@ -3700,7 +3700,7 @@ mod tests {
         // The grid should be non-empty; the lagrange override caps
         // resolution but always emits at least 50×40 = 2000 cells.
         assert!(
-            grid.cells.len() > 0,
+            !grid.cells.is_empty(),
             "lagrange grid must produce at least one cell"
         );
         assert_eq!(
@@ -3731,7 +3731,7 @@ mod tests {
         let planet_orbit = earth_heliocentric_orbit();
         let origin_orbit = earth_heliocentric_orbit();
         let inputs = LagrangePorkchopInputs {
-            planet_orbit: planet_orbit.clone(),
+            planet_orbit,
             origin_orbit,
             system_gm: crate::fleets::orbital_mechanics::GM_SUN,
             sim_time_s: 0.0,
@@ -3747,7 +3747,7 @@ mod tests {
         // from the grid — it's absorbed into PorkchopCell
         // `dest_pos_au` per (t_dep, tof).  Just ensure the build
         // produced a sensible non-empty grid.
-        assert!(grid.cells.len() > 0);
+        assert!(!grid.cells.is_empty());
         // Phase offset for L3 is +π; verify by comparing first-cell
         // dest_pos_au for L3 vs L1 (they should be on opposite
         // sides of the planet at t=0).
@@ -3771,7 +3771,7 @@ mod tests {
         let planet_orbit = earth_heliocentric_orbit();
         let origin_orbit = earth_heliocentric_orbit();
         let inputs = LagrangePorkchopInputs {
-            planet_orbit: planet_orbit.clone(),
+            planet_orbit,
             origin_orbit,
             system_gm: crate::fleets::orbital_mechanics::GM_SUN,
             sim_time_s: 0.0,
