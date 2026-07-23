@@ -56,111 +56,111 @@ pub fn ui_load_game_subview(
     egui::CentralPanel::default()
         .frame(theme::menu_transparent_frame())
         .show(ctx, |ui| {
-        ui.vertical_centered(|ui| {
-            ui.add_space(theme::Spacing::xl);
-            ui.label(
-                egui::RichText::new("Load Mission")
-                    .font(theme::title())
-                    .color(theme::ACCENT)
-                    .size(28.0),
-            );
-            ui.add_space(theme::Spacing::sm);
-            ui.label(
-                egui::RichText::new(format!(
-                    "{} saved mission(s) available",
-                    save_index.valid_count()
-                ))
-                .color(theme::TEXT_DIM)
-                .size(11.0),
-            );
-            ui.add_space(theme::Spacing::lg);
-        });
-
-        if save_index.entries.is_empty() {
             ui.vertical_centered(|ui| {
                 ui.add_space(theme::Spacing::xl);
                 ui.label(
-                    egui::RichText::new(
-                        "No saved missions yet. Begin a new mission and the autosave will appear here.",
-                    )
-                    .color(theme::TEXT_HINT)
-                    .size(12.0),
+                    egui::RichText::new("Load Mission")
+                        .font(theme::title())
+                        .color(theme::ACCENT)
+                        .size(28.0),
                 );
+                ui.add_space(theme::Spacing::sm);
+                ui.label(
+                    egui::RichText::new(format!(
+                        "{} saved mission(s) available",
+                        save_index.valid_count()
+                    ))
+                    .color(theme::TEXT_DIM)
+                    .size(11.0),
+                );
+                ui.add_space(theme::Spacing::lg);
             });
-        } else {
-            egui::Frame::group(ui.style())
-                .inner_margin(egui::Margin::same(theme::Spacing::md as i8))
-                .show(ui, |ui| {
-                    // ── Column header row ───────────────────────
-                    ui.horizontal(|ui| {
-                        ui.allocate_ui_with_layout(
-                            egui::vec2(ui.available_width(), theme::Spacing::md),
-                            egui::Layout::left_to_right(egui::Align::Center),
-                            |ui| {
-                                ui.strong("Name");
-                                ui.add_space(theme::Spacing::lg);
-                                ui.strong("Saved");
-                                ui.add_space(theme::Spacing::lg);
-                                ui.strong("Playtime");
-                                ui.add_space(theme::Spacing::lg);
-                                ui.strong("Seed");
-                            },
-                        );
-                    });
-                    ui.add_space(theme::Spacing::xs);
 
-                    // ── One row per save ─────────────────────────
-                    for entry in save_index.entries.iter() {
-                        match entry {
-                            SaveSummary::Valid { path, header } => {
-                                let label = save_row_label(header);
-                                let response = ui.add(
-                                    egui::Button::new(
-                                        egui::RichText::new(label).color(theme::ACCENT),
-                                    )
-                                    .frame(false),
-                                );
-                                if response.clicked() {
-                                    clicked_path = Some(path.clone());
+            if save_index.entries.is_empty() {
+                ui.vertical_centered(|ui| {
+                    ui.add_space(theme::Spacing::xl);
+                    ui.label(
+                        egui::RichText::new(
+                            "No saved missions yet. Begin a new mission and the autosave will appear here.",
+                        )
+                        .color(theme::TEXT_HINT)
+                        .size(12.0),
+                    );
+                });
+            } else {
+                egui::Frame::group(ui.style())
+                    .inner_margin(egui::Margin::same(theme::Spacing::md as i8))
+                    .show(ui, |ui| {
+                        // ── Column header row ───────────────────────
+                        ui.horizontal(|ui| {
+                            ui.allocate_ui_with_layout(
+                                egui::vec2(ui.available_width(), theme::Spacing::md),
+                                egui::Layout::left_to_right(egui::Align::Center),
+                                |ui| {
+                                    ui.strong("Name");
+                                    ui.add_space(theme::Spacing::lg);
+                                    ui.strong("Saved");
+                                    ui.add_space(theme::Spacing::lg);
+                                    ui.strong("Playtime");
+                                    ui.add_space(theme::Spacing::lg);
+                                    ui.strong("Seed");
+                                },
+                            );
+                        });
+                        ui.add_space(theme::Spacing::xs);
+
+                        // ── One row per save ─────────────────────────
+                        for entry in save_index.entries.iter() {
+                            match entry {
+                                SaveSummary::Valid { path, header } => {
+                                    let label = save_row_label(header);
+                                    let response = ui.add(
+                                        egui::Button::new(
+                                            egui::RichText::new(label).color(theme::ACCENT),
+                                        )
+                                        .frame(false),
+                                    );
+                                    if response.clicked() {
+                                        clicked_path = Some(path.clone());
+                                    }
+                                }
+                                SaveSummary::Broken { path: _, error } => {
+                                    ui.horizontal(|ui| {
+                                        ui.colored_label(
+                                            theme::RED,
+                                            format!("Broken save ({})", error),
+                                        );
+                                    });
                                 }
                             }
-                            SaveSummary::Broken { path: _, error } => {
-                                ui.horizontal(|ui| {
-                                    ui.colored_label(
-                                        theme::RED,
-                                        format!("Broken save ({})", error),
-                                    );
-                                });
-                            }
                         }
-                    }
-                });
-        }
-
-        ui.add_space(theme::Spacing::lg);
-
-        // ── Action row ──────────────────────────────────────
-        ui.horizontal(|ui| {
-            if ui
-                .button(egui::RichText::new("Back").color(theme::TEXT_DIM))
-                .clicked()
-            {
-                back_clicked = true;
+                    });
             }
-        });
 
-        // ── Post-click state writes ─────────────────────────
-        // Same rationale as `subview_new_game`: mutate resources
-        // after the egui closure returns so we don't fight the
-        // `ResMut` borrows held by the render closure.
-        if back_clicked {
-            actions.load_save = None;
-            *launch_state = LaunchState::MainMenu;
-        }
-        if let Some(path) = clicked_path {
-            actions.load_save = Some(path);
-            *launch_state = LaunchState::InGame;
-        }
+            ui.add_space(theme::Spacing::lg);
+
+            // ── Action row ──────────────────────────────────────
+            ui.horizontal(|ui| {
+                if ui
+                    .button(egui::RichText::new("Back").color(theme::TEXT_DIM))
+                    .clicked()
+                {
+                    back_clicked = true;
+                }
+            });
+
+            // ── Post-click state writes ─────────────────────────
+            // Same rationale as `subview_new_game`: mutate resources
+            // after the egui closure returns so we don't fight the
+            // `ResMut` borrows held by the render closure.
+            if back_clicked {
+                actions.load_save = None;
+                *launch_state = LaunchState::MainMenu;
+            }
+            if let Some(path) = clicked_path {
+                actions.load_save = Some(path);
+                *launch_state = LaunchState::InGame;
+            }
     });
 }
 

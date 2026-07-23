@@ -367,8 +367,7 @@ fn spawn_menu_earth(
         ))
         .with_children(|parent| {
             // ── Clouds shell (1.5 % larger than surface) ────────────
-            let clouds_tex =
-                asset_server.load("textures/celestial/planets/earth_clouds_8k.jpg");
+            let clouds_tex = asset_server.load("textures/celestial/planets/earth_clouds_8k.jpg");
             let clouds_mesh = meshes.add(
                 Sphere::new(MENU_EARTH_VISUAL_RADIUS * MENU_EARTH_CLOUD_RADIUS_FACTOR)
                     .mesh()
@@ -421,7 +420,9 @@ fn spawn_menu_earth(
         // Initial position: Moon starts at orbit phase 0 (positive Z
         // direction from Earth, perpendicular to the camera's primary
         // line of sight so it reads as a separate object on first frame).
-        Transform::from_translation(MENU_EARTH_POSITION + Vec3::new(0.0, 0.0, MENU_MOON_ORBIT_RADIUS)),
+        Transform::from_translation(
+            MENU_EARTH_POSITION + Vec3::new(0.0, 0.0, MENU_MOON_ORBIT_RADIUS),
+        ),
         Visibility::default(),
         MenuBackdropMarker,
         MenuBackdropKind::Moon,
@@ -554,8 +555,8 @@ fn position_menu_camera(
     // it here, mirroring the exact same math the in-game pipeline uses, so
     // the menu framing (and the on-screen position of Sol) is what the
     // constants above actually describe.
-    let rot = Quat::from_axis_angle(Vec3::Y, orbit.yaw)
-        * Quat::from_axis_angle(Vec3::X, orbit.pitch);
+    let rot =
+        Quat::from_axis_angle(Vec3::Y, orbit.yaw) * Quat::from_axis_angle(Vec3::X, orbit.pitch);
     let offset = rot * Vec3::Z * orbit.radius;
     let position = orbit.target_center + orbit.pan_offset + offset;
     transform.translation = position;
@@ -730,7 +731,12 @@ mod tests {
             let yaw = (t * 0.04).sin() * 0.10;
             let pitch = (t * 0.03).cos() * 0.03;
             assert!(yaw.abs() <= 0.101, "yaw {} out of band at t={}", yaw, t);
-            assert!(pitch.abs() <= 0.031, "pitch {} out of band at t={}", pitch, t);
+            assert!(
+                pitch.abs() <= 0.031,
+                "pitch {} out of band at t={}",
+                pitch,
+                t
+            );
         }
     }
 }

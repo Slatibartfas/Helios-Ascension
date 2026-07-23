@@ -1254,7 +1254,7 @@ fn solve_lambert_transfer_branch(
     }
 
     let z_min = if prefer_half_rev {
-        -1.0 * std::f64::consts::PI * std::f64::consts::PI
+        -std::f64::consts::PI * std::f64::consts::PI
     } else {
         -4.0 * std::f64::consts::PI * std::f64::consts::PI
     };

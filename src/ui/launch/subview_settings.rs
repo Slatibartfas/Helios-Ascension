@@ -107,62 +107,62 @@ pub fn ui_settings_subview(
     egui::CentralPanel::default()
         .frame(theme::menu_transparent_frame())
         .show(ctx, |ui| {
-        ui.vertical_centered(|ui| {
-            ui.add_space(theme::Spacing::xl);
-            ui.label(
-                egui::RichText::new("Settings")
-                    .font(theme::title())
-                    .color(theme::ACCENT)
-                    .size(28.0),
-            );
-            ui.add_space(theme::Spacing::lg);
-        });
+            ui.vertical_centered(|ui| {
+                ui.add_space(theme::Spacing::xl);
+                ui.label(
+                    egui::RichText::new("Settings")
+                        .font(theme::title())
+                        .color(theme::ACCENT)
+                        .size(28.0),
+                );
+                ui.add_space(theme::Spacing::lg);
+            });
 
-        // ── Tab strip ─────────────────────────────────────
-        ui.horizontal(|ui| {
-            for tab in seed_copy.settings_structure.labels.iter() {
-                let id = SettingsTabId::from_id(&tab.id);
-                let is_active = *active_tab == id;
-                if ui.selectable_label(is_active, &tab.label).clicked() {
-                    *active_tab = id;
-                }
-            }
-        });
-
-        ui.add_space(theme::Spacing::md);
-
-        egui::Frame::group(ui.style())
-            .inner_margin(egui::Margin::same(theme::Spacing::lg as i8))
-            .show(ui, |ui| match *active_tab {
-                SettingsTabId::Audio => {
-                    if draw_audio_tab(ui, &mut settings) {
-                        settings_dirty = true;
-                    }
-                }
-                SettingsTabId::Graphics => {
-                    if draw_graphics_tab(ui, &mut settings) {
-                        settings_dirty = true;
-                    }
-                }
-                SettingsTabId::Gameplay => {
-                    if draw_gameplay_tab(ui, &mut settings) {
-                        settings_dirty = true;
+            // ── Tab strip ─────────────────────────────────────
+            ui.horizontal(|ui| {
+                for tab in seed_copy.settings_structure.labels.iter() {
+                    let id = SettingsTabId::from_id(&tab.id);
+                    let is_active = *active_tab == id;
+                    if ui.selectable_label(is_active, &tab.label).clicked() {
+                        *active_tab = id;
                     }
                 }
             });
 
-        ui.add_space(theme::Spacing::xl);
+            ui.add_space(theme::Spacing::md);
 
-        // ── Action row ────────────────────────────────────
-        ui.horizontal(|ui| {
-            if ui
-                .button(egui::RichText::new("Back").color(theme::TEXT_DIM))
-                .clicked()
-            {
-                back_clicked = true;
-            }
+            egui::Frame::group(ui.style())
+                .inner_margin(egui::Margin::same(theme::Spacing::lg as i8))
+                .show(ui, |ui| match *active_tab {
+                    SettingsTabId::Audio => {
+                        if draw_audio_tab(ui, &mut settings) {
+                            settings_dirty = true;
+                        }
+                    }
+                    SettingsTabId::Graphics => {
+                        if draw_graphics_tab(ui, &mut settings) {
+                            settings_dirty = true;
+                        }
+                    }
+                    SettingsTabId::Gameplay => {
+                        if draw_gameplay_tab(ui, &mut settings) {
+                            settings_dirty = true;
+                        }
+                    }
+                });
+
+            ui.add_space(theme::Spacing::xl);
+
+            // ── Action row ────────────────────────────────────
+            ui.horizontal(|ui| {
+                if ui
+                    .button(egui::RichText::new("Back").color(theme::TEXT_DIM))
+                    .clicked()
+                {
+                    back_clicked = true;
+                }
+            });
         });
-    });
 
     // ── Post-click state writes ────────────────────────────
     if settings_dirty {

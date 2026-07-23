@@ -179,10 +179,10 @@ fn is_menu_state(state: LaunchState) -> bool {
 /// - Top:    `HELIOS ASCENSION` title in the cyan accent, centered.
 /// - Top:    subtitle "EARTH · SECTOR SOL" in dim caption text.
 /// - Middle: empty (subview content renders here when active; the
-///           rotating-Earth backdrop is visible behind it).
+///   rotating-Earth backdrop is visible behind it).
 /// - Bottom: 5 glass-style buttons in a horizontal row, centered,
-///           with the hover-state pop animation and the three-layer
-///           painter-driven bloom.
+///   with the hover-state pop animation and the three-layer
+///   painter-driven bloom.
 /// - Footer: build label, centered under the title.
 fn render_menu_body(
     ui: &mut egui::Ui,
@@ -398,20 +398,18 @@ fn render_glass_button(
         0.0
     };
     let pressed_t = if enabled {
-        ui.ctx()
-            .animate_bool_with_time(
-                response.id.with("pressed"),
-                response.is_pointer_button_down_on(),
-                0.08,
-            )
+        ui.ctx().animate_bool_with_time(
+            response.id.with("pressed"),
+            response.is_pointer_button_down_on(),
+            0.08,
+        )
     } else {
         0.0
     };
 
     // Expansion combines hover pop + pressed dip.
-    let expansion = (hover_t * MENU_HOVER_SCALE + pressed_t * MENU_HOVER_SCALE * 0.5)
-        * rect.height()
-        * 0.5;
+    let expansion =
+        (hover_t * MENU_HOVER_SCALE + pressed_t * MENU_HOVER_SCALE * 0.5) * rect.height() * 0.5;
     let painted_rect = rect.expand(expansion);
 
     // ── Painter on the foreground layer ─────────────────────────────
@@ -424,7 +422,11 @@ fn render_glass_button(
     if enabled {
         // ── Fill (lerp rest → hover colour) ─────────────────────────
         let fill = if hover_t > 0.0 {
-            lerp_color(theme::MENU_GLASS_FILL, theme::MENU_GLASS_HOVER_FILL, hover_t)
+            lerp_color(
+                theme::MENU_GLASS_FILL,
+                theme::MENU_GLASS_HOVER_FILL,
+                hover_t,
+            )
         } else {
             theme::MENU_GLASS_FILL
         };
@@ -440,21 +442,21 @@ fn render_glass_button(
             painter.rect_stroke(
                 painted_rect.expand(6.0),
                 MENU_GLASS_CORNER_RADIUS + 6.0,
-                egui::Stroke::new(6.0, glow_color(theme::MENU_GLASS_GLOW_OUTER)),
+                egui::Stroke::new(6.0_f32, glow_color(theme::MENU_GLASS_GLOW_OUTER)),
                 egui::StrokeKind::Outside,
             );
             // Mid halo
             painter.rect_stroke(
                 painted_rect.expand(3.0),
                 MENU_GLASS_CORNER_RADIUS + 3.0,
-                egui::Stroke::new(3.0, glow_color(theme::MENU_GLASS_GLOW_MID)),
+                egui::Stroke::new(3.0_f32, glow_color(theme::MENU_GLASS_GLOW_MID)),
                 egui::StrokeKind::Outside,
             );
             // Inner accent line — solid cyan, brightest
             painter.rect_stroke(
                 painted_rect,
                 MENU_GLASS_CORNER_RADIUS,
-                egui::Stroke::new(1.5, theme::ACCENT),
+                egui::Stroke::new(1.5_f32, theme::ACCENT),
                 egui::StrokeKind::Inside,
             );
         } else {
@@ -462,13 +464,17 @@ fn render_glass_button(
             painter.rect_stroke(
                 painted_rect,
                 MENU_GLASS_CORNER_RADIUS,
-                egui::Stroke::new(1.0, theme::MENU_GLASS_STROKE),
+                egui::Stroke::new(1.0_f32, theme::MENU_GLASS_STROKE),
                 egui::StrokeKind::Inside,
             );
         }
 
         // ── Label (centre-left) ─────────────────────────────────────
-        let label_color = if hover_t > 0.5 { theme::ACCENT } else { theme::TEXT };
+        let label_color = if hover_t > 0.5 {
+            theme::ACCENT
+        } else {
+            theme::TEXT
+        };
         let label_pos = egui::pos2(
             painted_rect.left() + theme::Spacing::lg + 4.0,
             painted_rect.center().y,
@@ -500,7 +506,7 @@ fn render_glass_button(
         painter.rect_stroke(
             painted_rect,
             MENU_GLASS_CORNER_RADIUS,
-            egui::Stroke::new(0.5, theme::BORDER),
+            egui::Stroke::new(0.5_f32, theme::BORDER),
             egui::StrokeKind::Inside,
         );
 
@@ -527,7 +533,9 @@ fn render_glass_button(
 fn lerp_color(a: egui::Color32, b: egui::Color32, t: f32) -> egui::Color32 {
     let t = t.clamp(0.0, 1.0);
     let blend = |x: u8, y: u8| -> u8 {
-        ((x as f32) + ((y as f32) - (x as f32)) * t).round().clamp(0.0, 255.0) as u8
+        ((x as f32) + ((y as f32) - (x as f32)) * t)
+            .round()
+            .clamp(0.0, 255.0) as u8
     };
     egui::Color32::from_rgba_unmultiplied(
         blend(a.r(), b.r()),
