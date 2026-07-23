@@ -50,16 +50,46 @@ OUT.mkdir(parents=True, exist_ok=True)
 def resize_icon(src: Image.Image, size: int) -> Image.Image:
     """Resize the source icon to `size`×`size` using Lanczos.
 
-    The source is already a square (or near-square: 667×677)
-    composition, so no crop is needed — only downscale. We
-    force-fit to a square by centering the shorter dimension and
-    trimming the longer one, which preserves the artwork's framing
-    rather than stretching it.
+    Per-size crop policy. The source 667×677 composition has two
+    recognisable elements:
+      - the wordmark "HELIOS ASCENSION" + dial ring (top half of the
+        canvas), and
+      - the gimbal hook + outer ship ring (which becomes pixel
+        mush below ~48×48).
+
+    At 16 and 32 the outer decoration is below the readability
+    threshold of a Windows taskbar icon, so we crop tight on the
+    wordmark and dial instead of shrinking the whole composition.
+    At 48 we include the gimbal (the small mechanical motif just
+    below "ASCENSION" — a brand cue at taskbar-thumbnail size).
+    At 64+ the full composition fits.
     """
     w, h = src.size
-    side = min(w, h)
-    left = (w - side) // 2
-    top = (h - side) // 2
+    if size <= 16:
+        # 16×16 → 8px-tall wordmark caps. Crop just the "HELIOS"
+        # cap-line — readable, no "ASCENSION" subline.
+        side = round(h * 0.40)
+        cx, cy = w / 2, h * 0.40
+    elif size <= 32:
+        # 32×32 → both lines of the wordmark + a sliver of the
+        # dial ring below the HELIOS cap-line.
+        side = round(h * 0.55)
+        cx, cy = w / 2, h * 0.43
+    elif size == 48:
+        # 48×48 → wordmark + gimbal hook. The gimbal reads as a
+        # brand mechanical motif at thumbnail size.
+        side = round(h * 0.70)
+        cx, cy = w / 2, h * 0.50
+    else:
+        # 64, 128, 256: full composition fits the bitmap.
+        side = min(w, h)
+        cx, cy = w / 2, h / 2
+
+    left = max(0, int(cx - side / 2))
+    top = max(0, int(cy - side / 2))
+    right = min(w, left + side)
+    bottom = min(h, top + side)
+    side = min(right - left, bottom - top)
     cropped = src.crop((left, top, left + side, top + side))
     return cropped.resize((size, size), Image.LANCZOS)
 
