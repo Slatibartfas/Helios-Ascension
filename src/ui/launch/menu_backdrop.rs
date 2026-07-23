@@ -29,6 +29,7 @@
 //! gated on `LaunchState::is_in_game()`, so this plugin owns the camera
 //! for the entire menu session without contention.
 
+use bevy::image::Image;
 use bevy::prelude::*;
 
 use crate::plugins::camera::{GameCamera, OrbitCamera};
@@ -191,6 +192,89 @@ pub struct MenuBackdropSavedCamera {
     pub yaw: f32,
 }
 
+/// Cached [`Handle<Image>`]s for the menu backdrop's large textures,
+/// kicked off during `Startup` so the cloud/daymap/normal/moon
+/// textures are already streaming (or fully uploaded) by the time
+/// the menu transition system spawns Earth on frame 1.
+///
+/// Why this exists: the menu backdrop's three 8K Earth textures and
+/// the Moon's 8K JPG are large (≈30 MB combined). Calling
+/// `asset_server.load()` inside `spawn_menu_earth` only kicks off the
+/// async load at frame 1, so the cloud shell — which sits 1.5 % above
+/// the surface at additive blending — materialises a frame or two
+/// after the surface does, producing a visible "pop" right behind the
+/// menu. Loading the handles at `Startup` (before any frame draws)
+/// gives the loader ~hundreds of ms head start and eliminates the pop
+/// (or reduces it to a single frame at worst).
+///
+/// Bevy's asset handles are path-keyed, so calling `asset_server.load`
+/// with the same path at spawn time returns the same handle — we can
+/// safely keep the `asset_server.load` calls in `spawn_menu_earth` as
+/// a fallback for the (cold-path / fresh-load) case where the
+/// resource wasn't pre-populated. In practice the resource is always
+/// populated by `Startup`; the spawn-time loads exist only as a
+/// belt-and-braces safety net.
+#[derive(Resource, Debug, Clone, Default)]
+pub struct PreloadedMenuAssets {
+    pub earth_daymap: Handle<Image>,
+    pub earth_normal: Handle<Image>,
+    pub earth_clouds: Handle<Image>,
+    pub moon_8k: Handle<Image>,
+}
+
+impl PreloadedMenuAssets {
+    /// Asset paths matching the four `asset_server.load(...)` calls in
+    /// `spawn_menu_earth`. Kept in one place so the preload system and
+    /// the spawn site can't drift apart.
+    pub const EARTH_DAYMAP_PATH: &'static str = "textures/celestial/planets/earth_daymap_8k.jpg";
+    pub const EARTH_NORMAL_PATH: &'static str = "textures/celestial/planets/earth_normal_8k.png";
+    pub const EARTH_CLOUDS_PATH: &'static str = "textures/celestial/planets/earth_clouds_8k.jpg";
+    pub const MOON_8K_PATH: &'static str = "textures/celestial/moons/moon_8k.jpg";
+
+    /// True when every preload handle has been populated. Compares
+    /// against the type-default `Handle<Image>` (the "null" handle),
+    /// which is what `init_resource` gives us before the preload
+    /// system runs.
+    pub fn is_initialized(&self) -> bool {
+        self.earth_daymap != Handle::<Image>::default()
+    }
+}
+
+/// Startup system: kick off the async load of the menu backdrop's
+/// four large textures as early as possible so the streaming pipeline
+/// runs in parallel with the in-game boot-init chain (solar-system
+/// spawn, 60-system population, resource generation) that fills the
+/// transition window between splash dismissal and the first menu frame.
+///
+/// Registered in `Startup` from `MenuBackdropPlugin::build`, so it
+/// runs before any `Update` systems — including the menu backdrop
+/// transition system that spawns Earth on frame 1. This is the
+/// critical timing win: calling `asset_server.load` here (instead of
+/// inside `spawn_menu_earth`) starts the load ~hundreds of ms before
+/// the player ever sees the menu, so the cloud/daymap/normal/moon
+/// textures are already streaming (or fully uploaded) by the time the
+/// materials are constructed.
+///
+/// Populates the [`PreloadedMenuAssets`] resource in place via
+/// `ResMut<PreloadedMenuAssets>` so we don't need to insert a fresh
+/// resource (the plugin already calls `init_resource`).
+fn preload_menu_assets(
+    asset_server: Res<AssetServer>,
+    mut preloaded: ResMut<PreloadedMenuAssets>,
+) {
+    if preloaded.is_initialized() {
+        // Idempotent: if the system somehow runs twice (e.g. on app
+        // hot-reload), don't double-load. `asset_server.load` would
+        // return the same handle anyway, but reusing the cached
+        // handle avoids any loader refcount churn.
+        return;
+    }
+    preloaded.earth_daymap = asset_server.load(PreloadedMenuAssets::EARTH_DAYMAP_PATH);
+    preloaded.earth_normal = asset_server.load(PreloadedMenuAssets::EARTH_NORMAL_PATH);
+    preloaded.earth_clouds = asset_server.load(PreloadedMenuAssets::EARTH_CLOUDS_PATH);
+    preloaded.moon_8k = asset_server.load(PreloadedMenuAssets::MOON_8K_PATH);
+}
+
 /// System set — gives the menu backdrop its own scheduling slot inside
 /// `Update` so other plugins can `.before()` / `.after()` it cleanly.
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -212,6 +296,11 @@ impl Plugin for MenuBackdropPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<MenuBackdropActive>()
             .init_resource::<MenuBackdropCameraState>()
+            // Preloaded texture handles for the menu backdrop. Populated
+            // by `preload_menu_assets` in `Startup` so the cloud/daymap/
+            // normal/moon textures are streaming before frame 1.
+            .init_resource::<PreloadedMenuAssets>()
+            .add_systems(Startup, preload_menu_assets)
             .configure_sets(
                 Update,
                 (
@@ -259,6 +348,7 @@ fn menu_backdrop_transition_system(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     asset_server: Res<AssetServer>,
+    preloaded: Res<PreloadedMenuAssets>,
     marker_query: Query<Entity, (With<MenuBackdropMarker>, Without<ChildOf>)>,
     mut camera_query: Query<(&mut OrbitCamera, &mut Transform), With<GameCamera>>,
 ) {
@@ -276,7 +366,13 @@ fn menu_backdrop_transition_system(
                 yaw: orbit.yaw,
             });
         }
-        spawn_menu_earth(&mut commands, &mut meshes, &mut materials, &asset_server);
+        spawn_menu_earth(
+            &mut commands,
+            &mut meshes,
+            &mut materials,
+            &asset_server,
+            &preloaded,
+        );
         active.0 = true;
     } else if !in_menu && active.0 {
         // ── Leaving the menu family: despawn backdrop + restore camera.
@@ -332,15 +428,35 @@ fn is_menu_launch_state(state: LaunchState) -> bool {
 /// `NightMaterial` (would shimmer at this close range) and the
 /// atmosphere scattering shell (would render a misaligned glow ring
 /// when the camera is inside Earth's shadow cone).
+///
+/// Uses `PreloadedMenuAssets` for the four large textures (daymap,
+/// normal, clouds, moon) so the load pipeline started at `Startup`
+/// — not at frame 1 — and the cloud shell doesn't pop into view a
+/// frame or two after the surface does. If the preloaded resource
+/// isn't populated (e.g. a test scenario that boots straight into the
+/// menu without running `Startup`), we fall back to `asset_server.load`
+/// to keep the menu renderable.
 fn spawn_menu_earth(
     commands: &mut Commands,
     meshes: &mut ResMut<Assets<Mesh>>,
     materials: &mut ResMut<Assets<StandardMaterial>>,
     asset_server: &Res<AssetServer>,
+    preloaded: &PreloadedMenuAssets,
 ) {
     // ── Surface sphere ──────────────────────────────────────────────
-    let daymap = asset_server.load("textures/celestial/planets/earth_daymap_8k.jpg");
-    let normal = asset_server.load("textures/celestial/planets/earth_normal_8k.png");
+    // Prefer the preloaded handles; fall back to live-load only if the
+    // preload system never ran (paranoia — the resource is always
+    // populated in the normal LaunchPlugin::build path).
+    let daymap = if preloaded.is_initialized() {
+        preloaded.earth_daymap.clone()
+    } else {
+        asset_server.load(PreloadedMenuAssets::EARTH_DAYMAP_PATH)
+    };
+    let normal = if preloaded.is_initialized() {
+        preloaded.earth_normal.clone()
+    } else {
+        asset_server.load(PreloadedMenuAssets::EARTH_NORMAL_PATH)
+    };
 
     let surface_mesh = meshes.add(
         Sphere::new(MENU_EARTH_VISUAL_RADIUS)
@@ -371,8 +487,15 @@ fn spawn_menu_earth(
         ))
         .with_children(|parent| {
             // ── Clouds shell (1.5 % larger than surface) ────────────
-            let clouds_tex =
-                asset_server.load("textures/celestial/planets/earth_clouds_8k.jpg");
+            // The cloud shell is the most visible "pop" target: it sits
+            // 1.5 % above the surface at additive blending, so when its
+            // texture arrives a frame late the surface appears bare
+            // for an instant before the cloud shell materialises.
+            let clouds_tex = if preloaded.is_initialized() {
+                preloaded.earth_clouds.clone()
+            } else {
+                asset_server.load(PreloadedMenuAssets::EARTH_CLOUDS_PATH)
+            };
             let clouds_mesh = meshes.add(
                 Sphere::new(MENU_EARTH_VISUAL_RADIUS * MENU_EARTH_CLOUD_RADIUS_FACTOR)
                     .mesh()
@@ -412,7 +535,13 @@ fn spawn_menu_earth(
     );
     let moon_material = materials.add(StandardMaterial {
         base_color: Color::WHITE,
-        base_color_texture: Some(asset_server.load("textures/celestial/moons/moon_8k.jpg")),
+        // Use the preloaded moon handle so the 15 MB JPG is already
+        // streaming by the time the moon mesh is spawned.
+        base_color_texture: Some(if preloaded.is_initialized() {
+            preloaded.moon_8k.clone()
+        } else {
+            asset_server.load(PreloadedMenuAssets::MOON_8K_PATH)
+        }),
         emissive: LinearRgba::WHITE * 0.02,
         perceptual_roughness: 0.95,
         metallic: 0.0,
