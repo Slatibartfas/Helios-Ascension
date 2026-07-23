@@ -47,7 +47,7 @@ use bevy_egui::EguiPrimaryContextPass;
 
 use super::screenshot_state;
 pub use screenshot_state::{
-    InflightCapture, PendingScreenshotAction, QueuedCapture, ScreenshotSlots,
+    InflightCapture, PendingSaveThumbnail, PendingScreenshotAction, QueuedCapture, ScreenshotSlots,
 };
 
 // ---------------------------------------------------------------------------
@@ -68,6 +68,7 @@ impl Plugin for ScreenshotPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ScreenshotSlots>()
             .init_resource::<PendingScreenshotAction>()
+            .init_resource::<PendingSaveThumbnail>()
             // Live keybind runs in egui pass so the context is available.
             .add_systems(EguiPrimaryContextPass, screenshot_keybind_system);
         // Capture pump is `#[cfg(not(test))]` — it spawns Bevy 0.18
@@ -115,7 +116,55 @@ fn screenshot_keybind_system(
 ///      and move the entry to `inflight`.
 ///   3. Both empty → idle.
 #[cfg(not(test))]
-fn screenshot_capture_pump(mut commands: Commands, mut pending: ResMut<PendingScreenshotAction>) {
+fn screenshot_capture_pump(
+    mut commands: Commands,
+    mut pending: ResMut<PendingScreenshotAction>,
+    mut save_thumbnail: ResMut<PendingSaveThumbnail>,
+) {
+    if let (Some(staging), Some(final_path)) = (
+        save_thumbnail.staging_path.as_ref(),
+        save_thumbnail.final_path.as_ref(),
+    ) {
+        if staging.exists() {
+            if let Some(parent) = final_path.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            match std::fs::copy(staging, final_path) {
+                Ok(_) => {
+                    info!(
+                        "[screenshot] installed save thumbnail at {}",
+                        final_path.display()
+                    );
+                    save_thumbnail.staging_path = None;
+                    save_thumbnail.final_path = None;
+                    save_thumbnail.capture_started = false;
+                }
+                Err(error) => warn!("[screenshot] could not install save thumbnail: {error}"),
+            }
+        }
+    }
+
+    if pending.inflight.is_none() && !save_thumbnail.capture_started {
+        if let Some(path) = save_thumbnail.staging_path.clone() {
+            if path.exists() {
+                let _ = std::fs::remove_file(&path);
+            }
+            info!(
+                "[screenshot] capturing in-game save thumbnail to {}",
+                path.display()
+            );
+            commands
+                .spawn(Screenshot::primary_window())
+                .observe(save_to_disk(path));
+            save_thumbnail.capture_started = true;
+            pending.inflight = Some(InflightCapture {
+                slot_name: "save-thumbnail".to_string(),
+                frames_remaining: 10,
+            });
+            return;
+        }
+    }
+
     // Step 1: drain an in-flight capture.
     if let Some(mut inflight) = pending.inflight.take() {
         if inflight.frames_remaining > 0 {

@@ -70,6 +70,21 @@ impl PendingInGameSaveRequest {
     }
 }
 
+#[derive(Resource, Debug, Clone)]
+pub struct SaveGameUiState {
+    pub name: String,
+    pub overwrite_candidate: Option<PathBuf>,
+}
+
+impl Default for SaveGameUiState {
+    fn default() -> Self {
+        Self {
+            name: "new_mission".to_string(),
+            overwrite_candidate: None,
+        }
+    }
+}
+
 /// Action queued by the Save Panel render system. Drained by
 /// [`consume_save_actions_system`] in the same frame.
 ///
@@ -111,6 +126,7 @@ pub fn ui_save_panel_subview(
     save_index_state: Res<SaveIndexState>,
     return_state: Res<PendingSavePanelReturn>,
     mut pending: ResMut<PendingSaveActions>,
+    mut save_ui: ResMut<SaveGameUiState>,
     mut commands: Commands,
 ) {
     if *launch_state != LaunchState::SaveGame {
@@ -123,8 +139,9 @@ pub fn ui_save_panel_subview(
     };
 
     let mut back_clicked = false;
-    let mut save_clicked = false;
-    let mut save_as_target: Option<PathBuf> = None;
+    let mut save_as_clicked = false;
+    let mut confirm_overwrite = false;
+    let mut cancel_overwrite = false;
 
     // GRA-XYZ: transparent central panel so the rotating-Earth backdrop
     // stays visible behind the save panel content.
@@ -148,37 +165,28 @@ pub fn ui_save_panel_subview(
                 ui.add_space(theme::Spacing::lg);
             });
 
-            // ── Action row ────────────────────────────────────────
-            ui.vertical_centered(|ui| {
-                let save_label = if save_index.valid_count() == 0 {
-                    "Save (no saves yet)"
-                } else {
-                    "Save"
-                };
-                if ui
-                    .add(
-                        egui::Button::new(egui::RichText::new(save_label).color(theme::ACCENT))
-                            .frame(false),
-                    )
-                    .clicked()
-                {
-                    save_clicked = true;
-                }
-                ui.add_space(theme::Spacing::sm);
-                if ui
-                    .add(
-                        egui::Button::new(egui::RichText::new("Save As…").color(theme::TEXT))
-                            .frame(false),
-                    )
-                    .clicked()
-                {
-                    save_as_target = Some(current_slot_path());
-                }
-            });
+            // ── Named save slot ───────────────────────────────────
+            egui::Frame::group(ui.style())
+                .inner_margin(egui::Margin::same(theme::Spacing::md as i8))
+                .show(ui, |ui| {
+                    ui.label(egui::RichText::new("Save name").color(theme::TEXT_HINT));
+                    ui.add(egui::TextEdit::singleline(&mut save_ui.name).desired_width(360.0));
+                    ui.label(
+                        egui::RichText::new("Letters, numbers, spaces, '-' and '_' are supported.")
+                            .color(theme::TEXT_DIM)
+                            .size(10.0),
+                    );
+                    if ui
+                        .button(egui::RichText::new("Save As…").color(theme::ACCENT))
+                        .clicked()
+                    {
+                        save_as_clicked = true;
+                    }
+                });
 
             ui.add_space(theme::Spacing::lg);
 
-            // ── SaveAs slot picker ────────────────────────────────
+            // ── Existing slot picker ──────────────────────────────
             ui.label(
                 egui::RichText::new("Existing saves")
                     .color(theme::TEXT_HINT)
@@ -209,11 +217,14 @@ pub fn ui_save_panel_subview(
                                             egui::Button::new(
                                                 egui::RichText::new(label).color(theme::ACCENT),
                                             )
-                                            .frame(false),
+                                            .min_size(egui::vec2(ui.available_width(), 30.0)),
                                         )
                                         .clicked()
                                     {
-                                        save_as_target = Some(path.clone());
+                                        save_ui.name = path
+                                            .file_stem()
+                                            .map(|name| name.to_string_lossy().to_string())
+                                            .unwrap_or_default();
                                     }
                                 }
                                 SaveSummary::Broken { path, error } => {
@@ -246,6 +257,30 @@ pub fn ui_save_panel_subview(
 
             ui.add_space(theme::Spacing::lg);
 
+            if let Some(candidate) = save_ui.overwrite_candidate.as_ref() {
+                ui.add_space(theme::Spacing::md);
+                ui.colored_label(
+                    theme::AMBER,
+                    format!(
+                        "Overwrite ‘{}’? The existing save will be replaced.",
+                        candidate
+                            .file_stem()
+                            .map(|n| n.to_string_lossy())
+                            .unwrap_or_default()
+                    ),
+                );
+                ui.horizontal(|ui| {
+                    if ui.button("Overwrite").clicked() {
+                        confirm_overwrite = true;
+                    }
+                    if ui.button("Cancel").clicked() {
+                        cancel_overwrite = true;
+                    }
+                });
+            }
+
+            ui.add_space(theme::Spacing::lg);
+
             // ── Back row ──────────────────────────────────────────
             ui.horizontal(|ui| {
                 if ui
@@ -261,11 +296,20 @@ pub fn ui_save_panel_subview(
     // Mutate outside the egui closure to avoid `ResMut` borrows held
     // across the closure.
 
-    if save_clicked {
-        pending.save_to_current_slot = true;
+    if save_as_clicked {
+        if let Some(path) = named_slot_path(&save_ui.name) {
+            if path.exists() {
+                save_ui.overwrite_candidate = Some(path);
+            } else {
+                pending.save_as_path = Some(path);
+            }
+        }
     }
-    if let Some(path) = save_as_target {
-        pending.save_as_path = Some(path);
+    if confirm_overwrite {
+        pending.save_as_path = save_ui.overwrite_candidate.take();
+    }
+    if cancel_overwrite {
+        save_ui.overwrite_candidate = None;
     }
     if back_clicked {
         let next = return_state.previous_state.unwrap_or(LaunchState::MainMenu);
@@ -316,9 +360,15 @@ pub fn consume_save_actions_system(world: &mut World) {
     };
 
     if let Some((kind, path)) = action {
+        let thumbnail_path = path.with_extension("png");
         match write_save_to_path(world, &path) {
             Ok(()) => {
                 info!("SavePanel: {kind:?} → {p}", p = path.display());
+                if let Some(mut pending_thumbnail) =
+                    world.get_resource_mut::<crate::ui::screenshot::PendingSaveThumbnail>()
+                {
+                    pending_thumbnail.final_path = Some(thumbnail_path);
+                }
                 rescan_save_index(world);
             }
             Err(e) => {
@@ -338,6 +388,27 @@ pub fn consume_save_actions_system(world: &mut World) {
 enum PendingSaveActionKind {
     Save,
     SaveAs,
+}
+
+fn named_slot_path(name: &str) -> Option<PathBuf> {
+    let sanitized: String = name
+        .trim()
+        .chars()
+        .filter_map(|ch| match ch {
+            'a'..='z' | 'A'..='Z' | '0'..='9' | '-' | '_' => Some(ch),
+            ' ' => Some('_'),
+            _ => None,
+        })
+        .take(64)
+        .collect();
+    if sanitized.is_empty() {
+        return None;
+    }
+    Some(
+        resolve_userdata_dir()
+            .join(SAVES_SUBDIR)
+            .join(format!("{sanitized}.ron")),
+    )
 }
 
 /// Default slot path for the "Save" (non-As) action.
@@ -388,6 +459,33 @@ pub fn consume_in_game_save_request_system(world: &mut World) {
         world.remove_resource::<PendingInGameSaveRequest>();
         return;
     }
+
+    let capture_inflight = world
+        .get_resource::<crate::ui::screenshot::PendingScreenshotAction>()
+        .is_some_and(|pending| pending.inflight.is_some());
+    let thumbnail_ready = if let Some(mut thumbnail) =
+        world.get_resource_mut::<crate::ui::screenshot::PendingSaveThumbnail>()
+    {
+        if thumbnail.staging_path.is_none() {
+            let staging = resolve_userdata_dir().join("save_thumbnail_staging.png");
+            thumbnail.staging_path = Some(staging);
+            thumbnail.capture_started = false;
+            false
+        } else {
+            thumbnail.capture_started
+                && !capture_inflight
+                && thumbnail
+                    .staging_path
+                    .as_ref()
+                    .is_some_and(|path| path.exists())
+        }
+    } else {
+        true
+    };
+    if !thumbnail_ready {
+        return;
+    }
+
     world
         .resource_mut::<PendingSavePanelReturn>()
         .previous_state = Some(current);
@@ -401,6 +499,7 @@ pub fn consume_in_game_save_request_system(world: &mut World) {
 pub fn register_save_panel_subview(app: &mut App) {
     app.init_resource::<PendingSavePanelReturn>()
         .init_resource::<PendingSaveActions>()
+        .init_resource::<SaveGameUiState>()
         .add_systems(
             EguiPrimaryContextPass,
             (

@@ -1247,7 +1247,10 @@ pub(crate) fn ui_dashboard(
                                 );
                             }
                             if ui.button("📂 Load Game").clicked() {
-                                info!("Load clicked");
+                                info!("Load clicked — opening Load Game subview");
+                                commands.insert_resource(
+                                    crate::ui::launch::PendingInGameLoadRequest { open_panel: true },
+                                );
                             }
                             if ui.button("⚙ Options").clicked() {
                                 info!("Options clicked");

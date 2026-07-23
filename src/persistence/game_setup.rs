@@ -37,7 +37,8 @@ use std::path::Path;
 
 use super::io::write_save_atomic;
 use super::restore::{restore_world, RestoreError};
-use super::snapshot::{snapshot_world, SaveMetadata};
+use super::snapshot::{snapshot_world, SaveMetadata, SavePreview};
+use crate::economy::{kardashev_scale_from_watts, ResourceType, SimulationHistory};
 use crate::game_state::GameSeed;
 use crate::persistence::playtime::PlaytimeTracker;
 use crate::ui::launch::save_index::{SaveIndex, SaveIndexState};
@@ -45,7 +46,7 @@ use crate::ui::launch::userdata::{resolve_userdata_dir, PersistentSettings};
 use crate::ui::launch::{LaunchState, NewGameRequest};
 use crate::ui::notifications::events::{NotificationContextLink, NotificationEvent};
 use crate::ui::notifications::NotificationCategoryId;
-use crate::ui::time::TimeScale;
+use crate::ui::time::{SimulationTime, TimeScale};
 
 /// Bevy 0.18 `Message` broadcast when `play_new_game` succeeds.
 ///
@@ -328,7 +329,8 @@ pub fn write_save_to_path(world: &World, path: &Path) -> Result<(), GameSetupErr
         .get_resource::<PlaytimeTracker>()
         .map(|p| p.total_real_s as u64)
         .unwrap_or(0);
-    let metadata = SaveMetadata::new_now(seed, playtime, env!("CARGO_PKG_VERSION"));
+    let mut metadata = SaveMetadata::new_now(seed, playtime, env!("CARGO_PKG_VERSION"));
+    metadata.preview = build_save_preview(world, path);
 
     let ron = snapshot_world(world, metadata).map_err(|e| GameSetupError::Io(e.to_string()))?;
 
@@ -339,6 +341,54 @@ pub fn write_save_to_path(world: &World, path: &Path) -> Result<(), GameSetupErr
 
     write_save_atomic(path, &ron).map_err(|e| GameSetupError::Io(e.to_string()))?;
     Ok(())
+}
+
+fn build_save_preview(world: &World, path: &Path) -> SavePreview {
+    let current_date = world
+        .get_resource::<SimulationTime>()
+        .map(SimulationTime::format_date_time)
+        .unwrap_or_default();
+    let Some(history) = world.get_resource::<SimulationHistory>() else {
+        return SavePreview {
+            current_date,
+            ..default()
+        };
+    };
+    let Some(latest) = history.latest() else {
+        return SavePreview {
+            current_date,
+            ..default()
+        };
+    };
+
+    let resources = ResourceType::all()
+        .iter()
+        .copied()
+        .filter_map(|resource| {
+            let amount = latest.resource_amount(resource);
+            (amount.abs() > f64::EPSILON).then(|| (resource.display_name().to_string(), amount))
+        })
+        .collect();
+    let current_sim_seconds = world
+        .get_resource::<SimulationTime>()
+        .map(SimulationTime::elapsed_seconds)
+        .unwrap_or(latest.sim_seconds);
+    let kardashev_history = history.kardashev_history_for_preview(current_sim_seconds);
+    let screenshot_file = path
+        .file_stem()
+        .map(|stem| format!("{}.png", stem.to_string_lossy()));
+
+    SavePreview {
+        current_date,
+        colony_count: latest.colony_count,
+        total_population: latest.total_population,
+        ship_count: latest.ship_count,
+        power_produced_watts: latest.power_produced_watts,
+        kardashev_value: kardashev_scale_from_watts(latest.power_produced_watts),
+        resources,
+        kardashev_history,
+        screenshot_file,
+    }
 }
 
 /// Bevy system: drain [`PendingGameWorld`] once a fresh world is

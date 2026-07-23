@@ -200,6 +200,23 @@ impl SimulationHistory {
         result
     }
 
+    /// Compact owned series for save/load previews. This intentionally uses
+    /// the same real + seeded history as the in-game Kardashev panel.
+    pub fn kardashev_history_for_preview(&self, current_sim_seconds: f64) -> Vec<(f64, f64)> {
+        let points: Vec<(f64, f64)> = self
+            .samples_within_window(current_sim_seconds, HISTORY_MAX_AGE_SECONDS)
+            .into_iter()
+            .map(|sample| {
+                (
+                    sample.sim_seconds,
+                    kardashev_scale_from_watts(sample.power_produced_watts),
+                )
+            })
+            .collect();
+        let stride = points.len().div_ceil(256).max(1);
+        points.into_iter().step_by(stride).collect()
+    }
+
     fn record_snapshot(&mut self, snapshot: SimulationHistorySample) {
         if self
             .samples

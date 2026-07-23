@@ -78,7 +78,7 @@ pub use game_setup::{
 pub use handle_sidecar::{
     apply_handle_sidecar, extract_handle_sidecar, EntityHandles, HandleSidecar,
 };
-pub use io::{write_save_atomic, SaveIoError};
+pub use io::{delete_save_files, write_save_atomic, SaveIoError};
 pub use migrate::{Body, MigrateError, SchemaKind};
 pub use params::{load_new_game_params_defaults, NewGameParams, NewGameParamsDefaults};
 pub use playtime::{tick_playtime_tracker, PlaytimeTracker};

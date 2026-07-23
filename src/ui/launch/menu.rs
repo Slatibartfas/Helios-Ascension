@@ -370,7 +370,7 @@ fn render_action_grid(
 /// Disabled state uses opaque `theme::SURFACE` + `theme::BORDER` +
 /// `theme::TEXT_DIM` so the player can see why Continue is greyed out
 /// (cold boot, no saves). The shortcut keycap is hidden when disabled.
-fn render_glass_button(
+pub fn render_glass_button(
     ui: &mut egui::Ui,
     label: &str,
     shortcut: &str,

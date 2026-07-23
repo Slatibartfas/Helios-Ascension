@@ -24,9 +24,31 @@
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 
-use crate::ui::launch::save_index::{SaveIndex, SaveSummary};
+use crate::persistence::{delete_save_files, rescan_save_index};
+use crate::ui::launch::save_index::{SaveHeader, SaveIndex, SaveSummary};
 use crate::ui::launch::{LaunchState, LaunchSystemSet, PendingLaunchActions};
 use crate::ui::theme;
+
+#[derive(Resource, Debug, Default, Clone)]
+pub struct PendingInGameLoadRequest {
+    pub open_panel: bool,
+}
+
+#[derive(Resource, Debug, Default, Clone)]
+pub struct LoadGameReturnState {
+    pub previous_state: Option<LaunchState>,
+}
+
+#[derive(Resource, Debug, Default, Clone)]
+pub struct PendingDeleteSave {
+    pub path: Option<std::path::PathBuf>,
+    pub confirmed: bool,
+}
+
+#[derive(Resource, Debug, Default, Clone)]
+pub struct LoadGameSelection {
+    pub selected_path: Option<std::path::PathBuf>,
+}
 
 /// Render the Load Game subview. Reads [`LaunchState::LoadGame`]
 /// for gating; no-ops for every other variant. Lives in
@@ -36,7 +58,11 @@ pub fn ui_load_game_subview(
     mut contexts: EguiContexts,
     mut launch_state: ResMut<LaunchState>,
     mut actions: ResMut<PendingLaunchActions>,
+    return_state: Res<LoadGameReturnState>,
     save_index: Res<SaveIndex>,
+    mut selection: ResMut<LoadGameSelection>,
+    mut delete: ResMut<PendingDeleteSave>,
+    mut thumbnail: Local<Option<(std::path::PathBuf, egui::TextureHandle)>>,
 ) {
     if *launch_state != LaunchState::LoadGame {
         return;
@@ -47,7 +73,8 @@ pub fn ui_load_game_subview(
         Err(_) => return,
     };
 
-    let mut clicked_path: Option<std::path::PathBuf> = None;
+    let mut selected_path: Option<std::path::PathBuf> = None;
+    let mut load_clicked = false;
     let mut back_clicked = false;
 
     // GRA-XYZ: transparent central panel so the rotating-Earth backdrop
@@ -76,92 +103,402 @@ pub fn ui_load_game_subview(
                 ui.add_space(theme::Spacing::lg);
             });
 
-            if save_index.entries.is_empty() {
-                ui.vertical_centered(|ui| {
-                    ui.add_space(theme::Spacing::xl);
-                    ui.label(
-                        egui::RichText::new(
-                            "No saved missions yet. Begin a new mission and the autosave will appear here.",
-                        )
-                        .color(theme::TEXT_HINT)
-                        .size(12.0),
-                    );
-                });
-            } else {
-                egui::Frame::group(ui.style())
-                    .inner_margin(egui::Margin::same(theme::Spacing::md as i8))
-                    .show(ui, |ui| {
-                        // ── Column header row ───────────────────────
-                        ui.horizontal(|ui| {
-                            ui.allocate_ui_with_layout(
-                                egui::vec2(ui.available_width(), theme::Spacing::md),
-                                egui::Layout::left_to_right(egui::Align::Center),
-                                |ui| {
-                                    ui.strong("Name");
-                                    ui.add_space(theme::Spacing::lg);
-                                    ui.strong("Saved");
-                                    ui.add_space(theme::Spacing::lg);
-                                    ui.strong("Playtime");
-                                    ui.add_space(theme::Spacing::lg);
-                                    ui.strong("Seed");
-                                },
+            let action_height = 72.0;
+            let content_height = (ui.available_height() - action_height).max(280.0);
+            ui.allocate_ui_with_layout(
+                egui::vec2(ui.available_width(), content_height),
+                egui::Layout::top_down(egui::Align::Min),
+                |ui| {
+                    let available = ui.available_width();
+                    if available >= 980.0 {
+                        ui.columns(2, |columns| {
+                            columns[0].set_min_width(available * 0.38);
+                            render_save_list(
+                                &mut columns[0],
+                                &save_index,
+                                &selection,
+                                &mut selected_path,
                             );
-                        });
-                        ui.add_space(theme::Spacing::xs);
-
-                        // ── One row per save ─────────────────────────
-                        for entry in save_index.entries.iter() {
-                            match entry {
-                                SaveSummary::Valid { path, header } => {
-                                    let label = save_row_label(header);
-                                    let response = ui.add(
-                                        egui::Button::new(
-                                            egui::RichText::new(label).color(theme::ACCENT),
-                                        )
-                                        .frame(false),
+                            if let Some((path, header)) = selected_save(&save_index, &selection) {
+                                render_save_preview(
+                                    &mut columns[1],
+                                    ctx,
+                                    path,
+                                    header,
+                                    &mut thumbnail,
+                                );
+                            } else {
+                                columns[1].vertical_centered(|ui| {
+                                    ui.add_space(120.0);
+                                    ui.label(
+                                        egui::RichText::new("Select a mission to preview it")
+                                            .color(theme::TEXT_DIM),
                                     );
-                                    if response.clicked() {
-                                        clicked_path = Some(path.clone());
-                                    }
-                                }
-                                SaveSummary::Broken { path: _, error } => {
-                                    ui.horizontal(|ui| {
-                                        ui.colored_label(
-                                            theme::RED,
-                                            format!("Broken save ({})", error),
-                                        );
-                                    });
-                                }
+                                });
                             }
+                        });
+                    } else {
+                        render_save_list(ui, &save_index, &selection, &mut selected_path);
+                        if let Some((path, header)) = selected_save(&save_index, &selection) {
+                            ui.add_space(theme::Spacing::lg);
+                            render_save_preview(ui, ctx, path, header, &mut thumbnail);
                         }
-                    });
-            }
+                    }
 
-            ui.add_space(theme::Spacing::lg);
+                    if let Some(path) = selected_path {
+                        selection.selected_path = Some(path);
+                    }
+                },
+            );
+
+            ui.add_space(theme::Spacing::sm);
 
             // ── Action row ──────────────────────────────────────
-            ui.horizontal(|ui| {
-                if ui
-                    .button(egui::RichText::new("Back").color(theme::TEXT_DIM))
-                    .clicked()
-                {
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if crate::ui::launch::render_glass_button(ui, "Back", "", true).clicked() {
                     back_clicked = true;
+                }
+                if crate::ui::launch::render_glass_button(
+                    ui,
+                    "Delete",
+                    "",
+                    selection.selected_path.is_some(),
+                )
+                .clicked()
+                {
+                    delete.path = selection.selected_path.clone();
+                }
+                if crate::ui::launch::render_glass_button(
+                    ui,
+                    "Load",
+                    "",
+                    selection.selected_path.is_some(),
+                )
+                .clicked()
+                {
+                    load_clicked = true;
                 }
             });
 
+            if let Some(path) = delete.path.clone() {
+                let mut open = true;
+                egui::Window::new("Delete save?")
+                    .id(egui::Id::new("delete-save-confirmation"))
+                    .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+                    .collapsible(false)
+                    .resizable(false)
+                    .open(&mut open)
+                    .show(ctx, |ui| {
+                        ui.set_min_width(380.0);
+                        ui.label(format!("Permanently delete ‘{}’?", save_name(&path)));
+                        ui.label(
+                            egui::RichText::new("This also removes the saved preview image.")
+                                .color(theme::TEXT_DIM),
+                        );
+                        ui.add_space(theme::Spacing::md);
+                        ui.horizontal(|ui| {
+                            if ui
+                                .button(egui::RichText::new("Delete save").color(theme::RED))
+                                .clicked()
+                            {
+                                delete.confirmed = true;
+                            }
+                            if ui.button("Cancel").clicked() {
+                                delete.path = None;
+                            }
+                        });
+                    });
+                if !open {
+                    delete.path = None;
+                }
+            }
+
             // ── Post-click state writes ─────────────────────────
-            // Same rationale as `subview_new_game`: mutate resources
-            // after the egui closure returns so we don't fight the
-            // `ResMut` borrows held by the render closure.
             if back_clicked {
                 actions.load_save = None;
-                *launch_state = LaunchState::MainMenu;
+                selection.selected_path = None;
+                *launch_state = return_state.previous_state.unwrap_or(LaunchState::MainMenu);
             }
-            if let Some(path) = clicked_path {
-                actions.load_save = Some(path);
-                *launch_state = LaunchState::InGame;
+            if load_clicked {
+                if let Some(path) = selection.selected_path.clone() {
+                    actions.load_save = Some(path);
+                    selection.selected_path = None;
+                    *launch_state = LaunchState::InGame;
+                }
             }
-    });
+        });
+}
+
+fn selected_save<'a>(
+    save_index: &'a SaveIndex,
+    selection: &LoadGameSelection,
+) -> Option<(&'a std::path::PathBuf, &'a SaveHeader)> {
+    selection.selected_path.as_ref().and_then(|selected| {
+        save_index.entries.iter().find_map(|entry| match entry {
+            SaveSummary::Valid { path, header } if path == selected => Some((path, header)),
+            _ => None,
+        })
+    })
+}
+
+fn render_save_list(
+    ui: &mut egui::Ui,
+    save_index: &SaveIndex,
+    selection: &LoadGameSelection,
+    selected_path: &mut Option<std::path::PathBuf>,
+) {
+    if save_index.entries.is_empty() {
+        ui.label(egui::RichText::new("No saved missions yet.").color(theme::TEXT_HINT));
+        return;
+    }
+    egui::Frame::group(ui.style())
+        .inner_margin(egui::Margin::same(theme::Spacing::md as i8))
+        .show(ui, |ui| {
+            ui.strong("Saved missions");
+            ui.add_space(theme::Spacing::xs);
+            for entry in &save_index.entries {
+                match entry {
+                    SaveSummary::Valid { path, header } => {
+                        let selected = selection.selected_path.as_ref() == Some(path);
+                        let label = save_row_label(path, header);
+                        let button =
+                            egui::Button::new(egui::RichText::new(label).color(if selected {
+                                theme::ACCENT
+                            } else {
+                                theme::TEXT
+                            }))
+                            .fill(if selected {
+                                theme::BUTTON_ACTIVE_BG
+                            } else {
+                                theme::SURFACE
+                            })
+                            .stroke(egui::Stroke::new(
+                                1.0,
+                                if selected {
+                                    theme::ACCENT
+                                } else {
+                                    theme::BORDER
+                                },
+                            ))
+                            .min_size(egui::vec2(ui.available_width(), 34.0));
+                        let response = ui.add(button);
+                        if response.hovered() {
+                            ui.painter().rect_stroke(
+                                response.rect,
+                                3.0,
+                                egui::Stroke::new(1.5, theme::ACCENT),
+                                egui::StrokeKind::Inside,
+                            );
+                        }
+                        if response.clicked() {
+                            *selected_path = Some(path.clone());
+                        }
+                    }
+                    SaveSummary::Broken { path, error } => {
+                        ui.colored_label(theme::RED, format!("{} — {error}", save_name(path)));
+                    }
+                }
+            }
+        });
+}
+
+fn save_name(path: &std::path::Path) -> String {
+    path.file_stem()
+        .map(|name| name.to_string_lossy().to_string())
+        .unwrap_or_else(|| "Unnamed save".to_string())
+}
+
+fn render_save_preview(
+    ui: &mut egui::Ui,
+    ctx: &egui::Context,
+    save_path: &std::path::Path,
+    header: &SaveHeader,
+    thumbnail: &mut Option<(std::path::PathBuf, egui::TextureHandle)>,
+) {
+    let preview = &header.preview;
+    let image_path = save_path.with_extension("png");
+    if thumbnail
+        .as_ref()
+        .is_none_or(|(loaded, _)| loaded != &image_path)
+    {
+        *thumbnail = load_save_thumbnail(ctx, &image_path).map(|texture| (image_path, texture));
+    }
+    egui::Frame::group(ui.style())
+        .inner_margin(egui::Margin::same(theme::Spacing::md as i8))
+        .show(ui, |ui| {
+            egui::ScrollArea::vertical()
+                .id_salt("load-save-preview-scroll")
+                .max_height((ui.ctx().content_rect().height() - 190.0).max(320.0))
+                .auto_shrink([false, false])
+                .show(ui, |ui| {
+                    ui.strong("Selected mission preview");
+                    if let Some((_, texture)) = thumbnail.as_ref() {
+                        let available = ui.available_size();
+                        let max_size = egui::vec2(
+                            ui.available_width().min(820.0),
+                            (available.y * 0.52).clamp(280.0, 520.0),
+                        );
+                        ui.add(egui::Image::new(texture).fit_to_exact_size(max_size));
+                    } else {
+                        ui.label(
+                            egui::RichText::new("No map thumbnail available for this save.")
+                                .color(theme::TEXT_DIM),
+                        );
+                    }
+                    ui.label(format!(
+                        "Current date: {}",
+                        if preview.current_date.is_empty() {
+                            "—"
+                        } else {
+                            &preview.current_date
+                        }
+                    ));
+                    ui.label(format!("Playtime: {}", header.formatted_playtime()));
+                    ui.label(format!(
+                        "Colonies: {}  ·  Population: {:.0}  ·  Ships: {}",
+                        preview.colony_count, preview.total_population, preview.ship_count
+                    ));
+                    ui.label(format!(
+                        "Kardashev value: Type {:.3}  ·  Power: {:.3e} W",
+                        preview.kardashev_value, preview.power_produced_watts
+                    ));
+
+                    render_kardashev_plot(ui, &preview.kardashev_history);
+
+                    if preview.resources.is_empty() {
+                        ui.label(
+                            egui::RichText::new("Resources: no preview data")
+                                .color(theme::TEXT_DIM),
+                        );
+                    } else {
+                        ui.collapsing("Resources", |ui| {
+                            for (name, amount) in &preview.resources {
+                                ui.label(format!("{name}: {amount:.3} Mt"));
+                            }
+                        });
+                    }
+                    if preview.screenshot_file.is_some() {
+                        ui.label(
+                            egui::RichText::new(
+                                "Map viewpoint thumbnail is captured with this save.",
+                            )
+                            .color(theme::TEXT_HINT),
+                        );
+                    }
+                    ui.label(
+                        egui::RichText::new(
+                            "Review this information, then press Load to continue.",
+                        )
+                        .color(theme::TEXT_DIM),
+                    );
+                });
+        });
+}
+
+fn load_save_thumbnail(ctx: &egui::Context, path: &std::path::Path) -> Option<egui::TextureHandle> {
+    let bytes = std::fs::read(path).ok()?;
+    let image = image::load_from_memory(&bytes).ok()?.to_rgba8();
+    let size = [image.width() as usize, image.height() as usize];
+    let color = egui::ColorImage::from_rgba_unmultiplied(size, image.as_raw());
+    Some(ctx.load_texture(
+        format!("save-thumbnail:{}", path.display()),
+        color,
+        egui::TextureOptions::NEAREST,
+    ))
+}
+
+fn render_kardashev_plot(ui: &mut egui::Ui, points: &[(f64, f64)]) {
+    let (rect, _) = ui.allocate_exact_size(
+        egui::vec2(ui.available_width().min(640.0), 150.0),
+        egui::Sense::hover(),
+    );
+    ui.painter().rect_filled(rect, 4.0, theme::SURFACE);
+    if points.len() < 2 {
+        ui.painter().text(
+            rect.center(),
+            egui::Align2::CENTER_CENTER,
+            "Awaiting Kardashev history",
+            theme::body(11.0),
+            theme::TEXT_DIM,
+        );
+        return;
+    }
+    let plot_rect = egui::Rect::from_min_max(
+        egui::pos2(rect.left() + 46.0, rect.top() + 12.0),
+        egui::pos2(rect.right() - 10.0, rect.bottom() - 30.0),
+    );
+    let min_x = points.first().map(|p| p.0).unwrap_or(0.0);
+    let max_x = points.last().map(|p| p.0).unwrap_or(min_x + 1.0);
+    let (mut min_y, mut max_y) = points
+        .iter()
+        .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), p| {
+            (lo.min(p.1), hi.max(p.1))
+        });
+    if (max_y - min_y).abs() < f64::EPSILON {
+        min_y -= 0.01;
+        max_y += 0.01;
+    }
+    let line: Vec<egui::Pos2> = points
+        .iter()
+        .map(|(x, y)| {
+            egui::pos2(
+                egui::lerp(
+                    plot_rect.left()..=plot_rect.right(),
+                    ((x - min_x) / (max_x - min_x).max(1.0)) as f32,
+                ),
+                egui::lerp(
+                    plot_rect.bottom()..=plot_rect.top(),
+                    ((y - min_y) / (max_y - min_y)) as f32,
+                ),
+            )
+        })
+        .collect();
+    ui.painter().add(egui::Shape::line(
+        line,
+        egui::Stroke::new(2.0, theme::CAT_STRATEGIC),
+    ));
+    for tick in 0..=2 {
+        let t = tick as f32 / 2.0;
+        let y = egui::lerp(plot_rect.bottom()..=plot_rect.top(), t);
+        let value = min_y + (max_y - min_y) * t as f64;
+        ui.painter().text(
+            egui::pos2(plot_rect.left() - 5.0, y),
+            egui::Align2::RIGHT_CENTER,
+            format!("{value:.3}"),
+            theme::mono(9.0),
+            theme::TEXT_HINT,
+        );
+    }
+    for tick in 0..=2 {
+        let t = tick as f32 / 2.0;
+        let x = egui::lerp(plot_rect.left()..=plot_rect.right(), t);
+        let years_ago = (1.0 - t as f64) * crate::economy::HISTORY_MAX_AGE_YEARS;
+        ui.painter().text(
+            egui::pos2(x, plot_rect.bottom() + 5.0),
+            egui::Align2::CENTER_TOP,
+            if tick == 2 {
+                "Now".to_string()
+            } else {
+                format!("{years_ago:.0}y")
+            },
+            theme::mono(9.0),
+            theme::TEXT_HINT,
+        );
+    }
+    ui.painter().text(
+        egui::pos2(rect.left() + 4.0, rect.top() + 4.0),
+        egui::Align2::LEFT_TOP,
+        "Kardashev Type",
+        theme::mono(9.0),
+        theme::TEXT_HINT,
+    );
+    ui.painter().text(
+        egui::pos2(plot_rect.center().x, rect.bottom() - 2.0),
+        egui::Align2::CENTER_BOTTOM,
+        "Simulation history (years ago)",
+        theme::mono(9.0),
+        theme::TEXT_HINT,
+    );
 }
 
 /// Build the row label string for a valid save. We deliberately
@@ -174,23 +511,58 @@ pub fn ui_load_game_subview(
 /// All formatting is delegated to [`SaveHeader`]'s `formatted_*`
 /// helpers so the menu HUD and the in-game HUD stay consistent
 /// (both render the same playtime / timestamp shape).
-fn save_row_label(header: &crate::ui::launch::save_index::SaveHeader) -> String {
+fn save_row_label(
+    path: &std::path::Path,
+    header: &crate::ui::launch::save_index::SaveHeader,
+) -> String {
     format!(
         "{}  ·  {}  ·  {}  ·  seed {}",
-        header.formatted_version(),
+        save_name(path),
         header.formatted_saved_at(),
         header.formatted_playtime(),
         header.formatted_seed(),
     )
 }
 
+pub fn consume_load_requests(world: &mut World) {
+    let open = world
+        .get_resource::<PendingInGameLoadRequest>()
+        .is_some_and(|request| request.open_panel);
+    if open && *world.resource::<LaunchState>() == LaunchState::InGame {
+        world.resource_mut::<LoadGameReturnState>().previous_state = Some(LaunchState::InGame);
+        *world.resource_mut::<LaunchState>() = LaunchState::LoadGame;
+        world.remove_resource::<PendingInGameLoadRequest>();
+        rescan_save_index(world);
+    }
+
+    let delete_path = world
+        .get_resource::<PendingDeleteSave>()
+        .filter(|pending| pending.confirmed)
+        .and_then(|pending| pending.path.clone());
+    if let Some(path) = delete_path {
+        if let Err(error) = delete_save_files(&path) {
+            warn!("LoadGame: failed to delete {}: {error}", path.display());
+        }
+        world.resource_mut::<PendingDeleteSave>().path = None;
+        world.resource_mut::<PendingDeleteSave>().confirmed = false;
+        world.resource_mut::<LoadGameSelection>().selected_path = None;
+        rescan_save_index(world);
+    }
+}
+
 /// Register the Load Game subview render system in
 /// [`LaunchSystemSet::Menu`].
 pub fn register_load_game_subview(app: &mut App) {
-    app.add_systems(
-        EguiPrimaryContextPass,
-        ui_load_game_subview.in_set(LaunchSystemSet::Menu),
-    );
+    app.init_resource::<LoadGameSelection>()
+        .init_resource::<LoadGameReturnState>()
+        .init_resource::<PendingDeleteSave>()
+        .add_systems(
+            EguiPrimaryContextPass,
+            (
+                ui_load_game_subview.in_set(LaunchSystemSet::Menu),
+                consume_load_requests.after(ui_load_game_subview),
+            ),
+        );
 }
 
 #[cfg(test)]
@@ -264,9 +636,11 @@ mod tests {
             saved_at_unix_s: Some(1_788_688_800),
             playtime_s: Some(3 * 3600 + 12 * 60),
             seed: Some(42),
+            preview: Default::default(),
         };
-        let label = save_row_label(&header);
-        assert!(label.contains("0.5.0"));
+        let path = std::path::PathBuf::from("campaign_alpha.ron");
+        let label = save_row_label(&path, &header);
+        assert!(label.contains("campaign_alpha"));
         assert!(label.contains("2026-09-06"));
         assert!(label.contains("3h 12m"));
         assert!(label.contains("seed 42"));
@@ -275,8 +649,9 @@ mod tests {
     #[test]
     fn save_row_label_handles_missing_fields() {
         let header = SaveHeader::default();
-        let label = save_row_label(&header);
-        assert!(label.contains("?"));
+        let path = std::path::PathBuf::from("unnamed.ron");
+        let label = save_row_label(&path, &header);
+        assert!(label.contains("unnamed"));
         assert!(label.contains("Unknown"));
         assert!(label.contains("—"));
     }

@@ -232,6 +232,14 @@ When adding new UI icons (menus, research categories, etc.), applying the follow
 - Use `egui::load::SizedTexture` when adding images to `ui.add()` to ensure explicit control over size.
 - Example: `ui.add(egui::Image::new(egui::load::SizedTexture::new(texture_id, [width, height])))`.
 
+### Save / Load Persistence UI
+- `SavePreview` in `src/persistence/snapshot.rs` is additive player-facing metadata. New fields must use `#[serde(default)]` and have safe defaults so older saves remain loadable.
+- Each save uses a `.ron` file plus an optional sibling `.png` map thumbnail. Delete both through `persistence::delete_save_files`; extend that helper if another sidecar format is introduced.
+- Save thumbnails must be captured before switching from `LaunchState::InGame` to the Save panel. Keep screenshot staging and render-readback completion explicit to avoid capturing menu UI or partially rendered frames.
+- In-game Save / Load entry points use `PendingInGameSaveRequest` and `PendingInGameLoadRequest`. Their return-state resources must preserve whether Back returns to `InGame` or `MainMenu`.
+- Reuse `render_glass_button` for primary Save / Load panel actions, and keep destructive actions behind persistent confirmation state.
+- Bevy runtime resources without loader type registration belong in `snapshot.rs::configure_builder`'s denylist with a comment explaining why; do not persist process-local audio, window, camera, or timing plumbing.
+
 ## Domain-Specific Knowledge
 
 ### Game Systems Overview

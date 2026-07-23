@@ -20,7 +20,7 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::persistence::snapshot::{SaveFile, SaveMetadata};
+use crate::persistence::snapshot::{SaveFile, SaveMetadata, SavePreview};
 
 /// Sub-directory of the userdata dir where save files live.
 pub const SAVES_SUBDIR: &str = "saves";
@@ -52,6 +52,9 @@ pub struct SaveHeader {
     /// Helios version (Cargo package version) that produced the save.
     #[serde(default)]
     pub helios_version: Option<String>,
+    /// Rich campaign summary displayed after selecting a save.
+    #[serde(default)]
+    pub preview: SavePreview,
 }
 
 impl SaveHeader {
@@ -66,6 +69,7 @@ impl SaveHeader {
             playtime_s: Some(metadata.playtime_s),
             seed: Some(metadata.seed),
             helios_version: Some(metadata.helios_version.clone()),
+            preview: metadata.preview.clone(),
         }
     }
 
@@ -552,6 +556,7 @@ mod tests {
             playtime_s: 7200,
             seed: 9999,
             helios_version: "0.5.0-test".to_string(),
+            preview: Default::default(),
         };
         let header = SaveHeader::from_metadata(&md);
         assert_eq!(header.format_version, Some(42));
@@ -559,6 +564,7 @@ mod tests {
         assert_eq!(header.playtime_s, Some(7200));
         assert_eq!(header.seed, Some(9999));
         assert_eq!(header.helios_version.as_deref(), Some("0.5.0-test"));
+        assert_eq!(header.preview, Default::default());
     }
 
     #[test]
@@ -569,6 +575,7 @@ mod tests {
             playtime_s: Some(3 * 3600 + 12 * 60 + 45),
             seed: Some(42),
             helios_version: Some("0.5.0".to_string()),
+            preview: Default::default(),
         };
         assert_eq!(h.formatted_version(), "0.5.0");
         assert!(h.formatted_saved_at().contains("2023"));

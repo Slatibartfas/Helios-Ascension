@@ -309,6 +309,7 @@ mod tests {
                 playtime_s: 0,
                 seed: 0,
                 helios_version: "0.0.0".to_string(),
+                preview: Default::default(),
             },
             body,
             // No handle sidecar on this hand-crafted test envelope.

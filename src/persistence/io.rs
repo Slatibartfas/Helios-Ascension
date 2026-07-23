@@ -126,6 +126,23 @@ pub fn write_save_atomic(path: &Path, contents: &str) -> Result<(), SaveIoError>
     Ok(())
 }
 
+/// Delete a save and its optional PNG thumbnail. Missing thumbnails are fine.
+pub fn delete_save_files(path: &Path) -> Result<(), SaveIoError> {
+    fs::remove_file(path).map_err(|error| {
+        SaveIoError::Write(format!("delete {} failed: {error}", path.display()))
+    })?;
+    let thumbnail = path.with_extension("png");
+    if let Err(error) = fs::remove_file(&thumbnail) {
+        if error.kind() != std::io::ErrorKind::NotFound {
+            return Err(SaveIoError::Write(format!(
+                "delete {} failed: {error}",
+                thumbnail.display()
+            )));
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

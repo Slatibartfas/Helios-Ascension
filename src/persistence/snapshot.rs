@@ -45,7 +45,7 @@ use super::migrate::{Body, SchemaKind};
 /// round-trip" (the load still succeeds; entities come back without
 /// mesh / material refs, just like the deny-only fix did). New saves
 /// always include the sidecar.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SaveFile {
     pub metadata: SaveMetadata,
     pub body: Body,
@@ -57,12 +57,34 @@ pub struct SaveFile {
     pub handles: Option<HandleSidecar>,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct SavePreview {
+    #[serde(default)]
+    pub current_date: String,
+    #[serde(default)]
+    pub colony_count: u32,
+    #[serde(default)]
+    pub total_population: f64,
+    #[serde(default)]
+    pub ship_count: u32,
+    #[serde(default)]
+    pub power_produced_watts: f64,
+    #[serde(default)]
+    pub kardashev_value: f64,
+    #[serde(default)]
+    pub resources: Vec<(String, f64)>,
+    #[serde(default)]
+    pub kardashev_history: Vec<(f64, f64)>,
+    #[serde(default)]
+    pub screenshot_file: Option<String>,
+}
+
 /// Player-visible header stored at the top of every save.
 ///
 /// Fields are intentionally narrow and stable: GRA-311's menu reads this
 /// struct to populate the Load Game list. Bumping the schema here is
 /// exactly what the format-version + migrator chain exists to handle.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SaveMetadata {
     /// Format version. Must equal [`FORMAT_VERSION`] on write.
     /// On read, the value is checked by the loader.
@@ -80,6 +102,9 @@ pub struct SaveMetadata {
     /// Helios version (Cargo package version) that produced the save.
     /// For humans reading a bug report — the loader does not gate on this.
     pub helios_version: String,
+    /// Rich menu-only campaign preview. Default keeps older saves loadable.
+    #[serde(default)]
+    pub preview: SavePreview,
 }
 
 impl SaveMetadata {
@@ -99,6 +124,7 @@ impl SaveMetadata {
             playtime_s,
             seed,
             helios_version: helios_version.into(),
+            preview: SavePreview::default(),
         }
     }
 }
@@ -519,6 +545,26 @@ fn configure_builder<'a>(
         .deny_resource::<bevy_time::Time<bevy_time::Virtual>>()
         .deny_resource::<bevy_time::Time<bevy_time::Fixed>>()
         .deny_resource::<bevy_time::TimeUpdateStrategy>()
+        // `bevy_audio` resources inserted by `AudioPlugin::build`
+        // (`bevy_audio-0.18.0/src/lib.rs:82-84`). Both `GlobalVolume`
+        // and `DefaultSpatialScale` derive `Reflect` but Bevy 0.18's
+        // `AudioPlugin` never calls `register_type::<…>()` for them,
+        // so writing them into the snapshot lands a type into the
+        // RON body that the loader's `TypeRegistrationDeserializer`
+        // cannot resolve. On load, Bevy returns `Error::custom("no
+        // registration found for `bevy_audio::audio::DefaultSpatialScale`")`,
+        // `SceneDeserializer::deserialize` short-circuits, and
+        // `restore_world` returns `Err(RestoreError::Scene(...))` —
+        // so the Continue / Load-Game click leaves the player on
+        // the launch menu with a `restore_failed` toast instead of a
+        // restored world. Audio volume + spatial scale have no
+        // meaningful save-time value (Helios's `MusicPlugin` re-seeds
+        // both on next launch via `start_playlist` and the
+        // `playback_settings` overrides per `AudioPlayer`), so deny
+        // both — same rationale as the a11y / winit / time denylist
+        // above. See `snapshot_skips_audio_resources` below.
+        .deny_resource::<bevy::audio::GlobalVolume>()
+        .deny_resource::<bevy::audio::DefaultSpatialScale>()
         .extract_resources()
 }
 
@@ -674,6 +720,51 @@ mod tests {
             .expect("snapshot must skip winit resources");
         assert!(!ron.contains("WinitSettings"));
         assert!(!ron.contains("WinitMonitors"));
+    }
+
+    #[test]
+    fn snapshot_skips_audio_resources() {
+        // Regression test for the in-game restore failure: Bevy
+        // 0.18's `AudioPlugin::build`
+        // (`bevy_audio-0.18.0/src/lib.rs:82-84`) inserts both
+        // `GlobalVolume` and `DefaultSpatialScale` as `Resource`s
+        // with `#[derive(Reflect)]`, but never calls
+        // `register_type::<…>()` on either. Without the
+        // `deny_resource` chain in `configure_builder`, both land in
+        // the snapshot RON — fine on the write path, fatal on the
+        // load path: `TypeRegistrationDeserializer::visit_str` in
+        // `bevy_reflect` returns
+        // `Error::custom("no registration found for
+        // `bevy_audio::audio::DefaultSpatialScale`")`, the `?` in
+        // `restore_world` propagates it as
+        // `Err(RestoreError::Scene(...))`, and the kickoff logs
+        // `WARN helios_ascension::ui::launch::subview_kickoff:
+        // kickoff: restore_save failed: save restore failed:
+        // scene deserialise failed: no registration found for
+        // `bevy_audio::audio::DefaultSpatialScale``. The save file
+        // on disk stays intact and the player is left on the
+        // launch menu.
+        //
+        // The fix is to deny both resources from the scene blob.
+        // This test ensures the denylist never silently regresses:
+        // the snapshot must succeed even when an `AudioPlugin`-like
+        // world holds both resources, and neither type may appear
+        // in the resulting RON.
+        let mut world = World::new();
+        world.init_resource::<AppTypeRegistry>();
+        // Mirror what `AudioPlugin::default()` inserts at startup.
+        world.insert_resource(bevy::audio::GlobalVolume::default());
+        world.insert_resource(bevy::audio::DefaultSpatialScale::default());
+        let ron = snapshot_world(&world, SaveMetadata::new_now(0, 0, "test"))
+            .expect("snapshot must skip bevy_audio resources");
+        assert!(
+            !ron.contains("GlobalVolume"),
+            "denylist failed — GlobalVolume serialised into save: {ron}"
+        );
+        assert!(
+            !ron.contains("DefaultSpatialScale"),
+            "denylist failed — DefaultSpatialScale serialised into save: {ron}"
+        );
     }
 
     #[test]

@@ -52,7 +52,7 @@ use bevy_egui::EguiPrimaryContextPass;
 use std::path::PathBuf;
 
 pub use manifest::{load_launch_ui_manifest, LaunchUiManifest};
-pub use menu::main_menu_render_system;
+pub use menu::{main_menu_render_system, render_glass_button};
 pub use menu_backdrop::{
     MenuBackdropActive, MenuBackdropKind, MenuBackdropMarker, MenuBackdropPlugin,
 };
@@ -60,6 +60,7 @@ pub use save_index::{SaveHeader, SaveIndex, SaveIndexState, SaveSummary, SAVES_S
 // Splash types re-exported so callers can `use crate::ui::launch::SplashPlugin`
 // without reaching into `splash::*` directly.
 pub use splash::{SplashContextPass, SplashImageData, SplashPlugin, SplashTimer};
+pub use subview_load_game::PendingInGameLoadRequest;
 pub use subview_manifests::{load_difficulty_presets_manifest, load_seed_copy_manifest};
 pub use subview_save_game::{
     consume_in_game_save_request_system, consume_save_actions_system, register_save_panel_subview,

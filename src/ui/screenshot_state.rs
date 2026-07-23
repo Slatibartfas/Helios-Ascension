@@ -53,6 +53,15 @@ impl ScreenshotSlots {
     }
 }
 
+/// Save-thumbnail staging state. The in-game frame is captured before the
+/// Save panel opens, then moved to the chosen save-slot path after writing.
+#[derive(Resource, Debug, Default)]
+pub struct PendingSaveThumbnail {
+    pub staging_path: Option<PathBuf>,
+    pub final_path: Option<PathBuf>,
+    pub capture_started: bool,
+}
+
 /// One enqueued capture request. The pump pops from `queue`, parks the
 /// request in `inflight`, and waits a fixed number of frames for the
 /// Bevy 0.18 render-thread observer to write the PNG.

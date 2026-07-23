@@ -127,6 +127,7 @@ The v0.4.0 building & logistics overhaul shipped — **52 building types** with 
   - Fleet Panel: Full fleet management — spawn fleets, select transfer options, **porkchop plot planner**, gravity assists, **Lagrange-point routing (L1–L5 + star-approach parking-radius picker)**, refuel, abort maneuvers, and **assign a fleet to a resource request**
   - Shipbuilding Panel: Native Bevy workspace for hull design, engineering-linked component selection, construction queueing, archive review, and **freighter template selection**
   - **Notifications overlay**: top-right toast panel + dedicated settings modal
+  - **Save / Load Panels**: named save slots with overwrite confirmation, in-game map thumbnails, campaign statistics and resources, Kardashev history preview, explicit Load confirmation, and save deletion; Back returns to the menu or running game that opened the panel
   - **Personnel Panel** (UI pending; data layer shipped): scientist roster, analysis-queue assignment, seniority & specialty filters
 
 - **Time Control**: Variable simulation speed (1 day/s to 1 year/s)
