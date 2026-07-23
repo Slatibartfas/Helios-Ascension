@@ -643,6 +643,41 @@ fn configure_builder<'a>(
         // `snapshot_skips_bevy_gizmos_config_store_resource`
         // below.
         .deny_resource::<bevy::gizmos::config::GizmoConfigStore>()
+        // `bevy_input` resources (`InputPlugin::build`,
+        // `bevy_input-0.18.0/src/lib.rs:114-162`) — five
+        // reflect-derived runtime input accumulators that Bevy
+        // `init_resource`s without ever `register_type`-ing them
+        // (`grep register_type bevy_input-0.18.0/src/` returns
+        // zero matches). Each reflect derive is gated on
+        // `#[cfg_attr(feature = "bevy_reflect", ...)]`, but
+        // `bevy_internal-0.18.0/Cargo.toml:567-571` compiles
+        // `bevy_input` with `features = ["bevy_reflect"]`
+        // unconditionally for the umbrella re-export, so all
+        // five derive `Reflect` in our build.
+        //
+        // Player-visible symptom at 2026-07-23T21:10Z:
+        // `kickoff: restore_save failed: save restore failed:
+        // scene deserialise failed: no registration found for
+        // `bevy_input::mouse::AccumulatedMouseMotion``.
+        //
+        // All five are per-frame runtime state with no
+        // save-time meaning — `ButtonInput<T>` resets every
+        // frame (`button_input.rs:115-140`), the mouse / scroll
+        // accumulators reset every frame (`mouse.rs:201-228`),
+        // and the freshly-launched app starts from `Default`
+        // anyway. Ditch them all and let Bevy re-derive at
+        // next launch. The sixth resource the plugin installs,
+        // `bevy_input::touch::Touches` (`touch.rs:246-260`),
+        // only `derive(Debug, Clone, Default, Resource)`
+        // without `Reflect`, so `extract_resources` skips it
+        // automatically — no deny needed.
+        //
+        // See `snapshot_skips_bevy_input_resources` below.
+        .deny_resource::<bevy::input::ButtonInput<bevy::input::keyboard::KeyCode>>()
+        .deny_resource::<bevy::input::ButtonInput<bevy::input::keyboard::Key>>()
+        .deny_resource::<bevy::input::ButtonInput<bevy::input::mouse::MouseButton>>()
+        .deny_resource::<bevy::input::mouse::AccumulatedMouseMotion>()
+        .deny_resource::<bevy::input::mouse::AccumulatedMouseScroll>()
         .extract_resources()
 }
 
@@ -935,6 +970,73 @@ mod tests {
         assert!(
             !ron.contains("GizmoConfigStore"),
             "denylist failed — GizmoConfigStore serialised into save: {ron}"
+        );
+    }
+
+    #[test]
+    fn snapshot_skips_bevy_input_resources() {
+        // Regression test for the in-game restore failure from
+        // 2026-07-23T21:10Z: every Load click short-circuited
+        // with `no registration found for
+        // `bevy_input::mouse::AccumulatedMouseMotion``.
+        //
+        // `bevy_input-0.18.0/src/lib.rs:114-162` `init_resource`s
+        // six Resources from `InputPlugin::build`:
+        // `ButtonInput<KeyCode>`, `ButtonInput<Key>`,
+        // `AccumulatedMouseMotion`, `AccumulatedMouseScroll`,
+        // `ButtonInput<MouseButton>`, and `Touches`. Five of
+        // them are `#[cfg_attr(feature = "bevy_reflect",
+        // derive(Reflect), reflect(... Resource ...))]` —
+        // and `bevy_internal-0.18.0/Cargo.toml:567-571`
+        // compiles `bevy_input` with `features =
+        // ["bevy_reflect"]` unconditionally for the umbrella
+        // re-export, so the derives are active in our build.
+        // `bevy_input` makes zero `register_type::<…>()` calls,
+        // so all five leak into the snapshot and break the
+        // loader the moment Bevy tries to resolve a type path
+        // it can't find. The sixth (`Touches`,
+        // `touch.rs:246-260`) only `derive(Resource, Debug,
+        // Clone, Default)` without `Reflect`, so Bevy's
+        // `extract_resources` skips it automatically.
+        //
+        // This test mirrors the audio / camera / gizmos
+        // pattern: insert all five reflect-derived input
+        // resources the way `InputPlugin::build` does, run
+        // `snapshot_world`, and confirm none of their type
+        // paths survive into the saved RON. The asserts check
+        // generic-name presence (`ButtonInput`,
+        // `AccumulatedMouseMotion`, `AccumulatedMouseScroll`)
+        // rather than the fully-qualified path because Bevy's
+        // RON serializer shortens type paths.
+        let mut world = World::new();
+        world.init_resource::<AppTypeRegistry>();
+        // Mirror what `InputPlugin::build` does.
+        world.init_resource::<bevy::input::ButtonInput<bevy::input::keyboard::KeyCode>>();
+        world.init_resource::<bevy::input::ButtonInput<bevy::input::keyboard::Key>>();
+        world.init_resource::<bevy::input::ButtonInput<bevy::input::mouse::MouseButton>>();
+        world.init_resource::<bevy::input::mouse::AccumulatedMouseMotion>();
+        world.init_resource::<bevy::input::mouse::AccumulatedMouseScroll>();
+        let ron = snapshot_world(&world, SaveMetadata::new_now(0, 0, "test"))
+            .expect("snapshot must skip bevy_input resources");
+        // Generic + concrete names. Any of these leaking into
+        // the save means the denylist regressed.
+        for needle in [
+            "ButtonInput",
+            "AccumulatedMouseMotion",
+            "AccumulatedMouseScroll",
+        ] {
+            assert!(
+                !ron.contains(needle),
+                "denylist failed — {needle} serialised into save: {ron}"
+            );
+        }
+        // Sanity check the `KeyCode` enum specifically (the
+        // generic-name check above already covers it, but
+        // exercise the monomorphisation that Bevy would try to
+        // round-trip on the load path).
+        assert!(
+            !ron.contains("KeyCode"),
+            "denylist failed — KeyCode serialised into save: {ron}"
         );
     }
 
