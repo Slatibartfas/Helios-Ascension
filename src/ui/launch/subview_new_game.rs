@@ -213,301 +213,301 @@ pub fn ui_new_game_subview(
     egui::CentralPanel::default()
         .frame(theme::menu_transparent_frame())
         .show(ctx, |ui| {
-        ui.vertical_centered(|ui| {
-            ui.add_space(theme::Spacing::xl);
-            ui.label(
-                egui::RichText::new(&seed_copy.new_game_subview.title)
-                    .font(theme::title())
-                    .color(theme::ACCENT)
-                    .size(28.0),
-            );
-            ui.add_space(theme::Spacing::lg);
-        });
-
-        egui::Frame::group(ui.style())
-            .inner_margin(egui::Margin::same(theme::Spacing::lg as i8))
-            .show(ui, |ui| {
-                // ── Difficulty preset selector ─────────────────
+            ui.vertical_centered(|ui| {
+                ui.add_space(theme::Spacing::xl);
                 ui.label(
-                    egui::RichText::new(&seed_copy.new_game_subview.preset_section_label)
+                    egui::RichText::new(&seed_copy.new_game_subview.title)
+                        .font(theme::title())
                         .color(theme::ACCENT)
-                        .strong(),
+                        .size(28.0),
                 );
-                ui.add_space(theme::Spacing::xs);
-
-                for preset in presets.presets.iter() {
-                    let is_active = preset.id == active_id;
-                    let response = ui.selectable_label(is_active, &preset.display_name);
-                    if response.clicked() {
-                        subview_state.selected_preset_id = Some(preset.id.clone());
-                        // Reset seed-related state when preset
-                        // changes — different strategies surface
-                        // different seed UX.
-                        subview_state.seed_input.clear();
-                        subview_state.parsed_seed = None;
-                        subview_state.seed_error = None;
-                        subview_state.curated_seed_index = None;
-                    }
-                }
-
-                ui.add_space(theme::Spacing::md);
-
-                if let Some(preset) = active_preset.as_ref() {
-                    ui.label(
-                        egui::RichText::new(&preset.description)
-                            .color(theme::TEXT_DIM)
-                            .size(11.0),
-                    );
-                }
-
                 ui.add_space(theme::Spacing::lg);
+            });
 
-                // ── Seed entry (UserInput / CuratedList) ───────
-                let show_seed_field = active_preset
-                    .as_ref()
-                    .map(|p| p.wants_user_input_seed() || p.wants_curated_seed())
-                    .unwrap_or(true);
-
-                if show_seed_field {
+            egui::Frame::group(ui.style())
+                .inner_margin(egui::Margin::same(theme::Spacing::lg as i8))
+                .show(ui, |ui| {
+                    // ── Difficulty preset selector ─────────────────
                     ui.label(
-                        egui::RichText::new(&seed_copy.new_game_subview.seed_section_label)
+                        egui::RichText::new(&seed_copy.new_game_subview.preset_section_label)
                             .color(theme::ACCENT)
                             .strong(),
                     );
                     ui.add_space(theme::Spacing::xs);
 
-                    // CuratedList path — preset picks from the LGD
-                    // curated table. We render chips but still allow
-                    // free input (UserInput override).
+                    for preset in presets.presets.iter() {
+                        let is_active = preset.id == active_id;
+                        let response = ui.selectable_label(is_active, &preset.display_name);
+                        if response.clicked() {
+                            subview_state.selected_preset_id = Some(preset.id.clone());
+                            // Reset seed-related state when preset
+                            // changes — different strategies surface
+                            // different seed UX.
+                            subview_state.seed_input.clear();
+                            subview_state.parsed_seed = None;
+                            subview_state.seed_error = None;
+                            subview_state.curated_seed_index = None;
+                        }
+                    }
+
+                    ui.add_space(theme::Spacing::md);
+
                     if let Some(preset) = active_preset.as_ref() {
-                        if preset.wants_curated_seed() {
-                            ui.horizontal_wrapped(|ui| {
-                                for (idx, seed) in presets.curated_seeds.iter().enumerate() {
-                                    let label = format!("#{}", idx + 1);
-                                    let selected = subview_state.curated_seed_index == Some(idx);
-                                    if ui.selectable_label(selected, label).clicked() {
-                                        subview_state.curated_seed_index = Some(idx);
-                                        subview_state.parsed_seed = Some(*seed);
-                                        subview_state.seed_input.clear();
-                                        subview_state.seed_error = None;
-                                    }
-                                }
-                            });
-                            ui.add_space(theme::Spacing::xs);
-                        }
+                        ui.label(
+                            egui::RichText::new(&preset.description)
+                                .color(theme::TEXT_DIM)
+                                .size(11.0),
+                        );
                     }
 
-                    let response = ui.add(
-                        egui::TextEdit::singleline(&mut subview_state.seed_input)
-                            .hint_text(&seed_copy.seed.placeholder)
-                            .desired_width(260.0),
-                    );
-                    // Re-parse on every change. Selection of a
-                    // curated chip clears the input so the two
-                    // paths don't fight each other.
-                    if response.changed() {
-                        subview_state.curated_seed_index = None;
-                        let (parsed, err_key) =
-                            parse_seed_input(&subview_state.seed_input, seed_copy.seed.max_length);
-                        subview_state.parsed_seed = parsed;
-                        subview_state.seed_error = err_key.map(|key| match key.as_str() {
-                            "invalid_characters" => {
-                                seed_copy.seed.errors.invalid_characters.clone()
-                            }
-                            "zero" => seed_copy.seed.errors.zero.clone(),
-                            "too_long" => seed_copy.seed.errors.too_long.clone(),
-                            _ => seed_copy.seed.errors.out_of_range.clone(),
-                        });
-                    }
+                    ui.add_space(theme::Spacing::lg);
 
-                    ui.label(
-                        egui::RichText::new(&seed_copy.seed.helper_text)
-                            .color(theme::TEXT_HINT)
-                            .size(11.0),
-                    );
+                    // ── Seed entry (UserInput / CuratedList) ───────
+                    let show_seed_field = active_preset
+                        .as_ref()
+                        .map(|p| p.wants_user_input_seed() || p.wants_curated_seed())
+                        .unwrap_or(true);
 
-                    if let Some(err) = subview_state.seed_error.as_ref() {
-                        ui.label(egui::RichText::new(err).color(theme::RED).size(11.0));
-                    } else if let Some(parsed) = subview_state.parsed_seed {
-                        let sublabel = seed_copy
-                            .seed
-                            .parsed_sublabel_template
-                            .replace("{value}", &parsed.to_string());
-                        ui.label(egui::RichText::new(sublabel).color(theme::GREEN).size(11.0));
-                    }
-                }
-
-                ui.add_space(theme::Spacing::xl);
-
-                // ── Procedural-gen parameter controls (GRA-358 PR-A) ──
-                //
-                // The subview exposes the four new-game knobs:
-                // - star_count: a slider clamped to the loader-side
-                //   soft ceiling (`params_defaults.max_star_count`).
-                //   Falls back to 1000 when the defaults are missing
-                //   (the file failed to load) — matches the
-                //   `NewGameParamsDefaults::default()` validation
-                //   behaviour and keeps the slider usable.
-                // - ai_faction_count: a slider clamped to
-                //   `NewGameParamsDefaults::MAX_AI_FACTION_COUNT` (8).
-                // - artifacts_enabled: a checkbox.
-                // - starting_tech_tier: a dropdown matching the tier
-                //   bounds in `NewGameParamsDefaults`.
-                // - game_speed_initial: a dropdown matching
-                //   `NewGameParamsDefaults::TIME_SCALE_PRESETS`.
-                //
-                // Every control writes directly into
-                // `subview_state.params` so the `begin_clicked`
-                // path below can pass the live values to
-                // `NewGameRequest::params` without a second copy.
-                ui.label(
-                    egui::RichText::new("World parameters")
-                        .color(theme::ACCENT)
-                        .strong(),
-                );
-                ui.add_space(theme::Spacing::xs);
-
-                let max_stars = if params_defaults.max_star_count == 0 {
-                    1000
-                } else {
-                    params_defaults.max_star_count
-                };
-                let mut star_count = subview_state.params.star_count.min(max_stars).max(1);
-                let star_slider = egui::Slider::new(&mut star_count, 1..=max_stars)
-                    .text(format!("Star systems (max {max_stars})"))
-                    .clamping(egui::SliderClamping::Always);
-                ui.add(star_slider);
-                subview_state.params.star_count = star_count;
-
-                ui.add_space(theme::Spacing::xs);
-
-                let max_ai = NewGameParamsDefaults::MAX_AI_FACTION_COUNT;
-                let mut ai_count = subview_state.params.ai_faction_count.min(max_ai);
-                let ai_slider = egui::Slider::new(&mut ai_count, 0..=max_ai)
-                    .text(format!("AI factions (0..={max_ai})"))
-                    .clamping(egui::SliderClamping::Always);
-                ui.add(ai_slider);
-                subview_state.params.ai_faction_count = ai_count;
-
-                ui.add_space(theme::Spacing::xs);
-
-                let mut artifacts = subview_state.params.artifacts_enabled;
-                ui.checkbox(&mut artifacts, "Enable precursor artifacts");
-                subview_state.params.artifacts_enabled = artifacts;
-
-                ui.add_space(theme::Spacing::xs);
-
-                let min_tier = NewGameParamsDefaults::MIN_STARTING_TECH_TIER;
-                let max_tier = NewGameParamsDefaults::MAX_STARTING_TECH_TIER;
-                let mut tier = subview_state
-                    .params
-                    .starting_tech_tier
-                    .clamp(min_tier, max_tier);
-                egui::ComboBox::from_label("Starting tech tier")
-                    .selected_text(format!("Tier {tier}"))
-                    .show_ui(ui, |ui| {
-                        for t in min_tier..=max_tier {
-                            ui.selectable_value(&mut tier, t, format!("Tier {t}"));
-                        }
-                    });
-                subview_state.params.starting_tech_tier = tier;
-
-                ui.add_space(theme::Spacing::xs);
-
-                let presets_speed = NewGameParamsDefaults::TIME_SCALE_PRESETS;
-                let current_idx = subview_state
-                    .game_speed_preset_index
-                    .unwrap_or(0)
-                    .min(presets_speed.len().saturating_sub(1));
-                let mut selected_idx = current_idx;
-                let label = presets_speed
-                    .get(current_idx)
-                    .map(|(name, _)| (*name).to_string())
-                    .unwrap_or_else(|| "Paused".to_string());
-                egui::ComboBox::from_label("Initial game speed")
-                    .selected_text(label)
-                    .show_ui(ui, |ui| {
-                        for (idx, (name, scale)) in presets_speed.iter().enumerate() {
-                            ui.selectable_value(&mut selected_idx, idx, *name);
-                            // `selected_idx` only changes when the
-                            // user clicks a row; the `*scale` here
-                            // documents the preset table for
-                            // reviewers and helps Kilo flag any
-                            // off-by-one mismatch.
-                            let _ = scale;
-                        }
-                    });
-                if selected_idx != current_idx {
-                    subview_state.game_speed_preset_index = Some(selected_idx);
-                    if let Some((_, scale)) = presets_speed.get(selected_idx) {
-                        subview_state.params.game_speed_initial = *scale;
-                    }
-                }
-
-                ui.add_space(theme::Spacing::xl);
-
-                // ── Action row ────────────────────────────────
-                let mut begin_clicked = false;
-                let mut back_clicked = false;
-                let can_begin = begin_enabled(&subview_state, &presets, &manifest);
-
-                ui.horizontal(|ui| {
-                    if ui
-                        .button(
-                            egui::RichText::new(&seed_copy.new_game_subview.back_button_label)
-                                .color(theme::TEXT_DIM),
-                        )
-                        .clicked()
-                    {
-                        back_clicked = true;
-                    }
-
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        let begin_label = &seed_copy.new_game_subview.start_button_label;
-                        let mut btn = egui::Button::new(
-                            egui::RichText::new(begin_label)
-                                .color(theme::BG_SOLID)
+                    if show_seed_field {
+                        ui.label(
+                            egui::RichText::new(&seed_copy.new_game_subview.seed_section_label)
+                                .color(theme::ACCENT)
                                 .strong(),
                         );
-                        if !can_begin {
-                            btn = btn.fill(theme::SURFACE_INPUT);
-                        }
-                        if ui.add_enabled(can_begin, btn).clicked() {
-                            begin_clicked = true;
-                        }
-                    });
-                });
+                        ui.add_space(theme::Spacing::xs);
 
-                // ── Post-click state writes ─────────────────────
-                // Mutating resources from inside the `egui::Ui`
-                // closure would conflict with the `ResMut` borrows
-                // already taken for the render; flip flags inside
-                // the closure and write resources after it returns.
-                if back_clicked {
-                    actions.start_new_game = None;
-                    *launch_state = LaunchState::MainMenu;
-                }
-                if begin_clicked {
-                    let preset_id = subview_state
-                        .selected_preset_id
-                        .clone()
-                        .unwrap_or_else(|| manifest.default_preset_id.clone());
-                    // Random preset + empty field → let the kickoff
-                    // system auto-roll. We use 0 as a sentinel
-                    // meaning "auto"; the kickoff rewrites it.
-                    let seed = subview_state.parsed_seed.unwrap_or(0);
-                    // Use the live `subview_state.params` rather than
-                    // re-reading the defaults — the player has just
-                    // touched sliders / checkboxes and we want
-                    // exactly those values.
-                    actions.start_new_game = Some(NewGameRequest {
-                        params: subview_state.params.clone(),
-                        seed,
-                        preset: preset_id,
+                        // CuratedList path — preset picks from the LGD
+                        // curated table. We render chips but still allow
+                        // free input (UserInput override).
+                        if let Some(preset) = active_preset.as_ref() {
+                            if preset.wants_curated_seed() {
+                                ui.horizontal_wrapped(|ui| {
+                                    for (idx, seed) in presets.curated_seeds.iter().enumerate() {
+                                        let label = format!("#{}", idx + 1);
+                                        let selected = subview_state.curated_seed_index == Some(idx);
+                                        if ui.selectable_label(selected, label).clicked() {
+                                            subview_state.curated_seed_index = Some(idx);
+                                            subview_state.parsed_seed = Some(*seed);
+                                            subview_state.seed_input.clear();
+                                            subview_state.seed_error = None;
+                                        }
+                                    }
+                                });
+                                ui.add_space(theme::Spacing::xs);
+                            }
+                        }
+
+                        let response = ui.add(
+                            egui::TextEdit::singleline(&mut subview_state.seed_input)
+                                .hint_text(&seed_copy.seed.placeholder)
+                                .desired_width(260.0),
+                        );
+                        // Re-parse on every change. Selection of a
+                        // curated chip clears the input so the two
+                        // paths don't fight each other.
+                        if response.changed() {
+                            subview_state.curated_seed_index = None;
+                            let (parsed, err_key) =
+                                parse_seed_input(&subview_state.seed_input, seed_copy.seed.max_length);
+                            subview_state.parsed_seed = parsed;
+                            subview_state.seed_error = err_key.map(|key| match key.as_str() {
+                                "invalid_characters" => {
+                                    seed_copy.seed.errors.invalid_characters.clone()
+                                }
+                                "zero" => seed_copy.seed.errors.zero.clone(),
+                                "too_long" => seed_copy.seed.errors.too_long.clone(),
+                                _ => seed_copy.seed.errors.out_of_range.clone(),
+                            });
+                        }
+
+                        ui.label(
+                            egui::RichText::new(&seed_copy.seed.helper_text)
+                                .color(theme::TEXT_HINT)
+                                .size(11.0),
+                        );
+
+                        if let Some(err) = subview_state.seed_error.as_ref() {
+                            ui.label(egui::RichText::new(err).color(theme::RED).size(11.0));
+                        } else if let Some(parsed) = subview_state.parsed_seed {
+                            let sublabel = seed_copy
+                                .seed
+                                .parsed_sublabel_template
+                                .replace("{value}", &parsed.to_string());
+                            ui.label(egui::RichText::new(sublabel).color(theme::GREEN).size(11.0));
+                        }
+                    }
+
+                    ui.add_space(theme::Spacing::xl);
+
+                    // ── Procedural-gen parameter controls (GRA-358 PR-A) ──
+                    //
+                    // The subview exposes the four new-game knobs:
+                    // - star_count: a slider clamped to the loader-side
+                    //   soft ceiling (`params_defaults.max_star_count`).
+                    //   Falls back to 1000 when the defaults are missing
+                    //   (the file failed to load) — matches the
+                    //   `NewGameParamsDefaults::default()` validation
+                    //   behaviour and keeps the slider usable.
+                    // - ai_faction_count: a slider clamped to
+                    //   `NewGameParamsDefaults::MAX_AI_FACTION_COUNT` (8).
+                    // - artifacts_enabled: a checkbox.
+                    // - starting_tech_tier: a dropdown matching the tier
+                    //   bounds in `NewGameParamsDefaults`.
+                    // - game_speed_initial: a dropdown matching
+                    //   `NewGameParamsDefaults::TIME_SCALE_PRESETS`.
+                    //
+                    // Every control writes directly into
+                    // `subview_state.params` so the `begin_clicked`
+                    // path below can pass the live values to
+                    // `NewGameRequest::params` without a second copy.
+                    ui.label(
+                        egui::RichText::new("World parameters")
+                            .color(theme::ACCENT)
+                            .strong(),
+                    );
+                    ui.add_space(theme::Spacing::xs);
+
+                    let max_stars = if params_defaults.max_star_count == 0 {
+                        1000
+                    } else {
+                        params_defaults.max_star_count
+                    };
+                    let mut star_count = subview_state.params.star_count.min(max_stars).max(1);
+                    let star_slider = egui::Slider::new(&mut star_count, 1..=max_stars)
+                        .text(format!("Star systems (max {max_stars})"))
+                        .clamping(egui::SliderClamping::Always);
+                    ui.add(star_slider);
+                    subview_state.params.star_count = star_count;
+
+                    ui.add_space(theme::Spacing::xs);
+
+                    let max_ai = NewGameParamsDefaults::MAX_AI_FACTION_COUNT;
+                    let mut ai_count = subview_state.params.ai_faction_count.min(max_ai);
+                    let ai_slider = egui::Slider::new(&mut ai_count, 0..=max_ai)
+                        .text(format!("AI factions (0..={max_ai})"))
+                        .clamping(egui::SliderClamping::Always);
+                    ui.add(ai_slider);
+                    subview_state.params.ai_faction_count = ai_count;
+
+                    ui.add_space(theme::Spacing::xs);
+
+                    let mut artifacts = subview_state.params.artifacts_enabled;
+                    ui.checkbox(&mut artifacts, "Enable precursor artifacts");
+                    subview_state.params.artifacts_enabled = artifacts;
+
+                    ui.add_space(theme::Spacing::xs);
+
+                    let min_tier = NewGameParamsDefaults::MIN_STARTING_TECH_TIER;
+                    let max_tier = NewGameParamsDefaults::MAX_STARTING_TECH_TIER;
+                    let mut tier = subview_state
+                        .params
+                        .starting_tech_tier
+                        .clamp(min_tier, max_tier);
+                    egui::ComboBox::from_label("Starting tech tier")
+                        .selected_text(format!("Tier {tier}"))
+                        .show_ui(ui, |ui| {
+                            for t in min_tier..=max_tier {
+                                ui.selectable_value(&mut tier, t, format!("Tier {t}"));
+                            }
+                        });
+                    subview_state.params.starting_tech_tier = tier;
+
+                    ui.add_space(theme::Spacing::xs);
+
+                    let presets_speed = NewGameParamsDefaults::TIME_SCALE_PRESETS;
+                    let current_idx = subview_state
+                        .game_speed_preset_index
+                        .unwrap_or(0)
+                        .min(presets_speed.len().saturating_sub(1));
+                    let mut selected_idx = current_idx;
+                    let label = presets_speed
+                        .get(current_idx)
+                        .map(|(name, _)| (*name).to_string())
+                        .unwrap_or_else(|| "Paused".to_string());
+                    egui::ComboBox::from_label("Initial game speed")
+                        .selected_text(label)
+                        .show_ui(ui, |ui| {
+                            for (idx, (name, scale)) in presets_speed.iter().enumerate() {
+                                ui.selectable_value(&mut selected_idx, idx, *name);
+                                // `selected_idx` only changes when the
+                                // user clicks a row; the `*scale` here
+                                // documents the preset table for
+                                // reviewers and helps Kilo flag any
+                                // off-by-one mismatch.
+                                let _ = scale;
+                            }
+                        });
+                    if selected_idx != current_idx {
+                        subview_state.game_speed_preset_index = Some(selected_idx);
+                        if let Some((_, scale)) = presets_speed.get(selected_idx) {
+                            subview_state.params.game_speed_initial = *scale;
+                        }
+                    }
+
+                    ui.add_space(theme::Spacing::xl);
+
+                    // ── Action row ────────────────────────────────
+                    let mut begin_clicked = false;
+                    let mut back_clicked = false;
+                    let can_begin = begin_enabled(&subview_state, &presets, &manifest);
+
+                    ui.horizontal(|ui| {
+                        if ui
+                            .button(
+                                egui::RichText::new(&seed_copy.new_game_subview.back_button_label)
+                                    .color(theme::TEXT_DIM),
+                            )
+                            .clicked()
+                        {
+                            back_clicked = true;
+                        }
+
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            let begin_label = &seed_copy.new_game_subview.start_button_label;
+                            let mut btn = egui::Button::new(
+                                egui::RichText::new(begin_label)
+                                    .color(theme::BG_SOLID)
+                                    .strong(),
+                            );
+                            if !can_begin {
+                                btn = btn.fill(theme::SURFACE_INPUT);
+                            }
+                            if ui.add_enabled(can_begin, btn).clicked() {
+                                begin_clicked = true;
+                            }
+                        });
                     });
-                    *launch_state = LaunchState::InGame;
-                }
-            });
+
+                    // ── Post-click state writes ─────────────────────
+                    // Mutating resources from inside the `egui::Ui`
+                    // closure would conflict with the `ResMut` borrows
+                    // already taken for the render; flip flags inside
+                    // the closure and write resources after it returns.
+                    if back_clicked {
+                        actions.start_new_game = None;
+                        *launch_state = LaunchState::MainMenu;
+                    }
+                    if begin_clicked {
+                        let preset_id = subview_state
+                            .selected_preset_id
+                            .clone()
+                            .unwrap_or_else(|| manifest.default_preset_id.clone());
+                        // Random preset + empty field → let the kickoff
+                        // system auto-roll. We use 0 as a sentinel
+                        // meaning "auto"; the kickoff rewrites it.
+                        let seed = subview_state.parsed_seed.unwrap_or(0);
+                        // Use the live `subview_state.params` rather than
+                        // re-reading the defaults — the player has just
+                        // touched sliders / checkboxes and we want
+                        // exactly those values.
+                        actions.start_new_game = Some(NewGameRequest {
+                            params: subview_state.params.clone(),
+                            seed,
+                            preset: preset_id,
+                        });
+                        *launch_state = LaunchState::InGame;
+                    }
+                });
     });
 }
 
