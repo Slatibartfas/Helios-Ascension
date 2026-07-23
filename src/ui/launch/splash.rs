@@ -415,9 +415,6 @@ pub fn ui_splash_system(
 
     let still_loading = *boot_state == crate::boot_init::BootState::Loading;
 
-    // Transparent overlay so the logo sprite shows through; we only paint
-    // the "Loading…" label near the bottom while boot-init is running.
-    //
     // CRITICAL: `Frame::NONE` (NOT `Frame::default()`) — a default
     // frame paints an opaque dark background, which would cover the
     // Bevy `Sprite` (the logo) and produce a solid-black splash even
