@@ -565,6 +565,43 @@ fn configure_builder<'a>(
         // above. See `snapshot_skips_audio_resources` below.
         .deny_resource::<bevy::audio::GlobalVolume>()
         .deny_resource::<bevy::audio::DefaultSpatialScale>()
+        // `bevy_camera::ClearColor` (defined in
+        // `bevy_camera-0.18.0/src/clear_color.rs:53`, re-exported
+        // via `pub use clear_color::*;` in the camera crate root
+        // `lib.rs:11`) is the only reflect-derived `Resource` that
+        // `bevy_camera`'s plugin chain inserts via
+        // `init_resource` without registering it
+        // (`bevy_camera-0.18.0/src/lib.rs:22`). The other
+        // resources the camera plugin installs —
+        // `visibility::ManualMark`, `visibility::ObservedChanged`,
+        // and `visibility::range::VisibleEntityRanges`
+        // (`visibility/mod.rs:1083-1084`,
+        // `visibility/range.rs:33`) — only `derive(Resource,
+        // Default)` and don't carry `Reflect`, so Bevy's
+        // `DynamicSceneBuilder::extract_resources` skips them
+        // automatically. `ClearColor` is different: its
+        // definition is `#[derive(Resource, Clone, Debug, Deref,
+        // DerefMut, Reflect)]`, so the snapshot picks it up and
+        // writes `bevy_camera::clear_color::ClearColor` into the
+        // save's resource list. Loading a save then short-circuits
+        // in `TypeRegistrationDeserializer::visit_str`
+        // (`bevy_reflect-0.18.0/src/serde/de/registrations.rs:45`)
+        // with `Error::custom("no registration found for
+        // `bevy_camera::clear_color::ClearColor`")`, `?`
+        // propagates out of `SceneDeserializer::deserialize`,
+        // and `restore_world` returns `Err(RestoreError::Scene(
+        // ...))`. Symptom from the player session of
+        // 2026-07-23T20:14Z: `kickoff: restore_save failed: save
+        // restore failed: scene deserialise failed: no
+        // registration found for `bevy_camera::clear_color::
+        // ClearColor``.
+        //
+        // `ClearColor` is the camera's per-frame clear colour —
+        // a window-level runtime tunable, not gameplay state. It
+        // should reset to its default (`Color::BLACK`) on every
+        // launch, so deny it from the scene blob. See
+        // `snapshot_skips_bevy_camera_clear_color_resource` below.
+        .deny_resource::<bevy_camera::ClearColor>()
         .extract_resources()
 }
 
@@ -764,6 +801,46 @@ mod tests {
         assert!(
             !ron.contains("DefaultSpatialScale"),
             "denylist failed — DefaultSpatialScale serialised into save: {ron}"
+        );
+    }
+
+    #[test]
+    fn snapshot_skips_bevy_camera_clear_color_resource() {
+        // Regression test for the in-game restore failure from
+        // 2026-07-23T20:14Z: loading a save short-circuited with
+        // `no registration found for `bevy_camera::clear_color::
+        // ClearColor``. `bevy_camera`'s plugin chain (built by
+        // `bevy_camera-0.18.0/src/lib.rs:22`) installs
+        // `bevy_camera::ClearColor` via `init_resource` but never
+        // calls `register_type::<ClearColor>()`, even though the
+        // resource itself is `#[derive(Resource, Clone, Debug,
+        // Deref, DerefMut, Reflect)]` (`clear_color.rs:53`). The
+        // sibling camera resources (`ManualMark`,
+        // `ObservedChanged`, `VisibleEntityRanges`) are
+        // `#[derive(Resource, Default)]` without `Reflect`, so
+        // `DynamicSceneBuilder::extract_resources` skips them
+        // automatically — only `ClearColor` reaches the snapshot.
+        //
+        // The fix is a `deny_resource::<bevy_camera::ClearColor>()`
+        // next to the audio / a11y / winit / time denylist, same
+        // rationale: clear colour is a window-level runtime
+        // tunable (default `Color::BLACK`), not gameplay state,
+        // and should re-default on every launch.
+        //
+        // This test asserts the deny stays in place — any future
+        // revert that lets `ClearColor` reach the snapshot RON will
+        // fail here before the player sees another broken load.
+        let mut world = World::new();
+        world.init_resource::<AppTypeRegistry>();
+        // Mirror what `bevy_camera::CameraPlugin::build` inserts
+        // at startup. `ClearColor::default()` is `Color::BLACK`.
+        world.insert_resource(bevy_camera::ClearColor::default());
+        let ron = snapshot_world(&world, SaveMetadata::new_now(0, 0, "test"))
+            .expect("snapshot must skip bevy_camera::ClearColor resource");
+        // The RON type path that the loader couldn't resolve.
+        assert!(
+            !ron.contains("ClearColor"),
+            "denylist failed — ClearColor serialised into save: {ron}"
         );
     }
 
