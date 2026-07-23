@@ -398,20 +398,18 @@ fn render_glass_button(
         0.0
     };
     let pressed_t = if enabled {
-        ui.ctx()
-            .animate_bool_with_time(
-                response.id.with("pressed"),
-                response.is_pointer_button_down_on(),
-                0.08,
-            )
+        ui.ctx().animate_bool_with_time(
+            response.id.with("pressed"),
+            response.is_pointer_button_down_on(),
+            0.08,
+        )
     } else {
         0.0
     };
 
     // Expansion combines hover pop + pressed dip.
-    let expansion = (hover_t * MENU_HOVER_SCALE + pressed_t * MENU_HOVER_SCALE * 0.5)
-        * rect.height()
-        * 0.5;
+    let expansion =
+        (hover_t * MENU_HOVER_SCALE + pressed_t * MENU_HOVER_SCALE * 0.5) * rect.height() * 0.5;
     let painted_rect = rect.expand(expansion);
 
     // ── Painter on the foreground layer ─────────────────────────────
@@ -424,7 +422,11 @@ fn render_glass_button(
     if enabled {
         // ── Fill (lerp rest → hover colour) ─────────────────────────
         let fill = if hover_t > 0.0 {
-            lerp_color(theme::MENU_GLASS_FILL, theme::MENU_GLASS_HOVER_FILL, hover_t)
+            lerp_color(
+                theme::MENU_GLASS_FILL,
+                theme::MENU_GLASS_HOVER_FILL,
+                hover_t,
+            )
         } else {
             theme::MENU_GLASS_FILL
         };
@@ -468,7 +470,11 @@ fn render_glass_button(
         }
 
         // ── Label (centre-left) ─────────────────────────────────────
-        let label_color = if hover_t > 0.5 { theme::ACCENT } else { theme::TEXT };
+        let label_color = if hover_t > 0.5 {
+            theme::ACCENT
+        } else {
+            theme::TEXT
+        };
         let label_pos = egui::pos2(
             painted_rect.left() + theme::Spacing::lg + 4.0,
             painted_rect.center().y,
@@ -527,7 +533,9 @@ fn render_glass_button(
 fn lerp_color(a: egui::Color32, b: egui::Color32, t: f32) -> egui::Color32 {
     let t = t.clamp(0.0, 1.0);
     let blend = |x: u8, y: u8| -> u8 {
-        ((x as f32) + ((y as f32) - (x as f32)) * t).round().clamp(0.0, 255.0) as u8
+        ((x as f32) + ((y as f32) - (x as f32)) * t)
+            .round()
+            .clamp(0.0, 255.0) as u8
     };
     egui::Color32::from_rgba_unmultiplied(
         blend(a.r(), b.r()),

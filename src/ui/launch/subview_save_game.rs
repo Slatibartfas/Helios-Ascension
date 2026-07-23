@@ -255,7 +255,7 @@ pub fn ui_save_panel_subview(
                     back_clicked = true;
                 }
             });
-    });
+        });
 
     // ── Post-click state writes ─────────────────────────────
     // Mutate outside the egui closure to avoid `ResMut` borrows held

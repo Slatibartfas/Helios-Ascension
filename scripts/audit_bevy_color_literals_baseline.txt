@@ -62,9 +62,9 @@ src/fleets/visuals.rs:4895  let burn_color = Color::srgba(1.0, 0.75, 0.15, 0.95)
 src/fleets/visuals.rs:5158  Color::srgba(0.3, 1.0, 0.4, 0.80 - 0.35 * f)
 src/fleets/visuals.rs:5163  Color::srgba(1.0, 0.3, 0.8, 0.80 - 0.35 * f)
 src/fleets/visuals.rs:5168  let node_color = Color::srgba(1.0, 1.0, 0.3, 0.9);
-src/main.rs:187  color: Color::srgb(0.7, 0.75, 1.0), // Cool blue-white starlight tint
-src/main.rs:198  color: Color::srgb(0.6, 0.65, 0.8), // Slightly cool galactic tint
-src/main.rs:210  commands.insert_resource(ClearColor(Color::srgb(0.01, 0.01, 0.02)));
+src/main.rs:185  color: Color::srgb(0.7, 0.75, 1.0), // Cool blue-white starlight tint
+src/main.rs:196  color: Color::srgb(0.6, 0.65, 0.8), // Slightly cool galactic tint
+src/main.rs:208  commands.insert_resource(ClearColor(Color::srgb(0.01, 0.01, 0.02)));
 src/plugins/solar_system.rs:400  Color::srgb(
 src/plugins/solar_system.rs:409  Color::srgb(
 src/plugins/solar_system.rs:418  Color::srgb(
@@ -130,7 +130,7 @@ src/plugins/system_populator.rs:2045  OrbitPath::new(Color::srgba(0.25, 0.45, 0.
 src/plugins/system_populator.rs:2192  OrbitPath::with_fade(Color::srgba(0.3, 0.55, 0.22, 0.45), 5.0), // Dark green, steep fade — asteroids
 src/plugins/system_populator.rs:2307  OrbitPath::new(Color::srgba(1.0, 0.8, 0.3, 0.65)), // Yellow — comets
 src/plugins/system_populator.rs:2889  OrbitPath::new(Color::srgba(0.65, 0.65, 0.65, 0.5)), // Grey — moons
-src/ui/launch/menu_backdrop.rs:439  color: Color::srgb(1.0, 0.96, 0.88),
-src/ui/launch/menu_backdrop.rs:465  color: Color::srgb(0.55, 0.65, 0.85),
-src/ui/launch/menu_backdrop.rs:482  base_color: Color::srgb(1.0, 0.95, 0.82),
-src/ui/launch/menu_backdrop.rs:508  color: Color::srgb(0.06, 0.10, 0.18),
+src/ui/launch/menu_backdrop.rs:440  color: Color::srgb(1.0, 0.96, 0.88),
+src/ui/launch/menu_backdrop.rs:466  color: Color::srgb(0.55, 0.65, 0.85),
+src/ui/launch/menu_backdrop.rs:483  base_color: Color::srgb(1.0, 0.95, 0.82),
+src/ui/launch/menu_backdrop.rs:509  color: Color::srgb(0.06, 0.10, 0.18),

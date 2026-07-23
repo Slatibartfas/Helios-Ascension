@@ -874,7 +874,9 @@ mod tests {
             history.samples_within_window(future_sim_seconds, HISTORY_MAX_AGE_SECONDS);
         let late_cutoff = future_sim_seconds - HISTORY_MAX_AGE_SECONDS;
         assert!(
-            late_window.iter().any(|s| s.sim_seconds <= late_cutoff + 1.0),
+            late_window
+                .iter()
+                .any(|s| s.sim_seconds <= late_cutoff + 1.0),
             "seeded prehistory should still be visible at the new anchor"
         );
     }

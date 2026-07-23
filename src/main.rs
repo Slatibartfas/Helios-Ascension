@@ -3,9 +3,7 @@ use bevy::prelude::*;
 #[cfg(target_os = "windows")]
 use bevy::render::settings::{Backends, RenderCreation, WgpuSettings};
 use bevy::render::RenderPlugin;
-use bevy::window::{
-    ExitCondition, PresentMode, WindowResizeConstraints, WindowResolution,
-};
+use bevy::window::{ExitCondition, PresentMode, WindowResizeConstraints, WindowResolution};
 use bevy_egui::EguiPlugin;
 
 pub mod astronomy;

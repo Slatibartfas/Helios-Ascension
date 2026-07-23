@@ -148,7 +148,10 @@ impl Plugin for SplashPlugin {
         let splash_pixels = decode_splash_color_image();
         info!(
             "splash: decoded logo at build = {}",
-            splash_pixels.as_ref().map(|c| format!("{}x{}", c.width(), c.height())).unwrap_or_else(|| "FAILED".to_string())
+            splash_pixels
+                .as_ref()
+                .map(|c| format!("{}x{}", c.width(), c.height()))
+                .unwrap_or_else(|| "FAILED".to_string())
         );
 
         app.init_resource::<SplashTimer>()

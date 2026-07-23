@@ -284,7 +284,8 @@ pub fn ui_new_game_subview(
                                 ui.horizontal_wrapped(|ui| {
                                     for (idx, seed) in presets.curated_seeds.iter().enumerate() {
                                         let label = format!("#{}", idx + 1);
-                                        let selected = subview_state.curated_seed_index == Some(idx);
+                                        let selected =
+                                            subview_state.curated_seed_index == Some(idx);
                                         if ui.selectable_label(selected, label).clicked() {
                                             subview_state.curated_seed_index = Some(idx);
                                             subview_state.parsed_seed = Some(*seed);
@@ -307,8 +308,10 @@ pub fn ui_new_game_subview(
                         // paths don't fight each other.
                         if response.changed() {
                             subview_state.curated_seed_index = None;
-                            let (parsed, err_key) =
-                                parse_seed_input(&subview_state.seed_input, seed_copy.seed.max_length);
+                            let (parsed, err_key) = parse_seed_input(
+                                &subview_state.seed_input,
+                                seed_copy.seed.max_length,
+                            );
                             subview_state.parsed_seed = parsed;
                             subview_state.seed_error = err_key.map(|key| match key.as_str() {
                                 "invalid_characters" => {
@@ -508,7 +511,7 @@ pub fn ui_new_game_subview(
                         *launch_state = LaunchState::InGame;
                     }
                 });
-    });
+        });
 }
 
 /// Begin-button enabled predicate. The button is enabled when:
