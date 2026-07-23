@@ -731,6 +731,69 @@ fn configure_builder<'a>(
         .deny_resource::<bevy::light::GlobalAmbientLight>()
         .deny_resource::<bevy::light::DirectionalLightShadowMap>()
         .deny_resource::<bevy::light::PointLightShadowMap>()
+        // `bevy_pbr::DefaultOpaqueRendererMethod`
+        // (`bevy_pbr-0.18.0/src/material.rs:1333-1334`,
+        // `#[derive(Default, Resource, Clone, Debug,
+        // ExtractResource, Reflect)]
+        // #[reflect(Resource, Default, Debug, Clone)]`) is the
+        // only reflect-derived Resource that `PbrPlugin::build`
+        // inserts into the **main** `app` (`lib.rs:219`,
+        // `.init_resource::<DefaultOpaqueRendererMethod>()`).
+        // `grep register_type bevy_pbr-0.18.0/src/` returns zero
+        // matches across the whole crate, so no main-app
+        // reflect-Resource ever lands in `AppTypeRegistry`. Other
+        // `bevy_pbr` `init_resource` / `insert_resource` calls
+        // (`atmosphere/mod.rs:145-150`,
+        // `decal/{clustered,forward}.rs`,
+        // `deferred/mod.rs:111, 415`, `lightmap/mod.rs`,
+        // `light_probe/generate.rs`, `render/mesh.rs:232`,
+        // `prepass/mod.rs:123`, `diagnostic.rs:63`, plus
+        // `lib.rs:342-343, 304, 370` for `LightMeta`,
+        // `RenderMaterialBindings`, `Bluenoise`,
+        // `global_cluster_settings`) all target either the
+        // `render_app` sub-app (whose `World` is not walked by
+        // `DynamicSceneBuilder::extract_resources`) or one-shot
+        // systems that don't init the resource at app-startup
+        // — so they don't leak via this path. `grep`
+        // `derive(Resource, Reflect)` across the entire crate
+        // only matches `DefaultOpaqueRendererMethod` for the
+        // main-app surface area.
+        //
+        // The sibling resource `global_cluster_settings` is a
+        // `GlobalClusterSettings` instance — defined in
+        // `bevy_light-0.18.0/src/cluster/mod.rs:38` as plain
+        // `#[derive(Resource)]` without `Reflect`, so it's safe
+        // (the exact same audit pattern that holds for
+        // `bevy_camera::ManualMark` /
+        // `bevy_gizmos::GizmoHandles`).
+        //
+        // Player-visible symptom at 2026-07-23T21:18Z:
+        // `kickoff: restore_save failed: save restore failed:
+        // scene deserialise failed: no registration found for
+        // `bevy_pbr::material::DefaultOpaqueRendererMethod``.
+        //
+        // `DefaultOpaqueRendererMethod` is the global default
+        // for opaque material rendering (Forward / Deferred)
+        // — a render-path tunable, not gameplay state. A
+        // freshly-launched app re-runs `PbrPlugin::build`,
+        // which `init_resource`s it with
+        // `DefaultOpaqueRendererMethod(OpaqueRendererMethod::Forward)`.
+        // See `snapshot_skips_bevy_pbr_default_opaque_renderer_method`
+        // below.
+        //
+        // **Crates-path gotcha (reminder).** The default
+        // module name in the failure log is `bevy_pbr::
+        // material::DefaultOpaqueRendererMethod`, but
+        // `bevy_pbr-0.18.0/src/lib.rs:64` does `pub use
+        // material::*;` — so the type is also re-exported at
+        // the `bevy_pbr` crate root (and the umbrella
+        // `bevy_internal-0.18.0/src/lib.rs:65`'s `pub use
+        // bevy_pbr as pbr;` makes the umbrella path
+        // `bevy::pbr::DefaultOpaqueRendererMethod` resolve).
+        // The deny entry below uses the umbrella-root form to
+        // match the convention used for `bevy::light::
+        // GlobalAmbientLight`.
+        .deny_resource::<bevy::pbr::DefaultOpaqueRendererMethod>()
         .extract_resources()
 }
 
@@ -1153,6 +1216,67 @@ mod tests {
                 "denylist failed — {needle} serialised into save: {ron}"
             );
         }
+    }
+
+    #[test]
+    fn snapshot_skips_bevy_pbr_default_opaque_renderer_method() {
+        // Regression test for the in-game restore failure from
+        // 2026-07-23T21:18Z: loading a save short-circuited with
+        // `no registration found for
+        // `bevy_pbr::material::DefaultOpaqueRendererMethod``.
+        //
+        // `bevy_pbr` is a noisy crate to audit because most of
+        // its resource insertion sites target the `render_app`
+        // sub-app (whose `World` is not walked by
+        // `DynamicSceneBuilder::extract_resources`) or
+        // one-shot systems — none of those leak via this path.
+        // But `PbrPlugin::build`
+        // (`bevy_pbr-0.18.0/src/lib.rs:219`) does
+        // `.init_resource::<DefaultOpaqueRendererMethod>()`
+        // on the main `app`, and the type definition
+        // (`material.rs:1333-1334`,
+        // `#[derive(Default, Resource, Clone, Debug,
+        // ExtractResource, Reflect)]
+        // #[reflect(Resource, Default, Debug, Clone)]`)
+        // makes it reflect-derived. `bevy_pbr` makes zero
+        // `register_type::<…>()` calls (`grep register_type
+        // bevy_pbr-0.18.0/src/` confirms), so this resource —
+        // and nothing else on the main-app surface — leaks
+        // into the snapshot and breaks the loader.
+        //
+        // The other main-app insert is
+        // `app.insert_resource(global_cluster_settings)`
+        // (`lib.rs:370`), which is a `GlobalClusterSettings`
+        // instance (`bevy_light-0.18.0/src/cluster/mod.rs:38`,
+        // `#[derive(Resource)]` without `Reflect`) — safe by
+        // the same audit pattern that holds for
+        // `bevy_camera::ManualMark` /
+        // `bevy_gizmos::GizmoHandles` /
+        // `bevy_light::GlobalVisibleClusterableObjects`.
+        //
+        // This test asserts the single-resource deny stays
+        // in place: insert the resource the way `PbrPlugin::
+        // build` does, run `snapshot_world`, confirm the
+        // type name doesn't survive into the saved RON.
+        let mut world = World::new();
+        world.init_resource::<AppTypeRegistry>();
+        // Mirror `PbrPlugin::build`'s main-app
+        // init_resource — `DefaultOpaqueRendererMethod::
+        // default()` is `OpaqueRendererMethod::Forward`.
+        world.init_resource::<bevy::pbr::DefaultOpaqueRendererMethod>();
+        let ron = snapshot_world(&world, SaveMetadata::new_now(0, 0, "test"))
+            .expect("snapshot must skip bevy_pbr::DefaultOpaqueRendererMethod resource");
+        // The RON type path that the loader couldn't
+        // resolve. Bevy's serializer shortens this to the
+        // bare struct name (`DefaultOpaqueRendererMethod`)
+        // because the umbrella re-export drops the `material`
+        // module qualifier — same crates-path shape as
+        // `bevy_camera::ClearColor` / `bevy::light::
+        // GlobalAmbientLight`.
+        assert!(
+            !ron.contains("DefaultOpaqueRendererMethod"),
+            "denylist failed — DefaultOpaqueRendererMethod serialised into save: {ron}"
+        );
     }
 
     #[test]
