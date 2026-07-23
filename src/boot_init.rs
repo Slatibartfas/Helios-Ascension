@@ -252,7 +252,7 @@ mod tests {
         // can be inserted via `commands.init_resource` and stored
         // without wrapping. Construct one to lock in that contract.
         use crate::plugins::solar_system::SolarSystemSpawned;
-        let marker = SolarSystemSpawned::default();
+        let marker = SolarSystemSpawned;
         let _copy = marker;
         let _another = marker;
     }
@@ -260,7 +260,7 @@ mod tests {
     #[test]
     fn nearby_systems_populated_marker_is_constructible() {
         use crate::plugins::system_populator::NearbySystemsPopulated;
-        let marker = NearbySystemsPopulated::default();
+        let marker = NearbySystemsPopulated;
         let _copy = marker;
         let _another = marker;
     }

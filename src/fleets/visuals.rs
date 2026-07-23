@@ -1141,7 +1141,7 @@ mod tests {
         BURN_ARROW_HEAD_HALF_BASE, BURN_ARROW_HEAD_LEN_BASE,
     };
     use crate::astronomy::{orbit_position_from_mean_anomaly, KeplerOrbit, SCALING_FACTOR};
-    use crate::fleets::orbital_mechanics::{solve_phase_aware_ga_option, GM_SUN};
+    use crate::fleets::orbital_mechanics::GM_SUN;
     use crate::fleets::{PlannedTransfer, TransferReferenceFrame};
     use crate::plugins::solar_system::CelestialBody;
     use crate::plugins::solar_system_data::BodyType;
@@ -1775,10 +1775,8 @@ mod tests {
             // Compute the predicted flyby-body position at the
             // encounter epoch (`t_dep_abs + tof_leg1`).
             let t_dep_abs = 0.0;
-            let origin_pos = DVec3::from(orbit_position_from_mean_anomaly(
-                &earth_orbit,
-                earth_orbit.mean_anomaly_epoch,
-            ));
+            let origin_pos =
+                orbit_position_from_mean_anomaly(&earth_orbit, earth_orbit.mean_anomaly_epoch);
             let flyby_pos = orbit_position_from_mean_anomaly(
                 &mars_orbit,
                 mars_orbit.mean_anomaly_epoch + mars_orbit.mean_motion * (t_dep_abs + tof_leg1),

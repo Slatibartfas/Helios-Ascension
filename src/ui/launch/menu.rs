@@ -179,10 +179,10 @@ fn is_menu_state(state: LaunchState) -> bool {
 /// - Top:    `HELIOS ASCENSION` title in the cyan accent, centered.
 /// - Top:    subtitle "EARTH · SECTOR SOL" in dim caption text.
 /// - Middle: empty (subview content renders here when active; the
-///           rotating-Earth backdrop is visible behind it).
+///   rotating-Earth backdrop is visible behind it).
 /// - Bottom: 5 glass-style buttons in a horizontal row, centered,
-///           with the hover-state pop animation and the three-layer
-///           painter-driven bloom.
+///   with the hover-state pop animation and the three-layer
+///   painter-driven bloom.
 /// - Footer: build label, centered under the title.
 fn render_menu_body(
     ui: &mut egui::Ui,
@@ -442,21 +442,21 @@ fn render_glass_button(
             painter.rect_stroke(
                 painted_rect.expand(6.0),
                 MENU_GLASS_CORNER_RADIUS + 6.0,
-                egui::Stroke::new(6.0, glow_color(theme::MENU_GLASS_GLOW_OUTER)),
+                egui::Stroke::new(6.0_f32, glow_color(theme::MENU_GLASS_GLOW_OUTER)),
                 egui::StrokeKind::Outside,
             );
             // Mid halo
             painter.rect_stroke(
                 painted_rect.expand(3.0),
                 MENU_GLASS_CORNER_RADIUS + 3.0,
-                egui::Stroke::new(3.0, glow_color(theme::MENU_GLASS_GLOW_MID)),
+                egui::Stroke::new(3.0_f32, glow_color(theme::MENU_GLASS_GLOW_MID)),
                 egui::StrokeKind::Outside,
             );
             // Inner accent line — solid cyan, brightest
             painter.rect_stroke(
                 painted_rect,
                 MENU_GLASS_CORNER_RADIUS,
-                egui::Stroke::new(1.5, theme::ACCENT),
+                egui::Stroke::new(1.5_f32, theme::ACCENT),
                 egui::StrokeKind::Inside,
             );
         } else {
@@ -464,7 +464,7 @@ fn render_glass_button(
             painter.rect_stroke(
                 painted_rect,
                 MENU_GLASS_CORNER_RADIUS,
-                egui::Stroke::new(1.0, theme::MENU_GLASS_STROKE),
+                egui::Stroke::new(1.0_f32, theme::MENU_GLASS_STROKE),
                 egui::StrokeKind::Inside,
             );
         }
@@ -506,7 +506,7 @@ fn render_glass_button(
         painter.rect_stroke(
             painted_rect,
             MENU_GLASS_CORNER_RADIUS,
-            egui::Stroke::new(0.5, theme::BORDER),
+            egui::Stroke::new(0.5_f32, theme::BORDER),
             egui::StrokeKind::Inside,
         );
 
