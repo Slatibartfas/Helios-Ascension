@@ -678,6 +678,59 @@ fn configure_builder<'a>(
         .deny_resource::<bevy::input::ButtonInput<bevy::input::mouse::MouseButton>>()
         .deny_resource::<bevy::input::mouse::AccumulatedMouseMotion>()
         .deny_resource::<bevy::input::mouse::AccumulatedMouseScroll>()
+        // `bevy_light` resources (`LightPlugin::build`,
+        // `bevy_light-0.18.0/src/lib.rs:137-140`).
+        //
+        // `grep register_type bevy_light-0.18.0/src/` returns
+        // zero matches, and the crate derives Reflect on
+        // three of the four Resources it inserts:
+        // `GlobalAmbientLight`
+        // (`ambient_light.rs:59`,
+        // `#[derive(Resource, Clone, Debug, Reflect)]
+        // #[reflect(Resource, Debug, Default, Clone)]`),
+        // `DirectionalLightShadowMap`
+        // (`directional_light.rs:181`), and
+        // `PointLightShadowMap` (`point_light.rs:173`). All
+        // three are `init_resource`'d without a matching
+        // `register_type::<…>()` — same pattern as the
+        // a11y / audio / camera / gizmos / input fixes.
+        //
+        // **Crates-path gotcha.** `bevy_light-0.18.0/src/
+        // lib.rs` declares `mod ambient_light;`,
+        // `mod directional_light;`, `mod point_light;` as
+        // **private** modules and re-exports the public
+        // types at the crate root via `pub use
+        // ambient_light::{AmbientLight, GlobalAmbientLight};`
+        // and friends — so the public names **drop the
+        // module qualifier**. The umbrella crate follows
+        // the same shape (`bevy_internal-0.18.0/src/lib.rs:
+        // 57-58`, `#[cfg(feature = "bevy_light")] pub use
+        // bevy_light as light;` with no further re-export),
+        // so the deny paths are `bevy::light::
+        // GlobalAmbientLight` etc. — NOT `bevy::light::
+        // ambient_light::GlobalAmbientLight`.
+        //
+        // Player-visible symptom at 2026-07-23T21:14Z:
+        // `kickoff: restore_save failed: save restore failed:
+        // scene deserialise failed: no registration found for
+        // `bevy_light::ambient_light::GlobalAmbientLight``.
+        //
+        // All three are runtime lighting tunables with no
+        // save-time meaning — a freshly-launched app re-runs
+        // `LightPlugin::build`, which `init_resource`s them
+        // with `Default` (`Color::WHITE` × `300.0` for
+        // `GlobalAmbientLight`, `2048` / `1024` for the shadow
+        // map sizes). The fourth Resource,
+        // `GlobalVisibleClusterableObjects`
+        // (`cluster/mod.rs:37`), only
+        // `derive(Resource, Default)` without Reflect, so
+        // `extract_resources` skips it automatically.
+        //
+        // See
+        // `snapshot_skips_bevy_light_resources` below.
+        .deny_resource::<bevy::light::GlobalAmbientLight>()
+        .deny_resource::<bevy::light::DirectionalLightShadowMap>()
+        .deny_resource::<bevy::light::PointLightShadowMap>()
         .extract_resources()
 }
 
@@ -1038,6 +1091,68 @@ mod tests {
             !ron.contains("KeyCode"),
             "denylist failed — KeyCode serialised into save: {ron}"
         );
+    }
+
+    #[test]
+    fn snapshot_skips_bevy_light_resources() {
+        // Regression test for the in-game restore failure from
+        // 2026-07-23T21:14Z: loading a save short-circuited with
+        // `no registration found for
+        // `bevy_light::ambient_light::GlobalAmbientLight``.
+        //
+        // `bevy_light::LightPlugin::build`
+        // (`bevy_light-0.18.0/src/lib.rs:137-140`)
+        // `init_resource`s four Resources: `GlobalAmbientLight`,
+        // `DirectionalLightShadowMap`, `PointLightShadowMap`, and
+        // `GlobalVisibleClusterableObjects`. Three of them derive
+        // `Reflect` (`GlobalAmbientLight` at
+        // `ambient_light.rs:59`, the two shadow-map size resources
+        // at `directional_light.rs:181` and
+        // `point_light.rs:173` — all three are
+        // `#[derive(Resource, Clone, Debug, Reflect)]
+        // #[reflect(Resource, Debug, Default, Clone)]`).
+        // `bevy_light` makes zero `register_type::<…>()` calls
+        // (grep confirms), so all three leak into the snapshot
+        // and break the loader the moment Bevy tries to resolve
+        // a type path. The fourth — `cluster::mod::
+        // GlobalVisibleClusterableObjects` (`cluster/mod.rs:37`)
+        // — only `derive(Resource)` without `Reflect`, so
+        // Bevy's `extract_resources` skips it automatically.
+        //
+        // All three are runtime lighting tunables with no
+        // save-time meaning — `GlobalAmbientLight` represents
+        // the world's ambient light brightness / colour, the
+        // two `*ShadowMap` resources control shadow-map
+        // resolution. A freshly-launched app re-runs
+        // `LightPlugin::build`, which `init_resource`s them with
+        // their `Default` values (`Color::WHITE` × `300.0` for
+        // ambient, `2048` / `1024` for the shadow-map sizes), so
+        // deny all three and let Bevy re-derive at next launch.
+        //
+        // Mirror the audio / camera / gizmos / input
+        // regression-test pattern: insert all three reflect-
+        // derived resources, run `snapshot_world`, and confirm
+        // none of their type names survive into the saved RON.
+        let mut world = World::new();
+        world.init_resource::<AppTypeRegistry>();
+        // `GlobalAmbientLight::default()` is `Color::WHITE`
+        // with `brightness = 300.0`; the shadow-map defaults
+        // are documented inline at their type definitions.
+        world.init_resource::<bevy::light::GlobalAmbientLight>();
+        world.init_resource::<bevy::light::DirectionalLightShadowMap>();
+        world.init_resource::<bevy::light::PointLightShadowMap>();
+        let ron = snapshot_world(&world, SaveMetadata::new_now(0, 0, "test"))
+            .expect("snapshot must skip bevy_light resources");
+        for needle in [
+            "GlobalAmbientLight",
+            "DirectionalLightShadowMap",
+            "PointLightShadowMap",
+        ] {
+            assert!(
+                !ron.contains(needle),
+                "denylist failed — {needle} serialised into save: {ron}"
+            );
+        }
     }
 
     #[test]
