@@ -36,7 +36,6 @@
 use bevy::camera::RenderTarget;
 use bevy::ecs::schedule::ScheduleLabel;
 use bevy::prelude::*;
-use bevy::camera::visibility::RenderLayers;
 use bevy::window::{
     MonitorSelection, PrimaryWindow, Window, WindowLevel, WindowPosition, WindowRef,
     WindowResolution,
@@ -44,7 +43,9 @@ use bevy::window::{
 use bevy::image::Image;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use bevy_egui::egui::{self, ColorImage};
-use bevy_egui::{EguiContexts, EguiGlobalSettings, EguiMultipassSchedule, EguiStartupSet};
+use bevy_egui::{
+    EguiContexts, EguiGlobalSettings, EguiMultipassSchedule, EguiStartupSet, EguiTextureHandle,
+};
 
 /// Raw decoded splash pixels, decoded synchronously during plugin
 /// construction so the very first painted frame can show the logo.
@@ -185,17 +186,9 @@ impl Plugin for SplashPlugin {
 fn cleanup_dismissed_splash(
     mut commands: Commands,
     cleanup_pending: Query<Entity, With<SplashCleanupPending>>,
-    logo_query: Query<Entity, With<SplashLogo>>,
 ) {
     for entity in &cleanup_pending {
         commands.entity(entity).despawn();
-    }
-    // Despawn the logo sprite once the splash has dismissed so it doesn't
-    // linger in the (now hidden) splash window's world.
-    if !cleanup_pending.is_empty() {
-        for logo in &logo_query {
-            commands.entity(logo).despawn();
-        }
     }
 }
 
@@ -237,8 +230,20 @@ fn setup_splash_camera(
     // A 2D camera is intentional here: `Sprite` is a camera-facing quad,
     // so the splash is independent of the 3D camera projection and cannot
     // disappear because of a near/far-plane or face-orientation mismatch.
+    // Camera3d gives the splash window a render target + camera entity
+    // and lets the splash window clear with our background color. The
+    // in-game world meshes are hidden by `menu_backdrop` while the
+    // splash is up (no Sun/planet visible behind the logo), so the
+    // only thing the player sees on the splash is what the splash
+    // egui system paints via the secondary multipass egui context
+    // (`EguiMultipassSchedule::new(SplashContextPass)`) on this camera.
+    // The actual logo artwork is registered via
+    // `EguiContexts::add_image` in `setup_splash_camera` and drawn as
+    // a fullscreen egui image by `ui_splash_system`. This sidesteps
+    // the Camera2d + Sprite + render-layer ordering that was painting
+    // the splash solid black.
     commands.spawn((
-        Camera2d,
+        Camera3d::default(),
         Camera {
             clear_color: ClearColorConfig::Custom(Color::srgb(0.02, 0.02, 0.03)),
             ..default()
@@ -246,27 +251,15 @@ fn setup_splash_camera(
         RenderTarget::Window(WindowRef::Entity(splash_window.0)),
         EguiMultipassSchedule::new(SplashContextPass),
         SplashCamera,
-        RenderLayers::layer(1),
     ));
 
-    // ── Logo sprite ──────────────────────────────────────────────────
-    // The logo is rendered as a Bevy `Sprite` (a textured quad) rather than
-    // an egui image. The splash's egui context is a secondary multipass
-    // context, and `ctx.load_texture` / `add_image` textures are not drawn
-    // reliably there — that's why the splash kept painting solid black even
-    // though the PNG decoded. A sprite renders through the normal 3D pipeline
-    // in ANY camera, including this splash camera, so it always shows.
-    //
-    // The sprite is sized so the logo fills the splash window at the chosen
-    // camera distance, preserving the PNG's aspect ratio.
+    // ── Splash logo (egui texture) ────────────────────────────────────
+    // The PNG is decoded into a Bevy `Image` asset and registered with
+    // `EguiContexts::add_image` so it shows up as an `egui::TextureId`
+    // in the splash context. Drawing the logo via egui sidesteps the
+    // Camera2d sprite + render-layer + sprite-pipeline ordering that
+    // was painting the splash solid black.
     if let Some(pixels) = splash_pixels.0.as_ref() {
-        let w = pixels.width() as f32;
-        let h = pixels.height() as f32;
-        // The splash window is `w × h` logical pixels; the camera's vertical
-        // field of view spans `2 * z * tan(fov/2)` world units at the sprite
-        // plane. We size the sprite so its height matches that span, then
-        // scale width by the PNG aspect. `SplashLogo` is a marker so the
-        // cleanup system can despawn it on dismiss.
         let bevy_image = Image::new(
             Extent3d {
                 width: pixels.width() as u32,
@@ -279,25 +272,22 @@ fn setup_splash_camera(
             bevy::asset::RenderAssetUsages::RENDER_WORLD,
         );
         let handle = images.add(bevy_image);
-        commands.spawn((
-            Sprite {
-                image: handle,
-                custom_size: Some(Vec2::new(w, h)),
-                ..default()
-            },
-            Transform::default(),
-            RenderLayers::layer(1),
-            SplashLogo,
-        ));
-        info!("splash: spawned logo sprite ({}x{})", w as u32, h as u32);
+        commands.insert_resource(SplashLogoImage(handle));
+        info!(
+            "splash: registered logo image ({}x{})",
+            pixels.width(),
+            pixels.height()
+        );
     } else {
-        warn!("splash: no decoded pixels; logo sprite not spawned");
+        warn!("splash: no decoded pixels; logo image not registered");
     }
 }
 
-/// Marker on the logo sprite so it can be despawned on splash dismissal.
-#[derive(Component)]
-pub struct SplashLogo;
+/// `Handle<Image>` for the decoded splash PNG, registered with
+/// `EguiContexts::add_image` so it shows up as an `egui::TextureId` in
+/// the splash's secondary multipass egui context.
+#[derive(Resource, Clone)]
+pub struct SplashLogoImage(pub Handle<Image>);
 
 /// Startup system: read the PNG from disk via the existing manifest
 /// accessor, decode it to learn its real dimensions, and resize the
@@ -352,6 +342,7 @@ pub fn ui_splash_system(
     mut splash_window: Query<&mut Window, With<SplashWindow>>,
     mut main_window: Query<&mut Window, (With<PrimaryWindow>, Without<SplashWindow>)>,
     splash_cam: Query<Entity, With<SplashCamera>>,
+    splash_logo_image: Option<Res<SplashLogoImage>>,
     manifest: Res<LaunchUiManifest>,
     boot_state: Res<crate::boot_init::BootState>,
     keyboard_input: Res<ButtonInput<KeyCode>>,
@@ -409,6 +400,19 @@ pub fn ui_splash_system(
     let Ok(splash_cam_entity) = splash_cam.single() else {
         return;
     };
+
+    // Register the splash PNG with the splash egui context up-front so
+    // the painter inside the CentralPanel closure can paint it without
+    // borrowing `contexts` again (the closure already holds a mutable
+    // borrow on `ctx`). `EguiContexts::add_image` is the bevy_egui API
+    // that produces a context-stable `TextureId` registered in the
+    // global `EguiUserTextures` resource; unlike `ctx.load_texture` it
+    // doesn't depend on the per-context texture registry, which is what
+    // the secondary multipass context couldn't honour.
+    let logo_texture_id = splash_logo_image.as_ref().map(|img| {
+        contexts.add_image(EguiTextureHandle::Strong(img.0.clone()))
+    });
+
     let Ok(ctx) = contexts.ctx_for_entity_mut(splash_cam_entity) else {
         return;
     };
@@ -417,14 +421,23 @@ pub fn ui_splash_system(
 
     // CRITICAL: `Frame::NONE` (NOT `Frame::default()`) — a default
     // frame paints an opaque dark background, which would cover the
-    // Bevy `Sprite` (the logo) and produce a solid-black splash even
-    // though the sprite is rendering correctly behind it. The Label
-    // text below only paints where the glyphs are drawn, so it shows
-    // through to the sprite everywhere else. Use the const `Frame::NONE`
-    // rather than the deprecated `Frame::none()` function call.
+    // splash artwork. The logo image paints only where its pixels
+    // exist, so the background shows through everywhere else.
     egui::CentralPanel::default()
         .frame(egui::Frame::NONE)
         .show(ctx, |ui| {
+            if let Some(texture_id) = logo_texture_id {
+                let rect = ui.max_rect();
+                ui.painter().image(
+                    texture_id,
+                    rect,
+                    egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::Vec2::new(1.0, 1.0),
+                    ),
+                    egui::Color32::WHITE,
+                );
+            }
             if still_loading {
                 let rect = ui.max_rect();
                 ui.painter().text(
