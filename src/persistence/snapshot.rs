@@ -602,6 +602,47 @@ fn configure_builder<'a>(
         // launch, so deny it from the scene blob. See
         // `snapshot_skips_bevy_camera_clear_color_resource` below.
         .deny_resource::<bevy_camera::ClearColor>()
+        // `bevy_gizmos::config::GizmoConfigStore` (defined in
+        // `bevy_gizmos-0.18.0/src/config.rs:97`,
+        // `#[derive(Reflect, Resource, Default)]
+        // #[reflect(Resource, Default)]`) is inserted via
+        // `get_resource_or_init::<GizmoConfigStore>()` by
+        // `GizmoPlugin::build`
+        // (`bevy_gizmos-0.18.0/src/lib.rs:93`, inside the
+        // `init_gizmo_group::<DefaultGizmoConfigGroup>()` call).
+        // `bevy_gizmos` makes **zero** `register_type::<…>()`
+        // calls — confirmed by `grep register_type` over
+        // `bevy_gizmos-0.18.0/src/`. The sibling gizmo
+        // resources `GizmoHandles` (`lib.rs:184`) and
+        // `GizmoStorage<Config, Clear>` (`gizmos.rs:32`) only
+        // `derive(Resource)` / `derive(Resource, Default)` —
+        // neither carries `Reflect`, so Bevy's
+        // `DynamicSceneBuilder::extract_resources` skips them
+        // automatically and they can't leak via this path.
+        // `GizmoConfigStore` does carry `Reflect` and lands in
+        // the snapshot.
+        //
+        // Compounding the issue, `GizmoConfigStore.store` is
+        // `#[reflect(ignore)] TypeIdMap<(GizmoConfig, Box<dyn
+        // Reflect>)>` (`config.rs:104-105`) — keys are
+        // process-local `TypeId`s and values are trait objects,
+        // so even after registering the type the inner data
+        // wouldn't round-trip meaningfully across launches.
+        // The right call is to keep `GizmoConfigStore` out of
+        // the save entirely: it's a runtime gizmo-config cache
+        // re-derived from `app.init_gizmo_group::<T>()` calls
+        // at every launch (`lib.rs:118-153`) — no save-time
+        // meaning.
+        //
+        // Player-visible symptom at 2026-07-23T21:06Z:
+        // `kickoff: restore_save failed: save restore failed:
+        // scene deserialise failed: no registration found for
+        // `bevy_gizmos::config::GizmoConfigStore``. After the
+        // fix, deny the resource next to the audio / camera
+        // chain — same rationale. See
+        // `snapshot_skips_bevy_gizmos_config_store_resource`
+        // below.
+        .deny_resource::<bevy::gizmos::config::GizmoConfigStore>()
         .extract_resources()
 }
 
@@ -841,6 +882,59 @@ mod tests {
         assert!(
             !ron.contains("ClearColor"),
             "denylist failed — ClearColor serialised into save: {ron}"
+        );
+    }
+
+    #[test]
+    fn snapshot_skips_bevy_gizmos_config_store_resource() {
+        // Regression test for the in-game restore failure from
+        // 2026-07-23T21:06Z: loading a save short-circuited with
+        // `no registration found for
+        // `bevy_gizmos::config::GizmoConfigStore``. `bevy_gizmos`
+        // ships three Resources from `GizmoPlugin::build`
+        // (`bevy_gizmos-0.18.0/src/lib.rs:93`), but only
+        // `GizmoConfigStore` derives `Reflect`
+        // (`config.rs:97`, `#[derive(Reflect, Resource, Default)]
+        // #[reflect(Resource, Default)]`). It's
+        // `init_resource`'d implicitly via
+        // `get_resource_or_init::<GizmoConfigStore>()` inside
+        // `init_gizmo_group::<DefaultGizmoConfigGroup>()` without
+        // any matching `register_type::<…>()` call anywhere in
+        // the gizmos crate. The other two — `GizmoHandles`
+        // (`lib.rs:184`) and `GizmoStorage<Config, Clear>`
+        // (`gizmos.rs:32`) — only `derive(Resource)` /
+        // `derive(Resource, Default)`, so Bevy's
+        // `DynamicSceneBuilder::extract_resources` skips them
+        // automatically.
+        //
+        // Compounding the issue, `GizmoConfigStore.store` is
+        // `#[reflect(ignore)] TypeIdMap<(GizmoConfig, Box<dyn
+        // Reflect>)>` (`config.rs:104-105`) — keys are
+        // process-local `TypeId`s and values are trait objects,
+        // so even with `register_type` in place the inner data
+        // couldn't round-trip meaningfully across launches.
+        // The right call is to deny `GizmoConfigStore` from the
+        // snapshot entirely — it's a runtime gizmo-config cache,
+        // re-derived at every launch from
+        // `app.init_gizmo_group::<T>()` calls.
+        //
+        // This test asserts the deny stays in place: insert the
+        // resource the way `GizmoPlugin::build` does, run
+        // `snapshot_world`, and confirm the type path never
+        // reaches the saved RON.
+        let mut world = World::new();
+        world.init_resource::<AppTypeRegistry>();
+        // Mirror what `GizmoPlugin::build` does — the
+        // `init_gizmo_group::<DefaultGizmoConfigGroup>` call
+        // pulls a `GizmoConfigStore` into the world via
+        // `get_resource_or_init`.
+        world.init_resource::<bevy::gizmos::config::GizmoConfigStore>();
+        let ron = snapshot_world(&world, SaveMetadata::new_now(0, 0, "test"))
+            .expect("snapshot must skip bevy_gizmos::config::GizmoConfigStore resource");
+        // The RON type path that the loader couldn't resolve.
+        assert!(
+            !ron.contains("GizmoConfigStore"),
+            "denylist failed — GizmoConfigStore serialised into save: {ron}"
         );
     }
 
