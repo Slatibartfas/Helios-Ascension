@@ -58,6 +58,15 @@ assets/data/JPL_SmallBodiesList.csv
 assets/data/Exoplanets_NASA.csv
 assets/data/JPL_CometsList.csv
 
+# ── Local session noise (Windows / dev sandbox) ──────────────────────
+# `NUL` is created accidentally when a PowerShell `> NUL` redirection
+# is executed in a shell that treats NUL as a literal filename on this
+# filesystem (not the null device). It's not a real file.
+# `run_log.txt` is a per-session `cargo run` capture that shouldn't be
+# tracked. Both are safe to delete.
+/NUL
+/run_log.txt
+
 # Duplicate solar_system.ron lives at the repo root from an earlier
 # commit; only assets/data/solar_system.ron is loaded by the game.
 /solar_system.ron

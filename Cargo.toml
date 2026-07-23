@@ -115,6 +115,19 @@ winit = "0.30"
 # UUIDs for stable entity identification
 uuid = { version = "1.0", features = ["serde", "v4"] }
 
+# Windows taskbar / Alt-Tab icon. The runtime path (winit::Icon::from_rgba)
+# only updates the in-memory window icon after the OS has cached the
+# executable's resource-section icon, which is what the taskbar uses.
+# `winresource` compiles a `winres` manifest + `.ico` link into the
+# executable at build time so the taskbar shows the proper logo from the
+# moment the user pins the app (or while the splash is up). Skipped on
+# non-Windows targets via [target.'cfg(windows)'].
+[target.'cfg(windows)'.build-dependencies]
+winresource = "0.1"
+
+[target.'cfg(windows)'.dependencies]
+winresource = "0.1"
+
 [profile.dev]
 # Bevy's documented fast-compile guidance is opt-level 0 on the
 # crate itself, with optimization applied to dependencies (see the
