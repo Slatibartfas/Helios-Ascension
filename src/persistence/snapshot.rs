@@ -794,6 +794,89 @@ fn configure_builder<'a>(
         // match the convention used for `bevy::light::
         // GlobalAmbientLight`.
         .deny_resource::<bevy::pbr::DefaultOpaqueRendererMethod>()
+        // `bevy_picking` resources
+        // (`PickingPlugin::build` /
+        // `PointerInputPlugin::build` /
+        // `MeshPickingPlugin::build`,
+        // `bevy_picking-0.18.0/src/lib.rs:365-367, 419-421`,
+        // `input.rs:97`, `mesh_picking/mod.rs:71`).
+        //
+        // **Note: `bevy_picking` is a transitive dependency
+        // in our build, not a direct feature.** `cargo tree
+        // -e features -i bevy_picking` shows the chain
+        // `helios_ascension → bevy (2d/3d/ui via default) →
+        // bevy_internal (picking) → bevy_picking`, plus
+        // `mesh_picking` enabled through `bevy` defaults.
+        // That's why the player-visible save/load failures
+        // keep surfacing types from crates we don't list in
+        // Cargo.toml — the umbrella's high-level feature
+        // flags (especially `2d/3d` + `default`) pull them
+        // in. Audit recipe in `…/memories/repo/bevy-0-18-
+        // reflect-resource-denylist.md` documents the
+        // `cargo tree -e features -i <crate>` one-liner so
+        // the next diagnose doesn't assume "if it's not
+        // listed in Cargo.toml it's not in the binary".
+        //
+        // `grep register_type bevy_picking-0.18.0/src/`
+        // returns zero matches, and three of the seven
+        // main-app `init_resource`s are reflect-derived:
+        // `PickingSettings` (`lib.rs:296`,
+        // `#[derive(Copy, Clone, Debug, Resource,
+        // Reflect)]`), `PointerInputSettings`
+        // (`input.rs:42`, `#[derive(Copy, Clone,
+        // Resource, Debug, Reflect)]`) and
+        // `MeshPickingSettings`
+        // (`mesh_picking/mod.rs:38-39`,
+        // `#[derive(Resource, Reflect)]
+        // #[reflect(Resource, Default)]`). All three leak
+        // into the snapshot and break the loader.
+        //
+        // The other main-app inserts are non-reflect by
+        // `derive` shape and `extract_resources` skips
+        // them: `pointer::PointerMap`, `backend::ray::
+        // RayMap`, `hover::HoverMap`,
+        // `hover::PreviousHoverMap`, and `events::
+        // PointerState` — all `#[derive(Debug, Deref,
+        // DerefMut, Default, Resource)]` (or the bare
+        // `Debug, Default, Resource` variant) without
+        // `Reflect`. Same audit pattern that holds for
+        // `bevy_camera::ManualMark` /
+        // `bevy_gizmos::GizmoHandles` /
+        // `bevy_light::GlobalVisibleClusterableObjects`.
+        //
+        // Player-visible symptom at 2026-07-23T21:21Z:
+        // `kickoff: restore_save failed: save restore failed:
+        // scene deserialise failed: no registration found for
+        // `bevy_picking::PickingSettings``.
+        //
+        // All three are runtime picking tunables with no
+        // save-time meaning — a freshly-launched app
+        // re-runs the picking plugin chain, which
+        // `init_resource`s them with their `Default`
+        // values (window / hover / input plumbing all
+        // re-derived from the live app builder). Deny all
+        // three and let Bevy re-derive at next launch.
+        //
+        // **Crates-path note.** `bevy_picking-0.18.0/src/
+        // lib.rs:163-170` declares `input` and
+        // `mesh_picking` as `pub mod` (gated on feature
+        // `mesh_picking` for the latter). The umbrella
+        // re-export `pub use bevy_picking as picking;`
+        // (`bevy_internal-0.18.0/src/lib.rs:66-67`)
+        // preserves the module structure. `PickingSettings`
+        // itself is `pub struct` at the `bevy_picking`
+        // crate root (so its public name drops the module
+        // qualifier, same shape as `bevy_camera::ClearColor
+        // / `bevy::light::GlobalAmbientLight`). The
+        // sibling types keep their module paths. The deny
+        // entries below use both shapes intentionally so a
+        // future Bevy version that consolidates the
+        // re-exports doesn't break the snapshot path.
+        //
+        // See `snapshot_skips_bevy_picking_resources` below.
+        .deny_resource::<bevy::picking::PickingSettings>()
+        .deny_resource::<bevy::picking::input::PointerInputSettings>()
+        .deny_resource::<bevy::picking::mesh_picking::MeshPickingSettings>()
         .extract_resources()
 }
 
@@ -1277,6 +1360,62 @@ mod tests {
             !ron.contains("DefaultOpaqueRendererMethod"),
             "denylist failed — DefaultOpaqueRendererMethod serialised into save: {ron}"
         );
+    }
+
+    #[test]
+    fn snapshot_skips_bevy_picking_resources() {
+        // Regression test for the in-game restore failure from
+        // 2026-07-23T21:21Z: loading a save short-circuited
+        // with `no registration found for
+        // `bevy_picking::PickingSettings``.
+        //
+        // `bevy_picking` is in our build **transitively** —
+        // `cargo tree -e features -i bevy_picking` confirms
+        // the chain `helios_ascension → bevy (2d/3d/ui via
+        // default) → bevy_internal (picking) → bevy_picking`,
+        // plus `bevy_picking`'s `mesh_picking` feature
+        // enabled through `bevy` defaults. That makes
+        // seven main-app `init_resource` calls surface in the
+        // binary: three reflect-derived leak candidates
+        // (`PickingSettings`, `PointerInputSettings`,
+        // `MeshPickingSettings`) and four that aren't — see
+        // the audit comment block above for the full
+        // derivation map. `bevy_picking` makes zero
+        // `register_type::<…>()` calls (`grep register_type
+        // bevy_picking-0.18.0/src/` confirms), so all three
+        // reflect-derived resources leak into the snapshot and
+        // break the loader.
+        //
+        // Mirror the audio / camera / gizmos / input /
+        // light multi-resource pattern: insert all three
+        // reflect-derived resources, run `snapshot_world`,
+        // and confirm none of their type names survive into
+        // the saved RON. `mesh_picking` is feature-gated in
+        // `bevy_picking` itself (`mesh_picking/mod.rs`) but
+        // the umbrella's `bevy` defaults enable it through
+        // the `2d/3d` chain — confirmed by `cargo tree` and
+        // by the fact that `bevy::picking::mesh_picking::
+        // MeshPickingSettings` resolves at compile time.
+        let mut world = World::new();
+        world.init_resource::<AppTypeRegistry>();
+        // Mirror what `PickingPlugin::build` /
+        // `PointerInputPlugin::build` /
+        // `MeshPickingPlugin::build` do to the live app.
+        world.init_resource::<bevy::picking::PickingSettings>();
+        world.init_resource::<bevy::picking::input::PointerInputSettings>();
+        world.init_resource::<bevy::picking::mesh_picking::MeshPickingSettings>();
+        let ron = snapshot_world(&world, SaveMetadata::new_now(0, 0, "test"))
+            .expect("snapshot must skip bevy_picking resources");
+        for needle in [
+            "PickingSettings",
+            "PointerInputSettings",
+            "MeshPickingSettings",
+        ] {
+            assert!(
+                !ron.contains(needle),
+                "denylist failed — {needle} serialised into save: {ron}"
+            );
+        }
     }
 
     #[test]
