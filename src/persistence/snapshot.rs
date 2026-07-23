@@ -877,6 +877,106 @@ fn configure_builder<'a>(
         .deny_resource::<bevy::picking::PickingSettings>()
         .deny_resource::<bevy::picking::input::PointerInputSettings>()
         .deny_resource::<bevy::picking::mesh_picking::MeshPickingSettings>()
+        // === Bulk pick-up: 4 more reflect-derived, main-app,
+        // init_resource'd, unregistered Resources surfaced by a
+        // full audit of every Bevy crate in our build on
+        // 2026-07-23T21:24Z. See the audit-and-pre-empt
+        // reasoning in
+        // `/memories/repo/bevy-0-18-reflect-resource-denylist.md`
+        // §"Audit recipe" + the "Confirmed cases" table. ===
+        //
+        // `bevy_sprite::SpritePickingSettings`
+        // (declared in `bevy_sprite-0.18.0/src/picking_backend.rs
+        // :50` as `#[derive(Resource, Reflect)]
+        // #[reflect(Resource, Default)]`; re-exported at the
+        // `bevy_sprite` crate root via `pub use picking_backend::
+        // *;` (`lib.rs`), so its public name drops the
+        // `picking_backend` module qualifier — same shape as
+        // `bevy_camera::ClearColor` / `bevy::light::
+        // GlobalAmbientLight` / `bevy::pbr::
+        // DefaultOpaqueRendererMethod`). Init'd at
+        // `picking_backend.rs:81`
+        // (`.init_resource::<SpritePickingSettings>()`).
+        // `bevy_sprite` makes zero `register_type` calls.
+        // Player-visible symptom at 2026-07-23T21:24Z:
+        // `kickoff: restore_save failed: save restore failed:
+        // scene deserialise failed: no registration found for
+        // `bevy_sprite::picking_backend::SpritePickingSettings``.
+        //
+        // `bevy_ui::UiScale`
+        // (`bevy_ui-0.18.0/src/lib.rs:117`,
+        // `#[derive(Debug, Reflect, Resource, Deref, DerefMut)]
+        // #[reflect(Resource, Debug, Default)]`),
+        // init'd at `layout/mod.rs:388` and `update.rs:200`.
+        // `bevy_ui` makes zero `register_type` calls.
+        //
+        // `bevy_ui::picking_backend::UiPickingSettings`
+        // (`bevy_ui-0.18.0/src/picking_backend.rs:47`,
+        // `#[derive(Resource, Reflect)]
+        // #[reflect(Resource, Default)]`), init'd at the same
+        // file's line 81 (`.init_resource::<UiPickingSettings>()`).
+        // Same crate, same pattern, same fix.
+        //
+        // `bevy_ui_render::debug_overlay::UiDebugOptions`
+        // (`bevy_ui_render-0.18.0/src/debug_overlay.rs:31`,
+        // `#[derive(Resource, Reflect)]
+        // #[reflect(Resource)]`), init'd at `lib.rs:208`
+        // (`.init_resource::<UiDebugOptions>()`).
+        // `bevy_ui_render` makes zero `register_type` calls.
+        // **False positive for our build, however.** The
+        // `debug_overlay` module is gated on the
+        // `bevy_ui_debug` feature (`bevy_ui_render-0.18.0/src/
+        // lib.rs:19-20`), which we do NOT enable in
+        // Cargo.toml — verified at compile time by the
+        // E0433 "could not find `debug_overlay` in
+        // `ui_render`" error from the first attempt. So
+        // `UiDebugOptions` isn't in our binary and never
+        // reaches the snapshot. No deny needed.
+        //
+        // All three are runtime defaults — a freshly-launched
+        // app re-runs the relevant plugins and re-`init_resource`s
+        // them with `Default` (alpha threshold 0.1 for sprite
+        // picking, `UiScale(1.0)` for the UI scale, etc.) —
+        // so deny all three and let Bevy re-derive at next
+        // launch. Crates-path gotcha (familiar shape):
+        // `bevy_sprite` is a transitive via `bevy`'s `2d`
+        // feature; `bevy_ui` via `bevy`'s `ui` feature; the
+        // umbrella's `pub use bevy_X as X;` aliasing lets
+        // the paths resolve under the bare module
+        // hierarchy. All three are reachable as
+        // `bevy::sprite::SpritePickingSettings`
+        // / `bevy::ui::UiScale` / `bevy::ui::picking_backend::
+        // UiPickingSettings`.
+        //
+        // The audit also surfaced two **false positives** that
+        // are worth flagging so the next diagnose doesn't
+        // re-flag them:
+        //
+        // - `bevy_animation::ThreadedAnimationGraphs`
+        //   (`graph.rs:285`) is `#[derive(Default, Reflect,
+        //   Resource)]` but **never** `init_resource`'d in any
+        //   Bevy plugin we've audited — `extract_resources`
+        //   walks actual Resources present in the World, so
+        //   undeclared types never reach the snapshot.
+        // - `bevy_render::globals::GlobalsUniform`
+        //   (`globals.rs:42`), `bevy_pbr::wireframe::`,
+        //   `bevy_sprite_render::{tilemap_chunk, wireframe2d}`
+        //   hits all derive `#[derive(Resource, ...,
+        //   ExtractResource, Reflect)]` BUT are init'd by
+        //   `render_app.init_resource::<…>()` (a sub-app)
+        //   rather than `app.init_resource::<…>()` on the main
+        //   `App` — `DynamicSceneBuilder::extract_resources`
+        //   walks the **main** `World` only, so those
+        //   render-app resources never leak via this path.
+        //   Same caveat for `bevy_scene::DynamicSceneBuilder`
+        //   reflect-internals (`dynamic_scene.rs:239`,
+        //   `dynamic_scene_builder.rs:418, 422`).
+        //
+        // See
+        // `snapshot_skips_bulk_picking_ui_resources` below.
+        .deny_resource::<bevy::sprite::SpritePickingSettings>()
+        .deny_resource::<bevy::ui::UiScale>()
+        .deny_resource::<bevy::ui::picking_backend::UiPickingSettings>()
         .extract_resources()
 }
 
@@ -1410,6 +1510,67 @@ mod tests {
             "PickingSettings",
             "PointerInputSettings",
             "MeshPickingSettings",
+        ] {
+            assert!(
+                !ron.contains(needle),
+                "denylist failed — {needle} serialised into save: {ron}"
+            );
+        }
+    }
+
+    #[test]
+    fn snapshot_skips_bulk_picking_ui_resources() {
+        // Bulk-pick-up regression test for the 3 reflect-derived,
+        // main-app, init_resource'd, unregistered Resources
+        // surfaced by a full audit of every Bevy crate in our
+        // build on 2026-07-23T21:24Z (after the player reported
+        // `bevy_sprite::picking_backend::SpritePickingSettings`):
+        //
+        // - `bevy_sprite::SpritePickingSettings` —
+        //   declared in `bevy_sprite-0.18.0/src/picking_backend
+        //   .rs:50` as `#[derive(Resource, Reflect)]
+        //   #[reflect(Resource, Default)]`, init'd at
+        //   `picking_backend.rs:81`. Re-exported at the
+        //   `bevy_sprite` crate root via `pub use
+        //   picking_backend::*;`.
+        // - `bevy_ui::UiScale` — `bevy_ui-0.18.0/src/lib.rs:117`
+        //   `#[derive(Debug, Reflect, Resource, Deref, DerefMut)]
+        //   #[reflect(Resource, Debug, Default)]`, init'd at
+        //   `layout/mod.rs:388` and `update.rs:200`.
+        // - `bevy_ui::picking_backend::UiPickingSettings` —
+        //   `bevy_ui-0.18.0/src/picking_backend.rs:47`
+        //   `#[derive(Resource, Reflect)]
+        //   #[reflect(Resource, Default)]`, init'd at
+        //   `picking_backend.rs:81`.
+        //
+        // None of `bevy_sprite` / `bevy_ui` make any
+        // `register_type::<…>()` calls (`grep register_type` on
+        // each confirms — zero hits per crate). `bevy_sprite`
+        // is in our binary via `bevy`'s `2d` feature chain;
+        // `bevy_ui` via `bevy`'s `ui` feature — both transitive
+        // from our direct feature list (which is why the
+        // failures only started surfacing after the player
+        // built a fresh save in the current session, not the
+        // old binary).
+        //
+        // Mirrors the multi-resource test pattern set by
+        // `snapshot_skips_audio_resources` /
+        // `snapshot_skips_bevy_input_resources` /
+        // `snapshot_skips_bevy_light_resources`.
+        let mut world = World::new();
+        world.init_resource::<AppTypeRegistry>();
+        // Mirror what `SpritePickingPlugin::build` /
+        // `UiPlugin::build` (twice — once for the UI scale,
+        // once for the UI picking backend) do to the live app.
+        world.init_resource::<bevy::sprite::SpritePickingSettings>();
+        world.init_resource::<bevy::ui::UiScale>();
+        world.init_resource::<bevy::ui::picking_backend::UiPickingSettings>();
+        let ron = snapshot_world(&world, SaveMetadata::new_now(0, 0, "test"))
+            .expect("snapshot must skip bulk picking/UI resources");
+        for needle in [
+            "SpritePickingSettings",
+            "UiScale",
+            "UiPickingSettings",
         ] {
             assert!(
                 !ron.contains(needle),
