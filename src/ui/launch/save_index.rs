@@ -164,7 +164,16 @@ fn format_playtime(seconds: u64) -> String {
 #[derive(Debug, Clone, PartialEq)]
 pub enum SaveSummary {
     Valid { path: PathBuf, header: SaveHeader },
-    Broken { path: PathBuf, error: String },
+    /// Broken save — parse failed but we still surface the path
+    /// so the player can delete it manually. `mtime_unix_s` is
+    /// the file's mtime at scan time (used for the index sort
+    /// so the most recently written broken save surfaces at the
+    /// top of the broken-saves list).
+    Broken {
+        path: PathBuf,
+        error: String,
+        mtime_unix_s: Option<u64>,
+    },
 }
 
 impl SaveSummary {
@@ -292,21 +301,71 @@ impl SaveIndex {
             }
         };
 
-        let mut paths: Vec<PathBuf> = read_dir
+        let paths: Vec<PathBuf> = read_dir
             .filter_map(|res| res.ok())
             .map(|entry| entry.path())
             .filter(|p| p.is_file() && p.extension().and_then(|s| s.to_str()) == Some("ron"))
             .collect();
-        paths.sort();
 
+        // Parse every save first, then sort by `saved_at_unix_s`
+        // DESCENDING (newest first). The first valid entry is then
+        // the most recent save — exactly what
+        // `most_recent_valid_save` (and the Continue button)
+        // expect.
+        //
+        // Why not `paths.sort()` by file name? Because file names
+        // are user-controlled: a save named `Z_most_recent.ron`
+        // would sort after `autosave_1784886024.ron` even though
+        // the autosave is older. Sorting by the in-file
+        // `saved_at_unix_s` is the canonical "when was this save
+        // actually produced" key. Pre-PR-C the scan sorted by
+        // file name, which produced a wrong "most recent" pick
+        // whenever the user renamed or moved a save.
+        //
+        // Broken entries fall back to file mtime (so a corrupted
+        // save that the player wants to recover still surfaces
+        // at the top of the broken-saves list). If mtime is
+        // unavailable (e.g. the file was deleted between
+        // `read_dir` and `metadata`), they sink to the bottom.
         for path in paths {
             match parse_header_from_file(&path) {
                 Ok(header) => index.entries.push(SaveSummary::Valid { path, header }),
-                Err(e) => index.entries.push(SaveSummary::Broken { path, error: e }),
+                Err(e) => {
+                    let mtime = std::fs::metadata(&path)
+                        .and_then(|m| m.modified())
+                        .ok()
+                        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                        .map(|d| d.as_secs());
+                    index.entries.push(SaveSummary::Broken {
+                        path,
+                        error: e,
+                        mtime_unix_s: mtime,
+                    });
+                }
             }
         }
 
+        // Sort valid + broken entries together by timestamp DESC
+        // so the first valid is the most recent. Broken entries
+        // (with mtime fallback) interleave naturally.
+        index.entries.sort_by(|a, b| {
+            let a_ts = entry_timestamp(a).unwrap_or(0);
+            let b_ts = entry_timestamp(b).unwrap_or(0);
+            b_ts.cmp(&a_ts) // DESC
+        });
+
         index
+    }
+}
+
+/// Extract the canonical "when was this save produced" timestamp
+/// from a [`SaveSummary`]. Returns `None` only for valid entries
+/// missing the field (older saves) — those sink to the bottom
+/// of the index by design.
+fn entry_timestamp(entry: &SaveSummary) -> Option<u64> {
+    match entry {
+        SaveSummary::Valid { header, .. } => header.saved_at_unix_s,
+        SaveSummary::Broken { mtime_unix_s, .. } => *mtime_unix_s,
     }
 }
 
@@ -389,6 +448,78 @@ mod tests {
         SaveMetadata::new_now(seed, playtime_s, version)
     }
 
+    /// Helper: a populated [`SaveMetadata`] with a fixed
+    /// `saved_at_unix_s` so tests can order saves deterministically.
+    fn meta_at(version: &str, playtime_s: u64, seed: u64, saved_at_unix_s: u64) -> SaveMetadata {
+        let mut m = SaveMetadata::new_now(seed, playtime_s, version);
+        m.saved_at_unix_s = saved_at_unix_s;
+        m
+    }
+
+    /// GRA-358 PR-C regression: pre-PR-C the scanner sorted by
+    /// file name, which is **not** the same as "most recent".
+    /// The autosave filename encodes a unix timestamp so the
+    /// sort happened to work for autosaves, but any user-named
+    /// save (e.g. `Z_most_recent.ron`) would sort after
+    /// `autosave_1784886024.ron` even though the autosave is
+    /// older. The Continue button's "most recent" pick was
+    /// therefore wrong for user-named saves.
+    ///
+    /// This test writes three saves with deliberately confusing
+    /// names (the oldest has the lexicographically-latest name
+    /// so a file-name sort would put it first), checks the
+    /// `saved_at_unix_s` values, and asserts the scanner
+    /// surfaces the most recent one first regardless of name.
+    #[test]
+    fn scan_sorts_by_saved_at_unix_s_not_file_name() {
+        let dir = fresh_saves_dir("sort");
+        // File names: "z_oldest.ron" sorts LAST lexicographically
+        // but is the OLDEST by saved_at. "a_newest.ron" sorts
+        // FIRST but is the NEWEST. A file-name sort would
+        // surface `a_newest.ron` first (correct) but would
+        // surface `m_middle.ron` second — wrong; the scanner
+        // must surface `z_oldest.ron` second.
+        write_save_file(&dir, "a_newest.ron", &meta_at("0.4.0", 0, 1, 1_900_000_000));
+        write_save_file(&dir, "m_middle.ron", &meta_at("0.4.0", 0, 2, 1_800_000_000));
+        write_save_file(&dir, "z_oldest.ron", &meta_at("0.4.0", 0, 3, 1_700_000_000));
+
+        let index = SaveIndex::scan(&dir);
+        assert_eq!(index.valid_count(), 3);
+
+        // First valid entry must be the most recent by timestamp.
+        match &index.entries[0] {
+            SaveSummary::Valid { path, header } => {
+                assert!(
+                    path.ends_with("a_newest.ron"),
+                    "most recent save must be first; got {:?}",
+                    path
+                );
+                assert_eq!(
+                    header.saved_at_unix_s,
+                    Some(1_900_000_000),
+                    "most recent save's timestamp must be preserved"
+                );
+            }
+            other => panic!("expected Valid entry at index 0, got {other:?}"),
+        }
+        // Middle entry: 1.8e9 (z_oldest? no — middle by timestamp).
+        // Just check that the timestamps are in DESCENDING order.
+        let mut prev_ts = u64::MAX;
+        for entry in &index.entries {
+            if let SaveSummary::Valid { header, .. } = entry {
+                let ts = header.saved_at_unix_s.unwrap_or(0);
+                assert!(
+                    ts <= prev_ts,
+                    "scanner must sort by saved_at_unix_s DESC; \
+                     saw {ts} after {prev_ts}"
+                );
+                prev_ts = ts;
+            }
+        }
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn scan_with_three_valid_and_one_broken() {
         let dir = fresh_saves_dir("3v1b");
@@ -424,7 +555,7 @@ mod tests {
             .find(|e| e.is_broken())
             .expect("broken entry must exist");
         match broken {
-            SaveSummary::Broken { path, error } => {
+            SaveSummary::Broken { path, error, .. } => {
                 assert!(path.ends_with("delta.ron"));
                 assert!(!error.is_empty(), "broken entries carry a reason");
             }

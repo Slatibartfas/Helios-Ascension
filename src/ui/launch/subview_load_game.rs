@@ -294,7 +294,7 @@ fn render_save_list(
                             *selected_path = Some(path.clone());
                         }
                     }
-                    SaveSummary::Broken { path, error } => {
+                    SaveSummary::Broken { path, error, .. } => {
                         ui.colored_label(theme::RED, format!("{} — {error}", save_name(path)));
                     }
                 }
@@ -679,6 +679,7 @@ mod tests {
         index.entries.push(SaveSummary::Broken {
             path: "/tmp/b.ron".into(),
             error: "RON parse failed".into(),
+            mtime_unix_s: None,
         });
         assert_eq!(index.valid_count(), 1);
         assert_eq!(index.broken_count(), 1);
@@ -734,6 +735,7 @@ mod tests {
         index.entries.push(SaveSummary::Broken {
             path: "/tmp/not_ron.ron".into(),
             error: "RON parse failed".into(),
+            mtime_unix_s: None,
         });
         assert_eq!(index.valid_count(), 0);
         assert_eq!(index.broken_count(), 1);

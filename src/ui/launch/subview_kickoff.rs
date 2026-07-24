@@ -355,6 +355,7 @@ mod tests {
         index.entries.push(SaveSummary::Broken {
             path: PathBuf::from("/tmp/broken.ron"),
             error: "RON parse failed".into(),
+            mtime_unix_s: None,
         });
         index.entries.push(SaveSummary::Valid {
             path: PathBuf::from("/tmp/alpha_save.ron"),
@@ -459,6 +460,7 @@ mod tests {
         index.entries.push(SaveSummary::Broken {
             path: PathBuf::from("/tmp/a.ron"),
             error: "x".into(),
+            mtime_unix_s: None,
         });
         index.entries.push(SaveSummary::Valid {
             path: PathBuf::from("/tmp/b.ron"),
@@ -474,6 +476,7 @@ mod tests {
         index.entries.push(SaveSummary::Broken {
             path: PathBuf::from("/tmp/a.ron"),
             error: "x".into(),
+            mtime_unix_s: None,
         });
         assert_eq!(most_recent_valid_save(&index), None);
     }
