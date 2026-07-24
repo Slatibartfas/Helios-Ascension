@@ -177,17 +177,96 @@ pub fn play_new_game(world: &mut World, request: NewGameRequest) -> Result<u64, 
 /// engine reads at the moment of promotion. Tests use this directly;
 /// production callers supply their own factory through
 /// [`play_new_game_with_factory`].
+///
+/// GRA-XXX (2026-07-24): this used to be a bare `World::new()` +
+/// `init_resource` boilerplate. **That's the wrong shape for the
+/// restore path** — Bevy's `SceneDeserializer` (called by
+/// [`super::restore::restore_world`]) reads the world-local
+/// `AppTypeRegistry` to resolve every type path in the RON body,
+/// and the registry starts empty when no plugin ever ran on the
+/// world. So even though [`super::PersistencePlugin::build`]
+/// registers every simulation-state type we care about (see
+/// `src/persistence/mod.rs`), those `register_type::<…>()` calls
+/// never fire on the bare-WORLD factory — the loader sees an
+/// empty registry and aborts on the first unknown type path.
+///
+/// Player-visible symptom: 2026-07-24T09:33Z — saves written by
+/// the patched binary still fail to load with `no registration
+/// found for
+/// `helios_ascension::astronomy::components::CurrentStarSystem``.
+///
+/// Fix: construct an `App`, add `MinimalPlugins` +
+/// `PersistencePlugin`, and swap its world contents into the
+/// return value. `PersistencePlugin::build` then populates the
+/// `AppTypeRegistry` exactly the way it does on the live `App`,
+/// and the deserializer can resolve every type path the snapshot
+/// references. The swap pattern (`mem::swap` with a sentinel
+/// `World::default()`) is necessary because Bevy 0.18's `App`
+/// holds its `World` by `&mut` reference — there's no
+/// `into_world()`. See the regression test
+/// `build_minimal_world_runs_persistence_plugin` below for the
+/// behavioural assertion.
+///
+/// The chain is kept narrow on purpose — only
+/// `MinimalPlugins` + `PersistencePlugin`, not the full
+/// astronomy / colony / economy / fleets / etc. plugin
+/// stack. Those plugins do also call `register_type::<…>()`
+/// at startup, but they init resources, queue systems, and
+/// pull in render / winit dependencies. The 29-entry
+/// `register_type` list inside [`super::PersistencePlugin::build`]
+/// is the curated registry of "what does the snapshot's RON
+/// actually reference" — which is exactly what we need for the
+/// loader to succeed. Adding the full plugin stack would
+/// side-effect the world with render / windowing state that
+/// the restore path doesn't want to carry.
 fn build_minimal_world(seed: u64) -> World {
-    let mut w = World::new();
-    w.init_resource::<AppTypeRegistry>();
-    w.insert_resource(GameSeed { value: seed });
-    w.insert_resource(PlaytimeTracker::default());
-    w.insert_resource(LaunchState::InGame);
-    w.insert_resource(TimeScale::default());
-    w.insert_resource(PersistentSettings::default());
-    w.insert_resource(SaveIndex::default());
-    w.init_resource::<SaveIndexState>();
-    w
+    use bevy::app::App;
+    use bevy::MinimalPlugins;
+
+    let mut app = App::new();
+    app.add_plugins(MinimalPlugins);
+    // `PersistencePlugin::build` is the crucial call — it
+    // populates the world-local `AppTypeRegistry` with every
+    // simulation-state Component/Resource/Enum-key the
+    // snapshot's RON body references. Without this, every
+    // `SceneDeserializer` lookup on a `helios_ascension::*`
+    // type path returns `None` and the restore aborts. The
+    // existing test in `super::plugin_registers_type_registry`
+    // is the foundation; this is the closure that uses the
+    // populated registry end-to-end.
+    app.add_plugins(super::PersistencePlugin);
+
+    // The `App` lives in `app`, but the restore factory
+    // contract is `FnOnce() -> World`. Bevy 0.18 doesn't
+    // expose `App::into_world()`; the canonical swap is
+    // `mem::swap` with a sentinel `World::default()`. The
+    // sentinel gets the now-empty post-swap internals; the
+    // return value gets the populated world (with the
+    // `AppTypeRegistry` already populated).
+    let mut world = World::default();
+    std::mem::swap(&mut world, app.world_mut());
+    drop(app);
+    // `PersistencePlugin::build` already initialised
+    // `AppTypeRegistry` (with the 29-entry curated chain from
+    // `src/persistence/mod.rs`) on the world, plus the
+    // `MinimalPlugins` baseline (Time<Real>, Time<Virtual>,
+    // etc.). We don't want to clobber the registry with an
+    // empty one — just confirm the post-swap shape and add
+    // the Helios-managed resources on top.
+    assert!(
+        world.get_resource::<AppTypeRegistry>().is_some(),
+        "PersistencePlugin::build must insert AppTypeRegistry; \
+         bare-World factory without plugin chain would defeat the \
+         restore path. See game_setup.rs doc comments."
+    );
+    world.insert_resource(GameSeed { value: seed });
+    world.insert_resource(PlaytimeTracker::default());
+    world.insert_resource(LaunchState::InGame);
+    world.insert_resource(TimeScale::default());
+    world.insert_resource(PersistentSettings::default());
+    world.insert_resource(SaveIndex::default());
+    world.init_resource::<SaveIndexState>();
+    world
 }
 
 /// World factory used by the kickoff's `restore_save` call site.
@@ -572,5 +651,72 @@ mod tests {
 
     fn build_minimal_world_seed() -> World {
         build_minimal_world(1)
+    }
+
+    /// Regression test for the player-visible failure from
+    /// 2026-07-24T09:33Z: `restore_save failed: save restore
+    /// failed: scene deserialise failed: no registration
+    /// found for
+    /// `helios_ascension::astronomy::components::CurrentStarSystem``.
+    ///
+    /// The `PersistencePlugin` register list expanded a lot
+    /// in commit `4a46a76`, but that fix was
+    /// structurally insufficient because the restore
+    /// factory `build_minimal_world_for_restore()` built a
+    /// **bare `World::new()`** that never ran any plugins —
+    /// so `PersistencePlugin::build`'s `register_type::<…>()`
+    /// chain never fired, and the deserializer's
+    /// `AppTypeRegistry` lookup failed the same way it did
+    /// before the fix. This test pins the contract: the
+    /// factory returned by `build_minimal_world_for_restore`
+    /// must carry a world-local `AppTypeRegistry` whose
+    /// `helios_ascension::astronomy::components::
+    /// CurrentStarSystem` entry exists, mirroring what the
+    /// live `App`'s plugin chain would have populated.
+    ///
+    /// If a future maintainer reverts
+    /// `build_minimal_world` to its pre-fix bare-WORLD
+    /// shape, this test fails deterministically — the
+    /// same regression the player reported. Mismatches
+    /// appear at compile time (if the factory signature
+    /// drifts) and run time (if the registry contents drift).
+    /// Mirrors `package_astronomy_registration_into_persistence`
+    /// in `src/persistence/mod.rs` but exercises the factory
+    /// end-to-end rather than the plugin registration step.
+    #[test]
+    fn build_minimal_world_runs_persistence_plugin() {
+        // Resolve the post-2026-07-24 fix shape. The
+        // factory now constructs an App, runs
+        // PersistencePlugin::build, and swaps the
+        // populated world out into the return value.
+        let world = build_minimal_world_for_restore();
+
+        // Sanity: AppTypeRegistry must be present and populated.
+        // A bare `World::new()` would not have one — that's
+        // the pre-fix failure mode this test pins against.
+        // `world.resource::<T>()` panics on a missing
+        // resource; the type-id check on the read guard
+        // gives a clearer failure message when the assert
+        // path runs in a hot loop.
+        let registry = world.resource::<AppTypeRegistry>();
+        let registry_handle = registry.clone();
+        let registry_locked = registry_handle.read();
+
+        // The exact type path the player-reported load
+        // failure surfaced. Must resolve, or the test
+        // (and the production restore) reverts to the
+        // pre-fix behaviour.
+        let path = "helios_ascension::astronomy::components::CurrentStarSystem";
+        assert!(
+            registry_locked.get_with_type_path(path).is_some(),
+            "build_minimal_world_for_restore must register \
+             `{path}` in AppTypeRegistry. The factory builds an \
+             App, runs PersistencePlugin::build (which calls \
+             register_type for this type), and swaps the \
+             populated world out. If this assert fails, the \
+             factory has reverted to the bare-World::new() \
+             shape and the restore path will abort on the \
+             first scene-deserialise type lookup."
+        );
     }
 }
