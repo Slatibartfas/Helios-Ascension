@@ -147,6 +147,63 @@ impl Plugin for PersistencePlugin {
             .register_type::<crate::astronomy::Selected>()
             .register_type::<crate::astronomy::FloatingOrigin>()
             .register_type::<crate::astronomy::OrbitPath>()
+            // GRA-XXX: the source `AstronomyPlugin::build`
+            // (`src/astronomy/mod.rs:73-102`) registers
+            // these on the live `App`. The loader's
+            // `build_minimal_world_for_restore` factory
+            // (`src/persistence/game_setup.rs:198-200`)
+            // builds a bare `World::new()` with **no
+            // plugins** — so on the restore path those
+            // source registrations don't run. Without an
+            // explicit re-registration here, the
+            // deserializer's `AppTypeRegistry` lookup fails
+            // and `restore_world` returns Err.
+            //
+            // Player-visible symptom at 2026-07-24T09:20Z:
+            // `kickoff: restore_save failed: save restore
+            // failed: scene deserialise failed: no
+            // registration found for
+            // `helios_ascension::astronomy::components::
+            // CurrentStarSystem``. The
+            // `a99a5f5`-era audit list only covered five
+            // astronomy types (above), so the other ~25
+            // registered types reached the snapshot RON but
+            // couldn't be resolved on load. This block
+            // closes the rest of that gap for astronomy.
+            // See
+            // `package_astronomy_registration_into_persistence`
+            // below for the regression test that guards it.
+            .register_type::<crate::astronomy::CurrentStarSystem>()
+            .register_type::<crate::astronomy::SystemId>()
+            .register_type::<crate::astronomy::OrbitCenter>()
+            .register_type::<crate::astronomy::HyperbolicTrajectory>()
+            .register_type::<crate::astronomy::LocalOrbitAmplification>()
+            .register_type::<crate::astronomy::Hovered>()
+            .register_type::<crate::astronomy::Destroyed>()
+            .register_type::<crate::astronomy::CometTail>()
+            .register_type::<crate::astronomy::SelectionMarker>()
+            .register_type::<crate::astronomy::HoverMarker>()
+            .register_type::<crate::astronomy::MarkerOwner>()
+            .register_type::<crate::astronomy::MarkerDot>()
+            .register_type::<crate::astronomy::LpMarkerInfo>()
+            .register_type::<crate::astronomy::LagrangePointMarkers>()
+            .register_type::<crate::astronomy::LastLpClick>()
+            // Surface / ocean / atmosphere / stellar — also
+            // registered at the source, registered here for
+            // the same reason.
+            .register_type::<crate::astronomy::OceanType>()
+            .register_type::<crate::astronomy::OceanProperties>()
+            .register_type::<crate::astronomy::SurfaceTemperature>()
+            .register_type::<crate::astronomy::StellarProperties>()
+            .register_type::<crate::astronomy::AtmosphericGas>()
+            .register_type::<crate::astronomy::AtmosphereComposition>()
+            .register_type::<crate::astronomy::exoplanets::RealPlanet>()
+            .register_type::<crate::astronomy::nearby_stars::NearbyStarsData>()
+            .register_type::<crate::astronomy::nearby_stars::StarSystemData>()
+            .register_type::<crate::astronomy::nearby_stars::StarData>()
+            .register_type::<crate::astronomy::nearby_stars::PlanetData>()
+            .register_type::<crate::astronomy::nearby_stars::BinaryOrbitData>()
+            .register_type::<crate::astronomy::selection::RingHighlight>()
             // ── Colony (covers buildings + construction queue) ──────
             .register_type::<crate::colony::Colony>()
             .register_type::<crate::colony::ColonyTier>()
@@ -204,5 +261,120 @@ mod tests {
         app.add_plugins(MinimalPlugins);
         app.add_plugins(PersistencePlugin);
         assert!(app.world().contains_resource::<AppTypeRegistry>());
+    }
+
+    /// Regression test for the player-visible failure from
+    /// 2026-07-24T09:20Z: `restore_save failed: no
+    /// registration found for
+    /// `helios_ascension::astronomy::components::CurrentStarSystem``.
+    ///
+    /// `CurrentStarSystem` is `register_type`'d in
+    /// `AstronomyPlugin::build` (`src/astronomy/mod.rs:75`),
+    /// but the restore path uses
+    /// `build_minimal_world_for_restore`
+    /// (`src/persistence/game_setup.rs:198-200`) which
+    /// builds a bare `World::new()` with **no plugins**
+    /// — so on the restore path those source
+    /// registrations don't run. Without an explicit
+    /// re-registration in `PersistencePlugin::build`, the
+    /// deserializer's `AppTypeRegistry` lookup fails and
+    /// `restore_world` returns `Err`. Adding the missing
+    /// `register_type::<…>()` calls for every
+    /// AstronomyPlugin-registered type here closes that
+    /// gap.
+    ///
+    /// This test exercises the **registry-content** side of
+    /// the round trip the same way the restore path does:
+    /// build a bare `App` whose `AppTypeRegistry` was
+    /// populated only by `PersistencePlugin::build` (NOT
+    /// by `AstronomyPlugin`, since the live App's plugin
+    /// chain is unavailable on the restore path) and
+    /// confirm that each `helios_ascension::astronomy::*`
+    /// type path the loader needs to resolve actually has
+    /// an entry. If a future maintainer adds a new
+    /// `register_type::<…>()` to `AstronomyPlugin::build`
+    /// but forgets the mirror entry here, this test
+    /// catches the gap deterministically — same
+    /// `cargo test --lib persistence` loop the deny-chain
+    /// tests run in, just on the Helios side of the same
+    /// audit pattern. (The historical Bevy-side counterpart
+    /// pattern is documented in
+    /// `/memories/repo/bevy-0-18-reflect-resource-denylist.md`.)
+    #[test]
+    fn package_astronomy_registration_into_persistence() {
+        // Build the bare restore factory the same way
+        // `build_minimal_world` does — `App::new()` + an
+        // empty `AppTypeRegistry`. Add only
+        // `PersistencePlugin`. (We do NOT add
+        // `AstronomyPlugin`; the live `App`'s plugin chain
+        // is unavailable on the restore path. That's
+        // exactly the configuration that produced the
+        // 2026-07-24T09:20Z warning.)
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.add_plugins(PersistencePlugin);
+
+        // Every astronomy type that `AstronomyPlugin::build`
+        // registers at the source MUST also be registered
+        // here, otherwise the deserializer's
+        // `AppTypeRegistry.get_with_type_path` returns
+        // `None` and the entire scene load aborts. Build
+        // the expected-path list from the source plugin's
+        // registration chain (`src/astronomy/mod.rs:73-…`)
+        // and assert each path lands in the registry.
+        let expected = [
+            // Resources (the original 4 from the
+            // a99a5f5-era list + the gap closure):
+            "helios_ascension::astronomy::components::CurrentStarSystem",
+            "helios_ascension::astronomy::components::FloatingOrigin",
+            "helios_ascension::astronomy::components::LagrangePointMarkers",
+            "helios_ascension::astronomy::components::LastLpClick",
+            // Components (the original 5 from the
+            // a99a5f5-era list + the gap closure):
+            "helios_ascension::astronomy::components::SpaceCoordinates",
+            "helios_ascension::astronomy::components::KeplerOrbit",
+            "helios_ascension::astronomy::components::OrbitPath",
+            "helios_ascension::astronomy::components::Selected",
+            "helios_ascension::astronomy::components::SystemId",
+            "helios_ascension::astronomy::components::OrbitCenter",
+            "helios_ascension::astronomy::components::HyperbolicTrajectory",
+            "helios_ascension::astronomy::components::LocalOrbitAmplification",
+            "helios_ascension::astronomy::components::Hovered",
+            "helios_ascension::astronomy::components::Destroyed",
+            "helios_ascension::astronomy::components::CometTail",
+            "helios_ascension::astronomy::components::SelectionMarker",
+            "helios_ascension::astronomy::components::HoverMarker",
+            "helios_ascension::astronomy::components::MarkerOwner",
+            "helios_ascension::astronomy::components::MarkerDot",
+            "helios_ascension::astronomy::components::LpMarkerInfo",
+            // Surface / ocean / atmosphere / stellar —
+            // registered at the source, registered here
+            // for the same reason. Their full type paths
+            // use the components module since they all
+            // live there alongside the rest.
+            "helios_ascension::astronomy::components::OceanType",
+            "helios_ascension::astronomy::components::OceanProperties",
+            "helios_ascension::astronomy::components::SurfaceTemperature",
+            "helios_ascension::astronomy::components::StellarProperties",
+            "helios_ascension::astronomy::components::AtmosphericGas",
+            "helios_ascension::astronomy::components::AtmosphereComposition",
+            "helios_ascension::astronomy::exoplanets::RealPlanet",
+            "helios_ascension::astronomy::nearby_stars::NearbyStarsData",
+            "helios_ascension::astronomy::nearby_stars::StarSystemData",
+            "helios_ascension::astronomy::nearby_stars::StarData",
+            "helios_ascension::astronomy::nearby_stars::PlanetData",
+            "helios_ascension::astronomy::nearby_stars::BinaryOrbitData",
+            "helios_ascension::astronomy::selection::RingHighlight",
+        ];
+        let registry = app.world().resource::<AppTypeRegistry>();
+        let registry = registry.read();
+        for path in expected {
+            assert!(
+                registry.get_with_type_path(path).is_some(),
+                "PersistencePlugin::build must register `{path}` so the restore \
+                 path can resolve it. Add `.register_type::<…>()` to \
+                 `src/persistence/mod.rs::PersistencePlugin::build`."
+            );
+        }
     }
 }
