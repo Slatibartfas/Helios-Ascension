@@ -248,6 +248,67 @@ mod tests {
         assert!(!boot_state_is_loading_value(BootState::Ready));
     }
 
+    /// GRA-358 PR-B: the boot-init chain must NOT flip
+    /// `BootState` to `Ready` while `WorldReady` is absent (i.e.
+    /// before the player has chosen New Game / Load Save).
+    /// Otherwise the chain's flip-once semantics would lock out
+    /// the live world forever, and clicking "New Game" would
+    /// produce a permanently empty world (the exact bug the
+    /// screenshot in PR-B review caught).
+    ///
+    /// The chain's `run_if` predicates are:
+    /// 1. `boot_state_is_loading`  (must be Loading)
+    /// 2. `world_ready_is_present` (must have WorldReady)
+    ///
+    /// Both must be true. The test verifies the AND-ed gate by
+    /// driving `mark_boot_ready` through a Bevy schedule with each
+    /// combination of (Loading, WorldReady) and asserting
+    /// `BootState` only flips to `Ready` when BOTH are satisfied.
+    #[test]
+    fn boot_init_chain_stays_silent_without_world_ready() {
+        use bevy::MinimalPlugins;
+        use crate::persistence::swap::WorldReady;
+
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .init_resource::<BootState>();
+
+        // Register `mark_boot_ready` with the same dual gate the
+        // production chain uses (boot_state_is_loading AND
+        // world_ready_is_present). We don't drag in the full chain
+        // because the other systems require manifests, render
+        // devices, etc. — the gate-flip is the observable signal.
+        app.add_systems(
+            Update,
+            mark_boot_ready
+                .run_if(boot_state_is_loading)
+                .run_if(crate::persistence::swap::world_ready_is_present),
+        );
+
+        // ── Frame 1: no WorldReady yet (player hasn't clicked).
+        //    The chain must stay silent. BootState stays at Loading.
+        assert_eq!(*app.world().resource::<BootState>(), BootState::Loading);
+        app.update();
+        assert_eq!(
+            *app.world().resource::<BootState>(),
+            BootState::Loading,
+            "boot_init chain must not fire while WorldReady is absent"
+        );
+
+        // ── Frame 2: WorldReady inserted (the swap just landed).
+        app.insert_resource(WorldReady);
+        app.update();
+        assert_eq!(
+            *app.world().resource::<BootState>(),
+            BootState::Ready,
+            "boot_init chain must fire once WorldReady is present"
+        );
+
+        // ── Frame 3: chain stays silent (idempotent).
+        app.update();
+        assert_eq!(*app.world().resource::<BootState>(), BootState::Ready);
+    }
+
     /// Pure helper — the same check as `boot_state_is_loading` but
     /// for direct value comparison (no SystemParam needed).
     fn boot_state_is_loading_value(state: BootState) -> bool {
