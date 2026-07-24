@@ -322,8 +322,8 @@ pub fn ui_save_panel_subview(
 
             ui.add_space(theme::Spacing::lg);
 
-            // ── Back row ──────────────────────────────────────────
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            // ── Back row (left-aligned) ─────────────────────────
+            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                 if crate::ui::launch::render_glass_button(ui, "Back", "", true).clicked() {
                     back_clicked = true;
                 }

@@ -35,6 +35,7 @@
 pub mod manifest;
 pub mod menu;
 pub mod menu_backdrop;
+pub mod return_to_menu;
 pub mod save_index;
 pub mod splash;
 pub mod transitions;
@@ -60,6 +61,10 @@ pub use save_index::{SaveHeader, SaveIndex, SaveIndexState, SaveSummary, SAVES_S
 // Splash types re-exported so callers can `use crate::ui::launch::SplashPlugin`
 // without reaching into `splash::*` directly.
 pub use splash::{SplashContextPass, SplashImageData, SplashPlugin, SplashTimer};
+pub use return_to_menu::{
+    consume_in_game_return_to_menu_system, register_return_to_menu_consumer,
+    PendingReturnToMenu,
+};
 pub use subview_load_game::PendingInGameLoadRequest;
 pub use subview_manifests::{load_difficulty_presets_manifest, load_seed_copy_manifest};
 pub use subview_save_game::{
@@ -234,6 +239,13 @@ impl Plugin for LaunchPlugin {
         subview_settings::register_settings_subview(app);
         subview_save_game::register_save_panel_subview(app);
         subview_kickoff::register_kickoff_system(app);
+        // GRA-358 PR-F: in-game "🏠 Main Menu" button. The
+        // consumer reads the one-shot `PendingReturnToMenu`
+        // resource written by the in-game options panel and
+        // transitions `LaunchState` from `InGame` back to
+        // `MainMenu`, clearing the world-swap markers so a
+        // subsequent kickoff re-runs the boot-init chain.
+        return_to_menu::register_return_to_menu_consumer(app);
 
         // GRA-XYZ: menu backdrop — spawns the rotating-Earth close-up
         // and ambient/sun lighting for the menu session, despawns on

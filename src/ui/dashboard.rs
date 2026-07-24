@@ -1252,6 +1252,24 @@ pub(crate) fn ui_dashboard(
                                     crate::ui::launch::PendingInGameLoadRequest { open_panel: true },
                                 );
                             }
+                            // GRA-358 PR-F: "🏠 Main Menu" returns the
+                            // player to the launch main menu without
+                            // quitting the application. Distinct from
+                            // "🚪 Quit Game" (which fires `AppExit`
+                            // and exits the process). The consumer
+                            // (`consume_in_game_return_to_menu_system`)
+                            // lives in `EguiPrimaryContextPass` and
+                            // transitions `LaunchState` from `InGame`
+                            // to `MainMenu` while tearing down the
+                            // world-swap markers so a subsequent
+                            // New Game / Continue / Load Save
+                            // kickoff re-runs the boot-init chain.
+                            if ui.button("🏠 Main Menu").clicked() {
+                                info!("Main Menu clicked — requesting return to launch main menu");
+                                commands.insert_resource(
+                                    crate::ui::launch::PendingReturnToMenu { requested: true },
+                                );
+                            }
                             if ui.button("⚙ Options").clicked() {
                                 info!("Options clicked");
                             }
