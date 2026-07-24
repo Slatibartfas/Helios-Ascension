@@ -473,22 +473,128 @@ fn build_save_preview(world: &World, path: &Path) -> SavePreview {
 /// Bevy system: drain [`PendingGameWorld`] once a fresh world is
 /// stashed, advance [`LaunchState`] to `InGame`, and clear message
 /// buffer bookkeeping so the next frame's reader starts empty.
-pub fn promote_pending_world(
-    mut pending: ResMut<PendingGameWorld>,
-    mut launch_state: ResMut<LaunchState>,
-    mut new_game: MessageReader<NewGameCommitted>,
-    mut restore: MessageReader<RestoreCommitted>,
-) {
-    let has_message = !new_game.is_empty() || !restore.is_empty();
-    if pending.world.is_none() && !has_message {
+///
+/// PR-B (GRA-358) replaces the previous "drop the pending world on
+/// the floor" behaviour with a real world-swap via
+/// [`super::swap::swap_world_into`]. On success the system inserts
+/// [`super::swap::WorldReady`], the marker resource that gates the
+/// `Startup`-time content spawns (see [`crate::boot_init::BootInitPlugin`]
+/// for the chain that fires after `WorldReady` is present).
+///
+/// # Exclusive system
+///
+/// `swap_world_into` needs `&mut World`, and so does inserting
+/// `WorldReady` once the swap completes. Bevy 0.18 exposes
+/// `&mut World` only as an `ExclusiveSystemParam`, so the whole
+/// promotion runs through the exclusive-system path
+/// (`app.add_systems(EguiPrimaryContextPass, promote_pending_world)`).
+/// `tick_autosave_timer` in `autosave.rs:185` uses the same
+/// pattern.
+///
+/// Failures surface as a [`GameSetupError`] via the surrounding
+/// `kickoff_world_system` consumer; the swap already logged the
+/// root cause at the source.
+pub fn promote_pending_world(world: &mut World) {
+    // Snapshot the resource handles up front so we don't hold a
+    // long-lived `ResMut` borrow across the swap.
+    let has_pending = world
+        .get_resource::<PendingGameWorld>()
+        .map(|p| p.world.is_some())
+        .unwrap_or(false);
+    let has_new_game_msg = !world
+        .get_resource::<Messages<NewGameCommitted>>()
+        .map(|m| m.is_empty())
+        .unwrap_or(true);
+    let has_restore_msg = !world
+        .get_resource::<Messages<RestoreCommitted>>()
+        .map(|m| m.is_empty())
+        .unwrap_or(true);
+    if !has_pending && !has_new_game_msg && !has_restore_msg {
         return;
     }
-    // Drain readers so MessageReader::len() returns 0 on the next
-    // frame. `read()` already consumes; we just need a no-op iteration.
-    let _ = new_game.read().count();
-    let _ = restore.read().count();
-    pending.world.take();
-    *launch_state = LaunchState::InGame;
+
+    // Drain the message readers so MessageReader::len() returns 0
+    // on the next frame. `read()` already consumes; we just need
+    // a no-op iteration.
+    if let Some(mut msgs) = world.get_resource_mut::<Messages<NewGameCommitted>>() {
+        let _ = msgs.drain().count();
+    }
+    if let Some(mut msgs) = world.get_resource_mut::<Messages<RestoreCommitted>>() {
+        let _ = msgs.drain().count();
+    }
+
+    // Run the swap into the *live* world. We take the pending
+    // world OUT of the PendingGameWorld resource first so the
+    // borrow on `world` is released before we re-borrow to run
+    // the swap (Bevy 0.18's borrow checker rejects
+    // `&mut PendingGameWorld + &mut World` simultaneously).
+    //
+    // `swap_world_into` itself takes `&mut PendingGameWorld`, so
+    // we hand it a tiny fresh resource with the inner world.
+    let swap_result = {
+        let pending_world = world
+            .get_resource_mut::<PendingGameWorld>()
+            .and_then(|mut p| p.world.take());
+        match pending_world {
+            None => Err(super::swap::SwapError::NothingPending),
+            Some(pending_world) => {
+                let mut pending = PendingGameWorld {
+                    world: Some(pending_world),
+                };
+                super::swap::swap_world_into(&mut pending, world)
+            }
+        }
+    };
+
+    match swap_result {
+        Ok(()) => {}
+        Err(super::swap::SwapError::NothingPending) => {
+            // No world to swap — message-only transition. Fall
+            // through to the LaunchState flip.
+        }
+        Err(err) => {
+            // Swap failed (unregistered component, etc.). Log
+            // loudly + emit a player toast. The swap already
+            // drained the pending world, so we can't retry on
+            // this frame.
+            error!(
+                target: "persistence::promote_pending_world",
+                "world swap failed: {err} — falling through to LaunchState::InGame anyway \
+                 so the menu dismisses; the live world may be in an undefined state"
+            );
+            // Reuse the `persistence.restore_failed` category id
+            // so the notification row in
+            // assets/data/notifications.ron covers both save
+            // restore and world swap failures.
+            world.write_message(NotificationEvent {
+                category: NotificationCategoryId::from("persistence.restore_failed"),
+                severity: crate::ui::notifications::events::NotificationSeverity::Critical,
+                title: "World swap failed".to_string(),
+                body: format!(
+                    "{err} — the live world may be in an undefined state. Save before quitting."
+                ),
+                dedup_key: Some(format!("swap_failed:{err}")),
+                auto_dismiss_s: Some(8.0),
+                sticky: false,
+                context_link: NotificationContextLink::None,
+            });
+        }
+    }
+
+    // Insert the WorldReady marker so the deferred-init chain
+    // (`BootInitPlugin`) fires. On swap-error paths we still
+    // insert it so the player gets a working main menu; the
+    // boot_init chain is idempotent and the toast above surfaces
+    // the corruption.
+    if !world.contains_resource::<super::swap::WorldReady>() {
+        world.insert_resource(super::swap::WorldReady);
+    }
+
+    // Flip LaunchState to InGame so the menu dismisses and the
+    // resource-bar / fleet / research panels become visible.
+    if let Some(mut launch) = world.get_resource_mut::<LaunchState>() {
+        *launch = LaunchState::InGame;
+    }
 }
 
 #[cfg(test)]
@@ -621,16 +727,31 @@ mod tests {
         // `App::new()` + `app.update()` rather than the raw
         // `World::run_schedule` path. Messages double-buffer on
         // Schedule, and deferred Commands need a frame to apply.
+        //
+        // The production system is registered in
+        // `EguiPrimaryContextPass` (per
+        // `[[feedback-bevy-018-egui-context-pass]]`). The test
+        // schedules it in `Update` so `app.update()` ticks it
+        // without dragging in `bevy_egui::EguiPlugin` (which
+        // requires `Assets<Shader>` and a render device, neither
+        // of which the unit test needs). The production
+        // schedule choice is unchanged.
         let mut app = App::new();
         app.add_plugins(MinimalPlugins);
+        app.add_plugins(crate::persistence::PersistencePlugin);
         app.init_resource::<LaunchState>();
         app.init_resource::<PendingGameWorld>();
         app.add_message::<NewGameCommitted>();
         app.add_message::<RestoreCommitted>();
+        // `promote_pending_world` is an exclusive system in
+        // GRA-358 PR-B (it takes `&mut World`).
         app.add_systems(Update, promote_pending_world);
 
         // Pre-load a fresh world + a NewGameCommitted so the
-        // promote system has work to do.
+        // promote system has work to do. `build_minimal_world`
+        // already populates AppTypeRegistry via
+        // PersistencePlugin::build, so the swap's
+        // `ReflectComponent::copy` lookups succeed.
         let fresh = build_minimal_world(7);
         app.insert_resource(PendingGameWorld { world: Some(fresh) });
         app.world_mut().write_message(NewGameCommitted {
@@ -645,8 +766,21 @@ mod tests {
 
         app.update();
 
+        // PR-A's contract: pending drains, launch state advances.
         assert!(app.world().resource::<PendingGameWorld>().world.is_none());
         assert_eq!(*app.world().resource::<LaunchState>(), LaunchState::InGame);
+
+        // PR-B's addition: WorldReady is inserted (gates the
+        // deferred-init chain in BootInitPlugin), and the live
+        // world carries the swapped resource set. Resource-level
+        // copy semantics are covered by the dedicated swap unit
+        // tests (`swap_pending_into_empty_target_copies_three_entities`
+        // and friends) — this test focuses on the orchestration
+        // contract (drain + state advance + marker insert).
+        assert!(
+            app.world().contains_resource::<crate::persistence::swap::WorldReady>(),
+            "promote_pending_world must insert WorldReady after a successful swap"
+        );
     }
 
     fn build_minimal_world_seed() -> World {

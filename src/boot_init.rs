@@ -104,6 +104,15 @@ pub enum BootState {
 /// `Startup` + `PostStartup` registrations that were removed by
 /// the splash-hides-loading refactor. New systems should be added
 /// here, not re-registered at `Startup`.
+///
+/// GRA-358 PR-B: the chain is now gated on BOTH
+/// [`BootState::Loading`] AND [`crate::persistence::swap::WorldReady`].
+/// `WorldReady` is inserted by
+/// [`crate::persistence::game_setup::promote_pending_world`] after
+/// the world-swap lands, so the chain only fires once the player
+/// has chosen "New Game" or "Load Save". The live world stays
+/// empty at app boot — see the swap architecture notes in
+/// `/memories/repo/world-swap-implementation.md`.
 pub struct BootInitPlugin;
 
 impl Plugin for BootInitPlugin {
@@ -156,7 +165,16 @@ impl Plugin for BootInitPlugin {
                 mark_boot_ready,
             )
                 .chain()
-                .run_if(boot_state_is_loading),
+                // GRA-358 PR-B: gate the whole chain on BOTH
+                // `BootState::Loading` (the splash-end signal) AND
+                // `WorldReady` (the kickoff-end signal). Without
+                // `WorldReady`, the chain would fire on the very
+                // first `app.update()` call — before any
+                // save/load decision — and spawn the entire
+                // 710-body baseline over whatever the swap
+                // eventually lands.
+                .run_if(boot_state_is_loading)
+                .run_if(crate::persistence::swap::world_ready_is_present),
         );
     }
 }

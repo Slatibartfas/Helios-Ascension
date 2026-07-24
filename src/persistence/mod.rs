@@ -64,6 +64,7 @@ pub mod playtime;
 pub mod plugin;
 pub mod restore;
 pub mod snapshot;
+pub mod swap;
 
 pub use autosave::{
     prune_old_autosaves, tick_autosave_timer, AutosaveTimer, AUTOSAVE_PREFIX, AUTOSAVE_SUFFIX,
@@ -87,6 +88,7 @@ pub use restore::{restore_world, RestoreError, RestoredWorld};
 pub use snapshot::{
     snapshot_world, snapshot_world_with_registry, SaveFile, SaveMetadata, SnapshotError,
 };
+pub use swap::{swap_world_into, world_ready_is_present, SwapError, WorldReady};
 
 /// Plugin that wires save/load into Bevy.
 ///
