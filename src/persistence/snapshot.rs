@@ -977,6 +977,101 @@ fn configure_builder<'a>(
         .deny_resource::<bevy::sprite::SpritePickingSettings>()
         .deny_resource::<bevy::ui::UiScale>()
         .deny_resource::<bevy::ui::picking_backend::UiPickingSettings>()
+        // === Bulk pick-up #2: 3 more reflect-derived,
+        // main-app, init_resource'd, unregistered Resources
+        // surfaced by a re-audit after the player reported
+        // `bevy_sprite_render::tilemap_chunk::
+        // TilemapChunkMeshCache` at 2026-07-23T21:36Z. The
+        // previous bulk-audit (commit `a99a5f5`)
+        // **mis-classified** this resource as a render-app
+        // false positive — it isn't. `TilemapChunkPlugin::
+        // build` (`bevy_sprite_render-0.18.0/src/tilemap_chunk
+        // /mod.rs:34-37`) takes `&mut App` (the main app) and
+        // calls `app.init_resource::<TilemapChunkMeshCache>()`,
+        // not `render_app.init_resource::<…>()`. My
+        // `grep -v "render_app\|sub_app"` filter let it
+        // through, but my *reasoning* ("all these types
+        // live on render_app") was wrong — this one is main-
+        // app. This commit reclassifies it as a leak and
+        // adds two more siblings discovered by the same
+        // re-audit. ===
+        //
+        // `bevy_sprite_render::TilemapChunkMeshCache`
+        // (`bevy_sprite_render-0.18.0/src/tilemap_chunk/
+        // mod.rs:43`,
+        // `#[derive(Resource, Default, Deref, DerefMut,
+        // Reflect)] #[reflect(Resource, Default)]`),
+        // init'd at `tilemap_chunk/mod.rs:35`
+        // (`.init_resource::<TilemapChunkMeshCache>()`).
+        // `bevy_sprite_render` makes **zero** `register_type`
+        // calls anywhere on the type we care about — the
+        // one `register_type::<MeshMaterial2d<M>>()` hit is
+        // for the standard 2D material, unrelated. Player-
+        // visible symptom at 2026-07-23T21:36Z: `kickoff:
+        // restore_save failed: save restore failed: scene
+        // deserialise failed: no registration found for
+        // `bevy_sprite_render::tilemap_chunk::
+        // TilemapChunkMeshCache``. `tilemap_chunk` is a
+        // **private module** but re-exported at the
+        // `bevy_sprite_render` crate root via `pub use
+        // tilemap_chunk::*;` (`lib.rs:32`) — so the
+        // umbrella path drops the module qualifier: deny
+        // path is `bevy::sprite_render::TilemapChunkMeshCache`.
+        //
+        // `bevy_input_focus::directional_navigation::
+        // DirectionalNavigationMap`
+        // (`bevy_input_focus-0.18.0/src/directional_navigation
+        // .rs:198-199`, gated on
+        // `#[cfg_attr(feature = "bevy_reflect", derive(Reflect),
+        // reflect(Resource, Debug, Default, PartialEq,
+        // Clone))]`), init'd at `directional_navigation.rs:
+        // 68` (`.init_resource::<DirectionalNavigationMap>()`).
+        // `bevy_input_focus` makes zero `register_type` calls,
+        // AND the umbrella enables `bevy_reflect` on
+        // `bevy_input_focus` (via `bevy_internal-0.18.0/Cargo.
+        // tom:567-571`-style `features = ["bevy_reflect"],
+        // default-features = false`) — so the
+        // feature-gated derive is active in our build. This
+        // is the same `bevy_internal` shape that bit us with
+        // `bevy_input::ButtonInput<Key>` last time.
+        // `directional_navigation` is a **public module**
+        // (verified via `grep "^pub mod" bevy_input_focus-
+        // 0.18.0/src/lib.rs`), so the umbrella path keeps
+        // the qualifier: deny path is `bevy::input_focus::
+        // directional_navigation::DirectionalNavigationMap`.
+        //
+        // `bevy_input_focus::directional_navigation::
+        // AutoNavigationConfig` — same crate / same module
+        // (`navigator.rs:1`, gated `derive(Reflect,
+        // reflect(Resource, Debug, PartialEq, Clone))`),
+        // init'd at `directional_navigation.rs:69`. Same
+        // fix, same crates-path shape.
+        //
+        // All three are runtime defaults with no save-time
+        // meaning — `TilemapChunkMeshCache` holds per-chunk
+        // GPU mesh handles (re-derived when chunks spawn
+        // again), and the two `bevy_input_focus` resources
+        // are UI-navigation defaults re-derived by
+        // `DirectionalNavigationPlugin` at every launch.
+        // See
+        // `snapshot_skips_render2d_and_input_focus_resources`
+        // below.
+        //
+        // **Methodology note.** The original bulk-audit
+        // (commit `a99a5f5`) missed `TilemapChunkMeshCache`
+        // because I over-grouped the `bevy_sprite_render`
+        // init sites as "all render-app" without checking
+        // each one's receiver type. The re-audit for this
+        // commit cross-checks each `app.init_resource::<…>()`
+        // line against the enclosing `fn build(...)`
+        // signature — anything taking `&mut App` is main-app,
+        // anything taking `&mut SubApp` (or `render_app.…`) is
+        // render-app. That's the audit-discipline rule, not
+        // the substring filter. Documented in the memory
+        // note's audit-recipe section.
+        .deny_resource::<bevy::sprite_render::TilemapChunkMeshCache>()
+        .deny_resource::<bevy::input_focus::directional_navigation::DirectionalNavigationMap>()
+        .deny_resource::<bevy::input_focus::directional_navigation::AutoNavigationConfig>()
         .extract_resources()
 }
 
@@ -1571,6 +1666,87 @@ mod tests {
             "SpritePickingSettings",
             "UiScale",
             "UiPickingSettings",
+        ] {
+            assert!(
+                !ron.contains(needle),
+                "denylist failed — {needle} serialised into save: {ron}"
+            );
+        }
+    }
+
+    #[test]
+    fn snapshot_skips_render2d_and_input_focus_resources() {
+        // Bulk-pick-up #2 regression test for the 3 reflect-
+        // derived, main-app, init_resource'd, unregistered
+        // Resources surfaced by a re-audit after the player
+        // reported `bevy_sprite_render::tilemap_chunk::
+        // TilemapChunkMeshCache` at 2026-07-23T21:36Z. The
+        // first bulk audit (commit `a99a5f5`) mis-classified
+        // `TilemapChunkMeshCache` as a render-app false
+        // positive — it's not. The re-audit is the
+        // closed-loop discipline: every `init_resource` in
+        // an `fn build(...)` taking `&mut App` is main-app
+        // (the subject of this deny chain), not
+        // necessarily (the audit produced the previous
+        // commit's `bevy_sprite_render::tilemap_chunk::
+        // {mod.rs hit}` apparent render-app classification,
+        // which was wrong).
+        //
+        // The three targets in this test are the leaks
+        // that re-audit surfaced:
+        //
+        // - `bevy_sprite_render::TilemapChunkMeshCache`
+        //   (`bevy_sprite_render-0.18.0/src/tilemap_chunk/
+        //   mod.rs:43`,
+        //   `#[derive(Resource, Default, Deref, DerefMut,
+        //   Reflect)] #[reflect(Resource, Default)]`),
+        //   init'd at `tilemap_chunk/mod.rs:35`.
+        //   Re-exported at the `bevy_sprite_render` crate
+        //   root via `pub use tilemap_chunk::*;` so the
+        //   umbrella path drops the module qualifier.
+        // - `bevy_input_focus::directional_navigation::
+        //   DirectionalNavigationMap`
+        //   (`bevy_input_focus-0.18.0/src/directional_
+        //   navigation.rs:198`, gated
+        //   `#[cfg_attr(feature = "bevy_reflect",
+        //   derive(Reflect), reflect(Resource, ...))]`),
+        //   init'd at `directional_navigation.rs:68`. The
+        //   umbrella enables `bevy_reflect` on
+        //   `bevy_input_focus` (same `bevy_internal-0.18.0`
+        //   umbrella path that flipped `bevy_input`'s
+        //   `ButtonInput` / `AccumulatedMouseMotion` into
+        //   the leak set).
+        // - `bevy_input_focus::directional_navigation::
+        //   AutoNavigationConfig` — sibling type in the
+        //   same plugin, same crates-path shape.
+        //
+        // `bevy_sprite_render` makes zero
+        // `register_type::<…>()` calls for the targets we
+        // care about (the one hit, `MeshMaterial2d<M>`,
+        // is unrelated). `bevy_input_focus` makes zero
+        // `register_type` calls period (`grep
+        // register_type bevy_input_focus-0.18.0/src/`
+        // returns nothing).
+        //
+        // This test mirrors the multi-resource test
+        // pattern set by `snapshot_skips_audio_resources`
+        // / `snapshot_skips_bevy_input_resources` /
+        // `snapshot_skips_bevy_light_resources` /
+        // `snapshot_skips_bulk_picking_ui_resources`.
+        let mut world = World::new();
+        world.init_resource::<AppTypeRegistry>();
+        // Mirror what `TilemapChunkPlugin::build` /
+        // `DirectionalNavigationPlugin::build` do to the
+        // live app.
+        world.init_resource::<bevy::sprite_render::TilemapChunkMeshCache>();
+        world.init_resource::<bevy::input_focus::directional_navigation::DirectionalNavigationMap>();
+        world.init_resource::<bevy::input_focus::directional_navigation::AutoNavigationConfig>();
+        let ron = snapshot_world(&world, SaveMetadata::new_now(0, 0, "test"))
+            .expect("snapshot must skip render2d + input_focus resources");
+        for needle in [
+            "TilemapChunkMeshCache",
+            "DirectionalNavigationMap",
+            "AutoNavigationConfig",
         ] {
             assert!(
                 !ron.contains(needle),
