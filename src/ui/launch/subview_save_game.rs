@@ -1,17 +1,18 @@
 //! Save Panel subview (GRA-358 PR-C).
 //!
 //! Surfaces when [`crate::ui::launch::LaunchState::SaveGame`] is
-//! active. Two action paths:
+//! active. Single primary action:
 //!
-//! - **Save** — writes the live world to a "current slot" file
-//!   (`saves/current_save.ron`) via
+//! - **Save** — writes the live world to a named slot under
+//!   `<userdata>/saves/<name>.ron` via
 //!   [`crate::persistence::write_save_atomic`] (via
-//!   [`crate::persistence::write_save_to_path`]).
-//! - **Save As** — a slot picker the player can use to write to
-//!   any path under `<userdata>/saves/`. Existing entries are read
-//!   from [`SaveIndex`].
+//!   [`crate::persistence::write_save_to_path`]). If the resolved
+//!   slot already exists on disk, an overwrite warning surfaces
+//!   before the write commits. Existing saves are read from
+//!   [`SaveIndex`]; clicking a row auto-fills the name field and
+//!   pre-marks the slot as the overwrite target.
 //!
-//! Both action paths go through [`crate::persistence::PendingSaveActions`]
+//! All actions go through [`crate::persistence::PendingSaveActions`]
 //! — the egui render system pushes the player's selection onto
 //! the queue, and a separate exclusive system
 //! ([`consume_save_actions_system`]) drains the queue in the same
@@ -73,6 +74,11 @@ impl PendingInGameSaveRequest {
 #[derive(Resource, Debug, Clone)]
 pub struct SaveGameUiState {
     pub name: String,
+    /// Index into [`SaveIndex::entries`] of the save the player has
+    /// clicked on in the existing-saves list. `None` means no row is
+    /// highlighted (the default state). The selection drives both the
+    /// auto-fill of the name field and the overwrite warning on Save.
+    pub selected_save_index: Option<usize>,
     pub overwrite_candidate: Option<PathBuf>,
 }
 
@@ -80,6 +86,7 @@ impl Default for SaveGameUiState {
     fn default() -> Self {
         Self {
             name: "new_mission".to_string(),
+            selected_save_index: None,
             overwrite_candidate: None,
         }
     }
@@ -139,9 +146,10 @@ pub fn ui_save_panel_subview(
     };
 
     let mut back_clicked = false;
-    let mut save_as_clicked = false;
+    let mut save_clicked = false;
     let mut confirm_overwrite = false;
     let mut cancel_overwrite = false;
+    let mut clicked_save_index: Option<usize> = None;
 
     // GRA-XYZ: transparent central panel so the rotating-Earth backdrop
     // stays visible behind the save panel content.
@@ -176,12 +184,23 @@ pub fn ui_save_panel_subview(
                             .color(theme::TEXT_DIM)
                             .size(10.0),
                     );
-                    if ui
-                        .button(egui::RichText::new("Save As…").color(theme::ACCENT))
+                    ui.add_space(theme::Spacing::xs);
+                    ui.horizontal(|ui| {
+                        // Save button writes to the resolved named slot.
+                        // If that slot already exists on disk, the
+                        // overwrite-candidate warning fires before the
+                        // write commits.
+                        if crate::ui::launch::render_glass_button(
+                            ui,
+                            "Save",
+                            "",
+                            !save_ui.name.trim().is_empty(),
+                        )
                         .clicked()
-                    {
-                        save_as_clicked = true;
-                    }
+                        {
+                            save_clicked = true;
+                        }
+                    });
                 });
 
             ui.add_space(theme::Spacing::lg);
@@ -194,7 +213,7 @@ pub fn ui_save_panel_subview(
             );
             if save_index.entries.is_empty() {
                 ui.label(
-                    egui::RichText::new("No saves yet — Save As… to create one.")
+                    egui::RichText::new("No saves yet — type a name and press Save.")
                         .color(theme::TEXT_DIM)
                         .size(11.0),
                 );
@@ -202,9 +221,11 @@ pub fn ui_save_panel_subview(
                 egui::Frame::group(ui.style())
                     .inner_margin(egui::Margin::same(theme::Spacing::md as i8))
                     .show(ui, |ui| {
-                        for entry in save_index.entries.iter() {
+                        for (idx, entry) in save_index.entries.iter().enumerate() {
                             match entry {
                                 SaveSummary::Valid { path, header } => {
+                                    let selected =
+                                        save_ui.selected_save_index == Some(idx);
                                     let label = format!(
                                         "{}  ·  {}",
                                         header.formatted_saved_at(),
@@ -212,22 +233,41 @@ pub fn ui_save_panel_subview(
                                             .map(|n| n.to_string_lossy().to_string())
                                             .unwrap_or_default(),
                                     );
-                                    if ui
-                                        .add(
-                                            egui::Button::new(
-                                                egui::RichText::new(label).color(theme::ACCENT),
-                                            )
-                                            .min_size(egui::vec2(ui.available_width(), 30.0)),
-                                        )
-                                        .clicked()
-                                    {
-                                        save_ui.name = path
-                                            .file_stem()
-                                            .map(|name| name.to_string_lossy().to_string())
-                                            .unwrap_or_default();
+                                    let button = egui::Button::new(
+                                        egui::RichText::new(label).color(if selected {
+                                            theme::ACCENT
+                                        } else {
+                                            theme::TEXT
+                                        }),
+                                    )
+                                    .fill(if selected {
+                                        theme::BUTTON_ACTIVE_BG
+                                    } else {
+                                        theme::SURFACE
+                                    })
+                                    .stroke(egui::Stroke::new(
+                                        1.0,
+                                        if selected {
+                                            theme::ACCENT
+                                        } else {
+                                            theme::BORDER
+                                        },
+                                    ))
+                                    .min_size(egui::vec2(ui.available_width(), 34.0));
+                                    let response = ui.add(button);
+                                    if response.hovered() {
+                                        ui.painter().rect_stroke(
+                                            response.rect,
+                                            3.0,
+                                            egui::Stroke::new(1.5, theme::ACCENT),
+                                            egui::StrokeKind::Inside,
+                                        );
+                                    }
+                                    if response.clicked() {
+                                        clicked_save_index = Some(idx);
                                     }
                                 }
-                                SaveSummary::Broken { path, error } => {
+                                SaveSummary::Broken { path, error, .. } => {
                                     ui.colored_label(
                                         theme::RED,
                                         format!(
@@ -270,10 +310,11 @@ pub fn ui_save_panel_subview(
                     ),
                 );
                 ui.horizontal(|ui| {
-                    if ui.button("Overwrite").clicked() {
+                    if crate::ui::launch::render_glass_button(ui, "Overwrite", "", true).clicked()
+                    {
                         confirm_overwrite = true;
                     }
-                    if ui.button("Cancel").clicked() {
+                    if crate::ui::launch::render_glass_button(ui, "Cancel", "", true).clicked() {
                         cancel_overwrite = true;
                     }
                 });
@@ -282,11 +323,8 @@ pub fn ui_save_panel_subview(
             ui.add_space(theme::Spacing::lg);
 
             // ── Back row ──────────────────────────────────────────
-            ui.horizontal(|ui| {
-                if ui
-                    .button(egui::RichText::new("Back").color(theme::TEXT_DIM))
-                    .clicked()
-                {
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if crate::ui::launch::render_glass_button(ui, "Back", "", true).clicked() {
                     back_clicked = true;
                 }
             });
@@ -296,22 +334,41 @@ pub fn ui_save_panel_subview(
     // Mutate outside the egui closure to avoid `ResMut` borrows held
     // across the closure.
 
-    if save_as_clicked {
+    // Selecting an existing save auto-fills the name field and tags
+    // the slot as the overwrite target so the Save button immediately
+    // commits to that path.
+    if let Some(idx) = clicked_save_index {
+        if let Some(SaveSummary::Valid { path, .. }) = save_index.entries.get(idx) {
+            save_ui.selected_save_index = Some(idx);
+            save_ui.name = path
+                .file_stem()
+                .map(|name| name.to_string_lossy().to_string())
+                .unwrap_or_default();
+            save_ui.overwrite_candidate = Some(path.clone());
+        }
+    }
+
+    if save_clicked {
         if let Some(path) = named_slot_path(&save_ui.name) {
             if path.exists() {
                 save_ui.overwrite_candidate = Some(path);
             } else {
                 pending.save_as_path = Some(path);
+                save_ui.selected_save_index = None;
+                save_ui.overwrite_candidate = None;
             }
         }
     }
     if confirm_overwrite {
         pending.save_as_path = save_ui.overwrite_candidate.take();
+        save_ui.selected_save_index = None;
     }
     if cancel_overwrite {
         save_ui.overwrite_candidate = None;
     }
     if back_clicked {
+        save_ui.selected_save_index = None;
+        save_ui.overwrite_candidate = None;
         let next = return_state.previous_state.unwrap_or(LaunchState::MainMenu);
         commands.insert_resource(NextLaunchState::set(next));
     }
