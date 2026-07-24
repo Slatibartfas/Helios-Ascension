@@ -346,8 +346,30 @@ fn swap_pending_into_target(
                 // The fix is to skip `Children` in pass 1 and
                 // let the pass-2 `ChildOf` insertions populate
                 // it correctly via the hook.
+                //
+                // `GlobalTransform` is also skipped. Bevy 0.18's
+                // `Transform` has `#[require(GlobalTransform)]`
+                // (see `bevy_transform-0.18.0/src/components/
+                // transform.rs:71`), so when pass 1 copies
+                // `Transform` via `ReflectComponent::copy`,
+                // Bevy auto-inserts `GlobalTransform::default()`
+                // on the entity. We don't need to copy the
+                // stale `GlobalTransform` from the save.
+                //
+                // Why skip it instead of copy: the copy path
+                // triggers `validate_parent_has_component::
+                // <GlobalTransform>` (the B0004 hook) on every
+                // child whose parent hasn't been processed yet.
+                // With ~710 bodies, that's ~250 spurious
+                // warnings on every Continue. Skipping
+                // `GlobalTransform` and letting Bevy's
+                // `propagate_parent_transforms` (PostUpdate)
+                // derive it from `Transform` post-swap produces
+                // the correct end-state without the warning
+                // storm.
                 if type_id == TypeId::of::<ChildOf>()
                     || type_id == TypeId::of::<Children>()
+                    || type_id == TypeId::of::<GlobalTransform>()
                 {
                     continue;
                 }
@@ -804,6 +826,85 @@ mod tests {
         let result = swap_world_into(&mut pending, &mut target);
         assert!(result.is_ok());
         assert!(pending.world.is_none(), "pending drained on success");
+    }
+
+    #[test]
+    fn swap_skips_global_transform_and_lets_require_re_derive_it() {
+        // GRA-358 PR-D regression: pre-fix the swap copied
+        // `GlobalTransform` from the saved world via
+        // `ReflectComponent::copy`. The copy triggered Bevy's
+        // `validate_parent_has_component::<GlobalTransform>` hook
+        // (B0004) on every child whose parent hadn't been
+        // processed yet. With ~710 saved bodies, Continue
+        // produced a 250-warning storm followed by
+        // STATUS_STACK_OVERFLOW in `propagate_parent_transforms`.
+        //
+        // The fix: skip `GlobalTransform` in the swap's pass 1
+        // and let Bevy's `#[require(GlobalTransform)]` machinery
+        // auto-insert a default `GlobalTransform` from the
+        // copied `Transform`. `propagate_parent_transforms`
+        // (PostUpdate) then recomputes the correct value from
+        // the (now-correct) `ChildOf` graph.
+        //
+        // This test pins the contract: the stale `GlobalTransform`
+        // value from the save must NOT survive the swap; the
+        // target entity must have a `GlobalTransform` (auto-derived
+        // by Bevy) but its value is the default, not the saved
+        // one.
+        let (mut target, mut source) = two_worlds_with_components();
+        // Spawn one extra entity with a deliberately stale
+        // `GlobalTransform` (translation 999 — wildly different
+        // from the `Transform` translation). After the swap, the
+        // target's `GlobalTransform` must be the default (Bevy's
+        // `#[require]` initialised it from `Transform::default()`),
+        // NOT 999.
+        let _ = source.spawn((
+            Name::new("stale_global_transform"),
+            Transform::from_translation(Vec3::new(2.0, 0.0, 0.0)),
+            GlobalTransform::from_translation(Vec3::new(999.0, 0.0, 0.0)),
+        ));
+
+        let mut pending = PendingGameWorld {
+            world: Some(source),
+        };
+        swap_world_into(&mut pending, &mut target).expect("swap should succeed");
+
+        // Find the swapped entity by its Name.
+        let mut found: Option<Entity> = None;
+        for (entity, name) in target.query::<(Entity, &Name)>().iter(&target) {
+            if name.as_str() == "stale_global_transform" {
+                found = Some(entity);
+                break;
+            }
+        }
+        let entity = found.expect("stale_global_transform entity should survive the swap");
+
+        // The `Transform` (local) was copied — this is the
+        // ground-truth the new `GlobalTransform` will be derived
+        // from.
+        let transform = target
+            .get::<Transform>(entity)
+            .expect("Transform must be copied by the swap");
+        assert_eq!(
+            transform.translation,
+            Vec3::new(2.0, 0.0, 0.0),
+            "Transform must round-trip the saved value"
+        );
+
+        // `GlobalTransform` was NOT copied — it was inserted by
+        // Bevy's `#[require(GlobalTransform)]` machinery on the
+        // `Transform` insert. The default identity is what we
+        // expect (translation 0, rotation identity, scale 1).
+        let global_transform = target
+            .get::<GlobalTransform>(entity)
+            .expect("GlobalTransform must exist (auto-derived by require(GlobalTransform))");
+        assert_eq!(
+            global_transform.translation(),
+            Vec3::new(0.0, 0.0, 0.0),
+            "GlobalTransform must NOT be the stale saved value (999) — \
+             it must be the default Bevy inserted via require(), and \
+             propagate_parent_transforms will correct it in PostUpdate"
+        );
     }
 
     #[test]
