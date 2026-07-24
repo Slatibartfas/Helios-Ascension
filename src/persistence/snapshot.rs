@@ -511,6 +511,33 @@ fn configure_builder<'a>(
         // `WindowTheme`, `CursorOptions`, etc.) are handled the
         // same way — they live on the same skipped entity.
         .deny_component::<bevy::window::CursorIcon>()
+        // `bevy_transform::components::global_transform::GlobalTransform`
+        // is auto-derived by Bevy from `Transform` + the
+        // `ChildOf` chain (`propagate_parent_transforms` in
+        // PostUpdate). Saving its value is pointless AND
+        // actively harmful: when the save is loaded, Bevy's
+        // `SceneDeserializer` inserts `GlobalTransform` on every
+        // entity that has it in the save. Each insert fires
+        // the
+        // `validate_parent_has_component::<GlobalTransform>`
+        // hook (Bevy 0.18 `bevy_transform-0.18.0/src/components/
+        // global_transform.rs:65`). The hook checks the
+        // entity's `ChildOf` parent — if the parent has
+        // already been deserialized, the parent also has
+        // `GlobalTransform` and the hook is silent. If the
+        // parent HASN'T been deserialized yet, the parent
+        // lacks `GlobalTransform` and the hook emits a B0004
+        // warning. With ~710 saved bodies, that's a ~250
+        // warning storm on every Continue.
+        //
+        // Denying `GlobalTransform` from the snapshot (and
+        // from the swap's pass 1 — see
+        // `src/persistence/swap.rs::configure_skip_list`) lets
+        // Bevy auto-derive the correct value from the freshly
+        // rewritten `Transform` + `ChildOf` graph in
+        // `propagate_parent_transforms`. End state is
+        // identical; warning storm is gone.
+        .deny_component::<bevy::transform::components::GlobalTransform>()
         .extract_entities(entities.iter().copied())
         // IMPORTANT: apply the resource denylist BEFORE calling
         // `extract_resources()`.  `extract_resources` reads the
@@ -1819,6 +1846,63 @@ mod tests {
         assert!(
             !ron.contains("Mesh3d"),
             "denylist failed — Mesh3d serialised into save: {ron}"
+        );
+    }
+
+    #[test]
+    fn snapshot_skips_global_transform_component() {
+        // GRA-358 PR-D regression: pre-fix the snapshot serialised
+        // `bevy_transform::components::GlobalTransform` for every
+        // entity that had one. On load, Bevy's `SceneDeserializer`
+        // inserts the component (via
+        // `apply_or_insert_mapped`), which fires the
+        // `validate_parent_has_component::<GlobalTransform>` hook
+        // (Bevy 0.18 `bevy_transform-0.18.0/src/components/
+        // global_transform.rs:65`). The hook checks the entity's
+        // `ChildOf` parent; if the parent has already been
+        // deserialized, the parent also has `GlobalTransform` and
+        // the hook is silent. If the parent HASN'T been
+        // deserialized yet, the parent lacks `GlobalTransform` and
+        // the hook emits a B0004 warning.
+        //
+        // With ~710 saved bodies deserialized in archetype order
+        // (which is independent of hierarchy), a typical Continue
+        // produced a ~250-warning storm on top of the swap's own
+        // pass 1 / 2 work. The end-state is consistent (Bevy
+        // re-derives `GlobalTransform` from the freshly rewritten
+        // `Transform` + `ChildOf` graph in PostUpdate), but the
+        // log spam is player-visible.
+        //
+        // The fix: deny `GlobalTransform` from the snapshot AND
+        // from the swap's pass 1. Bevy's
+        // `#[require(GlobalTransform)]` machinery auto-inserts
+        // the default on every entity that gets `Transform`
+        // copied, and `propagate_parent_transforms` (PostUpdate)
+        // recomputes the correct value from the live `ChildOf`
+        // graph. End state is identical; warning storm is gone.
+        //
+        // This test pins the snapshot side: the saved RON must
+        // not mention `GlobalTransform`.
+        let mut world = World::new();
+        world.init_resource::<AppTypeRegistry>();
+        // Spawn an entity with a deliberately non-identity
+        // `GlobalTransform` (translation 999). If the deny fails
+        // and the component is serialised, the saved RON will
+        // contain the literal "999" inside a
+        // `bevy_transform::components::GlobalTransform` field.
+        world.spawn((
+            Transform::from_translation(Vec3::new(1.0, 0.0, 0.0)),
+            GlobalTransform::from_translation(Vec3::new(999.0, 0.0, 0.0)),
+        ));
+        let ron = snapshot_world(&world, SaveMetadata::new_now(0, 0, "test"))
+            .expect("snapshot must skip GlobalTransform component");
+        assert!(
+            !ron.contains("GlobalTransform"),
+            "denylist failed — GlobalTransform serialised into save: {ron}"
+        );
+        assert!(
+            !ron.contains("999"),
+            "denylist failed — stale GlobalTransform translation 999 leaked into save: {ron}"
         );
     }
 
