@@ -88,7 +88,10 @@ pub use restore::{restore_world, RestoreError, RestoredWorld};
 pub use snapshot::{
     snapshot_world, snapshot_world_with_registry, SaveFile, SaveMetadata, SnapshotError,
 };
-pub use swap::{swap_world_into, world_ready_is_present, SwapError, WorldReady};
+pub use swap::{
+    restored_world_is_not_present, restored_world_is_present, swap_world_into,
+    world_ready_is_present, RestoredWorldGate, SwapError, WorldReady,
+};
 
 /// Plugin that wires save/load into Bevy.
 ///

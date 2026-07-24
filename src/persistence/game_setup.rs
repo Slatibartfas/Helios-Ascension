@@ -530,6 +530,12 @@ pub fn promote_pending_world(world: &mut World) {
         return;
     }
 
+    // Track which kickoff path was taken so we can install the
+    // right post-swap markers. The boot-init chain's run_if gate
+    // reads `RestoredWorld` to decide whether to skip the chain
+    // (Restore) or run it (New Game).
+    let is_restore_path = has_restore_msg;
+
     // Drain the message readers so MessageReader::len() returns 0
     // on the next frame. `read()` already consumes; we just need
     // a no-op iteration.
@@ -605,6 +611,26 @@ pub fn promote_pending_world(world: &mut World) {
     // the corruption.
     if !world.contains_resource::<super::swap::WorldReady>() {
         world.insert_resource(super::swap::WorldReady);
+    }
+
+    // On the Restore path, ALSO insert `RestoredWorldGate` so the
+    // boot-init chain's run_if gate turns the chain off. The
+    // loaded world already has the 710 bodies, baseline tech,
+    // day-one fleet, and 60 nearby-star systems — re-running
+    // `setup_solar_system` etc. would duplicate every entity
+    // and produce a mixed hierarchy that Bevy's
+    // `propagate_parent_transforms` recurses into, overflowing
+    // the compute task pool's stack.
+    //
+    // The chain's idempotency markers (`SolarSystemSpawned`,
+    // `DayOneFleetSpawned`, `AsteroidRegistryLoaded`, etc.) are
+    // intentionally NOT `#[reflect(Resource)]` so they don't
+    // survive the swap. `RestoredWorldGate` is the swap-level
+    // discriminator that supplements the per-system markers.
+    //
+    // See [`super::swap::RestoredWorldGate`] for the full rationale.
+    if is_restore_path && !world.contains_resource::<super::swap::RestoredWorldGate>() {
+        world.insert_resource(super::swap::RestoredWorldGate);
     }
 
     // Flip LaunchState to InGame so the menu dismisses and the

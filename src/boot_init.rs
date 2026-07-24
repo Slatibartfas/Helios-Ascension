@@ -173,8 +173,26 @@ impl Plugin for BootInitPlugin {
                 // save/load decision — and spawn the entire
                 // 710-body baseline over whatever the swap
                 // eventually lands.
+                //
+                // GRA-358 PR-D: ALSO gate on `NOT
+                // restored_world_is_present`. The Restore path
+                // (Continue / Load Save) loads a world that
+                // already contains the 710 bodies, day-one fleet,
+                // baseline tech, and 60 nearby-star systems.
+                // Re-running the chain would duplicate every
+                // entity and produce a mixed hierarchy that Bevy's
+                // `propagate_parent_transforms` recurses into,
+                // overflowing the compute task pool's stack.
+                //
+                // The chain's per-system idempotency markers
+                // (`SolarSystemSpawned`, `DayOneFleetSpawned`,
+                // `AsteroidRegistryLoaded`, etc.) are not
+                // `#[reflect(Resource)]` so they don't survive the
+                // swap — `RestoredWorldGate` is the swap-level
+                // discriminator that supplements them.
                 .run_if(boot_state_is_loading)
-                .run_if(crate::persistence::swap::world_ready_is_present),
+                .run_if(crate::persistence::swap::world_ready_is_present)
+                .run_if(crate::persistence::swap::restored_world_is_not_present),
         );
     }
 }
@@ -313,6 +331,89 @@ mod tests {
     /// for direct value comparison (no SystemParam needed).
     fn boot_state_is_loading_value(state: BootState) -> bool {
         state == BootState::Loading
+    }
+
+    /// GRA-358 PR-D: the boot-init chain must NOT fire
+    /// `mark_boot_ready` while `RestoredWorldGate` is present.
+    ///
+    /// The chain's `run_if` predicates are:
+    /// 1. `boot_state_is_loading`           (must be Loading)
+    /// 2. `world_ready_is_present`          (must have WorldReady)
+    /// 3. `restored_world_is_not_present`   (must NOT have RestoredWorldGate)
+    ///
+    /// All three must be true. The chain stays silent on the
+    /// Restore path (Continue / Load Save) because the loaded
+    /// world already has the 710 bodies, day-one fleet, baseline
+    /// tech, and 60 nearby-star systems — re-running the chain's
+    /// `setup_solar_system` etc. would duplicate every entity and
+    /// produce a mixed hierarchy that Bevy's
+    /// `propagate_parent_transforms` recurses into, overflowing
+    /// the compute task pool's stack.
+    ///
+    /// The test drives `mark_boot_ready` through a Bevy schedule
+    /// with the full triple gate and asserts:
+    /// 1. New Game path (no RestoredWorldGate) → BootState flips to
+    ///    Ready (chain fires).
+    /// 2. Restore path (RestoredWorldGate inserted) → BootState
+    ///    stays at Loading (chain silent).
+    #[test]
+    fn boot_init_chain_stays_silent_on_restore_path() {
+        use bevy::MinimalPlugins;
+        use crate::persistence::swap::{RestoredWorldGate, WorldReady};
+
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .init_resource::<BootState>();
+
+        // Register `mark_boot_ready` with the same triple gate the
+        // production chain uses (boot_state_is_loading AND
+        // world_ready_is_present AND restored_world_is_not_present).
+        // We don't drag in the full chain because the other systems
+        // require manifests, render devices, etc. — the gate-flip is
+        // the observable signal.
+        app.add_systems(
+            Update,
+            mark_boot_ready
+                .run_if(boot_state_is_loading)
+                .run_if(crate::persistence::swap::world_ready_is_present)
+                .run_if(crate::persistence::swap::restored_world_is_not_present),
+        );
+
+        // ── Frame 1: New Game path. Insert WorldReady, leave
+        //    RestoredWorldGate absent. The chain must fire.
+        assert_eq!(*app.world().resource::<BootState>(), BootState::Loading);
+        app.insert_resource(WorldReady);
+        app.update();
+        assert_eq!(
+            *app.world().resource::<BootState>(),
+            BootState::Ready,
+            "boot_init chain must fire on New Game path (no RestoredWorldGate)"
+        );
+
+        // ── Frame 2: simulate a different session by resetting
+        //    BootState back to Loading. With WorldReady still
+        //    present (it persists across sessions in the live
+        //    app), the chain would normally re-fire. But after
+        //    inserting RestoredWorldGate, the chain must stay
+        //    silent — that's the Restore path's discriminator.
+        app.insert_resource(BootState::Loading);
+        app.insert_resource(RestoredWorldGate);
+        app.update();
+        assert_eq!(
+            *app.world().resource::<BootState>(),
+            BootState::Loading,
+            "boot_init chain must stay silent on Restore path (RestoredWorldGate present)"
+        );
+
+        // ── Frame 3: chain stays silent (idempotent). Even
+        //    though BootState is still Loading, the chain is
+        //    gated out by RestoredWorldGate.
+        app.update();
+        assert_eq!(
+            *app.world().resource::<BootState>(),
+            BootState::Loading,
+            "boot_init chain must stay silent on Restore path (idempotent)"
+        );
     }
 
     // ── Idempotency-marker re-exports ─────────────────────────────────────

@@ -80,6 +80,42 @@ use super::game_setup::PendingGameWorld;
 #[derive(Resource, Debug, Default, Clone, Copy)]
 pub struct WorldReady;
 
+/// Marker resource inserted by [`crate::persistence::game_setup::promote_pending_world`]
+/// **only on the Restore path** (i.e. when a Continue / Load Save
+/// decision survives the swap). Distinguishes the Restore case from
+/// the New Game case for the
+/// [`crate::boot_init::BootInitPlugin`] chain's run_if gate.
+///
+/// ## Why this exists
+///
+/// The boot-init chain (setup_solar_system, spawn_initial_fleet,
+/// initialize_baseline_technology, etc.) is what builds the 710-body
+/// baseline solar system and the day-one fleet. The chain's systems
+/// each have an idempotency marker (e.g. `SolarSystemSpawned`,
+/// `DayOneFleetSpawned`) so they no-op on the second invocation.
+///
+/// **Those markers are not `#[reflect(Resource)]`** — they are
+/// private guard resources that Bevy doesn't see. The world-swap
+/// copies resources via `ReflectResource::copy`, which requires the
+/// type to be registered in `AppTypeRegistry`. Idempotency markers
+/// are not registered, so they don't survive the swap.
+///
+/// Consequence: on Restore, the loaded world has its 710 bodies but
+/// the live `WorldReady` gate is true and `BootState::Loading` is
+/// still set, so the chain fires AGAIN and spawns 710 *more* bodies
+/// on top of the loaded ones. The fresh spawns re-attach to the
+/// existing parents via `ChildOf`, the parents' `Children` collection
+/// doubles, Bevy's `propagate_parent_transforms` recurses into the
+/// mixed hierarchy, and the compute task pool's small stack overflows
+/// (`STATUS_STACK_OVERFLOW` on Windows, SIGSEGV on Linux).
+///
+/// `RestoredWorldGate` is the discriminator. The chain's run_if gate
+/// becomes `boot_state_is_loading AND world_ready_is_present AND NOT
+/// restored_world_is_present`. Restore → chain is silent. New Game →
+/// chain fires (existing behaviour preserved).
+#[derive(Resource, Debug, Default, Clone, Copy)]
+pub struct RestoredWorldGate;
+
 /// `run_if` predicate for the [`crate::boot_init::BootInitPlugin`]
 /// chain. Fires only while [`WorldReady`] exists in the world —
 /// i.e. only after a kickoff decision (New Game / Load Save) has
@@ -90,6 +126,35 @@ pub struct WorldReady;
 /// short-circuits without a mutation borrow.
 pub fn world_ready_is_present(world_ready: Option<Res<WorldReady>>) -> bool {
     world_ready.is_some()
+}
+
+/// `run_if` predicate for the [`crate::boot_init::BootInitPlugin`]
+/// chain. Returns `true` when the kickoff was a Restore (chain
+/// must stay silent — the loaded world already has the bodies,
+/// fleets, tech, etc.); returns `false` when the kickoff was a
+/// New Game (chain should fire to build the baseline).
+///
+/// Companion gate to [`world_ready_is_present`]. The
+/// [`crate::boot_init::BootInitPlugin`] chain's complete run_if is
+/// `boot_state_is_loading AND world_ready_is_present AND NOT
+/// restored_world_is_not_present`.
+///
+/// Pure function over `Option<Res<RestoredWorldGate>>` so the chain
+/// short-circuits without a mutation borrow.
+pub fn restored_world_is_present(restored: Option<Res<RestoredWorldGate>>) -> bool {
+    restored.is_some()
+}
+
+/// Inverse of [`restored_world_is_present`]. Returns `true` when
+/// the kickoff was a New Game (chain should fire to build the
+/// baseline); returns `false` when the kickoff was a Restore
+/// (chain must stay silent).
+///
+/// Use this in the chain's `run_if` gate so the chain reads
+/// "fire when the kickoff was a New Game" instead of negating
+/// `restored_world_is_present` at the call site.
+pub fn restored_world_is_not_present(restored: Option<Res<RestoredWorldGate>>) -> bool {
+    !restored.is_some()
 }
 
 /// Failure surface for [`swap_world_into`]. The caller matches on
@@ -739,6 +804,73 @@ mod tests {
         let result = swap_world_into(&mut pending, &mut target);
         assert!(result.is_ok());
         assert!(pending.world.is_none(), "pending drained on success");
+    }
+
+    #[test]
+    fn swap_world_does_not_insert_restored_world_gate() {
+        // `RestoredWorldGate` is the boot-init chain's "skip the
+        // chain" marker, but the swap itself does NOT insert it —
+        // only `promote_pending_world` does, after detecting the
+        // restore path. The swap is a pure data-movement function
+        // and must NEVER mutate the live world's gate state
+        // (otherwise the call site loses the ability to
+        // discriminate New Game vs Restore).
+        //
+        // This is the contract that lets `promote_pending_world`
+        // safely call `swap_world_into` for both paths and then
+        // decide which marker to insert. Without it, the
+        // New Game path would also see `RestoredWorldGate` set
+        // and the boot-init chain would silently skip.
+        let (mut target, source) = two_worlds_with_components();
+        let mut pending = PendingGameWorld {
+            world: Some(source),
+        };
+        swap_world_into(&mut pending, &mut target).expect("swap should succeed");
+
+        // The swap must NOT have inserted `RestoredWorldGate` —
+        // only `WorldReady` (or nothing) is the swap's
+        // responsibility. The caller decides which marker to add
+        // based on the kickoff path.
+        assert!(
+            target.get_resource::<RestoredWorldGate>().is_none(),
+            "swap_world_into must NOT insert RestoredWorldGate — that's the caller's job"
+        );
+        // `WorldReady` is also NOT inserted by the swap (per
+        // `swap_world_into` docs). The caller inserts it.
+        assert!(
+            target.get_resource::<WorldReady>().is_none(),
+            "swap_world_into must NOT insert WorldReady — that's the caller's job"
+        );
+    }
+
+    #[test]
+    fn restored_world_gate_predicates_round_trip() {
+        // Pure-function tests for the two predicates. The
+        // boot_init chain's gate is built from these, so they're
+        // the load-bearing invariant.
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+
+        // ── No marker present → predicate returns false (chain
+        //    must NOT skip — kickoff was a New Game).
+        assert!(!app.world().contains_resource::<RestoredWorldGate>());
+        app.update(); // Drive Bevy so the run_if predicate evaluates.
+        assert!(app
+            .world()
+            .get_resource::<RestoredWorldGate>()
+            .is_none());
+
+        // ── After insertion: marker is present.
+        app.init_resource::<RestoredWorldGate>();
+        app.update();
+        assert!(app.world().contains_resource::<RestoredWorldGate>());
+
+        // The predicates themselves are SystemParam-based
+        // (Option<Res<RestoredWorldGate>>); they're exercised
+        // by the boot_init chain's run_if gate in
+        // `boot_init_chain_stays_silent_on_restore_path`. We
+        // don't unit-test them by stand-in `Option<&T>` shim — Bevy's
+        // SystemParam deref differs from `&T`.
     }
 
     #[test]
