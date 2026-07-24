@@ -222,16 +222,30 @@ pub fn kickoff_world_system(world: &mut World) {
     }
 }
 
-/// Register the kickoff system on [`EguiPrimaryContextPass`].
+/// Register the kickoff system on the `EguiPrimaryContextPass`
+/// schedule, AFTER the subview render systems (all of which are in
+/// `LaunchSystemSet::Menu`).
 ///
-/// GRA-358 PR-C: the system takes `&mut World` (it calls into the
-/// [`crate::persistence`] constructors which mutate many resources).
-/// Bevy 0.18 exclusive systems can't chain `.in_set(...)`, so the
-/// order vs the subview render systems is enforced via
+/// GRA-358 PR-D + GRA-358 PR-C: the system takes `&mut World` (it
+/// calls into the [`crate::persistence`] constructors which mutate
+/// many resources). Bevy 0.18 exclusive systems can't chain
+/// `.in_set(...)`, so the order is enforced via
 /// `.after(LaunchSystemSet::Menu)` (the set all subview render
-/// systems belong to). The exclusive-system `.after(...)` pattern is
-/// already used by `tick_autosave_timer` in
+/// systems belong to). The exclusive-system `.after(...)` pattern
+/// is already used by `tick_autosave_timer` in
 /// [`crate::persistence::plugin`].
+///
+/// The kickoff MUST run in the same `EguiPrimaryContextPass` pass
+/// as the subview that writes `actions.start_new_game` /
+/// `*launch_state = InGame`. The subview's `ResMut<LaunchState>`
+/// write is committed at the end of the egui subview's call frame
+/// (Bevy 0.18's `ResMut` is immediate, not deferred); a sibling
+/// system in the same schedule tick observes the new value. If
+/// the kickoff were moved to `Update`, the
+/// `consume_launch_actions_system` (also in `Update`, registered
+/// after the kickoff) would clear `actions` before the kickoff
+/// read them, and the kickoff would observe `state = InGame` +
+/// `actions.has_any() == false` — i.e. nothing to do.
 ///
 /// Earlier versions of this PR used `.after((subview_a, subview_b, ..))`
 /// — that hits Bevy 0.18's `IntoSystemSet` blanket impl, which is not

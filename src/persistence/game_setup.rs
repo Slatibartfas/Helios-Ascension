@@ -126,28 +126,24 @@ impl Plugin for GameSetupPlugin {
             .add_message::<RestoreCommitted>()
             // GRA-358 PR-B: `promote_pending_world` is an
             // exclusive system (`&mut World`). Bevy 0.18 exclusive
-            // systems can't chain `.in_set(...)` — see
-            // `subview_kickoff::register_kickoff_system` for the
-            // matching pattern.
+            // systems can't chain `.in_set(...)`.
             //
-            // Ordering is critical: `promote_pending_world` must
-            // run AFTER `kickoff_world_system` in the SAME
-            // `EguiPrimaryContextPass` tick. Otherwise the
-            // promotion sees `pending.world = None` (kickoff hasn't
-            // written yet) and bails out, and the chain never gets
-            // a chance to fire. `.after(kickoff_world_system)` is
-            // the same exclusive-system-to-exclusive-system pattern
-            // Bevy 0.18 already supports.
+            // Schedule: `EguiPrimaryContextPass` (which runs
+            // inside `PreUpdate::EguiPreUpdateSet::BeginPass`).
+            // The kickoff system (`kickoff_world_system`) runs in
+            // `Update` — see `register_kickoff_system` for why.
+            // The promote runs on the next frame's
+            // `EguiPrimaryContextPass` (1-frame lag is
+            // acceptable; `WorldReady` is what gates the
+            // boot-init chain, and the chain waits for it).
             //
-            // We also chain `.after(LaunchSystemSet::Menu)` so the
-            // menu subview render systems finish first — they
-            // populate `PendingLaunchActions` which `kickoff_world_system`
-            // reads.
+            // We use `.after(LaunchSystemSet::Menu)` so the menu
+            // subview render systems finish first — they populate
+            // `PendingLaunchActions` which `kickoff_world_system`
+            // reads in `Update`.
             .add_systems(
                 EguiPrimaryContextPass,
-                promote_pending_world
-                    .after(crate::ui::launch::subview_kickoff::kickoff_world_system)
-                    .after(crate::ui::launch::LaunchSystemSet::Menu),
+                promote_pending_world.after(crate::ui::launch::LaunchSystemSet::Menu),
             );
     }
 }
