@@ -259,12 +259,31 @@ fn swap_pending_into_target(
                 };
                 let type_name = component_info.name().to_string();
 
-                // Skip ChildOf on pass 1; it's rewritten on
-                // pass 2 with the entity map. (Children is
-                // auto-populated by Bevy's relationship hook when
-                // the child's ChildOf is inserted, so we never
-                // touch Children at all — see pass 2 doc.)
-                if type_id == TypeId::of::<ChildOf>() {
+                // Skip hierarchy components on pass 1; both
+                // are rewritten on pass 2 via the entity map.
+                //
+                // `ChildOf` is the parent pointer on a child.
+                // We rewrite it on pass 2 with the live parent
+                // ID.
+                //
+                // `Children` is the collection on a parent.
+                // Bevy's `ChildOf::on_insert` hook auto-appends
+                // the child to the parent's `Children` collection
+                // when `ChildOf` is inserted. If we copy the
+                // stale `Children` from the pending world in
+                // pass 1, it contains pending-world entity IDs
+                // that don't exist in the live world — Bevy's
+                // `propagate_parent_transforms` then iterates
+                // those stale IDs and panics on the
+                // `assert_eq!(child_of.parent(), parent)` check
+                // (Bevy 0.18 `bevy_transform/src/systems.rs:562`).
+                //
+                // The fix is to skip `Children` in pass 1 and
+                // let the pass-2 `ChildOf` insertions populate
+                // it correctly via the hook.
+                if type_id == TypeId::of::<ChildOf>()
+                    || type_id == TypeId::of::<Children>()
+                {
                     continue;
                 }
 
@@ -313,9 +332,9 @@ fn swap_pending_into_target(
     // entities. We do NOT manually re-insert `Children` — Bevy's
     // relationship machinery (`ChildOf::on_insert`) auto-populates
     // the parent's `Children` collection when a child inserts a
-    // `ChildOf`. Manually inserting both would create a duplicate
-    // `Children` entry (one from the manual insert, one from the
-    // hook) and break iteration invariants.
+    // `ChildOf`. Both pass 1 and pass 2 skip the `Children`
+    // component (see the pass-1 skip comment for the full
+    // reasoning).
     //
     // The algorithm: iterate the pending world's archetypes again,
     // for each entity that had a `ChildOf`, write a fresh `ChildOf`
@@ -516,6 +535,125 @@ mod tests {
             .collect();
         names.sort();
         assert_eq!(names, vec!["alpha".to_string(), "beta".to_string(), "gamma".to_string()]);
+    }
+
+    /// GRA-358 PR-C regression: pre-PR-C the swap copied the
+    /// `Children` collection as-is in pass 1, leaving the
+    /// target's `Children` collection full of stale
+    /// pending-world entity IDs. The `ChildOf::on_insert` hook
+    /// in pass 2 appended the live children to the same
+    /// collection, but never removed the stale entries.
+    /// Bevy's `propagate_parent_transforms` then iterated the
+    /// mixed collection and panicked on
+    /// `assert_eq!(child_of.parent(), parent)` at
+    /// `bevy_transform-0.18.0/src/systems.rs:562` because the
+    /// stale child IDs don't exist in the live world.
+    ///
+    /// The fix: skip `Children` in pass 1 (just like `ChildOf`)
+    /// so the pass-2 `ChildOf` insertions populate the
+    /// collection cleanly via the hook. This test pins the
+    /// behaviour: a 3-level hierarchy (grandparent → parent →
+    /// child) survives the swap with a consistent
+    /// `Children`/`ChildOf` graph.
+    #[test]
+    fn swap_rewrites_hierarchy_without_polluting_children_collection() {
+        let (mut target, mut source) = two_worlds_with_components();
+        // Build a 3-level hierarchy in the source world:
+        //   grandparent → parent → child
+        let grandparent = source
+            .spawn((Name::new("grandparent"), Transform::IDENTITY))
+            .id();
+        let parent = source
+            .spawn((
+                Name::new("parent"),
+                Transform::IDENTITY,
+                ChildOf(grandparent),
+            ))
+            .id();
+        let child = source
+            .spawn((
+                Name::new("child"),
+                Transform::IDENTITY,
+                ChildOf(parent),
+            ))
+            .id();
+        let _ = source.spawn((
+            // A free-floating entity with no parent — exercises
+            // the "no ChildOf" path of pass 2.
+            Name::new("orphan"),
+            Transform::IDENTITY,
+        ));
+
+        let mut pending = PendingGameWorld {
+            world: Some(source),
+        };
+        swap_world_into(&mut pending, &mut target).expect("swap should succeed");
+
+        // Find the live equivalents by Name (entity IDs differ
+        // between worlds).
+        let mut live_entities: std::collections::HashMap<String, Entity> =
+            std::collections::HashMap::new();
+        {
+            let mut q = target.query::<(Entity, &Name)>();
+            for (e, n) in q.iter(&target) {
+                live_entities.insert(n.to_string(), e);
+            }
+        }
+        let live_grandparent = live_entities["grandparent"];
+        let live_parent = live_entities["parent"];
+        let live_child = live_entities["child"];
+        let live_orphan = live_entities["orphan"];
+
+        // ChildOf must point to the LIVE parent IDs, not the
+        // pending-world entity IDs.
+        assert_eq!(
+            target.get::<ChildOf>(live_parent).map(|c| c.0),
+            Some(live_grandparent),
+            "parent's ChildOf must point to live grandparent"
+        );
+        assert_eq!(
+            target.get::<ChildOf>(live_child).map(|c| c.0),
+            Some(live_parent),
+            "child's ChildOf must point to live parent"
+        );
+        assert!(
+            target.get::<ChildOf>(live_orphan).is_none(),
+            "orphan must not have a ChildOf"
+        );
+
+        // Children collections must be populated by the hook
+        // and contain ONLY live entity IDs (no stale pending IDs).
+        // `Children` derefs to `&[Entity]`, so we can use
+        // `.iter()` and `.len()` directly.
+        let gp_children = target.get::<Children>(live_grandparent).unwrap();
+        assert!(
+            gp_children.iter().any(|e| e == live_parent),
+            "grandparent's Children must include live parent"
+        );
+        assert_eq!(gp_children.len(), 1, "no duplicate children");
+        let p_children = target.get::<Children>(live_parent).unwrap();
+        assert!(
+            p_children.iter().any(|e| e == live_child),
+            "parent's Children must include live child"
+        );
+        assert_eq!(p_children.len(), 1, "no duplicate children");
+        // Orphan has no parent → no Children collection.
+        assert!(
+            target.get::<Children>(live_orphan).is_none(),
+            "orphan must not have a Children collection"
+        );
+
+        // Sanity: child_of.parent() must equal the parent Bevy
+        // is iterating in `propagate_parent_transforms` —
+        // this is the exact assert that pre-PR-C panicked
+        // (bevy_transform-0.18.0/src/systems.rs:562). We
+        // verify it by manually walking the tree.
+        assert_eq!(
+            target.get::<ChildOf>(live_child).unwrap().0,
+            live_parent
+        );
+
+        let _ = (grandparent, parent, child);
     }
 
     #[test]
