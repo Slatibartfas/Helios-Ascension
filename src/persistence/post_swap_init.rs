@@ -104,7 +104,8 @@ use crate::astronomy::components::{KeplerOrbit, LocalOrbitAmplification, OrbitCe
 use crate::economy::components::{OrbitsBody, StarSystem};
 use crate::plugins::solar_system::{
     create_ring_mesh, Asteroid, CelestialBody, Comet, DwarfPlanet, GasGiant, LogicalParent, Moon,
-    Planet, Ring, Star,
+    Planet, Ring, Star, StarCorona3dMaterial, StarCoronaShell, StarHalo3dMaterial, StarHaloShell,
+    StarSurfaceMaterial,
 };
 use crate::plugins::solar_system_data::{
     calculate_visual_radius, AsteroidClass, BodyType, CelestialBodyData, OrbitData, SolarSystemData,
@@ -471,6 +472,22 @@ pub fn populate_restored_bodies_3d(world: &mut World) {
     // without re-registering the system.
     populate_planet_resources(world);
 
+    // Pass D: rebuild the star surface + corona + halo shells
+    // for every star body. The regen chain spawns these as
+    // children of the star entity via `with_children`; on the
+    // Restore path the boot-init chain is gated off, so stars
+    // render as plain `StandardMaterial` spheres with no
+    // limb darkening, no FBM-plasma corona, and no diffuse
+    // halo — they look like featureless orange balls instead
+    // of a sun. We re-spawn the shells here using the live
+    // world's `Assets<StarSurfaceMaterial>`,
+    // `Assets<StarCorona3dMaterial>`, and
+    // `Assets<StarHalo3dMaterial>` so the existing
+    // `update_star_corona_3d_lod` system (registered by the
+    // live App regardless of restore path) drives their
+    // colour animations normally.
+    populate_restored_star_shells(world);
+
     info!(
         "populate_restored_bodies_3d: decorated {decorated} bodies (skipped {skipped} \
          without RON data) — Restore-path 3D scene populated"
@@ -583,6 +600,209 @@ fn populate_planet_resources(world: &mut World) {
         info!(
             "populate_planet_resources: populated {populated} bodies, skipped {skipped} (star/ring/comet/already-populated-or-nonempty)"
         );
+    }
+}
+
+/// Rebuild the star surface + corona + halo shells for every star
+/// body in the live world. Mirrors the regen chain's
+/// `setup_solar_system` block that runs `commands.entity(star).with_children(...)`
+/// to spawn three child shells:
+///
+/// - A `StarSurfaceMaterial` sphere at the star's own radius
+///   (Eddington limb-darkening shader).
+/// - A `StarCorona3dMaterial` sphere at 1.75× the radius (ray-marched
+///   FBM plasma).
+/// - A `StarHalo3dMaterial` sphere at 4× the radius (limb-brightening
+///   diffuse halo).
+///
+/// On the Restore path the regen chain is gated off (the
+/// boot-init gate `restored_world_is_present` short-circuits the
+/// `setup_solar_system` system), so without this pass stars render
+/// as plain `StandardMaterial` spheres — they look like
+/// featureless orange balls instead of a sun. We re-create the
+/// shells here against the live world's
+/// `Assets<StarSurfaceMaterial>` / `StarCorona3dMaterial` /
+/// `StarHalo3dMaterial>` so the existing
+/// `update_star_corona_3d_lod` system (registered by the live App
+/// regardless of restore path) drives the colour animations
+/// normally.
+///
+/// **Child hierarchy**: the regen chain uses
+/// `commands.entity(star).with_children(...)`, which inserts
+/// `ChildOf(star)` AND populates the star's `Children`
+/// collection. PR-J (GRA-358) warns that stale `Children`
+/// collections on a swapped-in live App's prior-session parent
+/// entities blow Bevy 0.18's `propagate_parent_transforms`
+/// recursion. Star shells, however, are **newly created** during
+/// restore, so the parent star's `Children` collection is empty
+/// before this pass runs and we have full control over what's
+/// inserted — safe to use `ChildOf(star)` for them.
+///
+/// **Idempotency**: the function does a pre-check for an existing
+/// `StarCoronaShell` child so re-running the decoration pass
+/// (e.g. after a second restore) doesn't duplicate shells. The
+/// outer `RestoredBodiesRendered` gate already prevents the whole
+/// pass from re-running, so this is belt-and-suspenders.
+fn populate_restored_star_shells(world: &mut World) {
+    // Verify the star material asset collections exist. They are
+    // registered by `SolarSystemPlugin` (which is part of the live
+    // App's plugin stack on every restore), so missing asset
+    // collections would only occur in a unit-test `App` that
+    // strips DefaultPlugins. Skip-and-warn in that case so we
+    // don't panic on `resource_mut` for a missing resource.
+    let materials_available = world
+        .get_resource::<Assets<StarSurfaceMaterial>>()
+        .is_some()
+        && world
+            .get_resource::<Assets<StarCorona3dMaterial>>()
+            .is_some()
+        && world
+            .get_resource::<Assets<StarHalo3dMaterial>>()
+            .is_some();
+    if !materials_available {
+        warn!(
+            "populate_restored_star_shells: star material asset collections missing on the \
+             live world; skipping star-shell pass"
+        );
+        return;
+    }
+
+    // Snapshot the star entities up front so the per-entity
+    // mutation loop doesn't have to juggle a query borrow
+    // against `&mut World` (Bevy 0.18 forbids it).
+    let stars: Vec<(Entity, String, f32)> = {
+        let mut q = world.query::<(Entity, &CelestialBody)>();
+        q.iter(world)
+            .filter_map(|(e, cb)| {
+                if cb.body_type != BodyType::Star {
+                    return None;
+                }
+                Some((e, cb.name.clone(), cb.visual_radius))
+            })
+            .collect()
+    };
+
+    // Look up RON data for emissive colour overrides.
+    let data = SolarSystemData::load_from_file("assets/data/solar_system.ron").ok();
+    let by_name: std::collections::HashMap<&str, &CelestialBodyData> = data
+        .as_ref()
+        .map(|d| d.bodies.iter().map(|b| (b.name.as_str(), b)).collect())
+        .unwrap_or_default();
+
+    for (star_entity, name, visual_radius) in stars {
+        let Some(body_data) = by_name.get(name.as_str()) else {
+            continue;
+        };
+        let (er, eg, eb) = body_data.emissive;
+
+        // Derive corona / halo colours from the body's
+        // emissive data — matches the regen chain's logic so
+        // the visual is identical to a fresh-game star.
+        let core_col = Vec4::new(er * 5.0, eg * 5.0, eb * 5.0, 1.0);
+        let halo_col = Vec4::new(er * 4.5, eg * 3.5, eb * 1.8, 1.0);
+
+        // Shell radii — same as regen chain.
+        let corona_shell_r = visual_radius * 1.75;
+        let halo_shell_r = visual_radius * 4.0;
+
+        // Sphere meshes.
+        let (star_sphere, corona_sphere, halo_sphere) = {
+            let mut meshes = world.resource_mut::<Assets<Mesh>>();
+            let star_sphere = meshes.add(Sphere::new(visual_radius).mesh().uv(128, 64));
+            let corona_sphere = meshes.add(
+                Sphere::new(corona_shell_r)
+                    .mesh()
+                    .ico(5)
+                    .expect("ico sphere is valid"),
+            );
+            let halo_sphere = meshes.add(Sphere::new(halo_shell_r).mesh().uv(32, 16));
+            (star_sphere, corona_sphere, halo_sphere)
+        };
+
+        // ── Star sphere with limb-darkening shader ───────────
+        let star_surface_mat = {
+            let mut materials_surface = world.resource_mut::<Assets<StarSurfaceMaterial>>();
+            materials_surface.add(StarSurfaceMaterial {
+                color_center: Vec4::new(er * 9.0, eg * 9.0, eb * 9.0, 1.0),
+                color_limb: Vec4::new(er * 5.5, eg * 2.8, eb * 0.8, 1.0),
+                star_texture: None,
+            })
+        };
+        // Replace the placeholder StandardMaterial on the star
+        // body with the limb-darkening material so the disk
+        // has a hot core + cooler limb gradient.
+        if let Ok(mut e) = world.get_entity_mut(star_entity) {
+            // Drop the existing mesh handle (StandardMaterial
+            // sphere from Phase 1) and re-attach with the new
+            // materials. We use `Mesh3d::from` for the new
+            // sphere — but Phase 1 already attached one, so we
+            // just insert a `MeshMaterial3d` override and let
+            // the existing `Mesh3d` (unit-radius sphere scaled
+            // by `visual_radius` via `Transform.scale`) carry
+            // through.
+            e.insert(MeshMaterial3d(star_surface_mat));
+            // The Phase 1 mesh handle is a unit-radius sphere;
+            // we need the actual `visual_radius`-sized sphere.
+            // `Mesh3d` carries a `Handle<Mesh>` so we just swap
+            // it for the new one.
+            e.insert(Mesh3d(star_sphere));
+            // Phase 1 sets `Transform.scale = Vec3::splat(visual_radius)`.
+            // The new mesh is already sized to `visual_radius`,
+            // so the scale should be 1.0.
+            if let Some(mut t) = e.get_mut::<Transform>() {
+                t.scale = Vec3::ONE;
+            }
+        }
+
+        // ── Inner corona shell (FBM plasma) ────────────────
+        let corona_mat = {
+            let mut materials_corona = world.resource_mut::<Assets<StarCorona3dMaterial>>();
+            materials_corona.add(StarCorona3dMaterial {
+                color_core: Vec4::ZERO, // LOD system drives it
+                color_halo: Vec4::ZERO,
+                time_phase: 0.0,
+                corona_params: Vec4::new(visual_radius, corona_shell_r, 0.0, 0.0),
+            })
+        };
+        let corona_entity = world
+            .spawn((
+                Mesh3d(corona_sphere),
+                MeshMaterial3d(corona_mat),
+                Transform::default(),
+                StarCoronaShell {
+                    base_core_color: core_col,
+                    base_halo_color: halo_col,
+                    visual_radius,
+                },
+            ))
+            .id();
+        if let Ok(mut parent) = world.get_entity_mut(star_entity) {
+            parent.add_child(corona_entity);
+        }
+
+        // ── Outer halo shell (limb brightening) ─────────────
+        let halo_mat = {
+            let mut materials_halo = world.resource_mut::<Assets<StarHalo3dMaterial>>();
+            materials_halo.add(StarHalo3dMaterial {
+                color_halo: Vec4::ZERO, // LOD system drives it
+                time_phase: 0.0,
+                halo_params: Vec4::new(visual_radius, halo_shell_r, 0.0, 0.0),
+            })
+        };
+        let halo_entity = world
+            .spawn((
+                Mesh3d(halo_sphere),
+                MeshMaterial3d(halo_mat),
+                Transform::default(),
+                StarHaloShell {
+                    base_halo_color: halo_col,
+                    visual_radius,
+                },
+            ))
+            .id();
+        if let Ok(mut parent) = world.get_entity_mut(star_entity) {
+            parent.add_child(halo_entity);
+        }
     }
 }
 
@@ -737,10 +957,16 @@ fn decorate_with_visuals(
                     .and_then(|v| v.emissive)
                     .map(|(er, eg, eb)| LinearRgba::new(er * 6.0_f32, eg * 6.0_f32, eb * 6.0_f32, 1.0))
                     .unwrap_or(LinearRgba::new(r * 6.0_f32, g * 6.0_f32, b * 6.0_f32, 1.0))
-            } else if has_texture {
-                LinearRgba::new(0.03_f32, 0.03_f32, 0.03_f32, 1.0)
             } else {
-                LinearRgba::new(r * 0.15_f32, g * 0.15_f32, b * 0.15_f32, 1.0)
+                // **Non-star bodies**: regen chain uses
+                // `emissive: LinearRgba::WHITE * 0.006` as a
+                // minimal ambient floor so planets in
+                // dim/distant star systems aren't pitch black on
+                // the night side. We mirror that here so the
+                // night side of restored bodies isn't pure
+                // black. The value is intentionally very low so
+                // day/night contrast remains strong.
+                LinearRgba::new(0.006_f32, 0.006_f32, 0.006_f32, 1.0)
             };
             let base_color_texture = texture_path.as_ref().map(|path| asset_server.load(path.clone()));
             let mut material = StandardMaterial {
@@ -752,17 +978,16 @@ fn decorate_with_visuals(
                 emissive,
                 // **Material lighting model**:
                 // - Stars use unlit (they emit light, not
-                //   reflect it).
+                //   reflect it). Their visual comes from the
+                //   `StarSurfaceMaterial` shell spawned in
+                //   `populate_restored_star_shells` (which has
+                //   limb darkening baked in).
                 // - Rings use unlit (their alpha texture drives
                 //   the appearance; PBR shading on a flat
                 //   annulus looks washed out).
                 // - Everything else uses lit PBR so the
                 //   PointLight on Sol actually contributes to
-                //   the day/night terminator on planets. Textured
-                //   bodies still receive lighting (the lit branch
-                //   multiplies the texture by the diffuse term),
-                //   which matches the regen chain's behaviour for
-                //   Earth / Mars / Venus etc.
+                //   the day/night terminator on planets.
                 unlit: is_star || matches!(body_type, BodyType::Ring),
                 ..default()
             };
