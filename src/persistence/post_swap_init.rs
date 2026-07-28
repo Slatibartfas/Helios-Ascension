@@ -875,12 +875,11 @@ fn decorate_with_visuals(
     > = std::collections::HashMap::new();
     let sphere_mesh: bevy::asset::Handle<Mesh>;
     {
-        // Add the shared sphere mesh first, then drop the
-        // `Assets<Mesh>` borrow so we can acquire
+        // Add the shared sphere mesh first; the inner scope end
+        // releases the `Assets<Mesh>` borrow so we can acquire
         // `Assets<StandardMaterial>` without an alias conflict.
         let mut meshes = world.resource_mut::<Assets<Mesh>>();
         sphere_mesh = meshes.add(Sphere::new(1.0).mesh().uv(32, 16));
-        drop(meshes);
     }
 
     // Per-ring mesh handles, keyed by entity. Each ring
@@ -1148,7 +1147,7 @@ fn generic_texture_path(body_data: &CelestialBodyData) -> Option<String> {
             for byte in body_data.name.bytes() {
                 seed = seed.wrapping_mul(31).wrapping_add(byte as u32);
             }
-            if seed % 3 == 0 {
+            if seed.is_multiple_of(3) {
                 Some("textures/celestial/asteroids/generic_s_type_2k.jpg".to_string())
             } else {
                 Some("textures/celestial/asteroids/generic_c_type_2k.jpg".to_string())

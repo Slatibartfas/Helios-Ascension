@@ -242,7 +242,7 @@ pub fn ui_save_panel_subview(
                                             theme::SURFACE
                                         })
                                         .stroke(egui::Stroke::new(
-                                            1.0,
+                                            1.0_f32,
                                             if selected {
                                                 theme::ACCENT
                                             } else {
@@ -255,7 +255,7 @@ pub fn ui_save_panel_subview(
                                         ui.painter().rect_stroke(
                                             response.rect,
                                             3.0,
-                                            egui::Stroke::new(1.5, theme::ACCENT),
+                                            egui::Stroke::new(1.5_f32, theme::ACCENT),
                                             egui::StrokeKind::Inside,
                                         );
                                     }
