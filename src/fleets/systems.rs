@@ -76,7 +76,15 @@ fn spawn_fleet_with_ship_entities(
     orbit_radius_au: f64,
     stationary: bool,
 ) -> Entity {
-    spawn_fleet_with_ship_entities_inner(commands, name, ships, orbit_body, orbit_radius_au, stationary, false)
+    spawn_fleet_with_ship_entities_inner(
+        commands,
+        name,
+        ships,
+        orbit_body,
+        orbit_radius_au,
+        stationary,
+        false,
+    )
 }
 
 /// Spawn helper that also tags the fleet as a regen-chain
@@ -93,7 +101,15 @@ fn spawn_regen_chain_fleet(
     orbit_radius_au: f64,
     stationary: bool,
 ) -> Entity {
-    spawn_fleet_with_ship_entities_inner(commands, name, ships, orbit_body, orbit_radius_au, stationary, true)
+    spawn_fleet_with_ship_entities_inner(
+        commands,
+        name,
+        ships,
+        orbit_body,
+        orbit_radius_au,
+        stationary,
+        true,
+    )
 }
 
 fn spawn_fleet_with_ship_entities_inner(

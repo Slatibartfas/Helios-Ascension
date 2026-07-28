@@ -224,8 +224,7 @@ pub fn ui_save_panel_subview(
                         for (idx, entry) in save_index.entries.iter().enumerate() {
                             match entry {
                                 SaveSummary::Valid { path, header } => {
-                                    let selected =
-                                        save_ui.selected_save_index == Some(idx);
+                                    let selected = save_ui.selected_save_index == Some(idx);
                                     let label = format!(
                                         "{}  ·  {}",
                                         header.formatted_saved_at(),
@@ -233,27 +232,24 @@ pub fn ui_save_panel_subview(
                                             .map(|n| n.to_string_lossy().to_string())
                                             .unwrap_or_default(),
                                     );
-                                    let button = egui::Button::new(
-                                        egui::RichText::new(label).color(if selected {
-                                            theme::ACCENT
+                                    let button =
+                                        egui::Button::new(egui::RichText::new(label).color(
+                                            if selected { theme::ACCENT } else { theme::TEXT },
+                                        ))
+                                        .fill(if selected {
+                                            theme::BUTTON_ACTIVE_BG
                                         } else {
-                                            theme::TEXT
-                                        }),
-                                    )
-                                    .fill(if selected {
-                                        theme::BUTTON_ACTIVE_BG
-                                    } else {
-                                        theme::SURFACE
-                                    })
-                                    .stroke(egui::Stroke::new(
-                                        1.0,
-                                        if selected {
-                                            theme::ACCENT
-                                        } else {
-                                            theme::BORDER
-                                        },
-                                    ))
-                                    .min_size(egui::vec2(ui.available_width(), 34.0));
+                                            theme::SURFACE
+                                        })
+                                        .stroke(egui::Stroke::new(
+                                            1.0,
+                                            if selected {
+                                                theme::ACCENT
+                                            } else {
+                                                theme::BORDER
+                                            },
+                                        ))
+                                        .min_size(egui::vec2(ui.available_width(), 34.0));
                                     let response = ui.add(button);
                                     if response.hovered() {
                                         ui.painter().rect_stroke(
@@ -310,8 +306,7 @@ pub fn ui_save_panel_subview(
                     ),
                 );
                 ui.horizontal(|ui| {
-                    if crate::ui::launch::render_glass_button(ui, "Overwrite", "", true).clicked()
-                    {
+                    if crate::ui::launch::render_glass_button(ui, "Overwrite", "", true).clicked() {
                         confirm_overwrite = true;
                     }
                     if crate::ui::launch::render_glass_button(ui, "Cancel", "", true).clicked() {

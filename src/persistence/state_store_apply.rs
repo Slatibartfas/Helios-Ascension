@@ -42,9 +42,7 @@
 use bevy::prelude::*;
 use std::collections::{BTreeMap, HashMap};
 
-use super::state_store::{
-    BodyDivergence, BodyKey, StateStore,
-};
+use super::state_store::{BodyDivergence, BodyKey, StateStore};
 use crate::astronomy::components::SystemId;
 use crate::colony::components::Colony;
 use crate::economy::components::{LocalStockpile, PlanetResources, Population};
@@ -122,10 +120,7 @@ pub struct ApplyOutcome {
 /// Behavioural guard: the minimal regen is a no-op when the
 /// world already has bodies — i.e. it does not duplicate the
 /// New Game path.
-pub fn apply_state_store(
-    world: &mut World,
-    store: &StateStore,
-) -> ApplyOutcome {
+pub fn apply_state_store(world: &mut World, store: &StateStore) -> ApplyOutcome {
     let mut outcome = ApplyOutcome {
         seed_mismatch: check_seed_mismatch(world, store),
         ..ApplyOutcome::default()
@@ -565,8 +560,7 @@ fn apply_orbital_override(
         }
     } else {
         warnings.push(
-            "orbital override requested but body has no KeplerOrbit (regen chain skip)"
-                .to_string(),
+            "orbital override requested but body has no KeplerOrbit (regen chain skip)".to_string(),
         );
     }
 }
@@ -688,9 +682,7 @@ fn apply_fleets(
     }
 }
 
-fn build_ship_info(
-    record: &super::state_store::ShipRecord,
-) -> Result<ShipInfo, String> {
+fn build_ship_info(record: &super::state_store::ShipRecord) -> Result<ShipInfo, String> {
     let class = parse_ship_class(&record.class)
         .ok_or_else(|| format!("unknown ShipClass `{}`", record.class))?;
     let hull_id = if record.hull.is_empty() {
@@ -837,12 +829,8 @@ fn apply_economy(
             tracker.gross_consumption_rates.clear();
             for (res_name, (prod, cons)) in &record.rates {
                 if let Some(res) = parse_resource_type(res_name) {
-                    tracker
-                        .gross_production_rates
-                        .insert(res, *prod);
-                    tracker
-                        .gross_consumption_rates
-                        .insert(res, *cons);
+                    tracker.gross_production_rates.insert(res, *prod);
+                    tracker.gross_consumption_rates.insert(res, *cons);
                 }
             }
         }
@@ -852,7 +840,9 @@ fn apply_economy(
         if let Some(mut companies) = world.get_resource_mut::<ShippingCompanies>() {
             companies.companies.clear();
             for c in &record.shipping_companies {
-                use crate::economy::company::{CompanyAIPolicy, CompanyBuildPolicy, ShippingCompany};
+                use crate::economy::company::{
+                    CompanyAIPolicy, CompanyBuildPolicy, ShippingCompany,
+                };
                 companies.companies.push(ShippingCompany {
                     name: c.name.clone(),
                     treasury_mc: c.credit_balance,
@@ -886,8 +876,7 @@ fn apply_economy(
                         amount_mt: r.amount_megatonnes,
                         priority: parse_request_priority(&r.priority)
                             .unwrap_or(RequestPriority::Trade),
-                        state: parse_request_state(&r.state)
-                            .unwrap_or(RequestState::Pending),
+                        state: parse_request_state(&r.state).unwrap_or(RequestState::Pending),
                         in_transit_mt: 0.0,
                         eta_seconds: None,
                         assigned_company_idx: None,
@@ -1047,11 +1036,10 @@ fn parse_launch_state(name: &str) -> LaunchState {
 // Notifications
 // ════════════════════════════════════════════════════════════
 
-fn apply_notifications(
-    world: &mut World,
-    record: &super::state_store::NotificationRecord,
-) {
-    use crate::ui::notifications::settings::{NotificationCategoryId, NotificationSettings, PerCategorySetting};
+fn apply_notifications(world: &mut World, record: &super::state_store::NotificationRecord) {
+    use crate::ui::notifications::settings::{
+        NotificationCategoryId, NotificationSettings, PerCategorySetting,
+    };
 
     if record.category_settings.is_empty() {
         return;
@@ -1097,11 +1085,7 @@ mod tests {
     use crate::plugins::solar_system_data::BodyType;
     use std::collections::HashMap;
 
-    fn make_body(
-        world: &mut World,
-        name: &str,
-        sys: u32,
-    ) -> Entity {
+    fn make_body(world: &mut World, name: &str, sys: u32) -> Entity {
         world
             .spawn((
                 CelestialBody {
@@ -1191,7 +1175,11 @@ mod tests {
         };
         let outcome = apply_state_store(&mut world, &store);
         assert_eq!(outcome.bodies_applied, 1);
-        assert!(outcome.warnings.is_empty(), "warnings: {:?}", outcome.warnings);
+        assert!(
+            outcome.warnings.is_empty(),
+            "warnings: {:?}",
+            outcome.warnings
+        );
     }
 
     #[test]
@@ -1246,7 +1234,11 @@ mod tests {
         let outcome = apply_state_store(&mut world, &store);
         assert_eq!(outcome.fleets_spawned, 1);
         assert_eq!(outcome.ships_spawned, 1);
-        assert!(outcome.warnings.is_empty(), "warnings: {:?}", outcome.warnings);
+        assert!(
+            outcome.warnings.is_empty(),
+            "warnings: {:?}",
+            outcome.warnings
+        );
 
         // The fleet should have a FleetOrbit anchored at Earth.
         let mut q = world.query::<&Fleet>();

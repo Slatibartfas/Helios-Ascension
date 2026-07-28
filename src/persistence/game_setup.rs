@@ -342,10 +342,7 @@ pub fn build_minimal_world_for_restore() -> World {
     // calls `regenerate_bodies_minimal`, but doing it here
     // makes the factory contract explicit: the world already
     // has the baseline bodies when `apply_state_store` runs.
-    crate::persistence::state_store_apply::regenerate_bodies_minimal(
-        &mut world,
-        0,
-    );
+    crate::persistence::state_store_apply::regenerate_bodies_minimal(&mut world, 0);
     world
 }
 
@@ -489,9 +486,7 @@ pub fn write_save_to_path(world: &mut World, path: &Path) -> Result<(), GameSetu
     // Clear the dirty-resource set — every body that
     // changed since the last save is now persisted, so the
     // next save only needs to capture *new* changes.
-    if let Some(mut dirty) =
-        world.get_resource_mut::<crate::economy::DirtyBodies>()
-    {
+    if let Some(mut dirty) = world.get_resource_mut::<crate::economy::DirtyBodies>() {
         dirty.clear();
     }
 
@@ -502,10 +497,7 @@ pub fn write_save_to_path(world: &mut World, path: &Path) -> Result<(), GameSetu
 /// from the live world. Uses the StateStore's `SavePreview`
 /// type so the save-load UI doesn't depend on the retired
 /// `snapshot` module.
-fn build_state_store_preview(
-    world: &World,
-    path: &Path,
-) -> super::state_store::SavePreview {
+fn build_state_store_preview(world: &World, path: &Path) -> super::state_store::SavePreview {
     use super::state_store::SavePreview;
     let current_date = world
         .get_resource::<SimulationTime>()
@@ -529,8 +521,7 @@ fn build_state_store_preview(
         .copied()
         .filter_map(|resource| {
             let amount = latest.resource_amount(resource);
-            (amount.abs() > f64::EPSILON)
-                .then(|| (resource.display_name().to_string(), amount))
+            (amount.abs() > f64::EPSILON).then(|| (resource.display_name().to_string(), amount))
         })
         .collect();
     let current_sim_seconds = world
@@ -607,9 +598,7 @@ where
     let mut fresh = world_factory(store.metadata.seed);
     let outcome = apply_state_store(&mut fresh, &store);
 
-    world.insert_resource(PendingGameWorld {
-        world: Some(fresh),
-    });
+    world.insert_resource(PendingGameWorld { world: Some(fresh) });
 
     rescan_save_index(world);
 
@@ -990,7 +979,8 @@ mod tests {
         // and friends) — this test focuses on the orchestration
         // contract (drain + state advance + marker insert).
         assert!(
-            app.world().contains_resource::<crate::persistence::swap::WorldReady>(),
+            app.world()
+                .contains_resource::<crate::persistence::swap::WorldReady>(),
             "promote_pending_world must insert WorldReady after a successful swap"
         );
     }
@@ -1098,11 +1088,15 @@ mod tests {
             "play_new_game must clear RestoredWorldGate so the boot-init chain's run_if gate is open"
         );
         assert!(
-            app.world().get_resource::<crate::persistence::RestoredBodiesRendered>().is_none(),
+            app.world()
+                .get_resource::<crate::persistence::RestoredBodiesRendered>()
+                .is_none(),
             "play_new_game must clear RestoredBodiesRendered so the next Restore can re-render"
         );
         assert!(
-            app.world().get_resource::<crate::fleets::DayOneFleetSpawned>().is_none(),
+            app.world()
+                .get_resource::<crate::fleets::DayOneFleetSpawned>()
+                .is_none(),
             "play_new_game must clear DayOneFleetSpawned so the regen-chain spawner fires"
         );
         assert!(

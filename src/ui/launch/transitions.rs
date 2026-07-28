@@ -203,10 +203,7 @@ mod tests {
         app.update();
 
         // State advanced.
-        assert_eq!(
-            *app.world().resource::<LaunchState>(),
-            LaunchState::InGame
-        );
+        assert_eq!(*app.world().resource::<LaunchState>(), LaunchState::InGame);
         // Action still visible to the next-frame kickoff.
         let actions = app.world().resource::<PendingLaunchActions>();
         assert!(

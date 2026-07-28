@@ -363,11 +363,14 @@ fn menu_backdrop_transition_system(
     // in-game bodies are hidden by `hide_in_game_solar_system` but
     // the `CameraAnchor` component survives, so the in-game anchor
     // persists into the menu backdrop's framing.
-    mut camera_query: Query<(
-        &mut OrbitCamera,
-        &mut Transform,
-        &mut crate::plugins::camera::CameraAnchor,
-    ), With<GameCamera>>,
+    mut camera_query: Query<
+        (
+            &mut OrbitCamera,
+            &mut Transform,
+            &mut crate::plugins::camera::CameraAnchor,
+        ),
+        With<GameCamera>,
+    >,
 ) {
     let in_menu = is_menu_launch_state(*launch_state);
 

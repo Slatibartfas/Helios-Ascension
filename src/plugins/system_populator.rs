@@ -2189,7 +2189,7 @@ fn spawn_asteroid_belt(
                 max_celsius: max_temp,
             },
             orbit,
-            OrbitPath::with_fade(Color::srgba(0.3, 0.55, 0.22, 0.45), 5.0), // Dark green, steep fade — asteroids
+            OrbitPath::with_fade(Color::srgba(0.42, 0.32, 0.20, 0.35), 5.0), // Dim brown, steep fade — asteroids (matches `solar_system.rs`)
             SpaceCoordinates::default(), // Will be updated by propagate_orbits
             OrbitCenter(parent.spatial_parent),
             OrbitsBody::new(parent.logical_parent),

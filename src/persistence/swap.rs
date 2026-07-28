@@ -200,7 +200,10 @@ impl std::fmt::Display for SwapError {
         match self {
             SwapError::NothingPending => write!(f, "no pending world to swap"),
             SwapError::UnregisteredComponent { entity, type_name } => {
-                write!(f, "unregistered component `{type_name}` on entity {entity:?}")
+                write!(
+                    f,
+                    "unregistered component `{type_name}` on entity {entity:?}"
+                )
             }
             SwapError::UnregisteredResource { type_name } => {
                 write!(f, "unregistered resource `{type_name}`")
@@ -252,10 +255,7 @@ pub fn swap_world_into(
     }
 }
 
-fn swap_pending_into_target(
-    pending_world: World,
-    target: &mut World,
-) -> Result<(), SwapError> {
+fn swap_pending_into_target(pending_world: World, target: &mut World) -> Result<(), SwapError> {
     let registry_arc = target
         .get_resource::<AppTypeRegistry>()
         .expect(
@@ -329,8 +329,7 @@ fn swap_pending_into_target(
             entity_map.insert(source_entity, live_entity);
 
             for component_id in archetype.components() {
-                let Some(component_info) =
-                    pending_world.components().get_info(*component_id)
+                let Some(component_info) = pending_world.components().get_info(*component_id)
                 else {
                     // ComponentId isn't registered in the pending world.
                     // This shouldn't happen — Archetype::components()
@@ -810,7 +809,10 @@ mod tests {
 
         swap_world_into(&mut pending, &mut target).expect("swap should succeed");
 
-        assert!(pending.world.is_none(), "pending should be drained on success");
+        assert!(
+            pending.world.is_none(),
+            "pending should be drained on success"
+        );
         // Target's entity count grew (by at least 3 — the swap adds
         // everything we put in the source).
         assert!(target.entities().len() > initial_target_entities + 2);
@@ -822,7 +824,10 @@ mod tests {
             .map(|n| n.to_string())
             .collect();
         names.sort();
-        assert_eq!(names, vec!["alpha".to_string(), "beta".to_string(), "gamma".to_string()]);
+        assert_eq!(
+            names,
+            vec!["alpha".to_string(), "beta".to_string(), "gamma".to_string()]
+        );
     }
 
     /// GRA-358 PR-C regression: pre-PR-C the swap copied the
@@ -859,11 +864,7 @@ mod tests {
             ))
             .id();
         let child = source
-            .spawn((
-                Name::new("child"),
-                Transform::IDENTITY,
-                ChildOf(parent),
-            ))
+            .spawn((Name::new("child"), Transform::IDENTITY, ChildOf(parent)))
             .id();
         let _ = source.spawn((
             // A free-floating entity with no parent — exercises
@@ -936,10 +937,7 @@ mod tests {
         // this is the exact assert that pre-PR-C panicked
         // (bevy_transform-0.18.0/src/systems.rs:562). We
         // verify it by manually walking the tree.
-        assert_eq!(
-            target.get::<ChildOf>(live_child).unwrap().0,
-            live_parent
-        );
+        assert_eq!(target.get::<ChildOf>(live_child).unwrap().0, live_parent);
 
         let _ = (grandparent, parent, child);
     }
@@ -1157,10 +1155,7 @@ mod tests {
         //    must NOT skip — kickoff was a New Game).
         assert!(!app.world().contains_resource::<RestoredWorldGate>());
         app.update(); // Drive Bevy so the run_if predicate evaluates.
-        assert!(app
-            .world()
-            .get_resource::<RestoredWorldGate>()
-            .is_none());
+        assert!(app.world().get_resource::<RestoredWorldGate>().is_none());
 
         // ── After insertion: marker is present.
         app.init_resource::<RestoredWorldGate>();
@@ -1221,7 +1216,10 @@ mod tests {
             .query_filtered::<Entity, With<crate::astronomy::components::SpaceCoordinates>>()
             .iter(&target)
             .count();
-        assert_eq!(pre_count, 1, "target must start with the seeded Helios entity");
+        assert_eq!(
+            pre_count, 1,
+            "target must start with the seeded Helios entity"
+        );
 
         let mut pending = PendingGameWorld {
             world: Some(source),

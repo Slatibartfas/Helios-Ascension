@@ -207,12 +207,8 @@ impl StateStore {
         }
         // Strip the magic line (it's not part of the StateStore
         // struct; the loader injects it for fast-detection).
-        let body_start = s
-            .find('\n')
-            .ok_or(StateStoreError::NotV2Format)?
-            + 1;
-        ron::from_str(&s[body_start..])
-            .map_err(|e| StateStoreError::Parse(e.to_string()))
+        let body_start = s.find('\n').ok_or(StateStoreError::NotV2Format)? + 1;
+        ron::from_str(&s[body_start..]).map_err(|e| StateStoreError::Parse(e.to_string()))
     }
 }
 
@@ -808,10 +804,8 @@ mod tests {
             buildings: HashMap::new(),
             growth_rate_modifier: 1.0,
         };
-        let json: Json =
-            serde_json::to_value(&colony).expect("Colony must serialise");
-        let back: Colony =
-            serde_json::from_value(json.clone()).expect("Colony must deserialise");
+        let json: Json = serde_json::to_value(&colony).expect("Colony must serialise");
+        let back: Colony = serde_json::from_value(json.clone()).expect("Colony must deserialise");
         assert_eq!(back.name, "Earth");
         assert_eq!(back.population, 8.2e9);
     }

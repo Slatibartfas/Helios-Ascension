@@ -94,14 +94,15 @@
 //! `BootInitPlugin`'s run_if chain, minus the `Loading` part
 //! (Restore lands directly in `InGame`, not `Loading`).
 
-use bevy::prelude::*;
 use bevy::pbr::StandardMaterial;
+use bevy::prelude::*;
 use bevy::prelude::{AlphaMode, LinearRgba};
-use rand::SeedableRng;
 use rand::rngs::StdRng;
+use rand::SeedableRng;
 
 use crate::astronomy::components::{KeplerOrbit, LocalOrbitAmplification, OrbitCenter, OrbitPath};
 use crate::economy::components::{OrbitsBody, StarSystem};
+use crate::persistence::swap::RestoredWorldGate;
 use crate::plugins::solar_system::{
     create_ring_mesh, Asteroid, CelestialBody, Comet, DwarfPlanet, GasGiant, LogicalParent, Moon,
     Planet, Ring, Star, StarCorona3dMaterial, StarCoronaShell, StarHalo3dMaterial, StarHaloShell,
@@ -110,7 +111,6 @@ use crate::plugins::solar_system::{
 use crate::plugins::solar_system_data::{
     calculate_visual_radius, AsteroidClass, BodyType, CelestialBodyData, OrbitData, SolarSystemData,
 };
-use crate::persistence::swap::RestoredWorldGate;
 
 /// Marker resource inserted by [`populate_restored_bodies_3d`]
 /// once the 3D pass has run. The pass's `run_if` gate short-
@@ -152,7 +152,9 @@ pub fn populate_restored_bodies_3d(world: &mut World) {
     // can't add meshes. Skip-and-mark so the gate doesn't keep
     // firing and spamming the log.
     let assets_available = world.get_resource::<Assets<Mesh>>().is_some()
-        && world.get_resource::<Assets<bevy::pbr::StandardMaterial>>().is_some();
+        && world
+            .get_resource::<Assets<bevy::pbr::StandardMaterial>>()
+            .is_some();
     if !assets_available {
         warn!(
             "populate_restored_bodies_3d: Assets<Mesh>/Assets<StandardMaterial> missing on \
@@ -178,16 +180,11 @@ pub fn populate_restored_bodies_3d(world: &mut World) {
     // Build a body_name → BodyData lookup so the per-entity
     // decoration loop doesn't repeat a linear scan for every
     // body.
-    let by_name: std::collections::HashMap<&str, &CelestialBodyData> = data
-        .bodies
-        .iter()
-        .map(|b| (b.name.as_str(), b))
-        .collect();
+    let by_name: std::collections::HashMap<&str, &CelestialBodyData> =
+        data.bodies.iter().map(|b| (b.name.as_str(), b)).collect();
     let name_to_entity: std::collections::HashMap<String, Entity> = {
         let mut q = world.query::<(Entity, &CelestialBody)>();
-        q.iter(world)
-            .map(|(e, cb)| (cb.name.clone(), e))
-            .collect()
+        q.iter(world).map(|(e, cb)| (cb.name.clone(), e)).collect()
     };
 
     // Pass A: insert KeplerOrbit, OrbitCenter, LogicalParent, OrbitPath
@@ -520,11 +517,8 @@ fn populate_planet_resources(world: &mut World) {
             return;
         }
     };
-    let by_name: std::collections::HashMap<&str, &CelestialBodyData> = data
-        .bodies
-        .iter()
-        .map(|b| (b.name.as_str(), b))
-        .collect();
+    let by_name: std::collections::HashMap<&str, &CelestialBodyData> =
+        data.bodies.iter().map(|b| (b.name.as_str(), b)).collect();
 
     // Snapshot the body list up front so the per-entity
     // mutation loop doesn't fight Bevy's borrow checker.
@@ -547,8 +541,7 @@ fn populate_planet_resources(world: &mut World) {
     for (id, name, body_type) in bodies {
         // Stars and Rings aren't part of the regen-chain's
         // resource filter. Comets have no deposits by design.
-        if matches!(body_type, BodyType::Star | BodyType::Ring | BodyType::Comet)
-        {
+        if matches!(body_type, BodyType::Star | BodyType::Ring | BodyType::Comet) {
             skipped += 1;
             continue;
         }
@@ -656,9 +649,7 @@ fn populate_restored_star_shells(world: &mut World) {
         && world
             .get_resource::<Assets<StarCorona3dMaterial>>()
             .is_some()
-        && world
-            .get_resource::<Assets<StarHalo3dMaterial>>()
-            .is_some();
+        && world.get_resource::<Assets<StarHalo3dMaterial>>().is_some();
     if !materials_available {
         warn!(
             "populate_restored_star_shells: star material asset collections missing on the \
@@ -878,8 +869,10 @@ fn decorate_with_visuals(
         Tinted(u8, u8, u8, bool, bool),
     }
 
-    let mut material_cache: std::collections::HashMap<RestoreMaterialKey, bevy::asset::Handle<StandardMaterial>> =
-        std::collections::HashMap::new();
+    let mut material_cache: std::collections::HashMap<
+        RestoreMaterialKey,
+        bevy::asset::Handle<StandardMaterial>,
+    > = std::collections::HashMap::new();
     let sphere_mesh: bevy::asset::Handle<Mesh>;
     {
         // Add the shared sphere mesh first, then drop the
@@ -931,9 +924,7 @@ fn decorate_with_visuals(
                 continue;
             }
             let visual = visuals_by_id.get(_id);
-            let (r, g, b) = visual
-                .map(|v| v.color)
-                .unwrap_or(neutral_grey);
+            let (r, g, b) = visual.map(|v| v.color).unwrap_or(neutral_grey);
             let is_star = matches!(body_type, BodyType::Star);
             let texture_path = visual.and_then(|v| v.texture_path.clone());
             let has_texture = texture_path.is_some();
@@ -951,11 +942,17 @@ fn decorate_with_visuals(
             if !unique_keys.insert(key.clone()) {
                 continue;
             }
-            let base_color = if has_texture { Color::WHITE } else { Color::srgb(r, g, b) };
+            let base_color = if has_texture {
+                Color::WHITE
+            } else {
+                Color::srgb(r, g, b)
+            };
             let emissive = if is_star {
                 visual
                     .and_then(|v| v.emissive)
-                    .map(|(er, eg, eb)| LinearRgba::new(er * 6.0_f32, eg * 6.0_f32, eb * 6.0_f32, 1.0))
+                    .map(|(er, eg, eb)| {
+                        LinearRgba::new(er * 6.0_f32, eg * 6.0_f32, eb * 6.0_f32, 1.0)
+                    })
                     .unwrap_or(LinearRgba::new(r * 6.0_f32, g * 6.0_f32, b * 6.0_f32, 1.0))
             } else {
                 // **Non-star bodies**: regen chain uses
@@ -968,7 +965,9 @@ fn decorate_with_visuals(
                 // day/night contrast remains strong.
                 LinearRgba::new(0.006_f32, 0.006_f32, 0.006_f32, 1.0)
             };
-            let base_color_texture = texture_path.as_ref().map(|path| asset_server.load(path.clone()));
+            let base_color_texture = texture_path
+                .as_ref()
+                .map(|path| asset_server.load(path.clone()));
             let mut material = StandardMaterial {
                 base_color,
                 base_color_texture,
@@ -1129,16 +1128,18 @@ fn generic_texture_path(body_data: &CelestialBodyData) -> Option<String> {
     match body_data.body_type {
         BodyType::Asteroid => {
             let class = body_data.asteroid_class.unwrap_or(AsteroidClass::CType);
-            Some(match class {
-                AsteroidClass::CType => "textures/celestial/asteroids/generic_c_type_2k.jpg",
-                AsteroidClass::SType => "textures/celestial/asteroids/generic_s_type_2k.jpg",
-                AsteroidClass::MType => "textures/celestial/asteroids/generic_s_type_2k.jpg",
-                AsteroidClass::VType => "textures/celestial/asteroids/generic_s_type_2k.jpg",
-                AsteroidClass::DType => "textures/celestial/asteroids/generic_c_type_2k.jpg",
-                AsteroidClass::PType => "textures/celestial/asteroids/generic_c_type_2k.jpg",
-                AsteroidClass::Unknown => "textures/celestial/asteroids/generic_c_type_2k.jpg",
-            }
-            .to_string())
+            Some(
+                match class {
+                    AsteroidClass::CType => "textures/celestial/asteroids/generic_c_type_2k.jpg",
+                    AsteroidClass::SType => "textures/celestial/asteroids/generic_s_type_2k.jpg",
+                    AsteroidClass::MType => "textures/celestial/asteroids/generic_s_type_2k.jpg",
+                    AsteroidClass::VType => "textures/celestial/asteroids/generic_s_type_2k.jpg",
+                    AsteroidClass::DType => "textures/celestial/asteroids/generic_c_type_2k.jpg",
+                    AsteroidClass::PType => "textures/celestial/asteroids/generic_c_type_2k.jpg",
+                    AsteroidClass::Unknown => "textures/celestial/asteroids/generic_c_type_2k.jpg",
+                }
+                .to_string(),
+            )
         }
         BodyType::Comet => Some("textures/celestial/comets/generic_nucleus_2k.jpg".to_string()),
         BodyType::Moon => Some("textures/celestial/asteroids/generic_c_type_2k.jpg".to_string()),
@@ -1161,12 +1162,7 @@ fn generic_texture_path(body_data: &CelestialBodyData) -> Option<String> {
 mod tests {
     use super::*;
 
-    fn make_body(
-        world: &mut World,
-        name: &str,
-        body_type: BodyType,
-        visual_radius: f32,
-    ) -> Entity {
+    fn make_body(world: &mut World, name: &str, body_type: BodyType, visual_radius: f32) -> Entity {
         world
             .spawn((
                 CelestialBody {
@@ -1247,7 +1243,9 @@ mod tests {
     }
 
     fn gate_world_ready(world: &World) -> bool {
-        world.get_resource::<crate::persistence::swap::WorldReady>().is_some()
+        world
+            .get_resource::<crate::persistence::swap::WorldReady>()
+            .is_some()
     }
     fn gate_restored(world: &World) -> bool {
         world.get_resource::<RestoredWorldGate>().is_some()

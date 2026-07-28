@@ -284,12 +284,11 @@ mod tests {
     /// `BootState` only flips to `Ready` when BOTH are satisfied.
     #[test]
     fn boot_init_chain_stays_silent_without_world_ready() {
-        use bevy::MinimalPlugins;
         use crate::persistence::swap::WorldReady;
+        use bevy::MinimalPlugins;
 
         let mut app = App::new();
-        app.add_plugins(MinimalPlugins)
-            .init_resource::<BootState>();
+        app.add_plugins(MinimalPlugins).init_resource::<BootState>();
 
         // Register `mark_boot_ready` with the same dual gate the
         // production chain uses (boot_state_is_loading AND
@@ -358,12 +357,11 @@ mod tests {
     ///    stays at Loading (chain silent).
     #[test]
     fn boot_init_chain_stays_silent_on_restore_path() {
-        use bevy::MinimalPlugins;
         use crate::persistence::swap::{RestoredWorldGate, WorldReady};
+        use bevy::MinimalPlugins;
 
         let mut app = App::new();
-        app.add_plugins(MinimalPlugins)
-            .init_resource::<BootState>();
+        app.add_plugins(MinimalPlugins).init_resource::<BootState>();
 
         // Register `mark_boot_ready` with the same triple gate the
         // production chain uses (boot_state_is_loading AND

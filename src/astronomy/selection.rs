@@ -544,7 +544,14 @@ pub fn handle_body_hover(
             Option<&OrbitCenter>,
             Option<&SpaceCoordinates>,
         ),
-        Without<ClickExcluded>,
+        // Note: `ClickExcluded` is intentionally NOT applied to the hover
+        // query.  Rings carry `ClickExcluded` to prevent the large ring
+        // annulus mesh from stealing left-clicks away from the host planet
+        // (the click handler keeps `Without<ClickExcluded>`).  But the
+        // emissive-glow hover highlight (`apply_ring_highlight`) only fires
+        // when `Hovered` is added, and `Hovered` was being suppressed by
+        // the filter — leaving rings permanently inert on hover.  Allow
+        // rings to be hovered here; the click handler still rejects them.
     >,
     space_coords_query: Query<&SpaceCoordinates>,
     current_system: Res<CurrentStarSystem>,
@@ -809,7 +816,8 @@ pub fn spawn_selection_markers(
     // despawn_selection_markers might miss due to schedule timing.
     for (marker_entity, owner) in existing_selection_markers.iter() {
         if all_selected.get(owner.0).is_err() {
-            commands.entity(marker_entity).despawn();
+            // `try_despawn`: see `despawn_selection_markers` for rationale.
+            commands.entity(marker_entity).try_despawn();
         }
     }
 
@@ -817,7 +825,8 @@ pub fn spawn_selection_markers(
         // Remove hover marker if it exists
         for (marker_entity, owner) in hover_markers.iter() {
             if owner.0 == entity {
-                commands.entity(marker_entity).despawn();
+                // `try_despawn`: see `despawn_selection_markers` for rationale.
+                commands.entity(marker_entity).try_despawn();
             }
         }
 
@@ -825,7 +834,8 @@ pub fn spawn_selection_markers(
         // to avoid duplicates if Selected was removed and re-added.
         for (marker_entity, owner) in existing_selection_markers.iter() {
             if owner.0 == entity {
-                commands.entity(marker_entity).despawn();
+                // `try_despawn`: see `despawn_selection_markers` for rationale.
+                commands.entity(marker_entity).try_despawn();
             }
         }
 
@@ -884,7 +894,14 @@ pub fn despawn_selection_markers(
     for entity in removed_selected.read() {
         for (marker_entity, owner) in marker_query.iter() {
             if owner.0 == entity {
-                commands.entity(marker_entity).despawn();
+                // `try_despawn` (Bevy 0.18): another system may have already
+                // despawned this marker within the same frame, or the marker's
+                // entity index was recycled to a newer generation since this
+                // system queued the command.  Bevy's default `despawn` logs a
+                // warning every time it sees a stale entity reference;
+                // `try_despawn` quietly no-ops on stale references, keeping
+                // the log clean when the duplication is benign.
+                commands.entity(marker_entity).try_despawn();
             }
         }
 
@@ -984,7 +1001,8 @@ pub fn despawn_hover_markers(
 
         for (marker_entity, owner) in marker_query.iter() {
             if owner.0 == entity {
-                commands.entity(marker_entity).despawn();
+                // `try_despawn`: see `despawn_selection_markers` for rationale.
+                commands.entity(marker_entity).try_despawn();
             }
         }
     }
@@ -1003,7 +1021,13 @@ pub fn cleanup_stale_selection_markers(
 ) {
     for (marker_entity, owner) in marker_query.iter() {
         if selected_query.get(owner.0).is_err() {
-            commands.entity(marker_entity).despawn();
+            // `try_despawn` (Bevy 0.18): the marker's owner may have just
+            // been despawned by `check_natural_destruction` or another
+            // lifecycle system in the same frame, in which case the owner's
+            // entity index has been recycled to a newer generation.  The
+            // default `despawn` would log a "entity despawned" warning here;
+            // `try_despawn` silently no-ops on stale references.
+            commands.entity(marker_entity).try_despawn();
         }
     }
 }
@@ -1475,7 +1499,12 @@ pub fn scale_markers_with_zoom(
             if let Some(orbit) = kepler {
                 let effective_speed = orbit.mean_motion.abs() * time_scale.scale as f64;
                 if effective_speed > VISUAL_SPEED_BASE {
-                    commands.entity(entity).despawn();
+                    // `try_despawn`: a parallel system may have already
+                    // despawned this marker within the same frame (e.g.
+                    // `cleanup_stale_selection_markers` if the owner lost
+                    // `Selected` mid-frame).  The default `despawn` would
+                    // warn on the stale reference; `try_despawn` is silent.
+                    commands.entity(entity).try_despawn();
                     continue;
                 }
             }
@@ -1494,8 +1523,11 @@ pub fn scale_markers_with_zoom(
                 transform.rotation = Quat::from_rotation_arc(Vec3::Y, direction);
             }
         } else {
-            // Owner doesn't exist anymore (destroyed?), clean up marker
-            commands.entity(entity).despawn();
+            // Owner doesn't exist anymore (destroyed?), clean up marker.
+            // `try_despawn`: the owner may have been despawned between the
+            // `owner_query.get()` check and this line by `fade_destroyed_bodies`
+            // or another lifecycle system; this avoids the resulting warning.
+            commands.entity(entity).try_despawn();
         }
     }
 }

@@ -202,8 +202,8 @@ mod tests {
             .init_resource::<MenuBackdropActive>()
             .init_resource::<crate::game_state::ActiveMenu>();
         *app.world_mut().resource_mut::<LaunchState>() = LaunchState::InGame;
-        *app.world_mut().resource_mut::<crate::boot_init::BootState>() =
-            crate::boot_init::BootState::Ready;
+        *app.world_mut()
+            .resource_mut::<crate::boot_init::BootState>() = crate::boot_init::BootState::Ready;
         app
     }
 
@@ -232,7 +232,9 @@ mod tests {
         let system_id = app
             .world_mut()
             .register_system(consume_in_game_return_to_menu_system);
-        app.world_mut().run_system(system_id).expect("system runs cleanly");
+        app.world_mut()
+            .run_system(system_id)
+            .expect("system runs cleanly");
 
         // State advanced to MainMenu.
         assert_eq!(
@@ -291,7 +293,9 @@ mod tests {
         let system_id = app
             .world_mut()
             .register_system(consume_in_game_return_to_menu_system);
-        app.world_mut().run_system(system_id).expect("system runs cleanly");
+        app.world_mut()
+            .run_system(system_id)
+            .expect("system runs cleanly");
 
         // State unchanged.
         assert_eq!(
@@ -325,7 +329,9 @@ mod tests {
         let system_id = app
             .world_mut()
             .register_system(consume_in_game_return_to_menu_system);
-        app.world_mut().run_system(system_id).expect("system runs cleanly");
+        app.world_mut()
+            .run_system(system_id)
+            .expect("system runs cleanly");
 
         assert_eq!(
             *app.world().resource::<LaunchState>(),

@@ -26,10 +26,9 @@ use serde_json::Value as Json;
 use std::collections::BTreeMap;
 
 use super::state_store::{
-    AutosaveRecord, BodyDivergence, BodyKey, EconomyRecord, EngineeringProjectRecord,
-    FleetRecord, NotificationCategoryRecord, NotificationRecord, ResearchRecord,
-    ResourceRequestRecord, ShipRecord, ShippingCompanyRecord, StateStore,
-    StateStoreMetadata, SurveyDivergence, UiRecord,
+    AutosaveRecord, BodyDivergence, BodyKey, EconomyRecord, EngineeringProjectRecord, FleetRecord,
+    NotificationCategoryRecord, NotificationRecord, ResearchRecord, ResourceRequestRecord,
+    ShipRecord, ShippingCompanyRecord, StateStore, StateStoreMetadata, SurveyDivergence, UiRecord,
 };
 
 /// Errors during extraction. Only the ones the apply path
@@ -94,11 +93,7 @@ pub fn extract_state_store(
 // Metadata
 // ════════════════════════════════════════════════════════════
 
-fn extract_metadata(
-    world: &mut World,
-    seed: u64,
-    start_timestamp: i64,
-) -> StateStoreMetadata {
+fn extract_metadata(world: &mut World, seed: u64, start_timestamp: i64) -> StateStoreMetadata {
     let saved_at_unix = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
@@ -198,9 +193,7 @@ fn extract_bodies(world: &mut World) -> BTreeMap<BodyKey, BodyDivergence> {
         // hook.
         let has_colony = colony.is_some();
         let has_pop = pop.map(|p| p.count > 0.0).unwrap_or(false);
-        let has_stockpile = stock
-            .map(|s| !s.stockpiles.is_empty())
-            .unwrap_or(false);
+        let has_stockpile = stock.map(|s| !s.stockpiles.is_empty()).unwrap_or(false);
         let dirty_reason = dirty.get(&entity).copied();
         let is_dirty = dirty_reason.is_some();
 
@@ -269,7 +262,12 @@ fn extract_bodies(world: &mut World) -> BTreeMap<BodyKey, BodyDivergence> {
         // and then drained (see the
         // `state_store_v2_dirty_resource_bodies_roundtrip`
         // test).
-        if has_stockpile || matches!(reason, Some(DirtyReason::Stockpile | DirtyReason::Colony | DirtyReason::Multiple)) {
+        if has_stockpile
+            || matches!(
+                reason,
+                Some(DirtyReason::Stockpile | DirtyReason::Colony | DirtyReason::Multiple)
+            )
+        {
             if let Some(s) = stock {
                 if let Ok(v) = serde_json::to_value(s) {
                     let mut obj = serde_json::Map::new();
@@ -286,16 +284,17 @@ fn extract_bodies(world: &mut World) -> BTreeMap<BodyKey, BodyDivergence> {
         // When the player has explicitly terraformed a
         // body, we still emit a sentinel flag so the
         // apply path can warn.
-        if matches!(reason, Some(DirtyReason::Atmosphere | DirtyReason::Multiple)) {
+        if matches!(
+            reason,
+            Some(DirtyReason::Atmosphere | DirtyReason::Multiple)
+        ) {
             // TODO(pr-terraform): serialise the
             // `AtmosphereComposition` component into
             // `atmosphere_override` once it derives
             // `Serialize`. For now we surface a warning
             // in `ApplyOutcome.warnings` (handled by the
             // apply path).
-            div.atmosphere_override = Some(Json::Object(
-                serde_json::Map::new(),
-            ));
+            div.atmosphere_override = Some(Json::Object(serde_json::Map::new()));
         }
 
         // Orbit divergence: orbit-shift mechanics
@@ -468,9 +467,7 @@ fn extract_fleets(world: &mut World) -> Vec<FleetRecord> {
 // ════════════════════════════════════════════════════════════
 
 fn extract_research(world: &mut World) -> ResearchRecord {
-    use crate::research::components::{
-        EngineeringProject, ResearchProject, ResearchTeamCapacity,
-    };
+    use crate::research::components::{EngineeringProject, ResearchProject, ResearchTeamCapacity};
     use crate::research::systems::ResearchState;
 
     let mut out = ResearchRecord::default();
@@ -502,26 +499,18 @@ fn extract_research(world: &mut World) -> ResearchRecord {
         }
     }
     if let Some(cap) = world.get_resource::<ResearchTeamCapacity>() {
-        out.team_capacity.insert(
-            "research".to_string(),
-            cap.max_research_teams as u32,
-        );
-        out.team_capacity.insert(
-            "engineering".to_string(),
-            cap.max_engineering_teams as u32,
-        );
+        out.team_capacity
+            .insert("research".to_string(), cap.max_research_teams as u32);
+        out.team_capacity
+            .insert("engineering".to_string(), cap.max_engineering_teams as u32);
     }
     // RP/EP per category — the regen chain doesn't compute
     // these from a seed, they're player-derived, so persist.
     if let Some(state) = world.get_resource::<ResearchState>() {
-        out.rp_balance.insert(
-            "available".to_string(),
-            state.research_points_available,
-        );
-        out.ep_balance.insert(
-            "available".to_string(),
-            state.engineering_points_available,
-        );
+        out.rp_balance
+            .insert("available".to_string(), state.research_points_available);
+        out.ep_balance
+            .insert("available".to_string(), state.engineering_points_available);
     }
     out
 }
@@ -601,9 +590,9 @@ fn extract_economy(world: &mut World) -> EconomyRecord {
 // ════════════════════════════════════════════════════════════
 
 fn extract_ui(world: &mut World) -> UiRecord {
-    use crate::ui::launch::LaunchState;
     use crate::plugins::atmosphere::AtmosphereSettings;
     use crate::plugins::camera::ViewMode;
+    use crate::ui::launch::LaunchState;
     use crate::ui::time::TimeScale;
 
     let mut out = UiRecord::default();
@@ -706,12 +695,7 @@ mod tests {
     use crate::ui::time::TimeScale;
     use std::collections::HashMap;
 
-    fn make_body(
-        world: &mut World,
-        name: &str,
-        sys: u32,
-        with_colony: bool,
-    ) -> Entity {
+    fn make_body(world: &mut World, name: &str, sys: u32, with_colony: bool) -> Entity {
         // `CelestialBody` has a long list of fields we don't
         // need for the extract tests; just give it the
         // minimum that the body/identity queries require.
@@ -740,7 +724,9 @@ mod tests {
                 growth_rate_modifier: 1.0,
             });
             e.insert(Population { count: 8.2e9 });
-            e.insert(LocalStockpile { stockpiles: HashMap::new() });
+            e.insert(LocalStockpile {
+                stockpiles: HashMap::new(),
+            });
         }
         e.id()
     }
@@ -819,18 +805,22 @@ mod tests {
     fn extract_research_picks_up_unlocked_set() {
         let mut world = World::new();
         let mut state = ResearchState::default();
-        state.unlocked_technologies.insert("solar_power".to_string());
-        state.unlocked_technologies.insert("chemical_spaceframes".to_string());
+        state
+            .unlocked_technologies
+            .insert("solar_power".to_string());
+        state
+            .unlocked_technologies
+            .insert("chemical_spaceframes".to_string());
         state.research_points_available = 1234.5;
         world.insert_resource(state);
         let store = extract_state_store(&mut world, 0, 0).expect("extract");
         assert_eq!(store.research.unlocked.len(), 2);
         assert!(store.research.unlocked.contains(&"solar_power".to_string()));
-        assert!(store.research.unlocked.contains(&"chemical_spaceframes".to_string()));
-        assert_eq!(
-            store.research.rp_balance.get("available"),
-            Some(&1234.5)
-        );
+        assert!(store
+            .research
+            .unlocked
+            .contains(&"chemical_spaceframes".to_string()));
+        assert_eq!(store.research.rp_balance.get("available"), Some(&1234.5));
     }
 
     #[test]
@@ -848,7 +838,9 @@ mod tests {
             habitable_outer_au: None,
         };
         let mut e = world.spawn((body, SystemId(0usize)));
-        let mut stock = LocalStockpile { stockpiles: HashMap::new() };
+        let mut stock = LocalStockpile {
+            stockpiles: HashMap::new(),
+        };
         stock
             .stockpiles
             .insert(crate::economy::types::ResourceType::Iron, 12.5);

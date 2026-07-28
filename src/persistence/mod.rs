@@ -61,16 +61,16 @@ pub use io::{delete_save_files, write_save_atomic, SaveIoError};
 pub use params::{load_new_game_params_defaults, NewGameParams, NewGameParamsDefaults};
 pub use playtime::{tick_playtime_tracker, PlaytimeTracker};
 pub use plugin::SaveLoadPlugin;
+pub use post_swap_init::{
+    populate_restored_bodies_3d, restore_decoration_should_run, RestoreDecorationPlugin,
+    RestoredBodiesRendered,
+};
 pub use state_store::{BodyKey, StateStore, StateStoreError, StateStoreMetadata};
 pub use state_store_apply::{apply_state_store, ApplyOutcome};
 pub use state_store_extract::{extract_state_store, ExtractError};
 pub use swap::{
     restored_world_is_not_present, restored_world_is_present, swap_world_into,
     world_ready_is_present, RestoredWorldGate, SwapError, WorldReady,
-};
-pub use post_swap_init::{
-    populate_restored_bodies_3d, restore_decoration_should_run, RestoredBodiesRendered,
-    RestoreDecorationPlugin,
 };
 
 /// Plugin that wires save/load into Bevy.

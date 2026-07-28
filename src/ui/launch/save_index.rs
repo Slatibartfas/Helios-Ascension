@@ -170,7 +170,10 @@ fn format_playtime(seconds: u64) -> String {
 /// One entry in the [`SaveIndex`].
 #[derive(Debug, Clone, PartialEq)]
 pub enum SaveSummary {
-    Valid { path: PathBuf, header: SaveHeader },
+    Valid {
+        path: PathBuf,
+        header: SaveHeader,
+    },
     /// Broken save — parse failed but we still surface the path
     /// so the player can delete it manually. `mtime_unix_s` is
     /// the file's mtime at scan time (used for the index sort
@@ -408,7 +411,10 @@ pub fn parse_header_from_file(path: &Path) -> Result<SaveHeader, String> {
     // header so the scanner doesn't have to load the whole
     // save file just to discover it's a v2 save.
     let head = &text[..text.len().min(64)];
-    if head.trim_start().starts_with(crate::persistence::state_store::StateStore::MAGIC) {
+    if head
+        .trim_start()
+        .starts_with(crate::persistence::state_store::StateStore::MAGIC)
+    {
         let store = crate::persistence::state_store::StateStore::from_ron(text)
             .map_err(|e| format!("StateStore parse failed: {e}"))?;
         // Convert the StateStore preview into the
@@ -463,11 +469,7 @@ mod tests {
     /// Write a v2 [`StateStore`] with the given metadata. The body
     /// can be empty — the scanner only inspects the metadata
     /// block, never the divergences.
-    fn write_state_store(
-        dir: &Path,
-        name: &str,
-        metadata: &StateStoreMetadata,
-    ) -> PathBuf {
+    fn write_state_store(dir: &Path, name: &str, metadata: &StateStoreMetadata) -> PathBuf {
         let path = dir.join(name);
         let store = StateStore {
             metadata: metadata.clone(),
