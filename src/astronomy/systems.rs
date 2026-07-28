@@ -11,6 +11,7 @@ use super::components::{
 use crate::plugins::camera::{CameraAnchor, GameCamera, ViewMode};
 use crate::plugins::solar_system::{CelestialBody, Comet, LogicalParent, Moon, Planet, Star};
 use crate::plugins::solar_system_data::BodyType;
+use crate::ui::launch::LaunchState;
 use crate::ui::{SimulationTime, TimeScale};
 
 /// Scaling factor for converting astronomical units to Bevy rendering units
@@ -1737,6 +1738,7 @@ pub fn fade_destroyed_bodies(
 /// Asteroid/DwarfPlanet/Comet orbits are shown when their ledger category group
 /// is expanded in the left ledger panel.
 pub fn update_orbit_visibility(
+    launch_state: Res<LaunchState>,
     view_mode: Res<ViewMode>,
     camera_query: Query<&CameraAnchor, With<GameCamera>>,
     mut orbit_query: Query<(
@@ -1759,6 +1761,17 @@ pub fn update_orbit_visibility(
     // Used to look up body type and parent of any entity (e.g. parent of a selected moon).
     all_body_parents: Query<(&CelestialBody, Option<&LogicalParent>)>,
 ) {
+    // When the menu owns the scene, `hide_in_game_solar_system` sets
+    // every body's `Visibility::Hidden` (and `draw_orbit_paths` skips
+    // hidden bodies via its `Visibility` check). Running the per-frame
+    // "always visible" planet/star flip here would re-set the
+    // `OrbitPath::visible = true` flag we use to gate rendering —
+    // not a correctness bug, but it costs a query mutation cycle per
+    // frame and the data is meaningless while the menu is up.
+    if !launch_state.is_in_game() {
+        return;
+    }
+
     let Ok(anchor) = camera_query.single() else {
         return;
     };
@@ -1908,6 +1921,7 @@ pub fn update_orbit_visibility(
 /// Also respects the current star system — bodies from other systems are
 /// left hidden even if selected or anchored.
 pub fn update_body_lod_visibility(
+    launch_state: Res<LaunchState>,
     camera_query: Query<&CameraAnchor, With<GameCamera>>,
     current_system: Res<CurrentStarSystem>,
     mut body_query: Query<
@@ -1941,6 +1955,19 @@ pub fn update_body_lod_visibility(
         .selected_fleet
         .and_then(|fe| fleet_maneuver_query.get(fe).ok())
         .map(|m| (m.origin_body, m.destination_body));
+
+    // GRA-XYZ: when the menu owns the scene, `hide_in_game_solar_system`
+    // (in `MenuBackdropPlugin`) sets every in-game body to
+    // `Visibility::Hidden` so the backdrop's Earth is the only visible
+    // object. If we ran here, this per-frame "current system →
+    // Inherited, other → Hidden" flip would fight that hide every tick
+    // — the moons visibly flicker between Hidden and Inherited on the
+    // transition frame and planets (which fall through to the
+    // "always visible" branch at the bottom of the loop) keep rendering
+    // through the menu. Yield to the menu until it exits.
+    if !launch_state.is_in_game() {
+        return;
+    }
 
     for (entity, mut visibility, logical_parent, moon, selected, system_id) in body_query.iter_mut()
     {
@@ -2179,6 +2206,7 @@ mod tests {
     #[test]
     fn test_update_orbit_visibility_keeps_orbiting_star_paths_visible() {
         let mut app = App::new();
+        app.insert_resource(crate::ui::launch::LaunchState::InGame);
         app.init_resource::<ViewMode>();
         app.init_resource::<crate::ui::FleetUiState>();
         app.init_resource::<crate::ui::ExpandedLedgerGroups>();

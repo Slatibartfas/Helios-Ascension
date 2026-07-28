@@ -190,6 +190,15 @@ pub struct MenuBackdropSavedCamera {
     pub pan_offset: Vec3,
     pub pitch: f32,
     pub yaw: f32,
+    /// The `CameraAnchor` body the camera was focused on before the
+    /// menu opened. We snapshot this so the InGame → MainMenu → New
+    /// Game chain can round-trip the player back to where they were
+    /// (e.g. anchored to Saturn → return to Main Menu → back to
+    /// InGame → still anchored to Saturn). The anchor is cleared
+    /// while the menu owns the scene so the camera system doesn't
+    /// try to follow an in-game body that's currently hidden behind
+    /// the menu backdrop.
+    pub anchor: Option<Entity>,
 }
 
 /// Cached [`Handle<Image>`]s for the menu backdrop's large textures,
@@ -347,7 +356,18 @@ fn menu_backdrop_transition_system(
     asset_server: Res<AssetServer>,
     preloaded: Res<PreloadedMenuAssets>,
     marker_query: Query<Entity, (With<MenuBackdropMarker>, Without<ChildOf>)>,
-    mut camera_query: Query<(&mut OrbitCamera, &mut Transform), With<GameCamera>>,
+    // GRA-XYZ: append `&mut CameraAnchor` to the camera query so the
+    // enter-path can snapshot the player's anchor (e.g. Saturn) and
+    // the exit-path can clear it. Without this, an anchored camera
+    // entering the menu keeps pointing at the in-game anchor; the
+    // in-game bodies are hidden by `hide_in_game_solar_system` but
+    // the `CameraAnchor` component survives, so the in-game anchor
+    // persists into the menu backdrop's framing.
+    mut camera_query: Query<(
+        &mut OrbitCamera,
+        &mut Transform,
+        &mut crate::plugins::camera::CameraAnchor,
+    ), With<GameCamera>>,
 ) {
     let in_menu = is_menu_launch_state(*launch_state);
 
@@ -358,13 +378,20 @@ fn menu_backdrop_transition_system(
             "menu_backdrop: spawn branch fired (in_menu={}, active={})",
             in_menu, active.0
         );
-        if let Ok((orbit, _transform)) = camera_query.single() {
+        if let Ok((orbit, _transform, mut anchor)) = camera_query.single_mut() {
             saved_state.saved = Some(MenuBackdropSavedCamera {
                 radius: orbit.radius,
                 pan_offset: orbit.pan_offset,
                 pitch: orbit.pitch,
                 yaw: orbit.yaw,
+                anchor: anchor.0,
             });
+            // Clear the anchor while the menu owns the scene so the
+            // camera doesn't try to follow a body that's currently
+            // hidden behind the backdrop. The InGame → MainMenu →
+            // InGame round-trip preserves the player's anchor by
+            // restoring it on the exit branch below.
+            anchor.0 = None;
         }
         spawn_menu_earth(
             &mut commands,
@@ -389,7 +416,7 @@ fn menu_backdrop_transition_system(
         for entity in roots {
             commands.entity(entity).despawn();
         }
-        if let (Some(saved), Ok((mut orbit, mut transform))) =
+        if let (Some(saved), Ok((mut orbit, mut transform, mut anchor))) =
             (saved_state.saved, camera_query.single_mut())
         {
             orbit.radius = saved.radius;
@@ -397,6 +424,9 @@ fn menu_backdrop_transition_system(
             orbit.pitch = saved.pitch;
             orbit.yaw = saved.yaw;
             orbit.target_center = Vec3::ZERO;
+            // Restore the player's anchor (e.g. Saturn) so the InGame
+            // session picks up exactly where they left it.
+            anchor.0 = saved.anchor;
             // Recompute Transform from restored OrbitCamera state so the
             // gameplay view picks up exactly where the player left it.
             let rot = Quat::from_axis_angle(Vec3::Y, orbit.yaw)
