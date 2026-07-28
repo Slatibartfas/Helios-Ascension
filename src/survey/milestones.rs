@@ -377,7 +377,7 @@ mod tests {
         // returns an `RwLockWriteGuard<TypeRegistry>` exposing
         // `register::<T>()`.
         {
-            let mut reg = world.resource_mut::<AppTypeRegistry>();
+            let reg = world.resource_mut::<AppTypeRegistry>();
             reg.write().register::<EarlyGameMilestones>();
         }
         world
@@ -409,22 +409,25 @@ mod tests {
 
     #[test]
     fn every_flag_set_yields_all_clear() {
-        let mut m = EarlyGameMilestones::default();
-        m.probe_dispatched = true;
-        m.survey_completed = true;
-        m.anomaly_detected_or_activated = true;
-        m.deposit_extraction_milestone = true;
-        m.outpost_established = true;
-        m.paid_tier_1_technology_unlocked = true;
+        let m = EarlyGameMilestones {
+            probe_dispatched: true,
+            survey_completed: true,
+            anomaly_detected_or_activated: true,
+            deposit_extraction_milestone: true,
+            outpost_established: true,
+            paid_tier_1_technology_unlocked: true,
+        };
         assert_eq!(m.current_step(), None);
         assert_eq!(m.next_objective(), "ALL CLEAR — early game complete");
     }
 
     #[test]
     fn current_step_skips_already_set_flags() {
-        let mut m = EarlyGameMilestones::default();
-        m.probe_dispatched = true;
-        m.survey_completed = true;
+        let m = EarlyGameMilestones {
+            probe_dispatched: true,
+            survey_completed: true,
+            ..EarlyGameMilestones::default()
+        };
         assert_eq!(
             m.current_step(),
             Some(MilestoneStep::AnomalyDetectedOrActivated)
