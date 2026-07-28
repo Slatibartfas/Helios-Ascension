@@ -939,10 +939,12 @@ pub(crate) fn ui_dashboard(
     sim_time: Res<SimulationTime>,
     mut orbit_query: Query<&mut OrbitCamera, With<GameCamera>>,
     mut expanded_groups: ResMut<crate::ui::ExpandedLedgerGroups>,
-    // GRA-787: read-only access to the early-game milestone resource.
-    // The dashboard never mutates this; flag flips happen in
-    // `crate::survey::milestones` consumers.
-    milestones: Res<crate::survey::EarlyGameMilestones>,
+    // GRA-787: milestone rendering lives in `ui_time_controls` (the
+    // bottom-panel owner) to keep this function under Bevy 0.18's
+    // 16-parameter fn-item IntoSystem limit (see `bevy_ecs::system::
+    // function_system::impl_system_function`'s `all_tuples!(.., 0, 16)`).
+    // Adding `Res<EarlyGameMilestones>` here would push the count to 17
+    // and break `.in_set()` registration.
 ) {
     let ctx = match contexts.ctx_mut() {
         Ok(ctx) => ctx,
@@ -1351,6 +1353,13 @@ pub(super) fn ui_time_controls(
     keyboard_input: Res<ButtonInput<KeyCode>>,
     real_time: Res<Time<Real>>,
     mut playlist: ResMut<crate::plugins::music::MusicPlaylist>,
+    // GRA-787: read-only access to the early-game milestone resource.
+    // The time-controls panel is the bottom-strip owner — rendering the
+    // milestone checklist above the time buttons keeps the surface
+    // under Bevy 0.18's 16-parameter fn-item IntoSystem limit while
+    // `ui_dashboard` already owns 16. Flag flips happen only in
+    // `crate::survey::milestones` consumers.
+    milestones: Res<crate::survey::EarlyGameMilestones>,
 ) {
     // ── Keyboard shortcuts (skip when egui is consuming input) ────────────
     let ctx = match contexts.ctx_mut() {
@@ -1994,14 +2003,20 @@ pub(crate) fn draw_milestones_section(
         ui.horizontal(|ui| {
             ui.label(
                 egui::RichText::new(marker)
-                    .font(egui::TextStyle::Monospace)
+                    .font(theme::mono(12.0))
                     .color(color),
             );
-            ui.label(
-                egui::RichText::new(step.display_name())
-                    .color(if is_set { theme::TEXT } else { theme::TEXT_DIM })
-                    .strikethrough(is_set),
-            );
+            // `RichText::strikethrough()` takes no argument in
+            // egui 0.33 — apply conditionally on the builder.
+            let mut step_label = egui::RichText::new(step.display_name()).color(if is_set {
+                theme::TEXT
+            } else {
+                theme::TEXT_DIM
+            });
+            if is_set {
+                step_label = step_label.strikethrough();
+            }
+            ui.label(step_label);
         });
     }
 

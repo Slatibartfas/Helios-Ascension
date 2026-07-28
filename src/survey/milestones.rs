@@ -373,16 +373,19 @@ mod tests {
         world.init_resource::<AppTypeRegistry>();
         // Register the resource type so the persistence test can use
         // `ReflectFromReflect`. The other test cases do not need it.
+        // `AppTypeRegistry` derefs to `TypeRegistryArc`, whose `write()`
+        // returns an `RwLockWriteGuard<TypeRegistry>` exposing
+        // `register::<T>()`.
         {
             let mut reg = world.resource_mut::<AppTypeRegistry>();
-            reg.register::<EarlyGameMilestones>();
+            reg.write().register::<EarlyGameMilestones>();
         }
         world
     }
 
     /// Build a `Schedule` with the three milestone consumers + a world
     /// that already has the milestone resource initialised.
-    fn build_schedule(world: &mut World) -> Schedule {
+    fn build_schedule(_world: &mut World) -> Schedule {
         let mut schedule = Schedule::default();
         schedule.add_systems(
             (
@@ -752,8 +755,14 @@ mod tests {
 
         // Clone the source via the Reflect trait and re-hydrate via
         // `from_reflect`. This is exactly the path `DynamicScene` and
-        // the `serde::ReflectSerialize` adapter take.
-        let dynamic = src.clone_value();
+        // the `serde::ReflectSerialize` adapter take. Bevy 0.18 renamed
+        // `Reflect::clone_value` to `PartialReflect::reflect_clone`
+        // (returns `Result<Box<dyn Reflect>, ReflectCloneError>`); the
+        // derive-generated `Reflect` impl on `EarlyGameMilestones`
+        // provides it.
+        let dynamic: Box<dyn bevy::reflect::Reflect> = src
+            .reflect_clone()
+            .expect("EarlyGameMilestones must implement Reflect::reflect_clone");
         let restored_value = reflect_from_reflect
             .from_reflect(&*dynamic)
             .expect("from_reflect must succeed for an in-spec resource");
