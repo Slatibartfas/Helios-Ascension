@@ -202,9 +202,7 @@ pub struct MissionLogConfig {
 
 impl Default for MissionLogConfig {
     fn default() -> Self {
-        Self {
-            past_capacity: 100,
-        }
+        Self { past_capacity: 100 }
     }
 }
 
@@ -254,7 +252,10 @@ impl MissionLog {
         if self.find_by_id(&entry.entry_id).is_some() {
             return false;
         }
-        debug_assert!(entry.outcome.is_none(), "active entry must have outcome == None");
+        debug_assert!(
+            entry.outcome.is_none(),
+            "active entry must have outcome == None"
+        );
         self.current.push(entry);
         let _ = config; // capacity only applies to `past`; suppress dead-code lint for now
         true
@@ -405,9 +406,7 @@ mod tests {
     #[test]
     fn past_rolls_over_at_cap() {
         let mut log = MissionLog::default();
-        let cfg = MissionLogConfig {
-            past_capacity: 3,
-        };
+        let cfg = MissionLogConfig { past_capacity: 3 };
         for i in 0..10 {
             let id = format!("e{i}");
             log.push_current(entry(&id, MissionKind::Flyby, i as f64), &cfg);
@@ -415,9 +414,15 @@ mod tests {
         }
         assert_eq!(log.past_len(), 3, "rolling window must evict oldest");
         let oldest = log.past.front().expect("non-empty");
-        assert_eq!(oldest.entry_id, "e7", "oldest survivor must be the cap-th newest");
+        assert_eq!(
+            oldest.entry_id, "e7",
+            "oldest survivor must be the cap-th newest"
+        );
         let newest = log.past.back().expect("non-empty");
-        assert_eq!(newest.entry_id, "e9", "newest must be the most recent resolution");
+        assert_eq!(
+            newest.entry_id, "e9",
+            "newest must be the most recent resolution"
+        );
     }
 
     #[test]

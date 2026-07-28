@@ -9,8 +9,7 @@ use bevy::prelude::*;
 use crate::mission_log::components::{MissionLog, MissionLogConfig};
 use crate::mission_log::systems::{
     apply_construction_events_to_mission_log, apply_milestone_events_to_mission_log,
-    apply_research_events_to_mission_log, apply_survey_events_to_mission_log,
-    MissionLogSystemSet,
+    apply_research_events_to_mission_log, apply_survey_events_to_mission_log, MissionLogSystemSet,
 };
 
 /// Plugin that wires the mission-log data layer.
