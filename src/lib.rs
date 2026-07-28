@@ -4,6 +4,7 @@ pub mod colony;
 pub mod economy;
 pub mod fleets;
 pub mod game_state;
+pub mod mission_log;
 pub mod persistence;
 pub mod personnel;
 pub mod plugins;
