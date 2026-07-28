@@ -256,24 +256,10 @@ pub fn bridge_construction_events(
                 NotificationSeverity::Notice,
                 "shipbuilding.hull_complete",
             ),
-            // GRA-787: `ConstructionEvent::OutpostEstablished` was added
-            // to close the producer gap for `EarlyGameMilestones::
-            // outpost_established` (BuildingType has no Outpost variant,
-            // so the existing `Completed` arm could never fire). Mirror
-            // the `Completed` arm's notification shape so players see
-            // the same Construction menu focus on click.
-            ConstructionEvent::OutpostEstablished { colony, .. } => {
-                let colony_name = colonies
-                    .get(*colony)
-                    .map(|c| c.name.clone())
-                    .unwrap_or_else(|_| "outpost".to_string());
-                (
-                    "Outpost established".to_string(),
-                    colony_name,
-                    NotificationSeverity::Notice,
-                    "construction.outpost_established",
-                )
-            }
+            // GRA-787 adds this event only as an unambiguous milestone
+            // producer. No notification category was approved for it, so
+            // leave the existing notification manifest unchanged.
+            ConstructionEvent::OutpostEstablished { .. } => continue,
         };
 
         notifications.write(NotificationEvent {
