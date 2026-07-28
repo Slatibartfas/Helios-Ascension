@@ -165,9 +165,9 @@ pub fn apply_survey_events_to_mission_log(
                     resolved_sim_seconds: None,
                 };
                 if log.push_current(entry, &cfg) {
-                    if let Some(goal_id) = survey_goal_id_for_completion(&survey_method_kind(
-                        *method,
-                    )) {
+                    if let Some(goal_id) =
+                        survey_goal_id_for_completion(&survey_method_kind(*method))
+                    {
                         log.upsert_goal(GoalEntry {
                             goal_id: goal_id.to_string(),
                             label: goal_label_for(goal_id).to_string(),
@@ -268,9 +268,9 @@ pub fn apply_construction_events_to_mission_log(
                     resolved_sim_seconds: None,
                 };
                 if log.push_current(entry, &cfg) {
-                    if let Some(goal_id) = construction_goal_id_for_event(
-                        &MissionKind::OutpostEstablishment,
-                    ) {
+                    if let Some(goal_id) =
+                        construction_goal_id_for_event(&MissionKind::OutpostEstablishment)
+                    {
                         log.upsert_goal(GoalEntry {
                             goal_id: goal_id.to_string(),
                             label: goal_label_for(goal_id).to_string(),
@@ -283,9 +283,9 @@ pub fn apply_construction_events_to_mission_log(
                 // Outpost is resolved in the same event — no follow-up
                 // `Completed` event fires for the implicit "promotion".
                 if log.resolve(&id, MissionOutcome::Completed, now, &cfg) {
-                    if let Some(goal_id) = construction_goal_id_for_event(
-                        &MissionKind::OutpostEstablishment,
-                    ) {
+                    if let Some(goal_id) =
+                        construction_goal_id_for_event(&MissionKind::OutpostEstablishment)
+                    {
                         log.upsert_goal(GoalEntry {
                             goal_id: goal_id.to_string(),
                             label: goal_label_for(goal_id).to_string(),
@@ -298,8 +298,7 @@ pub fn apply_construction_events_to_mission_log(
             }
             ConstructionEvent::Completed { colony, building } => {
                 let colony_id = colony.index();
-                let id =
-                    format!("construction:{colony_id}:{}", building_id_str(*building));
+                let id = format!("construction:{colony_id}:{}", building_id_str(*building));
                 // Construction `Completed` is already-resolved — log it
                 // directly as `past`. push_current would mark it active;
                 // we want it to land in the resolved history.
@@ -582,8 +581,7 @@ pub fn assert_no_ui_resmut() -> Vec<String> {
 fn project_root_from_cargo() -> std::path::PathBuf {
     // CARGO_MANIFEST_DIR is set by Cargo during tests; we walk up to
     // the workspace root by looking for `Cargo.toml`.
-    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR")
-        .unwrap_or_else(|_| ".".to_string());
+    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".to_string());
     std::path::PathBuf::from(manifest_dir)
 }
 
@@ -703,8 +701,7 @@ mod tests {
         assert!(log
             .goals
             .iter()
-            .any(|g| g.goal_id == "storyline.first_probe"
-                && g.status == GoalStatus::InProgress));
+            .any(|g| g.goal_id == "storyline.first_probe" && g.status == GoalStatus::InProgress));
     }
 
     #[test]
@@ -725,7 +722,10 @@ mod tests {
         });
         run_consumer_systems(&mut world);
         let log = world.resource::<MissionLog>();
-        assert!(log.current.is_empty(), "started + completed -> empty current");
+        assert!(
+            log.current.is_empty(),
+            "started + completed -> empty current"
+        );
         assert_eq!(log.past_len(), 1);
         let past_entry = log.past.front().expect("non-empty");
         assert_eq!(past_entry.outcome, Some(MissionOutcome::Completed));
@@ -884,10 +884,7 @@ mod tests {
 
     #[test]
     fn all_known_goal_ids_have_a_label() {
-        let labels: BTreeSet<&str> = KNOWN_GOAL_IDS
-            .iter()
-            .map(|id| goal_label_for(id))
-            .collect();
+        let labels: BTreeSet<&str> = KNOWN_GOAL_IDS.iter().map(|id| goal_label_for(id)).collect();
         for id in KNOWN_GOAL_IDS {
             assert_ne!(
                 goal_label_for(id),
