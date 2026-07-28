@@ -1652,7 +1652,38 @@ pub fn setup_solar_system(
                 Transform::from_translation(initial_translation),
             ));
 
-            // Insert amplification component for moons
+            // Insert amplification component for moons.
+            //
+            // **Rings** (Saturn Rings, Uranus Rings) also need a
+            // `LocalOrbitAmplification` so `update_render_transform`
+            // resolves their world position via the host planet's
+            // `SpaceCoordinates` rather than reporting at the world
+            // origin. The regen chain only runs the
+            // `if let Some(orbit)` block for non-rings (rings have
+            // `orbit: None` in `solar_system.ron`), so the ring's
+            // `SpaceCoordinates` is never initialised and stays at
+            // `DVec3::ZERO`. Without `LocalOrbitAmplification`,
+            // `update_render_transform` falls into the "non-moon
+            // body" branch that uses `coords.position × SCALING_FACTOR`
+            // = `(0,0,0)` — the ring renders at Sol's location.
+            // The amplification branch (taken when this component is
+            // `Some`) instead resolves `parent_world = host planet's
+            // SpaceCoordinates × SCALING_FACTOR` and writes
+            // `transform.translation = parent_world + 0 × SCALING_FACTOR × 1.0`
+            // = parent_world. The amp value `1.0` keeps the ring's
+            // own offset (zero) at zero scale; the ring tracks the
+            // planet through the orbit but does not add its own
+            // offset.
+            //
+            // GRA-358 PR-K — this matches the contract the
+            // `populate_restored_bodies_3d` decorator applies to
+            // restore-path rings; the fix is now harmonised across
+            // both spawn paths.
+            //
+            // (Ring bodies are handled in the dedicated post-pass
+            // loop at the end of this function — they have
+            // `orbit: None` so this `if let Some(orbit)` block
+            // skips them entirely.)
             if body_data.body_type == BodyType::Moon && amp > 1.0 {
                 entity_cmds.insert(LocalOrbitAmplification(amp));
             }
@@ -1703,6 +1734,39 @@ pub fn setup_solar_system(
                 fade_exponent,
             });
         }
+    }
+
+    // GRA-358 PR-K: ring bodies have `orbit: None` in
+    // `solar_system.ron`, so the second pass above skipped them.
+    // They still need a `SpaceCoordinates` placeholder so the
+    // `update_render_transform` query selects them (the query
+    // requires `&SpaceCoordinates`) and a `LocalOrbitAmplification`
+    // so the rendering path picks the "amplification" branch
+    // that resolves their world position via the host planet's
+    // `SpaceCoordinates` via `LogicalParent`. Without this, the
+    // ring falls into the "non-moon body" branch that returns
+    // `coords.position × SCALING_FACTOR = (0,0,0)` — the ring
+    // renders at Sol's location.
+    //
+    // The amplification value `1.0` keeps the ring's own offset
+    // (zero) at zero scale; the ring tracks the planet through
+    // the orbit but does not add its own offset.
+    for body_data in &data.bodies {
+        if body_data.body_type != BodyType::Ring {
+            continue;
+        }
+        let Some(entity) = entity_map.get(&body_data.name) else {
+            continue;
+        };
+        let mut entity_cmds = commands.entity(*entity);
+        entity_cmds.insert(SpaceCoordinates::new(bevy::math::DVec3::ZERO));
+        entity_cmds.insert(LocalOrbitAmplification(1.0));
+        // Reset Transform to default so the first frame doesn't
+        // ship the Vec3::ZERO translation from the initial
+        // spawn frame (visible as a single-frame "ring at Sol"
+        // before `update_render_transform` runs on the same
+        // frame).
+        entity_cmds.insert(Transform::default());
     }
 
     info!("Solar system setup complete!");
