@@ -28,6 +28,7 @@ use colony::ColonyPlugin;
 use economy::EconomyPlugin;
 use fleets::FleetPlugin;
 use game_state::GameStatePlugin;
+use mission_log::MissionLogPlugin;
 use persistence::{GameSetupPlugin, PersistencePlugin, SaveLoadPlugin};
 use personnel::PersonnelPlugin;
 use plugins::{
@@ -150,6 +151,12 @@ fn build_game_app() -> App {
     .add_plugins(ShipbuildingPlugin)
     .add_plugins(SystemPopulatorPlugin)
     .add_plugins(UIPlugin)
+    // GRA-791: mission-log consumer. Must register AFTER `UIPlugin`
+    // (which embeds `NotificationsPlugin`) so the milestone
+    // consumer inside `MissionLogSystemSet` can read
+    // `Messages<NotificationEvent>` written by the survey /
+    // construction / research bridges.
+    .add_plugins(MissionLogPlugin)
     .add_plugins(PersistencePlugin)
     .add_plugins(SaveLoadPlugin)
     .add_plugins(GameSetupPlugin)

@@ -229,7 +229,24 @@ impl Plugin for PersistencePlugin {
             //    chains finish shipping) ──────────────────────────────
             .register_type::<crate::shipbuilding::RefitProject>()
             // ── Personnel ──────────────────────────────────────────
-            .register_type::<crate::personnel::Scientist>();
+            .register_type::<crate::personnel::Scientist>()
+            // GRA-791: mission log data shape. `MissionLog` /
+            // `MissionEntry` are persisted via the v2 StateStore
+            // path (typed record, not DynamicScene), but registering
+            // them keeps inspector / reflection tooling and any
+            // future DynamicScene-fallback path in sync. `MissionKind`
+            // / `MissionSource` / `MissionOutcome` / `GoalStatus`
+            // are registered explicitly because their `Reflect`
+            // impls are derived but the persistence coverage is the
+            // one path that hits the registry for every variant.
+            .register_type::<crate::mission_log::MissionLog>()
+            .register_type::<crate::mission_log::MissionEntry>()
+            .register_type::<crate::mission_log::GoalEntry>()
+            .register_type::<crate::mission_log::MissionKind>()
+            .register_type::<crate::mission_log::MissionSource>()
+            .register_type::<crate::mission_log::MissionOutcome>()
+            .register_type::<crate::mission_log::GoalStatus>()
+            .register_type::<crate::mission_log::MissionLogConfig>();
     }
 }
 

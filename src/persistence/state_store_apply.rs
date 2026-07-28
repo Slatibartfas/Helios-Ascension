@@ -169,6 +169,7 @@ pub fn apply_state_store(world: &mut World, store: &StateStore) -> ApplyOutcome 
     apply_ui(world, &store.ui);
     apply_notifications(world, &store.notifications);
     apply_autosave(world, &store.meta_autosave);
+    apply_mission_log(world, &store.mission_log);
 
     outcome
 }
@@ -1072,6 +1073,33 @@ fn apply_autosave(world: &mut World, record: &super::state_store::AutosaveRecord
             timer.next_due_s = record.autosave_interval_sim_seconds;
         }
     }
+}
+
+// ════════════════════════════════════════════════════════════════════
+// Mission log (GRA-791)
+// ════════════════════════════════════════════════════════════════════
+
+/// Overlay the saved mission log on the live `MissionLog`
+/// resource. The apply path is a no-op when the resource is
+/// absent (early-boot world) or the record is empty (pre-GRA-791
+/// save). Order-preserving for `past`: entries are pushed in
+/// insertion order so the live `VecDeque` FIFO-eviction
+/// invariant survives the round trip.
+fn apply_mission_log(world: &mut World, record: &super::state_store::MissionLogRecord) {
+    use crate::mission_log::MissionLog;
+
+    if record.current.is_empty() && record.past.is_empty() && record.goals.is_empty() {
+        return;
+    }
+    let Some(mut log) = world.get_resource_mut::<MissionLog>() else {
+        return;
+    };
+    log.current = record.current.clone();
+    log.past.clear();
+    for entry in &record.past {
+        log.past.push_back(entry.clone());
+    }
+    log.goals = record.goals.clone();
 }
 
 // ════════════════════════════════════════════════════════════

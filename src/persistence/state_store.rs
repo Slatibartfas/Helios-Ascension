@@ -169,6 +169,15 @@ pub struct StateStore {
     pub surveys: BTreeMap<BodyKey, SurveyDivergence>,
     /// Auto-save slot bookkeeping (last auto-save time, etc.).
     pub meta_autosave: AutosaveRecord,
+    /// GRA-791: persistent mission log (`current` + `past` missions
+    /// + long-running `goals`). Saved as a typed record so the
+    /// apply path can rebuild the live `MissionLog` resource
+    /// without a JSON blob indirection — the underlying
+    /// `MissionEntry` / `GoalEntry` types already derive
+    /// `Serialize / Deserialize`. Old (pre-GRA-791) saves default
+    /// to an empty record; the apply path is a no-op in that
+    /// case.
+    pub mission_log: MissionLogRecord,
 }
 
 impl StateStore {
@@ -679,6 +688,30 @@ pub struct AutosaveRecord {
     /// this so the autosave can drop a sidecar preview alongside
     /// the actual save).
     pub current_slot_name: String,
+}
+
+// ════════════════════════════════════════════════════════════════════
+// Mission log (GRA-791)
+// ════════════════════════════════════════════════════════════════════
+
+/// Mirror of [`crate::mission_log::MissionLog`]. The live
+/// `MissionLog` uses a `VecDeque` for `past` (FIFO-evict at
+/// cap), which doesn't serialise cleanly through `ron` without
+/// an adapter; the record stores `past` as a plain `Vec` and
+/// the apply path rehydrates it into a `VecDeque` in insertion
+/// order. Order matters — the consumer's `push_back` /
+/// `pop_front` invariant relies on it.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct MissionLogRecord {
+    /// Active missions (insertion order matches dispatch order).
+    pub current: Vec<crate::mission_log::MissionEntry>,
+    /// Resolved missions, oldest at the front, newest at the
+    /// back. Rehydrated into a `VecDeque` on apply.
+    pub past: Vec<crate::mission_log::MissionEntry>,
+    /// Declared long-running objectives. Append-only on first
+    /// reference; status flips monotonically (Pending →
+    /// InProgress → Achieved).
+    pub goals: Vec<crate::mission_log::GoalEntry>,
 }
 
 // ════════════════════════════════════════════════════════════════════

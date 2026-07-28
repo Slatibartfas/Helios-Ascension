@@ -27,8 +27,9 @@ use std::collections::BTreeMap;
 
 use super::state_store::{
     AutosaveRecord, BodyDivergence, BodyKey, EconomyRecord, EngineeringProjectRecord, FleetRecord,
-    NotificationCategoryRecord, NotificationRecord, ResearchRecord, ResourceRequestRecord,
-    ShipRecord, ShippingCompanyRecord, StateStore, StateStoreMetadata, SurveyDivergence, UiRecord,
+    MissionLogRecord, NotificationCategoryRecord, NotificationRecord, ResearchRecord,
+    ResourceRequestRecord, ShipRecord, ShippingCompanyRecord, StateStore, StateStoreMetadata,
+    SurveyDivergence, UiRecord,
 };
 
 /// Errors during extraction. Only the ones the apply path
@@ -86,6 +87,7 @@ pub fn extract_state_store(
     store.ui = extract_ui(world);
     store.notifications = extract_notifications(world);
     store.meta_autosave = extract_autosave(world);
+    store.mission_log = extract_mission_log(world);
     Ok(store)
 }
 
@@ -664,6 +666,27 @@ fn extract_autosave(world: &mut World) -> AutosaveRecord {
         // slot name. Those will land in PR-J (autosave UX
         // expansion). The extract path leaves them at their
         // defaults.
+    }
+    out
+}
+
+// ════════════════════════════════════════════════════════════════════
+// Mission log (GRA-791)
+// ════════════════════════════════════════════════════════════════════
+
+/// Copy the live `MissionLog` resource into the StateStore
+/// record. The extract path tolerates a missing `MissionLog`
+/// (e.g. on a fresh-new-game restore factory that doesn't
+/// register the resource) by emitting an empty record — the
+/// apply path is then a no-op.
+fn extract_mission_log(world: &mut World) -> MissionLogRecord {
+    use crate::mission_log::MissionLog;
+
+    let mut out = MissionLogRecord::default();
+    if let Some(log) = world.get_resource::<MissionLog>() {
+        out.current = log.current.clone();
+        out.past = log.past.iter().cloned().collect();
+        out.goals = log.goals.clone();
     }
     out
 }
