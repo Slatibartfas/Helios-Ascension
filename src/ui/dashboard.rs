@@ -939,6 +939,10 @@ pub(crate) fn ui_dashboard(
     sim_time: Res<SimulationTime>,
     mut orbit_query: Query<&mut OrbitCamera, With<GameCamera>>,
     mut expanded_groups: ResMut<crate::ui::ExpandedLedgerGroups>,
+    // GRA-787: read-only access to the early-game milestone resource.
+    // The dashboard never mutates this; flag flips happen in
+    // `crate::survey::milestones` consumers.
+    milestones: Res<crate::survey::EarlyGameMilestones>,
 ) {
     let ctx = match contexts.ctx_mut() {
         Ok(ctx) => ctx,
@@ -1385,6 +1389,18 @@ pub(super) fn ui_time_controls(
     } else {
         0.0
     };
+
+    // GRA-787: read-only early-game milestone section. Lives above the
+    // time-controls bottom panel so the player sees progress at a
+    // glance without having to open a menu. The section takes the
+    // resource by reference — flag flips happen in
+    // `crate::survey::milestones` consumers, never here.
+    egui::TopBottomPanel::bottom("milestones_section")
+        .min_height(0.0)
+        .resizable(false)
+        .show(ctx, |ui| {
+            draw_milestones_section(ui, &milestones);
+        });
 
     // ── Helper: render a speed preset button with active highlight ────────
     let active_scale = time_scale.scale;
@@ -1942,4 +1958,57 @@ fn discovered_resource_expectation_weight(
         .values()
         .map(|deposit| crate::survey::estimate_with_fidelity(deposit, fidelity).mid_or_zero())
         .sum()
+}
+
+// ── GRA-787: Early-game milestone read-only dashboard section ────────────
+
+/// Render the compact 6-row milestone checklist + "next objective" line.
+///
+/// GRA-787 implements the read-only dossier/dashboard rendering path the
+/// architecture calls out. The function takes the resource by reference
+/// (never by `mut`) and is called from `ui_dashboard` so the section
+/// lives in the existing `EguiPrimaryContextPass` schedule via
+/// `UiSystemSet::MainPanels`. The UI never writes to the resource —
+/// flag flips happen only in `crate::survey::milestones` consumers.
+pub(crate) fn draw_milestones_section(
+    ui: &mut egui::Ui,
+    milestones: &crate::survey::EarlyGameMilestones,
+) {
+    ui.add_space(6.0);
+    theme::divider(ui);
+    ui.add_space(2.0);
+
+    ui.label(
+        egui::RichText::new("EARLY-GAME PROGRESS")
+            .font(theme::heading())
+            .color(theme::ACCENT),
+    );
+    ui.add_space(2.0);
+
+    for (step, is_set) in milestones.progress_rows() {
+        let (marker, color) = if is_set {
+            ("[x]", theme::EP_TEAL)
+        } else {
+            ("[ ]", theme::TEXT_DIM)
+        };
+        ui.horizontal(|ui| {
+            ui.label(
+                egui::RichText::new(marker)
+                    .font(egui::TextStyle::Monospace)
+                    .color(color),
+            );
+            ui.label(
+                egui::RichText::new(step.display_name())
+                    .color(if is_set { theme::TEXT } else { theme::TEXT_DIM })
+                    .strikethrough(is_set),
+            );
+        });
+    }
+
+    ui.add_space(4.0);
+    ui.label(
+        egui::RichText::new(milestones.next_objective())
+            .color(theme::TEXT_DIM)
+            .small(),
+    );
 }

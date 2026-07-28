@@ -183,6 +183,7 @@ pub fn process_construction_actions(
     mut resource_requests: ResMut<PendingResourceRequests>,
     sim_time: Res<SimulationTime>,
     mut dirty: ResMut<crate::economy::DirtyBodies>,
+    mut construction_events: MessageWriter<ConstructionEvent>,
 ) {
     let now = sim_time.elapsed_seconds();
 
@@ -457,6 +458,20 @@ pub fn process_construction_actions(
             needs_oxygen,
             OUTPOST_BUILDINGS.len()
         );
+
+        // GRA-787: notify the milestone consumer that an outpost now
+        // exists. We use a dedicated `ConstructionEvent` variant rather
+        // than a synthetic `BuildingType::Outpost` completion because the
+        // building-completion path is reserved for the
+        // `ConstructionProject::progress >= required` finish line. See
+        // `src/colony/events.rs` for the producer-gap rationale. The
+        // milestone consumer in `crate::survey::milestones` is
+        // idempotent, so a duplicate emit from re-running the system
+        // (e.g. a re-established outpost) is a no-op.
+        construction_events.write(ConstructionEvent::OutpostEstablished {
+            colony: body_entity,
+            body: body_entity,
+        });
     }
 }
 
