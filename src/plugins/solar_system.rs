@@ -869,17 +869,23 @@ pub fn setup_solar_system(
                 // aren't pitch black on the night side.  Intentionally very low
                 // so day/night contrast is still strong.
                 //
-                // Asteroids use a slightly higher floor (0.015) than the
-                // generic 0.006. Without it the shadow hemisphere of an
-                // S/M/V/C-type asteroid renders as a pure black silhouette
-                // because Bevy's PBR doesn't model surface-to-surface
-                // interreflection -- a back-lit asteroid has nothing
-                // lighting its dark side. The 0.015 floor reads as a faint
-                // charcoal sheen and keeps the texture legible without
-                // flattening the day/night terminator into mush.
+                // Asteroids use a much higher floor (0.045) than the
+                // generic 0.006 because:
+                //   * Bevy's PBR doesn't model surface-to-surface
+                //     interreflection, so a back-lit asteroid has nothing
+                //     lighting its dark side. The old 0.015 floor was too
+                //     dim -- Hathor/Itokawa-sized bodies rendered as nearly
+                //     black silhouettes against the deep-space background.
+                //   * 0.045 in linear units reads as ~0.24 in sRGB: a clearly
+                //     visible charcoal that lets the rock texture read on
+                //     every hemisphere while leaving day/night contrast
+                //     strong (lit side still dominated by direct sun).
+                //   * The bump is per-asteroid-only, so planets/moons keep
+                //     their much darker 0.006 floor and don't lose their
+                //     dramatic day/night terminator.
                 emissive: LinearRgba::WHITE
                     * if body_data.body_type == BodyType::Asteroid {
-                        0.015
+                        0.045
                     } else {
                         0.006
                     },
