@@ -389,13 +389,20 @@ pub(crate) fn asteroid_class_profile(class: AsteroidClass) -> (Vec3, f32, f32) {
     // so the rendered surface reads as rocky/stony rather than as a
     // partially-black asteroid.
     match class {
-        AsteroidClass::CType => (Vec3::new(0.55, 0.55, 0.54), 0.88, 0.02),
-        AsteroidClass::SType => (Vec3::new(0.78, 0.74, 0.66), 0.82, 0.05),
-        AsteroidClass::MType => (Vec3::new(0.62, 0.63, 0.64), 0.62, 0.28),
-        AsteroidClass::VType => (Vec3::new(0.58, 0.54, 0.48), 0.86, 0.04),
-        AsteroidClass::DType => (Vec3::new(0.45, 0.42, 0.40), 0.93, 0.01),
-        AsteroidClass::PType => (Vec3::new(0.48, 0.46, 0.44), 0.92, 0.01),
-        AsteroidClass::Unknown => (Vec3::new(0.58, 0.56, 0.54), 0.86, 0.03),
+        // Roughness values are deliberately near the top of the [0, 1]
+        // range: rock is matte, never satin-smooth. The shared
+        // `generic_rock_roughness_2k.png` carries values in [0.95, 1.00]
+        // and Bevy multiplies it with this scalar, so the effective
+        // roughness still lands in [0.88, 0.95] even after the
+        // micro-variation. Combined with the rock normal map, the
+        // surface reads as a clearly matte rock instead of plastic.
+        AsteroidClass::CType => (Vec3::new(0.55, 0.55, 0.54), 0.95, 0.02),
+        AsteroidClass::SType => (Vec3::new(0.78, 0.74, 0.66), 0.92, 0.05),
+        AsteroidClass::MType => (Vec3::new(0.62, 0.63, 0.64), 0.78, 0.28),
+        AsteroidClass::VType => (Vec3::new(0.58, 0.54, 0.48), 0.94, 0.04),
+        AsteroidClass::DType => (Vec3::new(0.45, 0.42, 0.40), 0.97, 0.01),
+        AsteroidClass::PType => (Vec3::new(0.48, 0.46, 0.44), 0.96, 0.01),
+        AsteroidClass::Unknown => (Vec3::new(0.58, 0.56, 0.54), 0.94, 0.03),
     }
 }
 
@@ -450,18 +457,26 @@ fn apply_procedural_variation(
         // safe range.
         let jitter = asteroid_albedo_jitter(&body_data.name).to_srgba();
         let color = if has_texture {
-            // Keep texture contrast while correcting the old red-biased tint
-            // and applying the per-body jitter.
-            Color::srgb(
-                (class_rgb.red * 0.72 * jitter.red + base.red * 0.28).clamp(0.0, 1.0),
-                (class_rgb.green * 0.72 * jitter.green + base.green * 0.28).clamp(0.0, 1.0),
-                (class_rgb.blue * 0.72 * jitter.blue + base.blue * 0.28).clamp(0.0, 1.0),
-            )
-        } else {
+            // The texture is the dominant signal. The class color tints
+            // the texture into the right class-specific hue; we don't
+            // blend in `base_color` (the body's RON tint) because
+            // adding it was crushing the linear-space product below the
+            // visible range. The texture carries its own albedo, so
+            // all we want from the class color is a class-specific
+            // multiplier on top.
             Color::srgb(
                 (class_rgb.red * jitter.red).clamp(0.0, 1.0),
                 (class_rgb.green * jitter.green).clamp(0.0, 1.0),
                 (class_rgb.blue * jitter.blue).clamp(0.0, 1.0),
+            )
+        } else {
+            // No texture -- use the class profile as the entire albedo
+            // and blend a small fraction of the body's tint to keep
+            // minor per-body variation.
+            Color::srgb(
+                (class_rgb.red * jitter.red * 0.85 + base.red * 0.15).clamp(0.0, 1.0),
+                (class_rgb.green * jitter.green * 0.85 + base.green * 0.15).clamp(0.0, 1.0),
+                (class_rgb.blue * jitter.blue * 0.85 + base.blue * 0.15).clamp(0.0, 1.0),
             )
         };
         return (color, class_roughness, class_metallic);
