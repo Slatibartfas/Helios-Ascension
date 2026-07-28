@@ -273,7 +273,7 @@ fn render_save_list(
                                 theme::SURFACE
                             })
                             .stroke(egui::Stroke::new(
-                                1.0,
+                                1.0_f32,
                                 if selected {
                                     theme::ACCENT
                                 } else {
@@ -286,7 +286,7 @@ fn render_save_list(
                             ui.painter().rect_stroke(
                                 response.rect,
                                 3.0,
-                                egui::Stroke::new(1.5, theme::ACCENT),
+                                egui::Stroke::new(1.5_f32, theme::ACCENT),
                                 egui::StrokeKind::Inside,
                             );
                         }
@@ -455,7 +455,7 @@ fn render_kardashev_plot(ui: &mut egui::Ui, points: &[(f64, f64)]) {
         .collect();
     ui.painter().add(egui::Shape::line(
         line,
-        egui::Stroke::new(2.0, theme::CAT_STRATEGIC),
+        egui::Stroke::new(2.0_f32, theme::CAT_STRATEGIC),
     ));
     for tick in 0..=2 {
         let t = tick as f32 / 2.0;
