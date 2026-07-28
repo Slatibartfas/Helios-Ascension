@@ -156,6 +156,43 @@
             default_dismiss_s: 3.0,
             enabled: true,
         ),
+        // ── Milestones (GRA-790) ───────────────────────────────
+        // One-time "first" achievements fired by the milestone bridge
+        // (see `src/survey/milestones.rs::EarlyGameMilestones`). Each id
+        // maps to a single flag in the resource; the bridge flips the
+        // flag on the qualifying event and emits the matching
+        // notification. The deposit flag (`deposit_extraction_milestone`)
+        // has no producer in GRA-787 and is intentionally absent.
+        (
+            id: "milestones.first_probe_dispatched",
+            display_name: "First probe dispatched",
+            default_dismiss_s: 8.0,
+            enabled: true,
+        ),
+        (
+            id: "milestones.first_survey_completed",
+            display_name: "First survey complete",
+            default_dismiss_s: 8.0,
+            enabled: true,
+        ),
+        (
+            id: "milestones.first_anomaly",
+            display_name: "First anomaly detected",
+            default_dismiss_s: 8.0,
+            enabled: true,
+        ),
+        (
+            id: "milestones.first_outpost_established",
+            display_name: "First outpost established",
+            default_dismiss_s: 8.0,
+            enabled: true,
+        ),
+        (
+            id: "milestones.first_paid_tier1_tech",
+            display_name: "First paid tier-1 tech",
+            default_dismiss_s: 8.0,
+            enabled: true,
+        ),
         // ── Personnel (placeholders, future system) ───────────
         (
             id: "personnel.scientist_arrived",
