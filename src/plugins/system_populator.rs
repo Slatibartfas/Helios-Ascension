@@ -2590,7 +2590,16 @@ fn spawn_procedural_ring(
         MeshMaterial3d(mat_handle),
         transform,
         SystemId(system_id),
-        ChildOf(planet_entity),
+        // GRA-358 PR-J follow-up: rings used to receive
+        // `ChildOf(planet_entity)` here as well. Removing it avoids
+        // Bevy 0.18's recursive `propagate_parent_transforms`
+        // walking the parent ring's `Children` collection
+        // indefinitely on the post-save/load world (see
+        // `src/plugins/solar_system.rs::setup_solar_system`
+        // for the full rationale). `LogicalParent` is what
+        // `update_render_transform` reads for parent resolution,
+        // so dropping `ChildOf` is purely a hierarchy-propagation
+        // removal — the ring's visual position is unaffected.
         LogicalParent(planet_entity),
     ));
 

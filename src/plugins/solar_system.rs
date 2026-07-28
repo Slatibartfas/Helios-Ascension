@@ -1434,17 +1434,21 @@ pub fn setup_solar_system(
         if let Some(entity) = entity_map.get(&body_data.name) {
             if let Some(parent_name) = &body_data.parent {
                 if let Some(parent_entity) = entity_map.get(parent_name) {
-                    // Always set LogicalParent for UI hierarchy
+                    // GRA-358 PR-J follow-up: rings previously received
+                    // `ChildOf(planet)` here as well as `LogicalParent(planet)`.
+                    // The former populated the planet's `Children` collection,
+                    // which Bevy 0.18's recursive `propagate_parent_transforms`
+                    // walked indefinitely on the post-save/load world (the
+                    // `despawn_helios_simulation_entities` step leaves stale
+                    // `Children` entries on the live App's prior-session
+                    // parent entities; STATUS_STACK_OVERFLOW on Windows,
+                    // SIGSEGV on Linux). Rings now use `LogicalParent` only;
+                    // `update_render_transform` resolves the parent via
+                    // `LogicalParent` (not `ChildOf`), so the ring's visual
+                    // position is unaffected.
                     commands
                         .entity(*entity)
                         .insert(LogicalParent(*parent_entity));
-
-                    // Only set spatial parent for rings (they rotate with their planet)
-                    // Moons and planets use world-space coordinates so that the
-                    // parent planet's spin rotation does NOT drag moon positions
-                    if body_data.body_type == BodyType::Ring {
-                        commands.entity(*entity).insert(ChildOf(*parent_entity));
-                    }
                 } else {
                     warn!(
                         "Parent {} not found for body {}",
