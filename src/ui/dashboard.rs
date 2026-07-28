@@ -1975,10 +1975,13 @@ fn discovered_resource_expectation_weight(
 ///
 /// GRA-787 implements the read-only dossier/dashboard rendering path the
 /// architecture calls out. The function takes the resource by reference
-/// (never by `mut`) and is called from `ui_dashboard` so the section
+/// (never by `mut`) and is called from `ui_time_controls` so the section
 /// lives in the existing `EguiPrimaryContextPass` schedule via
-/// `UiSystemSet::MainPanels`. The UI never writes to the resource —
-/// flag flips happen only in `crate::survey::milestones` consumers.
+/// `UiSystemSet::TopBar` (the bottom-strip owner). It used to live in
+/// `ui_dashboard`, but adding a `Res<EarlyGameMilestones>` param pushed
+/// that function to 17 system params and broke Bevy 0.18's 16-param
+/// `IntoSystem` limit. The UI never writes to the resource — flag flips
+/// happen only in `crate::survey::milestones` consumers.
 pub(crate) fn draw_milestones_section(
     ui: &mut egui::Ui,
     milestones: &crate::survey::EarlyGameMilestones,
