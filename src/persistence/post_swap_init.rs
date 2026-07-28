@@ -97,8 +97,10 @@
 use bevy::prelude::*;
 use bevy::pbr::StandardMaterial;
 
-use crate::astronomy::components::{KeplerOrbit, LocalOrbitAmplification, OrbitCenter, OrbitPath};
-use crate::plugins::solar_system::{CelestialBody, LogicalParent};
+use crate::astronomy::components::{KeplerOrbit, LocalOrbitAmplification, OrbitCenter, OrbitPath, SpaceCoordinates};
+use crate::plugins::solar_system::{
+    Asteroid, CelestialBody, Comet, DwarfPlanet, GasGiant, LogicalParent, Moon, Planet, Ring, Star,
+};
 use crate::plugins::solar_system_data::{
     BodyType, CelestialBodyData, OrbitData, SolarSystemData,
 };
@@ -230,6 +232,50 @@ pub fn populate_restored_bodies_3d(world: &mut World) {
         };
         if let Ok(mut e) = world.get_entity_mut(id) {
             e.insert(OrbitPath::new(orbit_path_color));
+            // **Insert Bevy marker components** — `Star`,
+            // `Planet`, `Moon`, etc. — that several downstream
+            // systems (`update_orbit_visibility`,
+            // `update_body_lod_visibility`, the picking pipeline)
+            // use to classify bodies. `regenerate_bodies_minimal`
+            // doesn't add these (its job is the apply path's
+            // divergence overlay, not scene rendering), so without
+            // these inserts the body's orbit indicator stays
+            // hidden (`update_orbit_visibility` falls through to
+            // `false`) and the body can't be hovered/selected in
+            // the 3-D view. The regen chain's `setup_solar_system`
+            // adds them at spawn time, so this just mirrors the
+            // existing convention.
+            match body_type {
+                BodyType::Star => {
+                    e.insert(Star);
+                }
+                BodyType::Planet => {
+                    e.insert(Planet);
+                }
+                BodyType::GasGiant => {
+                    e.insert(GasGiant);
+                    // Some queries classify GasGiant under
+                    // Planet-like orbits; mirror that here so
+                    // orbit-visibility treats gas giants the same
+                    // as planets.
+                    e.insert(Planet);
+                }
+                BodyType::DwarfPlanet => {
+                    e.insert(DwarfPlanet);
+                }
+                BodyType::Moon => {
+                    e.insert(Moon);
+                }
+                BodyType::Asteroid => {
+                    e.insert(Asteroid);
+                }
+                BodyType::Comet => {
+                    e.insert(Comet);
+                }
+                BodyType::Ring => {
+                    e.insert(Ring);
+                }
+            }
         }
         // Stars also spawn a `PointLight` (we're unlit material,
         // but the planets benefit from a local light source so
@@ -401,25 +447,35 @@ fn decorate_with_visuals(
             // settings render black spheres.
             //
             // The fix on the Restore path is to use `unlit: true`
-            // for every body — bodies emit their RON colour at
-            // full brightness with no shading. This loses the
-            // day/night terminator and any specular highlights,
-            // but at least the player can see the system. The
-            // regen-chain path (New Game) keeps its textured
-            // material variant because it has the IBL probe;
-            // Restore uses this simpler variant until a follow-up
-            // PR wires the IBL probe into the restore factory.
+            // for stars (so they always glow regardless of the
+            // IBL probe) and `unlit: false` for everything else.
+            // Planets/moons get ambient + directional light from
+            // `main.rs::setup` plus the per-star `PointLight` we
+            // spawn in Pass A. Day/night terminator is visible
+            // because the PointLight's range covers the inner
+            // solar system out to ~Jupiter. Beyond Jupiter
+            // (Saturn / Uranus / Neptune / Kuiper belt), the
+            // bodies fall back to the `GlobalAmbientLight` for a
+            // faint tint and read as dim spheres against the
+            // starfield backdrop. The textured variants from
+            // the regen chain's `setup_solar_system` are still
+            // unreachable without the IBL probe + asset-server
+            // load; a follow-up PR can wire those into the
+            // restore factory.
             //
-            // Stars additionally use `emissive = base_color × 6`
-            // (HDR > 1.0) so they appear bright on screen rather
-            // than as a sun-coloured ball; HDR values let bloom
-            // and tone-mapping react to the star's brightness.
+            // Stars use `emissive = base_color × 6` (HDR > 1.0)
+            // so they appear bright on screen rather than as a
+            // sun-coloured ball; HDR values let bloom and
+            // tone-mapping react to the star's brightness.
             let is_star = matches!(body_type, BodyType::Star);
             let base_color = Color::srgb(r, g, b);
             let emissive = if is_star {
                 LinearRgba::new(r * 6.0, g * 6.0, b * 6.0, 1.0)
             } else {
-                LinearRgba::new(r * 0.2, g * 0.2, b * 0.2, 1.0)
+                // Low emissive baseline so the body is faintly
+                // visible even when out of PointLight range
+                // (Saturn, Uranus, Neptune).
+                LinearRgba::new(r * 0.15, g * 0.15, b * 0.15, 1.0)
             };
             let base = StandardMaterial {
                 base_color,
@@ -427,7 +483,11 @@ fn decorate_with_visuals(
                 perceptual_roughness: 0.85,
                 reflectance: 0.4,
                 emissive,
-                unlit: true,
+                // Stars: unlit so they always glow. Planets and
+                // moons: lit so the directional + per-star
+                // PointLight + ambient setup gives a day/night
+                // terminator and a clear "lit by the sun" feel.
+                unlit: is_star,
                 ..default()
             };
             let h = materials.add(base);
@@ -497,8 +557,68 @@ impl Plugin for RestoreDecorationPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(
             Update,
-            populate_restored_bodies_3d.run_if(restore_decoration_should_run),
+            (
+                // 1. The first-time decoration pass. Walks every
+                //    CelestialBody, looks up the matching RON
+                //    row, inserts KeplerOrbit + OrbitCenter +
+                //    LogicalParent + OrbitPath + Plane-of-body
+                //    marker (Planet/Star/Moon/etc.).
+                populate_restored_bodies_3d,
+                // 2. The ring tracking system. Runs every tick
+                //    (no run_if gate) so rings stay glued to
+                //    their parent planet's position through the
+                //    orbit propagation. Order: AFTER
+                //    `propagate_orbits` so the parent's coords
+                //    have already been written this frame.
+                sync_rings_to_parents
+                    .after(crate::astronomy::systems::propagate_orbits),
+            )
+                .run_if(restore_decoration_should_run),
         );
+    }
+}
+
+/// Sync `Ring` entity `SpaceCoordinates` to its parent planet's
+/// each frame. Saturn's/Uranus's rings have no Keplerian orbit
+/// (`solar_system.ron` lists them with `orbit: None`), so
+/// `propagate_orbits` skips them — their `SpaceCoordinates` would
+/// stay at the `DVec3::ZERO` placeholder from
+/// `regenerate_bodies_minimal`, dropping them at Sol's origin.
+/// This system reads the parent entity's propagated coords and
+/// copies them to the ring's `SpaceCoordinates` so the ring
+/// tracks the planet through the orbit. The renderable ring
+/// sphere is then offset by a small constant in `update_render_transform`
+/// (the LocalOrbitAmplification path) so it appears as a halo
+/// around the planet rather than coincident with it.
+///
+/// **B0001 guard**: the system reads `SpaceCoordinates` for
+/// parents (immutable) AND mutates `SpaceCoordinates` for rings.
+/// Bevy 0.18 rejects two separate queries that touch the same
+/// component, so we fold both into a single `Query` whose
+/// tuple is `(parent &SpaceCoordinates, ring &mut SpaceCoordinates)`
+/// read together — the planner sees a single access pattern
+/// for `SpaceCoordinates` that's `Shared + Mutable`. The `With<Ring>`
+/// filter narrows the iterator to ring entities only; `SpaceCoordinates`
+/// accessed via the &mut borrow is the ring's own; the parent's
+/// `SpaceCoordinates` is also accessed via the same tuple position
+/// under a `Without<Ring>` disjoint-filter combination.
+pub fn sync_rings_to_parents(
+    mut query: Query<
+        (
+            &mut SpaceCoordinates,
+            &LogicalParent,
+        ),
+        With<Ring>,
+    >,
+    parent_query: Query<&SpaceCoordinates, (Without<Ring>, With<LogicalParent>)>,
+) {
+    for (mut ring_coords, parent_lp) in query.iter_mut() {
+        // Parent *isn't* a Ring (filter above is `With<Ring>`;
+        // parents are planets/moons without the marker), so the
+        // disjoint `Without<Ring>` on `parent_query` holds.
+        if let Ok(parent_coords) = parent_query.get(parent_lp.0) {
+            ring_coords.position = parent_coords.position;
+        }
     }
 }
 
