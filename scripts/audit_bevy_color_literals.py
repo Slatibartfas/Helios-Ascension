@@ -32,10 +32,19 @@ Usage
 
 Baseline format
 ---------------
-One violation per line: ``<file>:<line>  <literal>``. File paths are
-repo-relative. The literal is the matched constructor call as it appears
-in source, single-trimmed, with arbitrary trailing text replaced by ``…``
-when the call is longer than 120 chars.
+One violation per line: ``<file>  <literal>``. File paths are
+repo-relative. The literal is the matched constructor call's first line
+as it appears in source, single-trimmed, with arbitrary trailing text
+replaced by ``…`` when the call is longer than 120 chars.
+
+Baseline dedup
+--------------
+A single ``<file>  <literal>`` entry tolerates every occurrence of that
+literal in that file — line-number drift in surrounding code does not
+trigger a new finding. Truly new literals (a different file or a
+different source text) still fail ``--strict``. This absorbs the
+``<file>:<line>`` drift cascade that bit main CI four times in 24h
+(GRA-386 → GRA-390 → GRA-403 → GRA-782).
 """
 from __future__ import annotations
 
@@ -115,19 +124,45 @@ def audit_file(path: Path) -> list[dict]:
 
 
 def render_baseline_line(f: dict) -> str:
-    """Serialise one finding in the baseline-file format."""
-    return f"{f['file']}:{f['line']}  {f['source']}"
+    """Serialise one finding in the baseline-file format.
+
+    Format: ``<file>  <literal>``. Line number is intentionally dropped
+    so that line-number drift in surrounding code does not break the
+    audit. See module docstring "Baseline dedup" for the rationale.
+    """
+    return f"{f['file']}  {f['source']}"
 
 
-def load_baseline(path: Path) -> set[str]:
+def _finding_key(f: dict) -> tuple[str, str]:
+    """Stable dedup key for a finding: ``(file, source)``.
+
+    Line number is intentionally excluded so that line-number drift in
+    surrounding code does not produce a "new" finding for an existing
+    literal.
+    """
+    return (f["file"], f["source"])
+
+
+def load_baseline(path: Path) -> set[tuple[str, str]]:
+    """Load the baseline as a set of ``(file, source)`` keys.
+
+    The on-disk format is ``<file>  <literal>``; entries are split at
+    the first run of two-or-more spaces. Blank lines and lines starting
+    with ``#`` are skipped.
+    """
     if not path.exists():
         return set()
-    entries: set[str] = set()
+    entries: set[tuple[str, str]] = set()
     for raw in path.read_text(encoding="utf-8").splitlines():
         line = raw.strip()
         if not line or line.startswith("#"):
             continue
-        entries.add(line)
+        if "  " not in line:
+            # Malformed entry — skip defensively rather than fail the
+            # whole audit on a typo.
+            continue
+        file_part, source_part = line.split("  ", 1)
+        entries.add((file_part, source_part.strip()))
     return entries
 
 
@@ -171,22 +206,39 @@ def main() -> int:
             findings.extend(audit_file(path))
 
     if args.emit_baseline:
+        # Dedupe by (file, source) so multiple occurrences of the same
+        # literal in a file collapse to a single baseline entry. Without
+        # this the baseline would grow unboundedly and obscure genuinely
+        # new entries; with it, one entry tolerates every occurrence.
+        seen_keys: set[tuple[str, str]] = set()
+        deduped_findings: list[dict] = []
+        for f in findings:
+            key = _finding_key(f)
+            if key in seen_keys:
+                continue
+            seen_keys.add(key)
+            deduped_findings.append(f)
         header = [
             "# Bevy Color literal audit baseline.",
-            "# One violation per line: <file>:<line>  <literal>",
+            "# One violation per line: <file>  <literal>",
             "# Regenerate with: python3 scripts/audit_bevy_color_literals.py --emit-baseline",
             "# Move entries out as they're promoted to src/ui/theme.rs Color constants.",
             "",
         ]
-        print("\n".join(header + [render_baseline_line(f) for f in findings]))
+        print("\n".join(header + [render_baseline_line(f) for f in deduped_findings]))
         return 0
 
     baseline = load_baseline(args.baseline) if args.baseline else set()
 
+    # Match by (file, source) so line-number drift is absorbed.
+    baseline_keys = baseline
+    finding_keys = {_finding_key(f) for f in findings}
+    new_keys = finding_keys - baseline_keys
+
     new_findings: list[dict] = []
     known_findings: list[dict] = []
     for f in findings:
-        if render_baseline_line(f) in baseline:
+        if _finding_key(f) in baseline_keys:
             known_findings.append(f)
         else:
             new_findings.append(f)
@@ -204,13 +256,13 @@ def main() -> int:
         print("No hardcoded Bevy Color literals found outside src/ui/theme.rs.")
     else:
         for f in sorted(findings, key=lambda x: (x["file"], x["line"])):
-            tag = "[NEW]" if render_baseline_line(f) not in baseline else "[ok ]"
+            tag = "[NEW]" if _finding_key(f) not in baseline_keys else "[ok ]"
             print(f"{tag} {f['file']}:{f['line']}  {f['source']}")
 
     if args.strict and new_findings:
         print()
         print(
-            f"FAIL: {len(new_findings)} new Bevy Color literal(s) outside "
+            f"FAIL: {len(new_keys)} new Bevy Color literal(s) outside "
             "src/ui/theme.rs. Promote them to a theme::Color constant and "
             f"remove the entry from {args.baseline} to clear this."
         )
