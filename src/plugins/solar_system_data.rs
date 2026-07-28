@@ -588,6 +588,72 @@ mod texture_system_tests {
     }
 
     #[test]
+    fn asteroid_material_class_priors_are_not_red_biased() {
+        use crate::plugins::solar_system::asteroid_class_profile;
+
+        for class in [
+            AsteroidClass::CType,
+            AsteroidClass::SType,
+            AsteroidClass::MType,
+            AsteroidClass::VType,
+            AsteroidClass::DType,
+            AsteroidClass::PType,
+        ] {
+            let (rgb, roughness, metallic) = asteroid_class_profile(class);
+            // The class RGB is a multiplier applied to the texture in
+            // `apply_procedural_variation`, so values above 1.0 are clamped
+            // away and values below ~0.4 crush the texture's natural dark
+            // patches (especially `generic_s_type_2k.jpg`'s prominent dark
+            // brown splotches) into deep-black rotating blobs.  The
+            // supported band is [0.4, 0.85] — anything outside this range
+            // either renders asteroids as inky silhouettes or as blown-out
+            // pastel balls.  The "not red-biased" half of the test name
+            // refers to the older concern that S-Type was drifting into a
+            // redder tint; the new band keeps that under control because
+            // S-Type's G/R ratio (0.74/0.78 ≈ 0.95) is still > V-Type's
+            // (0.54/0.58 ≈ 0.93).
+            assert!(rgb.x >= 0.4 && rgb.y >= 0.4 && rgb.z >= 0.4);
+            assert!(rgb.x <= 0.85 && rgb.y <= 0.85 && rgb.z <= 0.85);
+            assert!(roughness >= 0.6);
+            assert!((0.0..=0.35).contains(&metallic));
+        }
+    }
+
+    #[test]
+    fn asteroid_albedo_jitter_stays_in_safe_range() {
+        use crate::plugins::solar_system::asteroid_albedo_jitter;
+
+        // Two different names should jitter differently. A handful of
+        // well-known bodies in the registry give us repeatable coverage.
+        let mut seen = std::collections::HashSet::new();
+        for name in [
+            "Ceres",
+            "Vesta",
+            "Psyche",
+            "101955 Bennu",
+            "162173 Ryugu",
+            "433 Eros",
+            "588 Achilles",
+            "617 Patroclus",
+            "Juno",
+            "Hygiea",
+            "1980 Tezcatlipoca",
+        ] {
+            let c = asteroid_albedo_jitter(name).to_srgba();
+            // Multiplicative jitter in [0.88, 1.12] per channel.
+            assert!((0.86..=1.14).contains(&c.red), "{name} red out of range");
+            assert!(
+                (0.86..=1.14).contains(&c.green),
+                "{name} green out of range"
+            );
+            assert!((0.86..=1.14).contains(&c.blue), "{name} blue out of range");
+            // A small f32 bit pattern should round-trip into a stable key.
+            let key = (c.red.to_bits(), c.green.to_bits(), c.blue.to_bits());
+            assert!(seen.insert(key), "duplicate jitter for {name}");
+        }
+    }
+
+    #[test]
     fn test_asteroid_classification_deserializes() {
         let data = SolarSystemData::load_from_file("assets/data/solar_system.ron")
             .expect("Failed to load solar system data");

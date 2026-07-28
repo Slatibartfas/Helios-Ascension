@@ -372,6 +372,65 @@ fn get_generic_texture_path(
     }
 }
 
+pub(crate) fn asteroid_class_profile(class: AsteroidClass) -> (Vec3, f32, f32) {
+    // Approximate geometric albedo/tint ranges informed by spacecraft and
+    // telescopic observations: Bennu/Ryugu are very dark C-types, Eros is a
+    // neutral-to-warm S-type, Vesta is basaltic with high albedo contrast, and
+    // Psyche is metal/silicate rather than a mirror-like pure metal surface.
+    //
+    // The RGB values represent the multiplier applied to the body's
+    // `base_color_texture` in `apply_procedural_variation`.  Because texture
+    // values are then multiplied by the lighting, the class profile needs to
+    // be high enough that the texture's natural dark patches (notably the
+    // prominent dark-brown splotches in `generic_s_type_2k.jpg`) don't read
+    // as deep-black splotches rotating with the asteroid.  The values here
+    // are deliberately above the geometric-albedo reference values (Bennu
+    // ~0.045, Eros ~0.23) — they compensate for the multiplicative shading
+    // so the rendered surface reads as rocky/stony rather than as a
+    // partially-black asteroid.
+    match class {
+        AsteroidClass::CType => (Vec3::new(0.55, 0.55, 0.54), 0.88, 0.02),
+        AsteroidClass::SType => (Vec3::new(0.78, 0.74, 0.66), 0.82, 0.05),
+        AsteroidClass::MType => (Vec3::new(0.62, 0.63, 0.64), 0.62, 0.28),
+        AsteroidClass::VType => (Vec3::new(0.58, 0.54, 0.48), 0.86, 0.04),
+        AsteroidClass::DType => (Vec3::new(0.45, 0.42, 0.40), 0.93, 0.01),
+        AsteroidClass::PType => (Vec3::new(0.48, 0.46, 0.44), 0.92, 0.01),
+        AsteroidClass::Unknown => (Vec3::new(0.58, 0.56, 0.54), 0.86, 0.03),
+    }
+}
+
+/// Returns a restrained, class-based asteroid albedo and PBR response.
+///
+/// Real asteroid imagery is dominated by charcoal greys, neutral stone,
+/// muted browns, and occasional basaltic dark patches; saturated red is not a
+/// useful default. The name seed only supplies small body-to-body variation so
+/// results remain deterministic across save/load and runs.
+fn asteroid_material_variation(name: &str, class: AsteroidClass) -> (Color, f32, f32) {
+    let seed = calculate_hash(&name);
+    let jitter = ((seed % 1000) as f32 / 1000.0 - 0.5) * 0.12;
+    let (rgb, roughness, metallic) = asteroid_class_profile(class);
+    let rgb = (rgb + Vec3::splat(jitter)).clamp(Vec3::splat(0.06), Vec3::splat(0.72));
+    (Color::srgb(rgb.x, rgb.y, rgb.z), roughness, metallic)
+}
+
+/// Per-body albedo jitter, deterministic from the body's name seed. Adds
+/// small warm/cool shifts so two S-type asteroids don't read identically
+/// even though they share the same class tint. Result is applied as a
+/// multiplicative tint on top of the class profile, so the rough albedo
+/// range is preserved (Bennu stays dark, Eros stays warm-grey, Vesta stays
+/// basaltic).
+pub(crate) fn asteroid_albedo_jitter(name: &str) -> Color {
+    let seed = calculate_hash(&name);
+    let r = ((seed % 1000) as f32) / 1000.0;
+    let g = (((seed / 1000) % 1000) as f32) / 1000.0;
+    let b = (((seed / 1_000_000) % 1000) as f32) / 1000.0;
+    // Multiplicative shift in [0.88, 1.12] per channel.
+    let jr = 0.88 + r * 0.24;
+    let jg = 0.88 + g * 0.24;
+    let jb = 0.88 + b * 0.24;
+    Color::srgb(jr, jg, jb)
+}
+
 /// Generate procedural variation for material based on body properties
 /// Enhanced to visually distinguish all 6 asteroid spectral classes
 fn apply_procedural_variation(
@@ -379,6 +438,35 @@ fn apply_procedural_variation(
     base_color: Color,
     has_texture: bool,
 ) -> (Color, f32, f32) {
+    if body_data.body_type == BodyType::Asteroid {
+        let class = body_data.asteroid_class.unwrap_or(AsteroidClass::CType);
+        let (class_color, class_roughness, class_metallic) =
+            asteroid_material_variation(&body_data.name, class);
+        let base = base_color.to_srgba();
+        let class_rgb = class_color.to_srgba();
+        // Deterministic per-body jitter so two S-type asteroids don't
+        // share an identical tint. The jitter is multiplicative in
+        // [0.88, 1.12] per channel, well within the class profile's
+        // safe range.
+        let jitter = asteroid_albedo_jitter(&body_data.name).to_srgba();
+        let color = if has_texture {
+            // Keep texture contrast while correcting the old red-biased tint
+            // and applying the per-body jitter.
+            Color::srgb(
+                (class_rgb.red * 0.72 * jitter.red + base.red * 0.28).clamp(0.0, 1.0),
+                (class_rgb.green * 0.72 * jitter.green + base.green * 0.28).clamp(0.0, 1.0),
+                (class_rgb.blue * 0.72 * jitter.blue + base.blue * 0.28).clamp(0.0, 1.0),
+            )
+        } else {
+            Color::srgb(
+                (class_rgb.red * jitter.red).clamp(0.0, 1.0),
+                (class_rgb.green * jitter.green).clamp(0.0, 1.0),
+                (class_rgb.blue * jitter.blue).clamp(0.0, 1.0),
+            )
+        };
+        return (color, class_roughness, class_metallic);
+    }
+
     // Use body name as seed for consistent randomness
     let mut seed = 0u32;
     for byte in body_data.name.bytes() {
@@ -390,204 +478,45 @@ fn apply_procedural_variation(
     let random2 = (((seed / 1000) % 1000) as f32) / 1000.0;
     let random3 = (((seed / 1000000) % 1000) as f32) / 1000.0;
 
-    // Vary color based on body type and asteroid spectral class
+    // Vary color based on body type. Asteroids use the measured class profile
+    // above; this branch handles comets, moons, dwarf planets and rings.
     let color_variation = match body_data.body_type {
-        BodyType::Asteroid => {
-            // Apply spectral class-specific coloring and brightness
-            match body_data.asteroid_class.unwrap_or(AsteroidClass::CType) {
-                AsteroidClass::CType => {
-                    // Carbonaceous: Very dark gray
-                    let brightness_var = 0.6 + random1 * 0.3; // 0.6 to 0.9 (dark)
-                    Color::srgb(
-                        (base_color.to_srgba().red * brightness_var).clamp(0.0, 1.0),
-                        (base_color.to_srgba().green * brightness_var).clamp(0.0, 1.0),
-                        (base_color.to_srgba().blue * brightness_var).clamp(0.0, 1.0),
-                    )
-                }
-                AsteroidClass::SType => {
-                    // Silicaceous: Medium gray, stony
-                    let brightness_var = 0.9 + random1 * 0.4; // 0.9 to 1.3 (medium-bright)
-                    Color::srgb(
-                        (base_color.to_srgba().red * brightness_var).clamp(0.0, 1.0),
-                        (base_color.to_srgba().green * brightness_var).clamp(0.0, 1.0),
-                        (base_color.to_srgba().blue * brightness_var).clamp(0.0, 1.0),
-                    )
-                }
-                AsteroidClass::MType => {
-                    // Metallic: Bright silvery-gray
-                    let brightness_var = 1.2 + random1 * 0.4; // 1.2 to 1.6 (bright, metallic)
-                    Color::srgb(
-                        (base_color.to_srgba().red * brightness_var).clamp(0.0, 1.5),
-                        (base_color.to_srgba().green * brightness_var).clamp(0.0, 1.5),
-                        (base_color.to_srgba().blue * brightness_var).clamp(0.0, 1.5),
-                    )
-                }
-                AsteroidClass::VType => {
-                    // Vestoid: Reddish-gray basaltic
-                    let brightness_var = 1.0 + random1 * 0.3; // 1.0 to 1.3
-                    Color::srgb(
-                        (base_color.to_srgba().red * brightness_var * 1.15).clamp(0.0, 1.0), // Enhanced red
-                        (base_color.to_srgba().green * brightness_var * 0.95).clamp(0.0, 1.0),
-                        (base_color.to_srgba().blue * brightness_var * 0.90).clamp(0.0, 1.0),
-                    )
-                }
-                AsteroidClass::DType => {
-                    // Dark primitive: Extremely dark, brownish
-                    let brightness_var = 0.4 + random1 * 0.2; // 0.4 to 0.6 (very dark)
-                    Color::srgb(
-                        (base_color.to_srgba().red * brightness_var * 1.1).clamp(0.0, 1.0), // Slightly warmer
-                        (base_color.to_srgba().green * brightness_var * 0.9).clamp(0.0, 1.0),
-                        (base_color.to_srgba().blue * brightness_var * 0.8).clamp(0.0, 1.0),
-                    )
-                }
-                AsteroidClass::PType => {
-                    // Primitive: Very dark gray-brown
-                    let brightness_var = 0.5 + random1 * 0.25; // 0.5 to 0.75 (very dark but not extreme)
-                    Color::srgb(
-                        (base_color.to_srgba().red * brightness_var).clamp(0.0, 1.0),
-                        (base_color.to_srgba().green * brightness_var * 0.95).clamp(0.0, 1.0),
-                        (base_color.to_srgba().blue * brightness_var * 0.90).clamp(0.0, 1.0),
-                    )
-                }
-                AsteroidClass::Unknown => {
-                    // Default to C-type appearance
-                    let brightness_var = 0.7 + random1 * 0.3;
-                    Color::srgb(
-                        (base_color.to_srgba().red * brightness_var).clamp(0.0, 1.0),
-                        (base_color.to_srgba().green * brightness_var).clamp(0.0, 1.0),
-                        (base_color.to_srgba().blue * brightness_var).clamp(0.0, 1.0),
-                    )
-                }
-            }
-        }
         BodyType::Comet => {
-            // Comets: Wide variety from pristine icy to dark carbonaceous
-            // Use multiple random values for more distinct appearances
-            let comet_type = (random1 * 5.0) as u32;
-            match comet_type {
-                0 => {
-                    // Pristine icy comet - bluish-white
-                    let brightness = 0.75 + random2 * 0.25;
-                    Color::srgb(brightness * 0.85, brightness * 0.90, brightness * 1.0)
-                }
-                1 => {
-                    // Dusty/old comet - warm brown/tan
-                    let brightness = 0.4 + random2 * 0.3;
-                    Color::srgb(brightness * 1.1, brightness * 0.85, brightness * 0.65)
-                }
-                2 => {
-                    // Dark carbonaceous nucleus
-                    let brightness = 0.25 + random2 * 0.2;
-                    Color::srgb(brightness * 1.0, brightness * 0.95, brightness * 0.85)
-                }
-                3 => {
-                    // Reddish organic-rich surface
-                    let brightness = 0.45 + random2 * 0.25;
-                    Color::srgb(brightness * 1.2, brightness * 0.75, brightness * 0.6)
-                }
-                _ => {
-                    // Mixed ice and dust - gray with slight variation
-                    let brightness = 0.5 + random2 * 0.3;
-                    let tint = random3 * 0.15;
-                    Color::srgb(brightness + tint, brightness, brightness - tint * 0.5)
-                }
-            }
+            let brightness = 0.25 + random2 * 0.35;
+            Color::srgb(brightness * 1.05, brightness, brightness * 0.92)
         }
         BodyType::Moon => {
-            // Moons: Slight color variation
             let gray_variation = 0.9 + random1 * 0.2;
+            let base = base_color.to_srgba();
             Color::srgb(
-                (base_color.to_srgba().red * gray_variation).clamp(0.0, 1.0),
-                (base_color.to_srgba().green * gray_variation).clamp(0.0, 1.0),
-                (base_color.to_srgba().blue * gray_variation).clamp(0.0, 1.0),
+                base.red * gray_variation,
+                base.green * gray_variation,
+                base.blue * gray_variation,
             )
         }
         BodyType::DwarfPlanet => {
-            // Dwarf planets: diverse surface compositions
-            // KBOs range from bright icy to dark reddish
-            let dp_type = (random1 * 6.0) as u32;
-            match dp_type {
-                0 => {
-                    // Bright icy surface (like Eris/Makemake)
-                    let brightness = 0.85 + random2 * 0.15;
-                    Color::srgb(brightness * 0.95, brightness * 0.95, brightness * 1.0)
-                }
-                1 => {
-                    // Reddish tholins (like Sedna/Quaoar)
-                    let brightness = 0.55 + random2 * 0.25;
-                    Color::srgb(
-                        (brightness * 1.25).min(1.0),
-                        brightness * 0.78,
-                        brightness * 0.6,
-                    )
-                }
-                2 => {
-                    // Gray rocky (like Orcus)
-                    let brightness = 0.6 + random2 * 0.2;
-                    Color::srgb(brightness, brightness * 0.97, brightness * 0.95)
-                }
-                3 => {
-                    // Dark with slight blue tint (water ice patches)
-                    let brightness = 0.45 + random2 * 0.2;
-                    Color::srgb(brightness * 0.9, brightness * 0.92, brightness * 1.05)
-                }
-                4 => {
-                    // Warm brownish (like Haumea family)
-                    let brightness = 0.65 + random2 * 0.2;
-                    Color::srgb(brightness * 1.05, brightness * 0.92, brightness * 0.8)
-                }
-                _ => {
-                    // Neutral slightly varied
-                    let brightness = 0.55 + random2 * 0.25;
-                    let tint = (random3 - 0.5) * 0.1;
-                    Color::srgb(
-                        (brightness + tint).clamp(0.0, 1.0),
-                        brightness.clamp(0.0, 1.0),
-                        (brightness - tint * 0.5).clamp(0.0, 1.0),
-                    )
-                }
-            }
+            let brightness = 0.42 + random2 * 0.35;
+            let tint = (random3 - 0.5) * 0.12;
+            Color::srgb(
+                (brightness + tint).clamp(0.0, 1.0),
+                brightness.clamp(0.0, 1.0),
+                (brightness - tint).clamp(0.0, 1.0),
+            )
         }
-        BodyType::Ring => base_color, // Rings rely on texture/transparency
+        BodyType::Ring => base_color,
         _ => base_color,
     };
 
-    // Vary roughness for surface variation based on spectral class
     let roughness_var = if has_texture {
-        if body_data.body_type == BodyType::Ring {
-            0.8 // Rings are dusty/icy
-        } else if body_data.body_type == BodyType::Asteroid {
-            match body_data.asteroid_class.unwrap_or(AsteroidClass::CType) {
-                AsteroidClass::MType => 0.2 + random2 * 0.2, // 0.2 to 0.4 (smooth, metallic)
-                AsteroidClass::DType | AsteroidClass::PType => 0.8 + random2 * 0.15, // 0.8 to 0.95 (very rough, primitive)
-                _ => 0.7 + random2 * 0.2, // 0.7 to 0.9 for others
-            }
-        } else if body_data.body_type == BodyType::Comet {
-            0.75 + random2 * 0.2 // 0.75 to 0.95 (rough, irregular surface)
-        } else if body_data.body_type == BodyType::DwarfPlanet {
-            0.6 + random2 * 0.25 // 0.6 to 0.85 (varied surfaces)
-        } else {
-            0.7 + random2 * 0.2 // 0.7 to 0.9 for other textured bodies
-        }
+        0.75 + random2 * 0.2
     } else {
-        0.6 + random2 * 0.3 // 0.6 to 0.9 for non-textured bodies
+        0.65 + random2 * 0.25
     };
-
-    // Vary metallic property strongly by spectral class
     let metallic_var = match body_data.body_type {
-        BodyType::Asteroid => {
-            match body_data.asteroid_class.unwrap_or(AsteroidClass::CType) {
-                AsteroidClass::MType => 0.6 + random3 * 0.3, // 0.6 to 0.9 (highly metallic)
-                AsteroidClass::VType => 0.15 + random3 * 0.1, // 0.15 to 0.25 (slightly metallic, basaltic)
-                AsteroidClass::DType | AsteroidClass::PType => 0.0 + random3 * 0.05, // 0.0 to 0.05 (minimal metal)
-                _ => 0.05 + random3 * 0.1, // 0.05 to 0.15 for C/S types
-            }
-        }
-        BodyType::Comet => 0.02 + random3 * 0.06, // 0.02 to 0.08 (low metallic, icy/dusty)
-        BodyType::DwarfPlanet => 0.05 + random3 * 0.15, // 0.05 to 0.2 (varied)
-        _ => 0.1 + random3 * 0.1,                 // 0.1 to 0.2 for others
+        BodyType::Comet => 0.02 + random3 * 0.04,
+        BodyType::DwarfPlanet => 0.05 + random3 * 0.1,
+        _ => 0.1 + random3 * 0.1,
     };
-
     (color_variation, roughness_var, metallic_var)
 }
 
@@ -782,21 +711,51 @@ pub fn setup_solar_system(
                 true,
             )
         } else if let Some(ref texture) = body_data.texture {
-            // Single dedicated texture
+            // Single dedicated texture. Asteroids and comets always pick up
+            // the shared relief normal map so dedicated textures (s-type,
+            // vesta, etc.) show the same per-class material treatment as
+            // the generic path. The normal map handle is queued for linear
+            // conversion (it's data, not albedo) and applied to the
+            // StandardMaterial below.
+            let normal_path = if matches!(body_data.body_type, BodyType::Asteroid | BodyType::Comet)
+            {
+                Some("textures/celestial/asteroids/generic_rock_normal_2k.png")
+            } else {
+                None
+            };
+            let normal_tex = normal_path.map(|path| asset_server.load::<Image>(path));
+            if let Some(ref handle) = normal_tex {
+                linear_handle_queue.push(handle.clone());
+            }
             (
                 Some(asset_server.load(texture.clone())),
-                None,
+                normal_tex,
                 None,
                 None,
                 None,
                 true,
             )
         } else {
-            // Generic texture based on body type
+            // Generic asteroid maps are deliberately shared by spectral class,
+            // so select a deterministic normal map too. StandardMaterial uses
+            // tangent-space normals; the generated relief map adds craters and
+            // regolith breakup without changing the silhouette.
             let generic_path = get_generic_texture_path(body_data);
+            let normal_path = if matches!(body_data.body_type, BodyType::Asteroid | BodyType::Comet)
+            {
+                // Optional asset: use a supplied mission-inspired normal map
+                // when present; the material remains valid if a mod omits it.
+                Some("textures/celestial/asteroids/generic_rock_normal_2k.png")
+            } else {
+                None
+            };
+            let normal_tex = normal_path.map(|path| asset_server.load::<Image>(path));
+            if let Some(ref handle) = normal_tex {
+                linear_handle_queue.push(handle.clone());
+            }
             (
                 generic_path.map(|path| asset_server.load(path)),
-                None,
+                normal_tex,
                 None,
                 None,
                 None,
@@ -806,15 +765,43 @@ pub fn setup_solar_system(
 
         let has_texture = base_color_texture.is_some();
 
-        // Apply procedural variation to material properties
+        // Apply procedural variation to material properties. For asteroids
+        // and comets we always want the class-derived roughness / metallic /
+        // tint, regardless of whether the body has a dedicated texture,
+        // otherwise the legacy "white tint + 0.7 roughness" branch kept
+        // every S-type asteroid looking like a smooth red rock.
         let base_color = Color::srgb(body_data.color.0, body_data.color.1, body_data.color.2);
-        let (material_color, roughness, metallic) = if has_dedicated_texture {
-            // For textured bodies, use slightly tinted color to enhance texture
+        let is_asteroid_or_comet =
+            matches!(body_data.body_type, BodyType::Asteroid | BodyType::Comet);
+        let (material_color, roughness, metallic) = if is_asteroid_or_comet {
+            apply_procedural_variation(body_data, base_color, has_texture)
+        } else if has_dedicated_texture {
+            // For textured non-asteroid bodies, use a slight white tint to
+            // enhance the texture without re-tinting it.
             (Color::srgb(1.0, 1.0, 1.0), 0.7, 0.0)
         } else {
-            // Generic/procedural texture - apply variation
             apply_procedural_variation(body_data, base_color, has_texture)
         };
+
+        // Optional metallic_roughness map for asteroids.  The reference
+        // rock ships a roughness EXR; the bake script also produces a PNG
+        // sibling so the runtime does not depend on the OpenEXR loader.
+        // Load it once and tag the handle for linear conversion.
+        let metallic_roughness_texture = if is_asteroid_or_comet {
+            let handle = asset_server
+                .load::<Image>("textures/celestial/asteroids/generic_rock_roughness_2k.png");
+            linear_handle_queue.push(handle.clone());
+            Some(handle)
+        } else {
+            None
+        };
+
+        // Note: Bevy 0.18 `StandardMaterial` does not expose a public
+        // `normal_map_strength` field — that knob lives on a deferred path
+        // in the PBR shader and was only added in 0.19. We don't try to
+        // set it; the rock reference map (`generic_rock_normal_2k.png`)
+        // is dense enough that the bump reads at in-game zoom distances
+        // with the default strength.
 
         // Star surface material — uses limb darkening shader instead of StandardMaterial.
         // For non-star bodies, build the StandardMaterial as before (wrapped in Option
@@ -869,6 +856,10 @@ pub fn setup_solar_system(
                 base_color: material_color,
                 base_color_texture: base_color_texture.clone(),
                 normal_map_texture,
+                // Note: Bevy 0.18 does not expose a public
+                // `normal_map_strength` field. We rely on the dense
+                // rock reference map for visible relief.
+                metallic_roughness_texture,
                 // Minimal emissive floor so planets in dim/distant star systems
                 // aren't pitch black on the night side.  Intentionally very low
                 // so day/night contrast is still strong.
@@ -1709,9 +1700,12 @@ pub fn setup_solar_system(
                     (Color::srgba(0.65, 0.65, 0.65, 0.5), true)
                 }
                 BodyType::Asteroid => {
-                    // Asteroids: dark green, steep fade so individual trails are short
-                    // — prevents a thick opaque ring when many are visible at once.
-                    (Color::srgba(0.3, 0.55, 0.22, 0.45), false)
+                    // Asteroids: dim brown — matches the rocky/siliceous
+                    // aesthetic so the orbit line reads as an asteroid trail
+                    // and not a planetary ring.  Steep fade keeps individual
+                    // trails short so dense belts don't pile up into thick
+                    // opaque loops.
+                    (Color::srgba(0.42, 0.32, 0.20, 0.35), false)
                 }
                 BodyType::Comet => {
                     // Comets: yellow/amber
@@ -2102,7 +2096,17 @@ fn create_asteroid_mesh(visual_radius: f32, physical_radius_km: f32, seed: u64) 
                 // Normalize noise to roughly -1 to 1 range
                 noise /= 2.5;
 
-                let displacement = 1.0 + noise * irregularity_factor;
+                // Bias displacement outward: outward bumps get the full
+                // `irregularity_factor`, but inward concavities are scaled
+                // down to 35% of that depth.  Without this bias the noise
+                // function creates deep inward craters that fall into
+                // self-shadow at any sun angle, producing large black
+                // patches fixed in body space that rotate with the asteroid.
+                // A mild inward component is preserved so silhouettes still
+                // look natural (rocks aren't perfect convex aggregates),
+                // but the crater depth is well below the bump height.
+                let biased_noise = if noise < 0.0 { noise * 0.35 } else { noise };
+                let displacement = 1.0 + biased_noise * irregularity_factor;
 
                 (dir * visual_radius * displacement).into()
             })

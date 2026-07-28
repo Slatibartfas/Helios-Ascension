@@ -66,7 +66,9 @@ fn state_store_v2_save_and_load_roundtrip() {
     // Add a LocalStockpile on Earth (a divergence). The
     // extract path skips bodies whose stockpile is empty,
     // so we seed at least one resource entry.
-    let mut stock = LocalStockpile { stockpiles: HashMap::new() };
+    let mut stock = LocalStockpile {
+        stockpiles: HashMap::new(),
+    };
     stock
         .stockpiles
         .insert(helios_ascension::economy::ResourceType::Iron, 1.0);
@@ -111,7 +113,11 @@ fn state_store_v2_save_and_load_roundtrip() {
     let _earth2 = make_body(&mut world2, "Earth", 0);
     let outcome = apply_state_store(&mut world2, &store_back);
     assert_eq!(outcome.bodies_applied, 1);
-    assert!(outcome.warnings.is_empty(), "warnings: {:?}", outcome.warnings);
+    assert!(
+        outcome.warnings.is_empty(),
+        "warnings: {:?}",
+        outcome.warnings
+    );
 
     // Cleanup the temp file. We don't fail the test if this
     // errors (best-effort); the OS will GC /tmp eventually.
@@ -154,39 +160,45 @@ fn state_store_v2_save_size_for_many_default_bodies_stays_small() {
         let _ = world.spawn((
             body,
             SystemId(0usize),
-            LocalStockpile { stockpiles: HashMap::new() },
+            LocalStockpile {
+                stockpiles: HashMap::new(),
+            },
         ));
     }
 
     // Spawn Earth with a real colony + non-zero population
     // + a non-empty stockpile (the production baseline).
-    let earth = world.spawn((
-        CelestialBody {
-            name: "Earth".to_string(),
-            radius: 0.0,
-            mass: 0.0,
-            body_type: BodyType::Planet,
-            visual_radius: 0.0,
-            asteroid_class: None,
-            star_approach_au: None,
-            rotation_period_s: None,
-            habitable_outer_au: None,
-        },
-        SystemId(0usize),
-        helios_ascension::economy::components::Population { count: 8.2e9 },
-        helios_ascension::colony::components::Colony {
-            name: "Earth".to_string(),
-            population: 8.2e9,
-            development: helios_ascension::colony::components::ColonyDevelopment {
-                tier: helios_ascension::colony::components::ColonyTier::Civilisation,
-                yield_multiplier: 1.0,
-                investments: 0,
+    let earth = world
+        .spawn((
+            CelestialBody {
+                name: "Earth".to_string(),
+                radius: 0.0,
+                mass: 0.0,
+                body_type: BodyType::Planet,
+                visual_radius: 0.0,
+                asteroid_class: None,
+                star_approach_au: None,
+                rotation_period_s: None,
+                habitable_outer_au: None,
             },
-            buildings: HashMap::new(),
-            growth_rate_modifier: 1.0,
-        },
-    )).id();
-    let mut stock = LocalStockpile { stockpiles: HashMap::new() };
+            SystemId(0usize),
+            helios_ascension::economy::components::Population { count: 8.2e9 },
+            helios_ascension::colony::components::Colony {
+                name: "Earth".to_string(),
+                population: 8.2e9,
+                development: helios_ascension::colony::components::ColonyDevelopment {
+                    tier: helios_ascension::colony::components::ColonyTier::Civilisation,
+                    yield_multiplier: 1.0,
+                    investments: 0,
+                },
+                buildings: HashMap::new(),
+                growth_rate_modifier: 1.0,
+            },
+        ))
+        .id();
+    let mut stock = LocalStockpile {
+        stockpiles: HashMap::new(),
+    };
     stock
         .stockpiles
         .insert(helios_ascension::economy::ResourceType::Iron, 1.0);
@@ -247,9 +259,10 @@ fn state_store_v2_with_bodykey_serialization() {
     let ron = store.to_ron().expect("serialise");
     let back = StateStore::from_ron(&ron).expect("parse");
     assert!(back.bodies.contains_key(&BodyKey::sol("Earth")));
-    assert!(back
-        .bodies
-        .contains_key(&BodyKey { system: 7, name: "Proxima b".to_string() }));
+    assert!(back.bodies.contains_key(&BodyKey {
+        system: 7,
+        name: "Proxima b".to_string()
+    }));
 }
 
 /// Regression test: fleets spawned by the regen chain
@@ -261,8 +274,8 @@ fn state_store_v2_with_bodykey_serialization() {
 #[test]
 fn state_store_v2_save_skips_regen_chain_fleets() {
     use helios_ascension::fleets::components::{Fleet, FleetOrbit, ShipInfo};
-    use helios_ascension::fleets::RegenChainFleet;
     use helios_ascension::fleets::types::{FleetRole, PropulsionType, ShipClass};
+    use helios_ascension::fleets::RegenChainFleet;
 
     let mut world = minimal_world();
     let earth = make_body(&mut world, "Earth", 0);
@@ -411,10 +424,9 @@ fn state_store_v2_local_stockpile_roundtrip_via_save_file() {
     stock
         .stockpiles
         .insert(helios_ascension::economy::ResourceType::Iron, 17.5);
-    stock.stockpiles.insert(
-        helios_ascension::economy::ResourceType::Water,
-        3.25,
-    );
+    stock
+        .stockpiles
+        .insert(helios_ascension::economy::ResourceType::Water, 3.25);
     world.entity_mut(_mars).insert(stock);
 
     let mut path = std::env::temp_dir();
@@ -557,9 +569,7 @@ fn state_store_v2_resource_state_survives_production_restore_path() {
     let mut fresh = build_minimal_world_for_restore();
     apply_state_store(&mut fresh, &store);
 
-    let treasury = fresh
-        .resource::<GlobalBudget>()
-        .treasury;
+    let treasury = fresh.resource::<GlobalBudget>().treasury;
     assert_eq!(
         treasury, 12_345.0,
         "treasury must round-trip through the production restore path"
