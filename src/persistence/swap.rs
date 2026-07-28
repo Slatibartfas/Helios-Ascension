@@ -593,6 +593,7 @@ fn helios_simulation_marker_set() -> Vec<std::any::TypeId> {
     use crate::colony::components::{Colony, ColonyEnvironmentCosts};
     use crate::economy::components::{LocalStockpile, PlanetResources};
     use crate::fleets::components::{Fleet, FleetOrbit};
+    use crate::plugins::solar_system::Ring;
     use crate::research::components::{EngineeringProject, ResearchProject};
     use crate::survey::components::SurveyState;
 
@@ -614,6 +615,21 @@ fn helios_simulation_marker_set() -> Vec<std::any::TypeId> {
         TypeId::of::<ResearchProject>(),
         TypeId::of::<EngineeringProject>(),
         TypeId::of::<SurveyState>(),
+        // GRA-358 PR-K follow-up: ring bodies don't carry
+        // `SpaceCoordinates` (the regen chain's `setup_solar_system`
+        // adds `SpaceCoordinates` only inside the
+        // `if let Some(orbit) = body_data.orbit` branch, and rings
+        // have `orbit: None` in `solar_system.ron`). Without
+        // `Ring` in the marker set, an old-session ring entity
+        // survives the swap and renders at the world origin (the
+        // ring's `LogicalParent` points to a despawned host
+        // planet, so `update_render_transform`'s "no parent found"
+        // fallback uses `coords.position = DVec3::ZERO` →
+        // ring falls into Sol's location). The unit-test
+        // `swap_world_into_despawns_helios_simulation_entities_from_target`
+        // would not catch this because the test's "live" world
+        // never had ring entities to begin with.
+        TypeId::of::<Ring>(),
     ]
 }
 

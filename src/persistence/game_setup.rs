@@ -182,6 +182,27 @@ pub fn play_new_game(world: &mut World, request: NewGameRequest) -> Result<u64, 
     let seed = resolve_seed(&request);
     let request = NewGameRequest { seed, ..request };
 
+    // GRA-358 PR-K follow-up: the "🏠 Main Menu" → New Game
+    // path relies on `consume_in_game_return_to_menu_system`
+    // clearing `RestoredWorldGate` / `RestoredBodiesRendered`
+    // before the kickoff. If the player reaches this
+    // kickoff via a different flow (e.g. a future Reset
+    // path, or a hard-wired test), the markers may still be
+    // set from a previous Restore — which would suppress the
+    // boot-init chain's regen pass and leave the new world
+    // empty. Strip the markers explicitly here so the New
+    // Game path is self-contained regardless of how the
+    // player reached it.
+    world.remove_resource::<super::swap::RestoredWorldGate>();
+    world.remove_resource::<crate::persistence::RestoredBodiesRendered>();
+    // The day-one fleet markers survive the swap (they're
+    // `#[reflect(Resource)]`) so a Restore that accidentally
+    // ran the regen chain (current behaviour: it doesn't, but
+    // PR-J left the door open) would carry them over. Strip
+    // them so the boot-init chain's spawners actually fire.
+    world.remove_resource::<crate::fleets::DayOneFleetSpawned>();
+    world.remove_resource::<crate::fleets::DebugEarthJupiterFleetSpawned>();
+
     let fresh = build_minimal_world(seed);
 
     world.insert_resource(PendingGameWorld { world: Some(fresh) });
@@ -1042,6 +1063,51 @@ mod tests {
              factory has reverted to the bare-World::new() \
              shape and the restore path will abort on the \
              first scene-deserialise type lookup."
+        );
+    }
+
+    /// GRA-358 PR-K regression: the "🏠 Main Menu → New Game"
+    /// sequence must start from a clean swap-gate state, even
+    /// if the leave-game consumer didn't run (e.g. a future
+    /// Reset path, or a hard-wired test). Without these
+    /// `remove_resource` calls, the boot-init chain's run_if
+    /// gate sees `RestoredWorldGate` set and the regen chain
+    /// stays silent — the player lands in an empty world.
+    #[test]
+    fn play_new_game_strips_persistence_markers() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.init_resource::<PendingGameWorld>();
+        app.add_message::<NewGameCommitted>();
+        // Pre-load the markers that a previous Restore would
+        // have left behind.
+        app.insert_resource(crate::persistence::swap::RestoredWorldGate);
+        app.insert_resource(crate::persistence::RestoredBodiesRendered);
+        app.insert_resource(crate::fleets::DayOneFleetSpawned);
+        app.insert_resource(crate::fleets::DebugEarthJupiterFleetSpawned);
+
+        let request = NewGameRequest {
+            params: NewGameParams::default(),
+            seed: 42,
+            preset: "standard".to_string(),
+        };
+        play_new_game(app.world_mut(), request).expect("ok");
+
+        assert!(
+            app.world().get_resource::<crate::persistence::swap::RestoredWorldGate>().is_none(),
+            "play_new_game must clear RestoredWorldGate so the boot-init chain's run_if gate is open"
+        );
+        assert!(
+            app.world().get_resource::<crate::persistence::RestoredBodiesRendered>().is_none(),
+            "play_new_game must clear RestoredBodiesRendered so the next Restore can re-render"
+        );
+        assert!(
+            app.world().get_resource::<crate::fleets::DayOneFleetSpawned>().is_none(),
+            "play_new_game must clear DayOneFleetSpawned so the regen-chain spawner fires"
+        );
+        assert!(
+            app.world().get_resource::<crate::fleets::DebugEarthJupiterFleetSpawned>().is_none(),
+            "play_new_game must clear DebugEarthJupiterFleetSpawned so the debug fleet spawner fires"
         );
     }
 }

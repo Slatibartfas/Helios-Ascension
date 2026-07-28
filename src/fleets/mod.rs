@@ -35,6 +35,7 @@ pub use orbital_mechanics::{
 };
 pub use systems::activate_scheduled_departures;
 pub use systems::DayOneFleetSpawned;
+pub use systems::DebugEarthJupiterFleetSpawned;
 pub use systems::RegenChainFleet;
 pub use types::{FleetClass, FleetRole, PropulsionType, ShipClass};
 pub use visuals::FleetMesh;
