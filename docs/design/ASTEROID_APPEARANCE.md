@@ -35,6 +35,23 @@ Psyche. The implementation avoids saturated red defaults because returned
 mission imagery generally shows neutral charcoal, stone-grey, brown-grey, and
 localized albedo variation instead.
 
+## Generic-texture routing
+
+Every non-Vesta asteroid (C, S, M, V, D, P, Unknown) shares the neutral
+`generic_c_type_2k.jpg` rock map. The per-class color profile above is a
+multiplier applied on top of that neutral base. The previous split — C/D/P
+through `generic_c_type_2k.jpg` and S/M/V through the warm
+`generic_s_type_2k.jpg` — produced a Mars-like surface for S/M/V bodies
+and crushed the shadow side into a black silhouette under any
+back-lighting, because Bevy's PBR doesn't model surface interreflection
+and a tiny emissive floor can't recover from a texture that already
+sits in the dark-brown band. Funnelling every class through one neutral
+map keeps the rock readable as rock and lets the class multiplier push
+the hue into the right zone without fighting the underlying texture.
+
+Vesta is the only asteroid with a dedicated texture (`vesta_4k.png`);
+that path bypasses the generic routing entirely.
+
 ## Asset note
 
 The binary normal and roughness maps are supplied as 1024×1024 PNGs. The

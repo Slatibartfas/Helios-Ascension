@@ -318,35 +318,25 @@ fn get_generic_texture_path(
 ) -> Option<String> {
     match body_data.body_type {
         BodyType::Asteroid => {
-            // Choose based on asteroid class
-            let class = body_data.asteroid_class.unwrap_or(AsteroidClass::CType);
-            match class {
-                AsteroidClass::CType => {
-                    Some("textures/celestial/asteroids/generic_c_type_2k.jpg".to_string())
-                }
-                AsteroidClass::SType => {
-                    Some("textures/celestial/asteroids/generic_s_type_2k.jpg".to_string())
-                }
-                // M-Type: Metallic - use S-type for now, procedural variation adds metallic property
-                AsteroidClass::MType => {
-                    Some("textures/celestial/asteroids/generic_s_type_2k.jpg".to_string())
-                }
-                // V-Type: Basaltic - use S-type for now, procedural variation adds reddish tint
-                AsteroidClass::VType => {
-                    Some("textures/celestial/asteroids/generic_s_type_2k.jpg".to_string())
-                }
-                // D-Type: Dark primitive - use C-type (both very dark), procedural variation enhances darkness
-                AsteroidClass::DType => {
-                    Some("textures/celestial/asteroids/generic_c_type_2k.jpg".to_string())
-                }
-                // P-Type: Primitive - use C-type (both dark), procedural variation creates distinction
-                AsteroidClass::PType => {
-                    Some("textures/celestial/asteroids/generic_c_type_2k.jpg".to_string())
-                }
-                AsteroidClass::Unknown => {
-                    Some("textures/celestial/asteroids/generic_c_type_2k.jpg".to_string())
-                }
-            }
+            // All non-Vesta asteroids share one neutral rock texture
+            // (`generic_c_type_2k.jpg`). The C-type map carries the right
+            // craters-and-regolith silhouette at a neutral grey base; the
+            // per-class color profile in `asteroid_class_profile` does the
+            // hue differentiation on top.
+            //
+            // History: an earlier draft routed S/M/V types through
+            // `generic_s_type_2k.jpg`, but that map is dominated by warm
+            // pink-brown splotches that read as a Mars-like surface and
+            // crushed the dark side into a pitch-black silhouette under
+            // any back-light. Funnelling every class through the same
+            // neutral map keeps the rock readable as rock and lets the
+            // class multiplier push the hue into the right zone without
+            // fighting the underlying texture.
+            //
+            // Vesta is the only asteroid with a dedicated texture
+            // (`vesta_4k.png`); that path bypasses this function via the
+            // dedicated-texture branch above.
+            Some("textures/celestial/asteroids/generic_c_type_2k.jpg".to_string())
         }
         BodyType::Comet => Some("textures/celestial/comets/generic_nucleus_2k.jpg".to_string()),
         BodyType::Moon => {
@@ -378,16 +368,16 @@ pub(crate) fn asteroid_class_profile(class: AsteroidClass) -> (Vec3, f32, f32) {
     // neutral-to-warm S-type, Vesta is basaltic with high albedo contrast, and
     // Psyche is metal/silicate rather than a mirror-like pure metal surface.
     //
-    // The RGB values represent the multiplier applied to the body's
-    // `base_color_texture` in `apply_procedural_variation`.  Because texture
-    // values are then multiplied by the lighting, the class profile needs to
-    // be high enough that the texture's natural dark patches (notably the
-    // prominent dark-brown splotches in `generic_s_type_2k.jpg`) don't read
-    // as deep-black splotches rotating with the asteroid.  The values here
-    // are deliberately above the geometric-albedo reference values (Bennu
-    // ~0.045, Eros ~0.23) — they compensate for the multiplicative shading
-    // so the rendered surface reads as rocky/stony rather than as a
-    // partially-black asteroid.
+    // Every class shares the neutral grey `generic_c_type_2k.jpg` rock
+    // texture, so the RGB values here represent the hue multiplier applied
+    // on top of that neutral base. C-type lands near the texture's natural
+    // charcoal grey (no shift). S-type pushes warm-grey. M-type pushes cool
+    // steel grey. V-type pushes basaltic brown. D/P types darken further.
+    //
+    // The values are clamped in `asteroid_material_variation` to
+    // [0.06, 0.72] per channel after a small per-body offset is applied;
+    // the S-type hue here is therefore the centre of an effective range
+    // rather than an absolute target.
     match class {
         // Roughness values are deliberately near the top of the [0, 1]
         // range: rock is matte, never satin-smooth. The shared
@@ -397,7 +387,7 @@ pub(crate) fn asteroid_class_profile(class: AsteroidClass) -> (Vec3, f32, f32) {
         // micro-variation. Combined with the rock normal map, the
         // surface reads as a clearly matte rock instead of plastic.
         AsteroidClass::CType => (Vec3::new(0.55, 0.55, 0.54), 0.95, 0.02),
-        AsteroidClass::SType => (Vec3::new(0.78, 0.74, 0.66), 0.92, 0.05),
+        AsteroidClass::SType => (Vec3::new(0.78, 0.75, 0.69), 0.92, 0.05),
         AsteroidClass::MType => (Vec3::new(0.62, 0.63, 0.64), 0.78, 0.28),
         AsteroidClass::VType => (Vec3::new(0.58, 0.54, 0.48), 0.94, 0.04),
         AsteroidClass::DType => (Vec3::new(0.45, 0.42, 0.40), 0.97, 0.01),
@@ -878,7 +868,21 @@ pub fn setup_solar_system(
                 // Minimal emissive floor so planets in dim/distant star systems
                 // aren't pitch black on the night side.  Intentionally very low
                 // so day/night contrast is still strong.
-                emissive: LinearRgba::WHITE * 0.006,
+                //
+                // Asteroids use a slightly higher floor (0.015) than the
+                // generic 0.006. Without it the shadow hemisphere of an
+                // S/M/V/C-type asteroid renders as a pure black silhouette
+                // because Bevy's PBR doesn't model surface-to-surface
+                // interreflection -- a back-lit asteroid has nothing
+                // lighting its dark side. The 0.015 floor reads as a faint
+                // charcoal sheen and keeps the texture legible without
+                // flattening the day/night terminator into mush.
+                emissive: LinearRgba::WHITE
+                    * if body_data.body_type == BodyType::Asteroid {
+                        0.015
+                    } else {
+                        0.006
+                    },
                 perceptual_roughness: roughness,
                 metallic,
                 reflectance: 0.3,
