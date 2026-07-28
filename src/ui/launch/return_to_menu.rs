@@ -124,6 +124,10 @@ pub fn consume_in_game_return_to_menu_system(world: &mut World) {
     //    `WorldReady` and (on the Restore path) `RestoredWorldGate`.
     world.remove_resource::<crate::persistence::swap::WorldReady>();
     world.remove_resource::<crate::persistence::swap::RestoredWorldGate>();
+    // GRA-358 PR-J: also clear the post-swap decoration marker
+    // so a subsequent Load Save kickoff re-runs the 3D pass on
+    // the freshly-swapped world.
+    world.remove_resource::<crate::persistence::RestoredBodiesRendered>();
 
     // 3. Reset the menu-backdrop active flag so the spawn
     //    branch fires next frame. The flag is normally set on

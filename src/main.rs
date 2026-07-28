@@ -153,6 +153,7 @@ fn build_game_app() -> App {
     .add_plugins(PersistencePlugin)
     .add_plugins(SaveLoadPlugin)
     .add_plugins(GameSetupPlugin)
+    .add_plugins(crate::persistence::RestoreDecorationPlugin)
     // Window/taskbar icon — must register *after* WindowPlugin and
     // SplashPlugin so the primary + splash window entities exist in
     // the world when the Startup system runs.

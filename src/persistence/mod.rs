@@ -41,6 +41,7 @@ pub mod io;
 pub mod params;
 pub mod playtime;
 pub mod plugin;
+pub mod post_swap_init;
 pub mod state_store;
 pub mod state_store_apply;
 pub mod state_store_extract;
@@ -66,6 +67,10 @@ pub use state_store_extract::{extract_state_store, ExtractError};
 pub use swap::{
     restored_world_is_not_present, restored_world_is_present, swap_world_into,
     world_ready_is_present, RestoredWorldGate, SwapError, WorldReady,
+};
+pub use post_swap_init::{
+    populate_restored_bodies_3d, restore_decoration_should_run, RestoredBodiesRendered,
+    RestoreDecorationPlugin,
 };
 
 /// Plugin that wires save/load into Bevy.
