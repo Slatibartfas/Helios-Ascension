@@ -2125,19 +2125,25 @@ fn value_noise_3d(p: Vec3, seed: u64) -> f32 {
     y0 + w * (y1 - y0)
 }
 
-/// Fractal Brownian Motion built from value noise. Sums 5 octaves at
+/// Fractal Brownian Motion built from value noise. Sums 6 octaves at
 /// increasing frequency and decreasing amplitude so the macro shape has
 /// large-scale craggy features and the micro shape has small-scale
-/// detail. Output is approximately Gaussian-distributed with std ~0.4.
+/// detail. The 0.7 gain (was 0.5) keeps high-frequency octaves
+/// contributing enough amplitude that the surface reads as rocky
+/// rather than smooth-gradient; the surface still looks like one
+/// connected shape because the macro octave (freq 1) dominates.
+///
+/// Output is approximately Gaussian-distributed, centred on zero,
+/// with std ~0.45.
 fn fbm_noise_3d(p: Vec3, seed: u64) -> f32 {
     let mut sum = 0.0;
     let mut amp = 1.0;
     let mut freq = 1.0;
     let mut max_amp = 0.0;
-    for _ in 0..5 {
+    for _ in 0..6 {
         sum += amp * value_noise_3d(p * freq, seed);
         max_amp += amp;
-        amp *= 0.5; // gain
+        amp *= 0.7; // gain
         freq *= 2.0; // lacunarity
     }
     sum / max_amp
@@ -2181,10 +2187,10 @@ fn create_asteroid_mesh(visual_radius: f32, physical_radius_km: f32, seed: u64) 
 
         // The macro-noise lookup scale: how many noise cells fit across
         // the asteroid. Bigger numbers mean finer-grained craggy relief.
-        // 2.5 gives ~5-6 visible 'lumps' around the equator on a small
+        // 3.0 gives ~6-7 visible 'lumps' around the equator on a small
         // asteroid; smaller values give one giant lump, larger values
         // give pebbled detail only.
-        let noise_scale = 2.5;
+        let noise_scale = 3.0;
 
         let new_positions: Vec<[f32; 3]> = positions
             .iter()
@@ -2197,14 +2203,17 @@ fn create_asteroid_mesh(visual_radius: f32, physical_radius_km: f32, seed: u64) 
                 // the craggy pattern doesn't share axes with the asteroid
                 // body. The second warp adds non-uniform warping so
                 // neighbouring regions look uncorrelated (otherwise the
-                // FBM has visible cell-aligned bias).
+                // FBM has visible cell-aligned bias). The 0.6 warp
+                // magnitude (was 0.4) stretches the displacement field
+                // enough that features look stretched and torn rather
+                // than rounded.
                 let warped = warp_rotation * dir;
                 let warp_offset = Vec3::new(
                     fbm_noise_3d(warped * noise_scale, seed),
                     fbm_noise_3d(warped * noise_scale + Vec3::new(7.3, 0.0, 0.0), seed),
                     fbm_noise_3d(warped * noise_scale + Vec3::new(0.0, 11.1, 0.0), seed),
                 );
-                let warped2 = warp_rotation * (dir + warp_offset * 0.4);
+                let warped2 = warp_rotation * (dir + warp_offset * 0.6);
                 let noise = fbm_noise_3d(warped2 * noise_scale, seed.wrapping_add(1));
 
                 // The previous version biased negative noise inward at 60%
@@ -2220,11 +2229,12 @@ fn create_asteroid_mesh(visual_radius: f32, physical_radius_km: f32, seed: u64) 
                 // the underlying sphere surface, producing visible smooth
                 // 'patches' inside the bumpy silhouette that read as a
                 // spherical base protruding through the texture.  A high-
-                // frequency value-noise term at 0--22% of the
+                // frequency value-noise term at 0--40% of the
                 // irregularity factor guarantees every vertex gets some
-                // radial offset so the whole surface reads as rocky.
+                // radial offset so the whole surface reads as rocky
+                // rather than smooth-gradient.
                 let micro = value_noise_3d(warped * 18.0, seed.wrapping_add(2)).abs();
-                let micro_displacement = 0.22 * micro * irregularity_factor;
+                let micro_displacement = 0.4 * micro * irregularity_factor;
 
                 let displacement = 1.0 + biased_noise * irregularity_factor + micro_displacement;
 
