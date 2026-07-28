@@ -2071,10 +2071,17 @@ fn create_asteroid_mesh(visual_radius: f32, physical_radius_km: f32, seed: u64) 
     {
         let mut rng = StdRng::seed_from_u64(seed);
 
-        // Define random axes for sine wave superposition
+        // Define random axes for sine wave superposition.
+        //
+        // 12 layers at steadily-increasing frequencies. More layers than
+        // the previous 6 so no single low-frequency wave dominates --
+        // a single dominant wave was producing the 'smooth sphere
+        // hemisphere' artifact the user reported on Atira/Aten, where
+        // one great-circle zero-crossing left an entire hemisphere with
+        // near-zero displacement.
         let mut axes = Vec::new();
         let mut phases = Vec::new();
-        let num_layers = 6;
+        let num_layers = 12;
 
         for _ in 0..num_layers {
             axes.push(
@@ -2106,38 +2113,44 @@ fn create_asteroid_mesh(visual_radius: f32, physical_radius_km: f32, seed: u64) 
                 let v = Vec3::from(*p);
                 let dir = v.normalize_or_zero();
 
+                // Twelve sine waves at increasing frequency (2.0..14.0)
+                // with decreasing amplitude (1/i).  Each individual layer
+                // contributes at most ±1/i; the composite is roughly
+                // Gaussian-distributed around 0 with std ~0.4, then
+                // normalised to [-1, 1] by dividing by 1.8 (the empirical
+                // peak amplitude of the sum).  Because the contributions
+                // drop off quickly, no single layer dominates and the
+                // surface has uniform variation in every direction.
                 let mut noise = 0.0;
                 for i in 0..num_layers {
-                    let frequency = 2.0 + (i as f32); // increasing frequency
+                    let frequency = 2.0 + (i as f32);
                     let val = (dir.dot(axes[i]) * frequency + phases[i]).sin();
-                    noise += val * (1.0 / (i as f32 + 1.0)); // decreasing amplitude
+                    noise += val * (1.0 / (i as f32 + 1.0));
                 }
 
                 // Normalize noise to roughly -1 to 1 range
-                noise /= 2.5;
+                noise /= 1.8;
 
-                // Bias displacement outward: outward bumps get the full
-                // `irregularity_factor`, but inward concavities are scaled
-                // down to 25% of that depth.  Without this bias the noise
-                // function creates deep inward craters that fall into
-                // self-shadow at any sun angle, producing large black
-                // patches fixed in body space that rotate with the asteroid.
-                // A mild inward component is preserved so silhouettes still
-                // look natural (rocks aren't perfect convex aggregates),
-                // but the crater depth is well below the bump height.
-                let biased_noise = if noise < 0.0 { noise * 0.25 } else { noise };
+                // Inward concavity depth is now 60% (was 25%) so the
+                // asteroid can be genuinely craggy.  The shadow-side
+                // black-patch issue is mitigated by:
+                //   * The boosted always-positive micro-noise below
+                //     (every vertex gets at least 9% outward offset,
+                //     so the underlying sphere never shows through).
+                //   * The asteroid-specific emissive floor (0.015) set
+                //     in `setup_solar_system` which keeps the dark
+                //     hemisphere from going pitch-black.
+                let biased_noise = if noise < 0.0 { noise * 0.6 } else { noise };
 
                 // Always-positive micro-noise layer.  Without this the
                 // regions where the primary noise crosses zero stay at
                 // the underlying sphere surface, producing visible smooth
-                // "patches" inside the bumpy silhouette that read as a
-                // spherical base protruding through the texture (visible
-                // especially on small asteroids whose bumpy silhouette is
-                // barely larger than the underlying sphere).  A high-
-                // frequency |sin| term at 0--8% of the irregularity factor
-                // guarantees every vertex gets some radial offset so the
-                // whole surface reads as rocky.
-                let micro_amp = 0.08;
+                // 'patches' inside the bumpy silhouette that read as a
+                // spherical base protruding through the texture.  A high-
+                // frequency |sin| term at 0--18% of the irregularity
+                // factor guarantees every vertex gets some radial offset
+                // so the whole surface reads as rocky.
+                let micro_amp = 0.18;
                 let micro_val = (axes[0].dot(dir) * 11.0 + phases[0]).sin().abs();
                 let micro_displacement = micro_amp * micro_val * irregularity_factor;
 

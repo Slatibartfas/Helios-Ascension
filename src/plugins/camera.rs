@@ -401,16 +401,20 @@ fn update_min_zoom(
             //   * Stars: surface is a smooth sphere on top of a much larger
             //     glowing corona, so 2.5× is a safe close-up framing.
             //   * Planets/moons: smooth sphere, 1.6× keeps a small gap.
-            //   * Asteroids/comets: `create_asteroid_mesh` displaces vertices
-            //     up to ~1.4× the visual radius for small bodies, so we use
-            //     1.6× to clear the bumpy silhouette.
-            // The floor drops from 5.0 to 0.3 so bodies as small as
-            // Bennu (visual_radius = 0.12) become inspectable; the previous
-            // 5.0 floor forced the camera to sit 40× the radius away.
+            //   * Asteroids/comets: `create_asteroid_mesh` now displaces
+            //     vertices up to ~1.63× the visual radius for small bodies
+            //     (deeper concavities + boosted micro-noise), so we use
+            //     2.0× to clear the bumpy silhouette with a small gap.
+            //
+            // The asteroid/comet floor was 0.3 in the previous pass, but
+            // that let the camera sit so close to small bodies (Bennu,
+            // Aten) that they filled the entire frame with unrecognisable
+            // pixel mush. 1.5 keeps the surface inspectable while leaving
+            // enough of the silhouette in frame for orientation.
             let new_min = if body.body_type == BodyType::Star {
                 (body.visual_radius * 2.5).max(250.0)
             } else if body.body_type == BodyType::Asteroid || body.body_type == BodyType::Comet {
-                (body.visual_radius * 1.6).max(0.3)
+                (body.visual_radius * 2.0).max(1.5)
             } else {
                 (body.visual_radius * 1.6).max(1.0)
             };
