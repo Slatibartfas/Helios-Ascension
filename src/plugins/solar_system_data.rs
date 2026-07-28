@@ -614,7 +614,11 @@ mod texture_system_tests {
             // (0.54/0.58 ≈ 0.93).
             assert!(rgb.x >= 0.4 && rgb.y >= 0.4 && rgb.z >= 0.4);
             assert!(rgb.x <= 0.85 && rgb.y <= 0.85 && rgb.z <= 0.85);
-            assert!(roughness >= 0.6);
+            // Rock is matte, never satin-smooth. Per-class roughness is the
+            // dominant contributor; the shared rock-roughness texture
+            // multiplies in micro-variation, so this scalar must stay near
+            // the top of the band for every class.
+            assert!(roughness >= 0.75 && roughness <= 0.98);
             assert!((0.0..=0.35).contains(&metallic));
         }
     }
