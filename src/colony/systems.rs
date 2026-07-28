@@ -182,6 +182,7 @@ pub fn process_construction_actions(
     )>,
     mut resource_requests: ResMut<PendingResourceRequests>,
     sim_time: Res<SimulationTime>,
+    mut dirty: ResMut<crate::economy::DirtyBodies>,
 ) {
     let now = sim_time.elapsed_seconds();
 
@@ -226,6 +227,11 @@ pub fn process_construction_actions(
                             for (rt, need) in &costs_typed {
                                 ls.consume(*rt, *need);
                             }
+                            // Mark the colony's body dirty — the
+                            // v2 extract path needs to know this
+                            // body's stockpile changed (even if
+                            // it ends up empty after the consume).
+                            dirty.mark_stockpile(colony_entity);
                         }
                     } else {
                         // Local stockpile is short.  Local-only construction model
@@ -472,6 +478,7 @@ pub fn update_colony_growth(
     mut budget: ResMut<crate::economy::GlobalBudget>,
     sim_time: Res<SimulationTime>,
     mut last_elapsed: Local<f64>,
+    mut dirty: ResMut<crate::economy::DirtyBodies>,
 ) {
     let current_elapsed = sim_time.elapsed_seconds();
     let dt = current_elapsed - *last_elapsed;
@@ -507,6 +514,13 @@ pub fn update_colony_growth(
             if food_cons > 0.0 {
                 ls.consume(ResourceType::Food, food_cons);
             }
+            // Colony grew / shrank — the LocalStockpile
+            // changed (even if net-zero) AND the Colony
+            // / Population may have changed. Mark dirty
+            // with `Multiple` so the extract path
+            // populates every applicable divergence
+            // field.
+            dirty.mark(entity, crate::economy::DirtyReason::Multiple);
             let reserve = ls.get(&ResourceType::Food);
             let annual_cons = colony.food_consumption_per_year();
             if annual_cons > 0.0 {
@@ -606,10 +620,11 @@ pub fn update_treasury(
 /// If that is also empty, buildings still operate (no hard shutdown).
 pub fn deduct_maintenance_resources(
     mut budget: ResMut<crate::economy::GlobalBudget>,
-    mut colonies: Query<(&Colony, Option<&mut LocalStockpile>)>,
+    mut colonies: Query<(Entity, &Colony, Option<&mut LocalStockpile>)>,
     buildings_data: Option<Res<BuildingsData>>,
     sim_time: Res<SimulationTime>,
     mut last_elapsed: Local<f64>,
+    mut dirty: ResMut<crate::economy::DirtyBodies>,
 ) {
     let data = match buildings_data {
         Some(ref d) if !d.definitions.is_empty() => d,
@@ -629,7 +644,7 @@ pub fn deduct_maintenance_resources(
         return;
     }
 
-    for (colony, mut local_opt) in colonies.iter_mut() {
+    for (entity, colony, mut local_opt) in colonies.iter_mut() {
         // Per GRA-22 §4.7: maintenance is scaled by the colony's development
         // yield multiplier.  Same factor as output — a small base costs less
         // in absolute terms to keep alive.
@@ -653,6 +668,10 @@ pub fn deduct_maintenance_resources(
                 }
             }
         }
+        // Maintenance drained the LocalStockpile. Mark
+        // dirty so the v2 extract path captures the
+        // mutation.
+        dirty.mark_stockpile(entity);
     }
 }
 
@@ -680,6 +699,7 @@ pub fn sync_population_from_colony(mut query: Query<(&Colony, &mut Population)>)
 /// the global budget as a fallback.
 pub fn deduct_environment_costs(
     mut colonies: Query<(
+        Entity,
         &Colony,
         &crate::colony::components::ColonyEnvironmentCosts,
         Option<&mut LocalStockpile>,
@@ -687,6 +707,7 @@ pub fn deduct_environment_costs(
     mut budget: ResMut<crate::economy::GlobalBudget>,
     sim_time: Res<SimulationTime>,
     mut last_elapsed: Local<f64>,
+    mut dirty: ResMut<crate::economy::DirtyBodies>,
 ) {
     let current_elapsed = sim_time.elapsed_seconds();
     let dt = current_elapsed - *last_elapsed;
@@ -701,7 +722,7 @@ pub fn deduct_environment_costs(
         return;
     }
 
-    for (colony, env_costs, mut local_opt) in colonies.iter_mut() {
+    for (entity, colony, env_costs, mut local_opt) in colonies.iter_mut() {
         let pop = colony.population;
         if pop <= 0.0 {
             continue;
@@ -728,6 +749,12 @@ pub fn deduct_environment_costs(
                 budget.consume_resource(ResourceType::Oxygen, o2_needed.min(avail));
             }
         }
+
+        // Mark dirty — environment drain is a
+        // player-visible mutation that the regen chain
+        // would otherwise revert on next load. Covers
+        // both water and oxygen branches.
+        dirty.mark_stockpile(entity);
     }
 }
 
@@ -1301,6 +1328,9 @@ mod tests {
         let mut app = App::new();
         app.init_resource::<PendingConstructionActions>();
         app.init_resource::<PendingResourceRequests>();
+        // GRA-358 PR-I: dirty-body tracker required by
+        // process_construction_actions.
+        app.init_resource::<crate::economy::DirtyBodies>();
         app.insert_resource(ConstructionDebugSettings {
             enabled: true,
             free_construction: true,
@@ -1359,6 +1389,9 @@ mod tests {
         let mut app = App::new();
         app.init_resource::<PendingConstructionActions>();
         app.init_resource::<PendingResourceRequests>();
+        // GRA-358 PR-I: dirty-body tracker required by
+        // process_construction_actions.
+        app.init_resource::<crate::economy::DirtyBodies>();
         app.insert_resource(ConstructionDebugSettings {
             enabled: true,
             free_construction: true,
@@ -1539,6 +1572,9 @@ mod tests {
         app.insert_resource(iron_factory_buildings_data());
         app.init_resource::<PendingResourceRequests>();
         app.init_resource::<PendingConstructionActions>();
+        // GRA-358 PR-I: dirty-body tracker is required
+        // by `process_construction_actions`.
+        app.init_resource::<crate::economy::DirtyBodies>();
         // Disable debug-mode cost bypass so the cost path actually runs.
         app.insert_resource(ConstructionDebugSettings {
             enabled: false,
@@ -1679,6 +1715,12 @@ mod tests {
         app.insert_resource(iron_factory_buildings_data());
         app.init_resource::<PendingResourceRequests>();
         app.init_resource::<PendingConstructionActions>();
+        // GRA-358 PR-I: dirty-body tracker is required
+        // by `process_construction_actions`'s system
+        // signature (mutates LocalStockpile on
+        // construction). Tests mirror the production
+        // plugin's init.
+        app.init_resource::<crate::economy::DirtyBodies>();
         app.insert_resource(ConstructionDebugSettings {
             enabled: false,
             free_construction: false,

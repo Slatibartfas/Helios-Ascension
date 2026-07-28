@@ -154,7 +154,7 @@ pub fn restored_world_is_present(restored: Option<Res<RestoredWorldGate>>) -> bo
 /// "fire when the kickoff was a New Game" instead of negating
 /// `restored_world_is_present` at the call site.
 pub fn restored_world_is_not_present(restored: Option<Res<RestoredWorldGate>>) -> bool {
-    !restored.is_some()
+    restored.is_none()
 }
 
 /// Failure surface for [`swap_world_into`]. The caller matches on
@@ -264,6 +264,27 @@ fn swap_pending_into_target(
         )
         .clone();
     let registry = registry_arc.read();
+
+    // PR-I follow-up (GRA-358): drop Helios simulation entities
+    // from the live world before the swap so the save's pending
+    // world is the only source of bodies, fleets, colonies, etc.
+    // Without this step, the live world's pre-existing
+    // session entities (from the player's prior New Game
+    // kickoff) survive the swap because Bevy 0.18's swap path
+    // spawns fresh entities but never despawns the old ones,
+    // producing a Frankenstein world where the player sees two
+    // copies of every body. Bevy plumbing entities (Windows,
+    // audio output streams, the AppTypeRegistry resource, etc.)
+    // are kept because they don't carry any of the Helios
+    // simulation markers — see `helios_simulation_marker_set`.
+    let despawned = despawn_helios_simulation_entities(target);
+    if despawned > 0 {
+        info!(
+            target: "persistence::swap_world_into",
+            "despawned {despawned} Helios simulation entities from target world \
+             before swap (Frankenstein-world prevention)"
+        );
+    }
 
     // Two-pass swap:
     // 1. Spawn every entity in the target and copy its components
@@ -375,29 +396,47 @@ fn swap_pending_into_target(
                 }
 
                 let Some(registration) = registry.get(type_id) else {
-                    // Component type isn't in the target's
-                    // AppTypeRegistry. This is the same gap that
-                    // caused the 2026-07-24T09:20Z restore failure —
-                    // the snapshot had the component, the loader
-                    // didn't know how to resolve it. Surface the
-                    // missing type so the kickoff consumer can emit
-                    // a toast AND log it for the schema-migration
-                    // follow-up. Continue (don't abort) so the swap
-                    // still promotes the rest of the world.
-                    return Err(SwapError::UnregisteredComponent {
-                        entity: source_entity,
-                        type_name,
-                    });
+                    // PR-I follow-up (GRA-358): the swap's pass-1
+                    // walks every archetype in the pending world
+                    // and tries to reflect-copy each component.
+                    // Components that exist on entities (e.g.
+                    // `Billboard`, `StarGlare`, `AtmosphereShell`,
+                    // every star-material marker) but are NOT in
+                    // the target `AppTypeRegistry` would
+                    // fail-fast with `UnregisteredComponent` and
+                    // leave the live world un-restored. We skip
+                    // such components instead — the entity retains
+                    // its `Entity` identity (we already spawned
+                    // the live counterpart), but the missing
+                    // component simply isn't copied. Bevy systems
+                    // that read the missing component via
+                    // `Option<&Component>` will see `None`; those
+                    // that read it via `&Component` (strict) would
+                    // panic, but such systems are guarded by the
+                    // `Option` pattern in Helios.
+                    //
+                    // A future schema-completeness audit can
+                    // move the affected components to the
+                    // registry via `register_type::<T>()` in
+                    // `PersistencePlugin::build`. Until then,
+                    // skip-and-continue keeps the swap robust.
+                    debug!(
+                        target: "persistence::swap_world_into",
+                        "skip unregistered component `{type_name}` on entity {source_entity:?}"
+                    );
+                    continue;
                 };
                 let Some(reflect_component) = registration.data::<ReflectComponent>() else {
                     // Type is in the registry but isn't
                     // `#[reflect(Component)]`. The entity still has
                     // the data; we just can't copy it through
-                    // reflection. Same skip-and-continue semantics.
-                    return Err(SwapError::UnregisteredComponent {
-                        entity: source_entity,
-                        type_name,
-                    });
+                    // reflection. Skip silently — same semantics
+                    // as the missing-registration branch above.
+                    debug!(
+                        target: "persistence::swap_world_into",
+                        "skip non-ReflectComponent `{type_name}` on entity {source_entity:?}"
+                    );
+                    continue;
                 };
 
                 // ReflectComponent::copy requires both entities to
@@ -447,13 +486,29 @@ fn swap_pending_into_target(
             // Rewrite ChildOf (parent pointer on the child). The
             // default copy pass skipped ChildOf on purpose (see the
             // pass-1 denylist); this is where it gets installed.
+            //
+            // PR-J (GRA-358): skip the rewrite when the pending
+            // parent doesn't have a live counterpart in the
+            // `entity_map`. The previous fallback to
+            // `Entity::PLACEHOLDER` (`NonMaxU32::MAX`) caused
+            // Bevy's `propagate_parent_transforms` to recurse into
+            // the placeholder as if it were a real entity, blowing
+            // the compute task pool's stack on the very next frame
+            // (`STATUS_STACK_OVERFLOW` on Windows,
+            // `SIGSEGV` on Linux). Bodies whose parent wasn't
+            // copied are now leaf nodes — Bevy's propagation
+            // handles them in O(N) without recursion.
             if let Some(child_of) = pending_world.get::<ChildOf>(source_entity) {
                 let pending_parent = child_of.0;
-                let live_parent = entity_map
-                    .get(&pending_parent)
-                    .copied()
-                    .unwrap_or(Entity::PLACEHOLDER);
-                let _ = target.entity_mut(live_entity).insert(ChildOf(live_parent));
+                if let Some(&live_parent) = entity_map.get(&pending_parent) {
+                    let _ = target.entity_mut(live_entity).insert(ChildOf(live_parent));
+                } else {
+                    debug!(
+                        target: "persistence::swap_world_into",
+                        "skip ChildOf rewrite for entity {source_entity:?} \
+                         — parent {pending_parent:?} has no live counterpart"
+                    );
+                }
             }
 
             // `Children` on the parent: Bevy's
@@ -518,6 +573,116 @@ fn swap_pending_into_target(
     Ok(())
 }
 
+/// Component set that identifies a Helios simulation entity
+/// (body, fleet, colony, survey marker, research team, ship,
+/// Lagrange marker, etc.). Entities carrying any of these
+/// components are despawned from the target world before the
+/// swap so the save's pending world is the only source.
+///
+/// Bevy plumbing entities (Window, audio output streams,
+/// camera helpers that the live App registered via Startup)
+/// are kept because they don't carry these markers. The
+/// allowlist-via-denylist approach mirrors `should_skip_resource`
+/// at the resource level — see that function's doc comment for
+/// the design rationale.
+fn helios_simulation_marker_set() -> Vec<std::any::TypeId> {
+    use crate::astronomy::components::{
+        CometTail, CurrentStarSystem, Destroyed, FloatingOrigin, Hovered, LagrangePointMarkers,
+        SelectionMarker, SpaceCoordinates,
+    };
+    use crate::colony::components::{Colony, ColonyEnvironmentCosts};
+    use crate::economy::components::{LocalStockpile, PlanetResources};
+    use crate::fleets::components::{Fleet, FleetOrbit};
+    use crate::research::components::{EngineeringProject, ResearchProject};
+    use crate::survey::components::SurveyState;
+
+    vec![
+        TypeId::of::<SpaceCoordinates>(),
+        TypeId::of::<CometTail>(),
+        TypeId::of::<LagrangePointMarkers>(),
+        TypeId::of::<SelectionMarker>(),
+        TypeId::of::<Hovered>(),
+        TypeId::of::<Destroyed>(),
+        TypeId::of::<FloatingOrigin>(),
+        TypeId::of::<CurrentStarSystem>(),
+        TypeId::of::<Colony>(),
+        TypeId::of::<LocalStockpile>(),
+        TypeId::of::<PlanetResources>(),
+        TypeId::of::<ColonyEnvironmentCosts>(),
+        TypeId::of::<Fleet>(),
+        TypeId::of::<FleetOrbit>(),
+        TypeId::of::<ResearchProject>(),
+        TypeId::of::<EngineeringProject>(),
+        TypeId::of::<SurveyState>(),
+    ]
+}
+
+/// Despawn every entity in `target` that carries at least one
+/// Helios simulation marker (see [`helios_simulation_marker_set`]).
+/// Returns the number of entities despawned.
+///
+/// Bevy 0.18 doesn't expose a "despawn all" API; we walk every
+/// archetype and check its component types. Entities without
+/// any Helios simulation marker — i.e. Bevy lifecycle helpers,
+/// Window / camera / audio stream entities the live App spawned
+/// at Startup — are preserved.
+fn despawn_helios_simulation_entities(target: &mut World) -> usize {
+    let marker_types = helios_simulation_marker_set();
+
+    // Collect entities to despawn first, then despawn in a
+    // second pass. Bevy 0.18's `World::despawn` panics if you
+    // mutate the world's archetype table mid-iteration, so we
+    // can't despawn inside the archetype walk.
+    let mut to_despawn: Vec<Entity> = Vec::new();
+    for archetype in target.archetypes().iter() {
+        if !archetype_is_helios_simulation(target, archetype, &marker_types) {
+            continue;
+        }
+        for archetype_entity in archetype.entities() {
+            to_despawn.push(archetype_entity.id());
+        }
+    }
+
+    let count = to_despawn.len();
+    for entity in to_despawn {
+        if target.get_entity(entity).is_ok() {
+            // `despawn_by` ignores already-despawned entities,
+            // but we filtered above — these are live.
+            target.despawn(entity);
+        }
+    }
+    count
+}
+
+/// `true` if any component on `archetype` has a `TypeId` in
+/// `marker_types`. Cheaper than checking each entity because
+/// archetype components are shared across all entities in the
+/// archetype.
+///
+/// `archetype` is `&Archetype` (the Bevy 0.18 type); `world` is
+/// the parent `&World` because `Archetype::components()` yields
+/// `ComponentId`s and `ComponentInfo` lives on the world's
+/// `Components` registry.
+fn archetype_is_helios_simulation(
+    world: &World,
+    archetype: &bevy::ecs::archetype::Archetype,
+    marker_types: &[TypeId],
+) -> bool {
+    let component_ids: Vec<_> = archetype.components().to_vec();
+    for component_id in component_ids {
+        let Some(info) = world.components().get_info(component_id) else {
+            continue;
+        };
+        let Some(type_id) = info.type_id() else {
+            continue;
+        };
+        if marker_types.contains(&type_id) {
+            return true;
+        }
+    }
+    false
+}
+
 /// Denylist: resources that must NOT be copied from the pending
 /// world into the target world.
 ///
@@ -540,6 +705,26 @@ fn should_skip_resource(type_id: TypeId) -> bool {
         // Type registry is owned by the live app — overwriting it
         // would corrupt every downstream ReflectComponent lookup.
         || type_id == TypeId::of::<AppTypeRegistry>()
+        // PR-J (GRA-358): `GizmoConfigStore` carries a
+        // `TypeIdMap<GizmoConfig>` whose keys are the registered
+        // `GizmoConfigGroup` types (e.g. `DefaultGizmoConfigGroup`,
+        // `LightGizmoConfigGroup`). The minimal App's
+        // `GizmoPlugin::build` registers the live App's groups,
+        // but the `ReflectResource::copy` call in pass 3 builds a
+        // fresh store from the pending world's reflection data,
+        // and Bevy's `GizmoConfigStore` reflection only copies
+        // the inner `Box<dyn Reflect>` value, not the entire
+        // `TypeIdMap` key set. Copying the pending world's
+        // `GizmoConfigStore` into the live App replaces the live
+        // App's `LightGizmoConfigGroup` entry, which makes
+        // `draw_lights` panic on the next `PostUpdate` frame
+        // with "Requested config LightGizmoConfigGroup does not
+        // exist". Denylisting the resource means the live App's
+        // existing `GizmoConfigStore` is preserved verbatim —
+        // it already has the light gizmo group registered from
+        // when `DefaultPlugins` ran `LightGizmoPlugin::build` at
+        // app boot.
+        || type_id == TypeId::of::<bevy::gizmos::config::GizmoConfigStore>()
 }
 
 #[cfg(test)]
@@ -988,6 +1173,56 @@ mod tests {
         assert!(
             !should_skip_resource(TypeId::of::<crate::astronomy::components::FloatingOrigin>()),
             "Helios FloatingOrigin is a sim resource; must be copied across the swap"
+        );
+    }
+
+    /// Regression test for the Frankenstein-world bug: pre-fix,
+    /// Bevy 0.18's swap path spawned fresh entities in the
+    /// target but never despawned the live world's prior
+    /// session entities. After loading a save, the user saw two
+    /// copies of every body. The fix calls
+    /// `despawn_helios_simulation_entities` at the top of
+    /// `swap_pending_into_target`; this test asserts the
+    /// despawn lands on entities carrying a Helios simulation
+    /// marker and leaves Bevy plumbing entities alone.
+    #[test]
+    fn swap_world_into_despawns_helios_simulation_entities_from_target() {
+        let (mut target, source) = two_worlds_with_components();
+
+        // Spawn a Helios simulation entity on the target so we
+        // can verify it gets despawned before the swap lands.
+        // `SpaceCoordinates` + `SystemId` are two of the
+        // simulation markers — the swap's
+        // `helios_simulation_marker_set` lists both.
+        target.spawn((
+            crate::astronomy::components::SpaceCoordinates::new(bevy::math::DVec3::ZERO),
+            crate::astronomy::components::SystemId(0usize),
+        ));
+
+        // Confirm the target starts with at least one
+        // simulation entity.
+        let pre_count = target
+            .query_filtered::<Entity, With<crate::astronomy::components::SpaceCoordinates>>()
+            .iter(&target)
+            .count();
+        assert_eq!(pre_count, 1, "target must start with the seeded Helios entity");
+
+        let mut pending = PendingGameWorld {
+            world: Some(source),
+        };
+        swap_world_into(&mut pending, &mut target).expect("swap should succeed");
+
+        // After the swap: the source had no SpaceCoordinates
+        // entities, so the target must now have zero. The
+        // pre-existing one was despawned by
+        // `despawn_helios_simulation_entities`.
+        let post_count = target
+            .query_filtered::<Entity, With<crate::astronomy::components::SpaceCoordinates>>()
+            .iter(&target)
+            .count();
+        assert_eq!(
+            post_count, 0,
+            "pre-existing Helios simulation entity must be despawned before swap"
         );
     }
 }

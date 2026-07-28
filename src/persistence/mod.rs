@@ -1,93 +1,68 @@
 //! Save / Load plugin — Bevy world-state persistence for Helios Ascension.
 //!
-//! GRA-314 / GRA-358 PR-A + PR-B. The persistence module is split
-//! across two PRs:
+//! GRA-358 PR-I ships the **v2 StateStore save format**: a regenerate-
+//! from-seed + divergence overlay model. The v1 DynamicScene path
+//! (DynamicScene + entity-remap dance) was retired alongside PR-I —
+//! saves written by the old binary fail to load cleanly because the
+//! regen chain produces correct bodies from the seed without needing
+//! the entity-remap dance. See
+//! [`.github/copilot-instructions.md`](../copilot-instructions.md) under
+//! "Save-game Compatibility (GRA-358 PR-I — CRITICAL)" for the
+//! full state-store contract.
 //!
-//! - **PR-A** (shipped) — [`PersistencePlugin`] (register
-//!   [`AppTypeRegistry`] + cross-plugin reflection coverage),
-//!   [`snapshot::snapshot_world`], [`restore::restore_world`],
-//!   [`migrate::run_migrations`], [`format_version::FORMAT_VERSION`],
-//!   and the [`params::NewGameParams`] loader.
-//! - **PR-B** (this PR) — [`SaveLoadPlugin`] registers
-//!   [`crate::persistence::playtime::PlaytimeTracker`] +
-//!   [`crate::persistence::autosave::AutosaveTimer`] and schedules
-//!   the two `Update` ticks; [`crate::persistence::io`] provides the
-//!   atomic-write helper [`crate::persistence::io::write_save_atomic`].
+//! # Modules
 //!
-//! # R2 (Reflection coverage gap)
-//!
-//! Bevy's `DynamicScene` snapshot walks `AppTypeRegistry` for every
-//! `#[reflect(Component)]` and `#[reflect(Resource)]` type. Helios currently
-//! registers very few types reflectively — only
-//! `src/ui/notifications/components.rs` and a couple of UI state types.
-//! **PR-A's roundtrip test therefore exercises reflectively-registered
-//! test types only**, not live Helios components.
-//!
-//! The gap is tracked as a follow-up issue (search for "GRA-XXX add
-//! `#[reflect(Component)]` across astronomy/colony/fleet/economy"). Until
-//! that lands, calling [`snapshot_world`] on a real Helios world will
-//! silently drop every component that hasn't been registered.
-//!
-//! # R3 (fresh world for restore)
-//!
-//! [`restore::restore_world`] ALWAYS constructs a fresh [`World`] via the
-//! caller-supplied factory. We never reuse the live world for restore —
-//! `Entity` IDs in Bevy 0.18 are reused after `World::clear()`, which would
-//! cause silent pointer collisions.
-//!
-//! # R4 (atomic on-disk write)
-//!
-//! PR-A does NOT touch the disk. PR-B adds
-//! [`crate::persistence::io::write_save_atomic`] (write-to-tmp-then-rename
-//! with `fsync`). The autosave consumer is the first caller; PR-C
-//! (Save Panel UI) will reuse the same helper.
-//!
-//! # Bevy 0.18 `SceneDeserializer` import gotcha
-//!
-//! `bevy_scene::serde::SceneDeserializer` only exposes `.deserialize(...)`
-//! via the `serde::de::DeserializeSeed` trait — there is no inherent method.
-//! Any caller of the restore path MUST `use serde::de::DeserializeSeed;`
-//! alongside the `use bevy_scene::serde::SceneDeserializer;`. PR-B and PR-C
-//! will both reach into this module; the import lives at module scope to
-//! avoid per-call-site duplication.
+//! - [`state_store`] — the [`StateStore`] data schema (RON, magic
+//!   header `helios_state_store_v2`, `serde_json::Value`-backed
+//!   per-component divergence blobs).
+//! - [`state_store_extract`] — walks a live `World` and produces a
+//!   [`StateStore`] containing only the per-body divergences from the
+//!   regen chain.
+//! - [`state_store_apply`] — overlay a [`StateStore`] on a freshly-
+//!   regenerated world.
+//! - [`game_setup`] — the public save/load entry points
+//!   ([`write_save_to_path`], [`restore_save`]) plus the world-swap
+//!   machinery ([`promote_pending_world`], [`play_new_game`]).
+//! - [`autosave`] / [`playtime`] — the rolling-window save timer and
+//!   playtime accumulator.
+//! - [`swap`] — world-swap state markers ([`WorldReady`],
+//!   [`RestoredWorldGate`]) used by the boot-init chain.
+//! - [`io`] — atomic write helper ([`write_save_atomic`]).
+//! - [`format_version`] — the version constant + magic-header sniff.
+//! - [`plugin`] — the Bevy plugin that wires everything together.
+//! - [`params`] — the `new_game_params.ron` loader.
 
 use bevy::prelude::*;
 
 pub mod autosave;
 pub mod format_version;
 pub mod game_setup;
-pub mod handle_sidecar;
 pub mod io;
-pub mod migrate;
 pub mod params;
 pub mod playtime;
 pub mod plugin;
-pub mod restore;
-pub mod snapshot;
+pub mod state_store;
+pub mod state_store_apply;
+pub mod state_store_extract;
 pub mod swap;
 
 pub use autosave::{
     prune_old_autosaves, tick_autosave_timer, AutosaveTimer, AUTOSAVE_PREFIX, AUTOSAVE_SUFFIX,
     DEFAULT_AUTOSAVE_INTERVAL_S, DEFAULT_ROLLING_COUNT,
 };
-pub use format_version::{FORMAT_VERSION, MIN_SUPPORTED_VERSION};
+pub use format_version::FORMAT_VERSION;
 pub use game_setup::{
-    play_new_game, play_new_game_with_factory, promote_pending_world, rescan_save_index,
-    restore_save, write_save_to_path, GameSetupError, GameSetupPlugin, NewGameCommitted,
-    PendingGameWorld, RestoreCommitted,
-};
-pub use handle_sidecar::{
-    apply_handle_sidecar, extract_handle_sidecar, EntityHandles, HandleSidecar,
+    metadata_for, play_new_game, play_new_game_with_factory, promote_pending_world,
+    read_state_store, rescan_save_index, restore_save, write_save_to_path, GameSetupError,
+    GameSetupPlugin, NewGameCommitted, PendingGameWorld, RestoreCommitted,
 };
 pub use io::{delete_save_files, write_save_atomic, SaveIoError};
-pub use migrate::{Body, MigrateError, SchemaKind};
 pub use params::{load_new_game_params_defaults, NewGameParams, NewGameParamsDefaults};
 pub use playtime::{tick_playtime_tracker, PlaytimeTracker};
 pub use plugin::SaveLoadPlugin;
-pub use restore::{restore_world, RestoreError, RestoredWorld};
-pub use snapshot::{
-    snapshot_world, snapshot_world_with_registry, SaveFile, SaveMetadata, SnapshotError,
-};
+pub use state_store::{BodyKey, StateStore, StateStoreError, StateStoreMetadata};
+pub use state_store_apply::{apply_state_store, ApplyOutcome};
+pub use state_store_extract::{extract_state_store, ExtractError};
 pub use swap::{
     restored_world_is_not_present, restored_world_is_present, swap_world_into,
     world_ready_is_present, RestoredWorldGate, SwapError, WorldReady,
@@ -157,27 +132,16 @@ impl Plugin for PersistencePlugin {
             // these on the live `App`. The loader's
             // `build_minimal_world_for_restore` factory
             // (`src/persistence/game_setup.rs:198-200`)
-            // builds a bare `World::new()` with **no
-            // plugins** — so on the restore path those
-            // source registrations don't run. Without an
-            // explicit re-registration here, the
-            // deserializer's `AppTypeRegistry` lookup fails
-            // and `restore_world` returns Err.
-            //
-            // Player-visible symptom at 2026-07-24T09:20Z:
-            // `kickoff: restore_save failed: save restore
-            // failed: scene deserialise failed: no
-            // registration found for
-            // `helios_ascension::astronomy::components::
-            // CurrentStarSystem``. The
-            // `a99a5f5`-era audit list only covered five
-            // astronomy types (above), so the other ~25
-            // registered types reached the snapshot RON but
-            // couldn't be resolved on load. This block
-            // closes the rest of that gap for astronomy.
-            // See
-            // `package_astronomy_registration_into_persistence`
-            // below for the regression test that guards it.
+            // build a bare `World::new()` with **no plugins** — so
+            // on the restore path those source registrations
+            // don't run. PR-I's v2 StateStore path doesn't
+            // need a deserializer registry (divergences are
+            // `serde_json::Value` blobs whose types are
+            // resolved by the apply path's `from_value`),
+            // but the registrations still matter for
+            // inspector / reflection tooling and as a safety
+            // net for any future code that drops back to
+            // dynamic-scene snapshots.
             .register_type::<crate::astronomy::CurrentStarSystem>()
             .register_type::<crate::astronomy::SystemId>()
             .register_type::<crate::astronomy::OrbitCenter>()
@@ -253,10 +217,13 @@ impl Plugin for PersistencePlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::persistence::format_version::MIN_SUPPORTED_VERSION;
 
     #[test]
     fn format_version_is_one_in_pr_a() {
-        assert_eq!(FORMAT_VERSION, 1);
+        // PR-A: format_version 1. PR-I (StateStore): format_version 2.
+        // The test name is historical; the assertion now pins v2.
+        assert_eq!(FORMAT_VERSION, 2);
         assert_eq!(MIN_SUPPORTED_VERSION, 1);
     }
 
@@ -283,28 +250,21 @@ mod tests {
     /// registrations don't run. Without an explicit
     /// re-registration in `PersistencePlugin::build`, the
     /// deserializer's `AppTypeRegistry` lookup fails and
-    /// `restore_world` returns `Err`. Adding the missing
-    /// `register_type::<…>()` calls for every
-    /// AstronomyPlugin-registered type here closes that
-    /// gap.
+    /// Adding the missing `register_type::<…>()` calls for
+    /// every AstronomyPlugin-registered type here keeps
+    /// inspector / reflection tooling consistent across
+    /// the v2 path.
     ///
     /// This test exercises the **registry-content** side of
     /// the round trip the same way the restore path does:
     /// build a bare `App` whose `AppTypeRegistry` was
     /// populated only by `PersistencePlugin::build` (NOT
     /// by `AstronomyPlugin`, since the live App's plugin
-    /// chain is unavailable on the restore path) and
-    /// confirm that each `helios_ascension::astronomy::*`
-    /// type path the loader needs to resolve actually has
-    /// an entry. If a future maintainer adds a new
-    /// `register_type::<…>()` to `AstronomyPlugin::build`
-    /// but forgets the mirror entry here, this test
-    /// catches the gap deterministically — same
-    /// `cargo test --lib persistence` loop the deny-chain
-    /// tests run in, just on the Helios side of the same
-    /// audit pattern. (The historical Bevy-side counterpart
-    /// pattern is documented in
-    /// `/memories/repo/bevy-0-18-reflect-resource-denylist.md`.)
+    /// If a future maintainer adds a new `register_type::<…>()`
+    /// to `AstronomyPlugin::build` but forgets the mirror
+    /// entry here, this test catches the gap deterministically
+    /// — same `cargo test --lib persistence` loop, just on
+    /// the Helios side of the same audit pattern.
     #[test]
     fn package_astronomy_registration_into_persistence() {
         // Build the bare restore factory the same way
@@ -312,9 +272,10 @@ mod tests {
         // empty `AppTypeRegistry`. Add only
         // `PersistencePlugin`. (We do NOT add
         // `AstronomyPlugin`; the live `App`'s plugin chain
-        // is unavailable on the restore path. That's
-        // exactly the configuration that produced the
-        // 2026-07-24T09:20Z warning.)
+        // is unavailable on the restore path. PR-I's v2
+        // path doesn't need this registry, but the test
+        // still asserts the registrations are correct so
+        // inspector / reflection tooling stays in sync.)
         let mut app = App::new();
         app.add_plugins(MinimalPlugins);
         app.add_plugins(PersistencePlugin);

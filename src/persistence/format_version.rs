@@ -15,7 +15,25 @@
 //! struct, and the loader checks that field before deserialising the body.
 
 /// Current save format version. Bump on any breaking change to the save body.
-pub const FORMAT_VERSION: u32 = 1;
+///
+/// Version history:
+/// - v1: `DynamicScene`-based snapshot of the live world. Serializes every
+///   entity and remaps `ChildOf` / `Children` / `OrbitCenter` /
+///   `LogicalParent` against a pending→live `entity_map` on load.
+///   Fragile against denylist drift, archetype skips, and
+///   generation collisions; produces 95 MB saves for a 700-body
+///   universe with no player data.
+/// - v2: `StateStore` (regenerate-from-seed + divergence overlay). Tiny
+///   saves (KBs), no entity remap, no denylist dance. Bodies are
+///   regenerated from the RON catalog and only *diverged* state
+///   is persisted. Player entities (fleets, ships, colonies,
+///   research, etc.) reference bodies by stable `BodyKey`
+///   `(system, name)`.
+pub const FORMAT_VERSION: u32 = 2;
+
+/// Current StateStore body format version (matches
+/// `StateStoreMetadata::format_version`).
+pub const FORMAT_VERSION_V2: u32 = 2;
 
 /// Oldest format version this binary can load without a migration.
 ///

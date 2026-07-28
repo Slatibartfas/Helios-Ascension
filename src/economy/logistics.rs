@@ -422,6 +422,7 @@ pub fn complete_deliveries(
     mut projects: Query<&mut ConstructionProject>,
     mut ship_projects: Query<&mut ShipConstructionProject>,
     sim_time: Res<SimulationTime>,
+    mut dirty: ResMut<crate::economy::DirtyBodies>,
 ) {
     let now = sim_time.elapsed_seconds();
 
@@ -444,6 +445,10 @@ pub fn complete_deliveries(
         // Deliver resources to local stockpile.
         let delivered = if let Ok(mut ls) = stockpiles.get_mut(req.destination_body) {
             ls.add(req.resource, req.in_transit_mt);
+            // Mark dirty — delivery is a player-driven
+            // mutation that the regen chain would
+            // otherwise revert.
+            dirty.mark_stockpile(req.destination_body);
             req.in_transit_mt
         } else {
             // Fallback: add to global budget

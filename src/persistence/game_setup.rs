@@ -11,10 +11,13 @@
 //!   [`NewGameCommitted`] so downstream sim plugins can apply the
 //!   params when the new world is promoted.
 //! - [`restore_save`] — reads the save at `path` via
-//!   [`super::restore::restore_world`] into a fresh world and stores
-//!   it in [`PendingGameWorld`] for the in-game consumer to swap.
-//!   **Failures emit a [`NotificationEvent`]** so the player sees a
-//!   toast (per GRA-137 bridge contract) instead of just a log line.
+//!   [`crate::persistence::state_store_extract`] + [`crate::persistence::state_store_apply`]
+//!   into a fresh world (the regen chain rebuilds the universe from
+//!   the save's seed and the divergences are then overlaid) and
+//!   stores it in [`PendingGameWorld`] for the in-game consumer to
+//!   swap. **Failures emit a [`NotificationEvent`]** so the player
+//!   sees a toast (per GRA-137 bridge contract) instead of just a
+//!   log line.
 //!
 //! # World-swap pattern (R3)
 //!
@@ -36,8 +39,9 @@ use std::fs;
 use std::path::Path;
 
 use super::io::write_save_atomic;
-use super::restore::{restore_world, RestoreError};
-use super::snapshot::{snapshot_world, SaveMetadata, SavePreview};
+use super::state_store::{StateStore, StateStoreMetadata};
+use super::state_store_apply::{apply_state_store, ApplyOutcome};
+use super::state_store_extract::extract_state_store;
 use crate::economy::{kardashev_scale_from_watts, ResourceType, SimulationHistory};
 use crate::game_state::GameSeed;
 use crate::persistence::playtime::PlaytimeTracker;
@@ -109,9 +113,9 @@ impl std::fmt::Display for GameSetupError {
 
 impl std::error::Error for GameSetupError {}
 
-impl From<RestoreError> for GameSetupError {
-    fn from(e: RestoreError) -> Self {
-        GameSetupError::Restore(e.to_string())
+impl From<std::io::Error> for GameSetupError {
+    fn from(e: std::io::Error) -> Self {
+        GameSetupError::Io(e.to_string())
     }
 }
 
@@ -122,6 +126,7 @@ impl Plugin for GameSetupPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<PendingGameWorld>()
             .init_resource::<SaveIndexState>()
+            .init_resource::<crate::economy::DirtyBodies>()
             .add_message::<NewGameCommitted>()
             .add_message::<RestoreCommitted>()
             // GRA-358 PR-B: `promote_pending_world` is an
@@ -195,19 +200,15 @@ pub fn play_new_game(world: &mut World, request: NewGameRequest) -> Result<u64, 
 /// production callers supply their own factory through
 /// [`play_new_game_with_factory`].
 ///
-/// GRA-XXX (2026-07-24): this used to be a bare `World::new()` +
-/// `init_resource` boilerplate. **That's the wrong shape for the
-/// restore path** — Bevy's `SceneDeserializer` (called by
-/// [`super::restore::restore_world`]) reads the world-local
-/// `AppTypeRegistry` to resolve every type path in the RON body,
-/// and the registry starts empty when no plugin ever ran on the
-/// world. So even though [`super::PersistencePlugin::build`]
-/// registers every simulation-state type we care about (see
-/// `src/persistence/mod.rs`), those `register_type::<…>()` calls
-/// never fire on the bare-WORLD factory — the loader sees an
-/// empty registry and aborts on the first unknown type path.
-///
-/// Player-visible symptom: 2026-07-24T09:33Z — saves written by
+/// PR-I ships the v2 StateStore path; the v1 DynamicScene loader
+/// (Bevy's `SceneDeserializer` reading the world-local
+/// `AppTypeRegistry`) is retired. The v2 path runs the regen
+/// chain on the freshly-built world and overlays the saved
+/// divergences via [`crate::persistence::state_store_apply`], so
+/// the type-registry dance below is the compatibility shim for
+/// any production caller that still passes a bare `World::new()`
+/// through the `world_factory` argument. `PersistencePlugin::build`
+/// populates the registry exactly as it does on the live `App`.
 /// the patched binary still fail to load with `no registration
 /// found for
 /// `helios_ascension::astronomy::components::CurrentStarSystem``.
@@ -229,28 +230,26 @@ pub fn play_new_game(world: &mut World, request: NewGameRequest) -> Result<u64, 
 /// astronomy / colony / economy / fleets / etc. plugin
 /// stack. Those plugins do also call `register_type::<…>()`
 /// at startup, but they init resources, queue systems, and
-/// pull in render / winit dependencies. The 29-entry
-/// `register_type` list inside [`super::PersistencePlugin::build`]
-/// is the curated registry of "what does the snapshot's RON
-/// actually reference" — which is exactly what we need for the
-/// loader to succeed. Adding the full plugin stack would
-/// side-effect the world with render / windowing state that
-/// the restore path doesn't want to carry.
+/// pull in render / winit dependencies. The `register_type`
+/// list inside [`super::PersistencePlugin::build`] is the
+/// curated registry that lets the apply path resolve every
+/// divergence payload the StateStore may carry. Adding the
+/// full plugin stack would side-effect the world with
+/// render / windowing state that the restore path doesn't
+/// want to carry.
 fn build_minimal_world(seed: u64) -> World {
     use bevy::app::App;
     use bevy::MinimalPlugins;
 
     let mut app = App::new();
     app.add_plugins(MinimalPlugins);
-    // `PersistencePlugin::build` is the crucial call — it
-    // populates the world-local `AppTypeRegistry` with every
-    // simulation-state Component/Resource/Enum-key the
-    // snapshot's RON body references. Without this, every
-    // `SceneDeserializer` lookup on a `helios_ascension::*`
-    // type path returns `None` and the restore aborts. The
-    // existing test in `super::plugin_registers_type_registry`
-    // is the foundation; this is the closure that uses the
-    // populated registry end-to-end.
+    // `PersistencePlugin::build` populates the world-local
+    // `AppTypeRegistry` with every simulation-state
+    // Component/Resource/Enum-key the apply path may
+    // encounter. The existing test in
+    // `super::plugin_registers_type_registry` is the
+    // foundation; this closure uses the populated registry
+    // end-to-end.
     app.add_plugins(super::PersistencePlugin);
 
     // The `App` lives in `app`, but the restore factory
@@ -283,16 +282,50 @@ fn build_minimal_world(seed: u64) -> World {
     world.insert_resource(PersistentSettings::default());
     world.insert_resource(SaveIndex::default());
     world.init_resource::<SaveIndexState>();
+    world.init_resource::<crate::economy::DirtyBodies>();
     world
 }
 
 /// World factory used by the kickoff's `restore_save` call site.
-/// Differs from [`build_minimal_world`] only in that it ignores its
-/// `seed` argument (the restored world carries its own metadata).
-/// Exposed at the module scope so the kickoff system can name it
-/// without an inline closure.
+///
+/// PR-I (GRA-358) regen-minimal: a fresh `World` with the bare
+/// resource set the apply path needs (see
+/// [`super::state_store_apply::regenerate_bodies_minimal`] +
+/// [`super::state_store_apply::init_missing_resources_for_apply`]).
+/// No live regen chain execution — the chain stays silent on
+/// Restore so we don't double-spawn the 710-body baseline.
+///
+/// PR-J attempted to run the regen chain on a fresh `World`
+/// with the full Helios plugin stack so the chain would
+/// populate meshes / materials / atmosphere shells / comet
+/// tails alongside the body stubs. The chain ran end-to-end
+/// (710 bodies + 60 nearby systems, day-one fleet, baseline
+/// tech) and the swap committed, but Bevy 0.18's
+/// `propagate_parent_transforms` then stack-overflowed on the
+/// live App's `PostUpdate`. The despawn-and-reswap cycle left
+/// stale `Children` entries on the live App's prior-session
+/// parent entities that the recursive propagation walked
+/// indefinitely. The regen-minimal path produces entities
+/// without `ChildOf`, so propagation is O(N) leaf walks and
+/// never overflows. The 3D scene therefore stays empty on
+/// Restore until a follow-up PR teaches the pre-swap live-world
+/// cleanup to clear stale `Children` collections before the
+/// swap fires (or, alternatively, the regen chain is re-tuned
+/// to not set `ChildOf` on rings so the live world never has
+/// a `Children`-bearing parent after a swap).
 pub fn build_minimal_world_for_restore() -> World {
-    build_minimal_world(0)
+    let mut world = build_minimal_world(0);
+    // Seed the regen-minimal body stub set so `apply_bodies`
+    // can find bodies to attach divergences to. The apply
+    // path's `if !world_has_celestial_bodies` check also
+    // calls `regenerate_bodies_minimal`, but doing it here
+    // makes the factory contract explicit: the world already
+    // has the baseline bodies when `apply_state_store` runs.
+    crate::persistence::state_store_apply::regenerate_bodies_minimal(
+        &mut world,
+        0,
+    );
+    world
 }
 
 /// Production constructor: same as [`play_new_game`] but with a
@@ -332,15 +365,23 @@ where
     Ok(seed)
 }
 
-/// Restore a save from `path`. Reads the file, runs
-/// [`super::restore::restore_world`] into a fresh world via
-/// `world_factory`, stashes the fresh world in [`PendingGameWorld`],
-/// emits [`RestoreCommitted`], and re-scans [`SaveIndex`].
+/// Restore a save from `path`. Reads the file, runs the
+/// regen chain inside `world_factory()` and overlays the
+/// saved divergences via
+/// [`crate::persistence::state_store_apply`], stashes the
+/// fresh world in [`PendingGameWorld`], emits
+/// [`RestoreCommitted`], and re-scans [`SaveIndex`].
 ///
-/// On **any failure** (file unreadable, RON malformed, version
-/// mismatch, missing `AppTypeRegistry`), emits a
+/// On **any failure** (file unreadable, RON malformed, magic
+/// header missing, version mismatch), emits a
 /// [`NotificationEvent`] with category `persistence.restore_failed`
 /// so the player sees a toast — never just a log line.
+///
+/// PR-I is v2-only — the v1 DynamicScene path was retired
+/// because the regen chain now produces correct worlds from
+/// the seed without needing entity remapping. Saves written
+/// by v1 builds fail the magic-header check and surface as
+/// "save is not a v2 StateStore" errors.
 pub fn restore_save<F>(
     world: &mut World,
     path: &Path,
@@ -349,41 +390,7 @@ pub fn restore_save<F>(
 where
     F: FnOnce() -> World,
 {
-    let ron_text = match fs::read_to_string(path) {
-        Ok(s) => s,
-        Err(e) => {
-            emit_restore_failed(world, path, &format!("read failed: {e}"));
-            return Err(GameSetupError::Io(format!(
-                "read {p}: {e}",
-                p = path.display()
-            )));
-        }
-    };
-
-    let restored = match restore_world(&ron_text, world_factory) {
-        Ok(r) => r,
-        Err(e) => {
-            emit_restore_failed(world, path, &e.to_string());
-            // Re-scan so the menu list reflects the failed load
-            // (entries may have been touched at file-system level).
-            rescan_save_index(world);
-            return Err(GameSetupError::from(e));
-        }
-    };
-
-    world.insert_resource(PendingGameWorld {
-        world: Some(restored.world),
-    });
-
-    rescan_save_index(world);
-
-    world.write_message(RestoreCommitted {
-        source_path: path.to_path_buf(),
-        playtime_s: restored.metadata.playtime_s,
-        helios_version: restored.metadata.helios_version,
-    });
-
-    Ok(())
+    restore_save_v2_with_factory(world, path, |_seed| world_factory()).map(|_| ())
 }
 
 /// Emit a player-facing toast for a restore failure. The category id
@@ -416,19 +423,40 @@ pub fn rescan_save_index(world: &mut World) {
 /// Write the live [`World`] to `path` via
 /// [`super::io::write_save_atomic`]. Re-scans [`SaveIndex`] on
 /// success so the menu list updates immediately.
-pub fn write_save_to_path(world: &World, path: &Path) -> Result<(), GameSetupError> {
+///
+/// PR-I ships the v2 (StateStore) save format only — the v1
+/// DynamicScene path was retired because its entity-remap
+/// dance produced the "Mercury orbits Saturn" / "Saturn
+/// rings missing" bugs the regen chain now avoids entirely.
+pub fn write_save_to_path(world: &mut World, path: &Path) -> Result<(), GameSetupError> {
     let seed = world
         .get_resource::<GameSeed>()
         .map(|g| g.value)
         .unwrap_or(0);
-    let playtime = world
-        .get_resource::<PlaytimeTracker>()
-        .map(|p| p.total_real_s as u64)
+    let start_timestamp = world
+        .get_resource::<SimulationTime>()
+        .map(|t| t.start_timestamp())
         .unwrap_or(0);
-    let mut metadata = SaveMetadata::new_now(seed, playtime, env!("CARGO_PKG_VERSION"));
-    metadata.preview = build_save_preview(world, path);
 
-    let ron = snapshot_world(world, metadata).map_err(|e| GameSetupError::Io(e.to_string()))?;
+    let mut store = extract_state_store(world, seed, start_timestamp)
+        .map_err(|e| GameSetupError::Io(format!("v2 extract failed: {e}")))?;
+
+    // Stamp the wall-clock save time on the metadata so
+    // save-index listings can show "saved 2 minutes ago".
+    store.metadata.saved_at_unix_s = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+
+    // Build the player-facing preview (date, population,
+    // ships, Kardashev scale, resource breakdown, history)
+    // so the Load Game list has something to render
+    // without loading the full world.
+    store.metadata.preview = build_state_store_preview(world, path);
+
+    let ron = store
+        .to_ron()
+        .map_err(|e| GameSetupError::Io(format!("v2 serialise failed: {e}")))?;
 
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)
@@ -436,10 +464,28 @@ pub fn write_save_to_path(world: &World, path: &Path) -> Result<(), GameSetupErr
     }
 
     write_save_atomic(path, &ron).map_err(|e| GameSetupError::Io(e.to_string()))?;
+
+    // Clear the dirty-resource set — every body that
+    // changed since the last save is now persisted, so the
+    // next save only needs to capture *new* changes.
+    if let Some(mut dirty) =
+        world.get_resource_mut::<crate::economy::DirtyBodies>()
+    {
+        dirty.clear();
+    }
+
     Ok(())
 }
 
-fn build_save_preview(world: &World, path: &Path) -> SavePreview {
+/// Build the v2 [`SavePreview`](super::state_store::SavePreview)
+/// from the live world. Uses the StateStore's `SavePreview`
+/// type so the save-load UI doesn't depend on the retired
+/// `snapshot` module.
+fn build_state_store_preview(
+    world: &World,
+    path: &Path,
+) -> super::state_store::SavePreview {
+    use super::state_store::SavePreview;
     let current_date = world
         .get_resource::<SimulationTime>()
         .map(SimulationTime::format_date_time)
@@ -447,13 +493,13 @@ fn build_save_preview(world: &World, path: &Path) -> SavePreview {
     let Some(history) = world.get_resource::<SimulationHistory>() else {
         return SavePreview {
             current_date,
-            ..default()
+            ..Default::default()
         };
     };
     let Some(latest) = history.latest() else {
         return SavePreview {
             current_date,
-            ..default()
+            ..Default::default()
         };
     };
 
@@ -462,7 +508,8 @@ fn build_save_preview(world: &World, path: &Path) -> SavePreview {
         .copied()
         .filter_map(|resource| {
             let amount = latest.resource_amount(resource);
-            (amount.abs() > f64::EPSILON).then(|| (resource.display_name().to_string(), amount))
+            (amount.abs() > f64::EPSILON)
+                .then(|| (resource.display_name().to_string(), amount))
         })
         .collect();
     let current_sim_seconds = world
@@ -484,6 +531,110 @@ fn build_save_preview(world: &World, path: &Path) -> SavePreview {
         resources,
         kardashev_history,
         screenshot_file,
+    }
+}
+
+// ════════════════════════════════════════════════════════════
+// v2 (StateStore) save / load
+// ════════════════════════════════════════════════════════════
+//
+// GRA-358 PR-I: the v1 `snapshot_world` / `restore_world` path
+// serialises the entire live world and remaps every entity
+// reference on load. That's been the source of the "Mercury
+// orbits Saturn" / "Saturn rings missing" bugs (denylist drift
+// silently corrupting the remap) and produces 95 MB saves for
+// a 700-body universe with no player data.
+//
+// The v2 path (`StateStore`) reverses both: it persists only
+// the *divergences* from a freshly-regenerated world, and
+// loads by running the regen chain + overlaying the
+// divergences. No entity remap, no denylist dance, save size
+// drops to KBs.
+//
+/// v2 load with a caller-supplied world factory. Use this when
+/// the restore path needs the full plugin stack (the regen
+/// chain runs the production astronomy/colony/economy/fleets
+/// plugins, not the minimal PersistencePlugin-only chain).
+pub fn restore_save_v2_with_factory<F>(
+    world: &mut World,
+    path: &Path,
+    world_factory: F,
+) -> Result<ApplyOutcome, GameSetupError>
+where
+    F: FnOnce(u64) -> World,
+{
+    let ron_text = match fs::read_to_string(path) {
+        Ok(s) => s,
+        Err(e) => {
+            emit_restore_failed(world, path, &format!("read failed: {e}"));
+            return Err(GameSetupError::Io(format!(
+                "read {p}: {e}",
+                p = path.display()
+            )));
+        }
+    };
+
+    let store = match StateStore::from_ron(&ron_text) {
+        Ok(s) => s,
+        Err(e) => {
+            emit_restore_failed(world, path, &e.to_string());
+            rescan_save_index(world);
+            return Err(GameSetupError::Restore(e.to_string()));
+        }
+    };
+
+    let mut fresh = world_factory(store.metadata.seed);
+    let outcome = apply_state_store(&mut fresh, &store);
+
+    world.insert_resource(PendingGameWorld {
+        world: Some(fresh),
+    });
+
+    rescan_save_index(world);
+
+    world.write_message(RestoreCommitted {
+        source_path: path.to_path_buf(),
+        playtime_s: store.metadata.playtime_s as u64,
+        helios_version: store.metadata.helios_version.clone(),
+    });
+
+    Ok(outcome)
+}
+
+/// Read a v2 [`StateStore`] file from disk and return the parsed
+/// value. Used by the save index (preview pane) and by the
+/// `restore_save_v2_with_factory` path. Returns `None` if the file is
+/// missing or not a v2 save.
+pub fn read_state_store(path: &Path) -> Option<StateStore> {
+    let text = fs::read_to_string(path).ok()?;
+    StateStore::from_ron(&text).ok()
+}
+
+/// Build a [`StateStoreMetadata`] for a freshly-extracted
+/// store. Exposed so the save-index module can show "saved
+/// just now" labels without re-extracting the world.
+pub fn metadata_for(world: &World, seed: u64) -> StateStoreMetadata {
+    let start_timestamp = world
+        .get_resource::<SimulationTime>()
+        .map(|t| t.start_timestamp())
+        .unwrap_or(0);
+    let (sim_now_seconds, playtime_s) = world
+        .get_resource::<SimulationTime>()
+        .map(|t| (t.elapsed_seconds(), t.elapsed_seconds()))
+        .unwrap_or((0.0, 0.0));
+    let saved_at_unix_s = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    StateStoreMetadata {
+        format_version: super::format_version::FORMAT_VERSION_V2,
+        helios_version: env!("CARGO_PKG_VERSION").to_string(),
+        saved_at_unix_s,
+        playtime_s,
+        seed,
+        start_timestamp,
+        sim_now_seconds,
+        preview: super::state_store::SavePreview::default(),
     }
 }
 
@@ -613,22 +764,19 @@ pub fn promote_pending_world(world: &mut World) {
         world.insert_resource(super::swap::WorldReady);
     }
 
-    // On the Restore path, ALSO insert `RestoredWorldGate` so the
-    // boot-init chain's run_if gate turns the chain off. The
-    // loaded world already has the 710 bodies, baseline tech,
-    // day-one fleet, and 60 nearby-star systems — re-running
-    // `setup_solar_system` etc. would duplicate every entity
-    // and produce a mixed hierarchy that Bevy's
-    // `propagate_parent_transforms` recurses into, overflowing
-    // the compute task pool's stack.
-    //
-    // The chain's idempotency markers (`SolarSystemSpawned`,
-    // `DayOneFleetSpawned`, `AsteroidRegistryLoaded`, etc.) are
-    // intentionally NOT `#[reflect(Resource)]` so they don't
-    // survive the swap. `RestoredWorldGate` is the swap-level
-    // discriminator that supplements the per-system markers.
-    //
-    // See [`super::swap::RestoredWorldGate`] for the full rationale.
+    // On the Restore path, ALSO insert `RestoredWorldGate` so
+    // the boot-init chain's run_if gate turns the chain off.
+    // PR-J (GRA-358): the regen chain ran inside
+    // [`build_minimal_world_for_restore`] on the pending world
+    // before the swap; the chain's idempotency markers
+    // (`SolarSystemSpawned`, `DayOneFleetSpawned`, etc.) survive
+    // the swap because they aren't in the persistence denylist.
+    // The chain on the live App would no-op on every spawn
+    // system anyway, but `RestoredWorldGate` is the explicit
+    // gate that prevents the chain from even being scheduled,
+    // which keeps the Update systems (`update_atmosphere_shell`
+    // etc.) from running their chain-gated `.chain().run_if()`
+    // branch a second time after the swap.
     if is_restore_path && !world.contains_resource::<super::swap::RestoredWorldGate>() {
         world.insert_resource(super::swap::RestoredWorldGate);
     }

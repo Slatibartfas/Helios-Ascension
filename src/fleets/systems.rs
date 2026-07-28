@@ -76,6 +76,35 @@ fn spawn_fleet_with_ship_entities(
     orbit_radius_au: f64,
     stationary: bool,
 ) -> Entity {
+    spawn_fleet_with_ship_entities_inner(commands, name, ships, orbit_body, orbit_radius_au, stationary, false)
+}
+
+/// Spawn helper that also tags the fleet as a regen-chain
+/// spawn. The v2 save/load path uses [`RegenChainFleet`] to
+/// distinguish "the regen chain built this on every fresh
+/// world" from "the player built this during gameplay"; the
+/// extract path skips the former so it doesn't duplicate on
+/// load.
+fn spawn_regen_chain_fleet(
+    commands: &mut Commands,
+    name: String,
+    ships: Vec<ShipInfo>,
+    orbit_body: Entity,
+    orbit_radius_au: f64,
+    stationary: bool,
+) -> Entity {
+    spawn_fleet_with_ship_entities_inner(commands, name, ships, orbit_body, orbit_radius_au, stationary, true)
+}
+
+fn spawn_fleet_with_ship_entities_inner(
+    commands: &mut Commands,
+    name: String,
+    ships: Vec<ShipInfo>,
+    orbit_body: Entity,
+    orbit_radius_au: f64,
+    stationary: bool,
+    regen_chain: bool,
+) -> Entity {
     let mut orbit = FleetOrbit::new(orbit_body, orbit_radius_au);
     if stationary {
         orbit.direction = 0.0;
@@ -83,9 +112,11 @@ fn spawn_fleet_with_ship_entities(
 
     let mut fleet = Fleet::new(name);
     fleet.ships = ships.clone();
-    let fleet_entity = commands
-        .spawn((fleet, orbit, SpaceCoordinates::default()))
-        .id();
+    let mut entity_commands = commands.spawn((fleet, orbit, SpaceCoordinates::default()));
+    if regen_chain {
+        entity_commands.insert(RegenChainFleet);
+    }
+    let fleet_entity = entity_commands.id();
 
     for (index, ship) in ships.into_iter().enumerate() {
         commands.spawn(ShipInstance::new(
@@ -1112,6 +1143,22 @@ pub fn process_fleet_actions(
 
 // ── Startup ───────────────────────────────────────────────────────────────────
 
+/// Marker component on fleets spawned by the regen chain (the
+/// `spawn_initial_fleet` Day-One Constellation, the Mars Flyby
+/// Probe, and the debug Earth→Jupiter transfer fleet). The
+/// v2 save/load path uses this marker so:
+///   - `extract_state_store` skips these fleets (the regen
+///     chain will respawn them on the next run; persisting
+///     them would just duplicate after load).
+///   - `apply_state_store` won't try to insert them again
+///     because there's no entry in the FleetRecord list.
+///
+/// Without this marker, every Save → Load cycle doubles the
+/// Day-One Constellation + debug fleet count. GRA-358 PR-I.
+#[derive(Component, Debug, Clone, Copy, Default, Reflect)]
+#[reflect(Component)]
+pub struct RegenChainFleet;
+
 /// Marker resource recording that the Day-1 constellation has been spawned.
 ///
 /// `spawn_initial_fleet` short-circuits when this resource is present so a
@@ -1282,7 +1329,7 @@ pub fn spawn_initial_fleet(
         })
         .collect();
 
-    spawn_fleet_with_ship_entities(
+    spawn_regen_chain_fleet(
         &mut commands,
         "Day-One Constellation".to_string(),
         ships,
@@ -1312,7 +1359,7 @@ pub fn spawn_initial_fleet(
             PropulsionType::IonDrive,
             dry_mass_t,
         );
-        spawn_fleet_with_ship_entities(
+        spawn_regen_chain_fleet(
             &mut commands,
             "Mars Flyby Probe".to_string(),
             vec![probe],
@@ -1391,7 +1438,7 @@ pub fn spawn_debug_earth_jupiter_fleet(
         PropulsionType::Chemical,
         dry_mass_t,
     );
-    let fleet_entity = spawn_fleet_with_ship_entities(
+    let fleet_entity = spawn_regen_chain_fleet(
         &mut commands,
         "Debug Earth→Jupiter".to_string(),
         vec![ship],

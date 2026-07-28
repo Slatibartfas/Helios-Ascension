@@ -655,11 +655,13 @@ mod tests {
         world.init_resource::<SaveIndexState>();
         world.init_resource::<crate::game_state::GameSeed>();
         world.insert_resource(crate::persistence::playtime::PlaytimeTracker::default());
+        world.init_resource::<crate::ui::time::SimulationTime>();
+        world.init_resource::<crate::economy::DirtyBodies>();
         world.init_resource::<bevy::prelude::AppTypeRegistry>();
 
         // Simulate the player's "Save" click by writing directly.
         let path = current_slot_path();
-        let res = crate::persistence::write_save_to_path(&world, &path);
+        let res = crate::persistence::write_save_to_path(&mut world, &path);
         assert!(res.is_ok(), "save must succeed with valid resources");
 
         // Re-scan; expect the entry to appear.

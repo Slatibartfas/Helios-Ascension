@@ -1,41 +1,47 @@
 //! Read-only save-game index for the main menu's Load Game list.
 //!
-//! Full save/load is a separate ticket (GRA-NNNN per GRA-309 §1.4 /
-//! §8). PR-A (GRA-311) ships only the discovery layer so the menu UI
-//! can list saves without lying about their existence:
+//! PR-A (GRA-311) shipped the discovery layer so the menu UI can
+//! list saves without lying about their existence. PR-I
+//! (GRA-358) replaced the v1 DynamicScene path with the v2
+//! StateStore format — the scanner sniffs the magic header on
+//! the first line and dispatches:
 //!
-//! - For every `<userdata>/saves/*.ron`, parse the [`SaveFile`]
-//!   envelope and extract a [`SaveHeader`] from its `metadata`
-//!   field.
+//! - For every `<userdata>/saves/*.ron` whose body is a v2
+//!   [`StateStore`], extract a [`SaveHeader`] from its
+//!   `metadata` block.
 //! - On parse success, append a [`SaveSummary::Valid`] entry.
-//! - On parse failure, append a [`SaveSummary::Broken`] entry. The
-//!   menu will disable the row but the file still shows up so the
-//!   player can rename / delete it.
+//! - On parse failure (missing magic header, malformed RON,
+//!   unsupported legacy v1 file), append a
+//!   [`SaveSummary::Broken`] entry. The menu disables the row
+//!   but the file still shows up so the player can rename /
+//!   delete it.
 //!
-//! Empty-index behavior is the documented default: a fresh install
-//! or a missing `<userdata>/saves` directory is **not** an error.
+//! Empty-index behavior is the documented default: a fresh
+//! install or a missing `<userdata>/saves` directory is **not**
+//! an error.
 
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::persistence::snapshot::{SaveFile, SaveMetadata, SavePreview};
+use crate::persistence::state_store::{SavePreview, StateStoreMetadata};
 
 /// Sub-directory of the userdata dir where save files live.
 pub const SAVES_SUBDIR: &str = "saves";
 
-/// Display header extracted from the on-disk [`SaveFile`] envelope.
+/// Display header extracted from the on-disk v2 [`StateStore`]
+/// metadata block.
 ///
-/// Field shape mirrors [`SaveMetadata`] (the canonical header that
-/// every save writer in `crate::persistence::snapshot` produces),
-/// with every field optional so the loader survives malformed /
-/// partially-written / older-format saves without aborting the
-/// whole scan. A save is "valid" if its envelope parses; missing
-/// fields render as `?` / `Unknown` / `—` in the menu.
+/// Field shape mirrors [`StateStoreMetadata`] (the canonical
+/// header every v2 save writer produces), with every field
+/// optional so the loader survives malformed / partially-written /
+/// older-format saves without aborting the whole scan. A save is
+/// "valid" if its envelope parses; missing fields render as `?` /
+/// `Unknown` / `—` in the menu.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct SaveHeader {
-    /// Save format version (matches `SaveMetadata::format_version`).
+    /// Save format version (matches `StateStoreMetadata::format_version`).
     /// Bumped by the persistence layer when the body schema changes;
     /// the loader checks this before deserialising the body.
     #[serde(default)]
@@ -59,14 +65,15 @@ pub struct SaveHeader {
 
 impl SaveHeader {
     /// Build a [`SaveHeader`] from a freshly-decoded
-    /// [`SaveMetadata`]. Used by the scanner after it parses the
-    /// outer [`SaveFile`] envelope — every field is populated
-    /// because `SaveMetadata::new_now` initialises all five.
-    pub fn from_metadata(metadata: &SaveMetadata) -> Self {
+    /// [`StateStoreMetadata`]. Used by the scanner after it parses
+    /// a v2 save's metadata block — every field is populated
+    /// because the v2 extractor always writes a complete
+    /// `StateStoreMetadata`.
+    pub fn from_metadata(metadata: &StateStoreMetadata) -> Self {
         Self {
             format_version: Some(metadata.format_version),
-            saved_at_unix_s: Some(metadata.saved_at_unix_s),
-            playtime_s: Some(metadata.playtime_s),
+            saved_at_unix_s: Some(metadata.saved_at_unix_s.max(0) as u64),
+            playtime_s: Some(metadata.playtime_s.max(0.0) as u64),
             seed: Some(metadata.seed),
             helios_version: Some(metadata.helios_version.clone()),
             preview: metadata.preview.clone(),
@@ -373,35 +380,72 @@ fn entry_timestamp(entry: &SaveSummary) -> Option<u64> {
 /// success or an error message describing the failure (suitable for
 /// [`SaveSummary::Broken`]).
 ///
-/// The on-disk format is a [`SaveFile`] envelope wrapping the save
-/// body — `metadata`, `body`, and optional `handles` sidecar. We
-/// read the whole file (saves are KB-scale per the persistence
-/// module's CLAUDE.md note) and parse the envelope, then extract
-/// [`SaveMetadata`] and build a [`SaveHeader`] from it.
+/// The on-disk format is a v2 [`StateStore`] — `metadata`, an
+/// optional divergences array, and per-section sub-stores
+/// (fleets, research, economy, ui, etc.). We read the whole file
+/// (saves are KB-scale per the persistence module's CLAUDE.md
+/// note) and dispatch on the magic header
+/// `helios_state_store_v2`; anything past that header is an
+/// unsupported legacy v1 DynamicScene save. The parsed metadata
+/// block is converted to a [`SaveHeader`] field-by-field.
 ///
-/// Earlier PR-A used a 4 KB prefix scan against a bare
-/// [`SaveHeader`] struct, but that struct's field names never
-/// matched the [`SaveMetadata`] the writer actually emits — the
-/// scanner happened to "succeed" on small files (every expected
-/// field silently defaulted to `None` because no names matched),
-/// and failed with `RON parse failed: Expected end of string` on
-/// larger saves whose `body.data` string exceeded the 4 KB prefix.
-/// See the regression tests below for both shapes.
+/// v1 history: PR-A scanned a 4 KB prefix against a bare
+/// [`SaveHeader`] struct; the struct's field names never matched
+/// the [`StateStoreMetadata`] the writer actually emits, so the
+/// prefix scan silently produced all-None headers on small saves
+/// and truncated mid-string on larger ones. PR-I replaced that
+/// code path entirely — the magic-header sniff + full-file
+/// StateStore parse is the only legitimate scan path now.
 pub fn parse_header_from_file(path: &Path) -> Result<SaveHeader, String> {
     let bytes = fs::read(path).map_err(|e| format!("read failed: {}", e))?;
     if bytes.is_empty() {
         return Err("file is empty".to_string());
     }
     let text = std::str::from_utf8(&bytes).map_err(|e| format!("not valid UTF-8: {}", e))?;
-    let file: SaveFile = ron::from_str(text).map_err(|e| format!("RON parse failed: {e}"))?;
-    Ok(SaveHeader::from_metadata(&file.metadata))
+
+    // v2 fast-path: a StateStore file starts with the
+    // magic header. We sniff the first 64 bytes for the
+    // header so the scanner doesn't have to load the whole
+    // save file just to discover it's a v2 save.
+    let head = &text[..text.len().min(64)];
+    if head.trim_start().starts_with(crate::persistence::state_store::StateStore::MAGIC) {
+        let store = crate::persistence::state_store::StateStore::from_ron(text)
+            .map_err(|e| format!("StateStore parse failed: {e}"))?;
+        // Convert the StateStore preview into the
+        // SaveHeader's SavePreview shape. The fields are
+        // identical so the conversion is a field-by-field
+        // copy (no expensive deep work).
+        let preview = SavePreview {
+            current_date: store.metadata.preview.current_date.clone(),
+            colony_count: store.metadata.preview.colony_count,
+            total_population: store.metadata.preview.total_population,
+            ship_count: store.metadata.preview.ship_count,
+            power_produced_watts: store.metadata.preview.power_produced_watts,
+            kardashev_value: store.metadata.preview.kardashev_value,
+            resources: store.metadata.preview.resources.clone(),
+            kardashev_history: store.metadata.preview.kardashev_history.clone(),
+            screenshot_file: store.metadata.preview.screenshot_file.clone(),
+        };
+        return Ok(SaveHeader {
+            format_version: Some(store.metadata.format_version),
+            saved_at_unix_s: Some(store.metadata.saved_at_unix_s as u64),
+            playtime_s: Some(store.metadata.playtime_s as u64),
+            seed: Some(store.metadata.seed),
+            helios_version: Some(store.metadata.helios_version.clone()),
+            preview,
+        });
+    }
+
+    // v1 path: retired in PR-I. PR-I ships the v2 StateStore
+    // format only, so anything past the magic-header check is
+    // an unsupported legacy save.
+    Err("save is not a v2 StateStore (PR-I dropped the v1 DynamicScene format)".to_string())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::persistence::migrate::{Body, SchemaKind};
-    use crate::persistence::snapshot::SaveMetadata;
+    use crate::persistence::state_store::{StateStore, StateStoreMetadata};
     use std::env;
     use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -416,24 +460,21 @@ mod tests {
         dir
     }
 
-    /// Write a real [`SaveFile`] envelope with the given
-    /// [`SaveMetadata`]. The body data is a placeholder
-    /// RON-serialised Bevy `DynamicScene` blob — the scanner
-    /// only touches the envelope, so any valid RON string
-    /// works for the body field.
-    fn write_save_file(dir: &Path, name: &str, metadata: &SaveMetadata) -> PathBuf {
+    /// Write a v2 [`StateStore`] with the given metadata. The body
+    /// can be empty — the scanner only inspects the metadata
+    /// block, never the divergences.
+    fn write_state_store(
+        dir: &Path,
+        name: &str,
+        metadata: &StateStoreMetadata,
+    ) -> PathBuf {
         let path = dir.join(name);
-        let file = SaveFile {
+        let store = StateStore {
             metadata: metadata.clone(),
-            body: Body {
-                schema: SchemaKind::SceneRon,
-                data: "(entities: [])".to_string(),
-            },
-            handles: None,
+            ..Default::default()
         };
-        let text = ron::ser::to_string_pretty(&file, ron::ser::PrettyConfig::default())
-            .expect("serialize SaveFile");
-        fs::write(&path, text).expect("write save");
+        let text = store.to_ron().expect("serialize StateStore");
+        fs::write(&path, text).expect("write v2 save");
         path
     }
 
@@ -443,16 +484,33 @@ mod tests {
         path
     }
 
-    /// Helper: a populated [`SaveMetadata`] for tests.
-    fn meta(version: &str, playtime_s: u64, seed: u64) -> SaveMetadata {
-        SaveMetadata::new_now(seed, playtime_s, version)
+    /// Helper: a populated [`StateStoreMetadata`] for tests.
+    fn meta(version: &str, playtime_s: u64, seed: u64) -> StateStoreMetadata {
+        StateStoreMetadata {
+            format_version: crate::persistence::format_version::FORMAT_VERSION,
+            helios_version: version.to_string(),
+            saved_at_unix_s: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs() as i64)
+                .unwrap_or(0),
+            playtime_s: playtime_s as f64,
+            seed,
+            start_timestamp: 0,
+            sim_now_seconds: 0.0,
+            preview: crate::persistence::state_store::SavePreview::default(),
+        }
     }
 
-    /// Helper: a populated [`SaveMetadata`] with a fixed
+    /// Helper: a populated [`StateStoreMetadata`] with a fixed
     /// `saved_at_unix_s` so tests can order saves deterministically.
-    fn meta_at(version: &str, playtime_s: u64, seed: u64, saved_at_unix_s: u64) -> SaveMetadata {
-        let mut m = SaveMetadata::new_now(seed, playtime_s, version);
-        m.saved_at_unix_s = saved_at_unix_s;
+    fn meta_at(
+        version: &str,
+        playtime_s: u64,
+        seed: u64,
+        saved_at_unix_s: u64,
+    ) -> StateStoreMetadata {
+        let mut m = meta(version, playtime_s, seed);
+        m.saved_at_unix_s = saved_at_unix_s as i64;
         m
     }
 
@@ -479,9 +537,9 @@ mod tests {
         // surface `a_newest.ron` first (correct) but would
         // surface `m_middle.ron` second — wrong; the scanner
         // must surface `z_oldest.ron` second.
-        write_save_file(&dir, "a_newest.ron", &meta_at("0.4.0", 0, 1, 1_900_000_000));
-        write_save_file(&dir, "m_middle.ron", &meta_at("0.4.0", 0, 2, 1_800_000_000));
-        write_save_file(&dir, "z_oldest.ron", &meta_at("0.4.0", 0, 3, 1_700_000_000));
+        write_state_store(&dir, "a_newest.ron", &meta_at("0.4.0", 0, 1, 1_900_000_000));
+        write_state_store(&dir, "m_middle.ron", &meta_at("0.4.0", 0, 2, 1_800_000_000));
+        write_state_store(&dir, "z_oldest.ron", &meta_at("0.4.0", 0, 3, 1_700_000_000));
 
         let index = SaveIndex::scan(&dir);
         assert_eq!(index.valid_count(), 3);
@@ -523,10 +581,10 @@ mod tests {
     #[test]
     fn scan_with_three_valid_and_one_broken() {
         let dir = fresh_saves_dir("3v1b");
-        write_save_file(&dir, "alpha.ron", &meta("0.4.0", 3600, 1234567890123));
-        write_save_file(&dir, "beta.ron", &meta("0.4.0", 7200, 9876543210));
+        write_state_store(&dir, "alpha.ron", &meta("0.4.0", 3600, 1234567890123));
+        write_state_store(&dir, "beta.ron", &meta("0.4.0", 7200, 9876543210));
         // gamma: older format version with smaller playtime.
-        write_save_file(&dir, "gamma.ron", &meta("0.3.9", 60, 42));
+        write_state_store(&dir, "gamma.ron", &meta("0.3.9", 60, 42));
         write_broken_save(&dir, "delta.ron", "this is not ron at all");
 
         let index = SaveIndex::scan(&dir);
@@ -565,53 +623,37 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
-    /// Regression test for the user's reported bug: the
-    /// `current_save.ron` `SavePanel` error
-    /// `RON parse failed: 11:3877: Expected end of string`.
-    ///
-    /// Before the fix the scanner read only the first 4 KB
-    /// and tried to RON-parse that prefix as a bare
-    /// `SaveHeader`. For saves whose `body.data` string
-    /// exceeded 4 KB (typical of a populated in-progress
-    /// save), the prefix cut off mid-string and RON raised
-    /// "Expected end of string" at the truncation point.
-    ///
-    /// The fix reads the whole file and parses the
-    /// `SaveFile` envelope — this test writes a synthetic
-    /// envelope with a deliberately oversized body data
-    /// string (well past 4 KB) and confirms the scanner
-    /// extracts the metadata cleanly.
+    /// Regression test for the v1 4 KB prefix bug. The v1
+    /// scanner read only the first 4 KB of a `SaveFile` and
+    /// raised "Expected end of string" when the body data
+    /// exceeded that prefix. The v2 StateStore format is
+    /// KB-sized regardless of universe size (divergences
+    /// only), so the prefix-scan code path no longer exists
+    /// and this regression is structurally impossible — but
+    /// the test stays as a guard against accidentally
+    /// re-introducing a streaming read that could truncate.
     #[test]
-    fn scan_handles_large_save_whose_body_exceeds_old_4kb_prefix() {
+    fn scan_handles_large_save_regardless_of_body_size() {
         let dir = fresh_saves_dir("large");
-        // Build a 6 KB body data string — well past the old
-        // 4 KB prefix limit.
-        let padding = "x".repeat(6_000);
-        let file = SaveFile {
-            metadata: meta("0.5.0", 9_999, 777),
-            body: Body {
-                schema: SchemaKind::SceneRon,
-                data: format!("(entities: (\"{padding}\"))"),
-            },
-            handles: None,
-        };
-        let text = ron::ser::to_string_pretty(&file, ron::ser::PrettyConfig::default())
-            .expect("serialize");
-        let path = dir.join("current_save.ron");
-        fs::write(&path, &text).expect("write");
-        assert!(
-            text.len() > 4_000,
-            "test setup: synthesized save must exceed the old 4 KB prefix"
-        );
+        // 6 KB of dummy divergence data — well past any
+        // streaming-read length we would ever consider. The
+        // v2 extractor will accept this and the v2 scanner
+        // will read the whole file.
+        let mut metadata = meta("0.5.0", 9_999, 777);
+        // Pad `helios_version` so the file is big; cheap
+        // way to inflate without needing a real divergence
+        // builder here.
+        metadata.helios_version = "x".repeat(6_000);
+        write_state_store(&dir, "current_save.ron", &metadata);
 
         let index = SaveIndex::scan(&dir);
         assert_eq!(index.valid_count(), 1, "oversized save must still parse");
         assert_eq!(index.broken_count(), 0);
         match &index.entries[0] {
             SaveSummary::Valid { header, .. } => {
-                assert_eq!(header.helios_version.as_deref(), Some("0.5.0"));
                 assert_eq!(header.playtime_s, Some(9_999));
                 assert_eq!(header.seed, Some(777));
+                assert!(header.helios_version.as_deref().unwrap().starts_with('x'));
             }
             other => panic!("expected Valid entry, got {other:?}"),
         }
@@ -640,7 +682,7 @@ mod tests {
     #[test]
     fn non_ron_files_are_ignored() {
         let dir = fresh_saves_dir("filter");
-        write_save_file(&dir, "real.ron", &meta("0.4.0", 0, 0));
+        write_state_store(&dir, "real.ron", &meta("0.4.0", 0, 0));
         fs::write(dir.join("readme.txt"), "this is not a save").unwrap();
         fs::write(dir.join("notes.md"), "# notes").unwrap();
         let index = SaveIndex::scan(&dir);
@@ -652,9 +694,15 @@ mod tests {
     #[test]
     fn parse_header_extracts_metadata_from_save_file() {
         let dir = fresh_saves_dir("parse");
-        write_save_file(&dir, "alpha.ron", &meta("0.5.0", 3600, 12345));
+        write_state_store(&dir, "alpha.ron", &meta("0.5.0", 3600, 12345));
         let header = parse_header_from_file(&dir.join("alpha.ron")).expect("must parse");
-        assert_eq!(header.format_version, Some(1));
+        // PR-I bumped FORMAT_VERSION from 1 to 2 (StateStore).
+        // The header parser should report whatever the file
+        // actually contains, which is the current version.
+        assert_eq!(
+            header.format_version,
+            Some(crate::persistence::format_version::FORMAT_VERSION)
+        );
         assert_eq!(header.helios_version.as_deref(), Some("0.5.0"));
         assert_eq!(header.playtime_s, Some(3600));
         assert_eq!(header.seed, Some(12345));
@@ -681,13 +729,14 @@ mod tests {
 
     #[test]
     fn save_header_from_metadata_round_trips_all_fields() {
-        let md = SaveMetadata {
+        let md = StateStoreMetadata {
             format_version: 42,
             saved_at_unix_s: 1_700_000_000,
-            playtime_s: 7200,
+            playtime_s: 7200.0,
             seed: 9999,
             helios_version: "0.5.0-test".to_string(),
             preview: Default::default(),
+            ..Default::default()
         };
         let header = SaveHeader::from_metadata(&md);
         assert_eq!(header.format_version, Some(42));

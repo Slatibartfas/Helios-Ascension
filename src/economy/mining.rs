@@ -160,6 +160,7 @@ fn feasible_output_amount(
 pub fn extract_resources(
     mut budget: ResMut<GlobalBudget>,
     mut all_query: Query<(
+        Entity,
         &mut PlanetResources,
         &mut CelestialBody,
         Option<&MiningOperation>,
@@ -171,6 +172,7 @@ pub fn extract_resources(
     mut last_elapsed: Local<f64>,
     buildings_data: Option<Res<BuildingsData>>,
     research_state: Option<Res<ResearchState>>,
+    mut dirty: ResMut<crate::economy::DirtyBodies>,
 ) {
     let current_elapsed = sim_time.elapsed_seconds();
     let dt = current_elapsed - *last_elapsed;
@@ -193,7 +195,7 @@ pub fn extract_resources(
     // borrow also active; instead we collect extractions and apply them afterwards.
     // We handle this via a simple inline deposit in the loop with an explicit split.
 
-    for (mut resources, mut body, op_opt, colony_opt, mut local_opt, station_bonus_opt) in
+    for (entity, mut resources, mut body, op_opt, colony_opt, mut local_opt, station_bonus_opt) in
         all_query.iter_mut()
     {
         /// Deposit helper: goes to LocalStockpile when present, GlobalBudget otherwise.
@@ -499,6 +501,16 @@ pub fn extract_resources(
                 }
             }
         }
+
+        // Mark this body's `LocalStockpile` (and body
+        // mass — the body.mass subtraction above is a
+        // player-driven mutation) as dirty so the v2
+        // extract path captures the divergence. The
+        // reason is `Multiple` because we may have
+        // touched both stockpile and body mass in this
+        // tick. The extract path sees `Multiple` and
+        // populates every applicable divergence field.
+        dirty.mark(entity, crate::economy::DirtyReason::Multiple);
     }
 }
 
@@ -860,7 +872,18 @@ pub fn update_resource_rates(
                     }
                 }
             } else {
-                warn!("Colony {} has no PlanetResources!", colony.name);
+                // PR-I follow-up (GRA-358): demoted from `warn!` to
+                // `debug!`. The v2 restore factory runs
+                // `regenerate_bodies_minimal`, which intentionally
+                // does NOT synthesise spectral-class resource
+                // deposits — that's the regen chain's job (and it
+                // doesn't run on Restore). Every colony whose body
+                // lacks spectral-class deposits hit this branch
+                // once per frame and flooded the log. The
+                // `debug!` keeps the diagnostic surface for someone
+                // investigating "why isn't this body producing?"
+                // while silencing the per-frame noise.
+                debug!("Colony {} has no PlanetResources", colony.name);
             }
         }
     } else {

@@ -587,3 +587,183 @@ impl LocalStockpile {
         true
     }
 }
+
+/// Tracks bodies whose state has been mutated by the player
+/// (or by an AI-side effect the player triggered) since the
+/// last save. The v2 extract path uses this set to decide
+/// which bodies deserve a divergence entry — without it, any
+/// per-body state the regen chain would otherwise re-derive
+/// would silently revert on load.
+///
+/// ## What to mark
+///
+/// Mark a body whenever a system mutates *any* per-body
+/// component that the v2 save would otherwise not capture.
+/// The full catalogue of mutating systems (the canonical
+/// "did anything change?" check) lives in
+/// `.github/copilot-instructions.md` under "Save-game
+/// compatibility" — any new system that mutates a per-body
+/// component MUST mark that body dirty or the change will be
+/// lost on the next load.
+///
+/// ## Anti-pattern
+///
+/// Don't mark a body just because it was *inspected* (read).
+/// Only mutations should mark dirty. Inspections are
+/// divergence-free — the regen chain produces the same
+/// state on every fresh world.
+///
+/// ## Lifecycle
+///
+/// `write_save_to_path` clears the set after a successful
+/// save (it's a one-shot dirty flag). The autosave timer
+/// calls `write_save_to_path` on its rolling-window
+/// cadence, so a player who plays continuously gets a
+/// rolling checkpoint at most `autosave_interval_sim_seconds`
+/// behind their actions.
+///
+/// Lives in `economy::components` rather than
+/// `persistence::state_store` so the mutating systems can
+/// `use crate::economy::DirtyBodies` without reaching into
+/// the persistence module.
+#[derive(Resource, Debug, Clone, Default)]
+pub struct DirtyBodies {
+    /// Bodies whose state has been touched since the last
+    /// save. The extract path inserts a divergence for every
+    /// body in this set (in addition to the always-explicit
+    /// ones — colony-bearing, populated, or otherwise-
+    /// divergent bodies).
+    ///
+    /// We store `Entity → DirtyReason` (rather than a bare
+    /// `HashSet<Entity>`) so the extract path can decide
+    /// which divergence fields to populate. A `Stockpile`
+    /// reason only needs the `LocalStockpile` JSON; an
+    /// `Atmosphere` reason needs the whole `AtmosphereComposition`;
+    /// an `Orbit` reason needs the `KeplerOrbit` override
+    /// fields. The reason set is extensible — new
+    /// player-driven actions (terraforming, asteroid
+    /// redirect, mass change) add new variants.
+    pub bodies: std::collections::HashMap<Entity, DirtyReason>,
+}
+
+/// Reason a body is dirty. Drives which divergence fields
+/// the v2 extract path populates.
+///
+/// ## When to add a variant
+///
+/// Add a new variant whenever a new player-driven system
+/// mutates a per-body component that the regen chain would
+/// otherwise re-derive. The extract path's
+/// `extract_bodies` needs an explicit `match` arm for every
+/// variant — that's the audit point that catches forgotten
+/// marks. See `.github/copilot-instructions.md` under
+/// "Save-game compatibility" for the full list of mutating
+/// systems; every entry there corresponds to one variant
+/// here.
+///
+/// ## Anti-pattern
+///
+/// Don't reuse `Stockpile` for "any per-body mutation".
+/// The variant tells the extract path *what kind* of
+/// divergence to write; conflating them produces saves that
+/// round-trip the wrong fields and silently lose data on
+/// load.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum DirtyReason {
+    /// `LocalStockpile` was mutated (mining, freighter
+    /// delivery, build-queue consumption, food/oxygen
+    /// drain, maintenance cost).
+    Stockpile,
+    /// `AtmosphereComposition` was mutated (terraforming
+    /// — surface pressure / composition / temperature
+    /// / harvest altitude). PR-I doesn't have an
+    /// in-game terraforming system yet, but the variant
+    /// is reserved so the extract path can wire it
+    /// without a schema break when the feature lands.
+    Atmosphere,
+    /// `KeplerOrbit` was mutated (orbit shift — the
+    /// player moved the body via asteroid redirect,
+    /// tractor tug, or any other mechanic that changes
+    /// `mean_anomaly_epoch` / `semi_major_axis` /
+    /// `eccentricity` from the regen default).
+    Orbit,
+    /// `CelestialBody` itself was mutated (mass, radius,
+    /// rotation period — e.g. asteroid-mining depleted
+    /// enough mass to matter, or a captured asteroid
+    /// was merged into the host body).
+    Body,
+    /// A `Colony` was founded or dissolved by the
+    /// player. The regen chain re-seeds Earth's
+    /// baseline colony, so a player-founded outpost on
+    /// Mars needs an explicit `colony_override`.
+    Colony,
+    /// `Population` changed. Earth starts with 8.2B;
+    /// a colony with population > 0 needs a
+    /// `population_override`.
+    Population,
+    /// Multiple reasons apply. The extract path
+    /// populates every applicable divergence field.
+    /// Useful for systems that mutate several
+    /// components at once (e.g. an asteroid-redirect
+    /// system that changes orbit AND mass).
+    Multiple,
+}
+
+impl DirtyBodies {
+    /// Mark `entity` as dirty with a single reason.
+    /// Idempotent — re-marking with the same reason is a
+    /// no-op; re-marking with a different reason escalates
+    /// to [`DirtyReason::Multiple`] so the extract path
+    /// writes every applicable divergence field.
+    pub fn mark(&mut self, entity: Entity, reason: DirtyReason) {
+        match self.bodies.get(&entity).copied() {
+            None => {
+                self.bodies.insert(entity, reason);
+            }
+            Some(existing) if existing == reason => {
+                // No-op — same reason.
+            }
+            Some(_) => {
+                // Escalate — multiple reasons apply.
+                self.bodies.insert(entity, DirtyReason::Multiple);
+            }
+        }
+    }
+
+    /// Convenience: mark a body as dirty because its
+    /// `LocalStockpile` was mutated. This is the most
+    /// common case (mining, freighter delivery, build
+    /// queue consumption, maintenance, life-support
+    /// drain).
+    ///
+    /// Equivalent to `mark(entity, DirtyReason::Stockpile)`.
+    pub fn mark_stockpile(&mut self, entity: Entity) {
+        self.mark(entity, DirtyReason::Stockpile);
+    }
+
+    /// Clear all dirty marks (called by
+    /// `write_save_to_path` after a successful save).
+    pub fn clear(&mut self) {
+        self.bodies.clear();
+    }
+
+    /// Test/inspect: is `entity` currently dirty?
+    pub fn is_dirty(&self, entity: Entity) -> bool {
+        self.bodies.contains_key(&entity)
+    }
+
+    /// Test/inspect: which reason(s) made `entity` dirty?
+    /// Returns `None` if the body is not dirty. Note that
+    /// `Some(DirtyReason::Multiple)` indicates "two or
+    /// more distinct reasons were registered" — the
+    /// extract path treats it as "every applicable field".
+    pub fn reason(&self, entity: Entity) -> Option<DirtyReason> {
+        self.bodies.get(&entity).copied()
+    }
+
+    /// All dirty bodies, in arbitrary order. Used by the
+    /// extract path to gate divergence inclusion.
+    pub fn dirty_bodies(&self) -> impl Iterator<Item = (Entity, DirtyReason)> + '_ {
+        self.bodies.iter().map(|(e, r)| (*e, *r))
+    }
+}

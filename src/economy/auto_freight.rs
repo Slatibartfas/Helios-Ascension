@@ -158,6 +158,7 @@ pub fn auto_freight_loop(
     sim_time: Res<SimulationTime>,
     mut notif_state: ResMut<AutoFreightNotificationState>,
     mut no_design_events: MessageWriter<FreighterNoDesignAvailable>,
+    mut dirty: ResMut<crate::economy::DirtyBodies>,
 ) {
     // Indexes of AutoFreight companies — these are the ones we'll service.
     let auto_freight_indices: Vec<usize> = companies
@@ -256,6 +257,16 @@ pub fn auto_freight_loop(
         // `requests.requests[req_idx]` borrow dropped before the
         // mutable call.
         let actual_dispatched = deduct_from_source(&req_snapshot.resource, target, &mut stockpiles);
+        if actual_dispatched > 0.0 {
+            // Freighter pickup consumed from one or more
+            // source bodies — mark them dirty so the v2
+            // extract path captures the mutation.
+            // `deduct_from_source` chose the sources, but
+            // we conservatively mark the destination body
+            // too: the request itself is a player-derived
+            // record that the regen chain doesn't seed.
+            dirty.mark_stockpile(req_snapshot.destination_body);
+        }
         if actual_dispatched <= 0.0 {
             // No body has the resource.  Don't emit a no-design event here
             // — that's a *production* problem, not a *freight* problem.
@@ -485,6 +496,12 @@ mod tests {
         world.init_resource::<SimulationTime>();
         world.init_resource::<AutoFreightNotificationState>();
         world.init_resource::<Messages<FreighterNoDesignAvailable>>();
+        // DirtyBodies is required by auto_freight_loop's
+        // signature (GRA-358 PR-I). The auto-freight
+        // system marks the destination body dirty when
+        // it picks up resources — see `state_store.rs`
+        // for the dirty-marker contract.
+        world.init_resource::<crate::economy::DirtyBodies>();
     }
 
     /// Build a `Pending` `ResourceRequest` at the given body for `Iron`.

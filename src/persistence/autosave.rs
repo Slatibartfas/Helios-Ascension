@@ -2,11 +2,13 @@
 //!
 //! PR-A produced save RON strings but never wrote them to disk. PR-B
 //! adds [`AutosaveTimer`] — a `Resource` advanced every frame by
-//! [`tick_autosave_timer`] that, when it fires, snapshots the world
-//! via [`snapshot_world`], writes the result atomically via
-//! [`write_save_atomic`], prunes old autosave files so the disk does
-//! not grow without bound, and re-scans the [`SaveIndex`] so the
-//! main menu shows the new save without restarting.
+//! [`tick_autosave_timer`] that, when it fires, persists the world
+//! via [`crate::persistence::write_save_to_path`], prunes old
+//! autosave files so the disk does not grow without bound, and
+//! re-scans the [`SaveIndex`] so the main menu shows the new save
+//! without restarting. PR-I replaced the v1 DynamicScene snapshot
+//! with the v2 StateStore extractor — saves are KB-sized and the
+//! regen chain rebuilds the world on load.
 //!
 //! # Gating
 //!
@@ -44,10 +46,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
-use super::io::write_save_atomic;
-use super::snapshot::{snapshot_world, SaveMetadata};
-use crate::game_state::GameSeed;
-use crate::persistence::playtime::PlaytimeTracker;
+use super::game_setup::write_save_to_path;
 use crate::ui::launch::save_index::{SaveIndex, SAVES_SUBDIR};
 use crate::ui::launch::userdata::{resolve_userdata_dir, PersistentSettings};
 use crate::ui::launch::LaunchState;
@@ -163,16 +162,15 @@ impl AutosaveTimer {
 ///
 /// On fire:
 /// 1. Resolve `<userdata>/saves/` (create if missing).
-/// 2. Build a [`SaveMetadata`] from [`PlaytimeTracker`] +
-///    [`GameSeed`] + `CARGO_PKG_VERSION`.
-/// 3. Snapshot the world via [`snapshot_world`]. Reflection gaps
-///    return [`SnapshotError`](super::snapshot::SnapshotError) —
-///    the autosave logs at `warn!` and pushes the deadline forward
-///    by one interval so we do not spam the log every frame.
-/// 4. Compose `autosave_<UTC>.ron` and write atomically via
-///    [`write_save_atomic`].
-/// 5. Prune older autosaves to `rolling_count`.
-/// 6. Re-scan [`SaveIndex`] so the menu sees the new file without a
+/// 2. Persist the world via
+///    [`crate::persistence::write_save_to_path`] (PR-I: v2
+///    StateStore extractor). Reflection / registry gaps return a
+///    string error — the autosave logs at `warn!` and pushes the
+///    deadline forward by one interval so we do not spam the log
+///    every frame.
+/// 3. Compose `autosave_<UTC>.ron` and write atomically.
+/// 4. Prune older autosaves to `rolling_count`.
+/// 5. Re-scan [`SaveIndex`] so the menu sees the new file without a
 ///    restart.
 ///
 /// The system signature is `&mut World` (exclusive system access)
@@ -227,23 +225,16 @@ fn advance_only(world: &mut World) {
 }
 
 /// Snapshot the world and write to disk. Returns an error string
-/// for the warn-log path.
+/// for the warn-log path. PR-I uses the v2 StateStore extractor
+/// (KB-sized saves) instead of the v1 DynamicScene snapshot.
 fn fire_autosave(world: &mut World) -> Result<(), String> {
-    let playtime = world.resource::<PlaytimeTracker>().total_real_s as u64;
-    let seed = world.resource::<GameSeed>().value;
-    let metadata = SaveMetadata::new_now(seed, playtime, env!("CARGO_PKG_VERSION"));
-
     let saves_dir = resolve_saves_dir(world);
     if let Err(e) = fs::create_dir_all(&saves_dir) {
         return Err(format!("mkdir {}: {e}", saves_dir.display()));
     }
 
-    let ron = {
-        let world_ref: &World = &*world;
-        snapshot_world(world_ref, metadata).map_err(|e| format!("snapshot: {e}"))?
-    };
     let path = compose_autosave_path(&saves_dir);
-    write_save_atomic(&path, &ron).map_err(|e| format!("write {}: {e}", path.display()))?;
+    write_save_to_path(world, &path).map_err(|e| format!("write {}: {e}", path.display()))?;
 
     let rolling_count = world.resource::<AutosaveTimer>().rolling_count;
     prune_old_autosaves(&saves_dir, rolling_count)
@@ -317,6 +308,8 @@ fn is_autosave_path(path: &Path) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::game_state::GameSeed;
+    use crate::persistence::playtime::PlaytimeTracker;
     use bevy::time::{TimePlugin, TimeUpdateStrategy};
     use std::env;
     use std::sync::atomic::{AtomicU64, Ordering};

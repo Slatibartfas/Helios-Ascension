@@ -39,8 +39,9 @@ pub use budget::{
 };
 pub use company::{ShippingCompanies, ShippingCompany};
 pub use components::{
-    LocalStockpile, MineralDeposit, OrbitsBody, PlanetResources, Population, PowerGenerator,
-    PowerSourceType, ResourceReserve, SpectralClass, StarSystem, SurveyLevel,
+    DirtyBodies, DirtyReason, LocalStockpile, MineralDeposit, OrbitsBody, PlanetResources,
+    Population, PowerGenerator, PowerSourceType, ResourceReserve, SpectralClass, StarSystem,
+    SurveyLevel,
 };
 pub use discovery::{
     body_aggregate_tier_breakdown, is_follow_up_only_resource, tier_breakdown_for_reserve,

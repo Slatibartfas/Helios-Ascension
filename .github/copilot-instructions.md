@@ -242,6 +242,218 @@ When adding new UI icons (menus, research categories, etc.), applying the follow
 
 ## Domain-Specific Knowledge
 
+### Save-game Compatibility (GRA-358 PR-I — CRITICAL)
+
+Helios uses a **regenerate-from-seed + divergence overlay** save format
+(StateStore). The save only persists bodies whose state differs from the
+regen chain's seed-derived output. **Any per-body mutation that the regen
+chain would otherwise re-derive silently reverts on load** unless the
+mutating system marks the body dirty.
+
+#### The dirty-marker rule
+
+Every system that **mutates a per-body component** MUST mark that body
+dirty via `ResMut<DirtyBodies>`. The marker tells the v2 extract path
+to write a divergence entry so the change survives the next save/load
+cycle.
+
+```rust
+use crate::economy::{DirtyBodies, DirtyReason};
+
+fn my_mutating_system(
+    mut bodies: Query<(Entity, &mut LocalStockpile)>,
+    mut dirty: ResMut<DirtyBodies>,
+) {
+    for (entity, mut stock) in bodies.iter_mut() {
+        stock.consume(ResourceType::Iron, 1.0);
+        // Mandatory: tell the save system this body changed.
+        dirty.mark_stockpile(entity);
+        // For multiple reasons (e.g. colony grew AND
+        // stockpile mutated), use `mark(entity, DirtyReason::Multiple)`.
+    }
+}
+```
+
+#### Catalog of mutating systems (audit point)
+
+This is the canonical list of systems that mutate per-body state. **Every
+new system that falls into one of these categories MUST be added here and
+MUST mark dirty.** Conversely, if a new system mutates a per-body component
+that's NOT on this list, that's a bug — extend the list and add the
+`DirtyReason` variant.
+
+| System | File | `DirtyReason` |
+|---|---|---|
+| `extract_resources` (mining) | `src/economy/mining.rs` | `Multiple` (stockpile + body mass) |
+| `process_construction_actions` (build-queue consume) | `src/colony/systems.rs` | `Stockpile` |
+| `update_colony_growth` (food production / population drain) | `src/colony/systems.rs` | `Multiple` |
+| `deduct_maintenance_resources` | `src/colony/systems.rs` | `Stockpile` |
+| `deduct_environment_costs` (O₂ / water) | `src/colony/systems.rs` | `Stockpile` |
+| `auto_freight_loop` (freighter pickup) | `src/economy/auto_freight.rs` | `Stockpile` |
+| `complete_deliveries` (freighter delivery) | `src/economy/logistics.rs` | `Stockpile` |
+| **(future)** terraforming system | `src/colony/` (planned) | `Atmosphere` |
+| **(future)** asteroid redirect / orbit shift | `src/astronomy/` (planned) | `Orbit` |
+| **(future)** body-mass / radius editor | `src/astronomy/` (planned) | `Body` |
+| **(future)** colony founding / dissolution | `src/colony/` (planned) | `Colony` |
+| **(future)** population growth / migration | `src/colony/` (planned) | `Population` |
+
+#### `DirtyReason` variants
+
+When a system mutates a per-body component, choose the variant that best
+describes what changed. The extract path's `extract_bodies` uses an
+explicit `match` per variant — that's the audit point that catches
+forgotten marks.
+
+```rust
+pub enum DirtyReason {
+    Stockpile,   // LocalStockpile mutated (mining, delivery, consumption)
+    Atmosphere,  // AtmosphereComposition mutated (terraforming)
+    Orbit,       // KeplerOrbit mutated (orbit shift, asteroid redirect)
+    Body,        // CelestialBody mutated (mass, radius, rotation)
+    Colony,      // Colony founded or dissolved
+    Population,  // Population changed
+    Multiple,    // Two or more of the above
+}
+```
+
+If the new mutation doesn't fit any variant, **add a new variant** to
+`src/economy/components.rs::DirtyReason` and wire the corresponding
+divergence field in `src/persistence/state_store_extract.rs::extract_bodies`.
+
+#### Restore-path regen fallback (PR-I follow-up)
+
+The v2 restore factory (`build_minimal_world_for_restore`)
+returns an empty `World`. The regen chain that would normally
+spawn celestial bodies is gated on `BootState::Loading &&
+WorldReady && !RestoredWorldGate` — i.e. it does NOT fire on
+the restore path. Without intervention, `apply_state_store`
+would find zero body entities and silently drop every
+per-body divergence (`LocalStockpile`, `Colony`, `Population`,
+orbital overrides, etc.) as a warning.
+
+**Two safeguards run inside `apply_state_store`:**
+
+1. **`regenerate_bodies_minimal`** (when the world has zero
+   bodies): loads `assets/data/solar_system.ron` and spawns
+   each body with the minimum components the apply path
+   reads (`CelestialBody` + `SystemId`). No-op when the world
+   already has bodies (New Game path).
+2. **`init_missing_resources_for_apply`** (always): seeds
+   every resource the `apply_*` family reads with its
+   `Default` impl if it isn't already present. The list
+   mirrors the test-side `bootstrap_world` helper at the
+   bottom of `state_store_apply.rs` — keep them in sync. A
+   missing resource would silently no-op via
+   `get_resource_mut::<T>()` and the player would lose
+   treasury, research points, unlocked tech, view mode,
+   atmosphere quality, autosave cadence, notification
+   settings, etc. on every Restore.
+
+Trade-off: bodies restored via `regenerate_bodies_minimal`
+are missing meshes, materials, transforms, `KeplerOrbit`,
+and spectral-class resource deposits (the
+`generate_solar_system_resources` system normally populates
+`PlanetResources` with spectral-class data). The regen-minimal
+populates an empty `PlanetResources` so the mining system
+finds the component (and the per-frame
+`Colony X has no PlanetResources` warning — now `debug!` in
+`mining.rs` — doesn't fire). Mining rates compute to zero
+until the full regen chain lands. PR-J was attempted (build
+the minimal App with the full Helios plugin stack, run the
+chain via `app.update()`, swap the populated world into the
+live App). The chain ran end-to-end (710 bodies + 60 nearby
+systems + day-one fleet + baseline tech) but Bevy 0.18's
+`propagate_parent_transforms` then stack-overflowed on the
+live App's `PostUpdate`: `despawn_helios_simulation_entities`
+cleared prior-session body entities but left stale
+`Children` collections on parent ring entities that the
+recursive propagation walked indefinitely. The follow-up
+must either (a) teach the pre-swap live-world cleanup to
+also clear stale `Children` from despawned parents, or
+(b) refactor `setup_solar_system` to not assign `ChildOf`
+to rings (use only `LogicalParent`) so the live world never
+has a `Children`-bearing parent after a swap.
+
+#### Restore-path "Frankenstein world" prevention (PR-I follow-up)
+
+Bevy 0.18's `swap_world_into` spawns fresh entities for the
+save's pending world but never despawns the live world's
+pre-existing session entities. Without intervention, a
+player who loaded a save after playing a New Game session
+would see two copies of every body (their original session's
+entities + the apply's freshly-spawned entities), producing
+confused orbital propagation and double-counted resources.
+
+**`swap_pending_into_target` calls
+`despawn_helios_simulation_entities` at the very top of the
+swap.** The denylist `helios_simulation_marker_set()` lists
+the components that identify a Helios simulation entity
+(`SpaceCoordinates`, `Fleet`, `Colony`, `LocalStockpile`,
+`SurveyState`, etc.). Bevy plumbing entities (Window,
+camera helpers, audio output streams) are kept because
+they don't carry any of these markers. See
+[`src/persistence/swap.rs::helios_simulation_marker_set`] for
+the full list and the rationale.
+
+Regression test: `swap_world_into_despawns_helios_simulation_entities_from_target`
+in `swap.rs`.
+
+#### Components that need a `Serialize` derive (PR-I follow-ups)
+
+These components need `Serialize` / `Deserialize` derived before their
+divergence fields can carry real data on round-trip. Until then the
+extract path emits a sentinel flag (empty JSON object) and the apply path
+surfaces a warning via `ApplyOutcome.warnings`.
+
+- `AtmosphereComposition` (`src/astronomy/components.rs`) — terraforming
+  field stays empty in v2 saves; apply warns and falls through.
+- `CelestialBody` (`src/plugins/solar_system.rs`) — body-mass / radius
+  changes stay empty in v2 saves; apply warns and falls through.
+
+Both derive flags belong on the existing `#[derive(...)]` attribute
+(the components are already `Component, Debug, Clone, Reflect`). Adding
+`Serialize, Deserialize` to those derives closes the loop — no schema
+break required on `BodyDivergence` because the JSON blobs are already
+`serde_json::Value`.
+
+#### Save-load audit checklist (when adding a new system)
+
+When you add a new system that mutates a per-body component:
+
+1. **Identify the category**: stock, colony, pop, atmosphere, orbit,
+   body, fleet, or some combination. Look at the analogous entry in the
+   table above.
+2. **Choose / add a `DirtyReason` variant**. Existing variants cover
+   most cases; only add a new one if no existing variant captures the
+   semantics.
+3. **Wire `dirty.mark(...)` (or `dirty.mark_stockpile(...)`) into the
+   system**. The mark should fire on every iteration that actually
+   mutated state — not on read-only inspections.
+4. **Add a `match` arm in `extract_bodies`**
+   (`src/persistence/state_store_extract.rs`) so the new reason populates
+   the matching divergence field. If the field doesn't exist yet (e.g.
+   `body_override`), add it to `BodyDivergence` with
+   `#[serde(default)]` so older saves still load.
+5. **Update the catalog table above** with the new system.
+6. **Add a regression test** in `tests/state_store_v2_e2e.rs` that
+   exercises the mark + extract path end-to-end. Pin the contract
+   that the body appears in divergences with the expected override
+   fields populated.
+7. **Wire the test harness**: if the system is unit-tested via
+   `App::new()`, add `app.init_resource::<DirtyBodies>()` to the test
+   setup — see `src/economy/auto_freight.rs::tests::init_econ_resources`
+   for the canonical pattern.
+
+#### Regen-chain vs player-driven
+
+Some entities are produced by the regen chain on every fresh world (the
+`Day-One Constellation`, the `Mars Flyby Probe`, the debug `Earth→Jupiter`
+fleet). These carry the `RegenChainFleet` marker component and the extract
+path skips them. **Adding a new regen-chain-spawned entity MUST also
+tag it with `RegenChainFleet`** — otherwise every Save → Load cycle
+duplicates it. See `src/fleets/systems.rs::RegenChainFleet` for the
+canonical pattern.
+
 ### Game Systems Overview
 
 #### Colony Management

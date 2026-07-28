@@ -655,6 +655,10 @@ mod tests {
         world.init_resource::<SimulationTime>();
         world.init_resource::<AutoBuildNotificationState>();
         world.init_resource::<Messages<FreighterBuildNoDesignAvailable>>();
+        // GRA-358 PR-I: dirty-body tracker. Mutating
+        // systems require it; the test harness mirrors
+        // the production plugin's init.
+        world.init_resource::<crate::economy::DirtyBodies>();
     }
 
     /// GRA-39 AC #5: when a company has `AutoBuild`, a `home_body` with

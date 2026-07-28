@@ -14,7 +14,8 @@ use super::solar_system_data::{
 use crate::astronomy::AtmosphereComposition;
 use crate::astronomy::{
     orbit_position_from_mean_anomaly, KeplerOrbit, LocalOrbitAmplification, OceanProperties,
-    OceanType, OrbitPath, SpaceCoordinates, StellarProperties, SurfaceTemperature, SCALING_FACTOR,
+    OceanType, OrbitPath, SpaceCoordinates, StellarProperties, SurfaceTemperature, SystemId,
+    SCALING_FACTOR,
 };
 use crate::colony::{BuildingType, Colony};
 use crate::economy::budget::GlobalBudget;
@@ -972,6 +973,12 @@ pub fn setup_solar_system(
                     rotation_period_s: body_data.rotation_period_seconds(),
                     habitable_outer_au: Some(1.0),
                 },
+                // GRA-358 PR-J: SystemId(0) tags every Sol-system
+                // body spawned by `setup_solar_system` so the
+                // persistence apply path's `build_body_index`
+                // (which filters on `&SystemId`) can find them
+                // when overlaying saved divergences on Restore.
+                SystemId(0usize),
                 RotationSpeed(rotation_speed),
                 // Stars sit at the system origin; give them SpaceCoordinates so they
                 // are visible to queries that need to look up the star by entity
@@ -996,6 +1003,7 @@ pub fn setup_solar_system(
                     rotation_period_s: body_data.rotation_period_seconds(),
                     habitable_outer_au: None,
                 },
+                SystemId(0usize),
                 RotationSpeed(rotation_speed),
                 PlanetCategory(classify_for_spawn(body_data).to_string()),
             ))
