@@ -2065,6 +2065,84 @@ fn calculate_hash<T: Hash>(t: &T) -> u64 {
     s.finish()
 }
 
+/// 3D value noise: hash the integer cell and trilinearly interpolate.
+///
+/// Used by `create_asteroid_mesh` to displace sphere vertices with a
+/// pattern that has no axis-aligned periodicity. The earlier sine-wave
+/// superposition produced visibly-banded "stack of rings" artefacts
+/// (see 79 Eurynome screenshots) because the lowest-frequency layer
+/// dominated at the macro scale. Value noise gives a genuinely chaotic
+/// surface that looks like a rubble-pile asteroid.
+///
+/// Returns a float in approximately [-1, 1].
+fn value_noise_3d(p: Vec3, seed: u64) -> f32 {
+    // Integer cell coordinates.
+    let xi = p.x.floor() as i32;
+    let yi = p.y.floor() as i32;
+    let zi = p.z.floor() as i32;
+    // Fractional position inside the cell, in [0, 1].
+    let xf = p.x - xi as f32;
+    let yf = p.y - yi as f32;
+    let zf = p.z - zi as f32;
+    // Smoothstep so the surface is C¹-continuous across cell boundaries
+    // (linear interpolation gives visible creases).
+    let u = xf * xf * (3.0 - 2.0 * xf);
+    let v = yf * yf * (3.0 - 2.0 * yf);
+    let w = zf * zf * (3.0 - 2.0 * zf);
+
+    // Hash the eight cell corners. The seed is mixed in via xor so two
+    // asteroids with different seeds produce different noise fields.
+    let hash = |x: i32, y: i32, z: i32| -> f32 {
+        // Three large primes from the standard integer-hash toolkit;
+        // xor with the seed keeps the field stable per body.
+        let mut h: u32 = (x as u32).wrapping_mul(73856093)
+            ^ (y as u32).wrapping_mul(19349663)
+            ^ (z as u32).wrapping_mul(83492791)
+            ^ seed as u32;
+        // Mix bits and map to [-1, 1].
+        h ^= h << 13;
+        h ^= h >> 17;
+        h ^= h << 5;
+        ((h % 10000) as f32 / 5000.0) - 1.0
+    };
+
+    let c000 = hash(xi, yi, zi);
+    let c100 = hash(xi + 1, yi, zi);
+    let c010 = hash(xi, yi + 1, zi);
+    let c110 = hash(xi + 1, yi + 1, zi);
+    let c001 = hash(xi, yi, zi + 1);
+    let c101 = hash(xi + 1, yi, zi + 1);
+    let c011 = hash(xi, yi + 1, zi + 1);
+    let c111 = hash(xi + 1, yi + 1, zi + 1);
+
+    // Trilinear interpolation.
+    let x00 = c000 + u * (c100 - c000);
+    let x10 = c010 + u * (c110 - c010);
+    let x01 = c001 + u * (c101 - c001);
+    let x11 = c011 + u * (c111 - c011);
+    let y0 = x00 + v * (x10 - x00);
+    let y1 = x01 + v * (x11 - x01);
+    y0 + w * (y1 - y0)
+}
+
+/// Fractal Brownian Motion built from value noise. Sums 5 octaves at
+/// increasing frequency and decreasing amplitude so the macro shape has
+/// large-scale craggy features and the micro shape has small-scale
+/// detail. Output is approximately Gaussian-distributed with std ~0.4.
+fn fbm_noise_3d(p: Vec3, seed: u64) -> f32 {
+    let mut sum = 0.0;
+    let mut amp = 1.0;
+    let mut freq = 1.0;
+    let mut max_amp = 0.0;
+    for _ in 0..5 {
+        sum += amp * value_noise_3d(p * freq, seed);
+        max_amp += amp;
+        amp *= 0.5; // gain
+        freq *= 2.0; // lacunarity
+    }
+    sum / max_amp
+}
+
 fn create_asteroid_mesh(visual_radius: f32, physical_radius_km: f32, seed: u64) -> Mesh {
     // Generate base sphere
     // 96 sectors, 48 stacks -- finer relief than the 64×32 default so
@@ -2077,29 +2155,17 @@ fn create_asteroid_mesh(visual_radius: f32, physical_radius_km: f32, seed: u64) 
     {
         let mut rng = StdRng::seed_from_u64(seed);
 
-        // Define random axes for sine wave superposition.
-        //
-        // 12 layers at steadily-increasing frequencies. More layers than
-        // the previous 6 so no single low-frequency wave dominates --
-        // a single dominant wave was producing the 'smooth sphere
-        // hemisphere' artifact the user reported on Atira/Aten, where
-        // one great-circle zero-crossing left an entire hemisphere with
-        // near-zero displacement.
-        let mut axes = Vec::new();
-        let mut phases = Vec::new();
-        let num_layers = 12;
-
-        for _ in 0..num_layers {
-            axes.push(
-                Vec3::new(
-                    rng.random::<f32>() * 2.0 - 1.0,
-                    rng.random::<f32>() * 2.0 - 1.0,
-                    rng.random::<f32>() * 2.0 - 1.0,
-                )
-                .normalize_or_zero(),
-            );
-            phases.push(rng.random::<f32>() * std::f32::consts::TAU);
-        }
+        // Random per-body rotation that domain-warps the noise lookup so
+        // the craggy surface has no preferred axis. Without this all
+        // asteroids would share the same characteristic noise pattern
+        // (just shifted in scale), which the user picked up on as
+        // 'wavy / too regular'.
+        let warp_rotation = Quat::from_euler(
+            EulerRot::XYZ,
+            rng.random::<f32>() * std::f32::consts::TAU,
+            rng.random::<f32>() * std::f32::consts::TAU,
+            rng.random::<f32>() * std::f32::consts::TAU,
+        );
 
         // Determine roughness based on physical size
         // Bodies > 500km tend to be spherical (hydrostatic equilibrium)
@@ -2113,52 +2179,52 @@ fn create_asteroid_mesh(visual_radius: f32, physical_radius_km: f32, seed: u64) 
             0.4 // Very irregular
         };
 
+        // The macro-noise lookup scale: how many noise cells fit across
+        // the asteroid. Bigger numbers mean finer-grained craggy relief.
+        // 2.5 gives ~5-6 visible 'lumps' around the equator on a small
+        // asteroid; smaller values give one giant lump, larger values
+        // give pebbled detail only.
+        let noise_scale = 2.5;
+
         let new_positions: Vec<[f32; 3]> = positions
             .iter()
             .map(|p| {
                 let v = Vec3::from(*p);
                 let dir = v.normalize_or_zero();
 
-                // Twelve sine waves at increasing frequency (2.0..14.0)
-                // with decreasing amplitude (1/i).  Each individual layer
-                // contributes at most ±1/i; the composite is roughly
-                // Gaussian-distributed around 0 with std ~0.4, then
-                // normalised to [-1, 1] by dividing by 1.8 (the empirical
-                // peak amplitude of the sum).  Because the contributions
-                // drop off quickly, no single layer dominates and the
-                // surface has uniform variation in every direction.
-                let mut noise = 0.0;
-                for i in 0..num_layers {
-                    let frequency = 2.0 + (i as f32);
-                    let val = (dir.dot(axes[i]) * frequency + phases[i]).sin();
-                    noise += val * (1.0 / (i as f32 + 1.0));
-                }
+                // Domain-warped FBM: feed the noise function a rotated,
+                // then re-rotated, version of the surface direction so
+                // the craggy pattern doesn't share axes with the asteroid
+                // body. The second warp adds non-uniform warping so
+                // neighbouring regions look uncorrelated (otherwise the
+                // FBM has visible cell-aligned bias).
+                let warped = warp_rotation * dir;
+                let warp_offset = Vec3::new(
+                    fbm_noise_3d(warped * noise_scale, seed),
+                    fbm_noise_3d(warped * noise_scale + Vec3::new(7.3, 0.0, 0.0), seed),
+                    fbm_noise_3d(warped * noise_scale + Vec3::new(0.0, 11.1, 0.0), seed),
+                );
+                let warped2 = warp_rotation * (dir + warp_offset * 0.4);
+                let noise = fbm_noise_3d(warped2 * noise_scale, seed.wrapping_add(1));
 
-                // Normalize noise to roughly -1 to 1 range
-                noise /= 1.8;
-
-                // Inward concavity depth is now 60% (was 25%) so the
-                // asteroid can be genuinely craggy.  The shadow-side
-                // black-patch issue is mitigated by:
-                //   * The boosted always-positive micro-noise below
-                //     (every vertex gets at least 9% outward offset,
-                //     so the underlying sphere never shows through).
-                //   * The asteroid-specific emissive floor (0.015) set
-                //     in `setup_solar_system` which keeps the dark
-                //     hemisphere from going pitch-black.
-                let biased_noise = if noise < 0.0 { noise * 0.6 } else { noise };
+                // The previous version biased negative noise inward at 60%
+                // to keep crater depth manageable. With FBM noise we don't
+                // need that bias -- the distribution is roughly symmetric
+                // around zero -- so positive and negative contributions
+                // are passed through at full amplitude for genuine craggy
+                // concavities.
+                let biased_noise = noise;
 
                 // Always-positive micro-noise layer.  Without this the
                 // regions where the primary noise crosses zero stay at
                 // the underlying sphere surface, producing visible smooth
                 // 'patches' inside the bumpy silhouette that read as a
                 // spherical base protruding through the texture.  A high-
-                // frequency |sin| term at 0--18% of the irregularity
-                // factor guarantees every vertex gets some radial offset
-                // so the whole surface reads as rocky.
-                let micro_amp = 0.18;
-                let micro_val = (axes[0].dot(dir) * 11.0 + phases[0]).sin().abs();
-                let micro_displacement = micro_amp * micro_val * irregularity_factor;
+                // frequency value-noise term at 0--22% of the
+                // irregularity factor guarantees every vertex gets some
+                // radial offset so the whole surface reads as rocky.
+                let micro = value_noise_3d(warped * 18.0, seed.wrapping_add(2)).abs();
+                let micro_displacement = 0.22 * micro * irregularity_factor;
 
                 let displacement = 1.0 + biased_noise * irregularity_factor + micro_displacement;
 
