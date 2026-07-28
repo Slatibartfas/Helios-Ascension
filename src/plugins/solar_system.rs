@@ -2061,9 +2061,10 @@ fn calculate_hash<T: Hash>(t: &T) -> u64 {
 
 fn create_asteroid_mesh(visual_radius: f32, physical_radius_km: f32, seed: u64) -> Mesh {
     // Generate base sphere
-    // Use higher resolution for smoother look as requested
-    // 64 sectors, 32 stacks
-    let mut mesh = Sphere::new(visual_radius).mesh().uv(64, 32);
+    // 96 sectors, 48 stacks -- finer relief than the 64×32 default so
+    // small asteroids (visual_radius down to 0.12) don't read as a
+    // smooth sphere with bumps on top.
+    let mut mesh = Sphere::new(visual_radius).mesh().uv(96, 48);
 
     if let Some(VertexAttributeValues::Float32x3(positions)) =
         mesh.attribute(Mesh::ATTRIBUTE_POSITION)
@@ -2117,15 +2118,30 @@ fn create_asteroid_mesh(visual_radius: f32, physical_radius_km: f32, seed: u64) 
 
                 // Bias displacement outward: outward bumps get the full
                 // `irregularity_factor`, but inward concavities are scaled
-                // down to 35% of that depth.  Without this bias the noise
+                // down to 25% of that depth.  Without this bias the noise
                 // function creates deep inward craters that fall into
                 // self-shadow at any sun angle, producing large black
                 // patches fixed in body space that rotate with the asteroid.
                 // A mild inward component is preserved so silhouettes still
                 // look natural (rocks aren't perfect convex aggregates),
                 // but the crater depth is well below the bump height.
-                let biased_noise = if noise < 0.0 { noise * 0.35 } else { noise };
-                let displacement = 1.0 + biased_noise * irregularity_factor;
+                let biased_noise = if noise < 0.0 { noise * 0.25 } else { noise };
+
+                // Always-positive micro-noise layer.  Without this the
+                // regions where the primary noise crosses zero stay at
+                // the underlying sphere surface, producing visible smooth
+                // "patches" inside the bumpy silhouette that read as a
+                // spherical base protruding through the texture (visible
+                // especially on small asteroids whose bumpy silhouette is
+                // barely larger than the underlying sphere).  A high-
+                // frequency |sin| term at 0--8% of the irregularity factor
+                // guarantees every vertex gets some radial offset so the
+                // whole surface reads as rocky.
+                let micro_amp = 0.08;
+                let micro_val = (axes[0].dot(dir) * 11.0 + phases[0]).sin().abs();
+                let micro_displacement = micro_amp * micro_val * irregularity_factor;
+
+                let displacement = 1.0 + biased_noise * irregularity_factor + micro_displacement;
 
                 (dir * visual_radius * displacement).into()
             })

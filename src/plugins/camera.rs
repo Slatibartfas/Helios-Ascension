@@ -396,10 +396,23 @@ fn update_min_zoom(
     // --- Case 1: anchored directly to a CelestialBody -----------------------
     if let Some(anchor_entity) = anchor.0 {
         if let Ok((body, _)) = body_query.get(anchor_entity) {
+            // Multiplier accounts for the body's bumpy silhouette so the
+            // camera never clips into the mesh:
+            //   * Stars: surface is a smooth sphere on top of a much larger
+            //     glowing corona, so 2.5× is a safe close-up framing.
+            //   * Planets/moons: smooth sphere, 1.6× keeps a small gap.
+            //   * Asteroids/comets: `create_asteroid_mesh` displaces vertices
+            //     up to ~1.4× the visual radius for small bodies, so we use
+            //     1.6× to clear the bumpy silhouette.
+            // The floor drops from 5.0 to 0.3 so bodies as small as
+            // Bennu (visual_radius = 0.12) become inspectable; the previous
+            // 5.0 floor forced the camera to sit 40× the radius away.
             let new_min = if body.body_type == BodyType::Star {
                 (body.visual_radius * 2.5).max(250.0)
+            } else if body.body_type == BodyType::Asteroid || body.body_type == BodyType::Comet {
+                (body.visual_radius * 1.6).max(0.3)
             } else {
-                (body.visual_radius * 2.0).max(5.0)
+                (body.visual_radius * 1.6).max(1.0)
             };
             apply_min(&mut orbit, new_min);
             return;
