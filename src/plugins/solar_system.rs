@@ -2299,36 +2299,38 @@ fn create_asteroid_mesh(visual_radius: f32, physical_radius_km: f32, seed: u64) 
                 let warped2 = warp_rotation * (dir + warp_offset * 0.6);
                 let fbm_macro = fbm_noise_3d(warped2 * noise_scale, seed.wrapping_add(1));
 
-                // Voronoi displacement for angular rocky facets.  The
-                // feature-point distance (F1) gives each Voronoi cell a
-                // distinctive bump; the F2-F1 crack pattern provides
-                // visible fissure lines where two cells meet.
-                let (f1, f2, cell_id) = voronoi_3d(warped * voronoi_scale, seed);
+                // Voronoi displacement for plate-like rocky surface. The
+                // feature-point distance (F1) is unused -- a Voronoi
+                // peak at the cell centre created 'sea urchin' spikes
+                // (see 1862 Apollo / 1866 Sisyphus / Vesta screenshots).
+                // Instead we use only the F2-F1 crack signal and a
+                // per-cell random elevation offset, so each Voronoi cell
+                // is a slightly-flat plate at a different height rather
+                // than a spike.
+                let (_f1, f2_minus_f1, cell_id) = voronoi_3d(warped * voronoi_scale, seed);
 
-                // Per-cell random offset. Different cells get slightly
-                // different elevations, which gives the surface a
-                // "stepped" look -- adjacent plates at different heights,
-                // like sedimentary layers or fault blocks.
+                // Per-cell random offset. Different cells sit at slightly
+                // different elevations, giving the surface a 'stepped'
+                // look -- adjacent plates at different heights, like
+                // sedimentary layers or fault blocks. Reduced from 0.45
+                // to 0.25 magnitude because combined with the FBM macro
+                // amplitude bump below it was driving the silhouette too
+                // far out.
                 let cell_offset_seed = cell_id.wrapping_mul(0x5bd1e995);
-                let cell_offset = ((cell_offset_seed % 2000) as f32 / 1000.0 - 1.0) * 0.45;
-
-                // F1 distance: sharp peak at the feature point (the cell
-                // centre), falling off toward cell boundaries. Raised to
-                // power 2.0 to make the peak sharper (less "spike-ball",
-                // more "rocky plate"). 0.0 at the feature point itself
-                // is the deepest part; 0.5+ at cell boundaries.
-                let facet_bump = (1.0 - f1.clamp(0.0, 1.0)).powi(2) * 0.5;
+                let cell_offset = ((cell_offset_seed % 2000) as f32 / 1000.0 - 1.0) * 0.25;
 
                 // F2-F1 crack pattern. Near cell boundaries, F2 ≈ F1 so
                 // the difference is small. We carve into the surface
                 // where the difference is small (cracks), and leave the
-                // cell interiors alone.
-                let crack_strength = (0.18 - (f2 - f1)).max(0.0) / 0.18;
-                let crack_carve = crack_strength * crack_strength * 0.25;
+                // cell interiors alone. Threshold 0.18 was a good crack
+                // width; depth 0.18 (was 0.25) keeps cracks as visible
+                // fissures without punching deep enough to look like
+                // bite marks.
+                let crack_strength = (0.18 - f2_minus_f1).max(0.0) / 0.18;
+                let crack_carve = crack_strength * crack_strength * 0.18;
 
-                // Voronoi component: cell offset + facet bump - cracks.
-                // Signed so cracks carve inward.
-                let voronoi_displacement = cell_offset + facet_bump - crack_carve;
+                // Voronoi component: cell offset - cracks. No F1 peak.
+                let voronoi_displacement = cell_offset - crack_carve;
 
                 // Always-positive micro-noise layer.  Without this the
                 // regions where the primary noise crosses zero stay at
@@ -2338,14 +2340,16 @@ fn create_asteroid_mesh(visual_radius: f32, physical_radius_km: f32, seed: u64) 
                 let micro = value_noise_3d(warped * 18.0, seed.wrapping_add(2)).abs();
                 let micro_displacement = 0.4 * micro * irregularity_factor;
 
-                // Final displacement = FBM macro lumps + Voronoi facets
-                // + micro noise. The FBM amplitude is reduced (0.6x)
-                // because Voronoi now does the heavy lifting for surface
-                // character; pure FBM gave the "smooth-gradient" look
-                // the user flagged as too clean.
+                // Final displacement = FBM macro lumps + Voronoi plates
+                // and cracks + micro noise. FBM amplitude restored to
+                // 0.8x (was 0.6x) because Voronoi no longer provides the
+                // angular character -- it's only plate offsets and
+                // cracks now. Pure-FBM at 0.6x gave the 'smooth-gradient'
+                // look; FBM at 0.8x plus the Voronoi plates and cracks
+                // gives angular rock without spike-balls.
                 let displacement = 1.0
-                    + fbm_macro * irregularity_factor * 0.6
-                    + voronoi_displacement * irregularity_factor * 1.2
+                    + fbm_macro * irregularity_factor * 0.8
+                    + voronoi_displacement * irregularity_factor * 1.0
                     + micro_displacement;
 
                 (dir * visual_radius * displacement).into()
