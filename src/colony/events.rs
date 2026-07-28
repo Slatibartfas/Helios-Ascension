@@ -14,6 +14,20 @@
 //!   The variant is defined for forward compatibility and to give the
 //!   `bridge_construction_events` test a target; the actual fire site will
 //!   land when the shipbuilding sim layer is wired in (a follow-up ticket).
+//! - `OutpostEstablished { colony, body }` — GRA-787 closes the producer gap
+//!   that GRA-786's design comment called out: the architecture expected
+//!   `ConstructionEvent::Completed { building: BuildingType::Outpost }`, but
+//!   no such `BuildingType` variant exists — establishing an outpost is a
+//!   separate colony-tier promotion that bypasses the normal
+//!   building-completion flow. Rather than widen `BuildingType` (which would
+//!   touch `all()`, `display_name()`, `description()`, RON validators, and
+//!   downstream consumers), this variant surfaces the same milestone as a
+//!   dedicated event. The milestone consumer in `crate::survey::milestones`
+//!   flips `EarlyGameMilestones::outpost_established` from this variant; the
+//!   existing notification bridge in
+//!   `crate::ui::notifications::systems::event_bridge` intentionally does not
+//!   handle it (no notification category was added — that is a separate
+//!   design surface owned by LGD).
 //!
 //! These messages are transient — they live in a Bevy `Messages<T>` buffer
 //! and are dropped between game sessions.
@@ -37,4 +51,8 @@ pub enum ConstructionEvent {
     /// reserved for when the shipbuilding workspace migrates to a sim
     /// system.
     ShipCompleted { hull: String },
+    /// A new outpost colony was established on a body. Fired from
+    /// `process_construction_actions` after a successful outpost promotion.
+    /// See the module-level doc for the producer-gap rationale.
+    OutpostEstablished { colony: Entity, body: Entity },
 }

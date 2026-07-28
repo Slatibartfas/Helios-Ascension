@@ -256,6 +256,10 @@ pub fn bridge_construction_events(
                 NotificationSeverity::Notice,
                 "shipbuilding.hull_complete",
             ),
+            // GRA-787 adds this event only as an unambiguous milestone
+            // producer. No notification category was approved for it, so
+            // leave the existing notification manifest unchanged.
+            ConstructionEvent::OutpostEstablished { .. } => continue,
         };
 
         notifications.write(NotificationEvent {

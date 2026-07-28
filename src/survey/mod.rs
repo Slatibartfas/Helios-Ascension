@@ -20,6 +20,7 @@ use bevy::prelude::*;
 pub mod components;
 pub mod data;
 pub mod events;
+pub mod milestones;
 pub mod systems;
 pub mod types;
 pub mod visibility;
@@ -41,6 +42,11 @@ pub use data::{
 pub use events::{
     AbortSurveyMission, DismissFailedMission, DismissSurveyMission, DispatchSurveyMission,
     SurveyEvent,
+};
+pub use milestones::{
+    advance_construction_milestones, advance_research_milestones, advance_survey_milestones,
+    is_probe_using_method, EarlyGameMilestones, MilestoneStep, MilestonesSystemSet,
+    MILESTONE_ORDER,
 };
 pub use systems::{
     abort_survey_mission, advance_survey_missions, apply_continuous_station_bonus,
@@ -99,6 +105,18 @@ impl Plugin for SurveyPlugin {
             .init_resource::<MiningEfficiencyRegistry>()
             .init_resource::<AnalysisQueueIndex>()
             .init_resource::<RecoveryMissionRegistry>()
+            // GRA-787: the early-game milestone resource + reflective
+            // registration. `init_resource` is the fresh-world
+            // initialisation path the architecture points to — old
+            // saves that lack the resource restore to `Default`
+            // through this call (the snapshot is additive, so
+            // `FORMAT_VERSION` does not need to bump). The
+            // `register_type` call is what binds the type into
+            // `AppTypeRegistry`, which `DynamicScene::from_world`
+            // walks to discover reflected resources at save time.
+            .init_resource::<EarlyGameMilestones>()
+            .register_type::<EarlyGameMilestones>()
+            .register_type::<MilestoneStep>()
             // Update systems — PR-A stubs remain, PR-B replaces
             // `advance_survey_missions` with the real tick and
             // adds the dispatch/abort handlers. The systems are
@@ -130,6 +148,34 @@ impl Plugin for SurveyPlugin {
                     update_survey_summary,
                 )
                     .chain(),
+            )
+            // GRA-787: three milestone consumers, one per source
+            // message family. They run in `Update` after the sim
+            // tick has emitted events for this frame. The set is
+            // ordered after `NotificationsSystemSet::EventBridge`
+            // (wired below) so the toast and the flag flip on the
+            // same frame; the `.chain()` inside the tuple is for
+            // documentation — the three systems target disjoint
+            // message families.
+            .add_systems(
+                Update,
+                (
+                    advance_survey_milestones,
+                    advance_construction_milestones,
+                    advance_research_milestones,
+                )
+                    .in_set(MilestonesSystemSet)
+                    .chain(),
+            )
+            // Cross-set ordering: bridge first, then milestones.
+            // `NotificationsSystemSet::EventBridge` is configured in
+            // `NotificationsPlugin`; the `.after` here documents
+            // the intended pipeline even when the bridge plugin is
+            // not registered (e.g. test harnesses).
+            .configure_sets(
+                Update,
+                MilestonesSystemSet
+                    .after(crate::ui::notifications::systems::NotificationsSystemSet::EventBridge),
             );
     }
 }

@@ -210,6 +210,20 @@ impl Plugin for PersistencePlugin {
             .register_type::<crate::research::ResearchState>()
             // ── Survey (high-level state, no registries yet) ────────
             .register_type::<crate::survey::SurveyState>()
+            // GRA-787: the early-game milestone resource. The
+            // `Reflect` derive + `register_type` call is what binds
+            // the type into `AppTypeRegistry`, which
+            // `DynamicScene::from_world` walks to discover reflected
+            // resources at save time. `MilestoneStep` is registered
+            // transitively because its `Reflect` impl is derived, but
+            // we list it explicitly for documentation and to keep
+            // the registration list symmetric with `SurveyPlugin`.
+            // Old saves that lack the resource restore to `Default`
+            // through the fresh-world `init_resource` path; we do
+            // NOT bump `FORMAT_VERSION` because the snapshot is
+            // additive.
+            .register_type::<crate::survey::EarlyGameMilestones>()
+            .register_type::<crate::survey::MilestoneStep>()
             // ── Shipbuilding (proves per-area coverage; construction
             //    project restore will land in PR-B once Queue* action
             //    chains finish shipping) ──────────────────────────────

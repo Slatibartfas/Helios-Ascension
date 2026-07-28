@@ -939,6 +939,12 @@ pub(crate) fn ui_dashboard(
     sim_time: Res<SimulationTime>,
     mut orbit_query: Query<&mut OrbitCamera, With<GameCamera>>,
     mut expanded_groups: ResMut<crate::ui::ExpandedLedgerGroups>,
+    // GRA-787: milestone rendering lives in `ui_time_controls` (the
+    // bottom-panel owner) to keep this function under Bevy 0.18's
+    // 16-parameter fn-item IntoSystem limit (see `bevy_ecs::system::
+    // function_system::impl_system_function`'s `all_tuples!(.., 0, 16)`).
+    // Adding `Res<EarlyGameMilestones>` here would push the count to 17
+    // and break `.in_set()` registration.
 ) {
     let ctx = match contexts.ctx_mut() {
         Ok(ctx) => ctx,
@@ -1347,6 +1353,13 @@ pub(super) fn ui_time_controls(
     keyboard_input: Res<ButtonInput<KeyCode>>,
     real_time: Res<Time<Real>>,
     mut playlist: ResMut<crate::plugins::music::MusicPlaylist>,
+    // GRA-787: read-only access to the early-game milestone resource.
+    // The time-controls panel is the bottom-strip owner — rendering the
+    // milestone checklist above the time buttons keeps the surface
+    // under Bevy 0.18's 16-parameter fn-item IntoSystem limit while
+    // `ui_dashboard` already owns 16. Flag flips happen only in
+    // `crate::survey::milestones` consumers.
+    milestones: Res<crate::survey::EarlyGameMilestones>,
 ) {
     // ── Keyboard shortcuts (skip when egui is consuming input) ────────────
     let ctx = match contexts.ctx_mut() {
@@ -1385,6 +1398,18 @@ pub(super) fn ui_time_controls(
     } else {
         0.0
     };
+
+    // GRA-787: read-only early-game milestone section. Lives above the
+    // time-controls bottom panel so the player sees progress at a
+    // glance without having to open a menu. The section takes the
+    // resource by reference — flag flips happen in
+    // `crate::survey::milestones` consumers, never here.
+    egui::TopBottomPanel::bottom("milestones_section")
+        .min_height(0.0)
+        .resizable(false)
+        .show(ctx, |ui| {
+            draw_milestones_section(ui, &milestones);
+        });
 
     // ── Helper: render a speed preset button with active highlight ────────
     let active_scale = time_scale.scale;
@@ -1942,4 +1967,66 @@ fn discovered_resource_expectation_weight(
         .values()
         .map(|deposit| crate::survey::estimate_with_fidelity(deposit, fidelity).mid_or_zero())
         .sum()
+}
+
+// ── GRA-787: Early-game milestone read-only dashboard section ────────────
+
+/// Render the compact 6-row milestone checklist + "next objective" line.
+///
+/// GRA-787 implements the read-only dossier/dashboard rendering path the
+/// architecture calls out. The function takes the resource by reference
+/// (never by `mut`) and is called from `ui_time_controls` so the section
+/// lives in the existing `EguiPrimaryContextPass` schedule via
+/// `UiSystemSet::TopBar` (the bottom-strip owner). It used to live in
+/// `ui_dashboard`, but adding a `Res<EarlyGameMilestones>` param pushed
+/// that function to 17 system params and broke Bevy 0.18's 16-param
+/// `IntoSystem` limit. The UI never writes to the resource — flag flips
+/// happen only in `crate::survey::milestones` consumers.
+pub(crate) fn draw_milestones_section(
+    ui: &mut egui::Ui,
+    milestones: &crate::survey::EarlyGameMilestones,
+) {
+    ui.add_space(6.0);
+    theme::divider(ui);
+    ui.add_space(2.0);
+
+    ui.label(
+        egui::RichText::new("EARLY-GAME PROGRESS")
+            .font(theme::heading())
+            .color(theme::ACCENT),
+    );
+    ui.add_space(2.0);
+
+    for (step, is_set) in milestones.progress_rows() {
+        let (marker, color) = if is_set {
+            ("[x]", theme::EP_TEAL)
+        } else {
+            ("[ ]", theme::TEXT_DIM)
+        };
+        ui.horizontal(|ui| {
+            ui.label(
+                egui::RichText::new(marker)
+                    .font(theme::mono(12.0))
+                    .color(color),
+            );
+            // `RichText::strikethrough()` takes no argument in
+            // egui 0.33 — apply conditionally on the builder.
+            let mut step_label = egui::RichText::new(step.display_name()).color(if is_set {
+                theme::TEXT
+            } else {
+                theme::TEXT_DIM
+            });
+            if is_set {
+                step_label = step_label.strikethrough();
+            }
+            ui.label(step_label);
+        });
+    }
+
+    ui.add_space(4.0);
+    ui.label(
+        egui::RichText::new(milestones.next_objective())
+            .color(theme::TEXT_DIM)
+            .small(),
+    );
 }

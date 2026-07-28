@@ -618,7 +618,7 @@ mod texture_system_tests {
             // dominant contributor; the shared rock-roughness texture
             // multiplies in micro-variation, so this scalar must stay near
             // the top of the band for every class.
-            assert!(roughness >= 0.75 && roughness <= 0.98);
+            assert!((0.75..=0.98).contains(&roughness));
             assert!((0.0..=0.35).contains(&metallic));
         }
     }

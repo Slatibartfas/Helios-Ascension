@@ -559,12 +559,11 @@ pub fn register_save_panel_subview(app: &mut App) {
                 consume_save_actions_system.after(ui_save_panel_subview),
                 // Run between `ui_dashboard` (which detects the Save
                 // button click) and `ui_save_panel_subview` (which
-                // observes the new `LaunchState`). We anchor on the
-                // visible system handles because `UiSystemSet` itself
-                // is private to the ui module and we don't want to
-                // expose it just for ordering.
+                // observes the new `LaunchState`). `ui_dashboard`
+                // sits in `UiSystemSet::MainPanels` so we anchor the
+                // ordering on that set.
                 consume_in_game_save_request_system
-                    .after(crate::ui::dashboard::ui_dashboard)
+                    .after(crate::ui::UiSystemSet::MainPanels)
                     .before(ui_save_panel_subview),
             ),
         );
