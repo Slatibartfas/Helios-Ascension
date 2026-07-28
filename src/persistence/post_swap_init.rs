@@ -96,13 +96,18 @@
 
 use bevy::prelude::*;
 use bevy::pbr::StandardMaterial;
+use bevy::prelude::{AlphaMode, LinearRgba};
+use rand::SeedableRng;
+use rand::rngs::StdRng;
 
-use crate::astronomy::components::{KeplerOrbit, LocalOrbitAmplification, OrbitCenter, OrbitPath, SpaceCoordinates};
+use crate::astronomy::components::{KeplerOrbit, LocalOrbitAmplification, OrbitCenter, OrbitPath};
+use crate::economy::components::{OrbitsBody, StarSystem};
 use crate::plugins::solar_system::{
-    Asteroid, CelestialBody, Comet, DwarfPlanet, GasGiant, LogicalParent, Moon, Planet, Ring, Star,
+    create_ring_mesh, Asteroid, CelestialBody, Comet, DwarfPlanet, GasGiant, LogicalParent, Moon,
+    Planet, Ring, Star,
 };
 use crate::plugins::solar_system_data::{
-    BodyType, CelestialBodyData, OrbitData, SolarSystemData,
+    calculate_visual_radius, AsteroidClass, BodyType, CelestialBodyData, OrbitData, SolarSystemData,
 };
 use crate::persistence::swap::RestoredWorldGate;
 
@@ -128,6 +133,18 @@ pub struct RestoredBodiesRendered;
 /// `setup_solar_system`, so this stub is only needed on Restore.
 ///
 /// See module-level docs for the full rationale.
+pub struct RestoreBodyVisualData {
+    body_type: BodyType,
+    color: (f32, f32, f32),
+    texture_path: Option<String>,
+    emissive: Option<(f32, f32, f32)>,
+    /// Host planet's physical radius (km) for ring bodies. The
+    /// annulus mesh's inner edge is computed from the host's
+    /// visual radius to avoid the inner ring clipping into the
+    /// planet sphere.
+    parent_radius_km: Option<f32>,
+}
+
 pub fn populate_restored_bodies_3d(world: &mut World) {
     // Safety net: if the AssetServer isn't available (a test
     // App or some modder scenario stripped DefaultPlugins), we
@@ -183,7 +200,7 @@ pub fn populate_restored_bodies_3d(world: &mut World) {
     // small Side-car so Pass B's material-assignment step
     // doesn't have to re-walk the RON data. The sidecar lives
     // only for the duration of this function.
-    let mut sidecar_by_id: std::collections::HashMap<Entity, (f32, f32, f32)> =
+    let mut sidecar_by_id: std::collections::HashMap<Entity, RestoreBodyVisualData> =
         std::collections::HashMap::new();
     let mut decorated = 0usize;
     let mut skipped = 0usize;
@@ -207,31 +224,66 @@ pub fn populate_restored_bodies_3d(world: &mut World) {
                 e.insert(kepler);
                 decorated += 1;
             }
-            // OrbitCenter: find the parent body's entity in the
-            // live world. If it isn't there yet (defensive — the
-            // entity_map above populated it for every existing
-            // body) we leave OrbitCenter off so the orbit
-            // reference frame collapses to the universe origin;
-            // the body still propagates, just relative to Sol
-            // instead of relative to its actual parent.
-            if let Some(parent_name) = &body_data.parent {
-                if let Some(&parent_id) = name_to_entity.get(parent_name) {
-                    if let Ok(mut e) = world.get_entity_mut(id) {
+        }
+        // Parent attachment (OrbitCenter / LogicalParent /
+        // OrbitsBody) must run for **every** body with a parent
+        // row — including rings, which have `orbit: None` in
+        // `solar_system.ron` and would otherwise fall through to
+        // the universe origin (Saturn Rings appearing as a
+        // glowing ball at Sol's location was the visible symptom).
+        // The `update_render_transform` system reads `LogicalParent`
+        // to position a body relative to its parent — without it,
+        // rings, atmosphere shells, and Lagrange helpers all stack
+        // on top of (0, 0, 0).
+        if let Some(parent_name) = &body_data.parent {
+            if let Some(&parent_id) = name_to_entity.get(parent_name) {
+                if let Ok(mut e) = world.get_entity_mut(id) {
+                    // Rings don't have an orbit so they don't need
+                    // OrbitCenter (OrbitCenter is only consumed by
+                    // `propagate_orbits`); they only need
+                    // LogicalParent so the rendering pipeline
+                    // resolves their world position via the
+                    // parent's `SpaceCoordinates`.
+                    if body_data.orbit.is_some() {
                         e.insert(OrbitCenter(parent_id));
-                        e.insert(LogicalParent(parent_id));
+                        // `OrbitsBody` is the resource-generation
+                        // chain's parent tracker (different from
+                        // `OrbitCenter`, which is the visual
+                        // chain's). Inserting it here lets
+                        // `generate_solar_system_resources`
+                        // walk the parent chain to find the star
+                        // for frost-line / metallicity lookup.
+                        // Without this component, the regen
+                        // chain's resource system silently skips
+                        // the body, so `PlanetResources::default()`
+                        // (empty deposits) stays on it and
+                        // `extract_resources` has nothing to mine.
+                        // Rings don't need this — they have no
+                        // deposits by design.
+                        e.insert(OrbitsBody::new(parent_id));
                     }
+                    e.insert(LogicalParent(parent_id));
                 }
             }
         }
         // Every body gets an OrbitPath so the drawn ring shows
-        // up in the same scheme the regen chain uses.
+        // up in the same scheme the regen chain uses. Rings
+        // are excluded — the regen chain sets their `OrbitPath`
+        // `visible: false` because the ring annulus mesh itself
+        // is the visual; drawing an additional orbit circle on
+        // top would just add a noisy halo line.
         let orbit_path_color = if matches!(body_type, BodyType::Star) {
             Color::srgba(1.0, 0.95, 0.6, 0.4)
         } else {
             Color::srgba(0.4, 0.75, 1.0, 0.55)
         };
         if let Ok(mut e) = world.get_entity_mut(id) {
-            e.insert(OrbitPath::new(orbit_path_color));
+            if !matches!(body_type, BodyType::Ring) {
+                // Match the regen chain's segment count (128)
+                // and default fade exponent so restored bodies
+                // render visually identical to fresh-game bodies.
+                e.insert(OrbitPath::with_segments(orbit_path_color, 128));
+            }
             // **Insert Bevy marker components** — `Star`,
             // `Planet`, `Moon`, etc. — that several downstream
             // systems (`update_orbit_visibility`,
@@ -296,11 +348,34 @@ pub fn populate_restored_bodies_3d(world: &mut World) {
                         body_data.emissive.1,
                         body_data.emissive.2,
                     ),
-                    intensity: 5_000_000_000.0,
-                    range: 200.0,
+                    // Real-Sun surface-brightness order; Bevy's
+                    // tone-mapping compresses it to a usable
+                    // render value. The regen chain uses
+                    // `intensity: 2.8e11` — we keep the same
+                    // order-of-magnitude so planets get a
+                    // consistent day/night terminator.
+                    intensity: 2.8e11,
+                    // Range must exceed the largest planet's
+                    // rendered distance (~30 AU × 1500
+                    // Bevy units/AU ≈ 45 000 units); 2e9
+                    // matches the regen chain and is more
+                    // than enough to reach the outer planets.
+                    range: 2.0e9,
                     shadows_enabled: false,
                     ..default()
                 });
+                // **Sol also carries `StarSystem::sun_like()`**
+                // so `generate_solar_system_resources`'s
+                // `star_query` finds it. The regen chain on
+                // New Game adds a StarSystem only for nearby
+                // star systems (multi-star logic), but on
+                // Restore we have only the Sol baseline and
+                // the resource system needs at least one
+                // StarSystem on the chain to resolve frost
+                // line + metallicity. sun_like() returns the
+                // canonical defaults (frost line ≈ 4.0 AU,
+                // solar metallicity).
+                e.insert(StarSystem::sun_like());
             }
         }
         // Moons render closer to their parent than planets
@@ -315,31 +390,200 @@ pub fn populate_restored_bodies_3d(world: &mut World) {
         // Amplification factor 8.0 matches the order used by
         // `setup_solar_system::moon_amplification` for inner
         // moons.
+        //
+        // **Rings** (Saturn Rings, Uranus Rings) don't orbit —
+        // they're attached to their host planet via
+        // `LogicalParent`. Inserting `LocalOrbitAmplification(1.0)`
+        // puts the ring's translation on the
+        // "amplification" branch in `update_render_transform`,
+        // which resolves `parent_world = parent's SpaceCoordinates
+        // × SCALING_FACTOR` and then sets
+        // `transform.translation = parent_world + (ring's own
+        // coords) × SCALING_FACTOR × 1.0`. The ring's own
+        // `SpaceCoordinates` stays at the `DVec3::ZERO`
+        // placeholder from `regenerate_bodies_minimal`, so the
+        // rendered position collapses to `parent_world` —
+        // exactly the host planet's location. Without this, the
+        // ring falls through to the "non-moon body" branch that
+        // scales its (zero) coords straight to (0,0,0).
         if matches!(body_type, BodyType::Moon) {
             if let Ok(mut e) = world.get_entity_mut(id) {
                 e.insert(LocalOrbitAmplification(8.0));
             }
+        } else if matches!(body_type, BodyType::Ring) {
+            if let Ok(mut e) = world.get_entity_mut(id) {
+                e.insert(LocalOrbitAmplification(1.0));
+            }
         }
-        // Remember the body's RON colour (Pass B needs it for
-        // the per-body material tint).
+        let texture_path = body_data
+            .multi_layer_textures
+            .as_ref()
+            .map(|multi| multi.base.clone())
+            .or_else(|| body_data.texture.clone())
+            .or_else(|| generic_texture_path(body_data));
+
+        // Remember the body's RON colour and optional texture assets.
+        //
+        // For ring bodies, also capture the parent planet's
+        // physical radius (km) so the annulus mesh's inner
+        // edge can be sized to clear the planet's sphere.
+        let parent_radius_km = if matches!(body_type, BodyType::Ring) {
+            body_data
+                .parent
+                .as_deref()
+                .and_then(|parent_name| by_name.get(parent_name).copied())
+                .map(|parent| parent.radius)
+        } else {
+            None
+        };
         sidecar_by_id.insert(
             id,
-            (body_data.color.0, body_data.color.1, body_data.color.2),
+            RestoreBodyVisualData {
+                body_type,
+                color: (body_data.color.0, body_data.color.1, body_data.color.2),
+                texture_path,
+                emissive: Some((
+                    body_data.emissive.0,
+                    body_data.emissive.1,
+                    body_data.emissive.2,
+                )),
+                parent_radius_km,
+            },
         );
     }
 
-    // Pass B: add Transform + Visibility + basic Mesh3d +
-    // MeshMaterial3d. Done in a second pass because all the
-    // entity-mutating inserts in pass A could panic on the same
-    // entity twice (we touch each exactly once here, but
-    // defensive).
+    // Pass B: add Transform + Visibility + mesh + material.
+    // This uses the same asset graph as the live App so texture
+    // handles resolve normally once the assets stream in.
     decorate_with_visuals(world, &sidecar_by_id);
+
+    // Pass C: populate `PlanetResources` deposit maps for
+    // every non-stellar body that the apply step didn't already
+    // fill. The regen-chain's
+    // `generate_solar_system_resources` system normally does
+    // this on New Game; on Restore the boot-init chain is
+    // gated off, so bodies sit with empty
+    // `PlanetResources::default()` and the mining system
+    // produces zero output. We re-run the regen-chain's
+    // resource-generation logic inline (its private helper
+    // `generate_resources_for_body` is now `pub(crate)` so
+    // we can call it directly) so mining rates are realistic
+    // without re-registering the system.
+    populate_planet_resources(world);
 
     info!(
         "populate_restored_bodies_3d: decorated {decorated} bodies (skipped {skipped} \
          without RON data) — Restore-path 3D scene populated"
     );
     world.insert_resource(RestoredBodiesRendered);
+}
+
+/// For each non-star body in the live world that lacks a
+/// `PlanetResources` component, run the regen-chain's
+/// resource-generation logic and insert the resulting
+/// `PlanetResources`. Mirrors what
+/// `generate_solar_system_resources` would do for a freshly
+/// regenerated world but runs inline (the system itself can't
+/// re-register due to Bevy 0.18 system-ordering rules).
+///
+/// Reads the live world's `GameSeed` for determinism so a
+/// restore reproduces the same deposit map as the original
+/// New Game.
+fn populate_planet_resources(world: &mut World) {
+    // Reload solar_system.ron so we can re-derive distance /
+    // frost-line values per body in the same loop. Cheap —
+    // ~700 rows and the loader is plain `ron::from_str`.
+    let data = match SolarSystemData::load_from_file("assets/data/solar_system.ron") {
+        Ok(d) => d,
+        Err(e) => {
+            warn!(
+                "populate_planet_resources: failed to load solar_system.ron ({e}); \
+                 mining deposits will stay empty"
+            );
+            return;
+        }
+    };
+    let by_name: std::collections::HashMap<&str, &CelestialBodyData> = data
+        .bodies
+        .iter()
+        .map(|b| (b.name.as_str(), b))
+        .collect();
+
+    // Snapshot the body list up front so the per-entity
+    // mutation loop doesn't fight Bevy's borrow checker.
+    let bodies: Vec<(Entity, String, BodyType)> = {
+        let mut q = world.query::<(Entity, &CelestialBody)>();
+        q.iter(world)
+            .map(|(e, cb)| (e, cb.name.clone(), cb.body_type))
+            .collect()
+    };
+    // Seeded RNG so the procedural profile draws are
+    // deterministic per-game.
+    let mut rng = StdRng::seed_from_u64(
+        world
+            .get_resource::<crate::game_state::GameSeed>()
+            .map(|g| g.value)
+            .unwrap_or(0xDEAD_BEEF_CAFE_F00D),
+    );
+    let mut populated = 0usize;
+    let mut skipped = 0usize;
+    for (id, name, body_type) in bodies {
+        // Stars and Rings aren't part of the regen-chain's
+        // resource filter. Comets have no deposits by design.
+        if matches!(body_type, BodyType::Star | BodyType::Ring | BodyType::Comet)
+        {
+            skipped += 1;
+            continue;
+        }
+        // Bodies with a pre-existing `PlanetResources` were
+        // populated by the apply step (from the divergence
+        // overlay). We only skip those that already carry
+        // non-empty deposits so the minimal-world defaults get
+        // replaced by the regen-chain resource profile.
+        if let Some(resources) = world.get::<crate::economy::components::PlanetResources>(id) {
+            if !resources.deposits.is_empty() {
+                skipped += 1;
+                continue;
+            }
+        }
+        // Look up RON row for distance / mass.
+        let Some(body_data) = by_name.get(name.as_str()) else {
+            skipped += 1;
+            continue;
+        };
+        // Distance from parent star — walk the parent chain up
+        // to one orbit-frame. For Sol bodies whose
+        // OrbitCenter points to another Sol body, we don't
+        // have parent star coordinates (just a sibling body's
+        // `SpaceCoordinates`, which is ZERO at this point in
+        // the schedule). Fall back to the body's own
+        // semi-major axis (orbits in `solar_system.ron` use AU,
+        // consistent with `SCALING_FACTOR` downstream).
+        let distance_au = body_data
+            .orbit
+            .as_ref()
+            .map(|o| o.semi_major_axis as f64)
+            .unwrap_or(0.0);
+        // Frost line defaults from the canonical Sun-like system.
+        let resources = crate::economy::generation::generate_resources_for_body(
+            &name,
+            body_type,
+            body_data.mass,
+            body_data.asteroid_class,
+            distance_au,
+            crate::economy::components::StarSystem::sun_like().frost_line_au,
+            &mut rng,
+        );
+        if let Ok(mut e) = world.get_entity_mut(id) {
+            e.insert(resources);
+            populated += 1;
+        }
+    }
+    if populated > 0 || skipped > 0 {
+        info!(
+            "populate_planet_resources: populated {populated} bodies, skipped {skipped} (star/ring/comet/already-populated-or-nonempty)"
+        );
+    }
 }
 
 /// Convert the RON-loaded [`OrbitData`] into Bevy's analytic
@@ -385,7 +629,7 @@ fn kepler_orbit_from_data(data: &OrbitData) -> KeplerOrbit {
 /// matching RON row) get a neutral grey.
 fn decorate_with_visuals(
     world: &mut World,
-    colors_by_id: &std::collections::HashMap<Entity, (f32, f32, f32)>,
+    visuals_by_id: &std::collections::HashMap<Entity, RestoreBodyVisualData>,
 ) {
     // Two-phase approach to avoid borrow-checker conflicts
     // between `&mut Assets<Mesh>/&mut Assets<StandardMaterial>`
@@ -408,7 +652,13 @@ fn decorate_with_visuals(
     };
 
     // Phase 1: build the material cache and sphere handle.
-    let mut material_cache: std::collections::HashMap<(u8, u8, u8), bevy::asset::Handle<StandardMaterial>> =
+    #[derive(Hash, PartialEq, Eq, Clone)]
+    enum RestoreMaterialKey {
+        Textured(String),
+        Tinted(u8, u8, u8, bool, bool),
+    }
+
+    let mut material_cache: std::collections::HashMap<RestoreMaterialKey, bevy::asset::Handle<StandardMaterial>> =
         std::collections::HashMap::new();
     let sphere_mesh: bevy::asset::Handle<Mesh>;
     {
@@ -419,78 +669,116 @@ fn decorate_with_visuals(
         sphere_mesh = meshes.add(Sphere::new(1.0).mesh().uv(32, 16));
         drop(meshes);
     }
+
+    // Per-ring mesh handles, keyed by entity. Each ring
+    // body's annulus needs its own inner/outer radii (the
+    // regen chain's `create_ring_mesh(outer, inner, 128)`
+    // derives `inner` from the host planet's visual radius
+    // plus a 15% clearance). The mesh has unit scale applied
+    // in Phase 2 — i.e. `Transform.scale = visual_radius`
+    // does NOT divide the ring into inner/outer because the
+    // annulus mesh encodes both.
+    let mut ring_meshes: std::collections::HashMap<Entity, bevy::asset::Handle<Mesh>> =
+        std::collections::HashMap::new();
     {
-        let mut materials = world.resource_mut::<Assets<StandardMaterial>>();
-        for (id, body_type, _visual_radius, already_has_mesh) in &bodies {
+        let mut meshes = world.resource_mut::<Assets<Mesh>>();
+        for (id, body_type, visual_radius, already_has_mesh) in &bodies {
             if *already_has_mesh {
                 continue;
             }
-            let (r, g, b) = colors_by_id.get(id).copied().unwrap_or(neutral_grey);
-            let key = (
-                (r * 255.0).round() as u8,
-                (g * 255.0).round() as u8,
-                (b * 255.0).round() as u8,
-            );
-            if material_cache.contains_key(&key) {
+            if !matches!(body_type, BodyType::Ring) {
                 continue;
             }
-            // **Material constraints on the Restore path.**
-            //
-            // Bevy 0.18's `StandardMaterial` requires an
-            // environment cubemap (IBL probe) for proper diffuse
-            // shading. Without one, lit materials (`unlit: false`)
-            // render dark — the regen chain's textured planets
-            // look correct because `setup_solar_system` registers
-            // a starfield skybox that doubles as the IBL probe.
-            // The Restore path's minimal-world factory doesn't
-            // load the skybox, so the same `StandardMaterial`
-            // settings render black spheres.
-            //
-            // The fix on the Restore path is to use `unlit: true`
-            // for stars (so they always glow regardless of the
-            // IBL probe) and `unlit: false` for everything else.
-            // Planets/moons get ambient + directional light from
-            // `main.rs::setup` plus the per-star `PointLight` we
-            // spawn in Pass A. Day/night terminator is visible
-            // because the PointLight's range covers the inner
-            // solar system out to ~Jupiter. Beyond Jupiter
-            // (Saturn / Uranus / Neptune / Kuiper belt), the
-            // bodies fall back to the `GlobalAmbientLight` for a
-            // faint tint and read as dim spheres against the
-            // starfield backdrop. The textured variants from
-            // the regen chain's `setup_solar_system` are still
-            // unreachable without the IBL probe + asset-server
-            // load; a follow-up PR can wire those into the
-            // restore factory.
-            //
-            // Stars use `emissive = base_color × 6` (HDR > 1.0)
-            // so they appear bright on screen rather than as a
-            // sun-coloured ball; HDR values let bloom and
-            // tone-mapping react to the star's brightness.
+            let visual = visuals_by_id.get(id);
+            let parent_radius = visual.and_then(|v| v.parent_radius_km).unwrap_or(0.0);
+            let parent_visual_radius = calculate_visual_radius(BodyType::GasGiant, parent_radius);
+            // Inner edge = parent surface + 15% clearance gap.
+            // Outer edge is the ring body's own visual radius.
+            let inner_radius = (parent_visual_radius * 1.15).max(visual_radius * 0.55);
+            let outer_radius = *visual_radius;
+            let h = meshes.add(create_ring_mesh(outer_radius, inner_radius, 128));
+            ring_meshes.insert(*id, h);
+        }
+    }
+
+    let material_builds: Vec<(RestoreMaterialKey, StandardMaterial)> = {
+        let asset_server = world.resource::<AssetServer>();
+        let mut unique_keys: std::collections::HashSet<RestoreMaterialKey> =
+            std::collections::HashSet::new();
+        let mut builds = Vec::new();
+        for (_id, body_type, _visual_radius, already_has_mesh) in &bodies {
+            if *already_has_mesh {
+                continue;
+            }
+            let visual = visuals_by_id.get(_id);
+            let (r, g, b) = visual
+                .map(|v| v.color)
+                .unwrap_or(neutral_grey);
             let is_star = matches!(body_type, BodyType::Star);
-            let base_color = Color::srgb(r, g, b);
-            let emissive = if is_star {
-                LinearRgba::new(r * 6.0, g * 6.0, b * 6.0, 1.0)
+            let texture_path = visual.and_then(|v| v.texture_path.clone());
+            let has_texture = texture_path.is_some();
+            let key = if let Some(path) = texture_path.as_ref() {
+                RestoreMaterialKey::Textured(path.clone())
             } else {
-                // Low emissive baseline so the body is faintly
-                // visible even when out of PointLight range
-                // (Saturn, Uranus, Neptune).
-                LinearRgba::new(r * 0.15, g * 0.15, b * 0.15, 1.0)
+                RestoreMaterialKey::Tinted(
+                    (r * 255.0_f32).round() as u8,
+                    (g * 255.0_f32).round() as u8,
+                    (b * 255.0_f32).round() as u8,
+                    matches!(body_type, BodyType::Ring),
+                    is_star,
+                )
             };
-            let base = StandardMaterial {
+            if !unique_keys.insert(key.clone()) {
+                continue;
+            }
+            let base_color = if has_texture { Color::WHITE } else { Color::srgb(r, g, b) };
+            let emissive = if is_star {
+                visual
+                    .and_then(|v| v.emissive)
+                    .map(|(er, eg, eb)| LinearRgba::new(er * 6.0_f32, eg * 6.0_f32, eb * 6.0_f32, 1.0))
+                    .unwrap_or(LinearRgba::new(r * 6.0_f32, g * 6.0_f32, b * 6.0_f32, 1.0))
+            } else if has_texture {
+                LinearRgba::new(0.03_f32, 0.03_f32, 0.03_f32, 1.0)
+            } else {
+                LinearRgba::new(r * 0.15_f32, g * 0.15_f32, b * 0.15_f32, 1.0)
+            };
+            let base_color_texture = texture_path.as_ref().map(|path| asset_server.load(path.clone()));
+            let mut material = StandardMaterial {
                 base_color,
+                base_color_texture,
                 metallic: 0.0,
                 perceptual_roughness: 0.85,
                 reflectance: 0.4,
                 emissive,
-                // Stars: unlit so they always glow. Planets and
-                // moons: lit so the directional + per-star
-                // PointLight + ambient setup gives a day/night
-                // terminator and a clear "lit by the sun" feel.
-                unlit: is_star,
+                // **Material lighting model**:
+                // - Stars use unlit (they emit light, not
+                //   reflect it).
+                // - Rings use unlit (their alpha texture drives
+                //   the appearance; PBR shading on a flat
+                //   annulus looks washed out).
+                // - Everything else uses lit PBR so the
+                //   PointLight on Sol actually contributes to
+                //   the day/night terminator on planets. Textured
+                //   bodies still receive lighting (the lit branch
+                //   multiplies the texture by the diffuse term),
+                //   which matches the regen chain's behaviour for
+                //   Earth / Mars / Venus etc.
+                unlit: is_star || matches!(body_type, BodyType::Ring),
                 ..default()
             };
-            let h = materials.add(base);
+            if matches!(body_type, BodyType::Ring) {
+                material.alpha_mode = AlphaMode::Blend;
+                material.cull_mode = None;
+            }
+            builds.push((key, material));
+        }
+        builds
+    };
+
+    {
+        let mut materials = world.resource_mut::<Assets<StandardMaterial>>();
+        for (key, material) in material_builds {
+            let h = materials.add(material);
             material_cache.insert(key, h);
         }
     }
@@ -502,30 +790,75 @@ fn decorate_with_visuals(
         if already_has_mesh {
             continue;
         }
-        let (r, g, b) = colors_by_id.get(&id).copied().unwrap_or(neutral_grey);
-        let key = (
-            (r * 255.0).round() as u8,
-            (g * 255.0).round() as u8,
-            (b * 255.0).round() as u8,
-        );
+        let visual = visuals_by_id.get(&id);
+        let key = if let Some(visual) = visual {
+            if let Some(path) = &visual.texture_path {
+                RestoreMaterialKey::Textured(path.clone())
+            } else {
+                let (r, g, b) = visual.color;
+                RestoreMaterialKey::Tinted(
+                    (r * 255.0_f32).round() as u8,
+                    (g * 255.0_f32).round() as u8,
+                    (b * 255.0_f32).round() as u8,
+                    matches!(visual.body_type, BodyType::Ring),
+                    matches!(visual.body_type, BodyType::Star),
+                )
+            }
+        } else {
+            let (r, g, b) = neutral_grey;
+            RestoreMaterialKey::Tinted(
+                (r * 255.0).round() as u8,
+                (g * 255.0).round() as u8,
+                (b * 255.0).round() as u8,
+                false,
+                false,
+            )
+        };
         let material = material_cache
             .get(&key)
             .cloned()
             .expect("material_cache populated in phase 1");
-        let scale = visual_radius.max(0.05);
+        let is_ring = matches!(_body_type, BodyType::Ring);
         if let Ok(mut e) = world.get_entity_mut(id) {
             // Transform: position is computed each frame by
             // `update_render_transform`; we set a default here
-            // and the engine overrides it. Including scale so
-            // the sphere mesh's unit radius reads as the body's
-            // visual_radius.
+            // and the engine overrides it.
+            //
+            // **Rings**: ring bodies don't have `KeplerOrbit`
+            // (solar_system.ron lists them with `orbit: None`),
+            // so they don't actually need a Kepler propagation
+            // step — their position comes entirely from the
+            // parent's `SpaceCoordinates` via `LogicalParent`.
+            // The annulus mesh has been sized by Phase 1 with
+            // proper inner/outer radii derived from the host
+            // planet's visual radius, so we leave `Transform.scale`
+            // at 1.0 (rather than multiplying by visual_radius,
+            // which would re-introduce the inner-edge clipping
+            // bug — the mesh already encodes both radii in
+            // absolute Bevy units).
             let mut t = Transform::default();
-            t.scale = Vec3::splat(scale);
+            if !is_ring {
+                t.scale = Vec3::splat(visual_radius.max(0.05));
+            }
             e.insert(t);
             e.insert(Visibility::Visible);
             e.insert(InheritedVisibility::default());
             e.insert(ViewVisibility::default());
-            e.insert(Mesh3d(sphere_mesh.clone()));
+            if is_ring {
+                // Per-ring annulus mesh (Phase 1 sized to match
+                // the regen chain's `create_ring_mesh(outer,
+                // inner, 128)` call). If for some reason Phase 1
+                // skipped this ring, fall back to the shared
+                // unit-radius annulus and let the scale=1 path
+                // handle it.
+                let mesh_handle = ring_meshes
+                    .get(&id)
+                    .cloned()
+                    .unwrap_or_else(|| sphere_mesh.clone());
+                e.insert(Mesh3d(mesh_handle));
+            } else {
+                e.insert(Mesh3d(sphere_mesh.clone()));
+            }
             e.insert(MeshMaterial3d(material));
         }
     }
@@ -558,67 +891,44 @@ impl Plugin for RestoreDecorationPlugin {
         app.add_systems(
             Update,
             (
-                // 1. The first-time decoration pass. Walks every
-                //    CelestialBody, looks up the matching RON
-                //    row, inserts KeplerOrbit + OrbitCenter +
-                //    LogicalParent + OrbitPath + Plane-of-body
-                //    marker (Planet/Star/Moon/etc.).
                 populate_restored_bodies_3d,
-                // 2. The ring tracking system. Runs every tick
-                //    (no run_if gate) so rings stay glued to
-                //    their parent planet's position through the
-                //    orbit propagation. Order: AFTER
-                //    `propagate_orbits` so the parent's coords
-                //    have already been written this frame.
-                sync_rings_to_parents
-                    .after(crate::astronomy::systems::propagate_orbits),
+                crate::fleets::systems::spawn_initial_fleet,
+                crate::fleets::systems::spawn_debug_earth_jupiter_fleet,
             )
                 .run_if(restore_decoration_should_run),
         );
     }
 }
 
-/// Sync `Ring` entity `SpaceCoordinates` to its parent planet's
-/// each frame. Saturn's/Uranus's rings have no Keplerian orbit
-/// (`solar_system.ron` lists them with `orbit: None`), so
-/// `propagate_orbits` skips them — their `SpaceCoordinates` would
-/// stay at the `DVec3::ZERO` placeholder from
-/// `regenerate_bodies_minimal`, dropping them at Sol's origin.
-/// This system reads the parent entity's propagated coords and
-/// copies them to the ring's `SpaceCoordinates` so the ring
-/// tracks the planet through the orbit. The renderable ring
-/// sphere is then offset by a small constant in `update_render_transform`
-/// (the LocalOrbitAmplification path) so it appears as a halo
-/// around the planet rather than coincident with it.
-///
-/// **B0001 guard**: the system reads `SpaceCoordinates` for
-/// parents (immutable) AND mutates `SpaceCoordinates` for rings.
-/// Bevy 0.18 rejects two separate queries that touch the same
-/// component, so we fold both into a single `Query` whose
-/// tuple is `(parent &SpaceCoordinates, ring &mut SpaceCoordinates)`
-/// read together — the planner sees a single access pattern
-/// for `SpaceCoordinates` that's `Shared + Mutable`. The `With<Ring>`
-/// filter narrows the iterator to ring entities only; `SpaceCoordinates`
-/// accessed via the &mut borrow is the ring's own; the parent's
-/// `SpaceCoordinates` is also accessed via the same tuple position
-/// under a `Without<Ring>` disjoint-filter combination.
-pub fn sync_rings_to_parents(
-    mut query: Query<
-        (
-            &mut SpaceCoordinates,
-            &LogicalParent,
-        ),
-        With<Ring>,
-    >,
-    parent_query: Query<&SpaceCoordinates, (Without<Ring>, With<LogicalParent>)>,
-) {
-    for (mut ring_coords, parent_lp) in query.iter_mut() {
-        // Parent *isn't* a Ring (filter above is `With<Ring>`;
-        // parents are planets/moons without the marker), so the
-        // disjoint `Without<Ring>` on `parent_query` holds.
-        if let Ok(parent_coords) = parent_query.get(parent_lp.0) {
-            ring_coords.position = parent_coords.position;
+fn generic_texture_path(body_data: &CelestialBodyData) -> Option<String> {
+    match body_data.body_type {
+        BodyType::Asteroid => {
+            let class = body_data.asteroid_class.unwrap_or(AsteroidClass::CType);
+            Some(match class {
+                AsteroidClass::CType => "textures/celestial/asteroids/generic_c_type_2k.jpg",
+                AsteroidClass::SType => "textures/celestial/asteroids/generic_s_type_2k.jpg",
+                AsteroidClass::MType => "textures/celestial/asteroids/generic_s_type_2k.jpg",
+                AsteroidClass::VType => "textures/celestial/asteroids/generic_s_type_2k.jpg",
+                AsteroidClass::DType => "textures/celestial/asteroids/generic_c_type_2k.jpg",
+                AsteroidClass::PType => "textures/celestial/asteroids/generic_c_type_2k.jpg",
+                AsteroidClass::Unknown => "textures/celestial/asteroids/generic_c_type_2k.jpg",
+            }
+            .to_string())
         }
+        BodyType::Comet => Some("textures/celestial/comets/generic_nucleus_2k.jpg".to_string()),
+        BodyType::Moon => Some("textures/celestial/asteroids/generic_c_type_2k.jpg".to_string()),
+        BodyType::DwarfPlanet => {
+            let mut seed = 0u32;
+            for byte in body_data.name.bytes() {
+                seed = seed.wrapping_mul(31).wrapping_add(byte as u32);
+            }
+            if seed % 3 == 0 {
+                Some("textures/celestial/asteroids/generic_s_type_2k.jpg".to_string())
+            } else {
+                Some("textures/celestial/asteroids/generic_c_type_2k.jpg".to_string())
+            }
+        }
+        _ => None,
     }
 }
 

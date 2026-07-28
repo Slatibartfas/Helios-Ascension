@@ -223,7 +223,7 @@ fn normalize_resources_to_body_mass(
 /// * `distance_au` - Distance from parent star in AU
 /// * `frost_line_au` - Frost line distance for the parent star in AU
 /// * `rng` - Random number generator for variability
-fn generate_resources_for_body(
+pub(crate) fn generate_resources_for_body(
     body_name: &str,
     body_type: crate::plugins::solar_system_data::BodyType,
     body_mass: f64,
