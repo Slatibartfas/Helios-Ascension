@@ -246,6 +246,38 @@ pub const STATUS_NEUTRAL: egui::Color32 = egui::Color32::from_rgb(220, 220, 220)
 /// Muted — mid grey for inactive/disabled UI.
 pub const STATUS_MUTED: egui::Color32 = egui::Color32::from_rgb(180, 180, 180);
 
+// ─── Resource Forecast (GRA-XXX) ───────────────────────────────────────
+
+/// Line stroke width for forecast chart series.
+pub const FORECAST_LINE_WIDTH: f32 = 2.0;
+/// Stroke width for the dashed "runs out" vertical marker.
+pub const FORECAST_RUNS_OUT_STROKE_WIDTH: f32 = 1.5;
+/// Dash length for the "runs out" marker.  Combined with the chart
+/// height to draw an alternating on/off pattern.
+pub const FORECAST_RUNS_OUT_DASH_LEN: f32 = 4.0;
+/// Chart height (px) for the full Economy Forecast sub-tab chart.
+pub const FORECAST_CHART_HEIGHT: f32 = 220.0;
+/// Chart height (px) for the compact hover-tooltip mini-chart.
+pub const FORECAST_MINI_CHART_HEIGHT: f32 = 90.0;
+
+/// Color for the dashed "runs out" vertical markers on the forecast
+/// chart.  Red status colour — explicit depletion signal.
+pub fn forecast_runs_out_color() -> egui::Color32 {
+    STATUS_ERROR
+}
+
+/// Color for the "all enabled resources sustainable for 20+ years"
+/// summary message.  Green status colour.
+pub fn forecast_safe_color() -> egui::Color32 {
+    STATUS_SUCCESS
+}
+
+/// Series stroke color for a given resource.  Wraps
+/// [`category_color`] for consistency with the resource bar / popup.
+pub fn forecast_series_color(resource_category: &str) -> egui::Color32 {
+    category_color(resource_category)
+}
+
 // ─── Porkchop / GA Heatmap Bands (GRA-367) ──────────────────────────────
 
 /// ΔV-cheapest band — saturated green for the cheapest 25 % of cells in

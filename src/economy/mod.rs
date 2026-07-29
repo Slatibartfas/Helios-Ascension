@@ -16,6 +16,7 @@ pub mod budget;
 pub mod company;
 pub mod components;
 pub mod discovery;
+pub mod forecast;
 pub mod generation;
 pub mod history;
 pub mod logistics;
@@ -46,6 +47,11 @@ pub use components::{
 pub use discovery::{
     body_aggregate_tier_breakdown, is_follow_up_only_resource, tier_breakdown_for_reserve,
     TierLabel, TierReveal, RESERVE_PRESENT_THRESHOLD,
+};
+pub use forecast::{
+    aggregate_scope_inputs, apply_construction_impact, build_forecast, parse_resource_type_name,
+    pending_construction_impacts, project_stockpile, ConstructionImpact, ForecastSample,
+    ForecastSeries, ReserveBounds, ScopeInputs, FORECAST_HORIZON_YEARS, FORECAST_SAMPLES,
 };
 pub use generation::{
     generate_ring_resources, generate_solar_system_resources, init_procedural_rng, ProceduralRng,
