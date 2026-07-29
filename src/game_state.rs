@@ -118,6 +118,71 @@ pub struct ActiveMenu {
     pub current: GameMenu,
 }
 
+/// Submenu selector for the Intel menu.
+///
+/// The top-level `GameMenu::Intel` placeholder used to leak a stub
+/// "Early-Game Progress" section into the bottom panel of every menu.
+/// That section is now a proper submenu under Intel — players open
+/// Intel, pick "Early Game Progress", and the milestone checklist
+/// renders in the panel body alongside the other Intel views.
+///
+/// Adding a new Intel view: extend this enum, add a label / icon in
+/// `IntelSubmenu::all()` (the side-panel picker iterates that list),
+/// and add a `match` arm in `ui_dashboard`'s `GameMenu::Intel` branch.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
+pub enum IntelSubmenu {
+    /// Read-only early-game milestone checklist (probe → survey →
+    /// anomaly → deposit → outpost → research). Lifted out of the
+    /// bottom-strip leak in GRA-787-followup.
+    #[default]
+    EarlyGameProgress,
+    /// Foreign-faction intelligence (placeholder — content ships when
+    /// the diplomacy/faction layer lands).
+    Factions,
+    /// Anomaly & signal catalogue (placeholder — content ships with
+    /// the survey rework).
+    Anomalies,
+}
+
+impl IntelSubmenu {
+    /// Stable display label for the side-panel picker.
+    pub fn label(self) -> &'static str {
+        match self {
+            IntelSubmenu::EarlyGameProgress => "Early-Game Progress",
+            IntelSubmenu::Factions => "Faction Intel",
+            IntelSubmenu::Anomalies => "Anomalies",
+        }
+    }
+
+    /// Side-panel glyph (kept mono-width to match the rest of the
+    /// project submenu pickers).
+    pub fn icon(self) -> &'static str {
+        match self {
+            IntelSubmenu::EarlyGameProgress => "🗺",
+            IntelSubmenu::Factions => "👁",
+            IntelSubmenu::Anomalies => "❗",
+        }
+    }
+
+    /// All variants in display order. The picker iterates this list;
+    /// reorder to taste.
+    pub fn all() -> &'static [IntelSubmenu] {
+        &[
+            IntelSubmenu::EarlyGameProgress,
+            IntelSubmenu::Factions,
+            IntelSubmenu::Anomalies,
+        ]
+    }
+}
+
+/// Tracks the currently selected Intel submenu. Defaults to
+/// `EarlyGameProgress` so first-time Intel visitors land on the
+/// checklist without having to click.
+#[derive(Resource, Debug, Clone, Copy, Default)]
+pub struct SelectedIntelSubmenu {
+    pub current: IntelSubmenu,
+}
+
 /// Resource that stores the seed used for procedural generation
 /// This seed determines all procedurally generated content in the game,
 /// making generation deterministic and allowing for save/load functionality
@@ -173,7 +238,8 @@ impl Plugin for GameStatePlugin {
     fn build(&self, app: &mut App) {
         // Initialize the game seed at startup
         app.init_resource::<GameSeed>()
-            .init_resource::<ActiveMenu>();
+            .init_resource::<ActiveMenu>()
+            .init_resource::<SelectedIntelSubmenu>();
     }
 }
 

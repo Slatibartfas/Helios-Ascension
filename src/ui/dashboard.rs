@@ -939,12 +939,9 @@ pub(crate) fn ui_dashboard(
     sim_time: Res<SimulationTime>,
     mut orbit_query: Query<&mut OrbitCamera, With<GameCamera>>,
     mut expanded_groups: ResMut<crate::ui::ExpandedLedgerGroups>,
-    // GRA-787: milestone rendering lives in `ui_time_controls` (the
-    // bottom-panel owner) to keep this function under Bevy 0.18's
-    // 16-parameter fn-item IntoSystem limit (see `bevy_ecs::system::
-    // function_system::impl_system_function`'s `all_tuples!(.., 0, 16)`).
-    // Adding `Res<EarlyGameMilestones>` here would push the count to 17
-    // and break `.in_set()` registration.
+    // Intel menu rendering is delegated to `ui_intel_panel` (see the
+    // dedicated system below) so this function stays under Bevy 0.18's
+    // 16-parameter fn-item `IntoSystem` limit.
 ) {
     let ctx = match contexts.ctx_mut() {
         Ok(ctx) => ctx,
@@ -1302,7 +1299,13 @@ pub(crate) fn ui_dashboard(
                             ui.label("Personnel panel is open in the main view.");
                         }
                         GameMenu::Intel => {
-                            ui.label("Intelligence reports on enemy factions will be shown here.");
+                            // Handled by `ui_intel_panel` system — see
+                            // GRA-787-followup. The dedicated system owns
+                            // the submenu picker, the early-game
+                            // milestone checklist, and the placeholder
+                            // placeholders for Faction Intel and
+                            // Anomalies.
+                            ui.label("Intel panel is open in the main view.");
                         }
                         GameMenu::Diplomacy => {
                             ui.label("Diplomatic relations and treaties will be shown here.");
@@ -1353,13 +1356,13 @@ pub(super) fn ui_time_controls(
     keyboard_input: Res<ButtonInput<KeyCode>>,
     real_time: Res<Time<Real>>,
     mut playlist: ResMut<crate::plugins::music::MusicPlaylist>,
-    // GRA-787: read-only access to the early-game milestone resource.
-    // The time-controls panel is the bottom-strip owner — rendering the
-    // milestone checklist above the time buttons keeps the surface
-    // under Bevy 0.18's 16-parameter fn-item IntoSystem limit while
-    // `ui_dashboard` already owns 16. Flag flips happen only in
-    // `crate::survey::milestones` consumers.
-    milestones: Res<crate::survey::EarlyGameMilestones>,
+    // The early-game milestone checklist used to be a `TopBottomPanel`
+    // here (GRA-787). It leaked into every menu because the bottom
+    // strip is always on-screen — Economy, Shipbuilding, the dossier,
+    // all of them rendered an "EARLY-GAME PROGRESS" stub regardless of
+    // what the player had open. The checklist is now its own submenu
+    // under `GameMenu::Intel` (see `IntelSubmenu::EarlyGameProgress`),
+    // so this function no longer needs the resource.
 ) {
     // ── Keyboard shortcuts (skip when egui is consuming input) ────────────
     let ctx = match contexts.ctx_mut() {
@@ -1398,18 +1401,6 @@ pub(super) fn ui_time_controls(
     } else {
         0.0
     };
-
-    // GRA-787: read-only early-game milestone section. Lives above the
-    // time-controls bottom panel so the player sees progress at a
-    // glance without having to open a menu. The section takes the
-    // resource by reference — flag flips happen in
-    // `crate::survey::milestones` consumers, never here.
-    egui::TopBottomPanel::bottom("milestones_section")
-        .min_height(0.0)
-        .resizable(false)
-        .show(ctx, |ui| {
-            draw_milestones_section(ui, &milestones);
-        });
 
     // ── Helper: render a speed preset button with active highlight ────────
     let active_scale = time_scale.scale;
@@ -1969,34 +1960,20 @@ fn discovered_resource_expectation_weight(
         .sum()
 }
 
-// ── GRA-787: Early-game milestone read-only dashboard section ────────────
+// ── GRA-787-followup: Early-game milestone Intel submenu content ──────────
 
-/// Render the compact 6-row milestone checklist + "next objective" line.
+/// Render the 6-row milestone checklist + "next objective" line.
 ///
-/// GRA-787 implements the read-only dossier/dashboard rendering path the
-/// architecture calls out. The function takes the resource by reference
-/// (never by `mut`) and is called from `ui_time_controls` so the section
-/// lives in the existing `EguiPrimaryContextPass` schedule via
-/// `UiSystemSet::TopBar` (the bottom-strip owner). It used to live in
-/// `ui_dashboard`, but adding a `Res<EarlyGameMilestones>` param pushed
-/// that function to 17 system params and broke Bevy 0.18's 16-param
-/// `IntoSystem` limit. The UI never writes to the resource — flag flips
-/// happen only in `crate::survey::milestones` consumers.
+/// This used to be a `TopBottomPanel` inside `ui_time_controls`, which
+/// leaked into every menu. It now lives under
+/// `GameMenu::Intel` → `IntelSubmenu::EarlyGameProgress`; the caller
+/// owns the panel chrome (heading, divider, scroll area) so this
+/// helper just emits the rows. Read-only by design — flag flips happen
+/// only in `crate::survey::milestones` consumers.
 pub(crate) fn draw_milestones_section(
     ui: &mut egui::Ui,
     milestones: &crate::survey::EarlyGameMilestones,
 ) {
-    ui.add_space(6.0);
-    theme::divider(ui);
-    ui.add_space(2.0);
-
-    ui.label(
-        egui::RichText::new("EARLY-GAME PROGRESS")
-            .font(theme::heading())
-            .color(theme::ACCENT),
-    );
-    ui.add_space(2.0);
-
     for (step, is_set) in milestones.progress_rows() {
         let (marker, color) = if is_set {
             ("[x]", theme::EP_TEAL)
@@ -2021,12 +1998,165 @@ pub(crate) fn draw_milestones_section(
             }
             ui.label(step_label);
         });
+        ui.label(
+            egui::RichText::new(step.description())
+                .color(theme::TEXT_DIM)
+                .small(),
+        );
     }
 
-    ui.add_space(4.0);
+    ui.add_space(6.0);
     ui.label(
         egui::RichText::new(milestones.next_objective())
             .color(theme::TEXT_DIM)
             .small(),
     );
+}
+
+/// Renders the Intel menu: a submenu picker on the left
+/// (`IntelSubmenu::EarlyGameProgress` today, with placeholders for
+/// faction / anomaly intel) and the selected view on the right.
+///
+/// Registered in `src/ui/mod.rs` as a `MainPanels` system gated on
+/// `GameMenu::Intel` — same pattern as `ui_personnel_panel`. The
+/// dedicated system keeps `ui_dashboard` under Bevy 0.18's
+/// 16-parameter fn-item `IntoSystem` limit (the picker + content
+/// rendering needs both `ResMut<SelectedIntelSubmenu>` and
+/// `Res<EarlyGameMilestones>`, which would otherwise push `ui_dashboard`
+/// past the cap).
+pub(super) fn ui_intel_panel(
+    mut contexts: EguiContexts,
+    active_menu: Res<ActiveMenu>,
+    mut selected_intel: ResMut<SelectedIntelSubmenu>,
+    milestones: Res<crate::survey::EarlyGameMilestones>,
+) {
+    if active_menu.current != GameMenu::Intel {
+        return;
+    }
+
+    let ctx = match contexts.ctx_mut() {
+        Ok(ctx) => ctx,
+        Err(_) => return,
+    };
+
+    egui::CentralPanel::default()
+        .frame(theme::panel_frame())
+        .show(ctx, |ui| {
+            ui.add_space(8.0);
+            ui.label(
+                egui::RichText::new("INTEL")
+                    .font(theme::title())
+                    .color(theme::ACCENT),
+            );
+            ui.label(
+                egui::RichText::new(
+                    "Pick a view on the left; the content area updates on the right.",
+                )
+                .color(theme::TEXT_DIM)
+                .small(),
+            );
+            theme::divider(ui);
+            ui.add_space(6.0);
+
+            ui.horizontal(|ui| {
+                // Left column — picker.
+                egui::Frame::group(ui.style())
+                    .fill(theme::SURFACE)
+                    .stroke(egui::Stroke::new(1.0_f32, theme::BORDER))
+                    .inner_margin(egui::Margin::same(8))
+                    .show(ui, |ui| {
+                        ui.set_min_width(200.0);
+                        ui.label(
+                            egui::RichText::new("INTEL VIEWS")
+                                .font(theme::heading())
+                                .color(theme::TEXT_DIM),
+                        );
+                        theme::divider(ui);
+                        ui.add_space(4.0);
+                        for sub in IntelSubmenu::all() {
+                            let is_selected = selected_intel.current == *sub;
+                            let response = render_selectable_label(
+                                ui,
+                                is_selected,
+                                &format!("{} {}", sub.icon(), sub.label()),
+                            );
+                            if response.clicked() {
+                                selected_intel.current = *sub;
+                            }
+                            theme::paint_focus_ring(
+                                ui.painter(),
+                                response.rect,
+                                response.has_focus(),
+                            );
+                        }
+                    });
+
+                ui.add_space(12.0);
+
+                // Right column — content area.
+                egui::Frame::group(ui.style())
+                    .fill(theme::SURFACE)
+                    .stroke(egui::Stroke::new(1.0_f32, theme::BORDER))
+                    .inner_margin(egui::Margin::same(12))
+                    .show(ui, |ui| {
+                        ui.set_min_width(340.0);
+                        match selected_intel.current {
+                            IntelSubmenu::EarlyGameProgress => {
+                                ui.label(
+                                    egui::RichText::new("EARLY-GAME PROGRESS")
+                                        .font(theme::heading())
+                                        .color(theme::ACCENT),
+                                );
+                                ui.label(
+                                    egui::RichText::new(
+                                        "Milestones the early game nudges you toward. Strikes through as you clear them.",
+                                    )
+                                    .color(theme::TEXT_DIM)
+                                    .small(),
+                                );
+                                theme::divider(ui);
+                                ui.add_space(4.0);
+                                egui::ScrollArea::vertical()
+                                    .auto_shrink([false, false])
+                                    .id_salt("intel_early_game_scroll")
+                                    .max_height(420.0)
+                                    .show(ui, |ui| {
+                                        ui.set_width(ui.available_width());
+                                        draw_milestones_section(ui, &milestones);
+                                    });
+                            }
+                            IntelSubmenu::Factions => {
+                                ui.label(
+                                    egui::RichText::new("FACTION INTEL")
+                                        .font(theme::heading())
+                                        .color(theme::ACCENT),
+                                );
+                                theme::divider(ui);
+                                ui.add_space(4.0);
+                                ui.label(
+                                    egui::RichText::new(
+                                        "Foreign-faction dossiers land here once the diplomacy layer ships.",
+                                    )
+                                    .color(theme::TEXT_DIM),
+                                );
+                            }
+                            IntelSubmenu::Anomalies => {
+                                ui.label(
+                                    egui::RichText::new("ANOMALIES")
+                                        .font(theme::heading())
+                                        .color(theme::ACCENT),
+                                );
+                                theme::divider(ui);
+                                ui.add_space(4.0);
+                                ui.label(
+                                    egui::RichText::new(
+                                        "Catalogue of detected and refuted anomalies — fills in alongside the survey rework.",
+                                    )
+                                    .color(theme::TEXT_DIM),
+                                );
+                            }
+                        }
+                    });
+            });
+        });
 }

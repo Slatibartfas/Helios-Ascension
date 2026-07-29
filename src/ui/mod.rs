@@ -56,7 +56,7 @@ pub use icons::{MenuIcons, ResearchIcons};
 pub use time::{SimulationTime, TimeScale};
 
 use construction_panel::ui_construction_panels;
-use dashboard::{ui_dashboard, ui_time_controls};
+use dashboard::{ui_dashboard, ui_intel_panel, ui_time_controls};
 use economy_panel::ui_economy_panels;
 use fleets_panel::{
     switch_anchor_on_arrival, ui_fleet_action_bar, ui_fleets_panel, ui_transfer_planner_popup,
@@ -97,7 +97,7 @@ use crate::fleets::{
     PlannedTransfer, StartTransferAction, TransferOption, TransferPlan, TransferReferenceFrame,
     TransferWindowInfo, AU_IN_METERS, GM_SUN, G_CONST,
 };
-use crate::game_state::{ActiveMenu, GameMenu};
+use crate::game_state::{ActiveMenu, GameMenu, IntelSubmenu, SelectedIntelSubmenu};
 use crate::plugins::camera::{
     capture_egui_panel_bounds, starmap_transition_radius, CameraAnchor, GameCamera, OrbitCamera,
     ViewMode,
@@ -791,6 +791,17 @@ impl Plugin for UIPlugin {
             .add_systems(
                 EguiPrimaryContextPass,
                 ui_personnel_panel
+                    .in_set(UiSystemSet::MainPanels)
+                    .run_if(in_game_chrome),
+            )
+            // GRA-787-followup: Intel submenu picker + content
+            // (early-game progress, faction placeholder, anomaly
+            // placeholder). Self-gated on `active_menu.current ==
+            // GameMenu::Intel` inside the system body, like
+            // `ui_personnel_panel`.
+            .add_systems(
+                EguiPrimaryContextPass,
+                ui_intel_panel
                     .in_set(UiSystemSet::MainPanels)
                     .run_if(in_game_chrome),
             )
