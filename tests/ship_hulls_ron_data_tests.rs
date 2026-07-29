@@ -8,6 +8,8 @@
 
 use bevy::prelude::*;
 
+use helios_ascension::economy::budget::GlobalBudget;
+use helios_ascension::economy::logistics::PendingResourceRequests;
 use helios_ascension::shipbuilding::{
     HullSlotDefinition, ShipHullDefinition, ShipModuleCategory, ShipbuildingData,
     ShipbuildingPlugin,
@@ -16,7 +18,17 @@ use helios_ascension::ui::SimulationTime;
 
 fn load_shipbuilding_data_for_test() -> ShipbuildingData {
     let mut app = App::new();
+    // ShipbuildingPlugin's Update chain needs `ResearchState`,
+    // `PendingResourceRequests`, and `GlobalBudget`. None of the data
+    // tests queue any actions, so the bodies are no-ops — but `Res<T>`
+    // validation still fires on every tick. Register defaults so the
+    // Update schedule can boot on `app.update()`.
+    // Pattern lifted from `freighter_templates_data_tests.rs` and
+    // `research_shipbuilding_startup_tests.rs`.
     app.add_plugins(MinimalPlugins)
+        .insert_resource(GlobalBudget::default())
+        .insert_resource(PendingResourceRequests::default())
+        .init_resource::<helios_ascension::research::ResearchState>()
         .insert_resource(SimulationTime::new())
         .add_plugins(ShipbuildingPlugin);
     app.update();

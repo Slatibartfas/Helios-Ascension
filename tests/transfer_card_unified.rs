@@ -206,6 +206,9 @@ fn snapshot_cross_star_card() {
     let sup = CardSupplement {
         cross_system_grid: Some(grid),
         cross_system_selected: Some((0, 0)),
+        // Proxima is ~4.24 ly from Sol; the card's subtitle surfaces
+        // this so the player can gauge the trip at a glance.
+        cross_system_distance_ly: Some(4.24),
         ..CardSupplement::default()
     };
     let card = build_selected_card(&plan, Some(&sup), sample_fleet_info(), linear_fuel_cost);

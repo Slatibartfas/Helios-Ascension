@@ -139,9 +139,25 @@ fn open_ended_loader_accepts_extra_entries() {
         catalog_epoch_sim_s: f64,
         systems: Vec<ProbeSystem>,
     }
+    // Mirror the production schema: every field the runtime cares about
+    // is optional on the probe struct so this test stays focused on
+    // entry-count round-trip, not field coverage (covered by the other
+    // data tests in this file).
     #[derive(serde::Deserialize)]
+    #[allow(dead_code)]
     struct ProbeSystem {
+        #[serde(default)]
         system_id: String,
+        #[serde(default)]
+        display_name: String,
+        #[serde(default)]
+        spectral_type: String,
+        #[serde(default)]
+        mass_sol: f32,
+        #[serde(default)]
+        pos_ly_galactic: (f32, f32, f32),
+        #[serde(default)]
+        velocity_kms: (f32, f32, f32),
     }
     let big_ron = std::fs::read_to_string("assets/data/nearest_stars.ron")
         .expect("catalog file is required for the modder-scenario test");
@@ -154,17 +170,29 @@ fn open_ended_loader_accepts_extra_entries() {
     // Add a 61st entry to the RON string and re-parse.  A schema that's
     // "open-ended" will accept this without modification.
     let mut augmented = big_ron.clone();
-    // Strip the closing `],\n)` so we can append a new entry before the
-    // `systems:` array close + outer struct close.
-    if let Some(idx) = augmented.rfind("    ],\n)") {
-        augmented.truncate(idx);
+    // Detect the line ending the catalog uses so the appended entry
+    // matches (the production file ships with CRLF on Windows).
+    let crlf = augmented.contains("\r\n");
+    let nl = if crlf { "\r\n" } else { "\n" };
+    // Locate the last entry's closing `)` so we can splice a new entry
+    // right after it (followed by `,` and the array close `]`).  We
+    // keep up to and including `        )` and drop the trailing `,`
+    // + array/struct close; the appended text starts with a fresh `,`
+    // separator before the new entry, then re-closes the array + struct.
+    let last_entry_close_marker = format!("        ),{nl}    ],{nl})");
+    if let Some(idx) = augmented.rfind(&last_entry_close_marker) {
+        // Keep everything up to `        )` (drop the trailing `,` and
+        // the `],)` close); the appended text provides the rest.
+        let keep_len = idx + "        )".len();
+        augmented.truncate(keep_len);
+        let entry = format!(
+            ",{nl}        ({nl}            system_id: \"Test Modder System\",{nl}            \
+             display_name: \"Test Modder System\",{nl}            spectral_type: \"G2V\",{nl}            \
+             mass_sol: 1.0,{nl}            pos_ly_galactic: (0.0, 0.0, 0.0),{nl}            \
+             velocity_kms: (0.0, 0.0, 0.0),{nl}        ),{nl}    ],{nl})",
+        );
+        augmented.push_str(&entry);
     }
-    augmented.push_str(
-        ",\n        (\n            system_id: \"Test Modder System\",\n            \
-         display_name: \"Test Modder System\",\n            spectral_type: \"G2V\",\n            \
-         mass_sol: 1.0,\n            pos_ly_galactic: (0.0, 0.0, 0.0),\n            \
-         velocity_kms: (0.0, 0.0, 0.0),\n        ),\n    ],\n)",
-    );
     let probe2: Probe = ron::from_str(&augmented).expect("augmented RON must deserialize");
     assert_eq!(
         probe2.systems.len(),
