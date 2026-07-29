@@ -2149,84 +2149,68 @@ fn fbm_noise_3d(p: Vec3, seed: u64) -> f32 {
     sum / max_amp
 }
 
-/// 3D Voronoi (Worley) noise. Returns `(F1, F2, cell_id)` where:
+/// Quilez-style "fake erosion" FBM: derivative-damped fractal sum.
 ///
-/// - `F1` is the distance to the nearest feature point.
-/// - `F2` is the distance to the second-nearest feature point.
-/// - `cell_id` is a hash identifying which cell won (for per-cell
-///   variation like elevation offsets and crack depth).
+/// Each octave's amplitude is divided by `1 + erosion * |gradient|²`,
+/// where `gradient` is the running sum of finite-difference gradients
+/// of all previous octaves. Where the running slope is already steep
+/// (a ridge), high-frequency octaves are suppressed -- the surface
+/// keeps its ridges crisp instead of growing needle-spike high-
+/// frequency detail on top of them. Where the slope is gentle (a
+/// valley), high-frequency octaves land normally and we get fine
+/// detail. Net effect: weathered ridgelines and smooth valleys, which
+/// is what real rock surfaces look like.
 ///
-/// F1 alone gives bumpy polygonal facets. `F2 - F1` (the crack
-/// function) is small near the boundary between two cells and zero
-/// at the feature point itself -- the perfect crack pattern for
-/// rocky asteroid surfaces.
-fn voronoi_3d(p: Vec3, seed: u64) -> (f32, f32, u32) {
-    let xi = p.x.floor() as i32;
-    let yi = p.y.floor() as i32;
-    let zi = p.z.floor() as i32;
+/// Used by `create_asteroid_mesh` to replace the previous FBM +
+/// Voronoi-cracks pipeline. The Voronoi cracks were producing visible
+/// polygonal facets ("broken glass"); the derivative damping flattens
+/// the high-frequency content while keeping the macro shape, so
+/// the surface reads as worn rock rather than a faceted polyhedron.
+///
+/// 5 octaves at lacunarity 2.0, gain 0.5. Each octave samples the
+/// noise at four points (centre + 3 axis offsets) to compute the
+/// finite-difference gradient. Output is in [-1, 1].
+fn eroded_fbm_3d(p: Vec3, seed: u64) -> f32 {
+    let mut sum = 0.0;
+    let mut amp = 1.0;
+    let mut freq = 1.0;
+    let mut max_amp = 0.0;
+    // Running 3D gradient (world-space): accumulates across octaves
+    // so each octave knows how steep the previous ones already are.
+    let mut gx = 0.0f32;
+    let mut gy = 0.0f32;
+    let mut gz = 0.0f32;
+    // Finite-difference step in noise space. 0.01 is the standard
+    // Quilez choice: small enough to capture high-frequency variation,
+    // large enough to avoid floating-point precision issues at the
+    // higher octaves.
+    let e = 0.01f32;
+    // Erosion coefficient: higher = more aggressive ridge preservation,
+    // valleys stay smooth. 0.6 is a good middle ground for rocky
+    // asteroid surfaces; higher values flatten the body too much.
+    let erosion = 0.6f32;
 
-    // Search the 3x3x3 neighbourhood of cells. Feature points only
-    // affect their own cell and immediate neighbours.
-    let mut d1 = f32::INFINITY;
-    let mut d2 = f32::INFINITY;
-    let mut nearest_cell_id: u32 = 0;
+    for _ in 0..5 {
+        let pp = p * freq;
+        let n = value_noise_3d(pp, seed);
+        // Finite-difference gradient in noise space, then chain
+        // rule (× freq) gives world-space gradient.
+        let nx = value_noise_3d(pp + Vec3::new(e, 0.0, 0.0), seed);
+        let ny = value_noise_3d(pp + Vec3::new(0.0, e, 0.0), seed);
+        let nz = value_noise_3d(pp + Vec3::new(0.0, 0.0, e), seed);
+        gx += (nx - n) / e * freq;
+        gy += (ny - n) / e * freq;
+        gz += (nz - n) / e * freq;
 
-    for dz in -1..=1 {
-        for dy in -1..=1 {
-            for dx in -1..=1 {
-                let cx = xi + dx;
-                let cy = yi + dy;
-                let cz = zi + dz;
-
-                // Hash this cell to find its feature point. The feature
-                // point sits at cell-center + random offset in [0.2, 0.8]
-                // so we never get a degenerate feature point exactly on
-                // a cell boundary.
-                let mut h: u32 = (cx as u32).wrapping_mul(73856093)
-                    ^ (cy as u32).wrapping_mul(19349663)
-                    ^ (cz as u32).wrapping_mul(83492791)
-                    ^ seed as u32;
-                h ^= h << 13;
-                h ^= h >> 17;
-                h ^= h << 5;
-
-                let ox = (((h % 1000) as f32) / 1000.0) * 0.6 + 0.2;
-                h = h.wrapping_mul(0x5bd1e995);
-                h ^= h << 13;
-                h ^= h >> 17;
-                h ^= h << 5;
-                let oy = (((h % 1000) as f32) / 1000.0) * 0.6 + 0.2;
-                h = h.wrapping_mul(0x5bd1e995);
-                h ^= h << 13;
-                h ^= h >> 17;
-                h ^= h << 5;
-                let oz = (((h % 1000) as f32) / 1000.0) * 0.6 + 0.2;
-
-                let fx = cx as f32 + ox;
-                let fy = cy as f32 + oy;
-                let fz = cz as f32 + oz;
-
-                let ddx = p.x - fx;
-                let ddy = p.y - fy;
-                let ddz = p.z - fz;
-                let d_sq = ddx * ddx + ddy * ddy + ddz * ddz;
-
-                if d_sq < d1 {
-                    d2 = d1;
-                    d1 = d_sq;
-                    nearest_cell_id = (cx as u32).wrapping_mul(0x27d4eb2d)
-                        ^ (cy as u32).wrapping_mul(0x165667b1)
-                        ^ (cz as u32).wrapping_mul(0xc2b2ae35)
-                        ^ seed as u32;
-                } else if d_sq < d2 {
-                    d2 = d_sq;
-                }
-            }
-        }
+        // Damping factor. Standard Quilez: `1 + erosion * |gradient|²`.
+        let grad_sq = gx * gx + gy * gy + gz * gz;
+        let damping = 1.0 + erosion * grad_sq;
+        sum += amp * n / damping;
+        max_amp += amp / damping;
+        amp *= 0.5; // gain
+        freq *= 2.0; // lacunarity
     }
-
-    // Return sqrt of distances (Euclidean, not squared).
-    (d1.sqrt(), d2.sqrt(), nearest_cell_id)
+    sum / max_amp
 }
 
 fn create_asteroid_mesh(visual_radius: f32, physical_radius_km: f32, seed: u64) -> Mesh {
@@ -2327,11 +2311,6 @@ fn create_asteroid_mesh(visual_radius: f32, physical_radius_km: f32, seed: u64) 
         // asteroid; smaller values give one giant lump, larger values
         // give pebbled detail only.
         let noise_scale = 3.0;
-        // Voronoi cell scale -- how many cell-centers fit across the
-        // asteroid. ~5 gives large faceted plates; ~10 gives cobblestone
-        // facets; >15 reads as pitting only. 6 is a good middle ground
-        // for the rocky reference image's plate-like facets.
-        let voronoi_scale = 6.0;
 
         let new_positions: Vec<[f32; 3]> = positions
             .iter()
@@ -2354,54 +2333,29 @@ fn create_asteroid_mesh(visual_radius: f32, physical_radius_km: f32, seed: u64) 
                 // The shape magnitude is multiplied back in at the end.
                 let lookup_dir = shaped_dir.normalize_or_zero();
 
-                // Domain-warped FBM: feed the noise function a rotated,
-                // then re-rotated, version of the surface direction so
-                // the craggy pattern doesn't share axes with the asteroid
-                // body. The second warp adds non-uniform warping so
-                // neighbouring regions look uncorrelated. The 0.6 warp
-                // magnitude stretches the displacement field enough that
-                // features look stretched and torn rather than rounded.
+                // Domain-warped derivative-damped FBM (Quilez's fake erosion):
+                // feed the noise function a rotated, then re-rotated,
+                // version of the surface direction so the craggy pattern
+                // doesn't share axes with the asteroid body. The warp
+                // magnitude is large (0.8) so neighbouring regions look
+                // uncorrelated, producing the meandering ridgelines that
+                // the derivative damping will preserve.
+                //
+                // `eroded_fbm_3d` replaces the previous plain FBM +
+                // Voronoi cracks pipeline. The Voronoi was producing
+                // visible polygonal facets ("broken glass"); the
+                // derivative damping instead suppresses high-frequency
+                // octaves where the running gradient is already steep,
+                // keeping ridges crisp and valleys smooth -- weathered
+                // rock rather than faceted polyhedron.
                 let warped = warp_rotation * lookup_dir;
                 let warp_offset = Vec3::new(
                     fbm_noise_3d(warped * noise_scale, seed),
                     fbm_noise_3d(warped * noise_scale + Vec3::new(7.3, 0.0, 0.0), seed),
                     fbm_noise_3d(warped * noise_scale + Vec3::new(0.0, 11.1, 0.0), seed),
                 );
-                let warped2 = warp_rotation * (lookup_dir + warp_offset * 0.6);
-                let fbm_macro = fbm_noise_3d(warped2 * noise_scale, seed.wrapping_add(1));
-
-                // Voronoi displacement for plate-like rocky surface. The
-                // feature-point distance (F1) is unused -- a Voronoi
-                // peak at the cell centre created 'sea urchin' spikes
-                // (see 1862 Apollo / 1866 Sisyphus / Vesta screenshots).
-                // Instead we use only the F2-F1 crack signal and a
-                // per-cell random elevation offset, so each Voronoi cell
-                // is a slightly-flat plate at a different height rather
-                // than a spike.
-                let (_f1, f2_minus_f1, cell_id) = voronoi_3d(lookup_dir * voronoi_scale, seed);
-
-                // Per-cell random offset. Different cells sit at slightly
-                // different elevations, giving the surface a 'stepped'
-                // look -- adjacent plates at different heights, like
-                // sedimentary layers or fault blocks. Reduced from 0.45
-                // to 0.25 magnitude because combined with the FBM macro
-                // amplitude bump below it was driving the silhouette too
-                // far out.
-                let cell_offset_seed = cell_id.wrapping_mul(0x5bd1e995);
-                let cell_offset = ((cell_offset_seed % 2000) as f32 / 1000.0 - 1.0) * 0.25;
-
-                // F2-F1 crack pattern. Near cell boundaries, F2 ≈ F1 so
-                // the difference is small. We carve into the surface
-                // where the difference is small (cracks), and leave the
-                // cell interiors alone. Threshold 0.18 was a good crack
-                // width; depth 0.18 (was 0.25) keeps cracks as visible
-                // fissures without punching deep enough to look like
-                // bite marks.
-                let crack_strength = (0.18 - f2_minus_f1).max(0.0) / 0.18;
-                let crack_carve = crack_strength * crack_strength * 0.18;
-
-                // Voronoi component: cell offset - cracks. No F1 peak.
-                let voronoi_displacement = cell_offset - crack_carve;
+                let warped2 = warp_rotation * (lookup_dir + warp_offset * 0.8);
+                let fbm_eroded = eroded_fbm_3d(warped2 * noise_scale, seed.wrapping_add(1));
 
                 // Always-positive micro-noise layer.  Without this the
                 // regions where the primary noise crosses zero stay at
@@ -2411,17 +2365,13 @@ fn create_asteroid_mesh(visual_radius: f32, physical_radius_km: f32, seed: u64) 
                 let micro = value_noise_3d(lookup_dir * 18.0, seed.wrapping_add(2)).abs();
                 let micro_displacement = 0.4 * micro * irregularity_factor;
 
-                // Final displacement = FBM macro lumps + Voronoi plates
-                // and cracks + micro noise. FBM amplitude restored to
-                // 0.8x (was 0.6x) because Voronoi no longer provides the
-                // angular character -- it's only plate offsets and
-                // cracks now. Pure-FBM at 0.6x gave the 'smooth-gradient'
-                // look; FBM at 0.8x plus the Voronoi plates and cracks
-                // gives angular rock without spike-balls.
-                let displacement = 1.0
-                    + fbm_macro * irregularity_factor * 0.8
-                    + voronoi_displacement * irregularity_factor * 1.0
-                    + micro_displacement;
+                // Final displacement = derivative-damped FBM + micro
+                // noise. The derivative damping already gives weathered-
+                // rock character; we just need to scale it to the
+                // body's `irregularity_factor` and add the micro layer.
+                // No more Voronoi cracks (they were producing broken-
+                // glass facets).
+                let displacement = 1.0 + fbm_eroded * irregularity_factor + micro_displacement;
 
                 // Displace along the shaped direction. The shape transform's
                 // magnitude carries the per-vertex elongation (cylinder
