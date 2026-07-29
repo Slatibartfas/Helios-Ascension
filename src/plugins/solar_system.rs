@@ -2293,6 +2293,282 @@ fn sample_crater_field(dir: Vec3, craters: &[Crater]) -> f32 {
     displacement
 }
 
+// --- Shape-class palette ------------------------------------------------
+//
+// Real asteroids span a recognisable shape vocabulary. The categories
+// below are deliberately smooth (no axis-aligned spikes) so the noise
+// displacement can layer on top without producing visible facets.
+//
+// Each class is a function `shape_radius_factor(dir, axes)` that
+// returns a scalar in roughly [0.7, 1.3] for any unit direction. The
+// main mesh vertex is then placed at `dir * visual_radius * factor`.
+//
+// The shape axes encode the per-body randomized axis orientation:
+//   - `pole_axis`: which body axis is the long / short one
+//   - `lobe_main` / `lobe_minor`: the two contact-binary attractors
+//   - `equator_ratio`: how much the equator bulges vs the poles
+//   - `neck_strength`: how pronounced the waist constriction is
+//
+// `shape_seed` is derived from the body seed so the same asteroid
+// always gets the same shape.
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ShapeClass {
+    /// Hydrostatic round. Factor ~1.0 everywhere.
+    Sphere,
+    /// Strongly elongated along `pole_axis`. Factor ~1.3 at poles,
+    /// ~0.7 at equator.
+    Prolate,
+    /// Flattened along `pole_axis`. Factor ~1.2 at equator, ~0.7
+    /// at poles.
+    Oblate,
+    /// Spinning top: equatorial ridge + polar flattening. Factor
+    /// ~1.25 at the equator, ~0.75 at the poles.
+    Diamond,
+    /// Two lobes + a narrower waist. Factor swings from ~1.3 at
+    /// each attractor to ~0.75 at the midpoint between them.
+    ContactBinary,
+    /// Hourglass with two large lobes and a thin neck. Factor
+    /// ~1.3 at each attractor, ~0.65 at the neck.
+    Dogbone,
+}
+
+/// Per-body randomized shape parameters. Determined by `shape_seed`.
+struct ShapeAxes {
+    /// Which body axis is the "pole" of the shape (the long axis
+    /// for Prolate, the short axis for Oblate, the rotation axis
+    /// for Diamond, etc.).
+    pole_axis: Vec3,
+    /// Primary contact-binary attractor (the larger of the two for
+    /// Dogbone). Used by ContactBinary and Dogbone.
+    lobe_main: Vec3,
+    /// Secondary contact-binary attractor. Always antipodal to
+    /// `lobe_main` so the two lobes are on opposite sides.
+    lobe_minor: Vec3,
+    /// Strength of the equatorial bulge (Diamond) or waist
+    /// constriction (Dogbone). In [0, 1].
+    shape_intensity: f32,
+}
+
+impl ShapeAxes {
+    fn from_seed(shape_seed: u64) -> Self {
+        // Random pole axis. We avoid the degenerate case where
+        // the pole axis is too close to vertical by sampling
+        // uniformly on the sphere (the standard cosθ
+        // distribution).
+        let cos_theta = 2.0 * rng_deterministic_f32(shape_seed, 10) - 1.0;
+        let sin_theta = (1.0 - cos_theta * cos_theta).max(0.0).sqrt();
+        let phi = rng_deterministic_f32(shape_seed, 11) * std::f32::consts::TAU;
+        let pole_axis = Vec3::new(sin_theta * phi.cos(), sin_theta * phi.sin(), cos_theta);
+
+        // Two antipodal attractor points. Choose a random axis
+        // perpendicular to the pole axis, then the two attractors
+        // are at ±that axis.
+        let perp = pole_axis.any_orthonormal_pair();
+        let perp_axis = perp.0;
+        let attractor_lon = rng_deterministic_f32(shape_seed, 12) * std::f32::consts::TAU;
+        let rot = Quat::from_axis_angle(pole_axis, attractor_lon);
+        let lobe_main = rot * perp_axis;
+        let lobe_minor = -lobe_main;
+
+        // Shape intensity. Most bodies are on the gentler end
+        // so the shape doesn't dominate the noise field.
+        let shape_intensity = 0.4 + rng_deterministic_f32(shape_seed, 13) * 0.4;
+
+        Self {
+            pole_axis,
+            lobe_main,
+            lobe_minor,
+            shape_intensity,
+        }
+    }
+}
+
+/// Pick a shape class deterministically from `shape_seed`,
+/// constrained by physical size (large bodies are round).
+fn pick_shape_class(shape_seed: u64, physical_radius_km: f32) -> ShapeClass {
+    // Large bodies (>500 km) are hydrostatic round.
+    if physical_radius_km > 500.0 {
+        return ShapeClass::Sphere;
+    }
+
+    // Even moderately large bodies skip the most extreme shapes.
+    let r = (shape_seed >> 8) as u32 % 100;
+
+    if physical_radius_km > 200.0 {
+        // 50% Sphere, 20% Prolate, 15% Oblate, 15% Diamond
+        match r {
+            0..=49 => ShapeClass::Sphere,
+            50..=69 => ShapeClass::Prolate,
+            70..=84 => ShapeClass::Oblate,
+            _ => ShapeClass::Diamond,
+        }
+    } else if physical_radius_km > 50.0 {
+        // Mid-size rubble piles: full palette, but rare dogbone.
+        match r {
+            0..=24 => ShapeClass::Sphere,
+            25..=44 => ShapeClass::Prolate,
+            45..=59 => ShapeClass::Oblate,
+            60..=79 => ShapeClass::Diamond,
+            80..=94 => ShapeClass::ContactBinary,
+            _ => ShapeClass::Dogbone,
+        }
+    } else {
+        // Small bodies (<50 km): dogbone is most common here —
+        // these are the rubble piles that have undergone the
+        // most reshaping by YORP spin-up.
+        match r {
+            0..=14 => ShapeClass::Sphere,
+            15..=29 => ShapeClass::Prolate,
+            30..=44 => ShapeClass::Oblate,
+            45..=64 => ShapeClass::Diamond,
+            65..=84 => ShapeClass::ContactBinary,
+            _ => ShapeClass::Dogbone,
+        }
+    }
+}
+
+/// Compute the radial factor for a shape class at a given
+/// body-frame direction. The factor is centred on 1.0, with the
+/// shape class perturbing it within [0.7, 1.3] for Sphere,
+/// Prolate, Oblate, Diamond; [0.75, 1.3] for ContactBinary; and
+/// [0.65, 1.3] for Dogbone.
+fn shape_radius_factor(class: ShapeClass, dir: Vec3, axes: &ShapeAxes) -> f32 {
+    let cos_lat = dir.dot(axes.pole_axis).clamp(-1.0, 1.0);
+    let sin_lat = (1.0 - cos_lat * cos_lat).max(0.0).sqrt();
+
+    match class {
+        ShapeClass::Sphere => 1.0,
+        ShapeClass::Prolate => {
+            // Long along the pole axis. Equator is squashed,
+            // poles are stretched.
+            //
+            // sin²(lat) at the equator gives 0 at the poles
+            // and 1 at the equator. We want the opposite: 1.3
+            // at the poles, 0.7 at the equator. So we use
+            // cos²(lat) = 1 - sin²(lat).
+            let pole_factor = 1.0 + 0.3 * axes.shape_intensity;
+            let equator_factor = 1.0 - 0.3 * axes.shape_intensity;
+            equator_factor + (pole_factor - equator_factor) * cos_lat * cos_lat
+        }
+        ShapeClass::Oblate => {
+            // Flattened along the pole axis. Equator bulges,
+            // poles are squashed.
+            // sin²(lat) = 1 at the equator, 0 at the poles.
+            let equator_factor = 1.0 + 0.2 * axes.shape_intensity;
+            let pole_factor = 1.0 - 0.3 * axes.shape_intensity;
+            pole_factor + (equator_factor - pole_factor) * sin_lat * sin_lat
+        }
+        ShapeClass::Diamond => {
+            // Spinning top: equatorial ridge with a sharp
+            // falloff toward the poles. The factor is highest
+            // at the equator and drops smoothly to its minimum
+            // at the poles.
+            //
+            // We use |cos(2 * lat)| = |1 - 2 * sin²(lat)| which
+            // is 1 at the equator and the poles, 0 at the
+            // ±45° latitudes. Combined with the smooth ramp, it
+            // gives a "spinning top" silhouette.
+            let ridge_amp = 0.20 * axes.shape_intensity;
+            let polar_drop = 0.25 * axes.shape_intensity;
+            // Base ridge: stronger at the equator than at the
+            // poles, with a smooth taper.
+            let ridge = ridge_amp * (1.0 - cos_lat * cos_lat).powf(1.5);
+            // Polar flattening: pulls the poles inward.
+            let pole_drag = -polar_drop * cos_lat * cos_lat;
+            1.0 + ridge + pole_drag
+        }
+        ShapeClass::ContactBinary => {
+            // Two lobes joined by a neck. Each lobe is centred
+            // on one attractor. The factor is the maximum of
+            // two Gaussian-like bumps centred on the attractors,
+            // minus a smooth pull-in at the waist.
+            let dot_main = dir.dot(axes.lobe_main).clamp(0.0, 1.0);
+            let dot_minor = dir.dot(axes.lobe_minor).clamp(0.0, 1.0);
+            // Smooth bumps: peak at the attractor (dot = 1),
+            // falling off as cos² to the side.
+            let bump_main = dot_main * dot_main;
+            let bump_minor = dot_minor * dot_minor;
+            // Max of the two lobes (smooth max).
+            let lobes = (bump_main + bump_minor) * 0.5;
+            // The midpoint between the lobes is at dir = 0
+            // (attractors are antipodal). Suppress the equator
+            // between them so the waist reads.
+            let waist = (cos_lat * cos_lat).min(1.0);
+            let waist_pull = 0.25 * axes.shape_intensity * waist;
+            1.0 + 0.30 * axes.shape_intensity * lobes - waist_pull
+        }
+        ShapeClass::Dogbone => {
+            // Hourglass with two large lobes and a thin neck.
+            // Same two-attractor geometry as ContactBinary but
+            // the lobes are stronger and the waist is narrower.
+            let dot_main = dir.dot(axes.lobe_main).clamp(0.0, 1.0);
+            let dot_minor = dir.dot(axes.lobe_minor).clamp(0.0, 1.0);
+            // The neck is between the two lobes, at dir = 0
+            // (attractors are antipodal). We narrow the neck
+            // by steepening the radial suppression near the
+            // waist.
+            let dist_from_attractor = (1.0 - dot_main.max(dot_minor)).max(0.0);
+            // Strong bump at each attractor.
+            let lobes = 0.30 * axes.shape_intensity * dot_main.max(dot_minor).powf(1.5);
+            // Neck pull: the further from any attractor, the
+            // more the radius shrinks. The neck is the deepest
+            // point.
+            let neck = 0.35 * axes.shape_intensity * dist_from_attractor.powf(1.2);
+            1.0 + lobes - neck
+        }
+    }
+}
+
+/// Compute the direction to feed the noise field for a given
+/// shape class. For Sphere/Prolate/Oblate/Diamond we use the
+/// body-frame direction directly — the noise field is sampled on
+/// the unit sphere, so the craters and lumps are evenly
+/// distributed. For ContactBinary and Dogbone we sample relative
+/// to the closest attractor so the noise field follows the
+/// two-lobe geometry (each lobe has its own craters).
+fn shape_noise_lookup(class: ShapeClass, dir: Vec3, axes: &ShapeAxes) -> Vec3 {
+    match class {
+        ShapeClass::Sphere | ShapeClass::Prolate | ShapeClass::Oblate | ShapeClass::Diamond => {
+            dir.normalize_or_zero()
+        }
+        ShapeClass::ContactBinary | ShapeClass::Dogbone => {
+            // Pick the closest attractor and feed the noise
+            // field the direction relative to that attractor.
+            let dot_main = dir.dot(axes.lobe_main);
+            let dot_minor = dir.dot(axes.lobe_minor);
+            let attractor = if dot_main > dot_minor {
+                axes.lobe_main
+            } else {
+                axes.lobe_minor
+            };
+            // The relative direction is `dir - attractor *
+            // dot(dir, attractor)`. We then renormalise so the
+            // noise falloff is uniform across the lobe.
+            let parallel = attractor * dot_main.max(dot_minor);
+            let perp = (dir - parallel).normalize_or_zero();
+            // Blend with the attractor direction so the noise
+            // field is centred on the lobe but still has some
+            // global orientation reference.
+            (perp * 0.7 + attractor * 0.3).normalize_or_zero()
+        }
+    }
+}
+
+/// Deterministic pseudo-random in [0, 1) derived from a seed
+/// and an axis index. Replaces `rand::random()` so the shape
+/// class is deterministic across runs without keeping the
+/// `StdRng` around.
+fn rng_deterministic_f32(seed: u64, axis: u32) -> f32 {
+    let mut h: u64 = seed
+        .wrapping_add((axis as u64).wrapping_mul(0x9e3779b97f4a7c15))
+        .wrapping_add(0x123456789abcdef0);
+    h ^= h << 13;
+    h ^= h >> 7;
+    h ^= h << 17;
+    ((h % 1_000_000) as f32) / 1_000_000.0
+}
+
 fn create_asteroid_mesh(visual_radius: f32, physical_radius_km: f32, seed: u64) -> Mesh {
     // Generate icosphere base. Bevy's `Sphere::ico(5)` returns a
     // uniformly-triangulated icosphere (subdivision 5 ≈ 642 vertices,
@@ -2330,20 +2606,40 @@ fn create_asteroid_mesh(visual_radius: f32, physical_radius_km: f32, seed: u64) 
             0.18 // Mildly irregular (was 0.40)
         };
 
-        // ---- Per-body aspect-ratio ellipsoid -----------------------
+        // ---- Per-body shape-class palette --------------------------
         //
-        // Real asteroids are triaxial ellipsoids (a ≥ b ≥ c) where the
-        // axes differ by 10–30%. We pick three small per-body scale
-        // factors in [0.85, 1.15]. The previous "shape-class palette"
-        // (Cylinder 1.6× elongation, Wedge 0.85× pinch) was producing
-        // pole-shaped silhouettes — those aren't real asteroid
-        // shapes. Triaxial ellipsoids give the silhouette the "fat
-        // banana" (Eros) / "peanut" (Itokawa) / "broad shield" (Vesta)
-        // look without the pole geometry.
-        let aspect_seed = seed.wrapping_mul(0x9e3779b97f4a7c15);
-        let sx = 0.85 + ((aspect_seed % 1000) as f32 / 1000.0) * 0.30;
-        let sy = 0.85 + (((aspect_seed / 1000) % 1000) as f32 / 1000.0) * 0.30;
-        let sz = 0.85 + (((aspect_seed / 1_000_000) % 1000) as f32 / 1000.0) * 0.30;
+        // Real asteroids span a recognisable shape vocabulary:
+        //
+        //   - Sphere (Vesta, Ceres): round, hydrostatic.
+        //   - Prolate (Eros, Toutatis): strongly elongated along
+        //     one axis, ~2.5:1:1 aspect ratio.
+        //   - Oblate (Vesta, Ceres-class): flattened along one axis,
+        //     ~1:1:0.7 ratio.
+        //   - Diamond / spinning top (Bennu, Ryugu): equatorial
+        //     ridge + polar flattening — the iconic "spinning top".
+        //   - Contact binary (Itokawa): two lobes joined by a
+        //     narrower waist, "peanut" silhouette.
+        //   - Dogbone (Kleopatra): hourglass with two large lobes
+        //     and a thin neck.
+        //
+        // The previous "Cylinder 1.6× / Wedge 0.85×" attempts were
+        // unrealistic pole-shapes. A shape-class palette produces
+        // silhouettes that players can recognise as Bennu-shaped
+        // or Itokawa-shaped.
+        //
+        // Large bodies (>500 km) collapse to Sphere because the
+        // hydrostatic-equilibrium bodies are rounded. The most
+        // extreme shapes (Dogbone) are reserved for mid-size
+        // bodies that have the surface area to express them.
+        let shape_seed = seed.wrapping_mul(0x9e3779b97f4a7c15);
+        let shape_class = pick_shape_class(shape_seed, physical_radius_km);
+        let shape_axes = ShapeAxes::from_seed(shape_seed);
+        let shape_rotation = Quat::from_euler(
+            EulerRot::XYZ,
+            rng_deterministic_f32(shape_seed, 0),
+            rng_deterministic_f32(shape_seed, 1),
+            rng_deterministic_f32(shape_seed, 2),
+        );
 
         // ---- Crater catalogue --------------------------------------
         //
@@ -2368,14 +2664,29 @@ fn create_asteroid_mesh(visual_radius: f32, physical_radius_km: f32, seed: u64) 
                 let v = Vec3::from(*p);
                 let dir = v.normalize_or_zero();
 
-                // Triaxial ellipsoid: scale each axis of the unit
-                // direction, then renormalise so the noise lookup
-                // stays on the unit sphere. The per-axis magnitudes
-                // produce the elongated/flattened silhouette
-                // (Eros is 33×13×13 km → aspect ~2.5:1:1, but most
-                // bodies are within 1.3:1:1).
-                let ellipsoid_dir = Vec3::new(dir.x * sx, dir.y * sy, dir.z * sz);
-                let lookup_dir = ellipsoid_dir.normalize_or_zero();
+                // -- Shape-class silhouette --------------------------
+                //
+                // Rotate the vertex direction into the shape's
+                // body frame so the class's intrinsic scaling
+                // (e.g. equatorial ridge for Diamond, two-lobe
+                // attractors for ContactBinary) is applied along
+                // the right axis. The shape class returns a
+                // scalar multiplier in roughly [0.7, 1.3] that
+                // tells us how far from centre this vertex
+                // should sit relative to the mean radius.
+                let body_dir = shape_rotation.inverse() * dir;
+                let shape_factor = shape_radius_factor(shape_class, body_dir, &shape_axes);
+
+                // The shape's intrinsic scaling defines the
+                // body-frame direction we feed to the noise
+                // field. For most shapes the natural choice is
+                // the body-frame direction itself (so the lumps
+                // and craters appear on the body's shape rather
+                // than on a separate sphere). For ContactBinary
+                // and Dogbone, the lookup is centred on the
+                // closest attractor so the noise follows the
+                // lobes.
+                let lookup_dir = shape_noise_lookup(shape_class, body_dir, &shape_axes);
 
                 // --- Macro lumps: very-low-frequency FBM ------------
                 //
@@ -2421,27 +2732,26 @@ fn create_asteroid_mesh(visual_radius: f32, physical_radius_km: f32, seed: u64) 
 
                 // --- Combine -----------------------------------------
                 //
-                // lumps + ridges are in [-1, 1]; we scale them to a
-                // small fraction of the visual radius so the
-                // silhouette deviates by `irregularity_factor`
-                // total. Craters are in [-1, 0] (negative = bowl);
-                // we add them directly. The whole displacement is
-                // centred on 1.0 so the rock sphere stays inside the
-                // body's bounding radius.
+                // The shape class contributes a moderate
+                // large-scale silhouette deviation (in [0.7, 1.3]
+                // for most classes). The noise field adds
+                // fine-grained weathering on top (lumps + ridges +
+                // micro), bounded by `irregularity_factor`. Craters
+                // are a separate negative contribution.
                 //
-                // Total RMS displacement magnitude is
-                // `irregularity * sqrt(0.7² + 0.3² + 0.15² + 0.5²)`
-                // ≈ irregularity * 0.93, which keeps the silhouette
-                // within the realistic 18% envelope.
-                let shape = lumps * 0.7 + ridges * 0.3 + micro * 0.15;
+                // The final displacement is the shape factor
+                // (centred on 1.0) plus the noise deviation times
+                // `irregularity_factor`. Total silhouette
+                // deviation is at most `shape_factor - 1.0 +                                     // irregularity * 0.93`, which for the
+                // typically-picked shape factors keeps the
+                // silhouette within realistic limits.
+                let noise = lumps * 0.7 + ridges * 0.3 + micro * 0.15;
                 let crater = crater_displacement * 0.5;
 
-                let displacement = 1.0 + shape * irregularity_factor + crater * irregularity_factor;
+                let displacement =
+                    shape_factor + noise * irregularity_factor + crater * irregularity_factor;
 
-                // Apply the displacement to the unit direction. The
-                // triaxial ellipsoid silhouette and the noise-field
-                // deviation are both linear in `dir`, so we don't
-                // need to combine them in noise space.
+                // Apply the displacement to the unit direction.
                 (dir * visual_radius * displacement).into()
             })
             .collect();
