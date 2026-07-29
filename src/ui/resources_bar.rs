@@ -90,11 +90,26 @@ fn get_category_color(category: &str) -> egui::Color32 {
     theme::category_color(category)
 }
 
-/// Resource popup that is currently open (if any)
+/// Resource popup that is currently open (if any).
+///
+/// Two popup kinds coexist:
+/// - **Category popup**: when the player clicks a category tile in
+///   the top bar, `open` is set.
+/// - **Resource popup**: when the player clicks an individual resource
+///   row inside a category popup, `resource_open` is set; this opens
+///   a chart-only popup to the right of the category popup.
+///
+/// `resource_open` is layered on top of the category popup visually
+/// but does not close it.  Both can be closed by clicking outside their
+/// combined rect.
 #[derive(Resource, Default)]
 pub(super) struct OpenResourcePopup {
-    /// Which category is open, and where to anchor the popup
+    /// Which category popup is open, and where to anchor it.
     open: Option<(String, egui::Rect)>,
+    /// Which resource popup is open, and where to anchor it.  The
+    /// resource popup is positioned to the right of the originating
+    /// category popup.
+    resource_open: Option<(crate::economy::ResourceType, egui::Rect)>,
 }
 
 const HISTORY_PANEL_SECONDS: f64 = crate::economy::HISTORY_MAX_AGE_SECONDS;
@@ -2693,8 +2708,11 @@ pub(super) fn ui_resources_bar(
                                 let amount = contextual.get(resource);
                                 let rate = rate_tracker.get_resource_rate(resource);
 
-                                // Icon + Name in one cell
-                                ui.horizontal(|ui| {
+                                // Icon + Name in one cell — wrap in an
+                                // allocating Ui so we can capture a
+                                // Response for hover-mini-chart and click
+                                // open-popup behavior.
+                                let name_response = ui.horizontal(|ui| {
                                     ui.add(
                                         egui::Label::new(
                                             egui::RichText::new(get_resource_icon(resource))
@@ -2708,7 +2726,37 @@ pub(super) fn ui_resources_bar(
                                         )
                                         .selectable(false),
                                     );
+                                }).response;
+
+                                // Hover-mini-chart: shows a compact 20-yr
+                                // forecast preview for this resource.
+                                name_response.clone().on_hover_ui(|ui| {
+                                    render_resource_hover_preview(
+                                        ui,
+                                        *resource,
+                                        &contextual,
+                                        &rate_tracker,
+                                        &breakdown_queries,
+                                        current_sim_seconds,
+                                    );
                                 });
+
+                                // Click on row → open per-resource popup
+                                // anchored to the category popup rect.
+                                if name_response.clicked() {
+                                    let is_resource_open = open_popup
+                                        .resource_open
+                                        .as_ref()
+                                        .is_some_and(|(r, _)| *r == *resource);
+                                    if is_resource_open {
+                                        open_popup.resource_open = None;
+                                    } else if let Some((_, cat_rect)) = open_popup.open.clone() {
+                                        // Anchor the resource popup to the
+                                        // right of the category popup rect.
+                                        open_popup.resource_open =
+                                            Some((*resource, cat_rect));
+                                    }
+                                }
                                 // Stockpile — left-aligned, with amber
                                 // in-transit chip appended if any resource
                                 // is currently in transit to a body in the
@@ -2820,6 +2868,154 @@ pub(super) fn ui_resources_bar(
         }
     }
 
+    // Resource popup — opens when the player clicks an individual
+    // resource row in a category popup.  Anchored to the right of the
+    // category popup (or below if the right edge is past the viewport).
+    if let Some((resource, cat_anchor_rect)) = open_popup.resource_open {
+        let anchor_right = cat_anchor_rect.right() + 4.0;
+        let ctx_size = ctx.content_rect().size();
+        let popup_w = 320.0_f32;
+        let popup_h = 360.0_f32;
+        // Prefer the right of the category popup; fall back to
+        // `cat_anchor_rect.left()` (below the popup) when the right
+        // anchor would overflow the viewport.
+        let pos = if anchor_right + popup_w < ctx_size.x {
+            egui::pos2(anchor_right, cat_anchor_rect.top())
+        } else {
+            egui::pos2(cat_anchor_rect.left(), cat_anchor_rect.bottom() + 4.0)
+        };
+
+        let mut still_open = true;
+        let popup_id = egui::Id::new("resource_forecast_popup").with(resource);
+        let window_response = egui::Window::new(format!("forecast_{}", resource.display_name()))
+            .id(popup_id)
+            .fixed_pos(pos)
+            .fixed_size(egui::vec2(popup_w, popup_h))
+            .collapsible(false)
+            .resizable(false)
+            .title_bar(true)
+            .open(&mut still_open)
+            .frame(egui::Frame::popup(ctx.style().as_ref()))
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    ui.add(
+                        egui::Label::new(
+                            egui::RichText::new(get_resource_icon(&resource))
+                                .size(16.0)
+                                .color(theme::forecast_series_color(resource.category())),
+                        )
+                        .selectable(false),
+                    );
+                    ui.add(
+                        egui::Label::new(
+                            egui::RichText::new(resource.display_name())
+                                .strong()
+                                .size(15.0)
+                                .color(theme::forecast_series_color(resource.category())),
+                        )
+                        .selectable(false),
+                    );
+                });
+                ui.add_space(2.0);
+                let amount = contextual.get(&resource);
+                ui.label(
+                    egui::RichText::new(format!(
+                        "Current: {}",
+                        format_mass(amount)
+                    ))
+                    .monospace()
+                    .size(11.0)
+                    .color(theme::TEXT_VALUE),
+                );
+
+                let series = build_single_resource_forecast(
+                    resource,
+                    &contextual,
+                    &rate_tracker,
+                    &breakdown_queries,
+                    current_sim_seconds,
+                );
+
+                ui.add_space(4.0);
+                let desired = egui::vec2(popup_w - 24.0, 180.0);
+                let refs = vec![&series];
+                super::economy_panel::render_forecast_chart(ui, &refs, current_sim_seconds, desired, true);
+
+                ui.add_space(4.0);
+                let annual = series.annual_net_rate_mt;
+                let sign = if annual >= 0.0 { "+" } else { "" };
+                let color = if annual >= 0.0 { theme::GREEN } else { theme::RED };
+                ui.label(
+                    egui::RichText::new(format!(
+                        "Net rate: {}{}/yr",
+                        sign,
+                        format_mass(annual.abs())
+                    ))
+                    .color(color)
+                    .monospace()
+                    .size(11.0),
+                );
+                if let Some(runs_out) = series.runs_out_at_s {
+                    let years = runs_out / crate::economy::SECONDS_PER_YEAR;
+                    let color = if years < 5.0 {
+                        theme::RED
+                    } else if years < 10.0 {
+                        theme::AMBER
+                    } else {
+                        theme::GREEN
+                    };
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "Runs out in {}",
+                            if years < 1.0 {
+                                format!("{:.0} mo", years * 12.0)
+                            } else {
+                                format!("{:.1} yr", years)
+                            }
+                        ))
+                        .color(color)
+                        .size(11.0),
+                    );
+                }
+                if let Some(cap) = series.reserve_upper_bound_mt {
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "Survey-known reserves: {} (cap)",
+                            format_mass(cap)
+                        ))
+                        .color(theme::AMBER)
+                        .monospace()
+                        .size(10.0),
+                    );
+                }
+                ui.add_space(2.0);
+                ui.label(
+                    egui::RichText::new(
+                        "Click outside to close.  Open the Forecast tab in the Economy panel for the full multi-resource chart.",
+                    )
+                    .italics()
+                    .size(9.0)
+                    .color(theme::TEXT_DIM),
+                );
+            });
+
+        // Outside-click lifecycle.
+        if let Some(inner_response) = window_response {
+            if ctx.input(|i| i.pointer.any_pressed()) {
+                if let Some(pos) = ctx.input(|i| i.pointer.interact_pos()) {
+                    if !inner_response.response.rect.contains(pos)
+                        && !cat_anchor_rect.contains(pos)
+                    {
+                        open_popup.resource_open = None;
+                    }
+                }
+            }
+        }
+        if !still_open {
+            open_popup.resource_open = None;
+        }
+    }
+
     render_kardashev_overlay(
         ctx,
         &mut kardashev_trend,
@@ -2827,6 +3023,315 @@ pub(super) fn ui_resources_bar(
         current_sim_seconds,
         current_year,
     );
+}
+
+// ── Resource forecast preview (hover mini-chart + click popup) ──────
+
+/// Build a single-resource forecast series for the resource popup /
+/// hover tooltip.  Lightweight wrapper that reads from the contextual
+/// stockpile + per-entity rates.
+fn build_single_resource_forecast(
+    resource: crate::economy::ResourceType,
+    contextual: &crate::economy::ContextualStockpile,
+    rate_tracker: &ResourceRateTracker,
+    breakdown_queries: &ResourceBarBreakdownQueries,
+    current_sim_seconds: f64,
+) -> crate::economy::ForecastSeries {
+    // Aggregated current stock + annual rate for this single resource.
+    let current_mt = contextual.get(&resource);
+    // Per-entity rate sum across the active scope.
+    let monthly_mt: f64 = match *breakdown_queries.view_mode {
+        ViewMode::System => {
+            let sys_id = breakdown_queries.current_star_system.0;
+            rate_tracker
+                .per_entity_rates
+                .iter()
+                .filter_map(|(entity, rates)| {
+                    let (_body, sid_opt, _stock) =
+                        breakdown_queries.per_body_breakdown.get(*entity).ok()?;
+                    let body_sys = sid_opt.map(|s| s.0).unwrap_or(0);
+                    if body_sys != sys_id {
+                        return None;
+                    }
+                    rates.get(&resource).copied()
+                })
+                .sum()
+        }
+        ViewMode::Starmap => rate_tracker
+            .per_entity_rates
+            .values()
+            .filter_map(|rates| rates.get(&resource).copied())
+            .sum(),
+    };
+    let annual_mt = monthly_mt * 12.0;
+    // Per-resource, per-scope reserve upper bound is intentionally
+    // not threaded through the per-resource popup/hover path — that
+    // mini-chart is a planning aid and the additional query wiring
+    // would balloon the SystemParam surface.  See the Forecast sub-tab
+    // for the reserve-aware variant.
+    let mut series = crate::economy::project_stockpile(current_mt, annual_mt, None);
+    series.resource = resource;
+    let _ = current_sim_seconds;
+    series
+}
+
+/// Compact hover-tooltip preview chart shown when the player hovers a
+/// resource row inside a category popup.  Renders a small
+/// `FORECAST_MINI_CHART_HEIGHT` painter chart + a one-line summary.
+fn render_resource_hover_preview(
+    ui: &mut egui::Ui,
+    resource: crate::economy::ResourceType,
+    contextual: &crate::economy::ContextualStockpile,
+    rate_tracker: &ResourceRateTracker,
+    breakdown_queries: &ResourceBarBreakdownQueries,
+    current_sim_seconds: f64,
+) {
+    ui.set_max_width(260.0);
+    ui.label(
+        egui::RichText::new(format!(
+            "{} {}  — 20-yr forecast",
+            get_resource_icon(&resource),
+            resource.display_name()
+        ))
+        .strong()
+        .size(12.0)
+        .color(theme::forecast_series_color(resource.category())),
+    );
+    ui.add_space(2.0);
+
+    let series = build_single_resource_forecast(
+        resource,
+        contextual,
+        rate_tracker,
+        breakdown_queries,
+        current_sim_seconds,
+    );
+
+    let desired = egui::vec2(240.0, theme::FORECAST_MINI_CHART_HEIGHT);
+    render_resource_mini_chart(ui, &series, desired);
+
+    ui.add_space(2.0);
+    let annual = series.annual_net_rate_mt;
+    if let Some(runs_out) = series.runs_out_at_s {
+        let years = runs_out / crate::economy::SECONDS_PER_YEAR;
+        let color = if years < 5.0 {
+            theme::RED
+        } else if years < 10.0 {
+            theme::AMBER
+        } else {
+            theme::GREEN
+        };
+        ui.label(
+            egui::RichText::new(format!(
+                "Runs out in {}",
+                if years < 1.0 {
+                    format!("{:.0} mo", years * 12.0)
+                } else {
+                    format!("{:.1} yr", years)
+                }
+            ))
+            .color(color)
+            .size(11.0),
+        );
+        ui.label(
+            egui::RichText::new(format!(
+                "Net {:+} /yr",
+                format_mass(annual.abs())
+            ))
+            .color(if annual < 0.0 { theme::RED } else { theme::GREEN })
+            .size(10.0)
+            .monospace(),
+        );
+    } else {
+        ui.label(
+            egui::RichText::new(if annual < 0.0 {
+                format!("Net {:+} /yr", format_mass(annual.abs()))
+            } else {
+                format!("Sustainable · net {:+} /yr", format_mass(annual.abs()))
+            })
+            .color(if annual < 0.0 { theme::RED } else { theme::GREEN })
+            .size(11.0),
+        );
+    }
+}
+
+/// Render a small single-series forecast chart — used by the
+/// hover-tooltip preview and the per-resource popup.  Includes:
+/// - x-axis labels (0y / 5y / 10y / 15y / 20y)
+/// - y-axis label (max stockpile at top)
+/// - "now" vertical line at x=0 in the series colour (so the
+///   player can see today's value vs. the projected curve)
+/// - dashed "runs out" marker if applicable
+/// - dashed amber "reserve cap" marker if the curve plateaus
+/// - a soft t=20y grid line
+fn render_resource_mini_chart(
+    ui: &mut egui::Ui,
+    series: &crate::economy::ForecastSeries,
+    desired_size: egui::Vec2,
+) {
+    let sense = egui::Sense::hover();
+    let (rect, _) = ui.allocate_exact_size(desired_size, sense);
+    let painter = ui.painter();
+
+    painter.rect_filled(rect, 4.0, theme::SURFACE);
+    painter.rect_stroke(
+        rect,
+        4.0,
+        egui::Stroke::new(1.0_f32, theme::BORDER),
+        egui::StrokeKind::Outside,
+    );
+
+    if series.samples.len() < 2 {
+        painter.text(
+            rect.center(),
+            egui::Align2::CENTER_CENTER,
+            "No data",
+            theme::body(11.0),
+            theme::TEXT_DIM,
+        );
+        return;
+    }
+
+    // Shrink rect to leave room for axis labels (left margin for y,
+    // bottom margin for x).  Same convention as the full chart.
+    let plot_rect = rect.shrink2(egui::vec2(38.0, 14.0));
+    let horizon_s = crate::economy::FORECAST_HORIZON_YEARS * crate::economy::SECONDS_PER_YEAR;
+    let max_y = series
+        .samples
+        .iter()
+        .map(|p| p.value_mt)
+        .fold(f64::NEG_INFINITY, f64::max)
+        .max(0.0)
+        .max(1.0);
+    let min_y = 0.0_f64;
+
+    let stroke_color = theme::forecast_series_color(series.resource.category());
+
+    // ── Y-axis label (max stockpile at top) ──
+    painter.text(
+        egui::pos2(plot_rect.left() - 2.0, plot_rect.top()),
+        egui::Align2::RIGHT_TOP,
+        format_mass(max_y),
+        theme::mono(9.0),
+        theme::TEXT_HINT,
+    );
+    painter.text(
+        egui::pos2(plot_rect.left() - 2.0, plot_rect.bottom()),
+        egui::Align2::RIGHT_BOTTOM,
+        "0",
+        theme::mono(9.0),
+        theme::TEXT_HINT,
+    );
+
+    // ── X-axis labels: 0y / 5y / 10y / 15y / 20y ──
+    for tick in 0..=4 {
+        let t = tick as f32 / 4.0;
+        let x = egui::lerp(plot_rect.left()..=plot_rect.right(), t);
+        let years = (tick as f64) * 5.0;
+        painter.text(
+            egui::pos2(x, plot_rect.bottom() + 2.0),
+            egui::Align2::CENTER_TOP,
+            if years < 1.0 {
+                "0y".to_string()
+            } else {
+                format!("{years:.0}y")
+            },
+            theme::mono(9.0),
+            theme::TEXT_HINT,
+        );
+        // Light vertical grid line.
+        painter.line_segment(
+            [
+                egui::pos2(x, plot_rect.top()),
+                egui::pos2(x, plot_rect.bottom()),
+            ],
+            egui::Stroke::new(0.5_f32, theme::BORDER.linear_multiply(0.3)),
+        );
+    }
+
+    // ── "Now" vertical line (subtle, series color, full-height) ──
+    let x_now = plot_rect.left();
+    painter.line_segment(
+        [egui::pos2(x_now, plot_rect.top()), egui::pos2(x_now, plot_rect.bottom())],
+        egui::Stroke::new(1.0_f32, stroke_color.linear_multiply(0.6)),
+    );
+
+    // ── Single line series ──
+    let line_points: Vec<egui::Pos2> = series
+        .samples
+        .iter()
+        .map(|p| {
+            let x_t = (p.sim_seconds_offset / horizon_s).clamp(0.0, 1.0);
+            let y_t = ((p.value_mt - min_y) / (max_y - min_y)).clamp(0.0, 1.0);
+            egui::pos2(
+                plot_rect.left() + plot_rect.width() * x_t as f32,
+                plot_rect.bottom() - plot_rect.height() * y_t as f32,
+            )
+        })
+        .collect();
+    painter.add(egui::Shape::line(
+        line_points,
+        egui::Stroke::new(theme::FORECAST_LINE_WIDTH, stroke_color),
+    ));
+
+    // ── Dashed "runs out" marker (red) ──
+    if let Some(runs_out) = series.runs_out_at_s {
+        if runs_out < horizon_s {
+            let x_t = (runs_out / horizon_s).clamp(0.0, 1.0);
+            let x = plot_rect.left() + plot_rect.width() * x_t as f32;
+            let dash_len = theme::FORECAST_RUNS_OUT_DASH_LEN;
+            let runs_out_color = theme::forecast_runs_out_color();
+            let mut y = plot_rect.top();
+            while y < plot_rect.bottom() {
+                let next_y = (y + dash_len).min(plot_rect.bottom());
+                painter.line_segment(
+                    [egui::pos2(x, y), egui::pos2(x, next_y)],
+                    egui::Stroke::new(
+                        theme::FORECAST_RUNS_OUT_STROKE_WIDTH,
+                        runs_out_color,
+                    ),
+                );
+                y = next_y + dash_len;
+            }
+            // Floating label.
+            let years = runs_out / crate::economy::SECONDS_PER_YEAR;
+            painter.text(
+                egui::pos2(x - 2.0, plot_rect.top() + 1.0),
+                egui::Align2::RIGHT_TOP,
+                format!("{years:.1}y"),
+                theme::mono(8.0),
+                runs_out_color,
+            );
+        }
+    }
+
+    // ── Dashed "reserve cap" marker (amber) ──
+    if let Some(cap_at) = series.hits_reserve_cap_at_s {
+        if cap_at < horizon_s {
+            let x_t = (cap_at / horizon_s).clamp(0.0, 1.0);
+            let x = plot_rect.left() + plot_rect.width() * x_t as f32;
+            let dash_len = theme::FORECAST_RUNS_OUT_DASH_LEN;
+            let cap_color = theme::AMBER;
+            let mut y = plot_rect.top();
+            while y < plot_rect.bottom() {
+                let next_y = (y + dash_len).min(plot_rect.bottom());
+                painter.line_segment(
+                    [egui::pos2(x, y), egui::pos2(x, next_y)],
+                    egui::Stroke::new(theme::FORECAST_RUNS_OUT_STROKE_WIDTH, cap_color),
+                );
+                y = next_y + dash_len;
+            }
+            // Floating label.
+            let years = cap_at / crate::economy::SECONDS_PER_YEAR;
+            painter.text(
+                egui::pos2(x + 2.0, plot_rect.top() + 1.0),
+                egui::Align2::LEFT_TOP,
+                format!("cap {years:.1}y"),
+                theme::mono(8.0),
+                cap_color,
+            );
+        }
+    }
 }
 
 // ── GRA-31 PR-A: per-body / per-system breakdown helpers ──────────────
