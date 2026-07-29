@@ -1333,6 +1333,7 @@ mod tests {
     fn test_tier_replacement_hydroponics_farm_replaces_farm() {
         use crate::colony::components::PendingConstructionActions;
         use crate::colony::ConstructionDebugSettings;
+        use crate::colony::events::ConstructionEvent;
         use crate::economy::logistics::PendingResourceRequests;
 
         let mut colony = Colony::new("Test".to_string(), 1_000.0);
@@ -1346,6 +1347,10 @@ mod tests {
         // GRA-358 PR-I: dirty-body tracker required by
         // process_construction_actions.
         app.init_resource::<crate::economy::DirtyBodies>();
+        // process_construction_actions writes `ConstructionEvent`; the
+        // message registry must be initialized for `MessageWriter` to
+        // validate.
+        app.add_message::<ConstructionEvent>();
         app.insert_resource(ConstructionDebugSettings {
             enabled: true,
             free_construction: true,
@@ -1396,6 +1401,7 @@ mod tests {
     fn test_tier_replacement_no_predecessor_is_no_op() {
         use crate::colony::components::PendingConstructionActions;
         use crate::colony::ConstructionDebugSettings;
+        use crate::colony::events::ConstructionEvent;
         use crate::economy::logistics::PendingResourceRequests;
 
         let colony = Colony::new("Moon".to_string(), 1_000.0);
@@ -1407,6 +1413,10 @@ mod tests {
         // GRA-358 PR-I: dirty-body tracker required by
         // process_construction_actions.
         app.init_resource::<crate::economy::DirtyBodies>();
+        // process_construction_actions writes `ConstructionEvent`; the
+        // message registry must be initialized for `MessageWriter` to
+        // validate.
+        app.add_message::<ConstructionEvent>();
         app.insert_resource(ConstructionDebugSettings {
             enabled: true,
             free_construction: true,
@@ -1580,6 +1590,7 @@ mod tests {
     #[test]
     fn test_no_system_pool_fallback() {
         use crate::astronomy::components::SystemId;
+        use crate::colony::events::ConstructionEvent;
         use crate::economy::logistics::PendingResourceRequests;
 
         let mut app = App::new();
@@ -1590,6 +1601,10 @@ mod tests {
         // GRA-358 PR-I: dirty-body tracker is required
         // by `process_construction_actions`.
         app.init_resource::<crate::economy::DirtyBodies>();
+        // process_construction_actions writes `ConstructionEvent`; the
+        // message registry must be initialized for `MessageWriter` to
+        // validate.
+        app.add_message::<ConstructionEvent>();
         // Disable debug-mode cost bypass so the cost path actually runs.
         app.insert_resource(ConstructionDebugSettings {
             enabled: false,
@@ -1723,6 +1738,7 @@ mod tests {
     #[test]
     fn test_local_only_deducts_from_colony_when_affordable() {
         use crate::astronomy::components::SystemId;
+        use crate::colony::events::ConstructionEvent;
         use crate::economy::logistics::PendingResourceRequests;
 
         let mut app = App::new();
@@ -1736,6 +1752,10 @@ mod tests {
         // construction). Tests mirror the production
         // plugin's init.
         app.init_resource::<crate::economy::DirtyBodies>();
+        // process_construction_actions writes `ConstructionEvent`; the
+        // message registry must be initialized for `MessageWriter` to
+        // validate.
+        app.add_message::<ConstructionEvent>();
         app.insert_resource(ConstructionDebugSettings {
             enabled: false,
             free_construction: false,

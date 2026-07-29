@@ -802,6 +802,7 @@ pub fn promote_pending_world(world: &mut World) {
 mod tests {
     use super::*;
     use crate::persistence::params::NewGameParams;
+    use crate::test_util::USERDATA_ENV_LOCK;
     use std::env;
     use std::fs;
     use std::path::PathBuf;
@@ -822,13 +823,49 @@ mod tests {
         dir
     }
 
-    fn install_userdata_dir(tag: &str) -> PathBuf {
+    /// RAII guard that owns the `HELIOS_USERDATA_DIR` override for
+    /// the lifetime of a test and restores the previous value on
+    /// drop.  Without this restore, parallel test execution leaks the
+    /// override across tests (each spawned thread sees the last
+    /// writer's value) and `save_panel_save_writes_file_and_rescans_index`
+    /// intermittently rescans the wrong dir.  Mirrors the pattern in
+    /// `src/ui/launch/subview_save_game.rs::UserdataDirGuard`.
+    struct UserdataDirGuard {
+        prior: Option<std::ffi::OsString>,
+        _dir: PathBuf,
+        /// Held for the guard's lifetime so a parallel test cannot
+        /// overwrite the env var until we restore `prior`.
+        _env_lock: std::sync::MutexGuard<'static, ()>,
+    }
+
+    impl Drop for UserdataDirGuard {
+        fn drop(&mut self) {
+            // SAFETY: env-var access is single-threaded by Rust's
+            // documented `set_var` contract; we always restore a value
+            // we previously observed.
+            unsafe {
+                match &self.prior {
+                    Some(v) => std::env::set_var("HELIOS_USERDATA_DIR", v),
+                    None => std::env::remove_var("HELIOS_USERDATA_DIR"),
+                }
+            }
+        }
+    }
+
+    fn install_userdata_dir(tag: &str) -> UserdataDirGuard {
+        let _env_lock = USERDATA_ENV_LOCK.lock().expect("USERDATA_ENV_LOCK poisoned");
         let dir = fresh_dir(tag);
-        // SAFETY: tests run single-threaded for env-var mutations.
+        let prior = env::var_os("HELIOS_USERDATA_DIR");
+        // SAFETY: see `Drop` impl — we restore `prior` on drop, so no
+        // env var leakage across tests.
         unsafe {
             std::env::set_var("HELIOS_USERDATA_DIR", &dir);
         }
-        dir
+        UserdataDirGuard {
+            prior,
+            _dir: dir,
+            _env_lock,
+        }
     }
 
     #[test]
@@ -904,7 +941,14 @@ mod tests {
 
     #[test]
     fn restore_missing_path_emits_notification_and_returns_err() {
-        let _dir = install_userdata_dir("missing");
+        // `install_userdata_dir` returns an RAII guard that restores
+        // the prior `HELIOS_USERDATA_DIR` value on drop. Without it,
+        // parallel test execution leaks the override across tests
+        // and `save_panel_save_writes_file_and_rescans_index`
+        // intermittently rescans the wrong dir. Bind the guard here
+        // (it would otherwise drop at the end of the function and
+        // race with the next test's `install_userdata`).
+        let _guard = install_userdata_dir("missing");
         let mut app = App::new();
         app.add_plugins(MinimalPlugins);
         app.init_resource::<PendingGameWorld>();
@@ -919,7 +963,6 @@ mod tests {
             app.world().resource::<Messages<NotificationEvent>>().len(),
             1
         );
-        let _ = fs::remove_dir_all(&_dir);
     }
 
     #[test]

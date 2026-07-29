@@ -20,6 +20,7 @@ pub mod research;
 pub mod shipbuilding;
 pub mod ships;
 pub mod survey;
+pub mod test_util;
 pub mod ui;
 
 use astronomy::AstronomyPlugin;

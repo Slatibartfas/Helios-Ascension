@@ -572,6 +572,7 @@ pub fn register_save_panel_subview(app: &mut App) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_util::USERDATA_ENV_LOCK;
     use crate::ui::launch::save_index::SaveHeader;
     use std::env;
     use std::fs;
@@ -598,6 +599,9 @@ mod tests {
     struct UserdataDirGuard {
         prior: Option<std::ffi::OsString>,
         _dir: PathBuf,
+        /// Held for the guard's lifetime so the env var cannot be
+        /// overwritten by a parallel test until we restore `prior`.
+        _env_lock: std::sync::MutexGuard<'static, ()>,
     }
 
     impl Drop for UserdataDirGuard {
@@ -615,6 +619,11 @@ mod tests {
     }
 
     fn install_userdata(tag: &str) -> UserdataDirGuard {
+        // Hold the env-var lock across the entire install → use →
+        // drop window so a parallel test cannot sneak a `set_var`
+        // call between this module's `current_slot_path()` and
+        // `rescan_save_index` (which would read a different dir).
+        let _env_lock = USERDATA_ENV_LOCK.lock().expect("USERDATA_ENV_LOCK poisoned");
         let dir = fresh_dir(tag);
         let prior = env::var_os("HELIOS_USERDATA_DIR");
         // SAFETY: see `Drop` impl — we restore `prior` on drop, so no
@@ -622,7 +631,11 @@ mod tests {
         unsafe {
             std::env::set_var("HELIOS_USERDATA_DIR", &dir);
         }
-        UserdataDirGuard { prior, _dir: dir }
+        UserdataDirGuard {
+            prior,
+            _dir: dir,
+            _env_lock,
+        }
     }
 
     #[test]

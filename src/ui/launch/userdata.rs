@@ -215,6 +215,7 @@ pub fn save_persistent_settings_to(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_util::USERDATA_ENV_LOCK;
     use std::env;
     use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -295,25 +296,41 @@ mod tests {
 
     #[test]
     fn resolve_userdata_dir_respects_override() {
-        // SAFETY: tests run single-threaded by default for env vars;
-        // an override set here cannot race with other tests because
-        // each test sets and restores its own value.  The save-panel
-        // tests use a parallel-safe RAII guard
-        // (`UserdataDirGuard` in `subview_save_game::tests`) and we
-        // use a unique per-pid override dir here so neither test can
-        // step on the other's env-var reads.
+        // RAII guard pattern (mirrors `subview_save_game::UserdataDirGuard`):
+        // without restoring the prior `HELIOS_USERDATA_DIR` value on drop,
+        // parallel test execution leaks the override across tests and
+        // `save_panel_save_writes_file_and_rescans_index` intermittently
+        // rescans the wrong dir.
+        struct OverrideGuard {
+            prior: Option<std::ffi::OsString>,
+            /// Held across the test body so a parallel test in another
+            /// module cannot overwrite the env var mid-assertion.
+            _env_lock: std::sync::MutexGuard<'static, ()>,
+        }
+        impl Drop for OverrideGuard {
+            fn drop(&mut self) {
+                // SAFETY: env-var access is single-threaded by Rust's
+                // documented `set_var` contract; we always restore a
+                // value we previously observed.
+                unsafe {
+                    match &self.prior {
+                        Some(v) => std::env::set_var("HELIOS_USERDATA_DIR", v),
+                        None => std::env::remove_var("HELIOS_USERDATA_DIR"),
+                    }
+                }
+            }
+        }
+        let _env_lock = USERDATA_ENV_LOCK.lock().expect("USERDATA_ENV_LOCK poisoned");
         let prior = std::env::var_os("HELIOS_USERDATA_DIR");
         let override_dir =
             std::env::temp_dir().join(format!("helios-userdata-override-{}", std::process::id()));
-        // SAFETY: see above — we restore `prior` before returning.
+        // SAFETY: see `OverrideGuard::drop` — we restore `prior` on
+        // drop, so no env var leakage across tests.
         unsafe {
             std::env::set_var("HELIOS_USERDATA_DIR", &override_dir);
         }
+        let _guard = OverrideGuard { prior, _env_lock };
         let resolved = resolve_userdata_dir();
         assert_eq!(resolved, override_dir);
-        match prior {
-            Some(v) => unsafe { std::env::set_var("HELIOS_USERDATA_DIR", v) },
-            None => unsafe { std::env::remove_var("HELIOS_USERDATA_DIR") },
-        }
     }
 }
