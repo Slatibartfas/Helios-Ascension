@@ -1,5 +1,15 @@
 [toolchain]
 # Pin the toolchain so dev/CI agree. Bump intentionally.
-channel = "stable"
+#
+# 1.94.0 is the minimum rust-analyzer 0.3.2989 supports; pinning to
+# the specific release (not "stable") freezes the contract so the
+# analyzer and `rustc` cannot drift again.  When rust-analyzer raises
+# its MSRV, bump this file in lockstep.
+channel = "1.94.0"
 # rust-src enables rust-analyzer inside containers and IDEs that need it.
-components = ["rust-src", "rustfmt", "clippy"]
+# rust-analyzer as a component gives us a toolchain-pinned analyzer
+# binary that resolves macros against the same rustc we build with,
+# eliminating the "unresolved macro matches!/write!/panic!" phantom
+# diagnostics that appeared when the VS Code extension's bundled
+# server ran against a different toolchain.
+components = ["rust-src", "rustfmt", "clippy", "rust-analyzer"]
