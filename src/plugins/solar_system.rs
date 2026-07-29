@@ -2265,6 +2265,62 @@ fn create_asteroid_mesh(visual_radius: f32, physical_radius_km: f32, seed: u64) 
             0.4 // Very irregular
         };
 
+        // --- Shape-class palette ------------------------------------
+        //
+        // The user flagged that all asteroids read as 'spiky balls'
+        // because the base mesh was always a UV-sphere with radial
+        // displacement. To get genuine variety -- triangles, long
+        // cylinders, lumpy potatoes -- we pick a per-body shape
+        // transform from this small palette before running the
+        // displacement pipeline.
+        //
+        // Larger bodies (Ceres/Vesta-class) stay sphere-ish; smaller
+        // bodies can pick any of the five classes.
+        //
+        // `shape_class` is deterministic from the seed (and from
+        // physical_radius_km) so the same asteroid always gets the
+        // same shape across runs.
+        let shape_class_seed = seed
+            .wrapping_add((physical_radius_km as u64).wrapping_mul(31))
+            .wrapping_add(0x9e3779b97f4a7c15);
+        let shape_class = if physical_radius_km > 500.0 {
+            ShapeClass::Ellipsoid
+        } else {
+            match shape_class_seed % 5 {
+                0 => ShapeClass::Ellipsoid,
+                1 => ShapeClass::Cylinder,
+                2 => ShapeClass::Wedge,
+                3 => ShapeClass::Lumpy,
+                _ => ShapeClass::Ellipsoid,
+            }
+        };
+
+        // Random unit-vector attractors for `Lumpy` shape class. Picked
+        // once per body so every vertex shares the same attractor set.
+        let attractors: Vec<Vec3> = match shape_class {
+            ShapeClass::Lumpy => {
+                let n = 2 + (shape_class_seed.wrapping_mul(13) % 2) as usize; // 2 or 3
+                (0..n)
+                    .map(|i| {
+                        let h = shape_class_seed
+                            .wrapping_add(i as u64)
+                            .wrapping_mul(0x9e3779b97f4a7c15);
+                        Vec3::new(
+                            ((h % 1000) as f32 / 500.0) - 1.0,
+                            (((h / 1000) % 1000) as f32 / 500.0) - 1.0,
+                            (((h / 1_000_000) % 1000) as f32 / 500.0) - 1.0,
+                        )
+                        .normalize()
+                    })
+                    .collect()
+            }
+            _ => Vec::new(),
+        };
+        let attractor_strength = match shape_class {
+            ShapeClass::Lumpy => 0.6,
+            _ => 0.0,
+        };
+
         // The macro-noise lookup scale: how many noise cells fit across
         // the asteroid. Bigger numbers mean finer-grained craggy relief.
         // 3.0 gives ~6-7 visible 'lumps' around the equator on a small
@@ -2283,6 +2339,21 @@ fn create_asteroid_mesh(visual_radius: f32, physical_radius_km: f32, seed: u64) 
                 let v = Vec3::from(*p);
                 let dir = v.normalize_or_zero();
 
+                // Shape transform: remap the unit direction before the
+                // displacement pipeline so the silhouette takes the
+                // shape-class form rather than always being a sphere.
+                // The result carries shape info in both direction and
+                // magnitude (cylinder poles are at magnitude 1.6,
+                // wedges pinch the top, lumpy shapes bulge toward
+                // attractors).
+                let shaped_dir =
+                    apply_shape_transform(dir, shape_class, &attractors, attractor_strength);
+
+                // For the noise lookup we need a unit direction so the
+                // noise frequency is consistent across shape classes.
+                // The shape magnitude is multiplied back in at the end.
+                let lookup_dir = shaped_dir.normalize_or_zero();
+
                 // Domain-warped FBM: feed the noise function a rotated,
                 // then re-rotated, version of the surface direction so
                 // the craggy pattern doesn't share axes with the asteroid
@@ -2290,13 +2361,13 @@ fn create_asteroid_mesh(visual_radius: f32, physical_radius_km: f32, seed: u64) 
                 // neighbouring regions look uncorrelated. The 0.6 warp
                 // magnitude stretches the displacement field enough that
                 // features look stretched and torn rather than rounded.
-                let warped = warp_rotation * dir;
+                let warped = warp_rotation * lookup_dir;
                 let warp_offset = Vec3::new(
                     fbm_noise_3d(warped * noise_scale, seed),
                     fbm_noise_3d(warped * noise_scale + Vec3::new(7.3, 0.0, 0.0), seed),
                     fbm_noise_3d(warped * noise_scale + Vec3::new(0.0, 11.1, 0.0), seed),
                 );
-                let warped2 = warp_rotation * (dir + warp_offset * 0.6);
+                let warped2 = warp_rotation * (lookup_dir + warp_offset * 0.6);
                 let fbm_macro = fbm_noise_3d(warped2 * noise_scale, seed.wrapping_add(1));
 
                 // Voronoi displacement for plate-like rocky surface. The
@@ -2307,7 +2378,7 @@ fn create_asteroid_mesh(visual_radius: f32, physical_radius_km: f32, seed: u64) 
                 // per-cell random elevation offset, so each Voronoi cell
                 // is a slightly-flat plate at a different height rather
                 // than a spike.
-                let (_f1, f2_minus_f1, cell_id) = voronoi_3d(warped * voronoi_scale, seed);
+                let (_f1, f2_minus_f1, cell_id) = voronoi_3d(lookup_dir * voronoi_scale, seed);
 
                 // Per-cell random offset. Different cells sit at slightly
                 // different elevations, giving the surface a 'stepped'
@@ -2337,7 +2408,7 @@ fn create_asteroid_mesh(visual_radius: f32, physical_radius_km: f32, seed: u64) 
                 // the underlying sphere surface, producing visible smooth
                 // 'patches' inside the bumpy silhouette that read as a
                 // spherical base protruding through the texture.
-                let micro = value_noise_3d(warped * 18.0, seed.wrapping_add(2)).abs();
+                let micro = value_noise_3d(lookup_dir * 18.0, seed.wrapping_add(2)).abs();
                 let micro_displacement = 0.4 * micro * irregularity_factor;
 
                 // Final displacement = FBM macro lumps + Voronoi plates
@@ -2352,7 +2423,13 @@ fn create_asteroid_mesh(visual_radius: f32, physical_radius_km: f32, seed: u64) 
                     + voronoi_displacement * irregularity_factor * 1.0
                     + micro_displacement;
 
-                (dir * visual_radius * displacement).into()
+                // Displace along the shaped direction. The shape transform's
+                // magnitude carries the per-vertex elongation (cylinder
+                // poles at magnitude 1.6, wedges pinched at the top,
+                // lumpy shapes bulging toward attractors), so we use
+                // shaped_dir directly rather than the normalised
+                // lookup_dir.
+                (shaped_dir * visual_radius * displacement).into()
             })
             .collect();
 
@@ -2363,6 +2440,120 @@ fn create_asteroid_mesh(visual_radius: f32, physical_radius_km: f32, seed: u64) 
     }
 
     mesh
+}
+
+/// Per-body shape class. The shape-class palette gives the asteroid
+/// field real geometric variety -- ellipsoids, cylinders, triangular
+/// wedges, and lumpy convex-hull-like potatoes -- instead of every
+/// body being a UV-sphere with bumpy relief.
+#[derive(Clone, Copy)]
+enum ShapeClass {
+    /// Squashed/stretched sphere: each axis scaled by a random factor
+    /// in [0.6, 1.4]. Reads as oblate/prolate/triaxial spheroid. With
+    /// factor 1.0 on all axes this reduces to a sphere, so it's used
+    /// for round bodies too.
+    Ellipsoid,
+    /// Long pill: X and Z squashed, Y elongated. Reads as elongated
+    /// asteroid -- Kleopatra-style dogbones.
+    Cylinder,
+    /// Triangular wedge: a flat face on one side, two sloped faces
+    /// meeting at a ridge. Reads as a sharp-edged chunk.
+    Wedge,
+    /// Lumpy convex-hull-like: 2 or 3 random unit-vector attractors
+    /// pull vertices toward themselves, producing a multi-lobed
+    /// potato shape with no axis-aligned bias.
+    Lumpy,
+}
+
+/// Remap the unit direction vector through a shape-class-specific
+/// transform before the displacement pipeline runs. The output
+/// carries shape information in BOTH direction and magnitude:
+///
+/// - Direction: where this vertex sits relative to the body's centre.
+/// - Magnitude: how far out (relative to visual_radius) this vertex
+///   sits after the shape transform. Cylinder poles get magnitude
+///   ~1.6, equator ~1.0; wedges pinch the top to a ridge; lumpy
+///   shapes bulge toward attractors.
+///
+/// The noise pipeline uses `.normalize()` on the output for its
+/// lookup direction so noise frequency stays consistent across
+/// shape classes; the magnitude is multiplied back in at the end.
+///
+/// `attractors` and `attractor_strength` are only used by `Lumpy`.
+fn apply_shape_transform(
+    dir: Vec3,
+    shape_class: ShapeClass,
+    attractors: &[Vec3],
+    attractor_strength: f32,
+) -> Vec3 {
+    let shaped = match shape_class {
+        ShapeClass::Ellipsoid => {
+            // Each axis scaled by a per-body random factor in [0.6, 1.4].
+            // The factor is derived from the input direction's hash so
+            // the transform is deterministic per body but varies across
+            // bodies. This produces oblate/prolate/triaxial spheroids.
+            // The magnitude of the output is ~1 (uniform per axis), so
+            // no elongation happens here -- just direction.
+            let h = hash_unit(dir);
+            let sx = 0.6 + (h % 1000) as f32 / 1000.0 * 0.8;
+            let sy = 0.6 + ((h / 1000) % 1000) as f32 / 1000.0 * 0.8;
+            let sz = 0.6 + ((h / 1_000_000) % 1000) as f32 / 1000.0 * 0.8;
+            Vec3::new(dir.x * sx, dir.y * sy, dir.z * sz)
+        }
+        ShapeClass::Cylinder => {
+            // Long pill: squash X and Z to 0.4, elongate Y so poles sit
+            // at magnitude ~1.6 while equator sits at magnitude 1.0.
+            // The pole-pull is `1.0 + 0.6 * |dir.y|` so a vertex at
+            // dir.y = 1 ends up at 1.6 * visual_radius from centre,
+            // and dir.y = 0 stays at visual_radius. Result: a clearly
+            // elongated pill shape with rounded ends.
+            let pole_pull = 1.0 + 0.6 * dir.y.abs();
+            Vec3::new(dir.x * 0.4, dir.y * pole_pull, dir.z * 0.4)
+        }
+        ShapeClass::Wedge => {
+            // Triangular wedge with a flat face on the -Y side and two
+            // sloped faces meeting at a +Y ridge along the X axis.
+            // Vertices below y = -0.4 get clamped to the base; vertices
+            // above get pulled toward the ridge line. The base y is
+            // -0.5 so the wedge has a clear flat bottom.
+            let base_y = -0.5;
+            let y_clamped = if dir.y < base_y { base_y } else { dir.y };
+            // Pull X and Z toward 0 as we move up toward the ridge.
+            // The pull is 0 at the base, 1 at y=+1.
+            let t = (y_clamped + 0.5).clamp(0.0, 1.0);
+            Vec3::new(
+                dir.x * (1.0 - t * 0.85),
+                y_clamped * 1.4, // overall Y elongation so wedge has height
+                dir.z * (1.0 - t * 0.85),
+            )
+        }
+        ShapeClass::Lumpy => {
+            // Pull vertices toward 2-3 random unit-vector attractors.
+            // The pull is proportional to alignment (max(0, dot(dir,
+            // attractor))), so vertices on the far side of the asteroid
+            // are not pulled at all. The shape carries magnitude
+            // information too: vertices aligned with an attractor end
+            // up further from centre than unaligned vertices, which
+            // gives the multi-lobed potato its bulgy shape.
+            let mut pull = Vec3::ZERO;
+            for attractor in attractors {
+                let dot = dir.dot(*attractor).max(0.0);
+                pull += *attractor * dot;
+            }
+            dir + pull * attractor_strength
+        }
+    };
+    shaped
+}
+
+/// Cheap stable hash of a unit direction. Used by `apply_shape_transform`
+/// to derive per-body random scale factors without allocating or
+/// touching the RNG state.
+fn hash_unit(dir: Vec3) -> u64 {
+    let x = (dir.x * 1024.0) as i32 as u32;
+    let y = (dir.y * 1024.0) as i32 as u32;
+    let z = (dir.z * 1024.0) as i32 as u32;
+    (x.wrapping_mul(73856093) ^ y.wrapping_mul(19349663) ^ z.wrapping_mul(83492791)) as u64
 }
 
 /// PostStartup system that attaches a `LocalStockpile` and `MinimumStockpile`
