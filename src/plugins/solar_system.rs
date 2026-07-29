@@ -2127,190 +2127,240 @@ fn value_noise_3d(p: Vec3, seed: u64) -> f32 {
 
 /// Fractal Brownian Motion built from value noise. Sums 6 octaves at
 /// increasing frequency and decreasing amplitude so the macro shape has
-/// large-scale craggy features and the micro shape has small-scale
-/// detail. The 0.7 gain (was 0.5) keeps high-frequency octaves
-/// contributing enough amplitude that the surface reads as rocky
-/// rather than smooth-gradient; the surface still looks like one
-/// connected shape because the macro octave (freq 1) dominates.
+/// Ridged FBM with two octaves. Quilez's ridged-noise formula
+/// `1 - 2 * |n|` produces sharp ridge lines where the underlying
+/// value noise crosses zero. Used at low frequency in the asteroid
+/// pipeline to give the macro silhouette ridge-like features
+/// (rocky backbones) rather than blobby noise bumps. The previous
+/// `eroded_fbm_3d` derivative-damping approach was producing
+/// "fuzzy" silhouettes (Vesta shot) because damping shifts the
+/// high-frequency energy into the silhouette edge instead of the
+/// texture. Plain ridged FBM with G=0.5 gives clean lines.
 ///
-/// Output is approximately Gaussian-distributed, centred on zero,
-/// with std ~0.45.
-fn fbm_noise_3d(p: Vec3, seed: u64) -> f32 {
+/// Two octaves at lacunarity 2.0, gain 0.5. Output is in [-1, 1].
+fn ridged_fbm_2(p: Vec3, seed: u64) -> f32 {
     let mut sum = 0.0;
     let mut amp = 1.0;
     let mut freq = 1.0;
     let mut max_amp = 0.0;
-    for _ in 0..6 {
-        sum += amp * value_noise_3d(p * freq, seed);
+    for _ in 0..2 {
+        let n = value_noise_3d(p * freq, seed);
+        // 1 - 2*|n| maps value noise in [-1, 1] to a ridge signal
+        // in [-1, 1] with peaks at the zero-crossings of the
+        // underlying noise.
+        sum += amp * (1.0 - 2.0 * n.abs());
         max_amp += amp;
-        amp *= 0.7; // gain
-        freq *= 2.0; // lacunarity
+        amp *= 0.5;
+        freq *= 2.0;
     }
     sum / max_amp
 }
 
-/// Quilez-style "fake erosion" FBM: derivative-damped fractal sum.
-///
-/// Each octave's amplitude is divided by `1 + erosion * |gradient|²`,
-/// where `gradient` is the running sum of finite-difference gradients
-/// of all previous octaves. Where the running slope is already steep
-/// (a ridge), high-frequency octaves are suppressed -- the surface
-/// keeps its ridges crisp instead of growing needle-spike high-
-/// frequency detail on top of them. Where the slope is gentle (a
-/// valley), high-frequency octaves land normally and we get fine
-/// detail. Net effect: weathered ridgelines and smooth valleys, which
-/// is what real rock surfaces look like.
-///
-/// Used by `create_asteroid_mesh` to replace the previous FBM +
-/// Voronoi-cracks pipeline. The Voronoi cracks were producing visible
-/// polygonal facets ("broken glass"); the derivative damping flattens
-/// the high-frequency content while keeping the macro shape, so
-/// the surface reads as worn rock rather than a faceted polyhedron.
-///
-/// 5 octaves at lacunarity 2.0, gain 0.5. Each octave samples the
-/// noise at four points (centre + 3 axis offsets) to compute the
-/// finite-difference gradient. Output is in [-1, 1].
-fn eroded_fbm_3d(p: Vec3, seed: u64) -> f32 {
+/// Two-octave standard FBM. The dominant macro-shape signal in the
+/// asteroid pipeline. Output is in [-1, 1] approximately. Most
+/// weights go to the first octave so the result reads as one
+/// rolling-lump shape rather than a noise field.
+fn fbm_at_2(p: Vec3, seed: u64) -> f32 {
     let mut sum = 0.0;
     let mut amp = 1.0;
     let mut freq = 1.0;
     let mut max_amp = 0.0;
-    // Running 3D gradient (world-space): accumulates across octaves
-    // so each octave knows how steep the previous ones already are.
-    let mut gx = 0.0f32;
-    let mut gy = 0.0f32;
-    let mut gz = 0.0f32;
-    // Finite-difference step in noise space. 0.01 is the standard
-    // Quilez choice: small enough to capture high-frequency variation,
-    // large enough to avoid floating-point precision issues at the
-    // higher octaves.
-    let e = 0.01f32;
-    // Erosion coefficient: higher = more aggressive ridge preservation,
-    // valleys stay smooth. 0.6 is a good middle ground for rocky
-    // asteroid surfaces; higher values flatten the body too much.
-    let erosion = 0.6f32;
-
-    for _ in 0..5 {
-        let pp = p * freq;
-        let n = value_noise_3d(pp, seed);
-        // Finite-difference gradient in noise space, then chain
-        // rule (× freq) gives world-space gradient.
-        let nx = value_noise_3d(pp + Vec3::new(e, 0.0, 0.0), seed);
-        let ny = value_noise_3d(pp + Vec3::new(0.0, e, 0.0), seed);
-        let nz = value_noise_3d(pp + Vec3::new(0.0, 0.0, e), seed);
-        gx += (nx - n) / e * freq;
-        gy += (ny - n) / e * freq;
-        gz += (nz - n) / e * freq;
-
-        // Damping factor. Standard Quilez: `1 + erosion * |gradient|²`.
-        let grad_sq = gx * gx + gy * gy + gz * gz;
-        let damping = 1.0 + erosion * grad_sq;
-        sum += amp * n / damping;
-        max_amp += amp / damping;
-        amp *= 0.5; // gain
-        freq *= 2.0; // lacunarity
+    for _ in 0..2 {
+        sum += amp * value_noise_3d(p * freq, seed);
+        max_amp += amp;
+        amp *= 0.5;
+        freq *= 2.0;
     }
     sum / max_amp
+}
+
+/// Mathematical definition of a single impact crater: a point on
+/// the unit sphere, a rim radius (geodesic, in radians), and a
+/// depth (negative, applied inside the rim). The displacement
+/// profile at a vertex is given by `sample_crater_field`.
+#[derive(Clone, Copy)]
+struct Crater {
+    /// Unit-vector centre direction (already rotated into body
+    /// frame by the body seed; angles are absolute on the unit
+    /// sphere).
+    centre: Vec3,
+    /// Rim radius in radians. 0.25 ≈ 14° across — small enough to
+    /// look like a discrete crater, large enough to be visible at
+    /// any reasonable zoom. Real asteroid craters range from 0.05
+    /// to 0.6 radians.
+    rim_radius: f32,
+    /// Depth, in units of `visual_radius`. The deepest part of the
+    /// bowl is at `1 - depth` (i.e. sunk inward). Real asteroid
+    /// craters are depth/rim ≈ 0.10–0.20.
+    depth: f32,
+}
+
+/// Build the per-body crater catalogue. The number of craters is
+/// 3–8 depending on the body's physical size; craters on small
+/// bodies are smaller and more numerous, craters on large bodies
+/// are wider and deeper. Each crater is deterministically seeded
+/// from `seed + physical_radius_km` so the same asteroid always
+/// gets the same craters across runs.
+///
+/// Returns `(craters, macro_seed, ridged_seed, micro_seed)` — the
+/// three seeds are derived from the body seed so we don't have to
+/// reuse `seed` for distinct noise fields.
+fn build_asteroid_features(
+    seed: u64,
+    physical_radius_km: f32,
+    _irregularity_factor: f32,
+) -> (Vec<Crater>, u64, u64, u64) {
+    let mut rng = StdRng::seed_from_u64(seed.wrapping_mul(0x9e3779b97f4a7c15));
+
+    // Number of craters scales mildly with size — small bodies
+    // have many small craters, large bodies have a few big ones.
+    // 3 craters minimum, scaling up to 8 with size.
+    let n_craters = if physical_radius_km > 500.0 {
+        3 + (rng.random::<u32>() % 3) as usize // 3..=5
+    } else if physical_radius_km > 100.0 {
+        4 + (rng.random::<u32>() % 3) as usize // 4..=6
+    } else {
+        5 + (rng.random::<u32>() % 4) as usize // 5..=8
+    };
+
+    let mut craters = Vec::with_capacity(n_craters);
+    for _ in 0..n_craters {
+        // Random unit vector via spherical coords with a uniform
+        // cos(theta) distribution (the standard inverse-CDF
+        // approach using `rng.random_range`). Equal-area on the
+        // sphere so craters are evenly distributed without
+        // polar-clustering artefacts.
+        let u = rng.random::<f32>();
+        let cos_theta = 2.0 * u - 1.0;
+        let sin_theta = (1.0 - cos_theta * cos_theta).max(0.0).sqrt();
+        let phi = rng.random::<f32>() * std::f32::consts::TAU;
+        let centre = Vec3::new(sin_theta * phi.cos(), sin_theta * phi.sin(), cos_theta);
+
+        // Rim radius: 0.10 to 0.45 radians. Larger bodies get
+        // wider craters proportionally.
+        let rim_radius = 0.10 + rng.random::<f32>() * 0.35;
+
+        // Depth: 0.05 to 0.25 of the radius. Deeper craters on
+        // smaller bodies (rubble-pile shape is more mouldable).
+        let depth = 0.05 + rng.random::<f32>() * 0.20;
+
+        craters.push(Crater {
+            centre,
+            rim_radius,
+            depth,
+        });
+    }
+
+    let macro_seed = seed.wrapping_add(0x1a2b3c);
+    let ridged_seed = seed.wrapping_add(0x4d5e6f);
+    let micro_seed = seed.wrapping_add(0x7a8b9c);
+
+    (craters, macro_seed, ridged_seed, micro_seed)
+}
+
+/// Compute the displacement contribution from all craters at the
+/// unit direction `dir`. Each crater contributes a smooth bowl
+/// profile centred on its `centre` direction, with the deepest
+/// part inside the rim and a smooth ramp back to zero at the rim.
+///
+/// The bowl profile is `1 - smoothstep(rim_inner, rim_outer, d)`
+/// where `d` is the geodesic distance to the crater centre. The
+/// inner-rim band (`rim_inner = 0.4 * rim_radius`) is the flat
+/// bottom of the bowl; the outer-rim band is the raised rim that
+/// gradually returns to zero displacement. We sum the negative
+/// contributions across all craters — overlapping craters deepen
+/// the basin where their bowls intersect.
+fn sample_crater_field(dir: Vec3, craters: &[Crater]) -> f32 {
+    let mut displacement = 0.0_f32;
+    for crater in craters {
+        // Geodesic distance in radians (= arccos of dot, clamped).
+        let dot = dir.dot(crater.centre).clamp(-1.0, 1.0);
+        let dist = dot.acos();
+        // Smoothstep over the rim band of the crater.
+        let rim_outer = crater.rim_radius;
+        let rim_inner = crater.rim_radius * 0.4;
+        if dist >= rim_outer {
+            // Outside the rim — no contribution.
+            continue;
+        }
+        // Bowl profile: -1 at the centre, 0 at the rim. The
+        // smoothstep gives a smooth (cosine-like) ramp.
+        let t = (dist - rim_inner) / (rim_outer - rim_inner);
+        let t = t.clamp(0.0, 1.0);
+        let bowl = 1.0 - t * t * (3.0 - 2.0 * t);
+        displacement -= crater.depth * bowl;
+    }
+    displacement
 }
 
 fn create_asteroid_mesh(visual_radius: f32, physical_radius_km: f32, seed: u64) -> Mesh {
-    // Generate base sphere
-    // 96 sectors, 48 stacks -- finer relief than the 64×32 default so
-    // small asteroids (visual_radius down to 0.12) don't read as a
-    // smooth sphere with bumps on top.
-    let mut mesh = Sphere::new(visual_radius).mesh().uv(96, 48);
+    // Generate icosphere base. Bevy's `Sphere::ico(5)` returns a
+    // uniformly-triangulated icosphere (subdivision 5 ≈ 642 vertices,
+    // 1280 triangles). The previous 96×48 UV sphere had pole
+    // singularities: vertical-strip quads collapse to triangles at the
+    // poles, and the noise displacement amplified those into spike
+    // fans (Hathor read as a chimney-stack silhouette). An icosphere
+    // has roughly the same triangle everywhere on the surface, so
+    // the displacement produces a uniform rocky-sphere read.
+    let mut mesh = Sphere::new(visual_radius).mesh().ico(5).unwrap();
 
     if let Some(VertexAttributeValues::Float32x3(positions)) =
         mesh.attribute(Mesh::ATTRIBUTE_POSITION)
     {
-        let mut rng = StdRng::seed_from_u64(seed);
+        // Note: `rng` is not constructed here -- the per-body
+        // randomness is consumed entirely by `build_asteroid_features`
+        // (which builds the crater catalogue and the noise seeds).
+        // The crater catalogue is what breaks axis-aligned regularity
+        // in the asteroid silhouette.
 
-        // Random per-body rotation that domain-warps the noise lookup so
-        // the craggy surface has no preferred axis. Without this all
-        // asteroids would share the same characteristic noise pattern
-        // (just shifted in scale), which the user picked up on as
-        // 'wavy / too regular'.
-        let warp_rotation = Quat::from_euler(
-            EulerRot::XYZ,
-            rng.random::<f32>() * std::f32::consts::TAU,
-            rng.random::<f32>() * std::f32::consts::TAU,
-            rng.random::<f32>() * std::f32::consts::TAU,
-        );
-
-        // Determine roughness based on physical size
-        // Bodies > 500km tend to be spherical (hydrostatic equilibrium)
-        // Bodies < 200km are very irregular
+        // ---- Per-body shape factors --------------------------------
+        //
+        // Real asteroids are mildly irregular spheroids. Bodies past
+        // hydrostatic equilibrium (>500 km, e.g. Ceres, Vesta) are
+        // round; small rubble-pile bodies (<200 km) are noticeably
+        // lumpy but stay within ~18% of the mean radius. The previous
+        // 0.40 cap was too high — Eros / Bennu are 0.13–0.18 lumpy,
+        // not 0.40. The 0.18 cap matches the realistic range.
         let irregularity_factor = if physical_radius_km > 500.0 {
-            0.05 // Mostly round
+            0.04 // Mostly round
         } else if physical_radius_km > 200.0 {
-            // Linear interpolation from 0.05 at 500km to 0.4 at 200km
-            0.05 + (1.0 - (physical_radius_km - 200.0) / 300.0) * 0.35
+            // Linear interpolation from 0.04 at 500km to 0.18 at 200km
+            0.04 + (1.0 - (physical_radius_km - 200.0) / 300.0) * 0.14
         } else {
-            0.4 // Very irregular
+            0.18 // Mildly irregular (was 0.40)
         };
 
-        // --- Shape-class palette ------------------------------------
+        // ---- Per-body aspect-ratio ellipsoid -----------------------
         //
-        // The user flagged that all asteroids read as 'spiky balls'
-        // because the base mesh was always a UV-sphere with radial
-        // displacement. To get genuine variety -- triangles, long
-        // cylinders, lumpy potatoes -- we pick a per-body shape
-        // transform from this small palette before running the
-        // displacement pipeline.
-        //
-        // Larger bodies (Ceres/Vesta-class) stay sphere-ish; smaller
-        // bodies can pick any of the five classes.
-        //
-        // `shape_class` is deterministic from the seed (and from
-        // physical_radius_km) so the same asteroid always gets the
-        // same shape across runs.
-        let shape_class_seed = seed
-            .wrapping_add((physical_radius_km as u64).wrapping_mul(31))
-            .wrapping_add(0x9e3779b97f4a7c15);
-        let shape_class = if physical_radius_km > 500.0 {
-            ShapeClass::Ellipsoid
-        } else {
-            match shape_class_seed % 5 {
-                0 => ShapeClass::Ellipsoid,
-                1 => ShapeClass::Cylinder,
-                2 => ShapeClass::Wedge,
-                3 => ShapeClass::Lumpy,
-                _ => ShapeClass::Ellipsoid,
-            }
-        };
+        // Real asteroids are triaxial ellipsoids (a ≥ b ≥ c) where the
+        // axes differ by 10–30%. We pick three small per-body scale
+        // factors in [0.85, 1.15]. The previous "shape-class palette"
+        // (Cylinder 1.6× elongation, Wedge 0.85× pinch) was producing
+        // pole-shaped silhouettes — those aren't real asteroid
+        // shapes. Triaxial ellipsoids give the silhouette the "fat
+        // banana" (Eros) / "peanut" (Itokawa) / "broad shield" (Vesta)
+        // look without the pole geometry.
+        let aspect_seed = seed.wrapping_mul(0x9e3779b97f4a7c15);
+        let sx = 0.85 + ((aspect_seed % 1000) as f32 / 1000.0) * 0.30;
+        let sy = 0.85 + (((aspect_seed / 1000) % 1000) as f32 / 1000.0) * 0.30;
+        let sz = 0.85 + (((aspect_seed / 1_000_000) % 1000) as f32 / 1000.0) * 0.30;
 
-        // Random unit-vector attractors for `Lumpy` shape class. Picked
-        // once per body so every vertex shares the same attractor set.
-        let attractors: Vec<Vec3> = match shape_class {
-            ShapeClass::Lumpy => {
-                let n = 2 + (shape_class_seed.wrapping_mul(13) % 2) as usize; // 2 or 3
-                (0..n)
-                    .map(|i| {
-                        let h = shape_class_seed
-                            .wrapping_add(i as u64)
-                            .wrapping_mul(0x9e3779b97f4a7c15);
-                        Vec3::new(
-                            ((h % 1000) as f32 / 500.0) - 1.0,
-                            (((h / 1000) % 1000) as f32 / 500.0) - 1.0,
-                            (((h / 1_000_000) % 1000) as f32 / 500.0) - 1.0,
-                        )
-                        .normalize()
-                    })
-                    .collect()
-            }
-            _ => Vec::new(),
-        };
-        let attractor_strength = match shape_class {
-            ShapeClass::Lumpy => 0.6,
-            _ => 0.0,
-        };
+        // ---- Crater catalogue --------------------------------------
+        //
+        // Real asteroids are dominated by impact craters. We pick 3–8
+        // craters per body, each defined by a centre direction, a
+        // rim radius (in radians), and a depth. The displacement
+        // contribution at a vertex `dir` is a smooth bowl profile
+        // gated by the geodesic distance to the centre. The bowl
+        // profile is `1 - smoothstep(rim_inner, rim_outer, dist)` so
+        // the deepest part is cos-shaped and the rim is sharp. Real
+        // asteroid surfaces are nothing-but-craters at typical
+        // gameplay zoom distances, so we lean toward "lots of
+        // craters per body".
+        let (craters, macro_seed, ridged_seed, micro_seed) =
+            build_asteroid_features(seed, physical_radius_km, irregularity_factor);
 
-        // The macro-noise lookup scale: how many noise cells fit across
-        // the asteroid. Bigger numbers mean finer-grained craggy relief.
-        // 3.0 gives ~6-7 visible 'lumps' around the equator on a small
-        // asteroid; smaller values give one giant lump, larger values
-        // give pebbled detail only.
-        let noise_scale = 3.0;
+        let noise_scale = 2.5; // 5–6 macro lumps around the equator
 
         let new_positions: Vec<[f32; 3]> = positions
             .iter()
@@ -2318,68 +2368,81 @@ fn create_asteroid_mesh(visual_radius: f32, physical_radius_km: f32, seed: u64) 
                 let v = Vec3::from(*p);
                 let dir = v.normalize_or_zero();
 
-                // Shape transform: remap the unit direction before the
-                // displacement pipeline so the silhouette takes the
-                // shape-class form rather than always being a sphere.
-                // The result carries shape info in both direction and
-                // magnitude (cylinder poles are at magnitude 1.6,
-                // wedges pinch the top, lumpy shapes bulge toward
-                // attractors).
-                let shaped_dir =
-                    apply_shape_transform(dir, shape_class, &attractors, attractor_strength);
+                // Triaxial ellipsoid: scale each axis of the unit
+                // direction, then renormalise so the noise lookup
+                // stays on the unit sphere. The per-axis magnitudes
+                // produce the elongated/flattened silhouette
+                // (Eros is 33×13×13 km → aspect ~2.5:1:1, but most
+                // bodies are within 1.3:1:1).
+                let ellipsoid_dir = Vec3::new(dir.x * sx, dir.y * sy, dir.z * sz);
+                let lookup_dir = ellipsoid_dir.normalize_or_zero();
 
-                // For the noise lookup we need a unit direction so the
-                // noise frequency is consistent across shape classes.
-                // The shape magnitude is multiplied back in at the end.
-                let lookup_dir = shaped_dir.normalize_or_zero();
-
-                // Domain-warped derivative-damped FBM (Quilez's fake erosion):
-                // feed the noise function a rotated, then re-rotated,
-                // version of the surface direction so the craggy pattern
-                // doesn't share axes with the asteroid body. The warp
-                // magnitude is large (0.8) so neighbouring regions look
-                // uncorrelated, producing the meandering ridgelines that
-                // the derivative damping will preserve.
+                // --- Macro lumps: very-low-frequency FBM ------------
                 //
-                // `eroded_fbm_3d` replaces the previous plain FBM +
-                // Voronoi cracks pipeline. The Voronoi was producing
-                // visible polygonal facets ("broken glass"); the
-                // derivative damping instead suppresses high-frequency
-                // octaves where the running gradient is already steep,
-                // keeping ridges crisp and valleys smooth -- weathered
-                // rock rather than faceted polyhedron.
-                let warped = warp_rotation * lookup_dir;
-                let warp_offset = Vec3::new(
-                    fbm_noise_3d(warped * noise_scale, seed),
-                    fbm_noise_3d(warped * noise_scale + Vec3::new(7.3, 0.0, 0.0), seed),
-                    fbm_noise_3d(warped * noise_scale + Vec3::new(0.0, 11.1, 0.0), seed),
-                );
-                let warped2 = warp_rotation * (lookup_dir + warp_offset * 0.8);
-                let fbm_eroded = eroded_fbm_3d(warped2 * noise_scale, seed.wrapping_add(1));
+                // Two octaves at lacunarity 2.0, gain 0.5. This is
+                // the dominant silhouette signal — the "big rock"
+                // lumps. No derivative damping: the previous
+                // derivative damping was producing "fuzz" (Vesta
+                // shot) because damping shifts the high-frequency
+                // energy into the silhouette instead of the texture.
+                // Plain FBM with G=0.5 gives smooth rolling lumps
+                // that real asteroid meshes show.
+                let lumps = fbm_at_2(lookup_dir * noise_scale, macro_seed);
 
-                // Always-positive micro-noise layer.  Without this the
-                // regions where the primary noise crosses zero stay at
-                // the underlying sphere surface, producing visible smooth
-                // 'patches' inside the bumpy silhouette that read as a
-                // spherical base protruding through the texture.
-                let micro = value_noise_3d(lookup_dir * 18.0, seed.wrapping_add(2)).abs();
-                let micro_displacement = 0.4 * micro * irregularity_factor;
+                // --- Macro ridges: ridged-noise FBM ------------------
+                //
+                // Quilez's ridged FBM: `1 - 2 * |n|`. Produces sharp
+                // ridge lines where the underlying value noise
+                // crosses zero. Used at lower frequency than the
+                // lumps so the ridges feel like the body's
+                // structural features rather than fine surface
+                // pitting. Real asteroid photography shows that the
+                // major bumps are ridge-like, not noise-bump-like.
+                let ridges = ridged_fbm_2(lookup_dir * (noise_scale * 0.5), ridged_seed);
 
-                // Final displacement = derivative-damped FBM + micro
-                // noise. The derivative damping already gives weathered-
-                // rock character; we just need to scale it to the
-                // body's `irregularity_factor` and add the micro layer.
-                // No more Voronoi cracks (they were producing broken-
-                // glass facets).
-                let displacement = 1.0 + fbm_eroded * irregularity_factor + micro_displacement;
+                // --- Craters: analytical bowl profile ---------------
+                //
+                // Each crater is a depth-bias profile smoothed at the
+                // rim. We use the geodesic distance to the crater
+                // centre (not the Euclidean chord) so the bowl is
+                // correctly circular on the sphere regardless of
+                // shape. The deepest basin dominates when craters
+                // overlap.
+                let crater_displacement = sample_crater_field(lookup_dir, &craters);
 
-                // Displace along the shaped direction. The shape transform's
-                // magnitude carries the per-vertex elongation (cylinder
-                // poles at magnitude 1.6, wedges pinched at the top,
-                // lumpy shapes bulging toward attractors), so we use
-                // shaped_dir directly rather than the normalised
-                // lookup_dir.
-                (shaped_dir * visual_radius * displacement).into()
+                // --- Micro detail: low-amplitude high-frequency noise
+                //
+                // A single octave at high frequency adds surface
+                // texture that the rock albedo/normal map can then
+                // bring out. Kept very low so it doesn't dominate
+                // the silhouette — the macro shape is the lumps +
+                // ridges + craters, the texture is the rock material.
+                let micro = value_noise_3d(lookup_dir * 12.0, micro_seed);
+
+                // --- Combine -----------------------------------------
+                //
+                // lumps + ridges are in [-1, 1]; we scale them to a
+                // small fraction of the visual radius so the
+                // silhouette deviates by `irregularity_factor`
+                // total. Craters are in [-1, 0] (negative = bowl);
+                // we add them directly. The whole displacement is
+                // centred on 1.0 so the rock sphere stays inside the
+                // body's bounding radius.
+                //
+                // Total RMS displacement magnitude is
+                // `irregularity * sqrt(0.7² + 0.3² + 0.15² + 0.5²)`
+                // ≈ irregularity * 0.93, which keeps the silhouette
+                // within the realistic 18% envelope.
+                let shape = lumps * 0.7 + ridges * 0.3 + micro * 0.15;
+                let crater = crater_displacement * 0.5;
+
+                let displacement = 1.0 + shape * irregularity_factor + crater * irregularity_factor;
+
+                // Apply the displacement to the unit direction. The
+                // triaxial ellipsoid silhouette and the noise-field
+                // deviation are both linear in `dir`, so we don't
+                // need to combine them in noise space.
+                (dir * visual_radius * displacement).into()
             })
             .collect();
 
@@ -2390,120 +2453,6 @@ fn create_asteroid_mesh(visual_radius: f32, physical_radius_km: f32, seed: u64) 
     }
 
     mesh
-}
-
-/// Per-body shape class. The shape-class palette gives the asteroid
-/// field real geometric variety -- ellipsoids, cylinders, triangular
-/// wedges, and lumpy convex-hull-like potatoes -- instead of every
-/// body being a UV-sphere with bumpy relief.
-#[derive(Clone, Copy)]
-enum ShapeClass {
-    /// Squashed/stretched sphere: each axis scaled by a random factor
-    /// in [0.6, 1.4]. Reads as oblate/prolate/triaxial spheroid. With
-    /// factor 1.0 on all axes this reduces to a sphere, so it's used
-    /// for round bodies too.
-    Ellipsoid,
-    /// Long pill: X and Z squashed, Y elongated. Reads as elongated
-    /// asteroid -- Kleopatra-style dogbones.
-    Cylinder,
-    /// Triangular wedge: a flat face on one side, two sloped faces
-    /// meeting at a ridge. Reads as a sharp-edged chunk.
-    Wedge,
-    /// Lumpy convex-hull-like: 2 or 3 random unit-vector attractors
-    /// pull vertices toward themselves, producing a multi-lobed
-    /// potato shape with no axis-aligned bias.
-    Lumpy,
-}
-
-/// Remap the unit direction vector through a shape-class-specific
-/// transform before the displacement pipeline runs. The output
-/// carries shape information in BOTH direction and magnitude:
-///
-/// - Direction: where this vertex sits relative to the body's centre.
-/// - Magnitude: how far out (relative to visual_radius) this vertex
-///   sits after the shape transform. Cylinder poles get magnitude
-///   ~1.6, equator ~1.0; wedges pinch the top to a ridge; lumpy
-///   shapes bulge toward attractors.
-///
-/// The noise pipeline uses `.normalize()` on the output for its
-/// lookup direction so noise frequency stays consistent across
-/// shape classes; the magnitude is multiplied back in at the end.
-///
-/// `attractors` and `attractor_strength` are only used by `Lumpy`.
-fn apply_shape_transform(
-    dir: Vec3,
-    shape_class: ShapeClass,
-    attractors: &[Vec3],
-    attractor_strength: f32,
-) -> Vec3 {
-    let shaped = match shape_class {
-        ShapeClass::Ellipsoid => {
-            // Each axis scaled by a per-body random factor in [0.6, 1.4].
-            // The factor is derived from the input direction's hash so
-            // the transform is deterministic per body but varies across
-            // bodies. This produces oblate/prolate/triaxial spheroids.
-            // The magnitude of the output is ~1 (uniform per axis), so
-            // no elongation happens here -- just direction.
-            let h = hash_unit(dir);
-            let sx = 0.6 + (h % 1000) as f32 / 1000.0 * 0.8;
-            let sy = 0.6 + ((h / 1000) % 1000) as f32 / 1000.0 * 0.8;
-            let sz = 0.6 + ((h / 1_000_000) % 1000) as f32 / 1000.0 * 0.8;
-            Vec3::new(dir.x * sx, dir.y * sy, dir.z * sz)
-        }
-        ShapeClass::Cylinder => {
-            // Long pill: squash X and Z to 0.4, elongate Y so poles sit
-            // at magnitude ~1.6 while equator sits at magnitude 1.0.
-            // The pole-pull is `1.0 + 0.6 * |dir.y|` so a vertex at
-            // dir.y = 1 ends up at 1.6 * visual_radius from centre,
-            // and dir.y = 0 stays at visual_radius. Result: a clearly
-            // elongated pill shape with rounded ends.
-            let pole_pull = 1.0 + 0.6 * dir.y.abs();
-            Vec3::new(dir.x * 0.4, dir.y * pole_pull, dir.z * 0.4)
-        }
-        ShapeClass::Wedge => {
-            // Triangular wedge with a flat face on the -Y side and two
-            // sloped faces meeting at a +Y ridge along the X axis.
-            // Vertices below y = -0.4 get clamped to the base; vertices
-            // above get pulled toward the ridge line. The base y is
-            // -0.5 so the wedge has a clear flat bottom.
-            let base_y = -0.5;
-            let y_clamped = if dir.y < base_y { base_y } else { dir.y };
-            // Pull X and Z toward 0 as we move up toward the ridge.
-            // The pull is 0 at the base, 1 at y=+1.
-            let t = (y_clamped + 0.5).clamp(0.0, 1.0);
-            Vec3::new(
-                dir.x * (1.0 - t * 0.85),
-                y_clamped * 1.4, // overall Y elongation so wedge has height
-                dir.z * (1.0 - t * 0.85),
-            )
-        }
-        ShapeClass::Lumpy => {
-            // Pull vertices toward 2-3 random unit-vector attractors.
-            // The pull is proportional to alignment (max(0, dot(dir,
-            // attractor))), so vertices on the far side of the asteroid
-            // are not pulled at all. The shape carries magnitude
-            // information too: vertices aligned with an attractor end
-            // up further from centre than unaligned vertices, which
-            // gives the multi-lobed potato its bulgy shape.
-            let mut pull = Vec3::ZERO;
-            for attractor in attractors {
-                let dot = dir.dot(*attractor).max(0.0);
-                pull += *attractor * dot;
-            }
-            dir + pull * attractor_strength
-        }
-    };
-    shaped
-}
-
-/// Cheap stable hash of a unit direction. Used by `apply_shape_transform`
-/// to derive per-body random scale factors without allocating or
-/// touching the RNG state.
-fn hash_unit(dir: Vec3) -> u64 {
-    let x = (dir.x * 1024.0) as i32 as u32;
-    let y = (dir.y * 1024.0) as i32 as u32;
-    let z = (dir.z * 1024.0) as i32 as u32;
-    (x.wrapping_mul(73856093) ^ y.wrapping_mul(19349663) ^ z.wrapping_mul(83492791)) as u64
 }
 
 /// PostStartup system that attaches a `LocalStockpile` and `MinimumStockpile`
