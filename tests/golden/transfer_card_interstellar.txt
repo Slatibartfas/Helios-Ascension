@@ -1,7 +1,7 @@
 # 🌌 Interstellar Mission: Alpha Centauri
-  Distance: 4.37 ly = 276364 AU
+  Distance: 4.37 ly = 276363 AU
 
-  Mode                      Point-and-burn (kinematic)
+  Mode                     Point-and-burn (kinematic)
 
   [Leg 1] Continuous thrust to destination
 

@@ -1,11 +1,11 @@
 # Selected: Moderate
 
-  Total ΔV                  940 m/s
-  Travel time               3.5 d
-  Fuel                      0.5 t (0%)
-  Departure burn            620 m/s
-  Arrival burn              320 m/s
-  Plane change ΔV           0 m/s
+  Total ΔV                 940 m/s
+  Travel time              3.5 d
+  Fuel                     0.5 t (0%)
+  Departure burn           620 m/s
+  Arrival burn             320 m/s
+  Plane change ΔV          0 m/s
+  Burn time                0.2 h
 
   [Leg 1] Hohmann-class (energy ×1.05)
-  Burn time                 0.2 h
