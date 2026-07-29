@@ -103,7 +103,7 @@ use crate::plugins::camera::{
     ViewMode,
 };
 use crate::plugins::solar_system::{CelestialBody, LogicalParent};
-use crate::plugins::solar_system_data::BodyType;
+use crate::plugins::solar_system_data::{AsteroidClass, BodyType};
 use crate::plugins::starmap::{
     HoveredStarSystem, SelectedStarSystem, StarSystemIcon, SystemMetadata,
 };
@@ -1331,6 +1331,25 @@ fn ui_starmap_labels(
     }
 }
 
+/// Short labelled form of an asteroid's spectral class for the
+/// hover tooltip. Returns "M-Type", "S-Type", "C-Type", etc.
+/// The starmap category collapses asteroids into "asteroid_s"
+/// / "asteroid_c" for icon selection, which loses the M/V/S/C/D/P
+/// distinction -- show the real class in the tooltip so the
+/// player can tell a metallic iron-nickel asteroid from a
+/// silicaceous one.
+fn format_asteroid_class_short(class: AsteroidClass) -> String {
+    match class {
+        AsteroidClass::SType => "S-Type".to_string(),
+        AsteroidClass::CType => "C-Type".to_string(),
+        AsteroidClass::MType => "M-Type".to_string(),
+        AsteroidClass::VType => "V-Type".to_string(),
+        AsteroidClass::DType => "D-Type".to_string(),
+        AsteroidClass::PType => "P-Type".to_string(),
+        AsteroidClass::Unknown => "Unknown Type".to_string(),
+    }
+}
+
 fn ui_hover_tooltip(
     mut contexts: EguiContexts,
     hovered_query: Query<
@@ -1487,8 +1506,18 @@ fn ui_hover_tooltip(
                             );
                         });
 
-                        // Show planet category if available, otherwise fall back to body type
-                        let type_label = if let Some(cat) = category_opt {
+                        // Show planet category if available, otherwise fall back to body type.
+                        //
+                        // For asteroids we override the category with the actual
+                        // spectral class (M-Type, S-Type, C-Type, V-Type, D-Type,
+                        // P-Type). The starmap category buckets asteroids into
+                        // just "asteroid_s" / "asteroid_c" for icon selection, which
+                        // collapses the M/V/S/C/D/P distinction players care about.
+                        let type_label = if body.body_type == BodyType::Asteroid {
+                            body.asteroid_class
+                                .map(format_asteroid_class_short)
+                                .unwrap_or_else(|| "Asteroid".to_string())
+                        } else if let Some(cat) = category_opt {
                             // Capitalise the category for display (e.g. "desert" → "Desert")
                             let mut s = cat.0.clone();
                             if let Some(first) = s.get_mut(..1) {
