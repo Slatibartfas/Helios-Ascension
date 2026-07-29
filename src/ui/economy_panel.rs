@@ -1,6 +1,8 @@
 use super::dashboard::format_mass;
+use super::resources_bar::get_resource_icon;
 use super::tab::Tab;
 use super::*;
+use bevy::ecs::system::SystemParam;
 use std::borrow::Cow;
 
 /// Persisted state for the economy panel's selected tab.
@@ -10,6 +12,11 @@ enum EconomyTab {
     Overview,
     Resources,
     Colonies,
+    /// 20-year forward projection of resource stockpiles, with
+    /// pending-construction awareness.  Lands in the slot previously
+    /// occupied by `Mining` (now `Mining = 4`); old saved `byte=3`
+    /// silently remaps to `Mining` via `from_byte`'s default branch.
+    Forecast,
     Mining,
     PowerGrid,
     Logistics,
@@ -17,15 +24,16 @@ enum EconomyTab {
 }
 
 impl EconomyTab {
-    /// All seven variants in display order. Used by
+    /// All eight variants in display order. Used by
     /// `theme::tab_strip` to render the panel's sub-tab strip and
     /// to gate the active-tab styling in `ui_economy_panels`. The
     /// `Default` variant (Overview) is the first slot by the
     /// `Default`-first convention from `Tab`.
-    const ALL: [EconomyTab; 7] = [
+    const ALL: [EconomyTab; 8] = [
         EconomyTab::Overview,
         EconomyTab::Resources,
         EconomyTab::Colonies,
+        EconomyTab::Forecast,
         EconomyTab::Mining,
         EconomyTab::PowerGrid,
         EconomyTab::Logistics,
@@ -41,10 +49,11 @@ impl EconomyTab {
             EconomyTab::Overview => 0,
             EconomyTab::Resources => 1,
             EconomyTab::Colonies => 2,
-            EconomyTab::Mining => 3,
-            EconomyTab::PowerGrid => 4,
-            EconomyTab::Logistics => 5,
-            EconomyTab::PrivateShipping => 6,
+            EconomyTab::Forecast => 3,
+            EconomyTab::Mining => 4,
+            EconomyTab::PowerGrid => 5,
+            EconomyTab::Logistics => 6,
+            EconomyTab::PrivateShipping => 7,
         }
     }
 
@@ -52,10 +61,11 @@ impl EconomyTab {
         match v {
             1 => EconomyTab::Resources,
             2 => EconomyTab::Colonies,
-            3 => EconomyTab::Mining,
-            4 => EconomyTab::PowerGrid,
-            5 => EconomyTab::Logistics,
-            6 => EconomyTab::PrivateShipping,
+            3 => EconomyTab::Forecast,
+            4 => EconomyTab::Mining,
+            5 => EconomyTab::PowerGrid,
+            6 => EconomyTab::Logistics,
+            7 => EconomyTab::PrivateShipping,
             _ => EconomyTab::Overview,
         }
     }
@@ -67,6 +77,7 @@ impl Tab for EconomyTab {
             Self::Overview => "overview",
             Self::Resources => "resources",
             Self::Colonies => "colonies",
+            Self::Forecast => "forecast",
             Self::Mining => "mining",
             Self::PowerGrid => "power_grid",
             Self::Logistics => "logistics",
@@ -79,6 +90,7 @@ impl Tab for EconomyTab {
             Self::Overview => "Overview",
             Self::Resources => "Resources",
             Self::Colonies => "Colonies",
+            Self::Forecast => "Forecast",
             Self::Mining => "Mining",
             Self::PowerGrid => "Power Grid",
             Self::Logistics => "Logistics",
@@ -91,6 +103,7 @@ impl Tab for EconomyTab {
             Self::Overview => Some("📊"),
             Self::Resources => Some("📦"),
             Self::Colonies => Some("🏠"),
+            Self::Forecast => Some("📈"),
             Self::Mining => Some("⛏"),
             Self::PowerGrid => Some("⚡"),
             Self::Logistics => Some("🚚"),
@@ -1322,6 +1335,7 @@ pub(super) fn ui_economy_panels(
     mut shipping_companies: ResMut<crate::economy::ShippingCompanies>,
     mut shipping_company_filter: ResMut<super::fleets_panel::ShippingCompanyFilter>,
     settings: Res<Settings>,
+    forecast: ForecastInputs,
 ) {
     if active_menu.current != GameMenu::Economy {
         return;
@@ -1418,6 +1432,13 @@ pub(super) fn ui_economy_panels(
                     buildings_data.as_deref(),
                 ),
                 EconomyTab::Colonies => render_econ_colonies(ui, &budget, &hierarchy),
+                EconomyTab::Forecast => render_econ_forecast(
+                    ui,
+                    &contextual,
+                    &rate_tracker,
+                    &forecast,
+                    buildings_data.as_deref(),
+                ),
                 EconomyTab::Mining => render_econ_mining(ui, &hierarchy, &mut mining_ui_state),
                 EconomyTab::PowerGrid => {
                     render_econ_power_grid(ui, &budget, &hierarchy, buildings_data.as_deref())
@@ -2990,6 +3011,666 @@ fn render_mining_body_details(
                 }
             });
     });
+}
+
+// ---- Economy Tab: Forecast ----
+
+/// Bundled `SystemParam` for the Forecast sub-tab.  Lets
+/// `ui_economy_panels` stay under Bevy 0.18's 16-parameter fn-item
+/// limit while still giving the Forecast tab the world data it needs.
+#[derive(SystemParam)]
+pub(super) struct ForecastInputs<'w, 's> {
+    sim_time: Res<'w, SimulationTime>,
+    view_mode: Res<'w, ViewMode>,
+    current_star_system: Res<'w, CurrentStarSystem>,
+    local_stockpile_query:
+        Query<'w, 's, (Option<&'static SystemId>, &'static crate::economy::components::LocalStockpile)>,
+    construction_project_query:
+        Query<'w, 's, (Entity, &'static ConstructionProject, &'static Colony)>,
+    /// Reserve-aggregation query: per-body PlanetResources +
+    /// SurveyLevel + SurveyState + SystemId, used to compute the
+    /// survey-filtered geological reserves that bound the forecast
+    /// curve (the player's warehouse can never exceed what can be
+    /// extracted from known deposits).
+    reserve_query: Query<
+        'w,
+        's,
+        (
+            Option<&'static SystemId>,
+            Option<&'static SurveyLevel>,
+            Option<&'static crate::survey::SurveyState>,
+            &'static crate::economy::components::PlanetResources,
+        ),
+    >,
+}
+
+/// Per-resource toggle state for the Forecast sub-tab.
+/// Stored as a sorted list of resource indices so the user-visible
+/// default ("all enabled") survives UI restarts and is shareable.
+#[derive(Default)]
+struct ForecastUiState {
+    /// Indices into `ResourceType::all()` for resources the user
+    /// has explicitly disabled.  When empty, all are enabled.
+    disabled: std::collections::BTreeSet<usize>,
+}
+
+impl ForecastUiState {
+    fn is_enabled(&self, idx: usize) -> bool {
+        !self.disabled.contains(&idx)
+    }
+
+    fn toggle(&mut self, idx: usize) {
+        if !self.disabled.remove(&idx) {
+            self.disabled.insert(idx);
+        }
+    }
+}
+
+fn render_econ_forecast(
+    ui: &mut egui::Ui,
+    contextual: &crate::economy::ContextualStockpile,
+    rate_tracker: &ResourceRateTracker,
+    forecast: &ForecastInputs,
+    buildings_data: Option<&BuildingsData>,
+) {
+    draw_tab_h1(
+        ui,
+        "FORECAST",
+        "20-year projection of resource stockpiles.  Lines use category colors; dashed red lines mark depletion dates; dashed amber lines mark when extraction hits the survey-filtered reserve cap.  Toggle resources on/off with the chips below.",
+    );
+
+    // --- Load persisted UI state ---
+    let toggles_id = ui.id().with("forecast_toggles");
+    let mut ui_state: ForecastUiState = ui
+        .data_mut(|data| data.get_persisted::<Vec<u8>>(toggles_id))
+        .map(|bytes| {
+            let mut s = ForecastUiState::default();
+            for b in bytes {
+                s.disabled.insert(b as usize);
+            }
+            s
+        })
+        .unwrap_or_default();
+
+    // --- Scope: matches ViewMode (System = active system, Starmap = all) ---
+    let scope_inputs = crate::economy::aggregate_scope_inputs(
+        &forecast.view_mode,
+        &forecast.current_star_system,
+        &forecast.local_stockpile_query,
+        rate_tracker,
+    );
+
+    // --- Build pending construction impacts ---
+    let current_sim = forecast.sim_time.elapsed_seconds();
+    let mut pending: Vec<(Entity, &ConstructionProject, f64)> = Vec::new();
+    for (proj_entity, project, colony_comp) in forecast.construction_project_query.iter() {
+        let bp_per_year = 1.0
+            + (colony_comp.building_count(crate::colony::types::BuildingType::Factory) as f64) * 10.0;
+        pending.push((proj_entity, project, bp_per_year));
+    }
+    let impacts = crate::economy::pending_construction_impacts(&pending, buildings_data, current_sim);
+
+    // --- Aggregate survey-filtered reserve upper bounds for the
+    // active scope.  Without this clamp, the forecast projects the
+    // warehouse into teraton-scale values within ~20 years because
+    // a 2026-calibrated mining modifier of ~1.8 Gt/yr × 12 mo × 240
+    // mo ≈ 432 Gt is way more than a planet's actual extractable
+    // reserves.  The clamp turns the curve into a flat plateau once
+    // production has extracted the entire geological endowment.
+    let mut reserve_bounds = crate::economy::ReserveBounds::new();
+    {
+        use crate::survey::estimate_with_fidelity;
+        let active_sys = forecast.current_star_system.0;
+        let starmap = matches!(*forecast.view_mode, ViewMode::Starmap);
+        for (sid_opt, level_opt, state_opt, resources) in forecast.reserve_query.iter() {
+            let in_scope = starmap
+                || sid_opt.is_some_and(|s| s.0 == active_sys);
+            if !in_scope {
+                continue;
+            }
+            // Survey fidelity (preferred: SurveyState; fallback: legacy SurveyLevel).
+            let fidelity = state_opt
+                .map(|s| s.fidelity(crate::survey::SurveyDimension::MineralDeposits))
+                .or_else(|| {
+                    level_opt
+                        .copied()
+                        .map(|l| l.as_deposit_fidelity(0.0))
+                })
+                .unwrap_or(crate::survey::DimensionFidelity::default());
+            for (rt, deposit) in &resources.deposits {
+                let estimate = estimate_with_fidelity(deposit, fidelity);
+                if !estimate.is_quantified() {
+                    continue;
+                }
+                // Conservative upper bound: the survey-filtered mid
+                // estimate.  This is what the player has actually
+                // confirmed they can mine.
+                let upper_mt = estimate.mid_or_zero();
+                if upper_mt > 0.0 {
+                    let entry = reserve_bounds.resources.entry(*rt).or_insert(0.0);
+                    *entry += upper_mt;
+                }
+            }
+        }
+    }
+
+    // --- Build full forecast series list ---
+    let all_series = crate::economy::build_forecast(&scope_inputs, &impacts, current_sim, &reserve_bounds);
+
+    // --- Toggle row ---
+    ui.add_space(theme::Spacing::sm);
+    ui.horizontal_wrapped(|ui| {
+        ui.label(
+            egui::RichText::new("Show: ")
+                .size(11.0)
+                .color(theme::TEXT_DIM),
+        );
+        for (idx, resource) in ResourceType::all().iter().copied().enumerate() {
+            // Skip resources that have no projection data.
+            let has_data = all_series.iter().any(|s| s.resource == resource);
+            if !has_data {
+                continue;
+            }
+            let enabled = ui_state.is_enabled(idx);
+            let color = theme::forecast_series_color(resource.category());
+            let text = format!("{} {}", get_resource_icon(&resource), resource.display_name());
+            let response = ui.selectable_label(enabled, text);
+            if response.clicked() {
+                ui_state.toggle(idx);
+            }
+            response.on_hover_text(format!(
+                "{} ({})\nClick to {} this series.",
+                resource.display_name(),
+                resource.category(),
+                if enabled { "hide" } else { "show" }
+            ));
+            // Tint the chip color.
+            let _ = color;
+        }
+    });
+
+    // --- Persist the disabled set ---
+    let disabled_bytes: Vec<u8> = ui_state.disabled.iter().map(|i| *i as u8).collect();
+    ui.data_mut(|data| {
+        data.insert_persisted(toggles_id, disabled_bytes);
+    });
+
+    // --- Filter enabled series ---
+    let enabled_series: Vec<&crate::economy::ForecastSeries> = all_series
+        .iter()
+        .filter(|s| {
+            let idx = ResourceType::all()
+                .iter()
+                .position(|r| *r == s.resource)
+                .unwrap_or(usize::MAX);
+            ui_state.is_enabled(idx)
+        })
+        .collect();
+
+    ui.add_space(theme::Spacing::xs);
+    theme::divider(ui);
+
+    if enabled_series.is_empty() {
+        ui.add_space(20.0);
+        ui.label(
+            egui::RichText::new(
+                "No resource data to project.  Build a colony or wait for stockpiles to accumulate.",
+            )
+            .italics()
+            .size(12.0)
+            .color(theme::TEXT_DIM),
+        );
+        return;
+    }
+
+    // --- Chart canvas ---
+    let desired_size = egui::vec2(ui.available_width(), theme::FORECAST_CHART_HEIGHT);
+    ui.add_space(theme::Spacing::xs);
+    render_forecast_chart(ui, &enabled_series, current_sim, desired_size, true);
+
+    ui.add_space(theme::Spacing::md);
+
+    // --- "Runs out" summary ---
+    let any_depleting = enabled_series
+        .iter()
+        .any(|s| s.runs_out_at_s.is_some());
+
+    // --- "Reserve cap" summary: surfaces survey-aware upper bounds
+    // for mineable resources.  Without this, the chart lies about
+    // sustainability when production rate × 20 yr exceeds the
+    // geological endowment.
+    let any_capped = enabled_series
+        .iter()
+        .any(|s| s.reserve_upper_bound_mt.is_some());
+
+    let date_label = forecast.sim_time.format_date_time();
+    let current_year_f: f64 = date_label
+        .split(' ')
+        .nth(2)
+        .and_then(|y| y.parse().ok())
+        .unwrap_or(2026.0);
+
+    if any_capped {
+        theme::elevated_frame().show(ui, |ui| {
+            ui.label(
+                egui::RichText::new("⛏  Survey-known reserves (cap)")
+                    .strong()
+                    .color(theme::AMBER),
+            );
+            ui.add_space(2.0);
+            egui::Grid::new("forecast_reserve_cap_grid")
+                .num_columns(2)
+                .spacing([12.0, 2.0])
+                .show(ui, |ui| {
+                    for s in &enabled_series {
+                        if let Some(cap) = s.reserve_upper_bound_mt {
+                            ui.label(
+                                egui::RichText::new(format!(
+                                    "{} {}",
+                                    get_resource_icon(&s.resource),
+                                    s.resource.display_name()
+                                ))
+                                .color(theme::forecast_series_color(s.resource.category())),
+                            );
+                            let label = if let Some(cap_at) = s.hits_reserve_cap_at_s {
+                                let cap_years = cap_at / crate::economy::SECONDS_PER_YEAR;
+                                format!("{}  (cap in {cap_years:.1}y)", format_mass(cap))
+                            } else {
+                                format_mass(cap)
+                            };
+                            ui.label(
+                                egui::RichText::new(label)
+                                    .color(theme::AMBER)
+                                    .monospace()
+                                    .size(11.0),
+                            );
+                            ui.end_row();
+                        }
+                    }
+                });
+        });
+    }
+
+    if any_depleting {
+        theme::elevated_frame().show(ui, |ui| {
+            ui.label(
+                egui::RichText::new("⏱  Runs out (next 20 yr)")
+                    .strong()
+                    .color(theme::forecast_runs_out_color()),
+            );
+            ui.add_space(2.0);
+            egui::Grid::new("forecast_runs_out_grid")
+                .num_columns(2)
+                .spacing([12.0, 2.0])
+                .show(ui, |ui| {
+                    for s in &enabled_series {
+                        if let Some(runs_out) = s.runs_out_at_s {
+                            let years = runs_out / crate::economy::SECONDS_PER_YEAR;
+                            let target_year = current_year_f + years;
+                            let color = forecast_depletion_color(years);
+                            ui.label(
+                                egui::RichText::new(format!(
+                                    "{} {}",
+                                    get_resource_icon(&s.resource),
+                                    s.resource.display_name()
+                                ))
+                                .color(theme::forecast_series_color(s.resource.category())),
+                            );
+                            ui.label(
+                                egui::RichText::new(format!(
+                                    "@ {target_year:.1}  ({})",
+                                    format_forecast_years_remaining(years)
+                                ))
+                                .color(color)
+                                .strong(),
+                            );
+                            ui.end_row();
+                        }
+                    }
+                });
+        });
+    } else {
+        theme::elevated_frame().show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.label(
+                    egui::RichText::new("✓")
+                        .size(16.0)
+                        .color(theme::forecast_safe_color()),
+                );
+                ui.label(
+                    egui::RichText::new(
+                        "All enabled resources sustainable for 20+ years at current rates.",
+                    )
+                    .color(theme::forecast_safe_color()),
+                );
+            });
+        });
+    }
+
+    ui.add_space(theme::Spacing::sm);
+
+    // --- Net rate summary ---
+    theme::elevated_frame().show(ui, |ui| {
+        ui.label(
+            egui::RichText::new("Net rate (annual)")
+                .strong()
+                .color(theme::TEXT_DIM),
+        );
+        ui.add_space(2.0);
+        egui::Grid::new("forecast_net_rate_grid")
+            .num_columns(2)
+            .spacing([12.0, 2.0])
+            .show(ui, |ui| {
+                for s in &enabled_series {
+                    let annual = s.annual_net_rate_mt;
+                    let (rate_text_str, rate_color) = if annual.abs() < 1e-9 {
+                        ("0/yr".to_string(), theme::TEXT_DIM)
+                    } else {
+                        let sign = if annual > 0.0 { "+" } else { "" };
+                        (
+                            format!("{}{}/yr", sign, format_mass(annual.abs())),
+                            if annual > 0.0 { theme::GREEN } else { theme::RED },
+                        )
+                    };
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "{} {}",
+                            get_resource_icon(&s.resource),
+                            s.resource.display_name()
+                        ))
+                        .color(theme::forecast_series_color(s.resource.category())),
+                    );
+                    ui.label(
+                        egui::RichText::new(rate_text_str)
+                            .monospace()
+                            .color(rate_color),
+                    );
+                    ui.end_row();
+                }
+            });
+    });
+
+    let _ = contextual; // explicit unused-binding silence
+}
+
+/// Color a "years remaining" depletion badge by severity.
+///
+/// Mirrors the helper in `construction_panel::depletion_color`:
+/// green ≥ 10 yr, amber 5–10 yr, red < 5 yr.
+fn forecast_depletion_color(years_remaining: f64) -> egui::Color32 {
+    if years_remaining < 5.0 {
+        theme::RED
+    } else if years_remaining < 10.0 {
+        theme::AMBER
+    } else {
+        theme::GREEN
+    }
+}
+
+/// Format a "years remaining" value for the depletion summary.
+/// "∞" for infinite, "<1 yr" for sub-year, else "X.X yr".
+fn format_forecast_years_remaining(years: f64) -> String {
+    if !years.is_finite() {
+        "∞".to_string()
+    } else if years < 1.0 {
+        format!("{:.0} mo", years * 12.0)
+    } else if years < 100.0 {
+        format!("{:.1} yr", years)
+    } else {
+        "100+ yr".to_string()
+    }
+}
+
+/// Render the multi-series forecast chart into a fixed rectangle.
+/// Mirrors the `render_history_plot` pattern from `resources_bar.rs`.
+/// Draws grid, axis labels, one line per series, dashed vertical
+/// "runs out" markers, and an interactive crosshair cursor.
+///
+/// `pub(super)` so the top-bar resource popup (in `resources_bar.rs`)
+/// can re-use it for the per-resource click popup.
+pub(super) fn render_forecast_chart(
+    ui: &mut egui::Ui,
+    series: &[&crate::economy::ForecastSeries],
+    current_sim_seconds: f64,
+    desired_size: egui::Vec2,
+    interactive: bool,
+) {
+    let sense = egui::Sense::hover();
+    let (rect, response) = ui.allocate_exact_size(desired_size, sense);
+    let painter = ui.painter();
+
+    painter.rect_filled(rect, 4.0, theme::SURFACE);
+    painter.rect_stroke(
+        rect,
+        4.0,
+        egui::Stroke::new(1.0_f32, theme::BORDER),
+        egui::StrokeKind::Outside,
+    );
+
+    if series.is_empty() || series.iter().all(|s| s.samples.len() < 2) {
+        painter.text(
+            rect.center(),
+            egui::Align2::CENTER_CENTER,
+            "Awaiting forecast samples",
+            theme::body(11.0),
+            theme::TEXT_DIM,
+        );
+        return;
+    }
+
+    let plot_rect = rect.shrink2(egui::vec2(10.0, 16.0));
+    let horizon_s = crate::economy::FORECAST_HORIZON_YEARS * crate::economy::SECONDS_PER_YEAR;
+
+    // Compute y-axis bounds across all enabled series.
+    let (min_y, max_y) = compute_forecast_y_bounds(series);
+
+    let to_screen = |sim_seconds_offset: f64, value: f64| {
+        let x_t = (sim_seconds_offset / horizon_s).clamp(0.0, 1.0);
+        let y_t = if (max_y - min_y).abs() < 1e-9 {
+            0.5
+        } else {
+            ((value - min_y) / (max_y - min_y)).clamp(0.0, 1.0)
+        };
+        egui::pos2(
+            plot_rect.left() + plot_rect.width() * x_t as f32,
+            plot_rect.bottom() - plot_rect.height() * y_t as f32,
+        )
+    };
+
+    // Vertical grid + x-axis tick labels (relative years).
+    for tick in 0..=4 {
+        let t = tick as f64 / 4.0;
+        let x = egui::lerp(plot_rect.left()..=plot_rect.right(), t as f32);
+        painter.line_segment(
+            [
+                egui::pos2(x, plot_rect.top()),
+                egui::pos2(x, plot_rect.bottom()),
+            ],
+            egui::Stroke::new(1.0_f32, theme::BORDER.linear_multiply(0.6)),
+        );
+        let years = crate::economy::FORECAST_HORIZON_YEARS * t;
+        let label = if years < 1.0 {
+            format!("{:.0}mo", years * 12.0)
+        } else {
+            format!("{years:.0}y")
+        };
+        painter.text(
+            egui::pos2(x, rect.bottom() - 2.0),
+            egui::Align2::CENTER_BOTTOM,
+            label,
+            theme::mono(10.0),
+            theme::TEXT_HINT,
+        );
+    }
+
+    // Horizontal grid + y-axis tick labels.
+    for tick in 0..=3 {
+        let t = tick as f64 / 3.0;
+        let y = egui::lerp(plot_rect.bottom()..=plot_rect.top(), t as f32);
+        painter.line_segment(
+            [
+                egui::pos2(plot_rect.left(), y),
+                egui::pos2(plot_rect.right(), y),
+            ],
+            egui::Stroke::new(1.0_f32, theme::BORDER.linear_multiply(0.35)),
+        );
+        let value = min_y + (max_y - min_y) * t;
+        painter.text(
+            egui::pos2(plot_rect.left() + 2.0, y - 2.0),
+            egui::Align2::LEFT_BOTTOM,
+            format_mass(value),
+            theme::mono(10.0),
+            theme::TEXT_HINT,
+        );
+    }
+
+    // "Runs out" markers — dashed vertical lines for each series that depletes.
+    let runs_out_color = theme::forecast_runs_out_color();
+    let dash_len = theme::FORECAST_RUNS_OUT_DASH_LEN;
+    let stroke_w = theme::FORECAST_RUNS_OUT_STROKE_WIDTH;
+    for s in series {
+        let Some(runs_out_offset) = s.runs_out_at_s else {
+            continue;
+        };
+        if runs_out_offset > horizon_s {
+            continue;
+        }
+        let x = to_screen(runs_out_offset, 0.0).x;
+        // Dashed pattern: alternating `dash_len` px segments.
+        let mut y = plot_rect.top();
+        while y < plot_rect.bottom() {
+            let next_y = (y + dash_len).min(plot_rect.bottom());
+            painter.line_segment(
+                [
+                    egui::pos2(x, y),
+                    egui::pos2(x, next_y),
+                ],
+                egui::Stroke::new(stroke_w, runs_out_color),
+            );
+            y = next_y + dash_len;
+        }
+        // Floating label: "ResourceName @ Yr"
+        let years = runs_out_offset / crate::economy::SECONDS_PER_YEAR;
+        let label = format!("{} {:.1}y", s.resource.symbol(), years);
+        painter.text(
+            egui::pos2(x + 3.0, plot_rect.top() + 2.0),
+            egui::Align2::LEFT_TOP,
+            label,
+            theme::mono(9.0),
+            runs_out_color,
+        );
+    }
+
+    // Series lines.
+    for s in series {
+        if s.samples.len() < 2 {
+            continue;
+        }
+        let line_points: Vec<egui::Pos2> = s
+            .samples
+            .iter()
+            .map(|p| to_screen(p.sim_seconds_offset, p.value_mt))
+            .collect();
+        let stroke_color = theme::forecast_series_color(s.resource.category());
+        painter.add(egui::Shape::line(
+            line_points,
+            egui::Stroke::new(theme::FORECAST_LINE_WIDTH, stroke_color),
+        ));
+        // Highlight the t=0 anchor with a small dot.
+        let anchor_pos = to_screen(0.0, s.samples[0].value_mt);
+        painter.circle_filled(anchor_pos, 3.0, stroke_color);
+    }
+
+    // Interactive crosshair cursor.
+    if interactive {
+        if let Some(pointer_pos) = response.hover_pos().filter(|pos| plot_rect.contains(*pos))
+        {
+            let fraction = ((pointer_pos.x - plot_rect.left()) / plot_rect.width())
+                .clamp(0.0, 1.0) as f64;
+            let target_offset = horizon_s * fraction;
+
+            // Vertical crosshair.
+            painter.line_segment(
+                [
+                    egui::pos2(pointer_pos.x, plot_rect.top()),
+                    egui::pos2(pointer_pos.x, plot_rect.bottom()),
+                ],
+                egui::Stroke::new(1.0_f32, theme::ACCENT),
+            );
+
+            // Per-series horizontal lines + value labels.
+            let mut cursor_y = plot_rect.top() + 8.0;
+            for s in series {
+                if s.samples.is_empty() {
+                    continue;
+                }
+                // Find nearest sample to the cursor.
+                let nearest = s
+                    .samples
+                    .iter()
+                    .min_by(|a, b| {
+                        (a.sim_seconds_offset - target_offset)
+                            .abs()
+                            .partial_cmp(&(b.sim_seconds_offset - target_offset).abs())
+                            .unwrap_or(std::cmp::Ordering::Equal)
+                    })
+                    .copied();
+                let Some(nearest) = nearest else { continue };
+                let pos = to_screen(nearest.sim_seconds_offset, nearest.value_mt);
+                painter.line_segment(
+                    [
+                        egui::pos2(plot_rect.left(), pos.y),
+                        egui::pos2(plot_rect.right(), pos.y),
+                    ],
+                    egui::Stroke::new(0.5_f32, theme::ACCENT_DIM),
+                );
+                painter.circle_filled(pos, 3.5, theme::ACCENT);
+
+                // Floating label.
+                let label = format!(
+                    "{} {} @ {:.1}y",
+                    s.resource.symbol(),
+                    format_mass(nearest.value_mt),
+                    nearest.sim_seconds_offset / crate::economy::SECONDS_PER_YEAR,
+                );
+                painter.text(
+                    egui::pos2(plot_rect.right() - 4.0, cursor_y),
+                    egui::Align2::RIGHT_TOP,
+                    label,
+                    theme::mono(9.0),
+                    theme::forecast_series_color(s.resource.category()),
+                );
+                cursor_y += 12.0;
+            }
+
+            let _ = current_sim_seconds; // not currently used (no extra annotation)
+        }
+    }
+}
+
+/// Compute y-axis bounds for the forecast chart.  Clamps at zero
+/// (resources never go negative in the projection), and uses a robust
+/// percentile cutoff to avoid runaway scales from outliers.
+fn compute_forecast_y_bounds(series: &[&crate::economy::ForecastSeries]) -> (f64, f64) {
+    let mut values: Vec<f64> = Vec::new();
+    for s in series {
+        for p in &s.samples {
+            values.push(p.value_mt);
+        }
+    }
+    if values.is_empty() {
+        return (0.0, 1.0);
+    }
+    values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let raw_max = *values.last().unwrap_or(&1.0);
+    let raw_min = values[0];
+    let max_y = raw_max.max(0.0) * 1.05;
+    let min_y = raw_min.clamp(0.0, 0.0); // never negative
+    if (max_y - min_y).abs() < 1e-9 {
+        (min_y, min_y + 1.0)
+    } else {
+        (min_y, max_y)
+    }
 }
 
 fn render_econ_mining(
