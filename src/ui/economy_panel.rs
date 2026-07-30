@@ -1,5 +1,5 @@
 use super::dashboard::format_mass;
-use super::resources_bar::get_resource_icon;
+use super::resources_bar::{get_resource_category_icon, get_resource_icon};
 use super::tab::Tab;
 use super::*;
 use bevy::ecs::system::SystemParam;
@@ -3186,37 +3186,103 @@ fn render_econ_forecast(
     // --- Build full forecast series list ---
     let all_series = crate::economy::build_forecast(&scope_inputs, &impacts, current_sim, &reserve_bounds);
 
-    // --- Toggle row ---
+    // --- Toggle row, grouped by category (matches the resource-bar popup) ---
+    //
+    // Each category header bar uses the category icon + color so the
+    // player can read which series belongs to which group at a glance.
+    // The chip background and foreground use the same category colors
+    // as the resource bar — see `theme::CAT_*` and `category_color`.
     ui.add_space(theme::Spacing::sm);
-    ui.horizontal_wrapped(|ui| {
-        ui.label(
-            egui::RichText::new("Show: ")
-                .size(11.0)
-                .color(theme::TEXT_DIM),
-        );
-        for (idx, resource) in ResourceType::all().iter().copied().enumerate() {
-            // Skip resources that have no projection data.
-            let has_data = all_series.iter().any(|s| s.resource == resource);
-            if !has_data {
-                continue;
-            }
-            let enabled = ui_state.is_enabled(idx);
-            let color = theme::forecast_series_color(resource.category());
-            let text = format!("{} {}", get_resource_icon(&resource), resource.display_name());
-            let response = ui.selectable_label(enabled, text);
-            if response.clicked() {
-                ui_state.toggle(idx);
-            }
-            response.on_hover_text(format!(
-                "{} ({})\nClick to {} this series.",
-                resource.display_name(),
-                resource.category(),
-                if enabled { "hide" } else { "show" }
-            ));
-            // Tint the chip color.
-            let _ = color;
+    for (category_name, resources) in ResourceType::by_category() {
+        // Skip categories that have no data in the current scope.
+        let category_has_data = resources
+            .iter()
+            .any(|r| all_series.iter().any(|s| s.resource == *r));
+        if !category_has_data {
+            continue;
         }
-    });
+        let cat_icon = get_resource_category_icon(category_name);
+        let cat_color = theme::category_color(category_name);
+
+        // Category header — icon + name in the category color, matching
+        // the resource-bar category popup header.
+        ui.horizontal(|ui| {
+            ui.add(
+                egui::Label::new(egui::RichText::new(cat_icon).size(13.0).color(cat_color))
+                    .selectable(false),
+            );
+            ui.add_space(2.0);
+            ui.add(
+                egui::Label::new(
+                    egui::RichText::new(category_name)
+                        .strong()
+                        .size(11.0)
+                        .color(cat_color),
+                )
+                .selectable(false),
+            );
+        });
+
+        // Resource chips in this category — same icon + display name
+        // format as the resource-bar popup rows, with a tinted
+        // background showing whether the series is on (full color) or
+        // off (dimmed color).
+        ui.horizontal_wrapped(|ui| {
+            ui.add_space(8.0);
+            for resource in resources.iter().copied() {
+                let has_data = all_series.iter().any(|s| s.resource == resource);
+                if !has_data {
+                    continue;
+                }
+                let idx = ResourceType::all()
+                    .iter()
+                    .position(|r| *r == resource)
+                    .unwrap_or(usize::MAX);
+                let enabled = ui_state.is_enabled(idx);
+                let res_color = theme::category_color(resource.category());
+                let chip_bg = if enabled {
+                    res_color.linear_multiply(0.25)
+                } else {
+                    theme::SURFACE.linear_multiply(0.5)
+                };
+                let chip_text_color = if enabled { res_color } else { theme::TEXT_DIM };
+                let text = format!(
+                    "{} {}",
+                    get_resource_icon(&resource),
+                    resource.display_name()
+                );
+                let response = egui::Frame::NONE
+                    .inner_margin(egui::Margin::symmetric(6, 2))
+                    .fill(chip_bg)
+                    .corner_radius(egui::CornerRadius::same(3))
+                    .stroke(egui::Stroke::new(1.0, res_color.linear_multiply(0.4)))
+                    .show(ui, |ui| {
+                        ui.add(
+                            egui::Label::new(
+                                egui::RichText::new(text)
+                                    .size(10.0)
+                                    .color(chip_text_color),
+                            )
+                            .selectable(false),
+                        );
+                    })
+                    .response;
+                let click = response.interact(egui::Sense::click());
+                if click.clicked() {
+                    ui_state.toggle(idx);
+                }
+                if click.hovered() {
+                    response.on_hover_text(format!(
+                        "{} ({})\nClick to {} this series.",
+                        resource.display_name(),
+                        resource.category(),
+                        if enabled { "hide" } else { "show" }
+                    ));
+                }
+            }
+        });
+        ui.add_space(2.0);
+    }
 
     // --- Persist the disabled set ---
     let disabled_bytes: Vec<u8> = ui_state.disabled.iter().map(|i| *i as u8).collect();
