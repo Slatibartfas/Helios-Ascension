@@ -3353,36 +3353,61 @@ fn render_econ_forecast(
                     .color(theme::AMBER),
             );
             ui.add_space(2.0);
-            egui::Grid::new("forecast_reserve_cap_grid")
-                .num_columns(2)
-                .spacing([12.0, 2.0])
-                .show(ui, |ui| {
-                    for s in &enabled_series {
-                        if let Some(cap) = s.reserve_upper_bound_mt {
+            // Gather entries: enabled series with a cap, plus any
+            // resource that has a *surveyed* reserve bound but is not
+            // currently shown (so a resource whose stockpile dipped to
+            // 0 still appears in the panel instead of jumping in/out).
+            let mut cap_entries: Vec<&crate::economy::ForecastSeries> = enabled_series
+                .iter()
+                .copied()
+                .filter(|s| s.reserve_upper_bound_mt.is_some())
+                .collect();
+            for s in &all_series {
+                if s.reserve_upper_bound_mt.is_some()
+                    && !cap_entries.iter().any(|e| e.resource == s.resource)
+                {
+                    cap_entries.push(s);
+                }
+            }
+            // Multi-column layout: pack entries into as many columns
+            // as fit horizontally so the panel uses the full width
+            // instead of stacking everything into a single tall
+            // column.
+            let row_count = cap_entries.len();
+            let columns = thread_resources_columns(row_count);
+            let per_col = row_count.div_ceil(columns);
+            for chunk in cap_entries.chunks(per_col.max(1)) {
+                ui.horizontal(|ui| {
+                    for s in chunk {
+                        let cap = s.reserve_upper_bound_mt.unwrap_or(0.0);
+                        let cap_label = if let Some(cap_at) = s.hits_reserve_cap_at_s {
+                            let cap_years = cap_at / crate::economy::SECONDS_PER_YEAR;
+                            format!("{}  (cap in {cap_years:.1}y)", format_mass(cap))
+                        } else {
+                            format_mass(cap)
+                        };
+                        let name_text = format!(
+                            "{} {}",
+                            get_resource_icon(&s.resource),
+                            s.resource.display_name()
+                        );
+                        ui.vertical(|ui| {
+                            ui.set_width(180.0);
                             ui.label(
-                                egui::RichText::new(format!(
-                                    "{} {}",
-                                    get_resource_icon(&s.resource),
-                                    s.resource.display_name()
-                                ))
-                                .color(theme::forecast_series_color(s.resource.category())),
+                                egui::RichText::new(name_text)
+                                    .color(theme::forecast_series_color(s.resource.category()))
+                                    .size(11.0),
                             );
-                            let label = if let Some(cap_at) = s.hits_reserve_cap_at_s {
-                                let cap_years = cap_at / crate::economy::SECONDS_PER_YEAR;
-                                format!("{}  (cap in {cap_years:.1}y)", format_mass(cap))
-                            } else {
-                                format_mass(cap)
-                            };
                             ui.label(
-                                egui::RichText::new(label)
+                                egui::RichText::new(cap_label)
                                     .color(theme::AMBER)
                                     .monospace()
                                     .size(11.0),
                             );
-                            ui.end_row();
-                        }
+                        });
                     }
                 });
+            }
         });
     }
 
@@ -3394,22 +3419,36 @@ fn render_econ_forecast(
                     .color(theme::forecast_runs_out_color()),
             );
             ui.add_space(2.0);
-            egui::Grid::new("forecast_runs_out_grid")
-                .num_columns(2)
-                .spacing([12.0, 2.0])
-                .show(ui, |ui| {
-                    for s in &enabled_series {
-                        if let Some(runs_out) = s.runs_out_at_s {
-                            let years = runs_out / crate::economy::SECONDS_PER_YEAR;
-                            let target_year = current_year_f + years;
-                            let color = forecast_depletion_color(years);
+            // Multi-column layout: pack entries into as many columns
+            // as fit horizontally so the panel uses the full width
+            // instead of stacking everything into a single tall
+            // column.
+            let runs_out_entries: Vec<&crate::economy::ForecastSeries> = enabled_series
+                .iter()
+                .copied()
+                .filter(|s| s.runs_out_at_s.is_some())
+                .collect();
+            let row_count = runs_out_entries.len();
+            let columns = thread_resources_columns(row_count);
+            let per_col = row_count.div_ceil(columns);
+            for chunk in runs_out_entries.chunks(per_col.max(1)) {
+                ui.horizontal(|ui| {
+                    for s in chunk {
+                        let runs_out = s.runs_out_at_s.unwrap_or(0.0);
+                        let years = runs_out / crate::economy::SECONDS_PER_YEAR;
+                        let target_year = current_year_f + years;
+                        let color = forecast_depletion_color(years);
+                        let name_text = format!(
+                            "{} {}",
+                            get_resource_icon(&s.resource),
+                            s.resource.display_name()
+                        );
+                        ui.vertical(|ui| {
+                            ui.set_width(180.0);
                             ui.label(
-                                egui::RichText::new(format!(
-                                    "{} {}",
-                                    get_resource_icon(&s.resource),
-                                    s.resource.display_name()
-                                ))
-                                .color(theme::forecast_series_color(s.resource.category())),
+                                egui::RichText::new(name_text)
+                                    .color(theme::forecast_series_color(s.resource.category()))
+                                    .size(11.0),
                             );
                             ui.label(
                                 egui::RichText::new(format!(
@@ -3417,12 +3456,14 @@ fn render_econ_forecast(
                                     format_forecast_years_remaining(years)
                                 ))
                                 .color(color)
-                                .strong(),
+                                .strong()
+                                .monospace()
+                                .size(11.0),
                             );
-                            ui.end_row();
-                        }
+                        });
                     }
                 });
+            }
         });
     } else {
         theme::elevated_frame().show(ui, |ui| {
@@ -3452,11 +3493,15 @@ fn render_econ_forecast(
                 .color(theme::TEXT_DIM),
         );
         ui.add_space(2.0);
-        egui::Grid::new("forecast_net_rate_grid")
-            .num_columns(2)
-            .spacing([12.0, 2.0])
-            .show(ui, |ui| {
-                for s in &enabled_series {
+        // Multi-column layout: pack entries into as many columns
+        // as fit horizontally so the panel uses the full width
+        // instead of stacking everything into a single tall column.
+        let row_count = enabled_series.len();
+        let columns = thread_resources_columns(row_count);
+        let per_col = row_count.div_ceil(columns);
+        for chunk in enabled_series.chunks(per_col.max(1)) {
+            ui.horizontal(|ui| {
+                for s in chunk {
                     let annual = s.annual_net_rate_mt;
                     let (rate_text_str, rate_color) = if annual.abs() < 1e-9 {
                         ("0/yr".to_string(), theme::TEXT_DIM)
@@ -3467,26 +3512,56 @@ fn render_econ_forecast(
                             if annual > 0.0 { theme::GREEN } else { theme::RED },
                         )
                     };
-                    ui.label(
-                        egui::RichText::new(format!(
-                            "{} {}",
-                            get_resource_icon(&s.resource),
-                            s.resource.display_name()
-                        ))
-                        .color(theme::forecast_series_color(s.resource.category())),
+                    let name_text = format!(
+                        "{} {}",
+                        get_resource_icon(&s.resource),
+                        s.resource.display_name()
                     );
-                    ui.label(
-                        egui::RichText::new(rate_text_str)
-                            .monospace()
-                            .color(rate_color),
-                    );
-                    ui.end_row();
+                    ui.vertical(|ui| {
+                        ui.set_width(180.0);
+                        ui.label(
+                            egui::RichText::new(name_text)
+                                .color(theme::forecast_series_color(s.resource.category()))
+                                .size(11.0),
+                        );
+                        ui.label(
+                            egui::RichText::new(rate_text_str)
+                                .monospace()
+                                .color(rate_color)
+                                .size(11.0),
+                        );
+                    });
                 }
             });
+        }
     });
 
     let _ = contextual; // explicit unused-binding silence
     }); // end ScrollArea::vertical
+}
+
+/// Choose how many columns to split a flat list of forecast entries
+/// across, so the panel fills the available horizontal width instead
+/// of stacking everything into one tall column.  Each column is
+/// ~180 px wide (see `set_width(180.0)` above); the threshold aims
+/// for roughly 6–10 rows per column.
+fn thread_resources_columns(row_count: usize) -> usize {
+    if row_count == 0 {
+        return 1;
+    }
+    if row_count <= 6 {
+        return 1;
+    }
+    if row_count <= 14 {
+        return 2;
+    }
+    if row_count <= 24 {
+        return 3;
+    }
+    if row_count <= 36 {
+        return 4;
+    }
+    5
 }
 
 /// Color a "years remaining" depletion badge by severity.
