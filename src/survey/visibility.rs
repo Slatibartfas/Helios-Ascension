@@ -129,7 +129,7 @@ fn visibility_for_tier(tier: u8) -> DepositVisibility {
 /// Choose the reserve slice the player is allowed to see at a given
 /// tier. Higher tiers reveal more of the deposit's
 /// (proven, deep, bulk) split.
-fn reserve_slice(deposit: &MineralDeposit, tier: u8) -> Option<ResourceReserve> {
+pub fn reserve_slice(deposit: &MineralDeposit, tier: u8) -> Option<ResourceReserve> {
     let r = &deposit.reserve;
     match tier {
         0 => None,

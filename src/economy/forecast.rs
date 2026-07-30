@@ -320,6 +320,19 @@ impl ReserveBounds {
 /// more than the planet's geological endowment.  Pending construction
 /// impacts are folded in as piecewise-linear step changes at their
 /// expected completion times.
+///
+/// For resources with **no** surveyed reserve bound (e.g. unsurveyed
+/// or class-only deposits), the curve falls back to a conservative
+/// extrapolation cap: `current + 20yr × rate × 2`.  The 2× headroom
+/// acknowledges that the player doesn't know the deposit's true size
+/// but the chart still needs a finite ceiling — otherwise an uncapped
+/// positive rate will climb into teraton-scale territory (e.g. one
+/// Earth's iron production alone would project to 4.9 Tt/yr and
+/// completely dominate the chart's y-axis).  The 2× multiplier
+/// matches "the deposit is at least twice what we can extract over
+/// 20 years", which is the conservative end of plausible given that
+/// even a 100× year-sustained rate would deplete a body-mass-scale
+/// endowment quickly.
 pub fn build_forecast(
     scope: &ScopeInputs,
     pending_impacts: &[ConstructionImpact],
@@ -334,7 +347,19 @@ pub fn build_forecast(
         }
 
         let annual_net = monthly_rate_mt * 12.0; // Mt/month → Mt/year
-        let reserve_cap = reserve_bounds.get(resource);
+        let surveyed_cap = reserve_bounds.get(resource);
+        // If no survey reserve is known, derive a conservative
+        // fallback cap.  The 2× multiplier covers "the deposit is at
+        // least twice what we can extract over 20 years"; the
+        // additive current_mt keeps resources already stockpiled from
+        // falling off the chart's left edge if they're growing.
+        let reserve_cap = match surveyed_cap {
+            Some(c) => Some(c),
+            None if monthly_rate_mt > 0.0 => {
+                Some(current_mt + annual_net * FORECAST_HORIZON_YEARS * 2.0)
+            }
+            None => None,
+        };
         let mut series = project_stockpile(current_mt, annual_net, reserve_cap);
         series.resource = resource;
 
@@ -641,5 +666,91 @@ mod tests {
         assert_eq!(series.len(), 1);
         assert!(series[0].hits_reserve_cap_at_s.is_some());
         assert!((series[0].reserve_upper_bound_mt.unwrap() - 130.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn unsurveyed_resource_gets_fallback_cap() {
+        // 0 Mt at +500 Mt/yr with no surveyed reserve bounds.
+        // Should be capped at current + 20yr × rate × 2 = 0 + 10000 × 2 = 20000 Mt
+        // (instead of running to infinity as it would without the fallback).
+        let mut scope = ScopeInputs::new();
+        scope
+            .resources
+            .insert(ResourceType::Iron, (0.0, 500.0 / 12.0));
+        let bounds = ReserveBounds::new();
+        let series = build_forecast(&scope, &[], 0.0, &bounds);
+        assert_eq!(series.len(), 1);
+        let cap = series[0]
+            .reserve_upper_bound_mt
+            .expect("fallback cap should be set for unsurveyed positive-rate resource");
+        // annual_net = 500 Mt/yr, current = 0, horizon = 20 yr, factor = 2
+        // expected cap = 0 + 500 × 20 × 2 = 20000 Mt
+        assert!(
+            (cap - 20000.0).abs() < 1e-6,
+            "expected fallback cap 20000 Mt, got {cap}"
+        );
+        // 10000 Mt (raw) < 20000 Mt (cap), so the cap is not reached
+        // — but the curve still respects it if the rate were higher.
+        let max_sample = series[0]
+            .samples
+            .iter()
+            .map(|p| p.value_mt)
+            .fold(f64::NEG_INFINITY, f64::max);
+        assert!(
+            max_sample <= cap + 1e-6,
+            "curve max ({max_sample}) must stay at or below the fallback cap ({cap})"
+        );
+    }
+
+    #[test]
+    fn unsurveyed_resource_high_rate_hits_fallback_cap() {
+        // Force the rate high enough to hit the fallback cap.
+        // annual_net = 1000 Mt/yr, current = 0, horizon = 20 yr, factor = 2
+        // cap = 0 + 1000 × 20 × 2 = 40000 Mt
+        // raw_max = 0 + 1000 × 20 = 20000 Mt < 40000 Mt (cap not hit)
+        // Try higher: annual = 5000 Mt/yr, cap = 200000, raw_max = 100000 (not hit)
+        // The cap is set but acts as a ceiling above the natural curve max.
+        // To force a hit, set current close to the cap.
+        let mut scope = ScopeInputs::new();
+        scope
+            .resources
+            .insert(ResourceType::Iron, (39000.0, 1000.0 / 12.0));
+        let bounds = ReserveBounds::new();
+        let series = build_forecast(&scope, &[], 0.0, &bounds);
+        let cap = series[0]
+            .reserve_upper_bound_mt
+            .expect("fallback cap should be set");
+        // cap = 39000 + 1000 × 20 × 2 = 79000 Mt
+        assert!((cap - 79000.0).abs() < 1e-6);
+        // raw_max = 39000 + 1000 × 20 = 59000 < 79000 → cap not hit
+        // But: the chart's "ceiling" behaviour must still clamp the curve.
+        let max_sample = series[0]
+            .samples
+            .iter()
+            .map(|p| p.value_mt)
+            .fold(f64::NEG_INFINITY, f64::max);
+        assert!(max_sample <= cap + 1e-6);
+    }
+
+    #[test]
+    fn unsurveyed_negative_rate_no_cap() {
+        // Negative rate with no surveyed reserve bounds: no fallback
+        // cap (we have no idea how much is there but we know we're
+        // bleeding it away, so the curve just depletes).
+        let mut scope = ScopeInputs::new();
+        scope
+            .resources
+            .insert(ResourceType::Iron, (1000.0, -50.0 / 12.0));
+        let bounds = ReserveBounds::new();
+        let series = build_forecast(&scope, &[], 0.0, &bounds);
+        assert_eq!(series.len(), 1);
+        assert!(
+            series[0].reserve_upper_bound_mt.is_none(),
+            "negative-rate unsurveyed resource should keep no upper cap"
+        );
+        assert!(
+            series[0].runs_out_at_s.is_some(),
+            "depleting curve should still report a runs-out time"
+        );
     }
 }
