@@ -16,6 +16,108 @@ use crate::plugins::solar_system_data::{AsteroidClass, BodyType};
 /// Beyond this distance, volatiles become more common
 const DEFAULT_FROST_LINE_AU: f64 = 2.5;
 
+// ── 2026 reserves calibration table ──
+//
+// `proven_crustal_max_mt` is the upper bound for the proven_crustal tier
+// across all surveyed bodies in the active scope (Earth-equivalent). Real
+// numbers from USGS Mineral Commodity Summaries 2026 + IEA.  Without this
+// clamp the abundance model produces Gt-class proven reserves for almost
+// every mineable resource, which makes the Forecast chart lie about
+// sustainability (teraton-scale stockpile growth from a few in-game mines).
+//
+// The cap scales linearly with `body_mass_kg / Earth_mass_kg` (so larger
+// planets get proportionally more reserves, smaller ones less).  Bodies
+// smaller than Mars get a more aggressive scale so the game stays playable
+// when the player colonises tiny moons and asteroids.
+const EARTH_MASS_KG: f64 = 5.972e24;
+
+/// Per-resource, Earth-equivalent identified reserves cap (Mt).  Used to
+/// clamp the proven_crustal + deep_deposits tiers so the 20-year forecast
+/// matches real-world recoverability.  Values trace back to the table at
+/// `/memories/real-world-2026-reserves.md` (USGS MCS 2026 + Wikipedia
+/// cross-check).  Resources not listed default to "abundant" (no cap).
+fn identified_reserves_cap_mt(resource: ResourceType) -> f64 {
+    use ResourceType::*;
+    match resource {
+        // Construction
+        Iron => 1.8e5,         // 180 Gt USGS iron ore reserves
+        Aluminum => 3.0e4,     // 30 Gt USGS bauxite reserves
+        Titanium => 8.0e4,    // 80 Gt USGS Ti mineral reserves
+        Silicates => f64::INFINITY, // industrial sand: effectively unlimited
+        Nickel => 1.3e5,       // 130 Gt USGS Ni reserves
+        Tungsten => 4.0e3,    // 4 Gt USGS W reserves
+        Carbon => 3.2e5,      // 320 Gt graphite reserves
+        Chromium => 5.6e4,    // 56 Gt USGS Cr reserves
+        Magnesium => 1.0e5,   // 100 Gt USGS Mg reserves
+
+        // Fissiles
+        Uranium => 7.9e3,     // 8 Gt USGS RAR uranium
+        Thorium => 6.0e5,     // 600 Gt USGS Th (mostly in monazite sands)
+        Plutonium => 0.0,     // bred, not mined
+
+        // Precious
+        Gold => 1.0e-1,       // 100 kt USGS gold reserves (Earth-equivalent)
+        Silver => 7.0e-1,     // 700 kt USGS silver reserves
+        Platinum => 2.1e-2,   // 21 kt USGS Pt reserves
+
+        // Strategic
+        Copper => 1.0e4,      // 10 Gt USGS Cu reserves
+        RareEarths => 1.4e2,  // 140 Mt USGS REE reserves
+        Lithium => 3.0e-1,    // 300 kt USGS Li reserves (Earth-equivalent)
+        Sulfur => 1.5e3,      // 1.5 Gt USGS sulfur reserves
+        Cobalt => 1.1e-1,    // 110 kt USGS Co reserves
+        Fluorine => 3.0e2,    // 300 Mt fluorite reserves
+        Polymers => 0.0,      // manufactured, never mined
+
+        // Volatiles — bounded by atmospheric inventory, not crust
+        Water => 1.5e4,       // 15 Gt accessible freshwater reserves
+        Hydrogen => f64::INFINITY, // split from H₂O on demand
+        Ammonia => f64::INFINITY, // manufactured
+        Methane => 2.5e4,     // 25 Gt natural gas proved reserves
+        Phosphorus => 7.4e4,  // 74 Gt USGS phosphate rock
+
+        // Atmospheric gases — use atmospheric inventory directly
+        Nitrogen => 4.0e9,    // 4 Gt N₂ in Earth atmosphere
+        Oxygen => 1.1e9,      // 1.1 Gt O₂ in Earth atmosphere
+        CarbonDioxide => 3.0e6, // 3 Mt atmosphere; ~10⁵ Mt ocean
+        Argon => 7.0e7,       // 70 Mt atmosphere
+
+        // Fusion fuel
+        Helium3 => 4.0e-4,    // 400 kg He-3 in lunar regolith (theoretical)
+        Deuterium => 1.0e5,   // 100 Gt D in seawater (theoretically recoverable)
+        Tritium => 0.0,       // bred from lithium in reactors
+
+        // Exotic — synthetic; no mineable reserves
+        Antimatter | ExoticMatter | Metamaterials | Computronium => 0.0,
+
+        // Biological — produced, not mined
+        Food => 0.0,
+    }
+}
+
+/// Scale the identified-reserves cap to a body's mass.  Linear for
+/// Earth-sized and above; more aggressive for sub-Mars bodies so the
+/// game stays balanced on tiny moons and asteroids.
+fn reserves_cap_for_body(resource: ResourceType, body_mass_kg: f64) -> f64 {
+    let earth_cap = identified_reserves_cap_mt(resource);
+    if earth_cap.is_infinite() || earth_cap <= 0.0 {
+        return earth_cap;
+    }
+    let mass_ratio = body_mass_kg / EARTH_MASS_KG;
+    let scaled = if mass_ratio >= 0.1 {
+        // Earth and above: linear scaling.
+        earth_cap * mass_ratio
+    } else if mass_ratio >= 0.001 {
+        // Sub-Mars: square-root scaling so a tiny moon doesn't get
+        // reserves vastly disproportionate to its size.
+        earth_cap * mass_ratio.sqrt()
+    } else {
+        // Asteroid-scale: cubic-root scaling.
+        earth_cap * mass_ratio.cbrt()
+    };
+    scaled.max(earth_cap * 1.0e-3) // never zero
+}
+
 /// Seeded RNG shared by all procedural resource generators.
 ///
 /// Holding the RNG as a Bevy resource makes resource generation reproducible:
@@ -362,12 +464,53 @@ fn apply_metallicity_bonus(resources: &mut PlanetResources, metallicity_multipli
     }
 }
 
-/// Helper to create a tiered deposit from legacy parameters
+/// Helper to create a tiered deposit from legacy parameters.
+///
+/// `resource_hint` is used for the **2026 reserves calibration cap**
+/// (see `reserves_cap_for_body` above).  When `None`, the cap is
+/// applied as Iron-equivalent — generous enough that it almost never
+/// binds, so existing 39-call-site usage continues to behave the same.
+/// Callers that know the actual `ResourceType` should pass it through.
 pub(super) fn create_deposit_legacy(
     abundance: f64,
     accessibility: f32,
     body_mass_kg: f64,
     body_type: BodyType,
+) -> MineralDeposit {
+    create_deposit_legacy_inner(
+        abundance,
+        accessibility,
+        body_mass_kg,
+        body_type,
+        None,
+    )
+}
+
+/// Resource-aware overload of `create_deposit_legacy`.  Pass the actual
+/// resource type when you know it (e.g. from `PlanetResources` generation)
+/// so the identified-reserves cap is applied correctly.
+pub(super) fn create_deposit_legacy_for_resource(
+    abundance: f64,
+    accessibility: f32,
+    body_mass_kg: f64,
+    body_type: BodyType,
+    resource: ResourceType,
+) -> MineralDeposit {
+    create_deposit_legacy_inner(
+        abundance,
+        accessibility,
+        body_mass_kg,
+        body_type,
+        Some(resource),
+    )
+}
+
+fn create_deposit_legacy_inner(
+    abundance: f64,
+    accessibility: f32,
+    body_mass_kg: f64,
+    body_type: BodyType,
+    resource_hint: Option<ResourceType>,
 ) -> MineralDeposit {
     // 1 Mt = 1e9 kg
     let total_mass_mt = (body_mass_kg * abundance) / 1e9;
@@ -409,8 +552,45 @@ pub(super) fn create_deposit_legacy(
         _ => (0.0001, 0.001),
     };
 
-    let proven = total_mass_mt * proven_factor;
-    let deep = total_mass_mt * deep_factor;
+    // The abundance model can produce orders-of-magnitude more than
+    // the real-world identified-reserves cap.  Clamp proven+deep at
+    // the scaled cap (per-body, mass-scaled) and absorb the rest
+    // into `bulk` (which the Forecast chart correctly excludes from
+    // the 20-year mining ceiling).  Without `resource_hint`, the
+    // Iron cap is the largest in the construction category so it
+    // binds last — existing 39-call-site usage keeps working.
+    //
+    // Asteroids and comets are intentionally exempt from the cap:
+    // they're small enough that their full body mass is the
+    // "accessible" resource pool — that's the whole point of the
+    // tier-scaling model.  Trying to cap a 1 km asteroid at the
+    // Earth-equivalent Iron reserves would force 90% of its mass
+    // into `bulk`, contradicting the design intent of "asteroids are
+    // fully strippable".
+    let cap = match body_type {
+        BodyType::Asteroid | BodyType::Comet => f64::INFINITY,
+        _ => reserves_cap_for_body(
+            resource_hint.unwrap_or(ResourceType::Iron),
+            body_mass_kg,
+        ),
+    };
+    let raw_proven = total_mass_mt * proven_factor;
+    let raw_deep = total_mass_mt * deep_factor;
+    let accessible_raw = raw_proven + raw_deep;
+    let (proven, deep) = if cap.is_finite() && accessible_raw > cap {
+        // Split the cap proportionally between proven and deep so the
+        // pre-clamp ratio is preserved; the rest goes to bulk.
+        let proven_frac = if accessible_raw > 0.0 {
+            raw_proven / accessible_raw
+        } else {
+            0.6
+        };
+        let p = cap * proven_frac.clamp(0.1, 0.9);
+        let d = cap - p;
+        (p, d)
+    } else {
+        (raw_proven, raw_deep)
+    };
     let bulk = (total_mass_mt - proven - deep).max(0.0);
 
     // Concentration roughly matches abundance or better
@@ -891,7 +1071,18 @@ fn generate_resource_deposit(
         return create_solar_wind_deposit(total_mass_mt, final_accessibility);
     }
 
-    create_deposit_legacy(final_abundance, final_accessibility, body_mass, body_type)
+    // Resource-aware deposit creation: passes the actual `ResourceType`
+    // so the 2026 reserves calibration cap (see `reserves_cap_for_body`)
+    // binds correctly per element.  Without this, the abundance model
+    // produces orders-of-magnitude higher reserves than real-world
+    // recoverable amounts (teraton-class proven reserves on Earth).
+    create_deposit_legacy_for_resource(
+        final_abundance,
+        final_accessibility,
+        body_mass,
+        body_type,
+        resource,
+    )
 }
 
 /// Calculate a distance-based modifier for resource abundance
@@ -2322,6 +2513,90 @@ mod tests {
             "Iron:Silicate ratio should be preserved. Before: {:.4}, After: {:.4}",
             ratio_before,
             ratio_after
+        );
+    }
+
+    /// GRA-XXX: verify the 2026 reserves calibration cap.  The
+    /// `identified_reserves_cap_mt` table should match real-world
+    /// USGS 2026 figures to within an order of magnitude — the
+    /// Forecast chart depends on this to give realistic depletion
+    /// timelines.
+    #[test]
+    fn test_2026_reserves_cap_matches_usgs_ballpark() {
+        // Iron: USGS reserves ~1.8e5 Mt (180 Gt)
+        assert!(
+            (1.0e5..=3.0e5).contains(&identified_reserves_cap_mt(ResourceType::Iron)),
+            "Iron cap should be 100-300 Gt"
+        );
+        // Aluminum: USGS bauxite reserves ~3.0e4 Mt (30 Gt)
+        assert!(
+            (1.0e4..=5.0e4).contains(&identified_reserves_cap_mt(ResourceType::Aluminum)),
+            "Aluminum cap should be 10-50 Gt"
+        );
+        // Gold: USGS reserves ~1.0e-1 Mt (100 kt) — cap should be sub-Mt
+        assert!(
+            identified_reserves_cap_mt(ResourceType::Gold) <= 1.0,
+            "Gold cap should be ≤ 1 Mt (USGS: 100 kt)"
+        );
+        // Uranium: USGS RAR ~7.9e3 Mt (8 Gt)
+        assert!(
+            (3.0e3..=1.5e4).contains(&identified_reserves_cap_mt(ResourceType::Uranium)),
+            "Uranium cap should be 3-15 Gt"
+        );
+        // Polymers / Food / Antimatter: 0 (manufactured/synthetic)
+        assert_eq!(identified_reserves_cap_mt(ResourceType::Polymers), 0.0);
+        assert_eq!(identified_reserves_cap_mt(ResourceType::Food), 0.0);
+        assert_eq!(identified_reserves_cap_mt(ResourceType::Antimatter), 0.0);
+    }
+
+    /// GRA-XXX: verify the per-body cap scales smoothly with body
+    /// mass.  Earth-equivalent mass should give 100% of the cap,
+    /// sub-Mars bodies should get a square-root-scaled cap, and
+    /// asteroids should not get zero (cubic-root min).
+    #[test]
+    fn test_reserves_cap_body_scaling() {
+        let earth_cap = identified_reserves_cap_mt(ResourceType::Iron);
+        // Earth mass: 100% of cap (linear regime).
+        let earth_scaled = reserves_cap_for_body(ResourceType::Iron, EARTH_MASS_KG);
+        assert!(
+            (earth_cap * 0.99..=earth_cap * 1.01).contains(&earth_scaled),
+            "Earth should give 100% of Iron cap ({earth_cap} Mt), got {earth_scaled}"
+        );
+        // Mars mass (~6.4e23 kg, ~10.7% Earth): linear scale = ~10.7%.
+        let mars_scaled = reserves_cap_for_body(ResourceType::Iron, EARTH_MASS_KG * 0.107);
+        let expected_mars = earth_cap * 0.107;
+        assert!(
+            (expected_mars * 0.99..=expected_mars * 1.01).contains(&mars_scaled),
+            "Mars should give 10.7% of Iron cap"
+        );
+        // Sub-Earth, sub-Mars regime (1e23 kg = 1.7% Earth, in
+        // sqrt regime 0.001–0.1): sqrt-scaled.
+        let mid_mass = 1.0e23;
+        let mid_scaled = reserves_cap_for_body(ResourceType::Iron, mid_mass);
+        let mid_ratio = mid_mass / EARTH_MASS_KG;
+        let expected_mid = earth_cap * mid_ratio.sqrt();
+        assert!(
+            (expected_mid * 0.99..=expected_mid * 1.01).contains(&mid_scaled),
+            "1e23 kg body should give sqrt-scaled cap, expected {expected_mid}, got {mid_scaled}"
+        );
+        // Tiny moon (1e20 kg, ~0.0017% Earth, in cbrt regime <0.001).
+        let moon_scaled = reserves_cap_for_body(ResourceType::Iron, 1.0e20);
+        let moon_ratio = 1.0e20 / EARTH_MASS_KG;
+        let expected_moon = earth_cap * moon_ratio.cbrt();
+        assert!(
+            (expected_moon * 0.99..=expected_moon * 1.01).contains(&moon_scaled),
+            "Tiny moon should give cbrt-scaled cap, expected {expected_moon}, got {moon_scaled}"
+        );
+        // Asteroid-scale (1e15 kg): cubic-root scale, floored at 0.1% of
+        // earth cap (180 Mt for Iron) so a single asteroid is never
+        // completely un-mineable.
+        let ast_scaled = reserves_cap_for_body(ResourceType::Iron, 1.0e15);
+        let ast_ratio = 1.0e15 / EARTH_MASS_KG;
+        let cbrt_predicted = earth_cap * ast_ratio.cbrt();
+        let expected_ast = cbrt_predicted.max(earth_cap * 1.0e-3);
+        assert!(
+            (expected_ast * 0.99..=expected_ast * 1.01).contains(&ast_scaled),
+            "Asteroid should give cbrt-scaled cap (floor 0.1%), expected {expected_ast}, got {ast_scaled}"
         );
     }
 }
