@@ -3092,6 +3092,14 @@ fn render_econ_forecast(
         })
         .unwrap_or_default();
 
+    // Wrap the rest of the tab in a scroll area so the chart, summary
+    // grids, and net-rate panel are reachable on small viewports or
+    // when many resources are enabled (the chart alone is 220 px and
+    // the toggle row alone can take 80+ px on wide chips).
+    egui::ScrollArea::vertical()
+        .auto_shrink([false; 2])
+        .show(ui, |ui| {
+
     // --- Scope: matches ViewMode (System = active system, Starmap = all) ---
     let scope_inputs = crate::economy::aggregate_scope_inputs(
         &forecast.view_mode,
@@ -3117,9 +3125,19 @@ fn render_econ_forecast(
     // mo ≈ 432 Gt is way more than a planet's actual extractable
     // reserves.  The clamp turns the curve into a flat plateau once
     // production has extracted the entire geological endowment.
+    //
+    // IMPORTANT: we deliberately sum `proven_crustal + deep_deposits`
+    // only.  The `planetary_bulk` tier is the entire planetary mass
+    // (e.g. 1.1 Pt of oxygen from silicate mantles) and is *never*
+    // realistically mineable, even with future tech — that's why the
+    // survey module calls it "effectively inaccessible early-game".
+    // Survey tier 4+ in the existing model unlocks it, but that's a
+    // visualisation choice for the dossier, not a mining claim.
+    // The forecast should match reality: bulk-tier resources are
+    // not part of the player's 20-year extraction ceiling.
     let mut reserve_bounds = crate::economy::ReserveBounds::new();
     {
-        use crate::survey::estimate_with_fidelity;
+        use crate::survey::visibility::reserve_slice;
         let active_sys = forecast.current_star_system.0;
         let starmap = matches!(*forecast.view_mode, ViewMode::Starmap);
         for (sid_opt, level_opt, state_opt, resources) in forecast.reserve_query.iter() {
@@ -3128,24 +3146,35 @@ fn render_econ_forecast(
             if !in_scope {
                 continue;
             }
-            // Survey fidelity (preferred: SurveyState; fallback: legacy SurveyLevel).
-            let fidelity = state_opt
-                .map(|s| s.fidelity(crate::survey::SurveyDimension::MineralDeposits))
+            // Tier number for the MineralDeposits axis (preferred
+            // SurveyState, fallback to legacy SurveyLevel).
+            let tier: u8 = state_opt
+                .map(|s| s.fidelity(crate::survey::SurveyDimension::MineralDeposits).tier)
                 .or_else(|| {
                     level_opt
                         .copied()
-                        .map(|l| l.as_deposit_fidelity(0.0))
+                        .map(|l| l.as_deposit_fidelity(0.0).tier)
                 })
-                .unwrap_or(crate::survey::DimensionFidelity::default());
+                .unwrap_or(0);
+            if tier < 2 {
+                // Unsurveyed / class-only: don't bound the projection;
+                // the player has no idea how much is there.  Same as
+                // not specifying a cap at all — fall through to the
+                // legacy unbounded projection.
+                continue;
+            }
             for (rt, deposit) in &resources.deposits {
-                let estimate = estimate_with_fidelity(deposit, fidelity);
-                if !estimate.is_quantified() {
+                let Some(slice) = reserve_slice(deposit, tier) else {
                     continue;
-                }
-                // Conservative upper bound: the survey-filtered mid
-                // estimate.  This is what the player has actually
-                // confirmed they can mine.
-                let upper_mt = estimate.mid_or_zero();
+                };
+                // Cap = proven + deep tiers only (never bulk).  The
+                // survey system uses `planetary_bulk` for the dossier
+                // total but it represents the planetary mantle/core
+                // mass and is physically unrealistic to mine in any
+                // 20-year horizon.  Excluding it here matches the
+                // player's intuition of "what can my mines actually
+                // touch".
+                let upper_mt = slice.proven_crustal + slice.deep_deposits;
                 if upper_mt > 0.0 {
                     let entry = reserve_bounds.resources.entry(*rt).or_insert(0.0);
                     *entry += upper_mt;
@@ -3391,6 +3420,7 @@ fn render_econ_forecast(
     });
 
     let _ = contextual; // explicit unused-binding silence
+    }); // end ScrollArea::vertical
 }
 
 /// Color a "years remaining" depletion badge by severity.
@@ -3651,6 +3681,13 @@ pub(super) fn render_forecast_chart(
 /// Compute y-axis bounds for the forecast chart.  Clamps at zero
 /// (resources never go negative in the projection), and uses a robust
 /// percentile cutoff to avoid runaway scales from outliers.
+///
+/// The 99th-percentile cutoff means the top 1% of samples (typically
+/// the long, flat plateau of one runaway uncapped series) doesn't
+/// dominate the chart's y-axis — the y-scale is calibrated for the
+/// "typical" 99% of the visible data.  Series that plateau above
+/// this cutoff simply clip at the chart's top edge; the player can
+/// still see them in the right-edge legend.
 fn compute_forecast_y_bounds(series: &[&crate::economy::ForecastSeries]) -> (f64, f64) {
     let mut values: Vec<f64> = Vec::new();
     for s in series {
@@ -3662,9 +3699,11 @@ fn compute_forecast_y_bounds(series: &[&crate::economy::ForecastSeries]) -> (f64
         return (0.0, 1.0);
     }
     values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-    let raw_max = *values.last().unwrap_or(&1.0);
     let raw_min = values[0];
-    let max_y = raw_max.max(0.0) * 1.05;
+    // 99th-percentile: skip the top 1% (runaway plateau values).
+    let p99_idx = ((values.len() as f64 * 0.99) as usize).min(values.len() - 1);
+    let raw_max = values[p99_idx];
+    let max_y = raw_max.max(0.0) * 1.10;
     let min_y = raw_min.clamp(0.0, 0.0); // never negative
     if (max_y - min_y).abs() < 1e-9 {
         (min_y, min_y + 1.0)

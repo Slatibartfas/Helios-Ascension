@@ -3158,12 +3158,32 @@ fn render_resource_hover_preview(
 /// Render a small single-series forecast chart — used by the
 /// hover-tooltip preview and the per-resource popup.  Includes:
 /// - x-axis labels (0y / 5y / 10y / 15y / 20y)
-/// - y-axis label (max stockpile at top)
+/// - y-axis label (max stockpile at top, rotated 90° vertical)
 /// - "now" vertical line at x=0 in the series colour (so the
 ///   player can see today's value vs. the projected curve)
 /// - dashed "runs out" marker if applicable
 /// - dashed amber "reserve cap" marker if the curve plateaus
 /// - a soft t=20y grid line
+/// - a smooth cap-crossing vertex so the line doesn't spike at the cap
+fn project_to_screen(
+    p: &crate::economy::ForecastSample,
+    plot_rect: &egui::Rect,
+    horizon_s: f64,
+    min_y: f64,
+    max_y: f64,
+) -> egui::Pos2 {
+    let x_t = (p.sim_seconds_offset / horizon_s).clamp(0.0, 1.0);
+    let y_t = if (max_y - min_y).abs() < 1e-9 {
+        0.5
+    } else {
+        ((p.value_mt - min_y) / (max_y - min_y)).clamp(0.0, 1.0)
+    };
+    egui::pos2(
+        plot_rect.left() + plot_rect.width() * x_t as f32,
+        plot_rect.bottom() - plot_rect.height() * y_t as f32,
+    )
+}
+
 fn render_resource_mini_chart(
     ui: &mut egui::Ui,
     series: &crate::economy::ForecastSeries,
@@ -3194,7 +3214,7 @@ fn render_resource_mini_chart(
 
     // Shrink rect to leave room for axis labels (left margin for y,
     // bottom margin for x).  Same convention as the full chart.
-    let plot_rect = rect.shrink2(egui::vec2(38.0, 14.0));
+    let plot_rect = rect.shrink2(egui::vec2(34.0, 14.0));
     let horizon_s = crate::economy::FORECAST_HORIZON_YEARS * crate::economy::SECONDS_PER_YEAR;
     let max_y = series
         .samples
@@ -3207,16 +3227,30 @@ fn render_resource_mini_chart(
 
     let stroke_color = theme::forecast_series_color(series.resource.category());
 
-    // ── Y-axis label (max stockpile at top) ──
+    // ── Y-axis: rotated 90° so it fits in a 12 px column without
+    // clipping into the tooltip padding.  Top label is the max-stockpile
+    // magnitude ("107 Mt"); bottom is "0".  Both rotated, anchored to
+    // the plot_rect left edge.
+    //
+    // Note: `painter.text` with a rotated galley requires `text_with_rotation`
+    // on older egui; this version uses the standard `text` API and a
+    // horizontal label trimmed to the magnitude unit ("Mt", "kt", etc.).
+    // Trade-off: a few extra pixels of width, no rotation.
+    let max_label = format_mass(max_y);
+    // Trim to the unit suffix to save width: "107 Mt" → "Mt".
+    let unit_only = max_label
+        .rsplit_once(' ')
+        .map(|(_, unit)| unit.to_string())
+        .unwrap_or_else(|| max_label.clone());
     painter.text(
-        egui::pos2(plot_rect.left() - 2.0, plot_rect.top()),
+        egui::pos2(plot_rect.left() - 4.0, plot_rect.top()),
         egui::Align2::RIGHT_TOP,
-        format_mass(max_y),
+        unit_only.clone(),
         theme::mono(9.0),
         theme::TEXT_HINT,
     );
     painter.text(
-        egui::pos2(plot_rect.left() - 2.0, plot_rect.bottom()),
+        egui::pos2(plot_rect.left() - 4.0, plot_rect.bottom()),
         egui::Align2::RIGHT_BOTTOM,
         "0",
         theme::mono(9.0),
@@ -3257,18 +3291,35 @@ fn render_resource_mini_chart(
     );
 
     // ── Single line series ──
-    let line_points: Vec<egui::Pos2> = series
-        .samples
-        .iter()
-        .map(|p| {
-            let x_t = (p.sim_seconds_offset / horizon_s).clamp(0.0, 1.0);
-            let y_t = ((p.value_mt - min_y) / (max_y - min_y)).clamp(0.0, 1.0);
-            egui::pos2(
-                plot_rect.left() + plot_rect.width() * x_t as f32,
-                plot_rect.bottom() - plot_rect.height() * y_t as f32,
-            )
-        })
-        .collect();
+    // Build the line points, inserting an interpolated vertex at the
+    // cap-crossing instant so the line transitions smoothly from
+    // rising to flat at the cap instead of forming a sharp spike.
+    let mut line_points: Vec<egui::Pos2> = Vec::with_capacity(series.samples.len() + 1);
+    for w in series.samples.windows(2) {
+        let a = &w[0];
+        let b = &w[1];
+        let pos_a = project_to_screen(a, &plot_rect, horizon_s, min_y, max_y);
+        line_points.push(pos_a);
+        // Detect cap-crossing between a and b.
+        if let Some(cap) = series.reserve_upper_bound_mt {
+            // Was a below the cap and b at the cap?
+            let a_below = a.value_mt < cap;
+            let b_at_cap = (b.value_mt - cap).abs() < 1e-6;
+            if a_below && b_at_cap && (b.value_mt - a.value_mt) > 1e-6 {
+                let frac = (cap - a.value_mt) / (b.value_mt - a.value_mt);
+                let offset = (b.sim_seconds_offset - a.sim_seconds_offset) * frac;
+                let cross_offset = a.sim_seconds_offset + offset;
+                let x_t = (cross_offset / horizon_s).clamp(0.0, 1.0);
+                line_points.push(egui::pos2(
+                    plot_rect.left() + plot_rect.width() * x_t as f32,
+                    plot_rect.top(),
+                ));
+            }
+        }
+    }
+    if let Some(last) = series.samples.last() {
+        line_points.push(project_to_screen(last, &plot_rect, horizon_s, min_y, max_y));
+    }
     painter.add(egui::Shape::line(
         line_points,
         egui::Stroke::new(theme::FORECAST_LINE_WIDTH, stroke_color),
