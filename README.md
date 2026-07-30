@@ -3,9 +3,9 @@ A 4X grand strategy game with realistic orbital mechanics and a big focus on res
 
 ![Helios Ascension splash logo](assets/logo/logo_splashscreen.png)
 
-## Current Status: v0.5.0 - Exploration & Progression 🟡 IN FLIGHT
+## Current Status: v0.5.x — Playable single-system foundation 🟡 IN FLIGHT
 
-The v0.4.0 building & logistics overhaul shipped — **52 building types** with per-body resource stockpiles, player- and AI-driven freighters, and a native Bevy shipbuilding workspace. The v0.5.0 survey rework is **mostly shipped**: the eight-dimension discovery model, six RON-driven data files, a 9-mission roster, anomaly confidence, and the dossier `SURVEY` tab are live on `main`. The notification / event system, the personnel data layer, and the transfer-planner porkchop plot & Lagrange transfers all shipped in May–June 2026. The Personnel panel UI is the last remaining v0.5 surface. See `ROADMAP.md` for the per-item status and the path to v1.0.
+The repository is ahead of the original v0.5 roadmap snapshot. The core single-system loop is playable: survey bodies, build colonies, mine and consume physical resources, move freight, research technologies, design ships, and plan analytic orbital transfers. The survey rework, personnel roster UI, notification/event system, save/load pipeline, asteroid presentation, and resource depletion forecasting are now present on `main`. Interstellar bodies are still represented by nearby-star data plus procedural fallback; the NASA exoplanet CSV is not loaded at runtime. AI factions, diplomacy, combat, cross-system logistics, and late-game Kardashev mechanics remain future work. See `ROADMAP.md` for the verified scope and next milestones.
 
 ## Features
 
@@ -75,12 +75,13 @@ The v0.4.0 building & logistics overhaul shipped — **52 building types** with 
   - **Continuous orbital survey station** (PR-E) — mining-yield bonus 5/10/15% at tier 1/2/3
   - **Confidence decay** (0.5%/sim-year without measurements) rewards ongoing presence over one-shot missions
 
-- **Personnel (v0.5.0, data layer shipped; UI pending)**
+- **Personnel (v0.5.x, shipped)**
   - **Scientist component** with **8 specialties** (Geology, Atmospherics, Biology, Geophysics, …) and **3 seniority tiers** (Junior, Senior, Principal)
   - Specialty → analysis-job multiplier (matched ×1.5, mismatched ×0.7); seniority → throughput & quality
   - **Seniority promotion** driven by completed analysis jobs
   - **Personnel cap** gated by tech (`scientific_administration`), soft-capped with 5%/scientist penalty
-  - **University** building produces scientists (~1 junior per 5 sim-years); **PersonnelRoster** UI is the last v0.5 surface
+  - **University** building produces scientists (~1 junior per 5 sim-years)
+  - **Personnel roster UI** with sorting, pagination, specialty/seniority/status display, hire dialog, assignment view, and optional auto-assignment
 
 - **Notifications & Event System (v0.5.0, shipped)**
   - **Toast-style HUD overlay** (top-right) with auto-dismiss + click-dismiss + pause-on-event
@@ -111,7 +112,7 @@ The v0.4.0 building & logistics overhaul shipped — **52 building types** with 
   - **60+ nearest star systems** from real astronomical catalogs (NASA Exoplanet Archive)
   - Starmap view for interstellar navigation
   - Real star data including spectral types, masses, luminosities, and metallicities
-  - **Confirmed exoplanets** module (`src/astronomy/exoplanets.rs`) — `ConfirmedPlanet` struct + `RealPlanet` marker staged; CSV ingestion from `Exoplanets_NASA.csv` deferred to v0.6 interstellar travel (see `assets/data/README.md`); procedural fallback covers systems without confirmed planets today
+  - **Confirmed exoplanets** module (`src/astronomy/exoplanets.rs`) — `ConfirmedPlanet` struct + `RealPlanet` marker are staged; CSV ingestion from `Exoplanets_NASA.csv` is deferred to v0.6 (see `assets/data/README.md`); procedural fallback covers systems without confirmed planets today
   - Procedural system generation for visited stars
   - **Interstellar probe** tech (tier 5) unlocks flyby of bodies in other star systems
 
@@ -127,8 +128,10 @@ The v0.4.0 building & logistics overhaul shipped — **52 building types** with 
   - Fleet Panel: Full fleet management — spawn fleets, select transfer options, **porkchop plot planner**, gravity assists, **Lagrange-point routing (L1–L5 + star-approach parking-radius picker)**, refuel, abort maneuvers, and **assign a fleet to a resource request**
   - Shipbuilding Panel: Native Bevy workspace for hull design, engineering-linked component selection, construction queueing, archive review, and **freighter template selection**
   - **Notifications overlay**: top-right toast panel + dedicated settings modal
-  - **Save / Load Panels**: named save slots with overwrite confirmation, in-game map thumbnails, campaign statistics and resources, Kardashev history preview, explicit Load confirmation, and save deletion; Back returns to the menu or running game that opened the panel
-  - **Personnel Panel** (UI pending; data layer shipped): scientist roster, analysis-queue assignment, seniority & specialty filters
+  - **Save / Load Panels**: named slots, overwrite confirmation, previews/thumbnails, metadata, explicit load confirmation, deletion, in-game return flow, and rolling autosaves
+  - **Personnel Panel**: scientist roster, hiring, sorting/pagination, assignments, seniority and specialty display, and auto-assignment
+  - **Intel Panel**: early-game milestone progress is exposed as a dedicated Intel submenu
+  - **Economy Forecast**: resource-by-resource 20-year depletion/growth projections, reserve caps, and resource-bar previews/popups
 
 - **Time Control**: Variable simulation speed (1 day/s to 1 year/s)
 - **Debug Inspector**: Integrated inspector using bevy_inspector_egui for runtime entity inspection
@@ -232,18 +235,18 @@ helios_ascension/
 ├── src/
 │   ├── main.rs              # Application entry point
 │   ├── lib.rs               # Library root
-│   ├── game_state.rs        # Top-level state machine (GameMenu, AppState, Personnel menu stub)
+│   ├── game_state.rs        # Top-level menu and launch state types
 │   ├── astronomy/           # Orbital mechanics, ephemeris, exoplanets, nearby stars, Lagrange helpers
 │   ├── colony/              # Colony management, buildings, construction, founding flow
 │   ├── economy/             # Resources, budget, energy grid, logistics, AI shipping companies, mining
 │   ├── fleets/              # Fleet management, orbital mechanics, porkchop, Lagrange transfers
-│   ├── personnel/           # Scientists (data layer shipped; UI pending)
+│   ├── personnel/           # Scientists, hiring, promotion, assignments
 │   ├── research/            # Technology tree, engineering, and unlock catalogs
 │   ├── shipbuilding/        # Data-driven hulls, modules, projects, refit, and slipways
 │   ├── ships/               # Hull templates, migration shims
 │   ├── survey/              # v0.5.0 survey rework: 8-dimension state, missions, anomalies, instruments
 │   ├── plugins/             # Bevy plugin modules (camera, solar_system, starmap, music, …)
-│   └── ui/                  # All UI panels (dossier, construction, research, economy, fleets, shipbuilding, notifications, transfer_planner, porkchop, theme tokens)
+│   └── ui/                  # Egui panels, launch/save UI, personnel, forecast, notifications, transfer planning, theme tokens
 ├── assets/
 │   ├── data/                # RON data: buildings, tech, ships, freighter templates, notifications, porkchop config, survey/
 │   └── textures/            # Textures and visual assets (celestial bodies, UI)
@@ -258,16 +261,16 @@ The game uses a modular plugin architecture built on Bevy's ECS (Entity Componen
 
 - **CameraPlugin**: 3D camera movement and automatic view transitions
 - **SolarSystemPlugin**: Manages celestial bodies and orbital mechanics
-- **AstronomyPlugin**: High-precision Keplerian orbital mechanics, ephemeris, nearby-stars catalog, **exoplanet data model staged for v0.6 ingestion**
+- **AstronomyPlugin**: Keplerian orbital mechanics, ephemeris, nearby-stars catalog, asteroid/comet generation, Lagrange helpers, and staged exoplanet data model
 - **ColonyPlugin**: Colony management with **52 building types** (tiers, synergies, 4–6-resource maintenance, atmosphere availability)
 - **EconomyPlugin**: Per-body resource stockpiles, production, consumption, budget tracking, **resource request lifecycle, private shipping company AI, auto-freight dispatch, per-trip cargo-cap**
 - **ResearchPlugin**: Technology tree progression plus engineering targets used by ship module families; **GRA-127 tier-1 paid research_cost**
 - **SurveyPlugin** (v0.5.0): 8-dimension `SurveyState`, 9-mission roster, anomaly confidence, failure modes, recovery missions, orbital survey station
-- **PersonnelPlugin** (v0.5.0): Scientist data layer (specialty, seniority, hire, promote) — UI panel pending
+- **PersonnelPlugin** (v0.5.x): Scientist data layer (specialty, seniority, hire, promote); roster UI in `ui/personnel_panel.rs`
 - **NotificationsPlugin** (v0.5.0): toast panel, settings modal, event bridges, coalesce, click-to-focus
 - **FleetPlugin**: Fleet management, orbital transfer planning, gravity assists, **porkchop plot**, **Lagrange-point routing**, **star-approach parking-radius picker**, trajectory rendering, **manual freight assignment**
 - **ShipbuildingPlugin**: Canonical hull/module data, construction queues, design summaries, **freighter template system + legacy `standard_freighter` migration shim**
-- **UIPlugin**: Dashboard with time controls and interactive panels (theme tokens, layout primitives, tab strip, focus rings), including the native shipbuilding workspace, the dossier SURVEY ledger, the per-body resource bar with in-transit indicator, the notifications overlay, and the transfer-planner porkchop
+- **UIPlugin**: Dashboard with time controls, launch/save/load screens, theme/layout primitives, native shipbuilding workspace, dossier SURVEY ledger, resource forecast previews, personnel roster, Intel milestones, notifications overlay, and transfer-planner porkchop
 - **StarmapPlugin**: Interstellar navigation, system icons, visibility toggle, **interstellar probe** support
 
 ## Controls

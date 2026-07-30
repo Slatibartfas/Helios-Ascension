@@ -1,20 +1,23 @@
 # Helios Ascension — Development Roadmap
 
-This roadmap tracks the path from the current 0.5.0 release (a working single-system 4X with deep logistics, eight-dimension survey, notifications, porkchop planner, and Lagrange-point transfers) toward **v1.0** — a hard-sci-fi 4X grand-strategy game with realistic orbital mechanics, Kardashev-scale progression, and deep interstellar simulation.
+This roadmap tracks the path from the current **v0.5.x playable single-system foundation** toward **v1.0** — a hard-sci-fi 4X grand-strategy game with realistic orbital mechanics, Kardashev-scale progression, and deep interstellar simulation. Status is based on the code and tests currently on `main`, not on historical issue labels or stale design notes.
 
 Each section below lists the goal, the per-item status (✅ shipped · 🟡 in flight · ⬜ planned · 🔒 deferred), and pointers to the design spec / implementation file. Milestones roll up into the long-horizon vision at the bottom of the document.
 
 ---
 
-## Current Status: v0.5.0 — Exploration & Progression 🟡 IN FLIGHT
+## Current Status: v0.5.x — Playable single-system foundation 🟡 IN FLIGHT
 
-The 0.4.0 building & logistics overhaul is fully shipped. v0.5.0 is mostly shipped as a series of PRs landed between May and June 2026:
+The building/logistics and exploration foundations are shipped, with the project now consolidating the playable single-system loop before interstellar expansion:
 
 - ✅ Survey rework (eight-dimension model, 9-mission roster, anomaly confidence, recovery missions, continuous orbital survey station, dossier `SURVEY` ledger) — GRA-79 → GRA-114
 - ✅ Notification / event system (toast panel, settings modal, event bridges, coalesce, click-to-focus, pause-on-event) — GRA-135 → GRA-142
 - ✅ Transfer planner hardening (porkchop plot, Lagrange routing L1–L5, star-approach parking-radius picker) — GRA-149 → GRA-162
-- 🟡 Personnel system (data layer shipped: `Scientist` component, 8 specialties, 3 seniority tiers, hire & promotion systems; `PersonnelRoster` UI panel pending — design contract in `docs/UI.md` §8.3)
-- 🟡 Progressive expansion (5.3) — outpost founding flow shipped; probes → rovers → stations → bases fleet is partially modelled; fuel depots and asteroid mining UI still pending
+- ✅ Personnel system and roster UI (`src/personnel/`, `src/ui/personnel_panel.rs`) — roster sorting/pagination, hiring, assignment display, and auto-assignment are present
+- 🟡 Progressive expansion — outpost founding is playable; probe/rover/station/base pipelines and fuel depots remain incomplete
+- ✅ Save/load foundation — v2 regenerate-from-seed StateStore, named slots, previews, manual save, load, deletion, and rolling autosaves are present
+- ✅ Resource depletion forecasting — 20-year projections, survey-aware reserve bounds, reserve-cap clamping, and resource-bar previews are present
+- ✅ Asteroid presentation and data foundation — procedural shape/material variation and asteroid metadata are present; detailed JPL small-body ingestion remains deferred
 - ✅ 5-ship Day-1 constellation at the 2026-01-01 JPL epoch — GRA-128
 - ✅ 9 new survey / personnel / geology techs (GRA-106) + tier-1 paid `research_cost` rebalance (GRA-127)
 
@@ -38,7 +41,7 @@ The 0.4.0 release shipped a workable end-to-end logistics loop, but late-game pl
 | Logistics network congestion / routing (traffic awareness, lane capacity, priority preemption) | 🔒 | Deferred; needs a real congestion model before priority preemption pays off |
 | Uranium default minimum for fission colonies | ✅ | Shipped with GRA-31 PR-C |
 | Company fleet icons on starmap | 🔒 | Deferred; surface after starmap icon system is generalised (0.6+) |
-| Save / load | 🔒 | Deferred to v1.0 |
+| Save / load | ✅ | v2 StateStore persistence, named slots, load previews, manual save, and autosaves are wired; visual sidecar reattachment and compatibility hardening continue |
 
 ### Open questions for LGD (logistics depth vs game pacing)
 
@@ -55,7 +58,7 @@ See `helios-lgd/docs/design/` for the working design notes.
 
 ## v0.5.0 — Exploration & Progression 🟡 IN FLIGHT
 
-Sequential exploration where you send probes first, then rovers, establish stations, then bases. The survey rework (5.1) and notification system (5.4) are **shipped**; the personnel system (5.2) is **data layer shipped / UI pending**; 5.3 is **partially shipped**.
+Sequential exploration where you send probes first, then rovers, establish stations, then bases. The survey rework (5.1), personnel system (5.2), notification system (5.4), and transfer planner hardening (5.5) are shipped; progressive expansion (5.3) remains partial.
 
 ### 5.1 Survey System Rework ✅ MOSTLY SHIPPED
 - ✅ Remove three-tier survey system — replaced by the 8-dimension tiered model (PR #140 / GRA-98, 2026-06-10)
@@ -69,14 +72,14 @@ Sequential exploration where you send probes first, then rovers, establish stati
 - ✅ Failure modes & recovery missions (probe loss, rover stuck, drill bit stuck, solar storm, crew injury) — GRA-85, PR #148
 - ✅ Mining-efficiency curve rebalance (GRA-117, PR #162)
 
-### 5.2 Personnel System 🟡 PARTIAL
+### 5.2 Personnel System ✅ SHIPPED
 - ✅ Scientists for survey missions and research — `Scientist` component, 8 specialties, 3 seniority tiers in `src/personnel/`
 - ✅ Personnel training and advancement — `seniority_promotion` system live; driven by completed survey missions
 - ✅ `hire_scientists` system produces scientists from `University` buildings
-- 🟡 Personnel Roster UI panel — `GameMenu::Personnel` stub in `dashboard.rs:1249`; design contract in `docs/UI.md` §8.3; implementation in `src/ui/personnel_panel.rs` not yet started
+- ✅ Personnel Roster UI — `src/ui/personnel_panel.rs`: sortable/paginated roster, status and assignment display, hire dialog, settings, and optional auto-assignment
 - ⬜ Generals for fleet operations (v0.6 candidate) — design contract TBD
 - ⬜ Governors for colony management (v0.6 candidate) — design contract TBD
-- ⬜ Auto-assign heuristics for scientists → analysis jobs
+- ✅ Auto-assign heuristics for scientists → analysis jobs (basic matching path)
 
 ### 5.3 Progressive Expansion 🟡 PARTIAL
 - ✅ Outpost founding flow (`EstablishOutpostRequest`) with habitability gate, atmosphere requirements, starter-package buildings, and per-person running costs
@@ -113,16 +116,15 @@ Sequential exploration where you send probes first, then rovers, establish stati
 
 ---
 
-## v0.5.x — Personnel UI & Progressive-Expansion Close-Out 🟡 NEXT
+## v0.5.x — Progressive-Expansion Close-Out 🟡 NEXT
 
-The personnel system is the only v0.5 surface still missing UI. The progressive-expansion close-out fills the 5.3 gaps above. Both are small Rust deltas; mostly RON, UI wiring, and existing-system hooks.
+The personnel surface is now shipped. The remaining v0.5.x work is progressive expansion, personnel polish, forecast/economy balancing, and persistence hardening.
 
-### 5.x.1 Personnel UI
-- ⬜ `src/ui/personnel_panel.rs` — scientist roster (filter by specialty, seniority, current assignment)
-- ⬜ Analysis-queue sub-panel: assign / unassign scientists to analysis jobs
-- ⬜ `University` building production view (junior / senior / principal pipeline)
-- ⬜ Personnel cap visualisation (soft-cap penalty indicator)
-- ⬜ Promotion history view (per-scientist career timeline)
+### 5.x.1 Personnel polish
+- ✅ Core roster panel, hiring, sorting/pagination, assignment display, and auto-assignment
+- ⬜ Analysis-queue UX polish: richer assign/unassign controls and job detail
+- ⬜ University production and personnel-cap visualisation
+- ⬜ Promotion history view and explicit injury/recovery presentation
 
 ### 5.x.2 Progressive Expansion Close-Out
 - ⬜ Probe deployment UI (build & launch probe from Shipbuilding workspace; auto-attached to a survey mission)
@@ -234,7 +236,7 @@ The Kardashev scale is the spine of the long game. Progression from K0.7 (curren
 
 - ⬜ Feature complete against the 4X hard-sci-fi vision
 - ⬜ Balanced gameplay (mining, research, economy, expansion)
-- ⬜ **Save / load** (the persistence layer; gates the post-release community)
+- ⬜ **Save / load hardening** (compatibility policy, broader visual restoration, and long-session validation)
 - ⬜ Full documentation (README, ROADMAP, ARCHITECTURE, all `docs/`)
 - ⬜ Tutorial system (mission-guided intro to survey → construction → expansion)
 - ⬜ Bug fixing & community feedback integration
@@ -291,7 +293,7 @@ The Kardashev scale is the spine of the long game. Progression from K0.7 (curren
 - Per-trip freight cap (fleet cargo splits remainder across trips) — GRA-119
 - Game-start & outpost `MinimumStockpile` defaults aligned with life-support scale — GRA-31 PR-C
 
-### v0.5.0 — Exploration & Progression (🟡 IN FLIGHT — most shipped)
+### v0.5.x — Exploration, Progression & Consolidation (🟡 IN FLIGHT)
 - 8-dimension survey rework (6 RON files, 9-mission roster, anomaly confidence model, dossier SURVEY tab) — shipped 2026-06-08
 - Scientist data layer (specialty, seniority, hiring, promotion) — shipped
 - 9 new survey / personnel / geology techs (GRA-106) — shipped
@@ -300,10 +302,12 @@ The Kardashev scale is the spine of the long game. Progression from K0.7 (curren
 - Lagrange-point transfers L1 / L2 / L3 / L4 / L5 (GRA-154 → GRA-156) — shipped
 - Star-approach parking-radius picker (GRA-161) — shipped
 - 5-ship Day-1 constellation at the 2026-01-01 JPL epoch — GRA-128
-- Generals / Governors / Personnel Roster UI — **pending**
+- Personnel Roster UI — **shipped**
+- Save/load StateStore, manual slots, previews, deletion, and autosaves — **shipped**
+- Resource depletion forecast and asteroid presentation — **shipped**
 
 ### Upcoming (next)
-- v0.5.x — Personnel UI, progressive-expansion close-out (probe/rover/asteroid/fuel-depot/station)
+- v0.5.x — Progressive-expansion close-out, personnel polish, forecast/economy balancing, and save/load hardening
 - v0.6.0 — Interstellar travel & multi-system simulation
 - v0.7.0 — AI factions, diplomacy, combat
 - v0.8.0 — Terraforming & megastructures
@@ -334,15 +338,14 @@ The roadmap above is the path to that vision. v1.0 is not the end of the project
 Want to help? See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 Priority areas for contribution:
-1. **Personnel UI** (v0.5.x) — `src/ui/personnel_panel.rs` from the `docs/UI.md` §8.3 design contract
-2. **Progressive expansion close-out** (v0.5.x) — probe / rover / fuel-depot / station pipelines
-3. **Save / load** (v1.0) — the persistence layer is the largest single blocker to v1.0
-4. **Mega / Gigaton freighter hulls** — design accepted at `docs/design/MEGA_GIGATON_FREIGHTER_TIERS.md`
-5. **Modding surface** — additional RON-driven surfaces to reduce the Rust-mod surface
-6. **Game balance** — mining yield curves, research pacing, economy dynamics
+1. **Progressive expansion close-out** (v0.5.x) — probe / rover / fuel-depot / station pipelines
+2. **Save/load hardening** (v0.5.x/v1.0) — compatibility policy, broader visual restoration, and long-session soak testing
+3. **Mega / Gigaton freighter hulls** — design accepted at `docs/design/MEGA_GIGATON_FREIGHTER_TIERS.md`
+4. **Modding surface** — additional RON-driven surfaces to reduce the Rust-mod surface
+5. **Game balance** — mining yield curves, research pacing, economy dynamics
 
 ---
 
 *This roadmap is subject to change based on development priorities.*
 
-Last Updated: 2026-06-28
+Last Updated: 2026-07-29
