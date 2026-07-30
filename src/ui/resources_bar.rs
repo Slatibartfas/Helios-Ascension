@@ -8,7 +8,7 @@ use super::time::{
 };
 use super::*;
 
-fn get_resource_category_icon(category: &str) -> &'static str {
+pub(super) fn get_resource_category_icon(category: &str) -> &'static str {
     match category {
         "Biological" => "\u{1F35E}",       // 🍞
         "Volatiles" => "\u{1F4A7}",        // 💧

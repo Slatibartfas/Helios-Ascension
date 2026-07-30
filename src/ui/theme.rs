@@ -99,6 +99,8 @@ pub const ICON_INACTIVE: egui::Color32 = egui::Color32::from_rgb(190, 205, 225);
 
 // ─── Resource Category Colours ───────────────────────────────────────────
 
+/// Biological (Food)
+pub const CAT_BIOLOGICAL: egui::Color32 = egui::Color32::from_rgb(200, 230, 140);
 /// Volatiles (Water, H₂, NH₃…)
 pub const CAT_VOLATILES: egui::Color32 = egui::Color32::from_rgb(80, 190, 255);
 /// Atmospheric gases
@@ -803,6 +805,7 @@ pub fn stat_row_with_tooltip(ui: &mut egui::Ui, label: &str, value: &str, toolti
 /// Get colour for a resource category name.
 pub fn category_color(category: &str) -> egui::Color32 {
     match category {
+        "Biological" => CAT_BIOLOGICAL,
         "Volatiles" => CAT_VOLATILES,
         "Atmospheric Gases" => CAT_ATMOSPHERIC,
         "Construction" => CAT_CONSTRUCTION,
