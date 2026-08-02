@@ -67,7 +67,16 @@ pub fn calculate_colony_power_totals(
 
         for modifier in &def.modifiers {
             if modifier.modifier_type == "PowerGeneration" {
-                produced_watts += modifier.value * count as f64 * 1_000_000_000.0;
+                // RON `PowerGeneration` values are expressed in **MW per
+                // unit** (not GW). Multiplying by 1e9 here inflated every
+                // generator ~1000× and pushed `spare_power_mw` into the
+                // 1e8–1e9 range, so the "Not enough energy" gate in the
+                // construction menu could never fire at sane batch sizes.
+                // The earlier 1e9 multiplier is a holdover from when the
+                // values were stored in GW. Keeping the factor at 1e6 (MW
+                // → W) makes the operator-bar totals (≈3.65 TW for Earth
+                // seed) line up with what the UI shows.
+                produced_watts += modifier.value * count as f64 * 1_000_000.0;
             }
         }
 

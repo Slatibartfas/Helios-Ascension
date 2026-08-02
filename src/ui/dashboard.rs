@@ -1278,7 +1278,9 @@ pub(crate) fn ui_dashboard(
                             }
                         }
                         GameMenu::Construction => {
-                            // Handled by ui_construction_panels system
+                            // The Construction panel is now a bevy_ui
+                            // menu (`src/ui/construction.rs`); the F4
+                            // key opens it. No egui system here.
                             ui.label("Switch to full Construction view for details.");
                         }
                         GameMenu::Research => {

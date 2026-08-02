@@ -1060,24 +1060,78 @@ pub fn setup_solar_system(
             let mut colony = Colony::new_civilisation("Earth".to_string(), 8.2e9); // 8.2 Billion
 
             // Add initial infrastructure
+            //
+            // v0.5.1 canary-1: food per-build downscaled (Farm 1,000→360,
+            // Greenhouse 500→200, Aquaculture 750→200 — these are the
+            // hard-coded values in `Colony::food_production_per_year`, the
+            // simulation does NOT read the RON `FoodProduction` modifier)
+            // and per-capita demand corrected (0.0001 → 0.0000011, the
+            // 1,100 kg/p/yr = 1.1 × 10⁻⁶ Mt/p/yr unit conversion that v0.5
+            // canary-1 had wrong by 1,000×).
+            //
+            // v0.5 canary-1: starting counts calibrated for the new
+            // per-build values. 25 Farms × 360 = 9,000 Mt/yr ≈ 8.2B ×
+            // 0.0000011 = 9,020 Mt/yr (FAO 2024 SOFA). 25 lands in the
+            // middle of the 10–50 manageable-count band. Greenhouses and
+            // Aquaculture are supplemental buffers (10 each — bumped from
+            // 3 in v0.5.1 because 3 was below the 10–50 band and looked
+            // too coarse at the per-colony level).
+            //
+            // Other building counts (Mine, Refinery, etc.) are unchanged
+            // in canary 1; they will be revised in canary 2 / roll-forward
+            // when their per-build values land.
+            //
+            // Reference: docs/design/BALANCE_PATCHES_v0.5.md §8.8 canary 1.
             let base_buildings = [
                 // Housing: scaled for population capacity
                 (BuildingType::Housing, 400),
-                // Food: 820 Farms × 1,000 Mt/yr = 820,000 Mt/yr → feeds 8.2B ✓
-                (BuildingType::Farm, 820),
-                // Greenhouses: trimmed to a modest buffer above baseline food demand.
-                (BuildingType::Greenhouse, 60),
-                // Aquaculture: retained as a smaller supplemental protein buffer.
-                (BuildingType::AquacultureFacility, 20),
-                // Industry (scaled for ~2.8 TW consumption with room to build more)
-                // These are reduced from full Earth capacity to give player building room
+                // Food (v0.5.1 canary-1 calibrated): 25 Farms × 360 Mt/yr
+                // = 9,000 Mt/yr ≈ 8.2B × 1,100 kg/p/yr = 9,020 Mt/yr.
+                (BuildingType::Farm, 25),
+                // Greenhouses: supplemental buffer (10 × 200 = 2,000 Mt/yr
+                // = 22% of demand — modest surplus on top of Farms).
+                (BuildingType::Greenhouse, 10),
+                // Aquaculture: supplemental buffer (10 × 200 = 2,000 Mt/yr
+                // = 22% of demand — seafood specialty).
+                (BuildingType::AquacultureFacility, 10),
+                // v0.5.2: per-resource dedicated mines — 25 of each
+                // (manageable-count band, calibrated so 25 × base_yield ×
+                // 0.6 Earth accessibility ≈ world demand). See
+                // BALANCE_PATCHES_v0.5.md §5.2–§5.20 for per-resource
+                // yields.
                 (BuildingType::Factory, 1_200),
-                (BuildingType::Mine, 2_000),
-                (BuildingType::Refinery, 500),
+                // Construction (9)
+                (BuildingType::IronMine, 25),
+                (BuildingType::AluminumMine, 25),
+                (BuildingType::TitaniumMine, 25),
+                (BuildingType::SilicatesMine, 25),
+                (BuildingType::NickelMine, 25),
+                (BuildingType::TungstenMine, 25),
+                (BuildingType::CarbonMine, 25),
+                (BuildingType::ChromiumMine, 25),
+                (BuildingType::MagnesiumMine, 25),
+                // Precious (3 — v0.5.1)
+                (BuildingType::GoldMine, 25),
+                (BuildingType::SilverMine, 25),
+                (BuildingType::PlatinumMine, 25),
+                // Strategic (6)
+                (BuildingType::CopperMine, 25),
+                (BuildingType::RareEarthsMine, 25),
+                (BuildingType::LithiumMine, 25),
+                (BuildingType::SulfurMine, 25),
+                (BuildingType::PhosphorusMine, 25),
+                (BuildingType::CobaltMine, 25),
+                (BuildingType::FluorineMine, 25),
+                // Fissile (2)
+                (BuildingType::UraniumMine, 25),
+                (BuildingType::ThoriumMine, 25),
+                // Hydrocarbons (1)
+                (BuildingType::MethaneExtractor, 25),
+                // Heavy water (1)
+                (BuildingType::DeuteriumExtractor, 25),
+                // Generic industry
                 (BuildingType::ChemicalPlant, 700),
-                (BuildingType::HydrocarbonExtractor, 300),
                 (BuildingType::AtmosphericProcessor, 300),
-                (BuildingType::RecyclingCenter, 300),
                 // Power: effective-output 2026 baseline tuned for the coal/renewables flip
                 // visible in 2025-2026 generation data.
                 // Effective mix: Coal ~32.0%, Gas ~22.2%, Hydro ~15.2%, Nuclear ~9.9%,

@@ -187,6 +187,31 @@ pub fn process_construction_actions(
 ) {
     let now = sim_time.elapsed_seconds();
 
+    // v0.5.2 Mining tab: direct inventory edits (no BP / build time).
+    // Applied immediately so the next frame's UI shows the new count.
+    // Positive delta = add N, negative = remove N (clamped to current).
+    for (colony_entity, building_type, delta) in actions.mining_edits.drain(..) {
+        let Ok(mut colony) = colonies.get_mut(colony_entity) else {
+            continue;
+        };
+        if delta > 0 {
+            for _ in 0..delta {
+                colony.add_building(building_type);
+            }
+        } else if delta < 0 {
+            colony.remove_buildings(building_type, (-delta) as u32);
+        }
+        // Emit a single ConstructionEvent per edit batch so the
+        // production / upkeep / workforce systems can refresh.
+        construction_events.write(ConstructionEvent::Completed {
+            colony: colony_entity,
+            building: building_type,
+        });
+        // Mark this body dirty so the v2 extract path picks up
+        // the new production rate on the next tick.
+        dirty.mark(colony_entity, crate::economy::DirtyReason::Body);
+    }
+
     // Start new projects
     for (colony_entity, building_type) in actions.start_construction.drain(..) {
         if colonies.get(colony_entity).is_err() {
@@ -945,7 +970,7 @@ mod tests {
 
         // Add mines without logistics
         for _ in 0..5 {
-            colony.add_building(BuildingType::Mine);
+            colony.add_building(BuildingType::IronMine);
         }
         let without_logistics = colony.mining_output_multiplier();
         assert!(
@@ -1017,7 +1042,7 @@ mod tests {
         use std::collections::HashMap;
         let mut defs: HashMap<BuildingType, BuildingDefinition> = HashMap::new();
         defs.insert(
-            BuildingType::Refinery,
+            BuildingType::CopperMine,
             BuildingDefinition {
                 id: "Refinery".to_string(),
                 display_name: "Refinery".to_string(),
@@ -1040,6 +1065,8 @@ mod tests {
                 synergy: vec![],
                 available_atmospheres: vec![AtmosphereKind::Breathable, AtmosphereKind::None],
                 required_anomalies: vec![],
+            allowed_body_types: vec![],
+            replaces_in_line: None,
             },
         );
         BuildingsData { definitions: defs }
@@ -1052,7 +1079,7 @@ mod tests {
         // local Water stockpile.  At ×1.00 yield the Refinery draws
         // exactly 0.5 Mt/yr of Water → years_remaining = 10.0 yr.
         let mut colony = Colony::new_civilisation("Earth".to_string(), 1_000_000.0);
-        colony.add_building(BuildingType::Refinery);
+        colony.add_building(BuildingType::CopperMine);
 
         let mut stockpile = std::collections::HashMap::new();
         stockpile.insert(ResourceType::Water, 5.0);
@@ -1091,7 +1118,7 @@ mod tests {
         // so a 5.0 Mt stockpile lasts 100 years — i.e. 10× longer than
         // the civilisation case.
         let mut colony = Colony::new("Moon".to_string(), 5_000.0);
-        colony.add_building(BuildingType::Refinery);
+        colony.add_building(BuildingType::CopperMine);
 
         let mut stockpile = std::collections::HashMap::new();
         stockpile.insert(ResourceType::Water, 5.0);
@@ -1179,6 +1206,8 @@ mod tests {
                 synergy: vec![],
                 available_atmospheres: vec![AtmosphereKind::Breathable, AtmosphereKind::None],
                 required_anomalies: vec![],
+            allowed_body_types: vec![],
+            replaces_in_line: None,
             },
         );
         defs.insert(
@@ -1208,6 +1237,8 @@ mod tests {
                 synergy: vec![],
                 available_atmospheres: vec![AtmosphereKind::Breathable, AtmosphereKind::None],
                 required_anomalies: vec![],
+            allowed_body_types: vec![],
+            replaces_in_line: None,
             },
         );
         BuildingsData { definitions: defs }
@@ -1223,7 +1254,7 @@ mod tests {
         use std::collections::HashMap;
         let mut defs: HashMap<BuildingType, BuildingDefinition> = HashMap::new();
         defs.insert(
-            BuildingType::Mine,
+            BuildingType::IronMine,
             BuildingDefinition {
                 id: "Mine".to_string(),
                 display_name: "Mine".to_string(),
@@ -1262,10 +1293,12 @@ mod tests {
                 ],
                 available_atmospheres: vec![AtmosphereKind::Breathable, AtmosphereKind::None],
                 required_anomalies: vec![],
+            allowed_body_types: vec![],
+            replaces_in_line: None,
             },
         );
         defs.insert(
-            BuildingType::Refinery,
+            BuildingType::CopperMine,
             BuildingDefinition {
                 id: "Refinery".to_string(),
                 display_name: "Refinery".to_string(),
@@ -1291,6 +1324,8 @@ mod tests {
                 synergy: vec![],
                 available_atmospheres: vec![AtmosphereKind::Breathable, AtmosphereKind::None],
                 required_anomalies: vec![],
+            allowed_body_types: vec![],
+            replaces_in_line: None,
             },
         );
         defs.insert(
@@ -1320,6 +1355,8 @@ mod tests {
                 synergy: vec![],
                 available_atmospheres: vec![AtmosphereKind::Breathable, AtmosphereKind::None],
                 required_anomalies: vec![],
+            allowed_body_types: vec![],
+            replaces_in_line: None,
             },
         );
         BuildingsData { definitions: defs }
@@ -1453,9 +1490,9 @@ mod tests {
     #[test]
     fn test_synergy_recompute_mine_with_refineries_and_factory() {
         let mut colony = Colony::new_civilisation("Earth".to_string(), 1_000_000.0);
-        colony.add_building(BuildingType::Mine);
-        colony.add_building(BuildingType::Refinery);
-        colony.add_building(BuildingType::Refinery);
+        colony.add_building(BuildingType::IronMine);
+        colony.add_building(BuildingType::CopperMine);
+        colony.add_building(BuildingType::CopperMine);
         colony.add_building(BuildingType::Factory);
 
         let mut app = App::new();
@@ -1503,8 +1540,8 @@ mod tests {
     #[test]
     fn test_synergy_recompute_under_threshold_inactive() {
         let mut colony = Colony::new_civilisation("Mars".to_string(), 1_000_000.0);
-        colony.add_building(BuildingType::Mine);
-        colony.add_building(BuildingType::Refinery);
+        colony.add_building(BuildingType::IronMine);
+        colony.add_building(BuildingType::CopperMine);
         // 1 Refinery: MiningEfficiency rule needs 2 → inactive
         // 0 Factories: ConstructionSpeed rule needs 1 → inactive
 
@@ -1578,6 +1615,8 @@ mod tests {
                 synergy: vec![],
                 available_atmospheres: vec![AtmosphereKind::Breathable, AtmosphereKind::None],
                 required_anomalies: vec![],
+            allowed_body_types: vec![],
+            replaces_in_line: None,
             },
         );
         BuildingsData { definitions: defs }

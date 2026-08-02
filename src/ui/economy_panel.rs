@@ -751,7 +751,7 @@ pub(super) fn calculate_building_power_profile(
         .modifiers
         .iter()
         .filter(|modifier| modifier.modifier_type == "PowerGeneration")
-        .map(|modifier| modifier.value * count as f64 * 1_000_000_000.0)
+        .map(|modifier| modifier.value * count as f64 * 1_000_000.0)
         .sum();
     let consumed_watts = def.power_demand_mw * count as f64 * 1_000_000.0;
 
@@ -3565,8 +3565,6 @@ fn thread_resources_columns(row_count: usize) -> usize {
 }
 
 /// Color a "years remaining" depletion badge by severity.
-///
-/// Mirrors the helper in `construction_panel::depletion_color`:
 /// green ≥ 10 yr, amber 5–10 yr, red < 5 yr.
 fn forecast_depletion_color(years_remaining: f64) -> egui::Color32 {
     if years_remaining < 5.0 {

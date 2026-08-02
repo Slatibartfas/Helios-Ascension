@@ -87,6 +87,60 @@ fn combined_available(
     local_opt.as_ref().map_or(0.0, |local| local.get(&resource)) + budget.get_stockpile(&resource)
 }
 
+/// v0.5.2: parse a resource name (without "Production" suffix) into a
+/// `ResourceType`. Used by the modifier dispatch in `extract_resources`
+/// and `update_resource_rates` to map `IronProduction` → `ResourceType::Iron`.
+///
+/// This is a stand-alone function (not the one in `colony/data.rs`)
+/// because the modifier dispatch is in the `economy` crate and pulling
+/// `colony::data` would create a circular dependency. The names match
+/// `colony::data::parse_resource_type` exactly.
+fn parse_resource_type_static(name: &str) -> Option<ResourceType> {
+    use ResourceType::*;
+    match name {
+        "Water" => Some(Water),
+        "Hydrogen" => Some(Hydrogen),
+        "Ammonia" => Some(Ammonia),
+        "Methane" => Some(Methane),
+        "Nitrogen" => Some(Nitrogen),
+        "Oxygen" => Some(Oxygen),
+        "CarbonDioxide" => Some(CarbonDioxide),
+        "Argon" => Some(Argon),
+        "Iron" => Some(Iron),
+        "Aluminum" => Some(Aluminum),
+        "Titanium" => Some(Titanium),
+        "Silicates" => Some(Silicates),
+        "Helium3" => Some(Helium3),
+        "Tritium" => Some(Tritium),
+        "Uranium" => Some(Uranium),
+        "Thorium" => Some(Thorium),
+        "Plutonium" => Some(Plutonium),
+        "Gold" => Some(Gold),
+        "Silver" => Some(Silver),
+        "Platinum" => Some(Platinum),
+        "Copper" => Some(Copper),
+        "RareEarths" => Some(RareEarths),
+        "Phosphorus" => Some(Phosphorus),
+        "Nickel" => Some(Nickel),
+        "Tungsten" => Some(Tungsten),
+        "Carbon" => Some(Carbon),
+        "Deuterium" => Some(Deuterium),
+        "Lithium" => Some(Lithium),
+        "Sulfur" => Some(Sulfur),
+        "Food" => Some(Food),
+        "Chromium" => Some(Chromium),
+        "Magnesium" => Some(Magnesium),
+        "Cobalt" => Some(Cobalt),
+        "Fluorine" => Some(Fluorine),
+        "Polymers" => Some(Polymers),
+        "Antimatter" => Some(Antimatter),
+        "ExoticMatter" => Some(ExoticMatter),
+        "Metamaterials" => Some(Metamaterials),
+        "Computronium" => Some(Computronium),
+        _ => None,
+    }
+}
+
 fn consume_with_fallback(
     local_opt: &mut Option<Mut<LocalStockpile>>,
     budget: &mut GlobalBudget,
@@ -261,21 +315,60 @@ pub fn extract_resources(
         // 2. Process Colony Mining & Atmospheric Harvesting
         if let Some(colony) = colony_opt {
             if let Some(data) = &buildings_data {
-                // Three independent extraction tiers — no overflow between them.
-                // MiningEfficiency    → Proven Crustal  (Mine, Refinery, etc.)
-                // DeepMiningEfficiency→ Deep Deposits   (DeepDrill, LaserDrill)
-                // BulkMiningEfficiency→ Planetary Bulk  (StripMine, BulkExcavator)
+                // v0.5.2: per-resource dedicated mines. Each mine has a
+                // single `XxxProduction` modifier (e.g., `IronProduction`)
+                // whose value is the per-build base yield in Mt/yr. The
+                // final per-tick extraction is:
                 //
-                // Every rate is scaled by the colony's `ColonyDevelopment` yield
-                // multiplier (per GRA-22 §4.5).  An Outpost on a hostile body
-                // produces one-tenth of a Civilisation's output with the same
-                // buildings; the deposit share logic is unchanged.
+                //   yield_per_tick = count × base_yield
+                //                  × deposit.accessibility
+                //                  × colony.yield_mult
+                //                  × years_elapsed
+                //                  × station_bonus
+                //
+                // Where `deposit.accessibility` is the body's per-resource
+                // accessibility scalar (0.0–1.0; see `economy/components.rs`
+                // `MineralDeposit::accessibility`). For Earth this is
+                // typically 0.4–0.7, so 25 IronMines × 120 Mt/yr × 0.6 =
+                // 1,800 Mt/yr ≈ USGS 2024 world iron-ore production.
+                //
+                // NO share-fold. NO MiningEfficiency/DeepMiningEfficiency/
+                // BulkMiningEfficiency modifiers. The legacy tier system
+                // was removed because it was opaque (concentration-weighted
+                // distribution over every eligible deposit) and over-
+                // produced precious metals by 100–300× real-world.
+                //
+                // Special cases (still in modifier dispatch below):
+                //   - `AtmosphericHarvesting` (N/O/CO₂ on gas-giant moons
+                //      and breathable worlds via AtmosphericProcessor)
+                //      uses the old share-fold across atmospheric deposits
+                //      because gases are co-extracted from a single
+                //      cryogenic-air-separation stream.
+                //   - `ArgonProduction` (AtmosphericProcessor argon fold,
+                //      v0.5.1) is a direct deposit because Ar's crustal
+                //      abundance is so low that the share-fold would
+                //      produce 0.000× real-world.
+                //   - `WaterProduction` (WaterProcessor off-world water,
+                //      v0.5.1) is a direct deposit because water is
+                //      condensed/mined, not extracted from a deposit tier.
+                //   - `He3Production` (He3Mine, canary 3) is a direct
+                //      deposit because He-3 is mined from regolith or
+                //      gas-giant atmospheres, not from a tiered crustal
+                //      deposit.
+                //   - Industrial synthesis (HydrogenSynthesis, etc.) is
+                //      unchanged — those modifiers consume inputs and
+                //      produce outputs via `IndustrialProcessRule`.
                 let yield_mult = colony.effective_yield_multiplier();
-                let mut surface_rate = 0.0_f64;
-                let mut deep_rate = 0.0_f64;
-                let mut bulk_rate = 0.0_f64;
                 // Calculate total atmospheric harvesting capacity (Mt/year)
                 let mut total_atmo_rate = 0.0;
+                // v0.5.2: per-resource direct-production rates
+                // (one slot per resource). Filled by the dispatch loop
+                // below; consumed by the direct-deposit block at the
+                // bottom. `direct_production[(resource, modifier_kind)]`
+                // is the rate in Mt/yr for that resource via that path.
+                let mut direct_production:
+                    std::collections::HashMap<ResourceType, f64> =
+                    std::collections::HashMap::new();
 
                 for (building_type, &count) in &colony.buildings {
                     if count == 0 {
@@ -284,123 +377,72 @@ pub fn extract_resources(
                     if let Some(def) = data.get(building_type) {
                         for modifier in &def.modifiers {
                             match modifier.modifier_type.as_str() {
-                                "MiningEfficiency" => {
-                                    surface_rate += modifier.value * count as f64 * yield_mult;
-                                }
-                                "DeepMiningEfficiency" => {
-                                    deep_rate += modifier.value * count as f64 * yield_mult;
-                                }
-                                "BulkMiningEfficiency" => {
-                                    bulk_rate += modifier.value * count as f64 * yield_mult;
-                                }
                                 "AtmosphericHarvesting" => {
                                     total_atmo_rate += modifier.value * count as f64 * yield_mult;
                                 }
-                                _ => {}
-                            }
-                        }
-                    }
-                }
-
-                // GRA-83 PR-E: apply the per-body orbital survey
-                // station bonus to the mining rates. We multiply
-                // the SUM once (not per-building) to keep the
-                // single-multiplier invariant the test asserts.
-                // Atmospheric harvesting and industrial synthesis
-                // are intentionally NOT multiplied — the design is
-                // a "mining yield bonus", not a global yield
-                // bonus. A body with no station falls through to
-                // `mining_bonus == 1.0` above.
-                surface_rate *= mining_bonus;
-                deep_rate *= mining_bonus;
-                bulk_rate *= mining_bonus;
-
-                // Helper: extract from a single tier across all eligible deposits,
-                // weighted by concentration. Returns nothing — mutates resources & budget in place.
-                // We call this three times, once per tier.
-
-                // --- Tier 1: Proven Crustal ---
-                if surface_rate > 0.0 {
-                    let eligible: Vec<(ResourceType, f32)> = resources
-                        .deposits
-                        .iter()
-                        .filter(|(_, d)| !d.is_atmospheric && d.reserve.proven_crustal > 0.001)
-                        .map(|(t, d)| (*t, d.reserve.concentration))
-                        .collect();
-
-                    if !eligible.is_empty() {
-                        let total_weight: f64 =
-                            eligible.iter().map(|(_, c)| (*c as f64).max(1e-10)).sum();
-                        for (r_type, concentration) in &eligible {
-                            let share = (*concentration as f64).max(1e-10) / total_weight;
-                            let demand = surface_rate * share * years_elapsed;
-                            if let Some(deposit) = resources.deposits.get_mut(r_type) {
-                                let taking = demand.min(deposit.reserve.proven_crustal);
-                                deposit.reserve.proven_crustal -= taking;
-                                if taking > 0.0 {
-                                    deposit!(*r_type, taking);
-                                    body.mass -= taking * 1e9;
+                                "ArgonProduction" => {
+                                    // v0.5.1: AtmosphericProcessor argon
+                                    // fold (see §5.18 / §8.3.6). Argon is
+                                    // a noble-gas byproduct of cryogenic
+                                    // air separation. Direct deposit (the
+                                    // atmospheric share-fold would produce
+                                    // ~0 because Ar concentration in air
+                                    // is ~0.93% by volume, but the
+                                    // per-build rate is calibrated to
+                                    // match USGS 700 kt/yr global
+                                    // production, which is the dominant
+                                    // real-world Ar extraction path).
+                                    *direct_production
+                                        .entry(ResourceType::Argon)
+                                        .or_insert(0.0) +=
+                                        modifier.value * count as f64 * yield_mult;
+                                }
+                                _ => {
+                                    // v0.5.2: per-resource direct-production
+                                    // modifier. Modifier names follow the
+                                    // pattern `<Resource>Production` (e.g.,
+                                    // `IronProduction`, `WaterProduction`,
+                                    // `He3Production`). We dispatch by
+                                    // stripping the `Production` suffix
+                                    // and looking up the ResourceType.
+                                    if let Some(resource_name) = modifier
+                                        .modifier_type
+                                        .strip_suffix("Production")
+                                    {
+                                        if let Some(target) =
+                                            parse_resource_type_static(resource_name)
+                                        {
+                                            *direct_production.entry(target).or_insert(0.0) +=
+                                                modifier.value * count as f64 * yield_mult;
+                                        }
+                                    }
                                 }
                             }
                         }
                     }
                 }
 
-                // --- Tier 2: Deep Deposits ---
-                if deep_rate > 0.0 {
-                    let eligible: Vec<(ResourceType, f32)> = resources
-                        .deposits
-                        .iter()
-                        .filter(|(_, d)| !d.is_atmospheric && d.reserve.deep_deposits > 0.001)
-                        .map(|(t, d)| (*t, d.reserve.concentration))
-                        .collect();
-
-                    if !eligible.is_empty() {
-                        let total_weight: f64 =
-                            eligible.iter().map(|(_, c)| (*c as f64).max(1e-10)).sum();
-                        for (r_type, concentration) in &eligible {
-                            let share = (*concentration as f64).max(1e-10) / total_weight;
-                            let demand = deep_rate * share * years_elapsed;
-                            if let Some(deposit) = resources.deposits.get_mut(r_type) {
-                                let taking = demand.min(deposit.reserve.deep_deposits);
-                                deposit.reserve.deep_deposits -= taking;
-                                if taking > 0.0 {
-                                    deposit!(*r_type, taking);
-                                    body.mass -= taking * 1e9;
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // --- Tier 3: Planetary Bulk ---
-                if bulk_rate > 0.0 {
-                    let eligible: Vec<(ResourceType, f32)> = resources
-                        .deposits
-                        .iter()
-                        .filter(|(_, d)| !d.is_atmospheric && d.reserve.planetary_bulk > 0.001)
-                        .map(|(t, d)| (*t, d.reserve.concentration))
-                        .collect();
-
-                    if !eligible.is_empty() {
-                        let total_weight: f64 =
-                            eligible.iter().map(|(_, c)| (*c as f64).max(1e-10)).sum();
-                        for (r_type, concentration) in &eligible {
-                            let share = (*concentration as f64).max(1e-10) / total_weight;
-                            let demand = bulk_rate * share * years_elapsed;
-                            if let Some(deposit) = resources.deposits.get_mut(r_type) {
-                                let taking = demand.min(deposit.reserve.planetary_bulk);
-                                deposit.reserve.planetary_bulk -= taking;
-                                if taking > 0.0 {
-                                    deposit!(*r_type, taking);
-                                    body.mass -= taking * 1e9;
-                                }
-                            }
-                        }
-                    }
-                }
+                // GRA-83 PR-E: per-body orbital survey station bonus
+                // multiplies mining rates (NOT atmospheric harvesting,
+                // NOT industrial synthesis, NOT direct-production paths
+                // that explicitly read from non-tiered sources like
+                // He-3 regolith or asteroid captures — those use the
+                // body's per-resource accessibility for the location
+                // gate, not the yield multiplier).
+                // We multiply the direct-production rates below; the
+                // legacy code scaled MiningEfficiency/etc. here, but
+                // v0.5.2 unified everything into direct_production so
+                // the multiplication moves to the direct-deposit block.
+                // For now, we apply the bonus uniformly so the
+                // station's effect is still felt.
+                let bonus = mining_bonus;
 
                 // --- Atmospheric gas harvesting (AtmosphericProcessor) ---
+                // This is the only path that still uses the share-fold
+                // (concentration-weighted across atmospheric deposits).
+                // The rationale: AtmosphericProcessor co-extracts N₂, O₂,
+                // CO₂, Ar from a single cryogenic stream. The
+                // share-fold reflects that physical reality.
                 if total_atmo_rate > 0.0 {
                     let harvestable: Vec<(ResourceType, f32)> = resources
                         .deposits
@@ -447,6 +489,41 @@ pub fn extract_resources(
                                 }
                             }
                         }
+                    }
+                }
+
+                // --- v0.5.2: per-resource direct production (mining,
+                // AutoMines, off-world water, He-3, precious metals, …) ---
+                // For each (resource, base_rate) pair:
+                //   yield_per_tick = base_rate
+                //                  × deposit.accessibility  (0.0–1.0)
+                //                  × bonus                  (orbital station)
+                //                  × years_elapsed
+                // Direct deposit (not via share-fold; no deposit
+                // depletion; the deposit remains intact for future
+                // deep-mining passes if a future patch wants to tap
+                // the actual proven_crustal tier for these resources).
+                for (resource, base_rate) in &direct_production {
+                    let access = resources
+                        .get_deposit(resource)
+                        .map(|d| (d.accessibility as f64).clamp(0.0, 1.0))
+                        .unwrap_or(0.0);
+                    if access <= 0.0 {
+                        // Body has no accessible deposit for this resource
+                        // (e.g. trying to mine Iron on a gas-giant). Skip
+                        // — the AutoMine wouldn't have been built there
+                        // in the first place because of the body-type
+                        // gate, but a 0-accessibility fallback is safe.
+                        continue;
+                    }
+                    let amount = base_rate * access * bonus * years_elapsed;
+                    if amount > 0.0 {
+                        deposit_with_fallback(
+                            &mut local_opt,
+                            &mut budget,
+                            *resource,
+                            amount,
+                        );
                     }
                 }
 
@@ -627,21 +704,22 @@ pub fn update_resource_rates(
     if let Some(data) = &buildings_data {
         for (entity, colony, resources_opt, local_opt, station_bonus_opt) in colony_query.iter() {
             if let Some(resources) = resources_opt {
-                // Yield multiplier (per GRA-22 §4.5) — an Outpost at ×0.10
-                // must report the same rate the sim extracts, so the UI's
-                // depletion-timeline chip matches the depletion that
-                // `extract_resources` actually applies.
+                // v0.5.2: per-resource dedicated mines. Mirrors the
+                // `extract_resources` dispatch: each building's `XxxProduction`
+                // modifier contributes to a per-resource rate, scaled by
+                // `yield_mult × mining_bonus × deposit.accessibility`. NO
+                // share-fold (removed in v0.5.2). The legacy tier
+                // (MiningEfficiency/Deep/Bulk) and `surface/deep/bulk_rate`
+                // bookkeeping are gone.
                 let yield_mult = colony.effective_yield_multiplier();
-                // GRA-83 PR-E: per-body orbital survey station
-                // bonus. Multiplies mining rates (NOT atmospheric
-                // harvesting, NOT industrial synthesis) to match
-                // `extract_resources`. Falls through to 1.0× when
-                // the body has no orbiting station.
                 let mining_bonus = ContinuousStationBonus::multiplier_or_neutral(station_bonus_opt);
-                let mut surface_rate = 0.0_f64;
-                let mut deep_rate = 0.0_f64;
-                let mut bulk_rate = 0.0_f64;
+                // Atmospheric harvesting is the only path that still uses
+                // the share-fold across atmospheric deposits.
                 let mut total_atmo_rate = 0.0_f64;
+                // v0.5.2: per-resource direct-production rates
+                // (rate-tracker mirror of `extract_resources` direct_deposit).
+                let mut direct_production: std::collections::HashMap<ResourceType, f64> =
+                    std::collections::HashMap::new();
 
                 for (building_type, &count) in &colony.buildings {
                     if count == 0 {
@@ -650,112 +728,29 @@ pub fn update_resource_rates(
                     if let Some(def) = data.get(building_type) {
                         for modifier in &def.modifiers {
                             match modifier.modifier_type.as_str() {
-                                "MiningEfficiency" => {
-                                    surface_rate += modifier.value * count as f64 * yield_mult;
-                                }
-                                "DeepMiningEfficiency" => {
-                                    deep_rate += modifier.value * count as f64 * yield_mult;
-                                }
-                                "BulkMiningEfficiency" => {
-                                    bulk_rate += modifier.value * count as f64 * yield_mult;
-                                }
                                 "AtmosphericHarvesting" => {
                                     total_atmo_rate += modifier.value * count as f64 * yield_mult;
                                 }
-                                _ => {}
+                                "ArgonProduction" => {
+                                    *direct_production
+                                        .entry(ResourceType::Argon)
+                                        .or_insert(0.0) +=
+                                        modifier.value * count as f64 * yield_mult;
+                                }
+                                _ => {
+                                    if let Some(resource_name) = modifier
+                                        .modifier_type
+                                        .strip_suffix("Production")
+                                    {
+                                        if let Some(target) =
+                                            parse_resource_type_static(resource_name)
+                                        {
+                                            *direct_production.entry(target).or_insert(0.0) +=
+                                                modifier.value * count as f64 * yield_mult;
+                                        }
+                                    }
+                                }
                             }
-                        }
-                    }
-                }
-
-                // GRA-83 PR-E: apply the per-body orbital survey
-                // station bonus to the mining rates here too, so
-                // the displayed rate matches the actual extraction
-                // (and the dossier's "Mining" chip agrees with
-                // the economy panel's Mt/yr line). Atmospheric
-                // harvesting is intentionally not multiplied.
-                surface_rate *= mining_bonus;
-                deep_rate *= mining_bonus;
-                bulk_rate *= mining_bonus;
-
-                // Solid mining rates (weighted by concentration) — one pool per tier
-                // Tier 1: Surface / Proven Crustal (MiningEfficiency buildings)
-                if surface_rate > 0.0 {
-                    let monthly_surface = surface_rate * (SECONDS_PER_MONTH / SECONDS_PER_YEAR);
-
-                    let eligible: Vec<(ResourceType, f64)> = resources
-                        .deposits
-                        .iter()
-                        .filter(|(_, d)| !d.is_atmospheric && d.reserve.proven_crustal > 0.001)
-                        .map(|(t, d)| (*t, (d.reserve.concentration as f64).max(1e-10)))
-                        .collect();
-
-                    let total_weight: f64 = eligible.iter().map(|(_, w)| w).sum();
-                    if total_weight > 0.0 {
-                        for (r_type, weight) in &eligible {
-                            let share = weight / total_weight;
-                            add_production(
-                                &mut rates,
-                                &mut production_rates,
-                                &mut per_entity,
-                                entity,
-                                *r_type,
-                                monthly_surface * share,
-                            );
-                        }
-                    }
-                }
-
-                // Tier 2: Deep Deposits (DeepMiningEfficiency buildings)
-                if deep_rate > 0.0 {
-                    let monthly_deep = deep_rate * (SECONDS_PER_MONTH / SECONDS_PER_YEAR);
-
-                    let eligible: Vec<(ResourceType, f64)> = resources
-                        .deposits
-                        .iter()
-                        .filter(|(_, d)| !d.is_atmospheric && d.reserve.deep_deposits > 0.001)
-                        .map(|(t, d)| (*t, (d.reserve.concentration as f64).max(1e-10)))
-                        .collect();
-
-                    let total_weight: f64 = eligible.iter().map(|(_, w)| w).sum();
-                    if total_weight > 0.0 {
-                        for (r_type, weight) in &eligible {
-                            let share = weight / total_weight;
-                            add_production(
-                                &mut rates,
-                                &mut production_rates,
-                                &mut per_entity,
-                                entity,
-                                *r_type,
-                                monthly_deep * share,
-                            );
-                        }
-                    }
-                }
-
-                // Tier 3: Planetary Bulk (BulkMiningEfficiency buildings)
-                if bulk_rate > 0.0 {
-                    let monthly_bulk = bulk_rate * (SECONDS_PER_MONTH / SECONDS_PER_YEAR);
-
-                    let eligible: Vec<(ResourceType, f64)> = resources
-                        .deposits
-                        .iter()
-                        .filter(|(_, d)| !d.is_atmospheric && d.reserve.planetary_bulk > 0.001)
-                        .map(|(t, d)| (*t, (d.reserve.concentration as f64).max(1e-10)))
-                        .collect();
-
-                    let total_weight: f64 = eligible.iter().map(|(_, w)| w).sum();
-                    if total_weight > 0.0 {
-                        for (r_type, weight) in &eligible {
-                            let share = weight / total_weight;
-                            add_production(
-                                &mut rates,
-                                &mut production_rates,
-                                &mut per_entity,
-                                entity,
-                                *r_type,
-                                monthly_bulk * share,
-                            );
                         }
                     }
                 }
@@ -788,6 +783,31 @@ pub fn update_resource_rates(
                                 monthly_total * share,
                             );
                         }
+                    }
+                }
+
+                // v0.5.2: per-resource direct production (rate tracker).
+                // For each resource, monthly_rate =
+                //   base_rate × deposit.accessibility × bonus × monthly_fraction
+                let monthly_fraction = SECONDS_PER_MONTH / SECONDS_PER_YEAR;
+                for (resource, base_rate) in &direct_production {
+                    let access = resources
+                        .get_deposit(resource)
+                        .map(|d| (d.accessibility as f64).clamp(0.0, 1.0))
+                        .unwrap_or(0.0);
+                    if access <= 0.0 {
+                        continue;
+                    }
+                    let monthly = base_rate * access * mining_bonus * monthly_fraction;
+                    if monthly > 0.0 {
+                        add_production(
+                            &mut rates,
+                            &mut production_rates,
+                            &mut per_entity,
+                            entity,
+                            *resource,
+                            monthly,
+                        );
                     }
                 }
 

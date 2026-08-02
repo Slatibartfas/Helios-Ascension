@@ -1961,8 +1961,8 @@ fn landing_site_feasible_default() -> Vec<BuildingType> {
 /// Default `feasible_for` for an extraction site on an asteroid.
 fn extraction_site_feasible_default() -> Vec<BuildingType> {
     vec![
-        BuildingType::Mine,
-        BuildingType::Refinery,
+        BuildingType::IronMine,
+        BuildingType::CopperMine,
         BuildingType::MassDriver,
     ]
 }
@@ -1976,7 +1976,7 @@ fn landing_site_blockers(scores: &SiteScores) -> Vec<BuildingType> {
     if scores.slope < 0.4 {
         // Slope too steep for heavy industry.
         blockers.push(BuildingType::Factory);
-        blockers.push(BuildingType::Refinery);
+        blockers.push(BuildingType::CopperMine);
     }
     if scores.roughness < 0.35 {
         blockers.push(BuildingType::LaunchSite);
@@ -1997,10 +1997,10 @@ fn landing_site_blockers(scores: &SiteScores) -> Vec<BuildingType> {
 fn extraction_site_blockers(scores: &SiteScores) -> Vec<BuildingType> {
     let mut blockers = Vec::new();
     if scores.slope < 0.25 {
-        blockers.push(BuildingType::Refinery);
+        blockers.push(BuildingType::CopperMine);
     }
     if scores.regolith < 0.2 {
-        blockers.push(BuildingType::Mine);
+        blockers.push(BuildingType::IronMine);
     }
     blockers
 }
@@ -2616,7 +2616,7 @@ mod tests {
         };
         let b = landing_site_blockers(&s);
         assert!(b.contains(&BuildingType::Factory));
-        assert!(b.contains(&BuildingType::Refinery));
+        assert!(b.contains(&BuildingType::CopperMine));
         assert!(b.contains(&BuildingType::LaunchSite));
         assert!(b.contains(&BuildingType::SpacePort));
         assert!(b.contains(&BuildingType::HabitatDome));
@@ -2652,8 +2652,8 @@ mod tests {
             comm: 0.5,
         };
         let b = extraction_site_blockers(&s);
-        assert!(b.contains(&BuildingType::Refinery));
-        assert!(b.contains(&BuildingType::Mine));
+        assert!(b.contains(&BuildingType::CopperMine));
+        assert!(b.contains(&BuildingType::IronMine));
         // Habitats aren't on the feasible list, so they're never
         // blocked either.
         assert!(!b.contains(&BuildingType::HabitatDome));
@@ -2682,7 +2682,7 @@ mod tests {
         let sites = generate_extraction_sites(&b);
         assert!(!sites.is_empty());
         for s in &sites {
-            assert!(s.feasible_for.contains(&BuildingType::Mine));
+            assert!(s.feasible_for.contains(&BuildingType::IronMine));
             assert!(s.feasible_for.contains(&BuildingType::MassDriver));
             // No habitat buildings on an asteroid — they're not in
             // the feasible set, so they can't be in the blocker

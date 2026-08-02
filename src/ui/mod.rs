@@ -16,13 +16,14 @@ use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 use std::collections::HashMap;
 
 pub mod interaction;
+pub mod bevy_theme;
+mod construction;
 
 pub use interaction::Selection;
 
 pub mod screenshot;
 mod screenshot_state;
 
-mod construction_panel;
 pub mod cursors;
 mod dashboard;
 mod dossier_panel;
@@ -55,7 +56,6 @@ pub use settings::Settings;
 pub use icons::{MenuIcons, ResearchIcons};
 pub use time::{SimulationTime, TimeScale};
 
-use construction_panel::ui_construction_panels;
 use dashboard::{ui_dashboard, ui_intel_panel, ui_time_controls};
 use economy_panel::ui_economy_panels;
 use fleets_panel::{
@@ -76,7 +76,7 @@ use crate::astronomy::{
     SpaceCoordinates,
 };
 use crate::colony::{
-    BuildingCategory, BuildingType, BuildingsData, Colony, ConstructionDebugSettings,
+    BuildingCategory, BuildingType, BuildingsData, Colony,
     ConstructionProject, EstablishOutpostRequest, PendingConstructionActions,
 };
 use crate::economy::components::{MineralDeposit, Population, SurveyLevel};
@@ -689,6 +689,7 @@ impl Plugin for UIPlugin {
             .add_plugins(cursors::CursorPlugin)
             .add_plugins(ShipbuildingWorkspacePlugin)
             .add_plugins(launch::LaunchPlugin)
+            .add_plugins(construction::ConstructionPlugin)
             // Resources
             .init_resource::<Selection>()
             .init_resource::<TimeScale>()
@@ -705,7 +706,9 @@ impl Plugin for UIPlugin {
             .init_resource::<TransferPlan>()
             .init_resource::<ResolutionWarning>()
             .init_resource::<ExpandedLedgerGroups>()
-            .init_resource::<construction_panel::ConstructionUiState>()
+            // Construction menu state lives on the bevy_ui canary
+            // (see `src/ui/construction.rs`).
+            .init_resource::<construction::ConstructionUiState>()
             .init_resource::<shipbuilding_state::ShipbuildingUiState>()
             .init_resource::<personnel_panel::PersonnelUiState>()
             // ActiveMenu is now initialized in GameStatePlugin
@@ -770,12 +773,9 @@ impl Plugin for UIPlugin {
                     .in_set(UiSystemSet::MainPanels)
                     .run_if(in_game_chrome),
             )
-            .add_systems(
-                EguiPrimaryContextPass,
-                ui_construction_panels
-                    .in_set(UiSystemSet::MainPanels)
-                    .run_if(in_game_chrome),
-            )
+            // The Construction panel is rendered by the bevy_ui canary
+            // at `src/ui/construction.rs`; no egui system is scheduled
+            // for it.
             .add_systems(
                 EguiPrimaryContextPass,
                 ui_economy_panels

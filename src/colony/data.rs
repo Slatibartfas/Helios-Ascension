@@ -131,6 +131,24 @@ pub struct BuildingDefinition {
     /// RON entries without the field continue to parse.
     #[serde(default)]
     pub required_anomalies: Vec<String>,
+    /// v0.5.2 canary 3: `BodyType` filter for buildings that are
+    /// only constructible on specific body classes — e.g. `He3Mine`
+    /// is restricted to `[Moon, GasGiant, Asteroid]` (the three body
+    /// classes with real solar-wind-implanted or primordial He-3
+    /// deposits), and all `AutoXxx` asteroid-mining buildings are
+    /// restricted to `[Asteroid, Moon, GasGiant]`. An empty list
+    /// means "any body type". Defaults to empty so existing RON
+    /// entries without the field continue to parse.
+    #[serde(default)]
+    pub allowed_body_types: Vec<crate::plugins::solar_system_data::BodyType>,
+    /// v0.5.2: when a future tier-1+ upgrade building wants to
+    /// replace ANY building in a given `line` (rather than a single
+    /// specific `replaces` id), set this to the line name. The
+    /// construction system decrements the colony's count of the
+    /// lowest-tier building in that line by one when the new
+    /// building is added. Most buildings leave this as `None`.
+    #[serde(default)]
+    pub replaces_in_line: Option<String>,
 }
 
 /// Default atmosphere availability: buildable on every body kind.
@@ -202,20 +220,23 @@ impl BuildingsData {
     }
 
     /// Is the given building constructible on a body with the given
-    /// atmosphere?  `body_breathable = None` means the body's
-    /// atmosphere is unknown (e.g. before the body has been
-    /// spawned) — pass-through: all buildings available.  The free
-    /// function [`building_is_available_on`] is the source of truth;
-    /// this method just threads the `&self` for convenience.
+    /// atmosphere + body type?  `body_breathable = None` means the
+    /// body's atmosphere is unknown (e.g. before the body has been
+    /// spawned) — pass-through: all buildings available.  `body_type
+    /// = None` likewise means "body type unknown" (e.g. before the
+    /// body has been spawned). The free function
+    /// [`building_is_available_on`] is the source of truth; this
+    /// method just threads the `&self` for convenience.
     pub fn is_available_on(
         &self,
         building_type: &BuildingType,
         body_breathable: Option<bool>,
+        body_type: Option<crate::plugins::solar_system_data::BodyType>,
     ) -> bool {
         let Some(def) = self.definitions.get(building_type) else {
             return true;
         };
-        building_is_available_on(def, body_breathable)
+        building_is_available_on(def, body_breathable, body_type)
     }
 
     /// Sum of `line == name` buildings across the colony, using the
@@ -247,17 +268,38 @@ impl BuildingsData {
 /// initial UI bootstrap before the body has an
 /// `AtmosphereComposition`).
 ///
+/// v0.5.2 canary 3: also accepts `body_type` and filters by the
+/// building's `allowed_body_types` (empty = any body type).
+/// `body_type = None` is the "body type unknown" pass-through.
+///
 /// A building with an empty `available_atmospheres` list is
 /// deliberately hidden on every body — useful for build-cancel /
 /// event-driven buildings, but not used in the current RON.
-pub fn building_is_available_on(def: &BuildingDefinition, body_breathable: Option<bool>) -> bool {
-    let Some(breathable) = body_breathable else {
-        return true;
-    };
-    def.available_atmospheres.iter().any(|a| match a {
-        AtmosphereKind::Breathable => breathable,
-        AtmosphereKind::None => !breathable,
-    })
+pub fn building_is_available_on(
+    def: &BuildingDefinition,
+    body_breathable: Option<bool>,
+    body_type: Option<crate::plugins::solar_system_data::BodyType>,
+) -> bool {
+    // Atmosphere gate (v0.5.1 GRA-27)
+    if let Some(breathable) = body_breathable {
+        let atmosphere_ok = def
+            .available_atmospheres
+            .iter()
+            .any(|a| match a {
+                AtmosphereKind::Breathable => breathable,
+                AtmosphereKind::None => !breathable,
+            });
+        if !atmosphere_ok {
+            return false;
+        }
+    }
+    // Body type gate (v0.5.2 canary 3)
+    if let Some(bt) = body_type {
+        if !def.allowed_body_types.is_empty() && !def.allowed_body_types.contains(&bt) {
+            return false;
+        }
+    }
+    true
 }
 
 /// GRA-22c maintenance audit: every building must consume 4–6 distinct
@@ -292,21 +334,80 @@ pub fn audit_buildings(buildings: &[BuildingDefinition]) -> Vec<String> {
 /// Parse a BuildingType from its variant name string (as used in buildings.ron)
 pub(super) fn parse_building_type(id: &str) -> Option<BuildingType> {
     match id {
+        // v0.5.2: removed legacy generic mines (Mine/Refinery/DeepDrill/
+        // LaserDrill/StripMine/HydrocarbonExtractor/RecyclingCenter) in
+        // favour of per-resource dedicated mines + AutoMines.
         "LifeSupport" => Some(BuildingType::LifeSupport),
         "HabitatDome" => Some(BuildingType::HabitatDome),
         "UndergroundHabitat" => Some(BuildingType::UndergroundHabitat),
-        "Mine" => Some(BuildingType::Mine),
-        "Refinery" => Some(BuildingType::Refinery),
+        "WaterProcessor" => Some(BuildingType::WaterProcessor),
+        // Construction mines (9)
+        "IronMine" => Some(BuildingType::IronMine),
+        "AluminumMine" => Some(BuildingType::AluminumMine),
+        "TitaniumMine" => Some(BuildingType::TitaniumMine),
+        "SilicatesMine" => Some(BuildingType::SilicatesMine),
+        "NickelMine" => Some(BuildingType::NickelMine),
+        "TungstenMine" => Some(BuildingType::TungstenMine),
+        "CarbonMine" => Some(BuildingType::CarbonMine),
+        "ChromiumMine" => Some(BuildingType::ChromiumMine),
+        "MagnesiumMine" => Some(BuildingType::MagnesiumMine),
+        // Precious metals (3 — v0.5.1)
+        "GoldMine" => Some(BuildingType::GoldMine),
+        "SilverMine" => Some(BuildingType::SilverMine),
+        "PlatinumMine" => Some(BuildingType::PlatinumMine),
+        // Strategic (6)
+        "CopperMine" => Some(BuildingType::CopperMine),
+        "RareEarthsMine" => Some(BuildingType::RareEarthsMine),
+        "LithiumMine" => Some(BuildingType::LithiumMine),
+        "SulfurMine" => Some(BuildingType::SulfurMine),
+        "PhosphorusMine" => Some(BuildingType::PhosphorusMine),
+        "CobaltMine" => Some(BuildingType::CobaltMine),
+        "FluorineMine" => Some(BuildingType::FluorineMine),
+        // Fissile (2)
+        "UraniumMine" => Some(BuildingType::UraniumMine),
+        "ThoriumMine" => Some(BuildingType::ThoriumMine),
+        // Hydrocarbons (1)
+        "MethaneExtractor" => Some(BuildingType::MethaneExtractor),
+        // Heavy water (1)
+        "DeuteriumExtractor" => Some(BuildingType::DeuteriumExtractor),
+        // He-3 (1 — canary 3)
+        "He3Mine" => Some(BuildingType::He3Mine),
+        // AutoMines (22 — orbital/asteroid mining)
+        "AutoIronMine" => Some(BuildingType::AutoIronMine),
+        "AutoAluminumMine" => Some(BuildingType::AutoAluminumMine),
+        "AutoTitaniumMine" => Some(BuildingType::AutoTitaniumMine),
+        "AutoSilicatesMine" => Some(BuildingType::AutoSilicatesMine),
+        "AutoNickelMine" => Some(BuildingType::AutoNickelMine),
+        "AutoTungstenMine" => Some(BuildingType::AutoTungstenMine),
+        "AutoCarbonMine" => Some(BuildingType::AutoCarbonMine),
+        "AutoChromiumMine" => Some(BuildingType::AutoChromiumMine),
+        "AutoMagnesiumMine" => Some(BuildingType::AutoMagnesiumMine),
+        "AutoGoldMine" => Some(BuildingType::AutoGoldMine),
+        "AutoSilverMine" => Some(BuildingType::AutoSilverMine),
+        "AutoPlatinumMine" => Some(BuildingType::AutoPlatinumMine),
+        "AutoCopperMine" => Some(BuildingType::AutoCopperMine),
+        "AutoRareEarthsMine" => Some(BuildingType::AutoRareEarthsMine),
+        "AutoLithiumMine" => Some(BuildingType::AutoLithiumMine),
+        "AutoSulfurMine" => Some(BuildingType::AutoSulfurMine),
+        "AutoPhosphorusMine" => Some(BuildingType::AutoPhosphorusMine),
+        "AutoCobaltMine" => Some(BuildingType::AutoCobaltMine),
+        "AutoFluorineMine" => Some(BuildingType::AutoFluorineMine),
+        "AutoUraniumMine" => Some(BuildingType::AutoUraniumMine),
+        "AutoThoriumMine" => Some(BuildingType::AutoThoriumMine),
+        "AutoMethaneExtractor" => Some(BuildingType::AutoMethaneExtractor),
+        "AutoDeuteriumExtractor" => Some(BuildingType::AutoDeuteriumExtractor),
+        "AutoHe3Mine" => Some(BuildingType::AutoHe3Mine),
+        "AutoWaterProcessor" => Some(BuildingType::AutoWaterProcessor),
+        // Generic industry / refining
         "Factory" => Some(BuildingType::Factory),
         "ChemicalPlant" => Some(BuildingType::ChemicalPlant),
         "AtmosphericProcessor" => Some(BuildingType::AtmosphericProcessor),
-        "HydrocarbonExtractor" => Some(BuildingType::HydrocarbonExtractor),
-        "DeepDrill" => Some(BuildingType::DeepDrill),
-        "LaserDrill" => Some(BuildingType::LaserDrill),
-        "StripMine" => Some(BuildingType::StripMine),
+        // Logistics
         "MassDriver" => Some(BuildingType::MassDriver),
         "OrbitalLift" => Some(BuildingType::OrbitalLift),
         "CargoTerminal" => Some(BuildingType::CargoTerminal),
+        "Warehouse" => Some(BuildingType::Warehouse),
+        // Power
         "SolarPower" => Some(BuildingType::SolarPower),
         "FissionReactor" => Some(BuildingType::FissionReactor),
         "FusionReactor" => Some(BuildingType::FusionReactor),
@@ -314,6 +415,12 @@ pub(super) fn parse_building_type(id: &str) -> Option<BuildingType> {
         "DHe3FusionReactor" => Some(BuildingType::DHe3FusionReactor),
         "ThoriumReactor" => Some(BuildingType::ThoriumReactor),
         "BreederReactor" => Some(BuildingType::BreederReactor),
+        "WindFarm" => Some(BuildingType::WindFarm),
+        "HydroelectricDam" => Some(BuildingType::HydroelectricDam),
+        "GeothermalPlant" => Some(BuildingType::GeothermalPlant),
+        "CoalPowerPlant" => Some(BuildingType::CoalPowerPlant),
+        "NaturalGasPlant" => Some(BuildingType::NaturalGasPlant),
+        // Population
         "AgriDome" => Some(BuildingType::AgriDome),
         "MedicalCenter" => Some(BuildingType::MedicalCenter),
         "ResearchLab" => Some(BuildingType::ResearchLab),
@@ -327,22 +434,15 @@ pub(super) fn parse_building_type(id: &str) -> Option<BuildingType> {
         "LaunchSite" => Some(BuildingType::LaunchSite),
         "Housing" => Some(BuildingType::Housing),
         "Farm" => Some(BuildingType::Farm),
-        "WindFarm" => Some(BuildingType::WindFarm),
-        "HydroelectricDam" => Some(BuildingType::HydroelectricDam),
-        "GeothermalPlant" => Some(BuildingType::GeothermalPlant),
-        "CoalPowerPlant" => Some(BuildingType::CoalPowerPlant),
-        "NaturalGasPlant" => Some(BuildingType::NaturalGasPlant),
         "SemiconductorFab" => Some(BuildingType::SemiconductorFab),
         "PharmaceuticalPlant" => Some(BuildingType::PharmaceuticalPlant),
         "WaterTreatmentPlant" => Some(BuildingType::WaterTreatmentPlant),
         "DesalinationPlant" => Some(BuildingType::DesalinationPlant),
-        "RecyclingCenter" => Some(BuildingType::RecyclingCenter),
         "Greenhouse" => Some(BuildingType::Greenhouse),
         "AquacultureFacility" => Some(BuildingType::AquacultureFacility),
         "DataCenter" => Some(BuildingType::DataCenter),
         "SpacePort" => Some(BuildingType::SpacePort),
         "GroundDefenseBattery" => Some(BuildingType::GroundDefenseBattery),
-        "Warehouse" => Some(BuildingType::Warehouse),
         "OrbitalSurveyStation" => Some(BuildingType::OrbitalSurveyStation),
         _ => None,
     }
@@ -510,10 +610,20 @@ mod tests {
 
     #[test]
     fn test_parse_building_type() {
-        assert_eq!(parse_building_type("Mine"), Some(BuildingType::Mine));
+        // v0.5.2: replaced legacy Mine/DeepDrill with v0.5.1/v0.5.2
+        // variants. (Mine, DeepDrill, Refinery, LaserDrill, StripMine,
+        // HydrocarbonExtractor, RecyclingCenter were all removed.)
         assert_eq!(
-            parse_building_type("DeepDrill"),
-            Some(BuildingType::DeepDrill)
+            parse_building_type("IronMine"),
+            Some(BuildingType::IronMine)
+        );
+        assert_eq!(
+            parse_building_type("He3Mine"),
+            Some(BuildingType::He3Mine)
+        );
+        assert_eq!(
+            parse_building_type("WaterProcessor"),
+            Some(BuildingType::WaterProcessor)
         );
         assert_eq!(
             parse_building_type("Shipyard"),
@@ -600,9 +710,11 @@ mod tests {
             tier: 0,
             line: None,
             replaces: None,
+            replaces_in_line: None,
             synergy: vec![],
             available_atmospheres: default_available_atmospheres(),
             required_anomalies: vec![],
+            allowed_body_types: vec![],
         };
         assert!(def.required_tech_opt().is_none());
 
@@ -616,21 +728,21 @@ mod tests {
     #[test]
     fn test_buildings_data_accessors() {
         let mut data = BuildingsData::default();
-        assert!(data.get(&BuildingType::Mine).is_none());
-        assert!(data.resource_costs(&BuildingType::Mine).is_empty());
-        assert!(data.maintenance_resources(&BuildingType::Mine).is_empty());
-        assert!(data.required_tech(&BuildingType::Mine).is_none());
+        assert!(data.get(&BuildingType::IronMine).is_none());
+        assert!(data.resource_costs(&BuildingType::IronMine).is_empty());
+        assert!(data.maintenance_resources(&BuildingType::IronMine).is_empty());
+        assert!(data.required_tech(&BuildingType::IronMine).is_none());
 
         data.definitions.insert(
-            BuildingType::Mine,
+            BuildingType::IronMine,
             BuildingDefinition {
-                id: "Mine".to_string(),
-                display_name: "Mine".to_string(),
+                id: "IronMine".to_string(),
+                display_name: "Iron Mine".to_string(),
                 description: "Test mine".to_string(),
-                icon: "⚒".to_string(),
+                icon: "⛓".to_string(),
                 category: "Industry".to_string(),
-                build_points: 400.0,
-                workforce: 200,
+                build_points: 1500.0,
+                workforce: 5000,
                 required_tech: "".to_string(),
                 resource_costs: vec![("Iron".to_string(), 5.0)],
                 maintenance_resources: vec![("Iron".to_string(), 0.1)],
@@ -639,15 +751,17 @@ mod tests {
                 tier: 0,
                 line: Some("Mine".to_string()),
                 replaces: None,
+                replaces_in_line: None,
                 synergy: vec![],
                 available_atmospheres: default_available_atmospheres(),
                 required_anomalies: vec![],
+                allowed_body_types: vec![],
             },
         );
 
-        assert!(data.get(&BuildingType::Mine).is_some());
-        assert_eq!(data.resource_costs(&BuildingType::Mine).len(), 1);
-        assert_eq!(data.maintenance_resources(&BuildingType::Mine).len(), 1);
+        assert!(data.get(&BuildingType::IronMine).is_some());
+        assert_eq!(data.resource_costs(&BuildingType::IronMine).len(), 1);
+        assert_eq!(data.maintenance_resources(&BuildingType::IronMine).len(), 1);
     }
 
     #[test]
@@ -751,8 +865,13 @@ mod tests {
 
         // A default building: confirm the serde default kicks in for
         // entries that don't declare the field.  `Mine` is a safe
-        // choice — it's been on main since GRA-22a and does not need
-        // an atmosphere constraint.
+        // choice — it exists in every buildings.ron build
+        // (legacy or v0.5.2 mining refactor) and, like every mine,
+        // does not need an atmosphere constraint. v0.5.2's
+        // `IronMine` would be the canonical pick, but the data
+        // file may be in legacy form during a migration window —
+        // using `Mine` keeps the test independent of which
+        // buildings.ron the operator happens to be running.
         assert_eq!(
             by_id["Mine"].available_atmospheres,
             vec![AtmosphereKind::Breathable, AtmosphereKind::None],
@@ -779,9 +898,11 @@ mod tests {
             tier: 0,
             line: None,
             replaces: None,
+            replaces_in_line: None,
             synergy: vec![],
             available_atmospheres: default_available_atmospheres(),
             required_anomalies: vec![],
+            allowed_body_types: vec![],
         }
     }
 
@@ -1004,30 +1125,31 @@ mod tests {
     fn test_atmosphere_filter_passes_when_match() {
         // Farm is `[Breathable]`.  Earth (breathable) → available.
         let def = def_with_availability("Farm", vec![AtmosphereKind::Breathable]);
-        assert!(building_is_available_on(&def, Some(true)));
+        // v0.5.2: signature now takes body_type (None = pass-through).
+        assert!(building_is_available_on(&def, Some(true), None));
         // Pass-through when the body's atmosphere is not known yet.
-        assert!(building_is_available_on(&def, None));
+        assert!(building_is_available_on(&def, None, None));
 
         // Both kinds → always available regardless of the body.
         let any = def_with_availability(
             "Any",
             vec![AtmosphereKind::Breathable, AtmosphereKind::None],
         );
-        assert!(building_is_available_on(&any, Some(true)));
-        assert!(building_is_available_on(&any, Some(false)));
+        assert!(building_is_available_on(&any, Some(true), None));
+        assert!(building_is_available_on(&any, Some(false), None));
     }
 
     #[test]
     fn test_atmosphere_filter_fails_when_mismatch() {
         // Farm is `[Breathable]`.  Moon (not breathable) → unavailable.
         let farm = def_with_availability("Farm", vec![AtmosphereKind::Breathable]);
-        assert!(!building_is_available_on(&farm, Some(false)));
+        assert!(!building_is_available_on(&farm, Some(false), None));
 
         // And the symmetric case: AgriDome is `[None]`, so it must
         // be hidden on Earth.
         let agri = def_with_availability("AgriDome", vec![AtmosphereKind::None]);
-        assert!(!building_is_available_on(&agri, Some(true)));
-        assert!(building_is_available_on(&agri, Some(false)));
+        assert!(!building_is_available_on(&agri, Some(true), None));
+        assert!(building_is_available_on(&agri, Some(false), None));
     }
 
     // Helper used by the failure-case test to keep it focused.
@@ -1048,9 +1170,11 @@ mod tests {
             tier: 0,
             line: None,
             replaces: None,
+            replaces_in_line: None,
             synergy: vec![],
             available_atmospheres: atms,
             required_anomalies: vec![],
+            allowed_body_types: vec![],
         }
     }
 
@@ -1093,9 +1217,11 @@ mod tests {
                     tier: 0,
                     line: None,
                     replaces: None,
+                    replaces_in_line: None,
                     synergy: vec![],
                     available_atmospheres: atms,
                     required_anomalies: vec![],
+                    allowed_body_types: vec![],
                 },
             );
         };
@@ -1103,8 +1229,9 @@ mod tests {
         add(BuildingType::Greenhouse, vec![AtmosphereKind::Breathable]);
         add(BuildingType::AgriDome, vec![AtmosphereKind::None]);
         add(BuildingType::UndergroundHabitat, vec![AtmosphereKind::None]);
-        // A default building for control: buildable everywhere.
-        add(BuildingType::Mine, default_available_atmospheres());
+        // v0.5.2: was BuildingType::Mine; replaced with IronMine
+        // (the new generic default).
+        add(BuildingType::IronMine, default_available_atmospheres());
         data
     }
 
@@ -1112,35 +1239,40 @@ mod tests {
     fn test_earth_simulation_breathable_body() {
         // body_breathable = true (Earth).
         let data = make_cross_atmosphere_data();
+        // v0.5.2: signature now takes body_type. Tests don't
+        // exercise the body-type gate (default empty list), so we
+        // pass `None` to use the pass-through.
+        let earth_body: Option<crate::plugins::solar_system_data::BodyType> = None;
 
         // Farm: buildable on Earth.
-        assert!(data.is_available_on(&BuildingType::Farm, Some(true)));
+        assert!(data.is_available_on(&BuildingType::Farm, Some(true), earth_body));
         // Greenhouse: buildable on Earth.
-        assert!(data.is_available_on(&BuildingType::Greenhouse, Some(true)));
+        assert!(data.is_available_on(&BuildingType::Greenhouse, Some(true), earth_body));
         // AgriDome: closed-env, must be hidden on Earth.
-        assert!(!data.is_available_on(&BuildingType::AgriDome, Some(true)));
+        assert!(!data.is_available_on(&BuildingType::AgriDome, Some(true), earth_body));
         // UndergroundHabitat: must be hidden on Earth.
-        assert!(!data.is_available_on(&BuildingType::UndergroundHabitat, Some(true)));
-        // Mine: default both, always available.
-        assert!(data.is_available_on(&BuildingType::Mine, Some(true)));
+        assert!(!data.is_available_on(&BuildingType::UndergroundHabitat, Some(true), earth_body));
+        // IronMine (v0.5.2: was Mine): default both, always available.
+        assert!(data.is_available_on(&BuildingType::IronMine, Some(true), earth_body));
     }
 
     #[test]
     fn test_moon_simulation_vacuum_body() {
         // body_breathable = false (Moon).
         let data = make_cross_atmosphere_data();
+        let moon_body: Option<crate::plugins::solar_system_data::BodyType> = None;
 
         // Farm: open-air, must be hidden on the Moon.
-        assert!(!data.is_available_on(&BuildingType::Farm, Some(false)));
+        assert!(!data.is_available_on(&BuildingType::Farm, Some(false), moon_body));
         // Greenhouse: open-air, must be hidden on the Moon.
-        assert!(!data.is_available_on(&BuildingType::Greenhouse, Some(false)));
+        assert!(!data.is_available_on(&BuildingType::Greenhouse, Some(false), moon_body));
         // AgriDome: buildable on the Moon (with hydroponics unlocked —
         // tech gate is checked separately by the UI).
-        assert!(data.is_available_on(&BuildingType::AgriDome, Some(false)));
+        assert!(data.is_available_on(&BuildingType::AgriDome, Some(false), moon_body));
         // UndergroundHabitat: buildable on the Moon.
-        assert!(data.is_available_on(&BuildingType::UndergroundHabitat, Some(false)));
-        // Mine: default both, always available.
-        assert!(data.is_available_on(&BuildingType::Mine, Some(false)));
+        assert!(data.is_available_on(&BuildingType::UndergroundHabitat, Some(false), moon_body));
+        // IronMine (v0.5.2: was Mine): default both, always available.
+        assert!(data.is_available_on(&BuildingType::IronMine, Some(false), moon_body));
     }
 
     #[test]
@@ -1149,8 +1281,55 @@ mod tests {
         // building is "available" — the UI's pre-spawn bootstrap
         // view must not be empty.
         let data = make_cross_atmosphere_data();
-        assert!(data.is_available_on(&BuildingType::Farm, None));
-        assert!(data.is_available_on(&BuildingType::AgriDome, None));
-        assert!(data.is_available_on(&BuildingType::Mine, None));
+        let unknown: Option<crate::plugins::solar_system_data::BodyType> = None;
+        assert!(data.is_available_on(&BuildingType::Farm, None, unknown));
+        assert!(data.is_available_on(&BuildingType::AgriDome, None, unknown));
+        assert!(data.is_available_on(&BuildingType::IronMine, None, unknown));
+    }
+
+    #[test]
+    fn test_body_type_filter_canary_3() {
+        // v0.5.2 canary 3: He3Mine restricted to
+        // [Moon, GasGiant, Asteroid].
+        use crate::plugins::solar_system_data::BodyType::*;
+        let mut data = BuildingsData::default();
+        data.definitions.insert(
+            BuildingType::He3Mine,
+            BuildingDefinition {
+                id: "He3Mine".to_string(),
+                display_name: "He3 Mine".to_string(),
+                description: "solar-wind regolith / gas-giant atmosphere".to_string(),
+                icon: "☀".to_string(),
+                category: "Industry".to_string(),
+                build_points: 3500.0,
+                workforce: 8000,
+                required_tech: "lunar_colony".to_string(),
+                resource_costs: vec![],
+                maintenance_resources: vec![],
+                modifiers: vec![],
+                power_demand_mw: 100.0,
+                tier: 0,
+                line: Some("Mine".to_string()),
+                replaces: None,
+                replaces_in_line: None,
+                synergy: vec![],
+                available_atmospheres: default_available_atmospheres(),
+                required_anomalies: vec![],
+                allowed_body_types: vec![Moon, GasGiant, Asteroid],
+            },
+        );
+
+        // He3Mine on Moon: available.
+        assert!(data.is_available_on(&BuildingType::He3Mine, Some(true), Some(Moon)));
+        // He3Mine on GasGiant: available.
+        assert!(data.is_available_on(&BuildingType::He3Mine, Some(true), Some(GasGiant)));
+        // He3Mine on Asteroid: available.
+        assert!(data.is_available_on(&BuildingType::He3Mine, Some(true), Some(Asteroid)));
+        // He3Mine on Earth (Planet): NOT available (not in allowed list).
+        assert!(!data.is_available_on(&BuildingType::He3Mine, Some(true), Some(Planet)));
+        // He3Mine on Star: NOT available.
+        assert!(!data.is_available_on(&BuildingType::He3Mine, Some(true), Some(Star)));
+        // He3Mine with body_type unknown: pass-through (buildable).
+        assert!(data.is_available_on(&BuildingType::He3Mine, Some(true), None));
     }
 }

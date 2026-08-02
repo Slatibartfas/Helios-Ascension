@@ -34,10 +34,9 @@
 //!
 //! ## Why `Shift+F12`
 //!
-//! F1–F11 are bound to menu switches in `src/ui/mod.rs:786-796`; bare
+//! F1–F11 are bound to menu switches in `src/ui/mod.rs`; bare
 //! F12 is the construction/research debug toggle in
-//! `src/ui/research_panel.rs:129` and
-//! `src/ui/construction_panel.rs:461`. `Shift+F12` is the only clean
+//! `src/ui/research_panel.rs`. `Shift+F12` is the only clean
 //! slot in that family.
 
 use bevy::prelude::*;
