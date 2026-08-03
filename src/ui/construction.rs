@@ -23,22 +23,54 @@
 
 use bevy::prelude::*;
 use bevy::input::mouse::MouseWheel;
-use bevy::picking::events::{Pointer, Press, Release};
+use bevy::picking::events::{Out, Over, Pointer, Press, Release};
 use bevy::picking::hover::HoverMap;
 use bevy::picking::pointer::{PointerButton, PointerId};
 use bevy::picking::Pickable;
 use bevy::ui::RelativeCursorPosition;
 use bevy::window::CursorMoved;
+use bevy::window::PrimaryWindow;
 
 use super::bevy_theme::*;
 use crate::colony::components::PendingConstructionActions;
-use crate::colony::data::{BuildingDefinition, BuildingsData};
+use crate::colony::data::{parse_resource_type, BuildingDefinition, BuildingsData};
 use crate::colony::types::{BuildingCategory, BuildingType};
 use crate::economy::budget::calculate_colony_power_totals;
+use crate::economy::ResourceType;
 use crate::game_state::{ActiveMenu, GameMenu};
 use crate::plugins::solar_system::CelestialBody;
 use crate::plugins::solar_system_data::BodyType;
 use crate::research::systems::ResearchState;
+// v0.5.2 PR-A.4 follow-up: the canary now renders resource-cost
+// rows with a real PNG icon (loaded via `AssetServer` and
+// post-processed in `src/ui/resource_icons.rs`) tinted to the
+// resource's category colour (see `bevy_theme::category_color`).
+// The emoji fallback above is kept for the legacy egui code
+// path — bevy_ui uses `ResourceCostRow` directly.
+use super::resource_icons::{get_resource_icon_handle_bevy, ResourceIcons};
+
+/// One row of a building's resource demand: the resource name as
+/// it appears in `buildings.ron`, the per-unit amount (already
+/// multiplied by the build quantity), and the parsed
+/// `ResourceType` (used to look up the icon `Handle<Image>` and
+/// the category tint). `resource` is `None` when the RON string
+/// doesn't match a known variant (defensive — the canary falls
+/// back to a tinted placeholder square + `TEXT_BODY` so a future
+/// RON addition never panics).
+///
+/// v0.5.2 PR-A.4 follow-up: the canary emits these for every
+/// cost entry and renders them as `[PNG icon | tinted amount]`.
+/// The icon is the asset-server PNG from
+/// `assets/textures/ui/resources/<name>.png`, post-processed
+/// (white → transparent, dark → un-premultiplied alpha) and
+/// tinted to the resource's category colour at render time
+/// via `ImageNode::color`.
+#[derive(Debug, Clone)]
+pub struct ResourceCostRow {
+    pub name: String,
+    pub amount: f64,
+    pub resource: Option<ResourceType>,
+}
 
 /// Compute the active colony's spare power in MW. Returns 0.0 if no
 /// colony is selected or no `BuildingsData` is loaded. Used by the
@@ -126,7 +158,12 @@ pub struct ConstructionUiState {
     /// Selected top-level tab within the construction menu.
     pub selected_tab: ConstructionTab,
     /// Selected build-category tab within the Build view.
-    /// v0.5.2: 8 → 9 — Mining split out of Industry, "All" chip at index 9.
+    /// v0.5.2: 8 categories with "All" at index 8. The Build
+    /// tab opens with the "All" chip active (the player most often
+    /// wants to scroll the full catalog first), so the default is
+    /// 8 — keep this in lockstep with
+    /// `ActiveChips::default().category` (also 8) so the visual
+    /// chip and the filter logic agree on the first frame.
     pub selected_build_tab: usize,
     /// Functional-role filter (Food / Power / Industry / Research /
     /// Synergy Active). Overlays the 9-category tabs.
@@ -151,7 +188,12 @@ impl Default for ConstructionUiState {
             build_multiplier: 1,
             selected_colony: None,
             selected_tab: ConstructionTab::Build,
-            selected_build_tab: 0,
+            // 8 = "All" chip; matches `ActiveChips::default().category`
+            // so the visual chip and the filter agree on the first
+            // frame. Was 0 (Infrastructure) which made the Build tab
+            // show only the infrastructure category even though the
+            // chip row highlighted "All".
+            selected_build_tab: 8,
             selected_filter: BuildFilter::default(),
             mining_build_multiplier: 1,
             mining_groups_collapsed: std::collections::HashSet::new(),
@@ -160,7 +202,7 @@ impl Default for ConstructionUiState {
     }
 }
 
-/// Identifier for one of the 7 surface mine groups in the Mining
+/// Identifier for one of the 8 surface mine groups in the Mining
 /// tab. Used as a key into `ConstructionUiState::mining_groups_collapsed`
 /// so collapse state persists per group.
 ///
@@ -176,6 +218,12 @@ pub enum MiningGroupId {
     Fissile,
     Hydrocarbons,
     HeavyWater,
+    /// `WaterProcessor` is a water extraction facility (atmospheric
+    /// condenser / ice miner) — body-restricted to `[None]`
+    /// atmospheres. Sits in its own group so it pairs with the
+    /// orbital `AutoWaterProcessor` (the only AutoMine without a
+    /// surface mine counterpart before this group was added).
+    Water,
     Helium3,
 }
 
@@ -188,10 +236,14 @@ pub const MINING_QTY_CHIPS: [u32; 6] = [1, 5, 10, 25, 50, 100];
 /// Surface mine group definitions for the Mining tab. Each entry
 /// is `(group_id, display_label, buildings)` in display order.
 ///
-/// Source-of-truth: 24 base mines from `parse_building_type`
-/// (`src/colony/data.rs:336-401`). The spec's "23" count was
-/// off-by-one — the legacy egui tab omitted `TitaniumMine` from
-/// the Construction group. v0.5.2 PR-A.2 fixes that.
+/// Source-of-truth: 25 entries — 24 base mines (one per
+/// mineable resource, per v0.5.2's per-resource dedicated
+/// design) + `WaterProcessor` (the only AutoMine counterpart
+/// that wasn't a "mine" in the strict sense — it's an
+/// atmospheric condenser / ice miner that pairs with the
+/// orbital `AutoWaterProcessor`). The 24+1 layout mirrors
+/// the 25-card orbital section so the player can see a
+/// matched surface/orbital pair for every orbital AutoMine.
 pub const MINING_GROUPS_SURFACE: &[(MiningGroupId, &str, &[BuildingType])] = &[
     (
         MiningGroupId::Construction,
@@ -244,6 +296,11 @@ pub const MINING_GROUPS_SURFACE: &[(MiningGroupId, &str, &[BuildingType])] = &[
         MiningGroupId::HeavyWater,
         "Heavy Water",
         &[BuildingType::DeuteriumExtractor],
+    ),
+    (
+        MiningGroupId::Water,
+        "Water (body: any atmosphere)",
+        &[BuildingType::WaterProcessor],
     ),
     (
         MiningGroupId::Helium3,
@@ -418,7 +475,14 @@ pub fn process_building_icons(
                 .saturating_mul(image.texture_descriptor.size.height as usize)
                 .saturating_mul(bytes_per_pixel);
             if image.data.as_ref().map(|d| d.len()).unwrap_or(0) != expected {
-                icons.processed.insert(building_type);
+                // Image not loaded yet (data None or size mismatch).
+                // Skip and try again next frame — DO NOT mark as
+                // processed, because the previous code path that
+                // did so silently dropped icons that decoded to
+                // the wrong pixel format (e.g. RGB instead of RGBA).
+                // Re-trying each frame is cheap (one map lookup)
+                // and self-heals once bevy finishes loading the
+                // PNG.
                 continue;
             }
 
@@ -800,11 +864,41 @@ pub struct BuildCardData {
     pub multiplier: u32,
     pub stat_a: (&'static str, String),
     pub stat_b: (&'static str, String),
+    /// Build points for one unit. The ETA row derives from
+    /// `build_points * multiplier` divided by the static
+    /// placeholder output. v0.5.2: added so the Mining card can
+    /// show ETA (the Mining card's `stat_a` carries the live
+    /// inventory count, not BP — without this separate field the
+    /// ETA calculation would parse the count as 0 BP and show
+    /// "0s" regardless of multiplier).
+    pub build_points: f64,
     /// stat_c is unused (kept for struct stability) — the power
     /// readout moved to the body's first effect line.
     pub stat_c: (&'static str, String),
     pub effects: Vec<(EffectTone, String)>,
-    pub queue_label: &'static str,
+    /// Rich resource-cost rows: each entry is rendered as a
+    /// `[PNG icon | tinted amount]` row in the card body, so
+    /// the player can identify the resource at a glance and group
+    /// related costs (Construction metals vs Volatiles vs
+    /// Precious metals …) by hue. The icon is the asset-server
+    /// PNG from `assets/textures/ui/resources/<name>.png`,
+    /// post-processed (white → transparent, dark →
+    /// un-premultiplied alpha) and tinted to the resource's
+    /// category colour at render time via
+    /// `ImageNode::color` (`bevy_theme::category_color_for_resource`).
+    ///
+    /// v0.5.2 PR-A.4 follow-up: supersedes the emoji-prefixed
+    /// cost bullets that previously lived in `effects` with
+    /// `EffectTone::Cost`. Cost entries are no longer pushed to
+    /// `effects`; the canary renders the rows in this vec instead.
+    pub resource_costs: Vec<ResourceCostRow>,
+    /// The label on the Queue button. v0.5.2: dynamic per
+    /// multiplier so the Mining card reads "Build +5" instead of
+    /// just "Queue" — gives the player a quick read of how many
+    /// copies one click will enqueue. Build cards keep the
+    /// simpler "Queue" label (the player has 6 fixed chips to
+    /// pick from, the chip itself shows the value).
+    pub queue_label: String,
     /// `true` if the batch's total power demand exceeds the active
     /// colony's grid surplus. The Queue button reads this and adds
     /// `ConstructionCtaDisabled` so the player can't push a build
@@ -887,18 +981,35 @@ pub fn card_data_with_multiplier(
     // count stays the same regardless of batch size (per user
     // feedback 2026-08-02: an extra "Total ×N" line was pushing the
     // card body past its 240 px height).
+    //
+    // v0.5.2 PR-A.4 (cost-icon strip): the cost bullets now lead
+    // with the resource emoji (e.g. "🔩 250k/t" instead of
+    // "Iron 250k/t"). The resource-name column is dropped because
+    // the icon already conveys the resource — saves ~28 px of
+    // vertical space on a 4-line cost bullet (avoids the screenshot
+    // bug where the longest cards had their content overflow the
+    // 244 px card height and clip the ETA row). The cap is raised
+    // from 3 → 8 so buildings with more than 3 distinct costs
+    // (rare but defined in buildings.ron) display all of them; the
+    // card's new 320 px height has room for up to 6 effect lines +
+    // header + subtitle + stats + ETA without clipping.
+    // v0.5.2 PR-A.4 follow-up: typed resource-demand rows. The
+    // canary renders these as `[PNG icon | tinted amount]` —
+    // see `spawn_card`'s resource-cost loop. Emoji/icon
+    // rendering happens at spawn time; the builder only emits
+    // data. Cap at 8 lines (rare but defined in buildings.ron —
+    // e.g. Refinery has 4 costs, ChemicalPlant has 5,
+    // SemiconductorFab has 6) so even tall cards don't overflow
+    // the 320 px height.
     let mut effects: Vec<(EffectTone, String)> = Vec::new();
-    for (name, amt) in def.resource_costs.iter().take(3) {
+    let mut resource_costs: Vec<ResourceCostRow> = Vec::new();
+    for (name, amt) in def.resource_costs.iter().take(8) {
         let total = amt * mult;
-        let amt_str = if total.fract() == 0.0 {
-            format!("{:.0}", total)
-        } else {
-            format!("{:.1}", total)
-        };
-        effects.push((
-            EffectTone::Cost,
-            format!("{} {}k/t", name, amt_str),
-        ));
+        resource_costs.push(ResourceCostRow {
+            name: name.clone(),
+            amount: total,
+            resource: parse_resource_type(name),
+        });
     }
     // v0.5.2 PR-A.2 power display (round 2, 2026-08-02): the
     // player's screenshot showed the body line carrying
@@ -912,7 +1023,44 @@ pub fn card_data_with_multiplier(
     //   "Power: 150 MW × 6 = 900 MW"   (mult=6)
     //   "Power: 150 MW"               (mult=1)
     //   "Power: 0 MW"                 (no grid draw)
-    if def.power_demand_mw.abs() < 0.01 {
+    //
+    // v0.5.2 PR-A.5 (2026-08-02): power plants (Wind Farm, Coal
+    // Power Sector, Fission Reactor, Hydroelectric Dam, …) store
+    // their output on a `PowerGeneration` modifier (in GW per unit
+    // — see `src/economy/budget.rs::calculate_colony_power_totals`
+    // for the canonical reader). They have `power_demand_mw == 0.0`
+    // because they are net producers, not consumers. The old card
+    // only looked at `power_demand_mw`, so every power plant showed
+    // the misleading "Power: 0 MW" neutral line and the player had
+    // no idea what the plant actually generated. Now we surface the
+    // generation as a green "Produces X MW" line that scales with
+    // the build-qty multiplier (consistent with the demand line's
+    // ×N expansion for batching). When the building has BOTH a
+    // generation modifier AND a non-zero demand, the demand line
+    // still appears as the second power-related effect (rare in
+    // practice — most producers have a tiny parasitic draw which is
+    // folded into the modifier or omitted).
+    let power_output_gw_per_unit: f64 = def
+        .modifiers
+        .iter()
+        .filter(|m| m.modifier_type == "PowerGeneration")
+        .map(|m| m.value)
+        .sum();
+    if power_output_gw_per_unit > 0.0 {
+        // RON is GW per unit; convert to MW (× 1000) for the card
+        // line so it lines up with the demand line's MW units.
+        let per_unit_mw = power_output_gw_per_unit * 1_000.0;
+        let total_mw = per_unit_mw * mult;
+        let line = if mult > 1.0 {
+            format!(
+                "Produces {:.0} MW \u{00d7} {} = {:.0} MW",
+                per_unit_mw, mult as u32, total_mw
+            )
+        } else {
+            format!("Produces {:.0} MW", per_unit_mw)
+        };
+        effects.insert(0, (EffectTone::Positive, line));
+    } else if def.power_demand_mw.abs() < 0.01 {
         effects.insert(0, (EffectTone::Neutral, "Power: 0 MW".to_string()));
     } else {
         let per_unit = def.power_demand_mw;
@@ -954,15 +1102,34 @@ pub fn card_data_with_multiplier(
     {
         if prod.value > 0.0 {
             if let Some(res_name) = prod.modifier_type.strip_suffix("Production") {
-                let rate = format_mining_rate(prod.value);
+                // v0.5.2 fix (2026-08-02): per user feedback, the
+                // "Produces" line did not scale with the build
+                // multiplier — every other value on the card (BP,
+                // workforce, resource costs, Power demand ×N) folds
+                // the batch size into the displayed number, but
+                // Produces showed the raw per-unit RON value, so a
+                // ×6 build read as 1× (e.g. "9.00 Gt/yr Food/yr"
+                // instead of "54.00 Gt/yr Food/yr"). Mirror the
+                // Power-generation pattern immediately above:
+                // show the per-unit rate, the multiplier, and the
+                // batch total so the player sees the full impact of
+                // the batch on the colony's food/feedstock output.
+                let per_unit = prod.value;
+                let total = per_unit * mult;
+                let line = if mult > 1.0 {
+                    format!(
+                        "Produces {} {}/yr \u{00d7} {} = {} {}/yr",
+                        format_mining_rate(per_unit),
+                        res_name,
+                        mult as u32,
+                        format_mining_rate(total),
+                        res_name
+                    )
+                } else {
+                    format!("Produces {} {}/yr", format_mining_rate(per_unit), res_name)
+                };
                 let insert_at = if def.power_demand_mw.abs() >= 0.01 { 1 } else { 0 };
-                effects.insert(
-                    insert_at,
-                    (
-                        EffectTone::Positive,
-                        format!("Produces {} {}/yr", rate, res_name),
-                    ),
-                );
+                effects.insert(insert_at, (EffectTone::Positive, line));
             }
         }
     }
@@ -979,8 +1146,16 @@ pub fn card_data_with_multiplier(
         // readout moved to the body's first effect line.
         stat_c: ("", String::new()),
         effects,
-        queue_label: "Queue",
+        // v0.5.2 PR-A.4 follow-up: typed resource-demand rows
+        // rendered with PNG icon + category tint (see
+        // `resource_costs` doc). Always passed alongside
+        // `effects`; the canary renders the two sets in
+        // separate visual zones (Power → Produces →
+        // [resource_cost rows]).
+        resource_costs,
+        queue_label: "Queue".to_string(),
         power_insufficient,
+        build_points: def.build_points,
     }
 }
 
@@ -1217,19 +1392,42 @@ pub fn visible_cards(
     // 0..8, the category chip narrows down to one `BuildingCategory`.
     // v0.5.2 PR-A.2 (round 2): the Mining chip is removed from the
     // Build tab, so 9 → 8 categories with "All" at index 8.
+    //
+    // v0.5.2 PR-A.2 (round 3): mining buildings (per-resource base
+    // mines + AutoMines) are managed exclusively in the dedicated
+    // `ConstructionTab::Mining` body, which renders the per-resource
+    // grid with [-]/[+] buttons. Excluding `BuildingCategory::Mining`
+    // here means mines no longer leak into the Build tab's Industry
+    // chip or the "All" chip. The category enum still has the
+    // `Mining` variant (the Mining tab's own `visible_cards`-style
+    // helpers read it from the RON `category:` string) so the data
+    // round-trip is preserved.
     let category = category_from_index(category_index);
     let in_category: Vec<_> = if category_index == 8 {
-        // "All" chip: bypass category, show every building.
+        // "All" chip: show every building EXCEPT mining (managed in
+        // the Mining tab).
         entries
+            .into_iter()
+            .filter(|(_, def)| parse_category(&def.category) != Some(BuildingCategory::Mining))
+            .collect()
     } else {
         entries
             .into_iter()
             .filter(|(_, def)| {
                 if let Some(cat) = category {
+                    // Mines never appear in the Build tab at all —
+                    // they live in the Mining tab — so reject them
+                    // even if a category chip somehow resolves to
+                    // `Mining` (defensive: no chip currently maps to
+                    // it, but `category_from_index` is the single
+                    // source of truth).
+                    if cat == BuildingCategory::Mining {
+                        return false;
+                    }
                     parse_category(&def.category) == Some(cat)
                 } else {
-                    // No category selected: show all.
-                    true
+                    // No category selected: show all non-mining.
+                    parse_category(&def.category) != Some(BuildingCategory::Mining)
                 }
             })
             .collect()
@@ -1529,6 +1727,12 @@ fn spawn_overview_body(
                 flex_direction: FlexDirection::Column,
                 width: Val::Percent(100.0),
                 flex_grow: 1.0,
+                // v0.5.2 PR-A.5: same flex-overflow fix as the
+                // mining/buildings/queue bodies — without
+                // `min_height: 0`, the column refuses to shrink
+                // below its intrinsic content height and the
+                // scroll wheel silently no-ops.
+                min_height: Val::Px(0.0),
                 row_gap: Val::Px(SPACE_XS),
                 overflow: Overflow::scroll_y(),
                 ..default()
@@ -1588,10 +1792,24 @@ pub enum OverviewRowKind {
 #[derive(Component)]
 pub struct OverviewQueueContent;
 
-/// Update the Overview body's queue section every frame. Despawns
-/// the existing rows inside the content container and re-spawns
-/// them based on the selected colony's `ConstructionProject`s,
-/// showing each project's name + progress bar + ETA.
+/// Update the Overview body's queue section every frame.
+///
+/// Spawn-once-update-many (v0.5.2): rows persist across frames.
+/// Each frame:
+/// 1. Despawn rows whose project is no longer live (project
+///    completed, cancelled, or its `colony_entity` no longer matches
+///    the selected colony).
+/// 2. Mutate the text + fill width on existing rows in place.
+/// 3. Spawn rows for projects we haven't seen before.
+///
+/// The `Local<HashMap<Entity, OverviewQueueRow>>` cache is keyed by
+/// the project entity and carries the row's child-node IDs so the
+/// per-frame updates are direct `Query::get_mut` lookups — no
+/// `Children` / `ChildOf` walks.
+///
+/// The "no active construction projects" placeholder is owned by a
+/// separate `Local<Option<Entity>>` so it can be toggled without
+/// coupling it to the project list.
 pub fn update_overview_queue(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
@@ -1599,14 +1817,24 @@ pub fn update_overview_queue(
     buildings_data: Res<BuildingsData>,
     projects: Query<(Entity, &crate::colony::ConstructionProject)>,
     content_query: Query<Entity, With<OverviewQueueContent>>,
-    mut spawned_rows: Local<Vec<Entity>>,
+    mut spawned_rows: Local<std::collections::HashMap<Entity, OverviewQueueRow>>,
+    // B0001 (Bevy 0.18): three separate `Query<&mut Text, ...>` parameters
+    // would conflict because they all yield `&mut Text` access on the
+    // same archetype. The `With<...>` filters are disjoint in practice
+    // (each marker is set on a different child entity), but the planner
+    // can't prove that statically. Wrap in `ParamSet` and use `p0()..p2()`
+    // in non-overlapping scopes — see the `update_overview_queue` body
+    // for the canonical readout-then-write pattern. Same fix shape is
+    // used by `update_card_scrollbar_metrics` below.
+    mut text_params: ParamSet<(
+        Query<&mut Text, With<OverviewQueueRowNameChild>>,
+        Query<&mut Text, With<OverviewQueueRowProgressChild>>,
+        Query<(&mut Text, &mut TextColor), With<OverviewQueueRowStatusChild>>,
+    )>,
+    mut progress_fill_query: Query<&mut Node, With<OverviewQueueRowFillChild>>,
+    mut empty_placeholder: Local<Option<Entity>>,
 ) {
     let Ok(content) = content_query.single() else { return; };
-
-    // Despawn the rows we spawned on the previous frame.
-    for entity in spawned_rows.drain(..) {
-        commands.entity(entity).despawn();
-    }
 
     let body_font: Handle<Font> = asset_server.load("fonts/Inter-Regular.otf");
     let body_font_medium: Handle<Font> = asset_server.load("fonts/Inter-SemiBold.otf");
@@ -1623,35 +1851,114 @@ pub fn update_overview_queue(
                 .collect()
         })
         .unwrap_or_default();
+    let live_keys: std::collections::HashSet<Entity> =
+        colony_projects.iter().map(|(e, _)| *e).collect();
 
-    if colony_projects.is_empty() {
-        let placeholder = commands
-            .spawn((
-                Text::new("No active construction projects. Switch to the Build tab to queue a building."),
-                TextFont {
-                    font: body_font.clone(),
-                    font_size: BODY_SIZE,
-                    ..default()
-                },
-                TextColor(TEXT_DIM),
-                Name::new("overview_queue_empty"),
-            ))
-            .id();
-        commands.entity(content).add_child(placeholder);
-        spawned_rows.push(placeholder);
-        return;
+    // 1. Despawn rows whose project is gone.
+    let to_remove: Vec<Entity> = spawned_rows
+        .keys()
+        .filter(|k| !live_keys.contains(k))
+        .copied()
+        .collect();
+    for key in to_remove {
+        if let Some(row_info) = spawned_rows.remove(&key) {
+            // Cascade-despawn the row (which drops the header,
+            // name, status, progress text, track, and fill
+            // children). `try_despawn` keeps this silent if the
+            // row was already cascade-despawned by an earlier
+            // system in the same tick.
+            commands.entity(row_info.row).try_despawn();
+        }
     }
 
-    for (project_entity, project) in colony_projects {
+    // 2. Empty-queue placeholder: spawn once if needed, despawn
+    //    once if the queue transitioned from empty to non-empty.
+    if colony_projects.is_empty() {
+        let need_spawn = match *empty_placeholder {
+            Some(p) => commands.get_entity(p).is_err(),
+            None => true,
+        };
+        if need_spawn {
+            let placeholder = commands
+                .spawn((
+                    Text::new(
+                        "No active construction projects. Switch to the Build tab to queue a building.",
+                    ),
+                    TextFont {
+                        font: body_font.clone(),
+                        font_size: BODY_SIZE,
+                        ..default()
+                    },
+                    TextColor(TEXT_DIM),
+                    Name::new("overview_queue_empty"),
+                ))
+                .id();
+            commands.entity(content).add_child(placeholder);
+            *empty_placeholder = Some(placeholder);
+        }
+        return;
+    } else if let Some(placeholder) = empty_placeholder.take() {
+        commands.entity(placeholder).try_despawn();
+    }
+
+    // 3. Mutate existing rows in place: text + fill width.
+    for (project_entity, project) in &colony_projects {
+        let Some(row) = spawned_rows.get(project_entity) else {
+            continue;
+        };
+        let progress = project.progress_percent();
+        let status = if project.awaiting_resources {
+            "Awaiting delivery"
+        } else {
+            "Building"
+        };
+        let display_name = buildings_data
+            .get(&project.building_type)
+            .map(|d| d.display_name.as_str())
+            .unwrap_or("(unknown)");
+        // ParamSet readout-then-write: each accessor lives in its
+        // own scoped block so the borrow on `text_params` is
+        // released before the next one is taken. The same idiom
+        // is used by `update_buildings_body` below.
+        let new_text = display_name.to_string();
+        {
+            if let Ok(mut text) = text_params.p0().get_mut(row.name_text) {
+                **text = new_text;
+            }
+        }
+        let status_text = status.to_string();
+        let status_color = if project.awaiting_resources {
+            ORANGE_ORE
+        } else {
+            GREEN_FIN
+        };
+        {
+            if let Ok((mut text, mut color)) = text_params.p2().get_mut(row.status_text) {
+                **text = status_text;
+                *color = TextColor(status_color);
+            }
+        }
+        let progress_text = format!("{:.0}%", (progress as f64) * 100.0);
+        {
+            if let Ok(mut text) = text_params.p1().get_mut(row.progress_text) {
+                **text = progress_text;
+            }
+        }
+        if let Ok(mut node) = progress_fill_query.get_mut(row.progress_fill) {
+            node.width = Val::Percent(progress.clamp(0.0, 1.0) * 100.0);
+        }
+    }
+
+    // 4. Spawn rows for projects we haven't seen before.
+    for (project_entity, project) in &colony_projects {
+        if spawned_rows.contains_key(project_entity) {
+            continue;
+        }
         let display_name = buildings_data
             .get(&project.building_type)
             .map(|d| d.display_name.as_str())
             .unwrap_or("(unknown)");
         let progress = project.progress_percent();
-        let progress_label = format!(
-            "{:.0}%",
-            (progress as f64) * 100.0
-        );
         let status = if project.awaiting_resources {
             "Awaiting delivery"
         } else {
@@ -1673,7 +1980,6 @@ pub fn update_overview_queue(
                 BackgroundColor(CARD_BG),
                 BorderColor::all(CYAN_BORDER),
                 Name::new("overview_queue_row"),
-                OverviewQueueRow { project_entity },
             ))
             .id();
         commands.entity(content).add_child(row);
@@ -1694,7 +2000,7 @@ pub fn update_overview_queue(
             .id();
         commands.entity(row).add_child(header);
 
-        let name = commands
+        let name_text = commands
             .spawn((
                 Text::new(display_name.to_string()),
                 TextFont {
@@ -1708,9 +2014,10 @@ pub fn update_overview_queue(
                     ..default()
                 },
                 Name::new("overview_queue_row_name"),
+                OverviewQueueRowNameChild,
             ))
             .id();
-        commands.entity(header).add_child(name);
+        commands.entity(header).add_child(name_text);
 
         let status_text = commands
             .spawn((
@@ -1720,15 +2027,20 @@ pub fn update_overview_queue(
                     font_size: CAPTION_SIZE,
                     ..default()
                 },
-                TextColor(if project.awaiting_resources { ORANGE_ORE } else { GREEN_FIN }),
+                TextColor(if project.awaiting_resources {
+                    ORANGE_ORE
+                } else {
+                    GREEN_FIN
+                }),
                 Name::new("overview_queue_row_status"),
+                OverviewQueueRowStatusChild,
             ))
             .id();
         commands.entity(header).add_child(status_text);
 
         let progress_text = commands
             .spawn((
-                Text::new(progress_label),
+                Text::new(format!("{:.0}%", (progress as f64) * 100.0)),
                 TextFont {
                     font: mono_font.clone(),
                     font_size: CAPTION_SIZE,
@@ -1736,6 +2048,7 @@ pub fn update_overview_queue(
                 },
                 TextColor(CYAN),
                 Name::new("overview_queue_row_progress"),
+                OverviewQueueRowProgressChild,
             ))
             .id();
         commands.entity(header).add_child(progress_text);
@@ -1754,7 +2067,7 @@ pub fn update_overview_queue(
             ))
             .id();
         commands.entity(row).add_child(track);
-        let fill = commands
+        let progress_fill = commands
             .spawn((
                 Node {
                     width: Val::Percent(progress.clamp(0.0, 1.0) * 100.0),
@@ -1764,19 +2077,81 @@ pub fn update_overview_queue(
                 },
                 BackgroundColor(CYAN),
                 Name::new("overview_queue_row_fill"),
+                OverviewQueueRowFillChild,
             ))
             .id();
-        commands.entity(track).add_child(fill);
+        commands.entity(track).add_child(progress_fill);
 
-        spawned_rows.push(row);
+        // Attach the marker with all child IDs.
+        commands.entity(row).insert(OverviewQueueRow {
+            project_entity: *project_entity,
+            row,
+            name_text,
+            status_text,
+            progress_text,
+            progress_fill,
+        });
+        spawned_rows.insert(*project_entity, OverviewQueueRow {
+            project_entity: *project_entity,
+            row,
+            name_text,
+            status_text,
+            progress_text,
+            progress_fill,
+        });
     }
 }
 
 /// Marker on each row in the Overview body's queue section. Carries
-/// the project entity so the system can find the row by project.
+/// the project entity plus the child-node entity IDs so the
+/// `update_overview_queue` system can mutate the progress label,
+/// status text, and fill bar in place via direct `Query::get_mut`
+/// lookups instead of walking `Children` / `ChildOf` chains.
+///
+/// Spawn-once-update-many refactor (v0.5.2): rows persist across
+/// frames; the system diffs the live project set against the cached
+/// map and only despawns rows whose project is gone, only spawns
+/// rows for new projects.
+
+/// Marker component on the `Text` node that holds the building
+/// display name within a queued row. Used by `update_overview_queue`
+/// to `Query::get_mut` the text in place each frame.
+#[derive(Component)]
+pub struct OverviewQueueRowNameChild;
+
+/// Marker component on the `Text` node that holds the human-readable
+/// status ("Building" / "Awaiting delivery") within a queued row.
+#[derive(Component)]
+pub struct OverviewQueueRowStatusChild;
+
+/// Marker component on the `Text` node that holds the formatted
+/// "{:.0}%" progress label within a queued row.
+#[derive(Component)]
+pub struct OverviewQueueRowProgressChild;
+
+/// Marker component on the `Node` whose `width` encodes the
+/// progress fill (0 % – 100 % of the track) within a queued row.
+#[derive(Component)]
+pub struct OverviewQueueRowFillChild;
+
 #[derive(Component)]
 pub struct OverviewQueueRow {
     pub project_entity: Entity,
+    /// The row entity itself. Stored so the despawn step can drop
+    /// the whole subtree in one `commands.entity(...).despawn()`
+    /// call (which cascade-despawns the header + track + all their
+    /// children).
+    pub row: Entity,
+    /// The `Text` node holding the building display name.
+    pub name_text: Entity,
+    /// The `Text` node holding the human-readable status
+    /// ("Building" / "Awaiting delivery").
+    pub status_text: Entity,
+    /// The `Text` node holding the formatted "{:.0}%" progress label.
+    pub progress_text: Entity,
+    /// The `Node` overlay whose width encodes progress
+    /// (0 % – 100 % of the track).
+    pub progress_fill: Entity,
 }
 
 /// Update the Overview body's four value rows every frame so the
@@ -1882,6 +2257,14 @@ fn spawn_buildings_body(
                 flex_direction: FlexDirection::Column,
                 width: Val::Percent(100.0),
                 flex_grow: 1.0,
+                // v0.5.2 PR-A.5: same `min_height: 0` fix as the
+                // mining content container — without it, the flex
+                // item refuses to shrink below its intrinsic content
+                // height and `Overflow::scroll_y` never engages.
+                // The build tab's `card_grid` has the same pattern
+                // with the same line. Mirrors the documentation
+                // comment on `mining_content` below.
+                min_height: Val::Px(0.0),
                 row_gap: Val::Px(SPACE_XS),
                 overflow: Overflow::scroll_y(),
                 ..default()
@@ -1905,11 +2288,21 @@ pub struct BuildingsHeader;
 #[derive(Component)]
 pub struct BuildingsContent;
 
-/// Update the Buildings body every frame. Despawns the existing
-/// rows inside the content container and re-spawns them based on the
-/// selected colony's `buildings` HashMap. Uses a `Local<Vec<Entity>>`
-/// to track the spawned rows so we don't have to query the `Children`
-/// component separately.
+/// Update the Buildings body every frame.
+///
+/// Spawn-once-update-many (v0.5.2): rows persist across frames.
+/// Each frame:
+/// 1. Despawn rows whose `BuildingType` is no longer present in
+///    the selected colony's `buildings` map.
+/// 2. Mutate the count text on existing rows in place — the count
+///    changes whenever the player queues or cancels construction.
+/// 3. Spawn rows for `BuildingType`s we haven't seen before.
+///
+/// The `Local<HashMap<BuildingType, BuildingsRow>>` cache is keyed
+/// by `BuildingType` and stores the row id + the quantity-text
+/// child entity. The display name never changes for a given
+/// `BuildingType` (it's metadata) so we don't mutate it — only the
+/// `×{count}` text and the row existence itself.
 pub fn update_buildings_body(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
@@ -1917,15 +2310,21 @@ pub fn update_buildings_body(
     buildings_data: Res<BuildingsData>,
     colonies: Query<(Entity, &crate::colony::Colony)>,
     content_query: Query<Entity, With<BuildingsContent>>,
-    mut header_query: Query<&mut Text, With<BuildingsHeader>>,
-    mut spawned_rows: Local<Vec<Entity>>,
+    mut spawned_rows: Local<std::collections::HashMap<crate::colony::BuildingType, BuildingsRow>>,
+    // B0001 (Bevy 0.18): two `Query<&mut Text, ...>` parameters both
+    // yield `&mut Text` access on arbitrary archetypes. The
+    // `With<…>` filters are disjoint in practice (different child
+    // markers), but the planner can't prove that. Wrap in `ParamSet`
+    // and use `.p0()` / `.p1()` in non-overlapping scopes — see the
+    // sibling `update_overview_queue` system for the same fix shape.
+    mut text_params: ParamSet<(
+        Query<&mut Text, With<BuildingsHeader>>,
+        Query<&mut Text, With<BuildingsRowQtyChild>>,
+    )>,
+    mut empty_placeholder: Local<Option<Entity>>,
+    mut no_colony_placeholder: Local<Option<Entity>>,
 ) {
     let Ok(content) = content_query.single() else { return; };
-
-    // Despawn the rows we spawned on the previous frame.
-    for entity in spawned_rows.drain(..) {
-        commands.entity(entity).despawn();
-    }
 
     // Load fonts for the text nodes (cached by the asset server).
     let body_font: Handle<Font> = asset_server.load("fonts/Inter-Regular.otf");
@@ -1936,39 +2335,63 @@ pub fn update_buildings_body(
         .selected_colony
         .and_then(|e| colonies.iter().find(|(ce, _)| *ce == e));
 
-    // Update the header text.
+    // Update the header text. The ParamSet borrows drop at the
+    // end of this block so the qty_text write below doesn't
+    // overlap (B0001-safe).
     let header_text = match &colony {
         Some((_, c)) => format!("Constructed Buildings ({})", c.buildings.len()),
         None => "Constructed Buildings".to_string(),
     };
-    for mut text in header_query.iter_mut() {
+    for mut text in text_params.p0().iter_mut() {
         **text = header_text.clone();
     }
 
-    let Some((_, colony)) = colony else {
+    // Helper: spawn the "(no colony selected)" placeholder if we
+    // don't have one. `Local<Option<Entity>>` survives across
+    // frames so we only spawn once per "no colony" stretch.
+    fn spawn_no_colony_placeholder(
+        commands: &mut Commands,
+        content: Entity,
+        body_font: Handle<Font>,
+        existing: Option<Entity>,
+    ) -> Option<Entity> {
+        if let Some(p) = existing {
+            if commands.get_entity(p).is_ok() {
+                return Some(p);
+            }
+        }
         let placeholder = commands
             .spawn((
                 Text::new("(no colony selected)"),
                 TextFont {
-                    font: body_font.clone(),
+                    font: body_font,
                     font_size: BODY_SIZE,
                     ..default()
                 },
                 TextColor(TEXT_DIM),
-                Name::new("buildings_empty"),
+                Name::new("buildings_no_colony"),
             ))
             .id();
         commands.entity(content).add_child(placeholder);
-        spawned_rows.push(placeholder);
-        return;
-    };
+        Some(placeholder)
+    }
 
-    if colony.buildings.is_empty() {
+    fn spawn_empty_placeholder(
+        commands: &mut Commands,
+        content: Entity,
+        body_font: Handle<Font>,
+        existing: Option<Entity>,
+    ) -> Option<Entity> {
+        if let Some(p) = existing {
+            if commands.get_entity(p).is_ok() {
+                return Some(p);
+            }
+        }
         let placeholder = commands
             .spawn((
                 Text::new("No buildings yet. Switch to the Build tab to queue your first structure."),
                 TextFont {
-                    font: body_font.clone(),
+                    font: body_font,
                     font_size: BODY_SIZE,
                     ..default()
                 },
@@ -1977,8 +2400,54 @@ pub fn update_buildings_body(
             ))
             .id();
         commands.entity(content).add_child(placeholder);
-        spawned_rows.push(placeholder);
+        Some(placeholder)
+    }
+
+    let Some((_, colony)) = colony else {
+        // Despawn any cached rows and placeholders.
+        for (_, row_info) in spawned_rows.drain() {
+            commands.entity(row_info.row).try_despawn();
+        }
+        if let Some(p) = no_colony_placeholder.take() {
+            commands.entity(p).try_despawn();
+        }
+        if let Some(p) = empty_placeholder.take() {
+            commands.entity(p).try_despawn();
+        }
+        *no_colony_placeholder = spawn_no_colony_placeholder(
+            &mut commands,
+            content,
+            body_font.clone(),
+            None,
+        );
         return;
+    };
+
+    if colony.buildings.is_empty() {
+        for (_, row_info) in spawned_rows.drain() {
+            commands.entity(row_info.row).try_despawn();
+        }
+        if let Some(p) = no_colony_placeholder.take() {
+            commands.entity(p).try_despawn();
+        }
+        if let Some(p) = empty_placeholder.take() {
+            commands.entity(p).try_despawn();
+        }
+        *empty_placeholder = spawn_empty_placeholder(
+            &mut commands,
+            content,
+            body_font.clone(),
+            None,
+        );
+        return;
+    }
+
+    // We have rows to show — clear both placeholders.
+    if let Some(p) = no_colony_placeholder.take() {
+        commands.entity(p).try_despawn();
+    }
+    if let Some(p) = empty_placeholder.take() {
+        commands.entity(p).try_despawn();
     }
 
     // Sort buildings by name for stable presentation.
@@ -1995,7 +2464,36 @@ pub fn update_buildings_body(
         an.cmp(bn)
     });
 
-    for (building_type, count) in entries {
+    let live_keys: std::collections::HashSet<crate::colony::BuildingType> =
+        entries.iter().map(|(bt, _)| **bt).collect();
+
+    // 1. Despawn rows whose BuildingType is gone.
+    let to_remove: Vec<crate::colony::BuildingType> = spawned_rows
+        .keys()
+        .filter(|k| !live_keys.contains(k))
+        .copied()
+        .collect();
+    for key in to_remove {
+        if let Some(row_info) = spawned_rows.remove(&key) {
+            commands.entity(row_info.row).try_despawn();
+        }
+    }
+
+    // 2. Mutate existing rows in place: count text.
+    for (building_type, count) in &entries {
+        let Some(row_info) = spawned_rows.get(building_type) else {
+            continue;
+        };
+        if let Ok(mut text) = text_params.p1().get_mut(row_info.qty_text) {
+            **text = format!("\u{00d7}{}", *count);
+        }
+    }
+
+    // 3. Spawn rows for BuildingTypes we haven't seen before.
+    for (building_type, count) in &entries {
+        if spawned_rows.contains_key(building_type) {
+            continue;
+        }
         let display_name = buildings_data
             .get(building_type)
             .map(|d| d.display_name.as_str())
@@ -2032,9 +2530,9 @@ pub fn update_buildings_body(
             ))
             .id();
         commands.entity(row).add_child(name);
-        let qty = commands
+        let qty_text = commands
             .spawn((
-                Text::new(format!("\u{00d7}{}", count)),
+                Text::new(format!("\u{00d7}{}", **count)),
                 TextFont {
                     font: mono_font.clone(),
                     font_size: BODY_SIZE,
@@ -2042,12 +2540,27 @@ pub fn update_buildings_body(
                 },
                 TextColor(CYAN),
                 Name::new("buildings_row_qty"),
+                BuildingsRowQtyChild,
             ))
             .id();
-        commands.entity(row).add_child(qty);
-        spawned_rows.push(row);
+        commands.entity(row).add_child(qty_text);
+        spawned_rows.insert(**building_type, BuildingsRow { row, qty_text });
     }
 }
+
+/// Cached child-entity ids for a single Buildings row. Carries the
+/// row entity id (for cascade despawn) and the quantity-text child
+/// entity (the only per-frame-mutable field on a building row).
+#[derive(Clone, Copy)]
+pub struct BuildingsRow {
+    pub row: Entity,
+    pub qty_text: Entity,
+}
+
+/// Child-node marker for the `Text` node holding the `×{count}`
+/// quantity inside a Buildings row.
+#[derive(Component)]
+pub struct BuildingsRowQtyChild;
 
 /// Build the **Mining** body. Persistent container with a header
 /// + a content scroll area. The `update_mining_body` system
@@ -2105,6 +2618,19 @@ fn spawn_mining_body(
 
     // Content container — `update_mining_body` despawns and
     // re-spawns the rows inside this container every frame.
+    //
+    // v0.5.2 PR-A.5: `min_height: Val::Px(0.0)` mirrors the build
+    // tab's `card_grid` (line ~3694). Without it, the flex item
+    // refuses to shrink below its intrinsic content height — the
+    // default `min-height: auto` in flexbox layout. The result is
+    // that the scroll container grows to fit its content, the
+    // `Overflow::scroll_y()` never has anything to scroll, and the
+    // `tick_ui_scroll_on_wheel` system silently no-ops on every
+    // wheel event (the computed `max_y` is 0 because the content
+    // fits without clipping). This is the exact fix the build tab
+    // relies on for the same reason — the `card_grid` comment
+    // explicitly calls this out as "critical for Bevy 0.18's flex
+    // sizing behavior".
     let content = commands
         .spawn((
             Node {
@@ -2112,6 +2638,7 @@ fn spawn_mining_body(
                 flex_direction: FlexDirection::Column,
                 width: Val::Percent(100.0),
                 flex_grow: 1.0,
+                min_height: Val::Px(0.0),
                 row_gap: Val::Px(SPACE_XS),
                 overflow: Overflow::scroll_y(),
                 ..default()
@@ -2176,6 +2703,303 @@ pub struct MiningDemolishDisabled;
 #[derive(Component)]
 pub struct MiningOrbitalBody;
 
+/// Per-chip data for the cost-row hover tooltip. Carried by
+/// every `ResourceCostChip` so the observer handlers can look up
+/// the resource name + amount + category tint via the picked
+/// entity id and write them into the tooltip's text node.
+///
+/// `name` is the display string (`"Iron"`, `"Water"`, `"He-3"`,
+/// etc.) — not the raw RON name. `amount` is the formatted
+/// `kg / t / Mt / Gt / Tt` string produced by `format_mining_reserve`.
+/// `category` is the chip's category colour (Construction /
+/// Volatiles / Fissile / etc.) so the tooltip can match the
+/// chip's tint. `card` is the host card's entity id — the
+/// observer uses it to find the right tooltip among the many
+/// (one per visible card).
+#[derive(Component, Clone)]
+pub struct ResourceCostChip {
+    pub name: String,
+    pub amount: String,
+    pub category: Color,
+    pub card: Entity,
+}
+
+/// Marker on the singleton cost-chip hover tooltip overlay.
+/// Spawned once at panel setup time (parented to the
+/// construction `root`), populated each frame by
+/// [`update_resource_cost_tooltip`] from
+/// [`ResourceCostHoverState`]. Visual style mirrors the 3D
+/// body-hover tooltip (`src/ui/mod.rs::ui_hover_tooltip`):
+/// `TOOLTIP_BG` fill, cyan border, lg inner margin — so the
+/// panel chrome and the world tooltips read as the same
+/// design language.
+#[derive(Component)]
+pub struct ResourceCostTooltipOverlay;
+
+/// Marker on the inner text node of the overlay. The update
+/// system finds the text via `Single<&mut Text, With<…>>` so
+/// it doesn't have to walk a Children hierarchy.
+#[derive(Component)]
+pub struct ResourceCostTooltipText;
+
+/// Resource tracking which cost chip (if any) the cursor is
+/// currently hovering. The `Pointer<Over>` observer writes
+/// `Some(…)` on hover-in and the `Pointer<Out>` observer
+/// writes `None` on hover-out. The `update_resource_cost_tooltip`
+/// system reads this each frame to drive the overlay's
+/// text/colour/position.
+///
+/// Cloning the small `String` data on every hover is cheap
+/// (a hover can only happen on one chip at a time, and the
+/// hovered chip is one of a few visible chips in the panel).
+#[derive(Resource, Default)]
+pub struct ResourceCostHoverState {
+    pub chip: Option<HoveredChipData>,
+}
+
+/// Snapshot of a hovered chip's display data. The
+/// `category` field is the chip's category tint
+/// (Construction / Volatiles / Fissile / etc.) so the
+/// overlay's text can match the chip's hue. `entity` is
+/// the chip entity id and is mainly there for debug logs.
+#[derive(Clone)]
+pub struct HoveredChipData {
+    pub name: String,
+    pub amount: String,
+    pub category: Color,
+    pub entity: Entity,
+}
+
+/// Observer: on `Pointer<Over>`, snapshot the hovered chip's
+/// `ResourceCostChip` data into [`ResourceCostHoverState`].
+/// The `update_resource_cost_tooltip` system reads that
+/// resource each frame to populate the singleton overlay.
+///
+/// The observer doesn't touch the overlay entity directly
+/// — pointer observers shouldn't mutate other entities'
+/// per-frame state. The system handles the visible position
+/// + text + colour work because the overlay's `left/top`
+/// must be set from the live cursor position, which the
+/// observer doesn't have.
+fn on_chip_hover_over(
+    on: On<Pointer<Over>>,
+    chip_query: Query<&ResourceCostChip>,
+    mut hover_state: ResMut<ResourceCostHoverState>,
+) {
+    let Ok(chip) = chip_query.get(on.entity) else {
+        return;
+    };
+    hover_state.chip = Some(HoveredChipData {
+        name: chip.name.clone(),
+        amount: chip.amount.clone(),
+        category: chip.category,
+        entity: on.entity,
+    });
+}
+
+/// Observer: on `Pointer<Out>`, clear the hover state if the
+/// cursor left the chip we're currently tracking. `Pointer<Out>`
+/// fires once per entity whose bounds the cursor leaves; we
+/// compare against `hover_state.chip.entity` so the state
+/// isn't cleared by a stale event from a sibling element.
+///
+/// If the cursor moves from chip A → chip B without crossing
+/// any other interactive element, Bevy firing order for the
+/// same frame is: `Pointer<Out>(A)` then `Pointer<Over>(B)`.
+/// The Over fires *after* the Out, so the resource ends up
+/// holding chip B's data — which is the desired state. The
+/// guard above ensures a stray Out event on a non-tracked
+/// entity is a no-op.
+fn on_chip_hover_out(
+    on: On<Pointer<Out>>,
+    mut hover_state: ResMut<ResourceCostHoverState>,
+) {
+    if let Some(current) = &hover_state.chip {
+        if current.entity == on.entity {
+            hover_state.chip = None;
+        }
+    }
+}
+
+/// Per-frame driver for the cost-chip hover overlay. Reads
+/// `ResourceCostHoverState` (written by the chip observers)
+/// and `Window::cursor_position()`, then either:
+/// - hides the overlay (`Display::None`) when no chip is
+///   hovered, when the chip entity was despawned between
+///   frames (Build ↔ Mining sub-tab switch, multiplier chip
+///   change, colony switch), or when the construction menu
+///   isn't the active menu, OR
+/// - positions the overlay next to the cursor (4 px below
+///   the cursor vertically, 8 px right horizontally) and
+///   populates the text with `"<name>  <amount>"`.
+///
+/// Coordinate-frame note (this is the bug behind the "tooltip
+/// is way below the cursor" report):
+///
+/// The overlay is parented to the [`ConstructionRoot`]
+/// node, which itself is positioned at
+/// `top: 126.0; bottom: 72.0; left: 0; right: 0` so it lives
+/// below the top resource-bar chrome and above the
+/// time-controls dock (see `setup_construction`). Absolute-
+/// positioned children of a node with `top: 126` place
+/// relative to that node's content-area origin — i.e. an
+/// inner node at `top: Val::Px(0)` lands at **window** Y=126,
+/// not Y=0. `Window::cursor_position()` returns coordinates
+/// in **window** space, so subtracting the canary root's
+/// `top` constant is required to translate cursor → overlay
+/// local coords. Without that subtraction the overlay
+/// renders 126 px **below** the cursor — exactly the bottom-
+/// right-of-card offset shown in the bug report.
+///
+/// Earlier this comment claimed the root spans the full
+/// window and child `Val::Px(x)` values map to window
+/// coords; that was wrong because the root's `top: 126`
+/// offset is inherited by absolutely-positioned descendants.
+/// This implementation subtracts that constant explicitly so
+/// future readers don't have to re-derive the offset.
+///
+/// Visual style matches the body-hover tooltip in
+/// `src/ui/mod.rs::ui_hover_tooltip`: same `TOOLTIP_BG`
+/// fill, same cyan border. The only difference vs the body-
+/// hover tooltip is this is Bevy UI, not egui, so positioning
+/// is `Node::left/top` rather than `egui::Area`.
+///
+/// The clamp on `left/top` keeps the tooltip on-screen when
+/// the cursor is near the right/bottom edges — mirrors the
+/// `clamp(0.0, max_left)` / `clamp(0.0, max_top)` pattern in
+/// `update_shipbuilding_hover_tooltip`.
+fn update_resource_cost_tooltip(
+    active_menu: Res<ActiveMenu>,
+    primary_window: Query<&Window, With<PrimaryWindow>>,
+    chip_query: Query<&ResourceCostChip>,
+    mut hover_state: ResMut<ResourceCostHoverState>,
+    mut overlay_node: Single<&mut Node, With<ResourceCostTooltipOverlay>>,
+    mut tooltip_text: Single<&mut Text, With<ResourceCostTooltipText>>,
+    mut tooltip_color: Single<&mut TextColor, With<ResourceCostTooltipText>>,
+) {
+    // The canary root's `top: 126.0` offset (set in
+    // `setup_construction`) is inherited by absolutely-
+    // positioned descendants; subtract it from the cursor Y
+    // to translate window-space cursor coords into overlay
+    // local coords. If the canary root ever moves (e.g. a
+    // future chrome redesign changes the topbar height),
+    // update this constant and the matching root-anchor
+    // value in `setup_construction` together.
+    const CANARY_ROOT_TOP_PX: f32 = 126.0;
+
+    // Hide the overlay whenever the construction canary isn't
+    // the active menu (player switched to Shipbuilding /
+    // Notifications / starmap / etc.). This catches the
+    // "stuck tooltip" class of bugs: the canary root keeps
+    // its `ResourceCostTooltipOverlay` child alive across
+    // menu transitions, so without this guard the overlay
+    // would stay visible — anchored to whatever cursor
+    // position was last seen — until the player hovers a
+    // new chip or the state is otherwise reset.
+    let construction_menu_active = matches!(active_menu.current, GameMenu::Construction);
+    if !construction_menu_active {
+        overlay_node.display = Display::None;
+        if hover_state.chip.is_some() {
+            hover_state.chip = None;
+        }
+        return;
+    }
+
+    // No chip hovered: hide the overlay. The
+    // `Pointer<Out>` observer already cleared the hover
+    // state on the normal cursor-out path, but there are
+    // three races where `Some(...)` can linger:
+    //   1. The chip entity is cascade-despawned mid-frame
+    //      (Build ↔ Mining sub-tab switch, multiplier chip
+    //      change, colony switch, queue-row despawn). Bevy
+    //      0.18's pointer backend doesn't reliably fire
+    //      `Pointer<Out>` for entities that vanish between
+    //      frames, so the `Some(...)` survives.
+    //   2. The canary root is rebuilt by a future
+    //      re-root teardown. We also defensively catch that
+    //      above by returning when the menu isn't active.
+    //   3. A hot-reload / replay-restore hands back a stale
+    //      `ResourceCostHoverState`. The chip-entity check
+    //      below catches all three uniformly.
+    //
+    // B0001 (Bevy 0.18): we mutate `hover_state.chip` here
+    // so we hold `ResMut<ResourceCostHoverState>` and never
+    // pair it with a second `Query<...>` or `Res<...>` that
+    // also reaches for the same data.
+    let stale = match &hover_state.chip {
+        Some(data) => chip_query.get(data.entity).is_err(),
+        None => false,
+    };
+    if stale {
+        hover_state.chip = None;
+        overlay_node.display = Display::None;
+        return;
+    }
+    let Some(data) = &hover_state.chip else {
+        overlay_node.display = Display::None;
+        return;
+    };
+
+    // Need a window to position relative to. If there's no
+    // primary window yet (shouldn't happen post-Startup),
+    // bail out without showing the overlay.
+    let Ok(window): Result<&Window, _> = primary_window.single() else {
+        overlay_node.display = Display::None;
+        return;
+    };
+
+    // Off-screen cursor (window not focused, or cursor left
+    // the window): hide the overlay. `cursor_position()` is
+    // called twice — once for the early-out, once to bind —
+    // because the alternative (`if let Some(cursor) = ...`)
+    // confused the type inference around `Vec2` and produced
+    // E0282 on `primary_window.single()`.
+    if window.cursor_position().is_none() {
+        overlay_node.display = Display::None;
+        return;
+    }
+    let cursor = window.cursor_position().unwrap();
+
+    // Translate window-space cursor → canary-root-local pixel
+    // coords. The X axis is unaffected (root has `left: 0`).
+    // The Y axis subtracts the canary-root top offset; the
+    // +4 below-cursor vertical nudge keeps the tooltip snug
+    // under the chip without overlapping it.
+    let local_x = cursor.x;
+    let local_y = cursor.y - CANARY_ROOT_TOP_PX + 4.0;
+
+    // Conservative right/bottom clamp: leave 240 px of room
+    // on the right for the tooltip's width (the longest text
+    // is e.g. "Helium-3  25.0 kt" at ~12 px / char × ~14 chars
+    // ≈ 170 px) and 48 px on the bottom. Clamps are against
+    // the canary root's content-area dimensions (the overlay
+    // is a child of the root, so its right/bottom edge is
+    // measured against the root's box).
+    const TOOLTIP_W: f32 = 240.0;
+    const TOOLTIP_H: f32 = 48.0;
+    let root_width = (window.width() - 0.0).max(TOOLTIP_W);
+    let root_height = (window.height() - CANARY_ROOT_TOP_PX - 72.0).max(TOOLTIP_H);
+    let max_left = (root_width - TOOLTIP_W).max(0.0);
+    let max_top = (root_height - TOOLTIP_H).max(0.0);
+    overlay_node.left = Val::Px(local_x.clamp(0.0, max_left));
+    overlay_node.top = Val::Px(local_y.clamp(0.0, max_top));
+    overlay_node.display = Display::Flex;
+
+    // Update text + colour. Two spaces between name and
+    // amount so the formatted units (`"250.0 t"`, `"1.20 Gt"`)
+    // read as a separate visual unit. Colour matches the chip
+    // so the tooltip carries the chip's category hue. The
+    // shipbuilding workspace's `update_shipbuilding_hover_tooltip`
+    // uses the same `**` deref pattern on its
+    // `Single<&mut Text>`; it works because `Single` derefs
+    // to the underlying `Mut<Text>` and `Mut<Text>` derefs to
+    // `Text` — so `**` lands on the `Text` itself, not its
+    // inner `String` (since `Text(pub String)` is a tuple
+    // struct without a Deref impl to `String`).
+    **tooltip_text = Text::new(format!("{}  {}", data.name, data.amount));
+    **tooltip_color = TextColor(data.category);
+}
+
 /// Update the Mining tab body. Re-spawns the cards inside the
 /// `MiningContent` container every time it runs. Triggered by
 /// `ConstructionUiState` changes (tab switch, qty chip, group
@@ -2194,6 +3018,14 @@ pub fn update_mining_body(
     asset_server: Res<AssetServer>,
     ui_state: Res<ConstructionUiState>,
     buildings_data: Res<BuildingsData>,
+    resource_icons: Option<Res<ResourceIcons>>,
+    // v0.5.2 PR-A.5: thread the BuildingIcons resource through so each
+    // mining card can render the same cyan-tinted building icon as the
+    // Build tab. Without this, `spawn_mining_card` always passes `None`
+    // to `spawn_card` and the cards render the placeholder square
+    // instead of the real icon. `None` is acceptable — the resource
+    // may not be populated yet on the first frame after startup.
+    building_icons: Option<Res<BuildingIcons>>,
     colonies: Query<(Entity, &crate::colony::Colony)>,
     body_query: Query<(
         &CelestialBody,
@@ -2207,8 +3039,16 @@ pub fn update_mining_body(
     let Ok(content) = content_query.single() else { return; };
 
     // Despawn the previous frame's spawn.
+    //
+    // `try_despawn` is the Bevy 0.18 idiom for "despawn if alive,
+    // silently drop if gone." The `Local<Vec<Entity>>` cache can hold
+    // IDs from a frame where the `MiningContent` parent (and all its
+    // children) was cascade-despawned — for example when the player
+    // toggled the Construction menu visibility off, or when a UI
+    // re-root teardown cleared the body. Without `try_despawn` we get
+    // a flood of `WARN ... Entity despawned` log lines every frame.
     for entity in spawned_rows.drain(..) {
-        commands.entity(entity).despawn();
+        commands.entity(entity).try_despawn();
     }
 
     let body_font: Handle<Font> = asset_server.load("fonts/Inter-Regular.otf");
@@ -2216,6 +3056,16 @@ pub fn update_mining_body(
         asset_server.load("fonts/Inter-SemiBold.otf");
     let mono_font: Handle<Font> = asset_server.load("fonts/GeistMono-Medium.ttf");
     let multiplier = ui_state.mining_build_multiplier;
+    // v0.5.2 PR-A.4 follow-up: hand each mining card a
+    // concrete reference to the resource-icon atlas (or an
+    // empty fallback when the Startup loader hasn't
+    // populated `ResourceIcons` yet — `post_process_resource_icons`
+    // will catch up on the next tick).
+    let empty_resource_icons = ResourceIcons::default();
+    let resource_icons: &ResourceIcons = resource_icons
+        .as_ref()
+        .map(|r: &Res<ResourceIcons>| -> &ResourceIcons { r.as_ref() })
+        .unwrap_or(&empty_resource_icons);
 
     // Resolve the active colony + body data in one pass.
     let active_colony_entity = ui_state.selected_colony;
@@ -2282,6 +3132,19 @@ pub fn update_mining_body(
         &mut |entity| spawned_rows.push(entity),
     );
 
+    // v0.5.2 PR-A.5: resolve the BuildingIcons borrow once so the
+    // closure below can look up each building's icon without
+    // re-borrowing the `Option<Res<BuildingIcons>>` inside the loop.
+    // `update_card_grid` (build tab) does the same `building_icons
+    // .handles.get(&building_type)` lookup inline per card; here we
+    // centralize it so the surface + orbital sections share the
+    // `&BuildingIcons` reference.
+    let empty_building_icons = BuildingIcons::default();
+    let building_icons_ref: &BuildingIcons = building_icons
+        .as_ref()
+        .map(|r: &Res<BuildingIcons>| -> &BuildingIcons { r.as_ref() })
+        .unwrap_or(&empty_building_icons);
+
     // 7 surface groups.
     for (group_id, group_label, group_buildings) in MINING_GROUPS_SURFACE {
         let group_collapsed = ui_state.mining_groups_collapsed.contains(group_id);
@@ -2301,6 +3164,8 @@ pub fn update_mining_body(
             &body_font_medium,
             &mono_font,
             multiplier,
+            &resource_icons,
+            building_icons_ref,
         );
         spawned_rows.push(group_node);
     }
@@ -2319,6 +3184,8 @@ pub fn update_mining_body(
         &body_font_medium,
         &mono_font,
         multiplier,
+        &resource_icons,
+        building_icons_ref,
     );
     spawned_rows.push(orbital_node);
 }
@@ -2334,6 +3201,7 @@ pub fn setup_construction(
     research_state: Res<ResearchState>,
     ui_state: Res<ConstructionUiState>,
     building_icons: Option<Res<BuildingIcons>>,
+    resource_icons: Option<Res<ResourceIcons>>,
     colonies: Query<(Entity, &crate::colony::Colony)>,
 ) {
     let body_font = asset_server.load("fonts/Inter-Regular.otf");
@@ -3058,6 +3926,17 @@ pub fn setup_construction(
         let icon_handle: Option<&Handle<Image>> = building_icons
             .as_ref()
             .and_then(|icons| icons.handles.get(&building_type));
+        // v0.5.2 PR-A.4 follow-up: thread the resource-icon
+        // atlas through so the card body can render
+        // `[PNG icon | tinted amount]` rows for each
+        // `ResourceCostRow`. Empty atlas is fine for the
+        // first frame after startup — the per-frame
+        // post-processor catches up on the next tick.
+        let empty_resource_icons = ResourceIcons::default();
+        let resource_icons_ref: &ResourceIcons = resource_icons
+            .as_ref()
+            .map(|r: &Res<ResourceIcons>| -> &ResourceIcons { r.as_ref() })
+            .unwrap_or(&empty_resource_icons);
         spawn_card(
             &mut commands,
             card_grid,
@@ -3067,6 +3946,7 @@ pub fn setup_construction(
             &body_font_medium,
             &mono_font,
             icon_handle,
+            resource_icons_ref,
         );
     }
 
@@ -3152,6 +4032,77 @@ pub fn setup_construction(
         ))
         .id();
     commands.entity(tooltip).add_child(tooltip_text);
+
+    // ── Resource-cost chip hover tooltip ─────────────────────────────
+    // Singleton overlay (one per panel) parented to the
+    // construction root. The per-chip `Pointer<Over>` /
+    // `Pointer<Out>` observers update `ResourceCostHoverState`,
+    // and the `update_resource_cost_tooltip` system reads that
+    // resource each frame to position + populate this overlay
+    // near the cursor — matching the body-hover tooltip pattern
+    // from `src/ui/mod.rs::ui_hover_tooltip` and the
+    // shipbuilding module tooltip from
+    // `src/ui/shipbuilding_workspace.rs::update_shipbuilding_hover_tooltip`.
+    //
+    // Coordinate-frame note: the overlay is a child of the
+    // canary root, which itself is offset by `top: 126.0` from
+    // the window's top-left. Bevy's `Window::cursor_position()`
+    // returns coords in **window** space, but `Node::left` /
+    // `top` on absolute-positioned descendants are measured
+    // against the parent node's content-area origin. The
+    // position system (`update_resource_cost_tooltip`) must
+    // subtract the canary-root `top` constant before setting
+    // `overlay_node.top` — see the matching `CANARY_ROOT_TOP_PX`
+    // constant in that system. Don't be tempted to "simplify"
+    // that subtraction by changing the root's `top` to `0`:
+    // the 126 px offset intentionally pushes the canary below
+    // the top resource-bar chrome (`src/ui/resources_bar.rs`)
+    // so the canary's own AppBar doesn't collide with the
+    // global chrome.
+    //
+    // `display: Display::None` initially so the layout pass
+    // ignores it. The system toggles `Flex`/`None` based on
+    // whether any chip is currently hovered.
+    //
+    // Style mirrors the body hover tooltip: `TOOLTIP_BG`
+    // fill, cyan `STATUS_INFO_BORDER` 1-px stroke, lg inner
+    // margin (10 px), 4-px radius. ZIndex(20) lifts it above
+    // the queue panel (ZIndex(2)) and the disabled-CTA
+    // tooltip (ZIndex(3)).
+    let chip_tooltip_overlay = commands
+        .spawn((
+            Node {
+                position_type: PositionType::Absolute,
+                left: Val::Px(0.0),
+                top: Val::Px(0.0),
+                display: Display::None,
+                padding: UiRect::all(Val::Px(10.0)),
+                border: UiRect::all(Val::Px(1.0)),
+                border_radius: BorderRadius::all(Val::Px(4.0)),
+                ..default()
+            },
+            BackgroundColor(crate::ui::theme::Color::TOOLTIP_BG),
+            BorderColor::all(crate::ui::theme::Color::STATUS_INFO_BORDER),
+            ZIndex(20),
+            ResourceCostTooltipOverlay,
+            Name::new("resource_cost_tooltip_overlay"),
+        ))
+        .with_children(|parent| {
+            parent.spawn((
+                Text::new(String::new()),
+                TextFont {
+                    font: body_font.clone(),
+                    font_size: CAPTION_SIZE,
+                    ..default()
+                },
+                TextColor(TEXT_BODY),
+                ResourceCostTooltipText,
+                Name::new("resource_cost_tooltip_overlay_text"),
+            ));
+        })
+        .id();
+    commands.entity(root).add_child(chip_tooltip_overlay);
+
     let queue_panel = commands
         .spawn((
             Node {
@@ -3251,6 +4202,12 @@ pub fn setup_construction(
     // system spawns one `QueuePanelRow` per `ConstructionProject`
     // filtered by the selected colony, and removes stale rows when
     // projects are cancelled or completed.
+    //
+    // v0.5.2 PR-A.5: `min_height: 0` is the same flex-overflow
+    // fix as the mining/buildings content containers — without it,
+    // the scroll container grows to fit its content and the wheel
+    // handler's `max_y` is always 0. The `card_grid` (build tab)
+    // has the same line with the same rationale.
     let queue_body = commands
         .spawn((
             Node {
@@ -3258,6 +4215,7 @@ pub fn setup_construction(
                 flex_direction: FlexDirection::Column,
                 width: Val::Percent(100.0),
                 flex_grow: 1.0,
+                min_height: Val::Px(0.0),
                 row_gap: Val::Px(SPACE_SM),
                 overflow: Overflow::scroll_y(),
                 ..default()
@@ -3279,6 +4237,7 @@ fn spawn_card(
     body_font_medium: &Handle<Font>,
     mono_font: &Handle<Font>,
     icon: Option<&Handle<Image>>,
+    resource_icons: &ResourceIcons,
 ) -> Entity {
     let card = commands
         .spawn((
@@ -3320,13 +4279,32 @@ fn spawn_card(
                 // `position: absolute` at the bottom — see below). Using
                 // `height` would clip the CTA on cards with longer
                 // content (3+ effect bullets, long subtitles). The CTA
-                // is positioned absolutely so it always renders at the
-                // bottom edge of the card regardless of content height;
-                // the card_grid's natural row height is the tallest card
-                // in the row, and `flex_wrap` lays the next row below.
-                // The card's `Overflow::clip` (kept for safety) trims any
-                // stray overflow above the CTA.
-                min_height: Val::Px(244.0),
+                // v0.5.2: fixed height (was `min_height: 244`).
+                // `min_height` allowed the card to grow with content,
+                // so the Mining tab's bottom row of cards (with
+                // fewer effect lines) ended up shorter than the top
+                // row — the row heights within a flex_wrap group
+                // take the tallest card, so a 244-vs-280 px mix
+                // left visible gaps. A fixed 244 + Overflow::clip
+                // keeps every card the same shape; the 4-line
+                // effect cap (in `build_mine_card_data`) ensures
+                // the content fits without clipping the ETA.
+                //
+                // v0.5.2 PR-A.4 (card height bump): 244 px was too
+                // short for buildings with more than 3 resource
+                // demands. Each cost line is ~18 px including line
+                // spacing, so a 6-cost building (rare but defined
+                // in buildings.ron — e.g. Refinery has 4 costs,
+                // ChemicalPlant has 5, SemiconductorFab has 6)
+                // overflowed by ~30 px and clipped the ETA row.
+                // Bump fixed height to 320 px (≈ +76 px ≈ 2 extra
+                // rows) so every cost line fits with breathing room.
+                // The icon-strip cost bullets (PR-A.4) also dropped
+                // the resource-name column, so the vertical budget
+                // per cost line is unchanged — only the *count* of
+                // fitting lines grows. 320 px matches the card
+                // width for a clean 1:1 aspect ratio.
+                height: Val::Px(320.0),
                 flex_grow: 0.0,
                 overflow: Overflow::clip(),
                 ..default()
@@ -3437,7 +4415,12 @@ fn spawn_card(
                     ..default()
                 },
                 BorderColor::all(CYAN_BORDER),
-                BackgroundColor(Color::srgba(0.373, 0.784, 0.847, 0.30)),
+                // v0.5.2: brighter placeholder so the icon slot
+                // is clearly visible while the PNG loads. The old
+                // 30% alpha was nearly invisible against the dark
+                // navy card background — players thought the icon
+                // was missing entirely.
+                BackgroundColor(Color::srgba(0.373, 0.784, 0.847, 0.60)),
                 Name::new("card_icon_placeholder"),
             ))
             .id(),
@@ -3677,17 +4660,202 @@ fn spawn_card(
         commands.entity(card).add_child(bullet);
     }
 
+    // v0.5.2 PR-A.4 follow-up: rich resource-cost **chips**. Each
+    // chip is a fixed-size `[PNG icon | tinted amount]` row
+    // with a thin category-tinted border + low-alpha category
+    // background so the player can identify the resource at a
+    // glance and group related costs (Construction metals vs
+    // Volatiles vs Precious metals …) by hue. Chips lay out in
+    // a horizontal flex strip with wrapping, so a 6-cost
+    // building occupies two rows of three chips instead of six
+    // vertical rows — saves ~40 px of card height and makes
+    // the chips read as a unified "this is what you pay" group.
+    // The icon is the asset-server PNG from
+    // `assets/textures/ui/resources/<name>.png`, post-processed
+    // (white → transparent, dark → un-premultiplied alpha) and
+    // tinted to the resource's category colour
+    // (`bevy_theme::category_color_for_resource`). Falls back to
+    // a tinted square for unknown resources or missing assets
+    // (defensive — a future RON addition never panics).
+    //
+    // Amount format: `format_mining_reserve` already produces
+    // `kg / t / Mt / Gt / Tt` with one- or two-decimal precision
+    // depending on scale. Cost values in
+    // `BuildingDefinition::resource_costs` are stored in **kt**
+    // (kilotonne, 10⁶ t), so we pass the value in **Mt** (=
+    // kt × 1000) to the formatter. Example:
+    //   33 kt      → `format_mining_reserve(33 / 1000)` → `33.0 t`
+    //   250 kt     → `format_mining_reserve(0.25)` → `250.0 t`
+    //   16_700 kt  → `format_mining_reserve(16.7)` → `16.7 Mt`
+    //   1_200_000 kt → `format_mining_reserve(1200)` → `1.20 Gt`
+    //
+    // The `/yr` suffix that was on the old `k/t` units is gone
+    // — the cost row is a total build quantity, not a rate.
+    let strip = if data.resource_costs.is_empty() {
+        None
+    } else {
+        let s = commands
+            .spawn((
+                Node {
+                    display: Display::Flex,
+                    flex_direction: FlexDirection::Row,
+                    flex_wrap: FlexWrap::Wrap,
+                    align_items: AlignItems::Center,
+                    column_gap: Val::Px(6.0),
+                    row_gap: Val::Px(4.0),
+                    width: Val::Percent(100.0),
+                    ..default()
+                },
+                Name::new("resource_cost_strip"),
+            ))
+            .id();
+        commands.entity(card).add_child(s);
+        Some(s)
+    };
+
+    // Hover tooltip for the cost chips. Spawned once at panel
+    // setup time (see `setup_construction` — the
+    // `ResourceCostTooltipOverlay` singleton), not per-card.
+    // The chip's `Pointer<Over>` observer snapshots the chip
+    // data into [`ResourceCostHoverState`], and the
+    // `update_resource_cost_tooltip` system reads that
+    // resource each frame to position + populate the overlay
+    // near the cursor. Mirrors the body-hover tooltip
+    // pattern in `src/ui/mod.rs::ui_hover_tooltip` and the
+    // shipbuilding module-hover tooltip in
+    // `src/ui/shipbuilding_workspace.rs::update_shipbuilding_hover_tooltip`.
+
+    for cost in &data.resource_costs {
+        let category = cost
+            .resource
+            .map(|r| category_color_for_resource(&r))
+            .unwrap_or(TEXT_BODY);
+        // kt → Mt for the formatter (1 Mt = 1000 kt). Costs in
+        // `BuildingDefinition::resource_costs` are stored in
+        // kt; `format_mining_reserve` expects Mt and produces
+        // `kg / t / Mt / Gt / Tt` with auto-precision.
+        let amount_str = format_mining_reserve(cost.amount / 1_000.0);
+
+        // Chip: fixed 28-px height, category-tinted border +
+        // 12% alpha category background. Parent is the wrap-
+        // capable strip spawned once above the loop, so chips
+        // row-break automatically on narrow cards. Carries
+        // `Pickable` so the hover observers fire, and
+        // `ResourceCostChip` so the observer knows which
+        // resource this chip is. The two observers
+        // (`on_chip_hover_over` / `on_chip_hover_out`) handle
+        // the tooltip popup. Display name: prefer the parsed
+        // `ResourceType::display_name` over the raw RON name
+        // so `He-3` shows as `"Helium-3"`, `RareEarths` shows
+        // as `"Rare Earths"`, etc.
+        let display_name: String = cost
+            .resource
+            .map(|r| r.display_name().to_string())
+            .unwrap_or_else(|| cost.name.clone());
+        let chip = commands
+            .spawn((
+                Node {
+                    display: Display::Flex,
+                    flex_direction: FlexDirection::Row,
+                    align_items: AlignItems::Center,
+                    column_gap: Val::Px(4.0),
+                    padding: UiRect::horizontal(Val::Px(6.0)),
+                    height: Val::Px(28.0),
+                    border: UiRect::all(Val::Px(1.0)),
+                    border_radius: BorderRadius::all(Val::Px(4.0)),
+                    ..default()
+                },
+                BackgroundColor(category.with_alpha(0.12)),
+                BorderColor::all(category.with_alpha(0.35)),
+                Pickable::default(),
+                ResourceCostChip {
+                    name: display_name,
+                    amount: amount_str.clone(),
+                    category,
+                    card,
+                },
+                Name::new("resource_cost_chip"),
+            ))
+            .id();
+        commands.entity(strip.unwrap()).add_child(chip);
+        // Attach the hover observers. The chip's picked-id
+        // is `chip`; the observer receives it via
+        // `on.entity` in the event payload.
+        commands.entity(chip).observe(on_chip_hover_over);
+        commands.entity(chip).observe(on_chip_hover_out);
+
+        // Icon. 20×20 — sits comfortably inside the 28-px chip
+        // with 4 px horizontal padding. The chunkier 22-px-
+        // stroke icon set (regenerated 2026-08-03) reads
+        // cleanly at this size against the tinted background;
+        // the post-processor's
+        // `white → straight (un-premultiplied) alpha` step
+        // means `ImageNode::color = category` lands at full
+        // colour brightness instead of `α × category`.
+        let icon_node = match cost
+            .resource
+            .and_then(|r| get_resource_icon_handle_bevy(resource_icons, r))
+        {
+            Some(handle) => commands
+                .spawn((
+                    Node {
+                        width: Val::Px(20.0),
+                        height: Val::Px(20.0),
+                        ..default()
+                    },
+                    ImageNode::new(handle.clone()).with_color(category),
+                    Name::new("resource_cost_chip_icon"),
+                ))
+                .id(),
+            None => {
+                // Unknown resource string OR the asset hasn't
+                // loaded yet OR the PNG is malformed — fall back
+                // to a small tinted square so the chip still
+                // reads as a cost.
+                let placeholder = commands
+                    .spawn((
+                        Node {
+                            width: Val::Px(20.0),
+                            height: Val::Px(20.0),
+                            border_radius: BorderRadius::all(Val::Px(2.0)),
+                            ..default()
+                        },
+                        BackgroundColor(category.with_alpha(0.85)),
+                        Name::new("resource_cost_chip_icon_placeholder"),
+                    ))
+                    .id();
+                placeholder
+            }
+        };
+        commands.entity(chip).add_child(icon_node);
+
+        let label = commands
+            .spawn((
+                Text::new(amount_str),
+                TextFont {
+                    font: mono_font.clone(),
+                    font_size: CAPTION_SIZE,
+                    ..default()
+                },
+                TextColor(category),
+                Name::new("resource_cost_chip_label"),
+            ))
+            .id();
+        commands.entity(chip).add_child(label);
+    }
+
     // ETA row — derived from `BuildDefinition::build_points × multiplier`
     // divided by the static placeholder output (12 001 BP/yr; the full
     // live recompute is gated on the queue panel + active colony wiring
     // in Phase C4). The batch-aware ETA makes the per-card progress
     // visible to the player when they pick x25 / x50 / x100.
-    let unit_bp = data
-        .stat_a
-        .1
-        .replace(" BP", "")
-        .parse::<f64>()
-        .unwrap_or(0.0);
+    //
+    // v0.5.2: uses the dedicated `build_points` field on the card
+    // data instead of parsing it from `stat_a` — the Mining card's
+    // `stat_a` carries the live inventory count (e.g. "×25"), not
+    // BP, so the old parser would read 0 and the ETA would always
+    // be "0s" on the Mining tab.
+    let unit_bp = data.build_points;
     let batch_bp = unit_bp * data.multiplier.max(1) as f64;
     let eta_seconds = batch_bp / 12_001.0 * 365.25 * 24.0 * 3600.0;
     let eta_str = format_duration_compact(eta_seconds);
@@ -3803,7 +4971,7 @@ fn spawn_card(
     // width and sits at the left edge).
     let cta_label = commands
         .spawn((
-            Text::new(data.queue_label),
+            Text::new(data.queue_label.clone()),
             TextFont {
                 font: body_font_medium.clone(),
                 font_size: BODY_SIZE,
@@ -4580,13 +5748,21 @@ pub fn refresh_card_grid(
     research_state: Res<ResearchState>,
     ui_state: Res<ConstructionUiState>,
     building_icons: Option<Res<BuildingIcons>>,
+    resource_icons: Option<Res<ResourceIcons>>,
     card_query: Query<Entity, With<ConstructionCard>>,
     grid_query: Query<Entity, With<CardGrid>>,
     colonies: Query<(Entity, &crate::colony::Colony)>,
 ) {
     // Despawn all existing cards.
+    //
+    // `try_despawn` so the per-frame loop is silent if any card was
+    // already cascade-despawned by an earlier system in the same tick
+    // (e.g. tab visibility switching). The query is freshly evaluated
+    // every invocation so this is defensive rather than strictly
+    // required here, but it keeps the construction canary's body
+    // sweep consistent with the four body-update systems below.
     for entity in card_query.iter() {
-        commands.entity(entity).despawn();
+        commands.entity(entity).try_despawn();
     }
     // Find the card grid (there should be exactly one).
     let Ok(card_grid) = grid_query.single() else { return; };
@@ -4616,6 +5792,17 @@ pub fn refresh_card_grid(
         let icon_handle: Option<&Handle<Image>> = building_icons
             .as_ref()
             .and_then(|icons| icons.handles.get(&building_type));
+        // v0.5.2 PR-A.4 follow-up: thread the resource-icon
+        // atlas through so the card body can render
+        // `[PNG icon | tinted amount]` rows for each
+        // `ResourceCostRow`. Empty atlas is fine for the
+        // first frame after startup — the per-frame
+        // post-processor catches up on the next tick.
+        let empty_resource_icons = ResourceIcons::default();
+        let resource_icons_ref: &ResourceIcons = resource_icons
+            .as_ref()
+            .map(|r: &Res<ResourceIcons>| -> &ResourceIcons { r.as_ref() })
+            .unwrap_or(&empty_resource_icons);
         spawn_card(
             &mut commands,
             card_grid,
@@ -4625,6 +5812,7 @@ pub fn refresh_card_grid(
             &body_font_medium,
             &mono_font,
             icon_handle,
+            resource_icons_ref,
         );
     }
 }
@@ -4751,40 +5939,61 @@ pub fn update_colony_picker_text(
     }
 }
 
-/// Refresh the colony dropdown menu every frame: despawn stale
-/// `ColonyDropdownOption` rows and spawn one row per live `Colony`
-/// entity. Mirrors the `refresh_card_grid` pattern but operates on a
-/// much smaller row set.
+/// Refresh the colony dropdown menu every frame: keep one
+/// `ColonyDropdownOption` row per live `Colony` entity, mutate text
+/// and selection-state in place, and only spawn / despawn when the
+/// set of colonies changes.
 ///
-/// Uses `Local<Vec<Entity>>` to track spawned rows so the diff between
-/// the live colony list and the on-screen rows is computed cheaply.
-/// Rows persist across `ColonyDropdownState::open` toggles so opening
-/// the menu doesn't re-create the entity graph every time.
+/// v0.5.2 pilot for the construction canary's
+/// **spawn-once-update-many** refactor (see
+/// `update_overview_queue` / `update_buildings_body` /
+/// `update_mining_body` for the broader pattern). Rows persist
+/// across `ColonyDropdownState::open` toggles and across tab
+/// visibility changes — the `Local<HashMap<Entity, Entity>>` cache
+/// is keyed by `colony_entity` so the system can identify which
+/// rows to keep, which to mutate, and which to despawn.
+///
+/// Why not the previous `Local<Vec<Entity>>` + per-frame despawn /
+/// respawn pattern? Two reasons:
+/// 1. The previous pattern triggered Bevy 0.18's
+///    `WARN bevy_ecs::error::handler: Encountered an error in
+///    command ... Entity despawned` flood whenever a parent
+///    content container was cascade-despawned mid-tick, because
+///    the `Local` cache still held the now-stale child IDs. We
+///    suppressed the warning with `try_despawn` but that was
+///    treating the symptom, not the cause.
+/// 2. Spawning ~5–10 row entities per frame is a measurable cost
+///    on a canary panel that the player opens frequently.
+///
+/// Mutation strategy per row:
+/// - `BackgroundColor` (row) — driven by `is_selected`
+/// - `Text` (option-text child) — the colony name + population
+/// - `TextColor` (option-text child) — driven by `is_selected`
 pub fn refresh_colony_dropdown(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     colonies: Query<(Entity, &crate::colony::Colony)>,
     menu_query: Query<Entity, With<ColonyDropdownMenu>>,
-    option_query: Query<Entity, With<ColonyDropdownOption>>,
     ui_state: Res<ConstructionUiState>,
-    mut spawned_rows: Local<Vec<Entity>>,
+    mut spawned_rows: Local<std::collections::HashMap<bevy::ecs::entity::Entity, bevy::ecs::entity::Entity>>,
+    mut row_bg_query: Query<
+        (&ColonyDropdownOption, &mut BackgroundColor),
+        Without<ColonyDropdownOptionText>,
+    >,
+    mut text_query: Query<
+        (&ChildOf, &mut Text, &mut TextColor),
+        With<ColonyDropdownOptionText>,
+    >,
 ) {
     let Ok(menu) = menu_query.single() else {
         return;
     };
 
-    // Despawn any rows the previous frame spawned (the row set may have
-    // shrunk or shifted; this is cheaper than diffing). Pre-existing
-    // rows from manual spawning (none right now) would be left alone —
-    // `ColonyDropdownOption` is exclusively owned by this system.
-    for entity in spawned_rows.drain(..) {
-        if option_query.get(entity).is_ok() {
-            commands.entity(entity).despawn();
-        }
-    }
-
     let body_font_medium: Handle<Font> = asset_server.load("fonts/Inter-SemiBold.otf");
 
+    // Build the desired set: (colony_entity -> label) for the live
+    // colonies, sorted by label so the menu order is stable across
+    // re-renders.
     let mut live_colonies: Vec<(bevy::ecs::entity::Entity, String)> = colonies
         .iter()
         .map(|(e, c)| {
@@ -4798,11 +6007,66 @@ pub fn refresh_colony_dropdown(
             )
         })
         .collect();
-    // Stable order: sort by name so the menu doesn't reshuffle when
-    // the player looks at it multiple times in one session.
     live_colonies.sort_by(|a, b| a.1.cmp(&b.1));
+    let live_keys: std::collections::HashSet<bevy::ecs::entity::Entity> =
+        live_colonies.iter().map(|(e, _)| *e).collect();
 
+    // 1. Despawn rows whose colony is gone. We use `try_despawn`
+    //    defensively in case the row was cascade-despawned by an
+    //    earlier system in the same tick (e.g. menu re-rooted
+    //    mid-frame).
+    let to_remove: Vec<bevy::ecs::entity::Entity> = spawned_rows
+        .keys()
+        .filter(|k| !live_keys.contains(k))
+        .copied()
+        .collect();
+    for key in to_remove {
+        if let Some(row_entity) = spawned_rows.remove(&key) {
+            commands.entity(row_entity).try_despawn();
+        }
+    }
+
+    // 2. Mutate existing rows in place: selection-state visuals
+    //    and text content. Iterate the cached map; skip keys
+    //    that no longer exist (their rows were just despawned).
+    for (colony_entity, row_entity) in spawned_rows.iter() {
+        let is_selected = ui_state.selected_colony == Some(*colony_entity);
+        // Update the row's background (selection highlight).
+        if let Ok((_, mut bg)) = row_bg_query.get_mut(*row_entity) {
+            *bg = BackgroundColor(if is_selected {
+                Color::srgba(0.196, 0.529, 0.612, 0.78)
+            } else {
+                Color::srgba(0.0, 0.0, 0.0, 0.0)
+            });
+        }
+        // Update the option-text child: label + colour.
+        let label = colonies
+            .get(*colony_entity)
+            .map(|(_, c)| {
+                format!(
+                    "{} ({})",
+                    c.name,
+                    crate::colony::Colony::format_population(c.population)
+                )
+            })
+            .unwrap_or_else(|_| "(unknown)".to_string());
+        let text_color = if is_selected { ACTIVE_CHIP_TEXT } else { TEXT_BODY };
+        for (parent, mut text, mut color) in text_query.iter_mut() {
+            if parent.0 == *row_entity {
+                **text = label.clone();
+                *color = TextColor(text_color);
+                break;
+            }
+        }
+    }
+
+    // 3. Spawn rows for colonies we haven't seen before. We use
+    //    `commands.entity(menu).add_child(row)` so the new row
+    //    inherits the menu's `Visibility::Inherited` and `ZIndex`.
     for (colony_entity, label) in live_colonies {
+        if spawned_rows.contains_key(&colony_entity) {
+            continue;
+        }
         let is_selected = ui_state.selected_colony == Some(colony_entity);
         let row = commands
             .spawn((
@@ -4845,7 +6109,7 @@ pub fn refresh_colony_dropdown(
             ))
             .id();
         commands.entity(row).add_child(label_text);
-        spawned_rows.push(row);
+        spawned_rows.insert(colony_entity, row);
     }
 }
 
@@ -5295,9 +6559,16 @@ pub fn update_queue_panel(
     }
 
     // Despawn rows whose project is gone.
+    //
+    // `try_despawn` keeps this loop warning-free if the row's parent
+    // (`QueuePanelBody`) was cascade-despawned mid-tick (e.g. the
+    // queue panel was just closed). The `existing` map is rebuilt
+    // each frame so this is defensive rather than strictly required,
+    // but it matches the silenced-despawn idiom used by the four
+    // body-update systems in this file.
     for (project_entity, row_entity) in existing.iter() {
         if !desired.contains_key(project_entity) {
-            commands.entity(*row_entity).despawn();
+            commands.entity(*row_entity).try_despawn();
         }
     }
 
@@ -5657,6 +6928,12 @@ impl Plugin for ConstructionPlugin {
             // `update_construction_tooltip`. The tooltip pops up
             // when the player hovers a disabled Queue CTA.
             .init_resource::<ConstructionTooltipState>()
+            // Cost-chip hover state: written by the
+            // `on_chip_hover_over` / `on_chip_hover_out` observers
+            // attached to each `ResourceCostChip` entity, read by
+            // `update_resource_cost_tooltip` to position and
+            // populate the singleton overlay.
+            .init_resource::<ResourceCostHoverState>()
             // Scrollbar layout cache: written by
             // `tick_construction_scrollbar` every frame, read by
             // `tick_construction_scrollbar_drag` to translate pointer
@@ -5689,6 +6966,13 @@ impl Plugin for ConstructionPlugin {
             // makes this a no-op after the first pass.
             .add_systems(Update, process_building_icons)
             .add_systems(Update, tick_construction_state)
+            // Cost-chip hover tooltip: per-frame cursor-driven
+            // placement + text/colour updates on the singleton
+            // overlay. Reads `ResourceCostHoverState` (written by
+            // the chip observers) and `Window::cursor_position()`;
+            // runs every frame even when no chip is hovered so it
+            // can set `Display::None` and clear stale state.
+            .add_systems(Update, update_resource_cost_tooltip)
             .add_systems(Update, tick_construction_cta_hover)
             // Marquee: oscillate subtitle `UiTransform.translation.x`
             // when the description overflows horizontally. Reads
@@ -5960,6 +7244,12 @@ fn spawn_mining_group_section(
     body_font_medium: &Handle<Font>,
     mono_font: &Handle<Font>,
     multiplier: u32,
+    resource_icons: &ResourceIcons,
+    // v0.5.2 PR-A.5: looked up by `update_mining_body` from the
+    // `BuildingIcons` resource. Each card fetches its own icon
+    // (see the call inside the `for bt in group_buildings` loop)
+    // so the per-card icon cost matches the build tab exactly.
+    building_icons: &BuildingIcons,
 ) -> Entity {
     let group_container = commands
         .spawn((
@@ -6055,6 +7345,17 @@ fn spawn_mining_group_section(
 
     if !collapsed {
         for bt in group_buildings {
+            // v0.5.2 PR-A.5: look up the per-building icon handle
+            // so the mining card renders the same cyan-tinted
+            // line-art as the Build tab. The `Option<&Handle<Image>>`
+            // shape is identical to the build-tab's `icon_handle`
+            // in `setup_construction` (line 3790 in the original).
+            // `process_building_icons` ran the white→transparent /
+            // dark→white pass on every handle in `BuildingIcons`,
+            // so the icon is already in the same colour space as
+            // `spawn_card` expects.
+            let icon_handle: Option<&Handle<Image>> =
+                building_icons.handles.get(bt);
             spawn_mining_card(
                 commands,
                 body_node,
@@ -6067,8 +7368,9 @@ fn spawn_mining_group_section(
                 body_font,
                 body_font_medium,
                 mono_font,
-                None,
+                icon_handle,
                 multiplier,
+                resource_icons,
             );
         }
     }
@@ -6092,6 +7394,11 @@ fn spawn_mining_orbital_section(
     body_font_medium: &Handle<Font>,
     mono_font: &Handle<Font>,
     multiplier: u32,
+    resource_icons: &ResourceIcons,
+    // v0.5.2 PR-A.5: see `spawn_mining_group_section` for the
+    // rationale. Same per-card icon lookup, applied to the
+    // orbital AutoMines.
+    building_icons: &BuildingIcons,
 ) -> Entity {
     let total_orbital: usize = MINING_GROUPS_ORBITAL
         .iter()
@@ -6232,6 +7539,13 @@ fn spawn_mining_orbital_section(
             commands.entity(body_node).add_child(sub_row);
 
             for bt in *sub_buildings {
+                // v0.5.2 PR-A.5: per-building icon lookup
+                // (mirrors the surface-group call above). The
+                // `BuildingIcons::handles` map is keyed by
+                // `BuildingType` and is populated in
+                // `load_building_icons` from `assets/data/buildings.ron`.
+                let icon_handle: Option<&Handle<Image>> =
+                    building_icons.handles.get(bt);
                 spawn_mining_card(
                     commands,
                     sub_row,
@@ -6244,8 +7558,9 @@ fn spawn_mining_orbital_section(
                     body_font,
                     body_font_medium,
                     mono_font,
-                    None,
+                    icon_handle,
                     multiplier,
+                    resource_icons,
                 );
             }
         }
@@ -6303,8 +7618,32 @@ pub fn build_mine_card_data(
     let cost_str = acc_label;
 
     // Effects: power (if any), production, reserve, costs.
+    // v0.5.2 PR-A.5 (2026-08-02): mirrors the Build card's
+    // PowerGeneration-aware power line. Mines typically consume
+    // power (PowerGeneration modifier is not used on mining
+    // buildings), but the same code path also runs for any
+    // future mine-with-on-site-generator; in that case the
+    // producer line should win over the demand line.
     let mut effects: Vec<(EffectTone, String)> = Vec::new();
-    if def.power_demand_mw.abs() >= 0.01 {
+    let power_output_gw_per_unit: f64 = def
+        .modifiers
+        .iter()
+        .filter(|m| m.modifier_type == "PowerGeneration")
+        .map(|m| m.value)
+        .sum();
+    if power_output_gw_per_unit > 0.0 {
+        let per_unit_mw = power_output_gw_per_unit * 1_000.0;
+        let total_mw = per_unit_mw * mult;
+        let line = if mult > 1.0 {
+            format!(
+                "Produces {:.0} MW \u{00d7} {} = {:.0} MW",
+                per_unit_mw, mult as u32, total_mw
+            )
+        } else {
+            format!("Produces {:.0} MW", per_unit_mw)
+        };
+        effects.push((EffectTone::Positive, line));
+    } else if def.power_demand_mw.abs() >= 0.01 {
         let per_unit = def.power_demand_mw;
         let line = if mult > 1.0 {
             format!(
@@ -6319,6 +7658,19 @@ pub fn build_mine_card_data(
         effects.push((EffectTone::Throughput, line));
     }
     // Production: "X.X Mt/yr Iron" using the modifier's value.
+    // v0.5.2 fix (2026-08-03): per user feedback, the Mining tab's
+    // "Produces" line did NOT scale with the build multiplier while
+    // every other value on the card (Power demand ×N, resource
+    // costs, BP, …) did. The Build tab's
+    // `card_data_with_multiplier` mirrors the Power-generation
+    // pattern: show the per-unit rate, the multiplier, and the
+    // batch total. Use `mult` (the build multiplier) rather than
+    // `count` (already-built mines — that's the inventory tally
+    // shown in `stat_a`), and fold accessibility into the
+    // per-unit base so the ×N expansion reflects the player's full
+    // batch contribution to the colony's output. The base per-mine
+    // yield without accessibility is still shown as the "per unit"
+    // figure (matches Build tab convention: per-unit, ×N, total).
     if let Some(prod) = def
         .modifiers
         .iter()
@@ -6326,12 +7678,21 @@ pub fn build_mine_card_data(
     {
         if prod.value > 0.0 {
             if let Some(res_name) = prod.modifier_type.strip_suffix("Production") {
-                let total = prod.value * count as f64 * card_data.accessibility as f64;
-                let rate = format_mining_rate(total);
-                effects.push((
-                    EffectTone::Positive,
-                    format!("Produces {} {}/yr", rate, res_name),
-                ));
+                let per_unit = prod.value * card_data.accessibility as f64;
+                let total = per_unit * mult;
+                let line = if mult > 1.0 {
+                    format!(
+                        "Produces {} {}/yr \u{00d7} {} = {} {}/yr",
+                        format_mining_rate(per_unit),
+                        res_name,
+                        mult as u32,
+                        format_mining_rate(total),
+                        res_name
+                    )
+                } else {
+                    format!("Produces {} {}/yr", format_mining_rate(per_unit), res_name)
+                };
+                effects.push((EffectTone::Positive, line));
             }
         }
     }
@@ -6344,19 +7705,18 @@ pub fn build_mine_card_data(
         "no deposit".to_string()
     };
     effects.push((EffectTone::Neutral, reserve_label));
-    // Cost lines (top 3). At queue time the player pays these
-    // for the build, just like a regular Build card.
-    for (name, amt) in def.resource_costs.iter().take(3) {
+    // Cost lines (top 6). v0.5.2 PR-A.4 follow-up: typed
+    // `resource_costs` rows rendered with PNG icon + category
+    // tint by the canary, not emoji text in `effects`. The
+    // 6-line cap gives the card room for tall cost lists.
+    let mut resource_costs: Vec<ResourceCostRow> = Vec::new();
+    for (name, amt) in def.resource_costs.iter().take(6) {
         let total = amt * mult;
-        let amt_str = if total.fract() == 0.0 {
-            format!("{:.0}", total)
-        } else {
-            format!("{:.1}", total)
-        };
-        effects.push((
-            EffectTone::Cost,
-            format!("{} {}k/t", name, amt_str),
-        ));
+        resource_costs.push(ResourceCostRow {
+            name: name.clone(),
+            amount: total,
+            resource: parse_resource_type(name),
+        });
     }
     // Body-gate caption (only when blocked).
     if body_blocked {
@@ -6386,7 +7746,27 @@ pub fn build_mine_card_data(
         stat_b: ("ACC", cost_str),
         stat_c: ("", String::new()),
         effects,
-        queue_label: "Queue",
+        // v0.5.2 PR-A.4 follow-up: typed resource-demand rows
+        // rendered with PNG icon + category tint. Always
+        // passed alongside `effects`; the canary renders the
+        // two sets in separate visual zones (Power → Produces
+        // → Res → [resource_cost rows] → ⚠ gate).
+        resource_costs,
+        // v0.5.2: label the Queue button "Build +N" so the player
+        // sees the batch size without glancing at the chip row.
+        // The Demolish button ("Demolish ×N") already does this,
+        // so the two read as a matched pair.
+        queue_label: if multiplier > 1 {
+            format!("Build \u{002b}{}", multiplier)
+        } else {
+            "Build +1".to_string()
+        },
+        // v0.5.2: ETA derivation. The Mining card's `stat_a` carries
+        // the live inventory count (e.g. "×25"), not BP, so the ETA
+        // row cannot parse the BP from the stat string. Pass it as a
+        // dedicated field so the ETA shows real values for any
+        // multiplier (was 0s for all Mining cards before this).
+        build_points: def.build_points,
         power_insufficient,
     }
 }
@@ -6413,6 +7793,7 @@ fn spawn_mining_card(
     mono_font: &Handle<Font>,
     icon: Option<&Handle<Image>>,
     multiplier: u32,
+    resource_icons: &ResourceIcons,
 ) -> Entity {
     let def = match buildings_data.get(&bt) {
         Some(d) => d,
@@ -6426,7 +7807,10 @@ fn spawn_mining_card(
                         display: Display::Flex,
                         flex_direction: FlexDirection::Column,
                         width: Val::Px(320.0),
-                        min_height: Val::Px(244.0),
+                        // v0.5.2 PR-A.4: match the main Build card's
+                        // bumped height (320 px) so unknown / placeholder
+                        // cards align with the rest of the grid.
+                        min_height: Val::Px(320.0),
                         padding: UiRect::all(Val::Px(SPACE_LG)),
                         border: UiRect::all(Val::Px(1.0)),
                         border_radius: BorderRadius::all(Val::Px(8.0)),
@@ -6469,6 +7853,7 @@ fn spawn_mining_card(
         body_font_medium,
         mono_font,
         icon,
+        resource_icons,
     );
 
     // Demolish button: opposite side of the Queue button. Removes
@@ -6513,9 +7898,14 @@ fn spawn_demolish_button(
     body_font_medium: &Handle<Font>,
 ) {
     let label = if multiplier > 1 {
-        format!("Demolish \u{00d7}{}", multiplier)
+        // v0.5.2: match the Build button's "Build +N" shape with
+        // "Demolish -N". The two buttons read as a matched
+        // pair: "Build +5" / "Demolish -5". The ×N form
+        // (multiplication sign) is reserved for the count row
+        // inside the card body.
+        format!("Demolish \u{2212}{}", multiplier)
     } else {
-        "Demolish".to_string()
+        "Demolish -1".to_string()
     };
     let dim_red = Color::srgba(0.353, 0.157, 0.169, 0.85);
     let dim_red_border = Color::srgba(0.847, 0.373, 0.392, 0.50);
@@ -6528,8 +7918,12 @@ fn spawn_demolish_button(
                 align_items: AlignItems::Center,
                 justify_content: JustifyContent::Center,
                 align_self: AlignSelf::FlexEnd,
-                height: Val::Px(28.0),
-                padding: UiRect::horizontal(Val::Px(SPACE_MD)),
+                // v0.5.2: same height as the Queue button (32 px) so
+                // the two read as a matched row at the bottom of
+                // the card. Was 28 px which made the Demolish look
+                // like a secondary control.
+                height: Val::Px(32.0),
+                padding: UiRect::horizontal(Val::Px(SPACE_XL)),
                 border: UiRect::all(Val::Px(1.0)),
                 border_radius: BorderRadius::all(Val::Px(4.0)),
                 position_type: PositionType::Absolute,
@@ -6627,6 +8021,10 @@ pub fn tick_mining_demolish_click(
 /// the Queue button (or any other system) and removed by this same
 /// Demolish button, so a once-at-spawn check is not enough. Runs
 /// every frame the Mining body is open.
+///
+/// Uses `queue_silenced` (Bevy 0.18+) so the insert / remove commands
+/// don't panic if `update_mining_body` despawns the parent card
+/// between this system's iter and the command apply at stage end.
 pub fn tick_mining_demolish_disabled(
     mut commands: Commands,
     ui_state: Res<ConstructionUiState>,
@@ -6642,10 +8040,32 @@ pub fn tick_mining_demolish_disabled(
     for (entity, button, is_disabled) in demolish_buttons.iter() {
         let count = colony.buildings.get(&button.building_type).copied().unwrap_or(0);
         if count == 0 && !is_disabled {
-            commands.entity(entity).insert(MiningDemolishDisabled);
+            commands.entity(entity).queue_silenced(InsertDemolishDisabled);
         } else if count > 0 && is_disabled {
-            commands.entity(entity).remove::<MiningDemolishDisabled>();
+            commands.entity(entity).queue_silenced(RemoveDemolishDisabled);
         }
+    }
+}
+
+/// `EntityCommand` that inserts `MiningDemolishDisabled`. Used by
+/// `tick_mining_demolish_disabled` via `queue_silenced` so the insert
+/// is dropped instead of panicking if the entity is despawned by the
+/// time the command applies.
+struct InsertDemolishDisabled;
+
+impl bevy::ecs::system::EntityCommand for InsertDemolishDisabled {
+    fn apply(self, mut entity: bevy::ecs::world::EntityWorldMut) {
+        entity.insert(MiningDemolishDisabled);
+    }
+}
+
+/// `EntityCommand` that removes `MiningDemolishDisabled`. See
+/// `InsertDemolishDisabled` for the rationale.
+struct RemoveDemolishDisabled;
+
+impl bevy::ecs::system::EntityCommand for RemoveDemolishDisabled {
+    fn apply(self, mut entity: bevy::ecs::world::EntityWorldMut) {
+        entity.remove::<MiningDemolishDisabled>();
     }
 }
 

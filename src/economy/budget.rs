@@ -67,16 +67,16 @@ pub fn calculate_colony_power_totals(
 
         for modifier in &def.modifiers {
             if modifier.modifier_type == "PowerGeneration" {
-                // RON `PowerGeneration` values are expressed in **MW per
-                // unit** (not GW). Multiplying by 1e9 here inflated every
-                // generator ~1000× and pushed `spare_power_mw` into the
-                // 1e8–1e9 range, so the "Not enough energy" gate in the
-                // construction menu could never fire at sane batch sizes.
-                // The earlier 1e9 multiplier is a holdover from when the
-                // values were stored in GW. Keeping the factor at 1e6 (MW
-                // → W) makes the operator-bar totals (≈3.65 TW for Earth
-                // seed) line up with what the UI shows.
-                produced_watts += modifier.value * count as f64 * 1_000_000.0;
+                // RON `PowerGeneration` values are expressed in **GW per
+                // unit** (matching the inline `// <value> GW` annotations
+                // next to every entry in assets/data/buildings.ron and the
+                // per-building display strings in src/colony/types.rs:
+                // "+5 GW power output", "+20 GW power output", etc.).
+                // The 1e9 factor converts GW → W, which lines up with the
+                // EnergyGrid units (W) and the per-building
+                // `power_demand_mw` field (converted the other way by
+                // * 1e6 in the consumption loop below).
+                produced_watts += modifier.value * count as f64 * 1_000_000_000.0;
             }
         }
 
@@ -485,18 +485,26 @@ pub fn update_civilization_score(
     }
 }
 
-/// Format power value in human-readable units (W, kW, MW, GW, TW)
+/// Format power value in human-readable units (W, kW, MW, GW, TW).
+///
+/// Handles negative values (deficits) by stripping the sign before
+/// picking the unit scale, then re-prefixing it. The previous
+/// `>=` cascade fell through to the `W` branch for every negative
+/// input, producing `"-960000000000.00 W"` instead of `"-960.00 GW"`
+/// for the body Net column in the Economy Power tab.
 pub fn format_power(watts: f64) -> String {
-    if watts >= 1e12 {
-        format!("{:.2} TW", watts / 1e12)
-    } else if watts >= 1e9 {
-        format!("{:.2} GW", watts / 1e9)
-    } else if watts >= 1e6 {
-        format!("{:.2} MW", watts / 1e6)
-    } else if watts >= 1e3 {
-        format!("{:.2} kW", watts / 1e3)
+    let sign = if watts < 0.0 { "-" } else { "" };
+    let abs = watts.abs();
+    if abs >= 1e12 {
+        format!("{}{:.2} TW", sign, abs / 1e12)
+    } else if abs >= 1e9 {
+        format!("{}{:.2} GW", sign, abs / 1e9)
+    } else if abs >= 1e6 {
+        format!("{}{:.2} MW", sign, abs / 1e6)
+    } else if abs >= 1e3 {
+        format!("{}{:.2} kW", sign, abs / 1e3)
     } else {
-        format!("{:.2} W", watts)
+        format!("{}{:.2} W", sign, abs)
     }
 }
 
@@ -765,6 +773,19 @@ mod tests {
         assert_eq!(format_power(2_500_000.0), "2.50 MW");
         assert_eq!(format_power(3_500_000_000.0), "3.50 GW");
         assert_eq!(format_power(4_500_000_000_000.0), "4.50 TW");
+    }
+
+    #[test]
+    fn test_power_formatting_negative() {
+        // Negative values must pick the same unit scale as positives,
+        // not fall through to the raw-W branch.
+        assert_eq!(format_power(-500.0), "-500.00 W");
+        assert_eq!(format_power(-1500.0), "-1.50 kW");
+        assert_eq!(format_power(-2_500_000.0), "-2.50 MW");
+        assert_eq!(format_power(-3_500_000_000.0), "-3.50 GW");
+        assert_eq!(format_power(-4_500_000_000_000.0), "-4.50 TW");
+        // Exact zero stays unsigned.
+        assert_eq!(format_power(0.0), "0.00 W");
     }
 
     #[test]

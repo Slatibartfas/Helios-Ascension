@@ -428,6 +428,60 @@ pub(crate) fn asteroid_albedo_jitter(name: &str) -> Color {
     Color::srgb(jr, jg, jb)
 }
 
+// ── Normal-map pool (per-body relief variety) ──────────────────────────────
+
+/// Pool of 4 distinct tangent-space rock normal-map variants for
+/// asteroids. The selector picks one per body via `hash(name) % N` so
+/// each asteroid gets a different bump character across the catalog.
+/// All four are more cratery than the original
+/// `generic_rock_normal_2k.png` (the fallback), and each one
+/// emphasises a different surface regime:
+///
+/// * **a** — heavily cratered, Bennu/Ryugu character
+/// * **b** — sparse large craters with central peaks, Mathilde/Eros
+/// * **c** — fractured rock faces, Itokawa character
+/// * **d** — rolling regolith, Ceres/Vesta character
+///
+/// Adding a new variant is a one-line change here plus a new PNG on
+/// disk; the selector falls back to the legacy map if the pool is
+/// emptied by a mod, so the project still loads cleanly.
+const ROCK_NORMAL_VARIANTS: &[&str] = &[
+    "textures/celestial/asteroids/generic_rock_normal_a_2k.png",
+    "textures/celestial/asteroids/generic_rock_normal_b_2k.png",
+    "textures/celestial/asteroids/generic_rock_normal_c_2k.png",
+    "textures/celestial/asteroids/generic_rock_normal_d_2k.png",
+];
+
+/// Fallback when the pool is empty (defensive — the pool is a
+/// `const` slice, so this only fires if a future maintainer empties
+/// it). The fallback is also what comets continue to use: comets
+/// keep the original sparse map because icy nucleus relief reads
+/// better against the lower-frequency legacy map.
+const ROCK_NORMAL_FALLBACK: &str =
+    "textures/celestial/asteroids/generic_rock_normal_2k.png";
+
+/// Denser roughness map for asteroids. Same band as the legacy
+/// `generic_rock_roughness_2k.png` but with an extra procedural
+/// fine-grain layer added on top of the EXR-derived roughness, so
+/// the surface reads as more gritty at close zoom. Comets stay on
+/// the legacy map — the dense rock micro-variation doesn't read
+/// correctly on an icy body.
+const ROCK_ROUGHNESS_DENSE: &str =
+    "textures/celestial/asteroids/generic_rock_roughness_dense_2k.png";
+
+/// Pick a rock normal-map path for an asteroid body. Deterministic
+/// from the body's name so save/load and new-game spawns land on
+/// the same relief, matching the per-body colour-jitter contract.
+///
+/// Returns the fallback if [`ROCK_NORMAL_VARIANTS`] is empty.
+pub(crate) fn pick_asteroid_rock_normal_path(name: &str) -> &'static str {
+    if ROCK_NORMAL_VARIANTS.is_empty() {
+        return ROCK_NORMAL_FALLBACK;
+    }
+    let idx = (calculate_hash(&name) as usize) % ROCK_NORMAL_VARIANTS.len();
+    ROCK_NORMAL_VARIANTS[idx]
+}
+
 /// Generate procedural variation for material based on body properties
 /// Enhanced to visually distinguish all 6 asteroid spectral classes
 fn apply_procedural_variation(
@@ -716,17 +770,18 @@ pub fn setup_solar_system(
                 true,
             )
         } else if let Some(ref texture) = body_data.texture {
-            // Single dedicated texture. Asteroids and comets always pick up
-            // the shared relief normal map so dedicated textures (s-type,
-            // vesta, etc.) show the same per-class material treatment as
-            // the generic path. The normal map handle is queued for linear
-            // conversion (it's data, not albedo) and applied to the
-            // StandardMaterial below.
-            let normal_path = if matches!(body_data.body_type, BodyType::Asteroid | BodyType::Comet)
-            {
-                Some("textures/celestial/asteroids/generic_rock_normal_2k.png")
-            } else {
-                None
+            // Single dedicated texture. Asteroids pick one variant out of
+            // [`ROCK_NORMAL_VARIANTS`] via `hash(name) % N`; comets and
+            // other bodies fall through to the legacy shared map. The
+            // dedicated-texture path (s-type, vesta, etc.) keeps the same
+            // per-class material treatment as the generic path — only the
+            // bump character varies per body. The normal map handle is
+            // queued for linear conversion (it's data, not albedo) and
+            // applied to the StandardMaterial below.
+            let normal_path = match body_data.body_type {
+                BodyType::Asteroid => Some(pick_asteroid_rock_normal_path(&body_data.name)),
+                BodyType::Comet => Some(ROCK_NORMAL_FALLBACK),
+                _ => None,
             };
             let normal_tex = normal_path.map(|path| asset_server.load::<Image>(path));
             if let Some(ref handle) = normal_tex {
@@ -744,15 +799,14 @@ pub fn setup_solar_system(
             // Generic asteroid maps are deliberately shared by spectral class,
             // so select a deterministic normal map too. StandardMaterial uses
             // tangent-space normals; the generated relief map adds craters and
-            // regolith breakup without changing the silhouette.
+            // regolith breakup without changing the silhouette. Asteroids
+            // pick one of the 4 variants via the name hash; comets fall
+            // through to the legacy shared map (see [`pick_asteroid_rock_normal_path`]).
             let generic_path = get_generic_texture_path(body_data);
-            let normal_path = if matches!(body_data.body_type, BodyType::Asteroid | BodyType::Comet)
-            {
-                // Optional asset: use a supplied mission-inspired normal map
-                // when present; the material remains valid if a mod omits it.
-                Some("textures/celestial/asteroids/generic_rock_normal_2k.png")
-            } else {
-                None
+            let normal_path = match body_data.body_type {
+                BodyType::Asteroid => Some(pick_asteroid_rock_normal_path(&body_data.name)),
+                BodyType::Comet => Some(ROCK_NORMAL_FALLBACK),
+                _ => None,
             };
             let normal_tex = normal_path.map(|path| asset_server.load::<Image>(path));
             if let Some(ref handle) = normal_tex {
@@ -791,10 +845,16 @@ pub fn setup_solar_system(
         // Optional metallic_roughness map for asteroids.  The reference
         // rock ships a roughness EXR; the bake script also produces a PNG
         // sibling so the runtime does not depend on the OpenEXR loader.
+        // Asteroids use the dense variant (more micro-grit at close
+        // zoom); comets stay on the legacy map because icy nucleus
+        // surfaces read better with the less-detailed roughness.
         // Load it once and tag the handle for linear conversion.
         let metallic_roughness_texture = if is_asteroid_or_comet {
-            let handle = asset_server
-                .load::<Image>("textures/celestial/asteroids/generic_rock_roughness_2k.png");
+            let roughness_path = match body_data.body_type {
+                BodyType::Asteroid => ROCK_ROUGHNESS_DENSE,
+                _ => "textures/celestial/asteroids/generic_rock_roughness_2k.png",
+            };
+            let handle = asset_server.load::<Image>(roughness_path);
             linear_handle_queue.push(handle.clone());
             Some(handle)
         } else {
@@ -804,9 +864,12 @@ pub fn setup_solar_system(
         // Note: Bevy 0.18 `StandardMaterial` does not expose a public
         // `normal_map_strength` field — that knob lives on a deferred path
         // in the PBR shader and was only added in 0.19. We don't try to
-        // set it; the rock reference map (`generic_rock_normal_2k.png`)
-        // is dense enough that the bump reads at in-game zoom distances
-        // with the default strength.
+        // set it; the rock reference map (`generic_rock_normal_2k.png` /
+        // the per-body pool at `ROCK_NORMAL_VARIANTS`) is dense enough
+        // that the bump reads at in-game zoom distances with the default
+        // strength. The new pool increases the gradient gain at bake
+        // time (see `scripts/generate_rock_normal_variants.py`) to
+        // compensate for the missing public knob.
 
         // Star surface material — uses limb darkening shader instead of StandardMaterial.
         // For non-star bodies, build the StandardMaterial as before (wrapped in Option
@@ -2113,7 +2176,7 @@ pub(crate) fn create_ring_mesh(outer_radius: f32, inner_radius: f32, segments: u
     mesh
 }
 
-fn calculate_hash<T: Hash>(t: &T) -> u64 {
+fn calculate_hash<T: Hash + ?Sized>(t: &T) -> u64 {
     let mut s = DefaultHasher::new();
     t.hash(&mut s);
     s.finish()

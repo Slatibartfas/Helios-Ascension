@@ -82,6 +82,70 @@ pub const YELLOW_ETA: Color = Color::srgba(0.957, 0.749, 0.349, 1.0);
 /// giving the impression of light hitting the top of a glass surface).
 pub const CARD_TOP_HIGHLIGHT: Color = Color::srgba(0.498, 0.733, 0.804, 0.80);
 
+// ─── Resource category palette ──────────────────────────────────────────
+//
+// Per-category tints used by the build-card resource-demand rows
+// (v0.5.2 PR-A.4 follow-up). Each category gets a distinct hue so
+// the player can tell at a glance whether a cost is a Construction
+// metal, a Volatile, a Precious metal, etc. The palette is tuned for
+// the dark-navy `CARD_BG` background and is bright enough to read at
+// 11 px (the canary's caption size). The cost-line icon PNG is tinted
+// to the same color so icon + amount text share one hue per row.
+//
+// Resource category names come from `ResourceType::category()` in
+// `src/economy/types.rs`. Keep these names in lockstep with that
+// function; the helper `category_color()` below falls back to
+/// `TEXT_BODY` for an unknown category.
+
+/// Biological (Food) — green-leaf.
+pub const RESOURCE_BIOLOGICAL: Color = Color::srgba(0.498, 0.812, 0.467, 1.0);
+/// Volatiles (Water, Hydrogen, Ammonia, Methane, Phosphorus) — cool
+/// cyan-teal.
+pub const RESOURCE_VOLATILES: Color = Color::srgba(0.310, 0.776, 0.831, 1.0);
+/// Atmospheric Gases (Nitrogen, Oxygen, CO₂, Argon) — pale sky blue.
+pub const RESOURCE_ATMOSPHERIC: Color = Color::srgba(0.561, 0.776, 0.949, 1.0);
+/// Construction Materials (Iron, Aluminum, Titanium, …) — warm copper.
+pub const RESOURCE_CONSTRUCTION: Color = Color::srgba(0.890, 0.580, 0.380, 1.0);
+/// Fusion Fuel (He-3, Deuterium, Tritium) — bright sun-yellow.
+pub const RESOURCE_FUSION: Color = Color::srgba(0.957, 0.812, 0.318, 1.0);
+/// Fissiles (Uranium, Thorium, Plutonium) — radioactive lime.
+pub const RESOURCE_FISSILE: Color = Color::srgba(0.682, 0.890, 0.388, 1.0);
+/// Precious Metals (Gold, Silver, Platinum) — warm gold.
+pub const RESOURCE_PRECIOUS: Color = Color::srgba(0.957, 0.749, 0.349, 1.0);
+/// Strategic Materials (Copper, REE, Lithium, …) — violet.
+pub const RESOURCE_STRATEGIC: Color = Color::srgba(0.776, 0.620, 0.949, 1.0);
+/// Exotic (Antimatter, ExoticMatter, Metamaterials, Computronium) —
+/// magenta-pink (stark, reads as "rare/special").
+pub const RESOURCE_EXOTIC: Color = Color::srgba(0.949, 0.498, 0.776, 1.0);
+
+/// Returns the `Color` associated with a resource category string.
+/// Mirrors `ResourceType::category()` from `src/economy/types.rs`; the
+/// fallback (`TEXT_BODY`) is intentional — the helper must never
+/// panic on an unknown label so a future category addition doesn't
+/// silently break card rendering.
+pub fn category_color(category: &str) -> Color {
+    match category {
+        "Biological" => RESOURCE_BIOLOGICAL,
+        "Volatiles" => RESOURCE_VOLATILES,
+        "Atmospheric Gases" => RESOURCE_ATMOSPHERIC,
+        "Construction" => RESOURCE_CONSTRUCTION,
+        "Fusion Fuel" => RESOURCE_FUSION,
+        "Fissiles" => RESOURCE_FISSILE,
+        "Precious Metals" => RESOURCE_PRECIOUS,
+        "Strategic" => RESOURCE_STRATEGIC,
+        "Exotic" => RESOURCE_EXOTIC,
+        _ => TEXT_BODY,
+    }
+}
+
+/// Returns the `Color` associated with a `ResourceType`'s category.
+/// Convenience wrapper around `category_color(&resource.category())`
+/// so the build-card renderer doesn't have to import
+/// `ResourceType` just to look up the tint.
+pub fn category_color_for_resource(resource: &crate::economy::ResourceType) -> Color {
+    category_color(resource.category())
+}
+
 // ─── Spacing ──────────────────────────────────────────────────────────────
 
 /// 4-px-based grid (matches `theme::Spacing` names).

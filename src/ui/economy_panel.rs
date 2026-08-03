@@ -747,27 +747,22 @@ pub(super) fn calculate_building_power_profile(
         return (0.0, count as f64 * 400_000_000.0);
     };
 
+    // RON `PowerGeneration` values are in **GW per unit** (see the inline
+    // `// <value> GW` annotations next to every entry in
+    // assets/data/buildings.ron and the per-building display strings in
+    // src/colony/types.rs: "+5 GW power output", "+20 GW power output",
+    // etc.). The 1e9 factor converts GW → W, matching the canonical
+    // `calculate_colony_power_totals` in src/economy/budget.rs and the
+    // EnergyGrid units (W).
     let produced_watts = def
         .modifiers
         .iter()
         .filter(|modifier| modifier.modifier_type == "PowerGeneration")
-        .map(|modifier| modifier.value * count as f64 * 1_000_000.0)
+        .map(|modifier| modifier.value * count as f64 * 1_000_000_000.0)
         .sum();
     let consumed_watts = def.power_demand_mw * count as f64 * 1_000_000.0;
 
     (produced_watts, consumed_watts)
-}
-
-fn format_power_gw(watts: f64) -> String {
-    let gw = watts / 1_000_000_000.0;
-    let mut formatted = format!("{gw:.3}");
-    while formatted.contains('.') && formatted.ends_with('0') {
-        formatted.pop();
-    }
-    if formatted.ends_with('.') {
-        formatted.pop();
-    }
-    format!("{formatted} GW")
 }
 
 fn body_has_resource_flows(
@@ -1017,17 +1012,17 @@ pub(super) fn render_power_body_detail_tooltip(
                                 ui.label(row.building_type.display_name());
                                 ui.label(row.count.to_string());
                                 ui.label(
-                                    egui::RichText::new(format_power_gw(row.produced_watts))
+                                    egui::RichText::new(format_power(row.produced_watts))
                                         .color(theme::GREEN)
                                         .monospace(),
                                 );
                                 ui.label(
-                                    egui::RichText::new(format_power_gw(row.consumed_watts))
+                                    egui::RichText::new(format_power(row.consumed_watts))
                                         .color(theme::AMBER)
                                         .monospace(),
                                 );
                                 ui.label(
-                                    egui::RichText::new(format_power_gw(building_net))
+                                    egui::RichText::new(format_power(building_net))
                                         .color(building_net_color)
                                         .monospace(),
                                 );
@@ -4365,17 +4360,17 @@ fn render_econ_power_grid(
                                     ui.label(row.building_type.display_name());
                                     ui.label(row.count.to_string());
                                     ui.label(
-                                        egui::RichText::new(format_power_gw(row.produced_watts))
+                                        egui::RichText::new(format_power(row.produced_watts))
                                             .color(theme::GREEN)
                                             .monospace(),
                                     );
                                     ui.label(
-                                        egui::RichText::new(format_power_gw(row.consumed_watts))
+                                        egui::RichText::new(format_power(row.consumed_watts))
                                             .color(theme::AMBER)
                                             .monospace(),
                                     );
                                     ui.label(
-                                        egui::RichText::new(format_power_gw(building_net))
+                                        egui::RichText::new(format_power(building_net))
                                             .color(building_net_color)
                                             .monospace(),
                                     );

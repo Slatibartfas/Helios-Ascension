@@ -37,6 +37,7 @@ mod porkchop_color_ramp;
 mod porkchop_panel;
 mod research_panel;
 mod resources_bar;
+mod resource_icons;
 mod settings;
 mod shipbuilding_state;
 mod shipbuilding_tooltip;
@@ -63,6 +64,7 @@ use fleets_panel::{
     ShippingCompanyFilter,
 };
 use icons::{load_menu_icons, load_research_icons, process_menu_icons, process_research_icons};
+use resource_icons::{load_resource_icons_bevy_ui, post_process_resource_icons};
 use personnel_panel::ui_personnel_panel;
 use research_panel::ui_research_panels;
 use resources_bar::ui_resources_bar;
@@ -711,6 +713,18 @@ impl Plugin for UIPlugin {
             .init_resource::<construction::ConstructionUiState>()
             .init_resource::<shipbuilding_state::ShipbuildingUiState>()
             .init_resource::<personnel_panel::PersonnelUiState>()
+            // v0.5.2: resource icon storage is owned by
+            // `load_resource_icons_bevy_ui` (Startup) — it
+            // calls `commands.insert_resource` with both the
+            // egui `TextureHandle` map and the bevy_ui
+            // `Handle<Image>` map pre-seeded. Don't
+            // `init_resource::<ResourceIcons>()` here or the
+            // Startup loader will silently no-op the egui
+            // side. The egui-side legacy loader
+            // (`resource_icons::load_resource_icons`) still
+            // fills the `handles` field every frame, so the
+            // resource is correctly populated by the first
+            // egui frame.
             // ActiveMenu is now initialized in GameStatePlugin
             // to allow access in camera/starmap plugins
             // Load menu icons at startup
@@ -719,6 +733,16 @@ impl Plugin for UIPlugin {
                 (
                     load_menu_icons,
                     load_research_icons,
+                    // v0.5.2 PR-A.4 follow-up: load the
+                    // resource-icon PNGs through Bevy's
+                    // `AssetServer` so the build-card
+                    // resource demands (bevy_ui path) can
+                    // render them as `ImageNode`s tinted to
+                    // the resource's category color. Parallel
+                    // to the egui-side `load_resource_icons`
+                    // (Update) — see `src/ui/resource_icons.rs`
+                    // for the rationale on the two paths.
+                    load_resource_icons_bevy_ui,
                     setup_egui_fonts,
                     check_window_resolution,
                 ),
@@ -833,6 +857,20 @@ impl Plugin for UIPlugin {
                     advance_simulation_time,
                     process_menu_icons,
                     process_research_icons,
+                    // v0.5.2 PR-A.4 follow-up: post-process
+                    // the bevy_ui resource icon PNGs in place
+                    // (white → transparent, dark → premultiplied
+                    // white) so a tinted `ImageNode` blends
+                    // cleanly onto the dark navy card. Runs
+                    // every frame until every entry has been
+                    // mutated, then early-returns.
+                    post_process_resource_icons,
+                    // v0.5.2: load resource icon PNGs from disk
+                    // and bake them into egui `TextureHandle`s
+                    // for the resources bar. Runs every frame
+                    // (cheap) so any newly-authored icon file
+                    // picks up on the next tick.
+                    resource_icons::load_resource_icons,
                     switch_anchor_on_arrival
                         .after(crate::fleets::systems::complete_fleet_maneuvers),
                 ),

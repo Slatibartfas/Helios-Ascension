@@ -23,6 +23,30 @@ pub(super) fn get_resource_category_icon(category: &str) -> &'static str {
     }
 }
 
+/// Canonical representative resource for a category. Was used to
+/// pick the PNG icon shown in the top resources-bar category tile
+/// and in the category popup header. Replaced in v0.5.2 PR-A.4 by
+/// `render_category_icon`, which draws the actual category-badge
+/// PNG (`category-construction.png`, etc.) tinted to the category
+/// color rather than the first resource's icon.
+///
+/// Kept `pub(super)` because the function is small, well-tested,
+/// and a future tooltip / category-preview UI is a likely caller
+/// (e.g. "preview which resources live in this category" hover).
+/// If no caller materialises before the next sweep, mark it
+/// `#[allow(dead_code)]` or remove.
+#[allow(dead_code)]
+pub(super) fn representative_resource_for_category(category: &str) -> ResourceType {
+    for (cat, resources) in ResourceType::by_category() {
+        if cat == category {
+            if let Some(&first) = resources.first() {
+                return first;
+            }
+        }
+    }
+    ResourceType::Food
+}
+
 /// Get the icon for a specific resource type
 pub(super) fn get_resource_icon(resource: &ResourceType) -> &'static str {
     match resource {
@@ -84,6 +108,133 @@ pub(super) fn get_resource_icon(resource: &ResourceType) -> &'static str {
         ResourceType::Computronium => "\u{1F9E0}",  // 🧠
     }
 }
+
+/// v0.5.2: render a resource's line-art PNG icon at the given size
+/// inside the current egui row. The icons are 256×256 dark-on-white
+/// PNGs in `assets/textures/ui/resources/`, post-processed by
+/// `super::resource_icons::load_resource_icons` (white background →
+/// transparent, dark lines → premultiplied white) and stored as
+/// `egui::TextureHandle`s. Falls back to a small cyan-tinted square
+/// (matches the Build card placeholder) if the icon hasn't loaded
+/// yet or was never authored.
+///
+/// The `size` is in egui logical pixels — call sites pass 14 for
+/// resource rows in popups, 16 for headers, etc. The texture is
+/// bilinear-filtered so it scales down cleanly to whatever the
+/// caller asks for.
+pub(super) fn render_resource_icon(
+    ui: &mut egui::Ui,
+    icons: &super::resource_icons::ResourceIcons,
+    resource: ResourceType,
+    size: f32,
+) {
+    use super::resource_icons::get_resource_icon_handle;
+    if let Some(handle) = get_resource_icon_handle(icons, resource) {
+        // Tint the white pixels to the panel's accent color so the
+        // icon reads as part of the UI.  The egui shader multiplies
+        // the texture's white by the `tint` color.
+        let tint = egui::Color32::from_rgb(0x60, 0xC8, 0xD8); // cyan, matches menu icons
+        ui.add(
+            egui::Image::from_texture(handle)
+                .tint(tint)
+                .fit_to_exact_size(egui::Vec2::splat(size)),
+        );
+    } else {
+        // Fallback: cyan square (same look as the Build card's
+        // icon-placeholder square so the visual language stays
+        // consistent across egui and bevy_ui).
+        let (rect, _) = ui.allocate_exact_size(egui::Vec2::splat(size), egui::Sense::hover());
+        ui.painter().rect_filled(
+            rect,
+            egui::CornerRadius::same(2),
+            egui::Color32::from_rgba_unmultiplied(0x60, 0xC8, 0xD8, 153),
+        );
+    }
+}
+
+/// Render a category-badge PNG icon (the `category-*.png` set in
+/// `assets/textures/ui/resources/`) at the requested size. Tinted
+/// to the category color so the tile reads as the category
+/// identity (Construction = amber, Volatiles = blue, Fissiles =
+/// red, etc.) rather than as a generic monochrome mark.
+///
+/// Falls back to the same cyan placeholder square as
+/// `render_resource_icon` when the asset hasn't loaded yet or the
+/// category has no authored slug — visually consistent with the
+/// resource-icon fallback and easy to spot in dev.
+///
+/// Used by the top resource bar tile (was: representative-resource
+/// icon at 16 px) and the category popup header (was:
+/// representative-resource icon at 18 px). The previous approach
+/// rendered the **first resource of the category** (Iron for
+/// Construction, Water for Volatiles, Nitrogen for Atmospheric
+/// Gases), which never matched the actual category identity —
+/// the category PNGs were authored but never wired up. See
+/// `super::resource_icons::category_icon_basename` for the
+/// category-name → filename mapping.
+pub(super) fn render_category_icon(
+    ui: &mut egui::Ui,
+    icons: &super::resource_icons::ResourceIcons,
+    category: &str,
+    size: f32,
+) {
+    use super::resource_icons::get_category_icon_handle;
+    if let Some(handle) = get_category_icon_handle(icons, category) {
+        // Tint to the category color so the badge reads as part
+        // of the category (amber for Construction, blue for
+        // Volatiles, red for Fissiles, etc.). `category_color`
+        // returns the canonical theme color.
+        let tint = theme::category_color(category);
+        ui.add(
+            egui::Image::from_texture(handle)
+                .tint(tint)
+                .fit_to_exact_size(egui::Vec2::splat(size)),
+        );
+    } else {
+        // Fallback: cyan square (matches the resource-icon
+        // fallback so the bar reads as a row of evenly-sized
+        // tiles even before the icons have loaded on the first
+        // frame).
+        let (rect, _) = ui.allocate_exact_size(egui::Vec2::splat(size), egui::Sense::hover());
+        ui.painter().rect_filled(
+            rect,
+            egui::CornerRadius::same(2),
+            egui::Color32::from_rgba_unmultiplied(0x60, 0xC8, 0xD8, 153),
+        );
+    }
+}
+
+/// v0.5.2: render a resource row as `[icon] [name]` — the icon
+/// uses the loaded PNG via `render_resource_icon` (cyan-tinted,
+/// matching the menu icons) and the name is a normal `Label`.
+///
+/// Replaces the old `format!("{} {}", get_resource_icon(...),
+/// display_name())` pattern, which embedded the emoji glyph in
+/// `RichText` and prevented the PNG icon from ever being used.
+/// Used by the category popup grid and the forecast hover
+/// tooltip header — both contexts that already have a
+/// `&ResourceIcons` resource in scope.
+///
+/// `name_size` is the egui font size of the label (14 for the
+/// popup grid, 12 for the forecast tooltip). The icon is sized
+/// to match (`name_size + 2.0`) so it visually centers against
+/// the text baseline.
+pub(super) fn render_resource_name_row(
+    ui: &mut egui::Ui,
+    icons: &super::resource_icons::ResourceIcons,
+    resource: ResourceType,
+    name_size: f32,
+) {
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 4.0;
+        render_resource_icon(ui, icons, resource, name_size + 2.0);
+        ui.add(
+            egui::Label::new(egui::RichText::new(resource.display_name()).size(name_size))
+                .selectable(false),
+        );
+    });
+}
+
 
 /// Get color for resource category
 fn get_category_color(category: &str) -> egui::Color32 {
@@ -832,6 +983,7 @@ fn render_kardashev_hover_content(
 
 fn render_kardashev_overlay(
     ctx: &egui::Context,
+    resource_icons: &super::resource_icons::ResourceIcons,
     trend_state: &mut KardashevTrendState,
     simulation_history: &crate::economy::SimulationHistory,
     current_sim_seconds: f64,
@@ -948,22 +1100,33 @@ fn render_kardashev_overlay(
                         .color(theme::TEXT_DIM),
                 );
                 egui::ComboBox::from_id_salt("history_panel_resource")
-                    .selected_text(format!(
-                        "{} {}",
-                        get_resource_icon(&trend_state.resource),
-                        trend_state.resource.display_name()
-                    ))
+                    // v0.5.2: trigger keeps the resource name only
+                    // (egui ComboBox `selected_text` takes a string,
+                    // not a closure, so the loaded PNG icon can't
+                    // be embedded inline). The dropdown options use
+                    // `selectable_label` inside `show_ui` so the
+                    // cyan-tinted PNG icon renders next to each
+                    // option name — the visual upgrade is visible
+                    // the moment the player opens the dropdown.
+                    .selected_text(trend_state.resource.display_name())
                     .show_ui(ui, |ui| {
                         for resource in ResourceType::all() {
-                            ui.selectable_value(
-                                &mut trend_state.resource,
-                                *resource,
-                                format!(
-                                    "{} {}",
-                                    get_resource_icon(resource),
-                                    resource.display_name()
-                                ),
-                            );
+                            let is_selected = *resource == trend_state.resource;
+                            // Row = [icon] [selectable label]. The
+                            // icon is a non-interactive decorator;
+                            // the click target is the label. Clicking
+                            // the label swaps `trend_state.resource`
+                            // to the chosen resource (matching the
+                            // legacy `selectable_value` behavior).
+                            ui.horizontal(|ui| {
+                                ui.spacing_mut().item_spacing.x = 4.0;
+                                render_resource_icon(ui, resource_icons, *resource, 12.0);
+                                if ui.selectable_label(is_selected, resource.display_name()).clicked()
+                                    && !is_selected
+                                {
+                                    trend_state.resource = *resource;
+                                }
+                            });
                         }
                     });
             }
@@ -1089,6 +1252,14 @@ pub(super) struct ResourceBarUiRuntime<'w> {
     sim_time: Res<'w, SimulationTime>,
     time: Res<'w, Time<Real>>,
     ui_prefs: Res<'w, ResearchUiPreferences>,
+    // v0.5.2: 39 line-art PNG resource icons (water.png, iron.png,
+    // …) replace the legacy emoji glyphs. Bundled into this
+    // SystemParam (instead of taking it as a separate function
+    // arg) so the host function stays under Bevy's 16-generic
+    // cap. The render side calls `render_resource_icon` which
+    // falls back to a small cyan square if the icon hasn't
+    // loaded yet.
+    resource_icons: Res<'w, super::resource_icons::ResourceIcons>,
 }
 
 /// GRA-31 PR-A: per-body / per-system resource breakdown + in-transit
@@ -1127,6 +1298,14 @@ pub(super) struct ResourceBarLocalState<'s> {
 const CONTEXT_TILE_WIDTH: f32 = 88.0;
 const CONTEXT_TILE_HEIGHT: f32 = 28.0;
 const CONTEXT_NAME_FONT_SIZE: f32 = 11.5;
+
+/// Category-badge icon size in the top resource bar. 22 px reads
+/// as a proper badge next to the 13-pt total / 10-pt rate column
+/// (the previous 16 px value was so small that the icon shrunk to
+/// a dot in the screenshot, especially when the panel was 40 px
+/// tall — the new 48-px panel + 22-px icon is the smallest pair
+/// where the line art still reads cleanly at 1× DPI).
+const CATEGORY_TILE_ICON_SIZE: f32 = 22.0;
 
 fn render_context_name_marquee(ui: &mut egui::Ui, text: &str) {
     let font_id = egui::FontId::proportional(CONTEXT_NAME_FONT_SIZE);
@@ -1217,7 +1396,7 @@ pub(super) fn ui_resources_bar(
     let total_population: f64 = population_query.iter().map(|(p, _, _)| p.count).sum();
 
     egui::TopBottomPanel::top("resources_bar")
-        .exact_height(40.0)
+        .exact_height(48.0)
         .show(ctx, |ui| {
             ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                 ui.add_space(4.0);
@@ -1269,9 +1448,20 @@ pub(super) fn ui_resources_bar(
                         .map(|r| rate_tracker.get_resource_rate(r))
                         .sum();
 
-                    let icon = get_resource_category_icon(category_name);
                     let color = get_category_color(category_name);
                     let text_color = theme::TEXT;
+                    // v0.5.2 PR-A.4: use the category-badge PNG
+                    // (`category-atmospheric.png`,
+                    // `category-construction.png`, …) tinted to the
+                    // category color. The previous approach rendered
+                    // a representative-resource icon (Iron for
+                    // Construction, Water for Volatiles, …) which
+                    // never matched the actual category identity —
+                    // the category PNGs were authored but never
+                    // wired up. The fallback (cyan square) lives
+                    // inside `render_category_icon` so dev builds
+                    // without icons still read as a row of evenly
+                    // sized tiles.
 
                     let is_this_open = open_popup
                         .open
@@ -1283,13 +1473,13 @@ pub(super) fn ui_resources_bar(
                         .inner_margin(egui::Margin::symmetric(1, 2))
                         .show(ui, |ui| {
                             ui.horizontal_centered(|ui| {
-                                ui.add(
-                                    egui::Label::new(
-                                        egui::RichText::new(icon).size(16.0).color(color),
-                                    )
-                                    .selectable(false),
+                                render_category_icon(
+                                    ui,
+                                    &ui_runtime.resource_icons,
+                                    category_name,
+                                    CATEGORY_TILE_ICON_SIZE,
                                 );
-                                ui.add_space(1.0);
+                                ui.add_space(2.0);
                                 ui.vertical(|ui| {
                                     ui.set_min_width(68.0); // Fixed width to prevent wiggling
                                     ui.set_max_width(68.0);
@@ -2641,8 +2831,12 @@ pub(super) fn ui_resources_bar(
             .into_iter()
             .find(|(name, _)| *name == cat_name.as_str())
         {
-            let icon = get_resource_category_icon(cat_name);
             let color = get_category_color(cat_name);
+            // v0.5.2 PR-A.4: category popup header gets the same
+            // category-badge PNG as the top-bar tile, sized 22 px
+            // to match the 16-pt bold heading. Falls back to the
+            // cyan square via `render_category_icon` if the asset
+            // hasn't loaded yet.
 
             let mut still_open = true;
             let window_response = egui::Window::new(cat_name.as_str())
@@ -2656,9 +2850,11 @@ pub(super) fn ui_resources_bar(
                 .show(ctx, |ui| {
                     ui.set_min_width(280.0);
                     ui.horizontal(|ui| {
-                        ui.add(
-                            egui::Label::new(egui::RichText::new(icon).size(18.0).color(color))
-                                .selectable(false),
+                        render_category_icon(
+                            ui,
+                            &ui_runtime.resource_icons,
+                            cat_name.as_str(),
+                            22.0,
                         );
                         ui.add(
                             egui::Label::new(
@@ -2711,28 +2907,30 @@ pub(super) fn ui_resources_bar(
                                 // Icon + Name in one cell — wrap in an
                                 // allocating Ui so we can capture a
                                 // Response for hover-mini-chart and click
-                                // open-popup behavior.
-                                let name_response = ui.horizontal(|ui| {
-                                    ui.add(
-                                        egui::Label::new(
-                                            egui::RichText::new(get_resource_icon(resource))
-                                                .size(14.0),
-                                        )
-                                        .selectable(false),
-                                    );
-                                    ui.add(
-                                        egui::Label::new(
-                                            egui::RichText::new(resource.display_name()).size(12.0),
-                                        )
-                                        .selectable(false),
-                                    );
-                                }).response;
+                                // open-popup behavior. v0.5.2: switches
+                                // from the legacy emoji glyph to the
+                                // loaded PNG icon via
+                                // `render_resource_name_row` (cyan-tinted
+                                // to match the menu icons). The
+                                // `ResourceIcons` resource is already in
+                                // scope via `ui_runtime`.
+                                let name_response = ui
+                                    .horizontal(|ui| {
+                                        render_resource_name_row(
+                                            ui,
+                                            &ui_runtime.resource_icons,
+                                            *resource,
+                                            12.0,
+                                        );
+                                    })
+                                    .response;
 
                                 // Hover-mini-chart: shows a compact 20-yr
                                 // forecast preview for this resource.
                                 name_response.clone().on_hover_ui(|ui| {
                                     render_resource_hover_preview(
                                         ui,
+                                        &ui_runtime.resource_icons,
                                         *resource,
                                         &contextual,
                                         &rate_tracker,
@@ -2898,14 +3096,12 @@ pub(super) fn ui_resources_bar(
             .frame(egui::Frame::popup(ctx.style().as_ref()))
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
-                    ui.add(
-                        egui::Label::new(
-                            egui::RichText::new(get_resource_icon(&resource))
-                                .size(16.0)
-                                .color(theme::forecast_series_color(resource.category())),
-                        )
-                        .selectable(false),
-                    );
+                    // v0.5.2: 16-px PNG icon for the resource
+                    // (16 px so it sits visually next to the 16-px
+                    // bold resource name; the legacy 16-pt emoji
+                    // glyph rendered at variable width depending on
+                    // the emoji codepoint).
+                    render_resource_icon(ui, &ui_runtime.resource_icons, resource, 16.0);
                     ui.add(
                         egui::Label::new(
                             egui::RichText::new(resource.display_name())
@@ -3018,6 +3214,7 @@ pub(super) fn ui_resources_bar(
 
     render_kardashev_overlay(
         ctx,
+        &ui_runtime.resource_icons,
         &mut kardashev_trend,
         &sim_history,
         current_sim_seconds,
@@ -3080,6 +3277,7 @@ fn build_single_resource_forecast(
 /// `FORECAST_MINI_CHART_HEIGHT` painter chart + a one-line summary.
 fn render_resource_hover_preview(
     ui: &mut egui::Ui,
+    icons: &super::resource_icons::ResourceIcons,
     resource: crate::economy::ResourceType,
     contextual: &crate::economy::ContextualStockpile,
     rate_tracker: &ResourceRateTracker,
@@ -3087,15 +3285,17 @@ fn render_resource_hover_preview(
     current_sim_seconds: f64,
 ) {
     ui.set_max_width(260.0);
+    // v0.5.2: tooltip header uses the same PNG icon as the main
+    // popup grid via `render_resource_name_row` (cyan-tinted to
+    // match the menu icons). The forecast tooltip is now
+    // visually consistent with the resource row it pops up from.
+    render_resource_name_row(ui, icons, resource, 12.0);
+    ui.add_space(2.0);
     ui.label(
-        egui::RichText::new(format!(
-            "{} {}  — 20-yr forecast",
-            get_resource_icon(&resource),
-            resource.display_name()
-        ))
-        .strong()
-        .size(12.0)
-        .color(theme::forecast_series_color(resource.category())),
+        egui::RichText::new("20-yr forecast")
+            .strong()
+            .size(10.0)
+            .color(theme::forecast_series_color(resource.category())),
     );
     ui.add_space(2.0);
 
