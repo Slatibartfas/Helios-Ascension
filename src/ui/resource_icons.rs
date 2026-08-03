@@ -439,24 +439,9 @@ fn post_process_rgba(rgba: &[u8]) -> Vec<u8> {
     out
 }
 
-/// Post-process the category-badge PNGs.
-///
-/// Unlike the per-resource icons, the category PNGs are authored
-/// in the source form documented in CLAUDE.md ("dark lines on a
-/// white background") and have NOT been pre-baked through
-/// [`scripts/bake_resource_icons.py`]. The white background is
-/// fully opaque (alpha = 255 everywhere), so the cheap
-/// alpha-passthrough [`post_process_rgba`] would leave a solid
-/// white square that, when tinted to the category color, would
-/// cover the line art entirely.
-///
-/// Apply the standard CLAUDE.md / [`process_menu_icons`]
-/// luminance-key recipe at load time:
-///   - luminance = 0.299 R + 0.587 G + 0.114 B (perceptual)
-///   - alpha     = (1 - luminance)^3   — white -> 0, dark -> 1
-///   - RGB       = white (so egui's tint shader paints the
-///                 final category color)
-///   - A         = the computed alpha
+/// Apply the shared clean threshold to category artwork while keeping
+/// RGB white for egui tinting. The narrow threshold rejects pale paper
+/// texture and avoids the noisy cubic falloff used previously.
 fn post_process_category_rgba(rgba: &[u8]) -> Vec<u8> {
     let mut out = vec![0u8; rgba.len()];
     for (src_chunk, dst_chunk) in rgba.chunks_exact(4).zip(out.chunks_exact_mut(4)) {
@@ -464,15 +449,11 @@ fn post_process_category_rgba(rgba: &[u8]) -> Vec<u8> {
         let g = src_chunk[1] as f32 / 255.0;
         let b = src_chunk[2] as f32 / 255.0;
         let luminance = 0.299 * r + 0.587 * g + 0.114 * b;
-        let alpha = (1.0_f32 - luminance).powf(3.0).clamp(0.0, 1.0);
-        // Non-premultiplied white-on-transparent: egui's tint shader
-        // multiplies white * tint, so we keep RGB = 255 and only
-        // modulate alpha. This matches how `post_process_rgba`
-        // treats pre-baked icons.
+        let alpha = ((0.86 - luminance) / (0.86 - 0.42)).clamp(0.0, 1.0);
         dst_chunk[0] = 255;
         dst_chunk[1] = 255;
         dst_chunk[2] = 255;
-        dst_chunk[3] = (alpha * 255.0) as u8;
+        dst_chunk[3] = (alpha * 255.0).round() as u8;
     }
     out
 }

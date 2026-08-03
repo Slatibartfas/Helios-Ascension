@@ -1120,7 +1120,7 @@ fn render_kardashev_overlay(
                             // legacy `selectable_value` behavior).
                             ui.horizontal(|ui| {
                                 ui.spacing_mut().item_spacing.x = 4.0;
-                                render_resource_icon(ui, resource_icons, *resource, 12.0);
+                                render_resource_icon(ui, resource_icons, *resource, 16.0);
                                 if ui.selectable_label(is_selected, resource.display_name()).clicked()
                                     && !is_selected
                                 {
@@ -1299,13 +1299,12 @@ const CONTEXT_TILE_WIDTH: f32 = 88.0;
 const CONTEXT_TILE_HEIGHT: f32 = 28.0;
 const CONTEXT_NAME_FONT_SIZE: f32 = 11.5;
 
-/// Category-badge icon size in the top resource bar. 22 px reads
-/// as a proper badge next to the 13-pt total / 10-pt rate column
-/// (the previous 16 px value was so small that the icon shrunk to
-/// a dot in the screenshot, especially when the panel was 40 px
-/// tall — the new 48-px panel + 22-px icon is the smallest pair
-/// where the line art still reads cleanly at 1× DPI).
-const CATEGORY_TILE_ICON_SIZE: f32 = 22.0;
+/// Category-badge icon size in the top resource bar. 28 px fills
+/// the available vertical space inside the 48-px panel without
+/// growing the bar itself; the previous 22 px value left a
+/// noticeable empty band above and below the icon (especially
+/// against the 13-pt total + 10-pt rate column).
+const CATEGORY_TILE_ICON_SIZE: f32 = 28.0;
 
 fn render_context_name_marquee(ui: &mut egui::Ui, text: &str) {
     let font_id = egui::FontId::proportional(CONTEXT_NAME_FONT_SIZE);
@@ -2854,7 +2853,7 @@ pub(super) fn ui_resources_bar(
                             ui,
                             &ui_runtime.resource_icons,
                             cat_name.as_str(),
-                            22.0,
+                            30.0,
                         );
                         ui.add(
                             egui::Label::new(
@@ -3101,7 +3100,7 @@ pub(super) fn ui_resources_bar(
                     // bold resource name; the legacy 16-pt emoji
                     // glyph rendered at variable width depending on
                     // the emoji codepoint).
-                    render_resource_icon(ui, &ui_runtime.resource_icons, resource, 16.0);
+                    render_resource_icon(ui, &ui_runtime.resource_icons, resource, 24.0);
                     ui.add(
                         egui::Label::new(
                             egui::RichText::new(resource.display_name())
@@ -3289,7 +3288,7 @@ fn render_resource_hover_preview(
     // popup grid via `render_resource_name_row` (cyan-tinted to
     // match the menu icons). The forecast tooltip is now
     // visually consistent with the resource row it pops up from.
-    render_resource_name_row(ui, icons, resource, 12.0);
+    render_resource_name_row(ui, icons, resource, 13.0);
     ui.add_space(2.0);
     ui.label(
         egui::RichText::new("20-yr forecast")

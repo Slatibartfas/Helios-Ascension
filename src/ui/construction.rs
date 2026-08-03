@@ -4632,11 +4632,21 @@ fn spawn_card(
         commands.entity(stats_row).add_child(stat);
     }
 
-    // Hairline divider.
+    // Hairline divider (below the stats row). The chip strip and
+    // ETA row each add their own hairlines in their respective
+    // blocks below; this one is the top-of-body separator.
     let hairline = commands.spawn(HairlineBundle::default()).id();
     commands.entity(card).add_child(hairline);
 
-    // Effect bullets.
+    // Effect bullets. v0.5.2 PR-A.6 (2026-08-03): bullet text
+    // is rendered in `mono_font` (GeistMono) instead of
+    // `body_font` (Inter Regular) so the lines read as a
+    // continuation of the chip-strip font and the BP/COST
+    // stat row above. Previously the Inter Regular body font
+    // broke the visual rhythm — the bullets sat next to the
+    // chip strip in two different fonts and the card body read
+    // as two unrelated panels (per screenshot feedback
+    // 2026-08-03). The colour map is unchanged.
     for (tone, line) in &data.effects {
         let color = match tone {
             EffectTone::Positive => GREEN_FIN,
@@ -4649,7 +4659,7 @@ fn spawn_card(
             .spawn((
                 Text::new(line.clone()),
                 TextFont {
-                    font: body_font.clone(),
+                    font: mono_font.clone(),
                     font_size: CAPTION_SIZE,
                     ..default()
                 },
@@ -4844,6 +4854,15 @@ fn spawn_card(
         commands.entity(chip).add_child(label);
     }
 
+    // ETA hairline (v0.5.2 PR-A.6, 2026-08-03). Sits between the
+    // chip strip / cost section and the ETA row so the player can
+    // visually separate "what does this building cost?" from
+    // "how long until it's built?". Mirrors the hairline below
+    // the stats row so the card body reads as three labelled
+    // zones: [stats | build requirements | ETA].
+    let eta_hairline = commands.spawn(HairlineBundle::default()).id();
+    commands.entity(card).add_child(eta_hairline);
+
     // ETA row — derived from `BuildDefinition::build_points × multiplier`
     // divided by the static placeholder output (12 001 BP/yr; the full
     // live recompute is gated on the queue panel + active colony wiring
@@ -4855,6 +4874,13 @@ fn spawn_card(
     // `stat_a` carries the live inventory count (e.g. "×25"), not
     // BP, so the old parser would read 0 and the ETA would always
     // be "0s" on the Mining tab.
+    //
+    // v0.5.2 PR-A.6 (2026-08-03): the "ETA:" label now uses
+    // `mono_font` (was `body_font`) so the dim "ETA:" prefix and
+    // the yellow duration both render in GeistMono, matching the
+    // bullet text and chip-strip amounts above. The mixed Inter
+    // Regular + GeistMono pair read as a "two different fonts in
+    // one row" mismatch.
     let unit_bp = data.build_points;
     let batch_bp = unit_bp * data.multiplier.max(1) as f64;
     let eta_seconds = batch_bp / 12_001.0 * 365.25 * 24.0 * 3600.0;
@@ -4879,7 +4905,7 @@ fn spawn_card(
         .spawn((
             Text::new("ETA: "),
             TextFont {
-                font: body_font.clone(),
+                font: mono_font.clone(),
                 font_size: CAPTION_SIZE,
                 ..default()
             },
