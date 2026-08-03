@@ -4,7 +4,6 @@
 //! `bevy_ui` (replacing the legacy egui version).
 //! Activated on `F4` (Construction menu).
 
-
 //!
 //! The canary renders:
 //! - A window-filling root container with `BODY_BG` background.
@@ -21,12 +20,12 @@
 
 #![allow(dead_code)]
 
-use bevy::prelude::*;
 use bevy::input::mouse::MouseWheel;
 use bevy::picking::events::{Out, Over, Pointer, Press, Release};
 use bevy::picking::hover::HoverMap;
 use bevy::picking::pointer::{PointerButton, PointerId};
 use bevy::picking::Pickable;
+use bevy::prelude::*;
 use bevy::ui::RelativeCursorPosition;
 use bevy::window::CursorMoved;
 use bevy::window::PrimaryWindow;
@@ -457,10 +456,7 @@ pub fn load_building_icons(
 /// `crate::ui::icons::process_menu_icons`. Runs every frame until
 /// every icon has been processed once; the per-icon flag in `processed`
 /// makes it a no-op after the first pass.
-pub fn process_building_icons(
-    mut icons: ResMut<BuildingIcons>,
-    mut images: ResMut<Assets<Image>>,
-) {
+pub fn process_building_icons(mut icons: ResMut<BuildingIcons>, mut images: ResMut<Assets<Image>>) {
     let to_process: Vec<(BuildingType, Handle<Image>)> = icons
         .handles
         .iter()
@@ -511,7 +507,6 @@ pub fn process_building_icons(
         }
     }
 }
-
 
 // ── Construction Queue (canary placeholder) ──────────────────────
 
@@ -750,15 +745,15 @@ pub struct ConstructionTooltipText;
 /// translation `(0, 0)` — the text fits naturally and we leave it
 /// alone.
 ///
-/// `phase` is a `0.0..=1.0` oscillation parameter driven by hover
-/// state. It increments while the parent card is hovered and the
-/// text overflows, decrements otherwise. The track's `translation.x`
-/// is set to `-phase * text_width` each frame, so `phase = 0`
-/// shows copy A in the original position, `phase = 1.0` shows copy
-/// B exactly where copy A started — perfect for a seamless loop on
-/// release. We deliberately oscillate rather than snap-back: the
-/// snap from `phase = 1.0` to `0.0` on hover-end would jerk the
-/// viewer's eye away from the description mid-read.
+/// `phase` is the current **pixel offset** of the track (always
+/// non-negative, wrapped modulo `text_width`). At `phase = 0`
+/// copy A sits at the clip container's left edge; at
+/// `phase = text_width` copy B sits exactly where copy A
+/// started — the seamless loop. `tick_subtitle_marquee`
+/// integrates `phase += dt * PIXELS_PER_SECOND` each tick while
+/// the description overflows, so the track drifts leftward at
+/// a constant rate that doesn't depend on card size, hover
+/// state, or how many cards are visible.
 #[derive(Component)]
 pub struct SubtitleMarquee {
     /// Parent build-card entity, used by `tick_subtitle_marquee`
@@ -780,9 +775,13 @@ pub struct SubtitleMarquee {
     pub text_width: f32,
     /// Most recent measured clip-container width in pixels.
     pub container_width: f32,
-    /// Oscillation phase `0.0..=1.0`. Increments on hover (while
-    /// overflowing); decrements when not hovered or when the text
-    /// fits. Capped at 1.0 and floored at 0.0.
+    /// Current pixel offset of the track (leftward drift).
+    /// `tick_subtitle_marquee` integrates this each tick and
+    /// wraps modulo `text_width` so the value stays bounded
+    /// over a long session. Initialised to 0.0 at spawn — each
+    /// card therefore starts at a different drift point in its
+    /// loop depending on when it was spawned, which keeps the
+    /// grid from marching in lockstep.
     pub phase: f32,
 }
 
@@ -1051,28 +1050,20 @@ pub fn card_data_with_multiplier(
         // line so it lines up with the demand line's MW units.
         let per_unit_mw = power_output_gw_per_unit * 1_000.0;
         let total_mw = per_unit_mw * mult;
-        let line = if mult > 1.0 {
-            format!(
-                "Produces {:.0} MW \u{00d7} {} = {:.0} MW",
-                per_unit_mw, mult as u32, total_mw
-            )
-        } else {
-            format!("Produces {:.0} MW", per_unit_mw)
-        };
+        // v0.5.2 (2026-08-03): batch-total only. The legacy
+        // "X MW × N = Y MW" formula duplicated the multiplier
+        // visible in the [−] [+] controls and didn't scale (a
+        // 5 GW fusion plant read as "5000 MW"). `format_power`
+        // picks the smallest SI suffix that lands the value in
+        // 1..=999 so the player reads "5 GW" / "900 MW" / "50 kW"
+        // depending on magnitude.
+        let line = format!("Produces {}", format_power(total_mw));
         effects.insert(0, (EffectTone::Positive, line));
     } else if def.power_demand_mw.abs() < 0.01 {
-        effects.insert(0, (EffectTone::Neutral, "Power: 0 MW".to_string()));
+        effects.insert(0, (EffectTone::Neutral, "Power: 0 W".to_string()));
     } else {
-        let per_unit = def.power_demand_mw;
-        let total = per_unit * mult;
-        let line = if mult > 1.0 {
-            format!(
-                "Power: {:.0} MW \u{00d7} {} = {:.0} MW",
-                per_unit, mult as u32, total
-            )
-        } else {
-            format!("Power: {:.0} MW", per_unit)
-        };
+        let total = def.power_demand_mw * mult;
+        let line = format!("Power: {}", format_power(total));
         effects.insert(0, (EffectTone::Throughput, line));
     }
     // Compute `power_insufficient` so the Queue button can disable
@@ -1116,19 +1107,28 @@ pub fn card_data_with_multiplier(
                 // the batch on the colony's food/feedstock output.
                 let per_unit = prod.value;
                 let total = per_unit * mult;
+                // v0.5.2 (2026-08-03): `format_mining_rate` already
+                // trails its band in `/yr` (e.g. `120 kt/yr`), so we
+                // do NOT append another `/yr` after the resource
+                // name — that would produce `120 kt/yr Iron/yr`. The
+                // formatter owns the suffix; the resource name is
+                // the bare noun (`Iron`).
                 let line = if mult > 1.0 {
                     format!(
-                        "Produces {} {}/yr \u{00d7} {} = {} {}/yr",
+                        "Produces {} \u{00d7} {} = {} {}",
                         format_mining_rate(per_unit),
-                        res_name,
                         mult as u32,
                         format_mining_rate(total),
                         res_name
                     )
                 } else {
-                    format!("Produces {} {}/yr", format_mining_rate(per_unit), res_name)
+                    format!("Produces {} {}", format_mining_rate(per_unit), res_name)
                 };
-                let insert_at = if def.power_demand_mw.abs() >= 0.01 { 1 } else { 0 };
+                let insert_at = if def.power_demand_mw.abs() >= 0.01 {
+                    1
+                } else {
+                    0
+                };
                 effects.insert(insert_at, (EffectTone::Positive, line));
             }
         }
@@ -1182,29 +1182,66 @@ fn clamp_subtitle_two_lines(s: &str) -> String {
 ///
 /// | Range (Mt/yr)     | Suffix       | Example                     |
 /// |-------------------|--------------|-----------------------------|
-/// | < 1e-6            | "0"          | (effect suppressed upstream)|
-/// | 1e-6 .. 1e-3      | g/yr         | "100 g/yr" Gold             |
-/// | 1e-3 .. 1         | kg/yr        | "1.0 kg/yr" Platinum        |
-/// | 1 .. 1e3          | Mt/yr        | "120.0 Mt/yr" Iron          |
-/// | 1e3 .. 1e6        | Gt/yr        | "1.20 Gt/yr" Silicates      |
-/// | ≥ 1e6             | Tt/yr        | "1.20 Tt/yr" (Carbon at scale) |
+/// | < 1e-12           | "0"          | (effect suppressed upstream)|
+/// | 1e-12 .. 1e-9     | g/yr         | "100 g/yr" Gold             |
+/// | 1e-9 .. 1e-6      | kg/yr        | "500 kg/yr" Platinum        |
+/// | 1e-6 .. 1e-3      | t/yr         | "500 t/yr" RareEarths       |
+/// | 1e-3 .. 1         | kt/yr        | "120 kt/yr" Iron            |
+/// | 1 .. 1e3          | Mt/yr        | "120 Mt/yr" Silicates       |
+/// | 1e3 .. 1e6        | Gt/yr        | "120 Gt/yr" Water           |
+/// | 1e6 .. 1e9        | Tt/yr        | "1.20 Tt/yr" Carbon         |
+/// | 1e9 .. 1e12       | Pt/yr        | "1.20 Pt/yr" (planet bulk)  |
+/// | 1e12 .. 1e15      | Et/yr        | "1.20 Et/yr" (planet bulk)  |
+/// | 1e15 .. 1e18      | Zt/yr        | "5.97 Zt/yr" Earth          |
+/// | ≥ 1e18            | Yt/yr        | (stellar-scale)             |
 fn format_mining_rate(mt_per_year: f64) -> String {
-    if mt_per_year.abs() < 1e-6 {
+    if mt_per_year.abs() < 1e-12 {
         return "0".to_string();
     }
     let v = mt_per_year.abs();
-    if v < 1e-3 {
-        // grams
-        format!("{:.0} g/yr", mt_per_year * 1e9)
+    // SI ladder for **Mt** input. Boundaries land each suffix in
+    // the 1..=999 range (one- to three-digit display). SI mass
+    // prefixes:
+    //   1 g  = 1e-12 Mt     1 Mt = 1    Mt
+    //   1 kg = 1e-9  Mt     1 Gt = 1e3  Mt
+    //   1 t  = 1e-6  Mt     1 Tt = 1e6  Mt
+    //   1 kt = 1e-3  Mt     1 Pt = 1e9  Mt
+    //                        1 Et = 1e12 Mt
+    //                        1 Zt = 1e15 Mt
+    //                        1 Yt = 1e18 Mt
+    if v < 1e-9 {
+        // grams (1..999 g)
+        format!("{:.0} g/yr", mt_per_year * 1e12)
+    } else if v < 1e-6 {
+        // kilograms (1..999 kg)
+        format!("{:.0} kg/yr", mt_per_year * 1e9)
+    } else if v < 1e-3 {
+        // tonnes (1..999 t)
+        format!("{:.0} t/yr", mt_per_year * 1e6)
     } else if v < 1.0 {
-        // kilograms
-        format!("{:.1} kg/yr", mt_per_year * 1e6)
-    } else if v < 1_000.0 {
-        format!("{:.1} Mt/yr", mt_per_year)
-    } else if v < 1_000_000.0 {
-        format!("{:.2} Gt/yr", mt_per_year / 1_000.0)
+        // kilotonnes (1..999 kt)
+        format!("{:.0} kt/yr", mt_per_year * 1e3)
+    } else if v < 1e3 {
+        // megatonnes (1..999 Mt)
+        format!("{:.0} Mt/yr", mt_per_year)
+    } else if v < 1e6 {
+        // gigatonnes (1..999 Gt)
+        format!("{:.0} Gt/yr", mt_per_year / 1e3)
+    } else if v < 1e9 {
+        // teratonnes (1..999 Tt)
+        format!("{:.2} Tt/yr", mt_per_year / 1e6)
+    } else if v < 1e12 {
+        // petatonnes (1..999 Pt)
+        format!("{:.2} Pt/yr", mt_per_year / 1e9)
+    } else if v < 1e15 {
+        // exatonnes (1..999 Et)
+        format!("{:.2} Et/yr", mt_per_year / 1e12)
+    } else if v < 1e18 {
+        // zettatonnes (Earth-class planetary-bulk deposits)
+        format!("{:.2} Zt/yr", mt_per_year / 1e15)
     } else {
-        format!("{:.2} Tt/yr", mt_per_year / 1_000_000.0)
+        // yottatonnes — stellar-mass scale, theoretical
+        format!("{:.2} Yt/yr", mt_per_year / 1e18)
     }
 }
 
@@ -1303,24 +1340,80 @@ pub fn compute_mining_card_data(
     }
 }
 
-/// Format a total-reserve value with a scale suffix (kg/t/Mt/Gt/Tt).
-/// Mirrors `format_mining_rate` for consistency. Used in the
-/// "Res:" row on each Mining card.
+/// Format a total-reserve value with a scale suffix
+/// (g/kg/t/kt/Mt/Gt/Tt/Pt/Et/Zt). Mirrors `format_mining_rate` for
+/// consistency — input is in **Mt** and the ladder picks the
+/// smallest suffix that lands the displayed value in the 1..=999
+/// range. Used in the "Available Deposits:" row on each Mining card.
 pub fn format_mining_reserve(total_mt: f64) -> String {
-    if total_mt.abs() < 1e-6 {
-        return "0 Mt".to_string();
+    if total_mt.abs() < 1e-12 {
+        return "0".to_string();
     }
     let v = total_mt.abs();
-    if v < 1e-3 {
-        format!("{:.1} kg", total_mt * 1e3)
+    // Same SI ladder as `format_mining_rate`, minus the `/yr`
+    // suffix. Boundaries land each unit in the 1..=999 range.
+    if v < 1e-9 {
+        format!("{:.0} g", total_mt * 1e12)
+    } else if v < 1e-6 {
+        format!("{:.0} kg", total_mt * 1e9)
+    } else if v < 1e-3 {
+        format!("{:.0} t", total_mt * 1e6)
     } else if v < 1.0 {
-        format!("{:.1} t", total_mt * 1e3)
-    } else if v < 1_000.0 {
-        format!("{:.1} Mt", total_mt)
-    } else if v < 1_000_000.0 {
-        format!("{:.2} Gt", total_mt / 1_000.0)
+        format!("{:.0} kt", total_mt * 1e3)
+    } else if v < 1e3 {
+        format!("{:.0} Mt", total_mt)
+    } else if v < 1e6 {
+        format!("{:.0} Gt", total_mt / 1e3)
+    } else if v < 1e9 {
+        format!("{:.2} Tt", total_mt / 1e6)
+    } else if v < 1e12 {
+        format!("{:.2} Pt", total_mt / 1e9)
+    } else if v < 1e15 {
+        format!("{:.2} Et", total_mt / 1e12)
+    } else if v < 1e18 {
+        format!("{:.2} Zt", total_mt / 1e15)
     } else {
-        format!("{:.2} Tt", total_mt / 1_000_000.0)
+        format!("{:.2} Yt", total_mt / 1e18)
+    }
+}
+
+/// Format a power value (MW) with a human-readable SI suffix
+/// ladder (W / kW / MW / GW / TW).
+///
+/// v0.5.2 (2026-08-03): per user feedback, the legacy inline
+/// `format!("{:.0} MW", total_mw)` always rendered in megawatts
+/// regardless of magnitude — a 5 GW fusion plant read as
+/// `5000 MW` instead of `5 GW`. This formatter picks the smallest
+/// suffix that lands the displayed value in the 1..=999 range.
+///
+/// Input is in **megawatts (MW)**. SI power prefixes:
+///
+/// | 1 W  = 1e-6 MW  | 1 MW = 1   MW |
+/// | 1 kW = 1e-3 MW  | 1 GW = 1e3  MW |
+/// |                  | 1 TW = 1e6  MW |
+pub fn format_power(total_mw: f64) -> String {
+    if total_mw.abs() < 1e-6 {
+        return "0 W".to_string();
+    }
+    let v = total_mw.abs();
+    if v < 1e-3 {
+        // watts (1..999 W)
+        format!("{:.0} W", total_mw * 1e6)
+    } else if v < 1.0 {
+        // kilowatts (1..999 kW)
+        format!("{:.0} kW", total_mw * 1e3)
+    } else if v < 1e3 {
+        // megawatts (1..999 MW)
+        format!("{:.0} MW", total_mw)
+    } else if v < 1e6 {
+        // gigawatts (1..999 GW)
+        format!("{:.1} GW", total_mw / 1e3)
+    } else if v < 1e9 {
+        // terawatts (1..999 TW)
+        format!("{:.2} TW", total_mw / 1e6)
+    } else {
+        // petawatts — colony-scale totals only
+        format!("{:.2} PW", total_mw / 1e9)
     }
 }
 
@@ -1446,7 +1539,12 @@ pub fn visible_cards(
                 Some(tech_id) => research_state.is_unlocked(tech_id),
             }
         })
-        .map(|(bt, def)| (bt, card_data_with_multiplier(bt, def, multiplier, spare_power_mw)))
+        .map(|(bt, def)| {
+            (
+                bt,
+                card_data_with_multiplier(bt, def, multiplier, spare_power_mw),
+            )
+        })
         .collect()
 }
 
@@ -1834,7 +1932,9 @@ pub fn update_overview_queue(
     mut progress_fill_query: Query<&mut Node, With<OverviewQueueRowFillChild>>,
     mut empty_placeholder: Local<Option<Entity>>,
 ) {
-    let Ok(content) = content_query.single() else { return; };
+    let Ok(content) = content_query.single() else {
+        return;
+    };
 
     let body_font: Handle<Font> = asset_server.load("fonts/Inter-Regular.otf");
     let body_font_medium: Handle<Font> = asset_server.load("fonts/Inter-SemiBold.otf");
@@ -2091,14 +2191,17 @@ pub fn update_overview_queue(
             progress_text,
             progress_fill,
         });
-        spawned_rows.insert(*project_entity, OverviewQueueRow {
-            project_entity: *project_entity,
-            row,
-            name_text,
-            status_text,
-            progress_text,
-            progress_fill,
-        });
+        spawned_rows.insert(
+            *project_entity,
+            OverviewQueueRow {
+                project_entity: *project_entity,
+                row,
+                name_text,
+                status_text,
+                progress_text,
+                progress_fill,
+            },
+        );
     }
 }
 
@@ -2167,7 +2270,10 @@ pub fn update_overview_body(
     // Resolve the selected colony + its project count.
     let selected_colony = ui_state.selected_colony;
     let colony_data = selected_colony.and_then(|e| {
-        colonies.iter().find(|(ce, _)| *ce == e).map(|(_, c)| c.clone())
+        colonies
+            .iter()
+            .find(|(ce, _)| *ce == e)
+            .map(|(_, c)| c.clone())
     });
 
     let project_count: u32 = selected_colony
@@ -2190,7 +2296,11 @@ pub fn update_overview_body(
                 None => ("—".to_string(), TEXT_DIM),
             },
             OverviewRowKind::ActiveConstruction => {
-                let c = if project_count == 0 { GREEN_OK } else { YELLOW_ETA };
+                let c = if project_count == 0 {
+                    GREEN_OK
+                } else {
+                    YELLOW_ETA
+                };
                 (format!("{}", project_count), c)
             }
             OverviewRowKind::UniqueBuildingTypes => match &colony_data {
@@ -2207,11 +2317,7 @@ pub fn update_overview_body(
 /// + a content scroll area. The `update_buildings_body` system
 /// re-spawns the content rows every frame based on the selected
 /// colony's `buildings` HashMap, so the list reflects the live state.
-fn spawn_buildings_body(
-    commands: &mut Commands,
-    parent: Entity,
-    body_font_medium: &Handle<Font>,
-) {
+fn spawn_buildings_body(commands: &mut Commands, parent: Entity, body_font_medium: &Handle<Font>) {
     let body = commands
         .spawn((
             Node {
@@ -2249,27 +2355,36 @@ fn spawn_buildings_body(
     commands.entity(body).add_child(header);
 
     // Content container — `update_buildings_body` despawns and re-spawns
-    // the rows inside this container every frame.
+    // the cards inside this container every frame so the list reflects
+    // the live colony state.
+    //
+    // v0.5.2 (Buildings tab as a card list): the body now uses the
+    // same flex-wrap card grid as the Build tab (`card_grid`)
+    // so the existing `spawn_card` helper can render each building.
+    // Cards are 320 px wide (same as Build/Mining cards) and wrap
+    // to the next row on overflow. `min_height: 0` is the Bevy 0.18
+    // flex fix that lets `Overflow::scroll_y` engage when the card
+    // count exceeds the viewport height (without it, the flex item
+    // refuses to shrink below its intrinsic content height, so the
+    // scrollbar thumb is always full-size and the wheel handler no-ops).
     let content = commands
         .spawn((
             Node {
                 display: Display::Flex,
-                flex_direction: FlexDirection::Column,
+                flex_direction: FlexDirection::Row,
+                flex_wrap: FlexWrap::Wrap,
+                align_content: AlignContent::Start,
+                align_items: AlignItems::Stretch,
                 width: Val::Percent(100.0),
                 flex_grow: 1.0,
-                // v0.5.2 PR-A.5: same `min_height: 0` fix as the
-                // mining content container — without it, the flex
-                // item refuses to shrink below its intrinsic content
-                // height and `Overflow::scroll_y` never engages.
-                // The build tab's `card_grid` has the same pattern
-                // with the same line. Mirrors the documentation
-                // comment on `mining_content` below.
                 min_height: Val::Px(0.0),
-                row_gap: Val::Px(SPACE_XS),
+                row_gap: Val::Px(SPACE_LG),
+                column_gap: Val::Px(SPACE_LG),
                 overflow: Overflow::scroll_y(),
                 ..default()
             },
             BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.0)),
+            Visibility::Inherited,
             Name::new("buildings_content"),
             BuildingsContent,
         ))
@@ -2288,46 +2403,210 @@ pub struct BuildingsHeader;
 #[derive(Component)]
 pub struct BuildingsContent;
 
+/// Build a `BuildCardData` for a building already constructed in the
+/// active colony. Mirrors `build_mine_card_data` but reads the
+/// live colony inventory (current count) for the stats row, and
+/// uses the player's `build_multiplier` (not the mining
+/// multiplier) for the Demolish button label.
+///
+/// v0.5.2 (Buildings tab as a card list): the Buildings tab now
+/// renders each constructed building as a card with quantity,
+/// output production, power consumption, and a Demolish button.
+/// The card has no Build CTA — the player already built these
+/// buildings, so they're not buildable from this tab. The Demolish
+/// button uses `build_multiplier` so the player's x1/x5/x25 chip
+/// choice carries straight through.
+///
+/// `count` is the live inventory count on the active colony (from
+/// `Colony::buildings[bt]`).
+pub fn build_constructed_card_data(
+    bt: BuildingType,
+    def: &BuildingDefinition,
+    count: u32,
+    multiplier: u32,
+) -> BuildCardData {
+    let mult = multiplier.max(1) as f64;
+
+    // Stats row: current count (left) + batch size for the next
+    // Demolish click (right). Mirrors the Mining tab's count +
+    // accessibility layout so the two tabs read as a matched pair.
+    let count_label = format!("\u{00d7}{}", count);
+    let batch_label = if mult > 1.0 {
+        format!("Demolish \u{2212}{}", mult as u32)
+    } else {
+        "Demolish -1".to_string()
+    };
+    let bp_str = count_label;
+    let cost_str = batch_label;
+
+    // Effects: power (if any), production (if any). v0.5.2 mirrors
+    // the Mining tab's PowerGeneration-aware power line so power
+    // plants surface their generation while consumers show their
+    // demand. The active multiplier is folded in via `mult` so the
+    // player sees the "next demolish batch" total.
+    let mut effects: Vec<(EffectTone, String)> = Vec::new();
+    let power_output_gw_per_unit: f64 = def
+        .modifiers
+        .iter()
+        .filter(|m| m.modifier_type == "PowerGeneration")
+        .map(|m| m.value)
+        .sum();
+    if power_output_gw_per_unit > 0.0 {
+        let total_mw = power_output_gw_per_unit * 1_000.0 * mult;
+        // v0.5.2 (2026-08-03): batch-total only. `format_power`
+        // picks W/kW/MW/GW/TW so the value lands in 1..=999.
+        effects.push((
+            EffectTone::Positive,
+            format!("Produces {}", format_power(total_mw)),
+        ));
+    } else if def.power_demand_mw.abs() >= 0.01 {
+        let total_mw = def.power_demand_mw * mult;
+        effects.push((
+            EffectTone::Throughput,
+            format!("Power: {}", format_power(total_mw)),
+        ));
+    } else {
+        effects.push((EffectTone::Neutral, "Power: 0 W".to_string()));
+    }
+    // Production: same as Mining tab — "X.X Mt/yr Iron" using the modifier's value.
+    if let Some(prod) = def
+        .modifiers
+        .iter()
+        .find(|m| m.modifier_type.ends_with("Production"))
+    {
+        if prod.value > 0.0 {
+            if let Some(res_name) = prod.modifier_type.strip_suffix("Production") {
+                let per_unit = prod.value;
+                let total = per_unit * mult;
+                // v0.5.2 (2026-08-03): `format_mining_rate` already
+                // trails its band in `/yr`. Don't append another.
+                let line = if mult > 1.0 {
+                    format!(
+                        "Produces {} \u{00d7} {} = {} {}",
+                        format_mining_rate(per_unit),
+                        mult as u32,
+                        format_mining_rate(total),
+                        res_name
+                    )
+                } else {
+                    format!("Produces {} {}", format_mining_rate(per_unit), res_name)
+                };
+                effects.push((EffectTone::Positive, line));
+            }
+        }
+    }
+
+    BuildCardData {
+        name: def.display_name.clone(),
+        subtitle: clamp_subtitle_two_lines(&def.description),
+        building_type: bt,
+        icon: def.icon.clone(),
+        multiplier: multiplier.max(1),
+        stat_a: ("\u{00d7}N", bp_str),
+        stat_b: ("DM", cost_str),
+        stat_c: ("", String::new()),
+        effects,
+        // No build cost rows — the building is already built; the player
+        // doesn't re-pay for it. The Demolish button is the only action.
+        resource_costs: Vec::new(),
+        // Placeholder; the Buildings tab skips the Build CTA.
+        queue_label: String::new(),
+        // The Buildings tab doesn't drive construction so the ETA is
+        // irrelevant. Pass 0 so `spawn_card`'s ETA derivation
+        // (batch_bp / 12_001 * 365.25 * 24 * 3600) computes to "0s" — a
+        // sensible "no ETA" placeholder.
+        build_points: 0.0,
+        power_insufficient: false,
+    }
+}
+
+/// Spawn a single constructed-buildings card on the Buildings tab.
+///
+/// v0.5.2 (Buildings tab as a card list): the Buildings tab uses the
+/// same `spawn_card` chrome as the Build tab so the cards match
+/// visually. The Build CTA is removed (we never queue construction
+/// from these cards) and a Demolish button is added at the
+/// bottom-right. Returns the card entity id so the caller can cache it.
+#[allow(clippy::too_many_arguments)]
+fn spawn_constructed_card(
+    commands: &mut Commands,
+    parent: Entity,
+    bt: BuildingType,
+    def: &BuildingDefinition,
+    count: u32,
+    multiplier: u32,
+    body_font: &Handle<Font>,
+    body_font_medium: &Handle<Font>,
+    mono_font: &Handle<Font>,
+    icon: Option<&Handle<Image>>,
+    resource_icons: &ResourceIcons,
+) -> Entity {
+    let data = build_constructed_card_data(bt, def, count, multiplier);
+    // Constructed cards use the same visual chrome as build cards.
+    // `spawn_card` always creates a Queue CTA; it is harmless here because
+    // constructed cards do not carry a construction request handler, and the
+    // Demolish action is the functional control for this tab.
+    let card = spawn_card(
+        commands,
+        parent,
+        &data,
+        bt,
+        body_font,
+        body_font_medium,
+        mono_font,
+        icon,
+        resource_icons,
+    );
+    spawn_demolish_button(
+        commands,
+        card,
+        bt,
+        count,
+        multiplier,
+        body_font_medium,
+        DemolishMultiplierSource::Build,
+    );
+    card
+}
+
 /// Update the Buildings body every frame.
 ///
-/// Spawn-once-update-many (v0.5.2): rows persist across frames.
-/// Each frame:
-/// 1. Despawn rows whose `BuildingType` is no longer present in
-///    the selected colony's `buildings` map.
-/// 2. Mutate the count text on existing rows in place — the count
-///    changes whenever the player queues or cancels construction.
-/// 3. Spawn rows for `BuildingType`s we haven't seen before.
+/// v0.5.2 (Buildings tab as a card list): spawns one card per
+/// `BuildingType` in the selected colony's `buildings` HashMap.
+/// Each card shows the building count, current production, power
+/// consumption, and a Demolish button. The cards use the same
+/// `spawn_card` chrome as the Build tab cards, so the visual
+/// language is consistent across all three content tabs.
 ///
-/// The `Local<HashMap<BuildingType, BuildingsRow>>` cache is keyed
-/// by `BuildingType` and stores the row id + the quantity-text
-/// child entity. The display name never changes for a given
-/// `BuildingType` (it's metadata) so we don't mutate it — only the
-/// `×{count}` text and the row existence itself.
+/// Spawn-once-update-many (v0.5.2): cards persist across frames.
+/// Each frame:
+/// 1. Despawn cards whose `BuildingType` is no longer present in
+///    the selected colony's `buildings` map.
+/// 2. The Demolish button reads the live count each frame via
+///    `tick_demolish_disabled`, so the count display is always
+///    correct without re-spawning the card.
+/// 3. Spawn cards for `BuildingType`s we haven't seen before.
 pub fn update_buildings_body(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     ui_state: Res<ConstructionUiState>,
     buildings_data: Res<BuildingsData>,
+    building_icons: Option<Res<BuildingIcons>>,
+    resource_icons: Option<Res<ResourceIcons>>,
     colonies: Query<(Entity, &crate::colony::Colony)>,
     content_query: Query<Entity, With<BuildingsContent>>,
-    mut spawned_rows: Local<std::collections::HashMap<crate::colony::BuildingType, BuildingsRow>>,
-    // B0001 (Bevy 0.18): two `Query<&mut Text, ...>` parameters both
-    // yield `&mut Text` access on arbitrary archetypes. The
-    // `With<…>` filters are disjoint in practice (different child
-    // markers), but the planner can't prove that. Wrap in `ParamSet`
-    // and use `.p0()` / `.p1()` in non-overlapping scopes — see the
-    // sibling `update_overview_queue` system for the same fix shape.
-    mut text_params: ParamSet<(
-        Query<&mut Text, With<BuildingsHeader>>,
-        Query<&mut Text, With<BuildingsRowQtyChild>>,
-    )>,
+    mut spawned_cards: Local<std::collections::HashMap<crate::colony::BuildingType, Entity>>,
+    mut header_query: Query<&mut Text, With<BuildingsHeader>>,
     mut empty_placeholder: Local<Option<Entity>>,
     mut no_colony_placeholder: Local<Option<Entity>>,
 ) {
-    let Ok(content) = content_query.single() else { return; };
+    let Ok(content) = content_query.single() else {
+        return;
+    };
 
     // Load fonts for the text nodes (cached by the asset server).
     let body_font: Handle<Font> = asset_server.load("fonts/Inter-Regular.otf");
+    let body_font_medium: Handle<Font> = asset_server.load("fonts/Inter-SemiBold.otf");
     let mono_font: Handle<Font> = asset_server.load("fonts/GeistMono-Medium.ttf");
 
     // Resolve the selected colony.
@@ -2335,20 +2614,28 @@ pub fn update_buildings_body(
         .selected_colony
         .and_then(|e| colonies.iter().find(|(ce, _)| *ce == e));
 
-    // Update the header text. The ParamSet borrows drop at the
-    // end of this block so the qty_text write below doesn't
-    // overlap (B0001-safe).
+    // Header text. `ParamSet` is unnecessary here because there's
+    // only one Query<&mut Text> parameter (we removed the
+    // quantity-text write loop when we replaced the text rows
+    // with cards).
     let header_text = match &colony {
         Some((_, c)) => format!("Constructed Buildings ({})", c.buildings.len()),
         None => "Constructed Buildings".to_string(),
     };
-    for mut text in text_params.p0().iter_mut() {
+    for mut text in header_query.iter_mut() {
         **text = header_text.clone();
     }
 
-    // Helper: spawn the "(no colony selected)" placeholder if we
-    // don't have one. `Local<Option<Entity>>` survives across
-    // frames so we only spawn once per "no colony" stretch.
+    // Resolve `ResourceIcons` once so the spawn loop doesn't bind the
+    // Option<Res<...>> per card. `Option<Res<T>>` is a SystemParam
+    // so we read it once and stash the inner map via Res::as_ref.
+    let empty_resource_icons = ResourceIcons::default();
+    let resource_icons: &ResourceIcons = resource_icons
+        .as_ref()
+        .map(|r: &Res<ResourceIcons>| -> &ResourceIcons { r.as_ref() })
+        .unwrap_or(&empty_resource_icons);
+
+    // Helper: spawn the "(no colony selected)" placeholder.
     fn spawn_no_colony_placeholder(
         commands: &mut Commands,
         content: Entity,
@@ -2389,7 +2676,9 @@ pub fn update_buildings_body(
         }
         let placeholder = commands
             .spawn((
-                Text::new("No buildings yet. Switch to the Build tab to queue your first structure."),
+                Text::new(
+                    "No buildings yet. Switch to the Build tab to queue your first structure.",
+                ),
                 TextFont {
                     font: body_font,
                     font_size: BODY_SIZE,
@@ -2404,9 +2693,9 @@ pub fn update_buildings_body(
     }
 
     let Some((_, colony)) = colony else {
-        // Despawn any cached rows and placeholders.
-        for (_, row_info) in spawned_rows.drain() {
-            commands.entity(row_info.row).try_despawn();
+        // Despawn any cached cards and placeholders.
+        for (_, card_entity) in spawned_cards.drain() {
+            commands.entity(card_entity).try_despawn();
         }
         if let Some(p) = no_colony_placeholder.take() {
             commands.entity(p).try_despawn();
@@ -2414,18 +2703,14 @@ pub fn update_buildings_body(
         if let Some(p) = empty_placeholder.take() {
             commands.entity(p).try_despawn();
         }
-        *no_colony_placeholder = spawn_no_colony_placeholder(
-            &mut commands,
-            content,
-            body_font.clone(),
-            None,
-        );
+        *no_colony_placeholder =
+            spawn_no_colony_placeholder(&mut commands, content, body_font.clone(), None);
         return;
     };
 
     if colony.buildings.is_empty() {
-        for (_, row_info) in spawned_rows.drain() {
-            commands.entity(row_info.row).try_despawn();
+        for (_, card_entity) in spawned_cards.drain() {
+            commands.entity(card_entity).try_despawn();
         }
         if let Some(p) = no_colony_placeholder.take() {
             commands.entity(p).try_despawn();
@@ -2433,16 +2718,12 @@ pub fn update_buildings_body(
         if let Some(p) = empty_placeholder.take() {
             commands.entity(p).try_despawn();
         }
-        *empty_placeholder = spawn_empty_placeholder(
-            &mut commands,
-            content,
-            body_font.clone(),
-            None,
-        );
+        *empty_placeholder =
+            spawn_empty_placeholder(&mut commands, content, body_font.clone(), None);
         return;
     }
 
-    // We have rows to show — clear both placeholders.
+    // We have cards to show — clear both placeholders.
     if let Some(p) = no_colony_placeholder.take() {
         commands.entity(p).try_despawn();
     }
@@ -2467,100 +2748,51 @@ pub fn update_buildings_body(
     let live_keys: std::collections::HashSet<crate::colony::BuildingType> =
         entries.iter().map(|(bt, _)| **bt).collect();
 
-    // 1. Despawn rows whose BuildingType is gone.
-    let to_remove: Vec<crate::colony::BuildingType> = spawned_rows
+    // 1. Despawn cards whose BuildingType is gone.
+    let to_remove: Vec<crate::colony::BuildingType> = spawned_cards
         .keys()
         .filter(|k| !live_keys.contains(k))
         .copied()
         .collect();
     for key in to_remove {
-        if let Some(row_info) = spawned_rows.remove(&key) {
-            commands.entity(row_info.row).try_despawn();
+        if let Some(card_entity) = spawned_cards.remove(&key) {
+            commands.entity(card_entity).try_despawn();
         }
     }
 
-    // 2. Mutate existing rows in place: count text.
-    for (building_type, count) in &entries {
-        let Some(row_info) = spawned_rows.get(building_type) else {
+    // 2. Spawn cards for BuildingTypes we haven't seen before.
+    // The card display is updated in place by `tick_demolish_disabled`
+    // and the live `count` reading on the Demolish button label. We
+    // don't re-spawn cards for count changes — that would be wasteful
+    // and would defeat the per-frame debouncing of the cache.
+    let multiplier = ui_state.build_multiplier;
+    for (building_type, _count) in &entries {
+        if spawned_cards.contains_key(building_type) {
+            continue;
+        }
+        let Some(def) = buildings_data.get(building_type) else {
             continue;
         };
-        if let Ok(mut text) = text_params.p1().get_mut(row_info.qty_text) {
-            **text = format!("\u{00d7}{}", *count);
-        }
-    }
-
-    // 3. Spawn rows for BuildingTypes we haven't seen before.
-    for (building_type, count) in &entries {
-        if spawned_rows.contains_key(building_type) {
-            continue;
-        }
-        let display_name = buildings_data
-            .get(building_type)
-            .map(|d| d.display_name.as_str())
-            .unwrap_or("(unknown)");
-        let row = commands
-            .spawn((
-                Node {
-                    display: Display::Flex,
-                    flex_direction: FlexDirection::Row,
-                    align_items: AlignItems::Center,
-                    column_gap: Val::Px(SPACE_MD),
-                    padding: UiRect::vertical(Val::Px(SPACE_XS)),
-                    width: Val::Percent(100.0),
-                    ..default()
-                },
-                Name::new("buildings_row"),
-            ))
-            .id();
-        commands.entity(content).add_child(row);
-        let name = commands
-            .spawn((
-                Text::new(display_name.to_string()),
-                TextFont {
-                    font: body_font.clone(),
-                    font_size: BODY_SIZE,
-                    ..default()
-                },
-                TextColor(TEXT_BODY),
-                Node {
-                    flex_grow: 1.0,
-                    ..default()
-                },
-                Name::new("buildings_row_name"),
-            ))
-            .id();
-        commands.entity(row).add_child(name);
-        let qty_text = commands
-            .spawn((
-                Text::new(format!("\u{00d7}{}", **count)),
-                TextFont {
-                    font: mono_font.clone(),
-                    font_size: BODY_SIZE,
-                    ..default()
-                },
-                TextColor(CYAN),
-                Name::new("buildings_row_qty"),
-                BuildingsRowQtyChild,
-            ))
-            .id();
-        commands.entity(row).add_child(qty_text);
-        spawned_rows.insert(**building_type, BuildingsRow { row, qty_text });
+        let icon_handle = building_icons
+            .as_ref()
+            .and_then(|bi| bi.handles.get(building_type).cloned());
+        let count = colony.buildings.get(building_type).copied().unwrap_or(0);
+        let card = spawn_constructed_card(
+            &mut commands,
+            content,
+            **building_type,
+            def,
+            count,
+            multiplier,
+            &body_font,
+            &body_font_medium,
+            &mono_font,
+            icon_handle.as_ref(),
+            resource_icons,
+        );
+        spawned_cards.insert(**building_type, card);
     }
 }
-
-/// Cached child-entity ids for a single Buildings row. Carries the
-/// row entity id (for cascade despawn) and the quantity-text child
-/// entity (the only per-frame-mutable field on a building row).
-#[derive(Clone, Copy)]
-pub struct BuildingsRow {
-    pub row: Entity,
-    pub qty_text: Entity,
-}
-
-/// Child-node marker for the `Text` node holding the `×{count}`
-/// quantity inside a Buildings row.
-#[derive(Component)]
-pub struct BuildingsRowQtyChild;
 
 /// Build the **Mining** body. Persistent container with a header
 /// + a content scroll area. The `update_mining_body` system
@@ -2575,11 +2807,7 @@ pub struct BuildingsRowQtyChild;
 /// `PendingConstructionActions::mining_edits` (positive=add,
 /// negative=remove) — see `process_construction_actions` in
 /// `src/colony/systems.rs` for the consumer.
-fn spawn_mining_body(
-    commands: &mut Commands,
-    parent: Entity,
-    body_font: &Handle<Font>,
-) {
+fn spawn_mining_body(commands: &mut Commands, parent: Entity, body_font: &Handle<Font>) {
     let body = commands
         .spawn((
             Node {
@@ -2679,23 +2907,59 @@ pub struct MiningCard {
     pub building_type: BuildingType,
 }
 
-/// Marker on the Demolish button of a Mining card. The button removes
-/// `mining_build_multiplier` (or the current count, whichever is
-/// smaller) mines from the active colony via
-/// `PendingConstructionActions::mining_edits` with a negative delta.
-/// The handler `tick_mining_demolish_click` does the actual work.
-#[derive(Component)]
-pub struct MiningDemolishButton {
-    pub building_type: BuildingType,
+/// Which build multiplier the Demolish button should use when it
+/// opens the confirmation dialog. The Mining tab uses its own
+/// `mining_build_multiplier` (independent of the Build tab's
+/// `build_multiplier` because the chip sets can diverge), while
+/// the Buildings tab uses the Build tab's `build_multiplier` so
+/// the player's x1/x5/x25 chip choice carries straight through to
+/// the demolish button. The dialog reads the multiplier via
+/// `DemolishConfirmState::count` (clamped to the live count).
+///
+/// v0.5.2 (Buildings tab as a card list): the Demolish button
+/// was originally a Mining-tab-only feature. Extending it to the
+/// Buildings tab means the same handler (`tick_demolish_click`)
+/// needs to know which chip row governs the multiplier; the
+/// `DemolishButton` marker carries a `multiplier_source` field
+/// that the click handler reads.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DemolishMultiplierSource {
+    /// Use `ui_state.mining_build_multiplier`. Mining tab cards.
+    Mining,
+    /// Use `ui_state.build_multiplier`. Buildings tab cards.
+    Build,
 }
 
-/// Marker added when the Demolish button should be disabled (no mines
-/// to remove — `count == 0`). Mirrors `ConstructionCtaDisabled` for
-/// the Queue button: the click handler skips pushing when this marker
-/// is present, and the spawn code drops the marker at spawn time when
-/// the count is non-zero.
+/// Marker on a Demolish button. The button removes `mining_edits`
+/// (negative delta) inventory from the active colony via
+/// `PendingConstructionActions::mining_edits`. The handler
+/// `tick_demolish_click` does the actual work.
+///
+/// Originally a Mining-tab-only feature (`MiningDemolishButton`),
+/// v0.5.2 (Buildings tab as a card list) extends the same button
+/// to the Buildings tab so the player can demolish existing
+/// buildings with the same UI. The `multiplier_source` field tells
+/// the click handler which chip-row value to apply (Mining vs
+/// Build) — they can diverge.
 #[derive(Component)]
-pub struct MiningDemolishDisabled;
+pub struct DemolishButton {
+    pub building_type: BuildingType,
+    pub multiplier_source: DemolishMultiplierSource,
+}
+
+/// Marker added when the Demolish button should be disabled (no
+/// buildings to remove — `count == 0`). Mirrors
+/// `ConstructionCtaDisabled` for the Queue button: the click
+/// handler skips pushing when the marker is present, and the
+/// spawn code drops the marker at spawn time when the count is
+/// non-zero.
+///
+/// v0.5.2 (Buildings tab as a card list): the Buildings tab
+/// cards also use this marker so the same hover / click effect
+/// system (`tick_demolish_hover`, `tick_demolish_disabled`) can
+/// service both tab families without per-tab branches.
+#[derive(Component)]
+pub struct DemolishDisabled;
 
 /// Marker on the orbital section's outer container (the 5 sub-groups).
 /// Visibility is driven by `tick_mining_group_visibility` based on
@@ -2810,10 +3074,7 @@ fn on_chip_hover_over(
 /// holding chip B's data — which is the desired state. The
 /// guard above ensures a stray Out event on a non-tracked
 /// entity is a no-op.
-fn on_chip_hover_out(
-    on: On<Pointer<Out>>,
-    mut hover_state: ResMut<ResourceCostHoverState>,
-) {
+fn on_chip_hover_out(on: On<Pointer<Out>>, mut hover_state: ResMut<ResourceCostHoverState>) {
     if let Some(current) = &hover_state.chip {
         if current.entity == on.entity {
             hover_state.chip = None;
@@ -2874,9 +3135,10 @@ fn update_resource_cost_tooltip(
     chip_query: Query<&ResourceCostChip>,
     mut hover_state: ResMut<ResourceCostHoverState>,
     mut overlay_node: Single<&mut Node, With<ResourceCostTooltipOverlay>>,
-    mut tooltip_text: Single<&mut Text, With<ResourceCostTooltipText>>,
-    mut tooltip_color: Single<&mut TextColor, With<ResourceCostTooltipText>>,
+    tooltip: Single<(&mut Text, &mut TextColor), With<ResourceCostTooltipText>>,
 ) {
+    let (mut tooltip_text, mut tooltip_color) = tooltip.into_inner();
+
     // The canary root's `top: 126.0` offset (set in
     // `setup_construction`) is inherited by absolutely-
     // positioned descendants; subtract it from the cursor Y
@@ -2988,16 +3250,9 @@ fn update_resource_cost_tooltip(
     // Update text + colour. Two spaces between name and
     // amount so the formatted units (`"250.0 t"`, `"1.20 Gt"`)
     // read as a separate visual unit. Colour matches the chip
-    // so the tooltip carries the chip's category hue. The
-    // shipbuilding workspace's `update_shipbuilding_hover_tooltip`
-    // uses the same `**` deref pattern on its
-    // `Single<&mut Text>`; it works because `Single` derefs
-    // to the underlying `Mut<Text>` and `Mut<Text>` derefs to
-    // `Text` — so `**` lands on the `Text` itself, not its
-    // inner `String` (since `Text(pub String)` is a tuple
-    // struct without a Deref impl to `String`).
-    **tooltip_text = Text::new(format!("{}  {}", data.name, data.amount));
-    **tooltip_color = TextColor(data.category);
+    // so the tooltip carries the chip's category hue.
+    *tooltip_text = Text::new(format!("{}  {}", data.name, data.amount));
+    *tooltip_color = TextColor(data.category);
 }
 
 /// Update the Mining tab body. Re-spawns the cards inside the
@@ -3036,7 +3291,9 @@ pub fn update_mining_body(
     mut header_query: Query<&mut Text, With<MiningHeader>>,
     mut spawned_rows: Local<Vec<Entity>>,
 ) {
-    let Ok(content) = content_query.single() else { return; };
+    let Ok(content) = content_query.single() else {
+        return;
+    };
 
     // Despawn the previous frame's spawn.
     //
@@ -3052,8 +3309,7 @@ pub fn update_mining_body(
     }
 
     let body_font: Handle<Font> = asset_server.load("fonts/Inter-Regular.otf");
-    let body_font_medium: Handle<Font> =
-        asset_server.load("fonts/Inter-SemiBold.otf");
+    let body_font_medium: Handle<Font> = asset_server.load("fonts/Inter-SemiBold.otf");
     let mono_font: Handle<Font> = asset_server.load("fonts/GeistMono-Medium.ttf");
     let multiplier = ui_state.mining_build_multiplier;
     // v0.5.2 PR-A.4 follow-up: hand each mining card a
@@ -3311,10 +3567,17 @@ pub fn setup_construction(
         commands.entity(tab_strip).add_child(tab);
         // Spawn the text as a child node so it gets centered within the
         // button (see `spawn_chip_text` doc for the bevy_ui 0.18 pattern).
-        spawn_chip_text(&mut commands, tab, label, body_font.clone(), *is_active, TAB_FONT_SIZE);
+        spawn_chip_text(
+            &mut commands,
+            tab,
+            label,
+            body_font.clone(),
+            *is_active,
+            TAB_FONT_SIZE,
+        );
     }
 
-        // ── Build output (BP/year) + Active Colony dropdown ─────────────
+    // ── Build output (BP/year) + Active Colony dropdown ─────────────
     // Per user feedback (OOB 2026-07-31):
     //   - Treasury + Balance removed: those are already in the global top
     //     resource bar and don't need to be repeated here.
@@ -3442,7 +3705,7 @@ pub fn setup_construction(
     commands.entity(output_row).add_child(queue_label);
     let queue_value = commands
         .spawn((
-            Text::new("6d 2h"),  // static placeholder; reads from resource in C4
+            Text::new("6d 2h"), // static placeholder; reads from resource in C4
             TextFont {
                 font: mono_font.clone(),
                 font_size: BODY_SIZE,
@@ -3680,7 +3943,14 @@ pub fn setup_construction(
         let btn = commands.spawn(ChipButtonBundle::new(label, is_active)).id();
         commands.entity(btn).insert(ChipKind::Qty(*qty));
         commands.entity(build_qty_row).add_child(btn);
-        spawn_chip_text(&mut commands, btn, label, mono_font.clone(), is_active, 16.0);
+        spawn_chip_text(
+            &mut commands,
+            btn,
+            label,
+            mono_font.clone(),
+            is_active,
+            16.0,
+        );
     }
 
     // ── Filter row ─────────────────────────────────────────────────────
@@ -3748,7 +4018,14 @@ pub fn setup_construction(
         let chip = commands.spawn(ChipButtonBundle::new(label, is_active)).id();
         commands.entity(chip).insert(ChipKind::Category(i));
         commands.entity(filter_row).add_child(chip);
-        spawn_chip_text(&mut commands, chip, label, body_font.clone(), is_active, 16.0);
+        spawn_chip_text(
+            &mut commands,
+            chip,
+            label,
+            body_font.clone(),
+            is_active,
+            16.0,
+        );
     }
 
     // ── Category chips row ─────────────────────────────────────────────
@@ -3907,8 +4184,7 @@ pub fn setup_construction(
     // v0.5.2 PR-A.2: thread the active colony's grid spare into each
     // card so the Power effect line can show "demand vs spare" with
     // a red ⚠ marker when the batch would push the grid into deficit.
-    let spare_power_mw =
-        compute_colony_spare_power_mw(&ui_state, &colonies, Some(&buildings_data));
+    let spare_power_mw = compute_colony_spare_power_mw(&ui_state, &colonies, Some(&buildings_data));
     for (building_type, card_data) in visible_cards(
         &buildings_data,
         &research_state,
@@ -3968,16 +4244,8 @@ pub fn setup_construction(
         &body_font_medium,
         &mono_font,
     );
-    spawn_buildings_body(
-        &mut commands,
-        root,
-        &body_font_medium,
-    );
-    spawn_mining_body(
-        &mut commands,
-        root,
-        &body_font,
-    );
+    spawn_buildings_body(&mut commands, root, &body_font_medium);
+    spawn_mining_body(&mut commands, root, &body_font);
 
     // Spawn the QueuePanel root. Anchored to the right edge of the
     // canary, 360 px wide, full height. Hidden by default — the
@@ -4966,9 +5234,7 @@ fn spawn_card(
             BackgroundColor(CTA_FILL),
             BorderColor::all(CYAN_BORDER_STRONG),
             Name::new("card_cta"),
-            ConstructionCta {
-                building_type,
-            },
+            ConstructionCta { building_type },
             // v0.5.2 PR-A.2 (round 2): when the batch's power demand
             // exceeds the active colony's grid spare, disable the
             // Queue button at spawn time. The affordability system
@@ -5053,7 +5319,13 @@ fn spawn_card(
 pub fn tick_construction_cta_hover(
     mut params: ParamSet<(
         Query<
-            (Entity, &Interaction, &mut BackgroundColor, &mut BorderColor, &mut UiTransform),
+            (
+                Entity,
+                &Interaction,
+                &mut BackgroundColor,
+                &mut BorderColor,
+                &mut UiTransform,
+            ),
             With<ConstructionCta>,
         >,
         Query<Entity, With<ConstructionCtaDisabled>>,
@@ -5065,9 +5337,7 @@ pub fn tick_construction_cta_hover(
     for entity in params.p1().iter() {
         disabled_set.insert(entity);
     }
-    for (entity, interaction, mut bg, mut border, mut ui_transform) in
-        params.p0().iter_mut()
-    {
+    for (entity, interaction, mut bg, mut border, mut ui_transform) in params.p0().iter_mut() {
         let is_disabled = disabled_set.contains(&entity);
         let prev = prev_state.get(&entity).copied();
         // Skip the write when the (interaction, is_disabled) pair is
@@ -5140,28 +5410,39 @@ pub fn tick_subtitle_marquee(
     text_computed: Query<&ComputedNode>,
     mut tracks: Query<(Entity, &mut SubtitleMarquee, &mut UiTransform)>,
 ) {
-    // Speed tuning: one full `0 → 1 → 0` cycle (the player's
-    // perceived "scroll once across and back") takes ~4.0 s. The
-    // marquee always rolls (no hover gate) so the player can read
-    // the description without first hovering, but the slow cycle
-    // keeps the grid visually calm — a single line drifting past
-    // every few seconds reads as a hint, not a notification.
-    const PHASE_PER_SECOND: f32 = 1.0 / 4.0;
-    // Clamp delta — first frame after a long stall (eg debugger
-    // pause) shouldn't snap phase to 1.0 in one tick.
+    // v0.5.2 (2026-08-03): continuous slow rotation. The
+    // previous oscillation (phase 0 → 1 → 0 → 1, reversing at
+    // each end) read as "the marquee fires once and then just
+    // sits there" because each direction reversal came with a
+    // visible reset to copy A's start position. The new
+    // marquee drives the phase linearly in one direction
+    // (modulo 1.0) so the track loops seamlessly and never
+    // resets.
+    //
+    // Speed tuning: ~30 px/s — slow enough to feel ambient
+    // (the player can read at their own pace), fast enough
+    // that the seam between copy A and copy B is never far
+    // away. At 320 px wide subtitles the full text-width
+    // traversal takes ~10 s; at 150 px wide ones ~5 s. Each
+    // card carries its own `phase` accumulator so they
+    // appear desynchronized (no marching-band effect), but
+    // the **rate** is uniform — every card scrolls at
+    // `PIXELS_PER_SECOND`, which kills the "different speed
+    // on each card" complaint from the v0.5.2 visual review.
+    const PIXELS_PER_SECOND: f32 = 30.0;
+    // Clamp delta — first frame after a long stall (eg
+    // debugger pause) shouldn't snap phase across the seam
+    // in one tick. The 0.1 s cap is gentle enough that the
+    // marquee catches up within ~150 ms of unpausing.
     let dt = time.delta_secs().min(0.1);
 
     for (_track_entity, mut marquee, mut ui_transform) in tracks.iter_mut() {
-        // 1) Refresh measured widths from `ComputedNode`. The text
-        // node carries its measured content size (the rendered
-        // pixel width of the wrapped description); the clip
-        // container carries its allocated outer width.
-        //
-        // `ComputedNode` is populated by the engine's layout pass
-        // before our `Update` tick, so reads on tick 1+ are valid.
-        // On the very first frame after a card spawn both widths
-        // could still be 0; the marquee correctly stays dormant
-        // until next frame.
+        // 1) Refresh measured widths from `ComputedNode`. The
+        // text node carries its measured content size (the
+        // rendered pixel width of the wrapped description);
+        // the clip container carries its allocated outer
+        // width. Both are read each frame because layout can
+        // change between ticks (window resize, font fallback).
         let text_width = text_computed
             .get(marquee.text_node)
             .map(|c| c.content_size().x)
@@ -5173,37 +5454,47 @@ pub fn tick_subtitle_marquee(
         marquee.text_width = text_width;
         marquee.container_width = container_width;
 
-        // 2) Detect overflow vs. fit. `text_width > container_width`
-        // means one copy of the description is wider than the clip
-        // container can show at translation `(0, 0)`. Below that
-        // threshold the marquee is dormant: phase stays at 0,
-        // translation stays at 0, no scroll. The +0.5 epsilon
-        // absorbs 1-px measurement noise so short descriptions don't
-        // oscillate on rounding.
+        // 2) Detect overflow vs. fit. Below the +0.5 px
+        // epsilon the description fits the container and
+        // the marquee is dormant (translation `(0, 0)`,
+        // phase stops advancing). This is the same threshold
+        // the v0.5.0 oscillation used, but the phase is
+        // **held** rather than reversed — a non-overflowing
+        // description just stops drifting instead of
+        // snapping back to its start.
         let overflows = text_width > container_width + 0.5;
 
-        // 3) Drive the phase. Always rolls regardless of hover
-        // state — the player can read the description without
-        // moving the cursor. Phase ramps toward 1.0 at
-        // `PHASE_PER_SECOND` (one cycle per 4.0 s). When the text
-        // fits, or the card was despawned, phase ramps back to 0
-        // at the same rate — a smooth reverse-scroll that resets
-        // the visible copy to copy A's start position so the
-        // player can re-read from the beginning.
-        // The phase is clamped at both ends so a long pause that
-        // would otherwise overshoot 1.0 just stops at the seam.
         if overflows {
-            marquee.phase = (marquee.phase + dt * PHASE_PER_SECOND).min(1.0);
-        } else {
-            marquee.phase = (marquee.phase - dt * PHASE_PER_SECOND).max(0.0);
+            // 3) Advance the phase linearly. Phase is in
+            // **pixels** (not 0..=1) so we can integrate at
+            // a constant pixel rate without per-card
+            // normalisation. `mod text_width` wraps the
+            // value back to copy A's start position; the
+            // resulting translation is
+            // `-phase_in_pixels (mod text_width)`, which is
+            // exactly the seamless loop the v0.5.0 oscillation
+            // approximated but couldn't deliver.
+            let delta_pixels = dt * PIXELS_PER_SECOND;
+            marquee.phase += delta_pixels;
+            // Wrap so the floating-point value doesn't grow
+            // unboundedly over a long-running session.
+            if marquee.phase >= text_width {
+                marquee.phase -= text_width;
+            }
         }
+        // Non-overflowing cards leave phase untouched and
+        // translation sits at `(0, 0)` below.
 
-        // 4) Apply the translation. At phase = 0 we sit at
-        // translation `(0, 0)` (copy A in original position); at
-        // phase = 1 we sit at `(-text_width, 0)` which puts copy B
-        // exactly where copy A started — making the loop seam
-        // invisible.
-        let dx = -marquee.phase * text_width;
+        // 4) Apply the translation. Negative x drifts the
+        // track leftward; at `phase = 0` the visible content
+        // is byte-identical to `phase = text_width`, so the
+        // seam is invisible. The translation magnitude is
+        // bounded by `text_width`, so the off-screen copy
+        // never bleeds past the clip container (Bevy's
+        // `Overflow::clip` on the parent hides it anyway,
+        // but staying within the bound keeps `UiTransform`
+        // numerically clean).
+        let dx = -marquee.phase;
         ui_transform.translation = Val2::px(dx, 0.0);
     }
 }
@@ -5430,10 +5721,7 @@ pub(crate) struct ScrollbarDragState {
 /// thumb entity, so it survives every per-frame scrollbar
 /// rebuild — the entity itself is the long-lived parent of the
 /// visual thumb.
-fn on_thumb_press(
-    on: On<Pointer<Press>>,
-    mut drag: ResMut<ScrollbarDragState>,
-) {
+fn on_thumb_press(on: On<Pointer<Press>>, mut drag: ResMut<ScrollbarDragState>) {
     // Only the primary (left) mouse button initiates a drag.
     if on.event.button != PointerButton::Primary {
         return;
@@ -5446,10 +5734,7 @@ fn on_thumb_press(
 /// On-release observer for the `CardGridScrollbarThumb`. Fires
 /// when the user releases anywhere on the thumb (or, by observer
 /// propagation, on any descendant). Clears the drag state.
-fn on_thumb_release(
-    on: On<Pointer<Release>>,
-    mut drag: ResMut<ScrollbarDragState>,
-) {
+fn on_thumb_release(on: On<Pointer<Release>>, mut drag: ResMut<ScrollbarDragState>) {
     if on.event.button != PointerButton::Primary {
         return;
     }
@@ -5488,10 +5773,7 @@ fn on_track_press(
 /// On-release observer for the `CardGridScrollbarTrack`. Mirrors
 /// `on_thumb_release` — clears the drag state when the pointer
 /// button is released.
-fn on_track_release(
-    on: On<Pointer<Release>>,
-    mut drag: ResMut<ScrollbarDragState>,
-) {
+fn on_track_release(on: On<Pointer<Release>>, mut drag: ResMut<ScrollbarDragState>) {
     if on.event.button != PointerButton::Primary {
         return;
     }
@@ -5651,7 +5933,10 @@ pub fn tick_ui_scroll_on_wheel(
         if hovered_entities.is_empty() {
             continue;
         };
-        let start_entity = *hovered_entities.keys().next().expect("non-empty checked above");
+        let start_entity = *hovered_entities
+            .keys()
+            .next()
+            .expect("non-empty checked above");
         // Walk up the parent chain (immutable scope) looking for
         // the first ancestor whose `Overflow` is `OverflowAxis::Scroll`
         // on the y axis.
@@ -5666,7 +5951,9 @@ pub fn tick_ui_scroll_on_wheel(
                     break;
                 }
             }
-            let Ok(parent) = parents.get(cursor) else { break };
+            let Ok(parent) = parents.get(cursor) else {
+                break;
+            };
             cursor = parent.0;
         }
         let Some(scrollable_entity) = scrollable else {
@@ -5791,7 +6078,9 @@ pub fn refresh_card_grid(
         commands.entity(entity).try_despawn();
     }
     // Find the card grid (there should be exactly one).
-    let Ok(card_grid) = grid_query.single() else { return; };
+    let Ok(card_grid) = grid_query.single() else {
+        return;
+    };
     // Re-spawn based on the current state.
     let body_font = asset_server.load("fonts/Inter-Regular.otf");
     let body_font_medium = asset_server.load("fonts/Inter-SemiBold.otf");
@@ -5802,8 +6091,7 @@ pub fn refresh_card_grid(
     // v0.5.2 PR-A.2: thread the active colony's grid spare into each
     // card so the Power effect line can show "demand vs spare" with
     // a red ⚠ marker when the batch would push the grid into deficit.
-    let spare_power_mw =
-        compute_colony_spare_power_mw(&ui_state, &colonies, Some(&buildings_data));
+    let spare_power_mw = compute_colony_spare_power_mw(&ui_state, &colonies, Some(&buildings_data));
     for (building_type, card_data) in visible_cards(
         &buildings_data,
         &research_state,
@@ -5877,9 +6165,7 @@ pub fn tick_colony_picker_click(
         std::collections::HashMap::new();
     for (entity, interaction) in interactions.iter() {
         let prev_interaction = prev.get(&entity).copied().unwrap_or(Interaction::None);
-        if *interaction == Interaction::Pressed
-            && prev_interaction != Interaction::Pressed
-        {
+        if *interaction == Interaction::Pressed && prev_interaction != Interaction::Pressed {
             if let Some(ref mut s) = state {
                 s.open = !s.open;
             }
@@ -5904,9 +6190,7 @@ pub fn tick_colony_option_click(
         std::collections::HashMap::new();
     for (entity, interaction, option) in interactions.iter() {
         let prev_interaction = prev.get(&entity).copied().unwrap_or(Interaction::None);
-        if *interaction == Interaction::Pressed
-            && prev_interaction != Interaction::Pressed
-        {
+        if *interaction == Interaction::Pressed && prev_interaction != Interaction::Pressed {
             ui_state.selected_colony = Some(option.colony_entity);
             if let Some(ref mut s) = state {
                 s.open = false;
@@ -6001,15 +6285,14 @@ pub fn refresh_colony_dropdown(
     colonies: Query<(Entity, &crate::colony::Colony)>,
     menu_query: Query<Entity, With<ColonyDropdownMenu>>,
     ui_state: Res<ConstructionUiState>,
-    mut spawned_rows: Local<std::collections::HashMap<bevy::ecs::entity::Entity, bevy::ecs::entity::Entity>>,
+    mut spawned_rows: Local<
+        std::collections::HashMap<bevy::ecs::entity::Entity, bevy::ecs::entity::Entity>,
+    >,
     mut row_bg_query: Query<
         (&ColonyDropdownOption, &mut BackgroundColor),
         Without<ColonyDropdownOptionText>,
     >,
-    mut text_query: Query<
-        (&ChildOf, &mut Text, &mut TextColor),
-        With<ColonyDropdownOptionText>,
-    >,
+    mut text_query: Query<(&ChildOf, &mut Text, &mut TextColor), With<ColonyDropdownOptionText>>,
 ) {
     let Ok(menu) = menu_query.single() else {
         return;
@@ -6076,7 +6359,11 @@ pub fn refresh_colony_dropdown(
                 )
             })
             .unwrap_or_else(|_| "(unknown)".to_string());
-        let text_color = if is_selected { ACTIVE_CHIP_TEXT } else { TEXT_BODY };
+        let text_color = if is_selected {
+            ACTIVE_CHIP_TEXT
+        } else {
+            TEXT_BODY
+        };
         for (parent, mut text, mut color) in text_query.iter_mut() {
             if parent.0 == *row_entity {
                 **text = label.clone();
@@ -6120,7 +6407,11 @@ pub fn refresh_colony_dropdown(
             ))
             .id();
         commands.entity(menu).add_child(row);
-        let text_color = if is_selected { ACTIVE_CHIP_TEXT } else { TEXT_BODY };
+        let text_color = if is_selected {
+            ACTIVE_CHIP_TEXT
+        } else {
+            TEXT_BODY
+        };
         let label_text = commands
             .spawn((
                 Text::new(label),
@@ -6304,9 +6595,7 @@ pub fn tick_construction_chip_click(
         std::collections::HashMap::new();
     for (entity, interaction, kind) in interactions.iter() {
         let prev_interaction = prev.get(&entity).copied().unwrap_or(Interaction::None);
-        if *interaction == Interaction::Pressed
-            && prev_interaction != Interaction::Pressed
-        {
+        if *interaction == Interaction::Pressed && prev_interaction != Interaction::Pressed {
             // Update BOTH the underlying UI state AND the ActiveChips
             // resource (the single source of truth for visual active state).
             match kind {
@@ -6391,9 +6680,7 @@ pub fn tick_construction_cta_click(
         std::collections::HashMap::new();
     for (entity, interaction, cta) in interactions.iter() {
         let prev_interaction = prev.get(&entity).copied().unwrap_or(Interaction::None);
-        if *interaction == Interaction::Pressed
-            && prev_interaction != Interaction::Pressed
-        {
+        if *interaction == Interaction::Pressed && prev_interaction != Interaction::Pressed {
             let Some(colony_entity) = ui_state.selected_colony else {
                 current.insert(entity, *interaction);
                 continue;
@@ -6412,7 +6699,9 @@ pub fn tick_construction_cta_click(
             // egui panel uses the same `for _ in 0..multiplier` pattern.
             let multiplier = ui_state.build_multiplier.max(1);
             for _ in 0..multiplier {
-                pending.start_construction.push((colony_entity, cta.building_type));
+                pending
+                    .start_construction
+                    .push((colony_entity, cta.building_type));
             }
         }
         current.insert(entity, *interaction);
@@ -6436,9 +6725,7 @@ pub fn tick_open_queue_chip_click(
         std::collections::HashMap::new();
     for (entity, interaction) in interactions.iter() {
         let prev_interaction = prev.get(&entity).copied().unwrap_or(Interaction::None);
-        if *interaction == Interaction::Pressed
-            && prev_interaction != Interaction::Pressed
-        {
+        if *interaction == Interaction::Pressed && prev_interaction != Interaction::Pressed {
             if let Some(ref mut s) = state {
                 s.open = !s.open;
             }
@@ -6460,9 +6747,7 @@ pub fn tick_queue_panel_close_click(
         std::collections::HashMap::new();
     for (entity, interaction) in interactions.iter() {
         let prev_interaction = prev.get(&entity).copied().unwrap_or(Interaction::None);
-        if *interaction == Interaction::Pressed
-            && prev_interaction != Interaction::Pressed
-        {
+        if *interaction == Interaction::Pressed && prev_interaction != Interaction::Pressed {
             if let Some(ref mut s) = state {
                 s.open = false;
             }
@@ -6512,9 +6797,7 @@ pub fn update_queue_summary(
     // Output rate (BP/yr) — the legacy placeholder used 12 001. Read
     // from the `ConstructionQueue` resource so the canary stays
     // self-contained.
-    let bp_per_sec = (output_bp_per_year.output_bp_per_year
-        / 365.25 / 24.0 / 3600.0)
-        .max(1e-9);
+    let bp_per_sec = (output_bp_per_year.output_bp_per_year / 365.25 / 24.0 / 3600.0).max(1e-9);
     let total_remaining_bp: f64 = ui_state
         .selected_colony
         .map(|colony_entity| {
@@ -6561,9 +6844,13 @@ pub fn update_queue_panel(
     root_query: Query<Entity, With<QueuePanelRoot>>,
     body_query: Query<Entity, With<QueuePanelBody>>,
 ) {
-    let Ok(panel_root) = root_query.single() else { return; };
+    let Ok(panel_root) = root_query.single() else {
+        return;
+    };
     let _ = panel_root; // not needed directly; rows are added to body_root
-    let Ok(body_root) = body_query.single() else { return; };
+    let Ok(body_root) = body_query.single() else {
+        return;
+    };
 
     // Desired set: (project_entity, project_data) for the selected colony.
     let desired: std::collections::HashMap<Entity, crate::colony::ConstructionProject> = ui_state
@@ -6578,8 +6865,7 @@ pub fn update_queue_panel(
         .unwrap_or_default();
 
     // Existing rows: (project_entity -> row_entity).
-    let mut existing: std::collections::HashMap<Entity, Entity> =
-        std::collections::HashMap::new();
+    let mut existing: std::collections::HashMap<Entity, Entity> = std::collections::HashMap::new();
     for (row_entity, row) in existing_rows.iter() {
         existing.insert(row.project_entity, row_entity);
     }
@@ -6631,9 +6917,7 @@ pub fn update_queue_row_eta(
     output_bp_per_year: Res<ConstructionQueue>,
     mut eta_text_query: Query<(&QueuePanelRowEta, &mut Text, &mut TextColor)>,
 ) {
-    let bp_per_sec = (output_bp_per_year.output_bp_per_year
-        / 365.25 / 24.0 / 3600.0)
-        .max(1e-9);
+    let bp_per_sec = (output_bp_per_year.output_bp_per_year / 365.25 / 24.0 / 3600.0).max(1e-9);
     for (eta_marker, mut text, mut color) in eta_text_query.iter_mut() {
         let Some((_, project)) = projects
             .iter()
@@ -6673,9 +6957,7 @@ pub fn update_queue_row_progress(
         else {
             continue;
         };
-        node.width = Val::Percent(
-            (project.progress_percent() as f32).clamp(0.0, 1.0) * 100.0,
-        );
+        node.width = Val::Percent((project.progress_percent() as f32).clamp(0.0, 1.0) * 100.0);
     }
 }
 
@@ -6757,9 +7039,7 @@ fn spawn_queue_row(
 
     // ETA: derived from the active output rate (same as the AppBar
     // summary). Format: "Xh Ym" for short queues, "Xd Yh" for long.
-    let bp_per_sec = (output_bp_per_year.output_bp_per_year
-        / 365.25 / 24.0 / 3600.0)
-        .max(1e-9);
+    let bp_per_sec = (output_bp_per_year.output_bp_per_year / 365.25 / 24.0 / 3600.0).max(1e-9);
     let remaining_bp = (project.required - project.progress).max(0.0);
     let eta_seconds = remaining_bp / bp_per_sec;
     let eta_text = if project.awaiting_resources {
@@ -6888,9 +7168,7 @@ pub fn tick_queue_panel_row_cancel_click(
         std::collections::HashMap::new();
     for (entity, interaction, cancel) in interactions.iter() {
         let prev_interaction = prev.get(&entity).copied().unwrap_or(Interaction::None);
-        if *interaction == Interaction::Pressed
-            && prev_interaction != Interaction::Pressed
-        {
+        if *interaction == Interaction::Pressed && prev_interaction != Interaction::Pressed {
             pending.cancel_construction.push(cancel.project_entity);
         }
         current.insert(entity, *interaction);
@@ -7078,11 +7356,16 @@ impl Plugin for ConstructionPlugin {
                     // Demolish button: rising-edge click pushes a
                     // negative `mining_edits` entry; the per-frame
                     // disabled sync keeps the marker in lockstep
-                    // with the current mine count (which can change
-                    // via the Queue button, this very Demolish
-                    // button, or any other system).
-                    tick_mining_demolish_click,
-                    tick_mining_demolish_disabled,
+                    // with the current building count (which can
+                    // change via the Queue button, this very
+                    // Demolish button, or any other system).
+                    //
+                    // v0.5.2 (Buildings tab as a card list): the
+                    // Demolish button is now used by both the
+                    // Mining tab and the Buildings tab, so these
+                    // systems are no longer mining-specific.
+                    tick_demolish_click,
+                    tick_demolish_disabled,
                 ),
             )
             // Queue panel: open/close, summary, diff-based rows, and
@@ -7151,7 +7434,6 @@ impl Plugin for ConstructionPlugin {
             );
     }
 }
-
 
 // ── Mining tab helper spawn functions (v0.5.2 PR-A.2) ────────
 //
@@ -7228,10 +7510,7 @@ fn spawn_mining_qty_row(
     if ui_state.mining_build_multiplier > 1 {
         let hint = commands
             .spawn((
-                Text::new(format!(
-                    "Applies to +{}",
-                    ui_state.mining_build_multiplier
-                )),
+                Text::new(format!("Applies to +{}", ui_state.mining_build_multiplier)),
                 TextFont {
                     font: body_font.clone(),
                     font_size: CAPTION_SIZE,
@@ -7380,8 +7659,7 @@ fn spawn_mining_group_section(
             // dark→white pass on every handle in `BuildingIcons`,
             // so the icon is already in the same colour space as
             // `spawn_card` expects.
-            let icon_handle: Option<&Handle<Image>> =
-                building_icons.handles.get(bt);
+            let icon_handle: Option<&Handle<Image>> = building_icons.handles.get(bt);
             spawn_mining_card(
                 commands,
                 body_node,
@@ -7426,10 +7704,7 @@ fn spawn_mining_orbital_section(
     // orbital AutoMines.
     building_icons: &BuildingIcons,
 ) -> Entity {
-    let total_orbital: usize = MINING_GROUPS_ORBITAL
-        .iter()
-        .map(|(_, b)| b.len())
-        .sum();
+    let total_orbital: usize = MINING_GROUPS_ORBITAL.iter().map(|(_, b)| b.len()).sum();
 
     let container = commands
         .spawn((
@@ -7570,8 +7845,7 @@ fn spawn_mining_orbital_section(
                 // `BuildingIcons::handles` map is keyed by
                 // `BuildingType` and is populated in
                 // `load_building_icons` from `assets/data/buildings.ron`.
-                let icon_handle: Option<&Handle<Image>> =
-                    building_icons.handles.get(bt);
+                let icon_handle: Option<&Handle<Image>> = building_icons.handles.get(bt);
                 spawn_mining_card(
                     commands,
                     sub_row,
@@ -7627,14 +7901,42 @@ pub fn build_mine_card_data(
 ) -> BuildCardData {
     let mult = multiplier.max(1) as f64;
     let card_data = compute_mining_card_data(def, planet_resources);
-    let body_blocked = !crate::colony::data::building_is_available_on(
-        def,
-        Some(body_breathable),
-        body_type,
-    );
+    let body_blocked =
+        !crate::colony::data::building_is_available_on(def, Some(body_breathable), body_type);
 
-    // Stats row: count (left) + accessibility (right).
-    let count_label = format!("\u{00d7}{}", count);
+    // Stats row: count + current rate (left) + accessibility (right).
+    //
+    // v0.5.2 (2026-08-03, restored): per user feedback, the
+    // count (`×N`) indicator should sit alongside the
+    // **current** mining rate rather than carrying it
+    // implicitly. The rate is the live amount this mine cluster
+    // is producing RIGHT NOW (count × per-mine yield × body
+    // accessibility), distinct from the batch-total rate shown
+    // in the "Produces …" effect (which folds the queued
+    // multiplier). Format with `format_mining_rate` so the
+    // suffix tracks the same g/kg/t/kt/Mt/Gt/Tt/Pt/Et/Zt
+    // ladder as the Produced line.
+    //
+    // The vertical bar (\u{2502}) separates the two numbers so a
+    // quick glance answers "how many built, how much output".
+    // When the body has no accessibility (yet-surveyed deposit,
+    // or no deposit on this body), the rate segment is omitted
+    // — there's nothing productive to advertise.
+    //
+    // `format_mining_rate` already trails its band in `/yr`
+    // (e.g. `2700 kt/yr`), so the template does NOT append
+    // another `/yr` — that produced `×25 │ 2700 kt/yr/yr`
+    // before the dedup pass.
+    let current_rate = card_data.production_mt_per_year(count);
+    let count_label = if current_rate > 0.0 {
+        format!(
+            "\u{00d7}{} \u{2502} {}",
+            count,
+            format_mining_rate(current_rate)
+        )
+    } else {
+        format!("\u{00d7}{}", count)
+    };
     let acc_label = if card_data.accessibility > 0.0 {
         format!("Acc: {:.0}%", card_data.accessibility * 100.0)
     } else {
@@ -7706,25 +8008,34 @@ pub fn build_mine_card_data(
             if let Some(res_name) = prod.modifier_type.strip_suffix("Production") {
                 let per_unit = prod.value * card_data.accessibility as f64;
                 let total = per_unit * mult;
+                // v0.5.2 (2026-08-03): `format_mining_rate` already
+                // trails its band in `/yr`. Don't append another.
                 let line = if mult > 1.0 {
                     format!(
-                        "Produces {} {}/yr \u{00d7} {} = {} {}/yr",
+                        "Produces {} \u{00d7} {} = {} {}",
                         format_mining_rate(per_unit),
-                        res_name,
                         mult as u32,
                         format_mining_rate(total),
                         res_name
                     )
                 } else {
-                    format!("Produces {} {}/yr", format_mining_rate(per_unit), res_name)
+                    format!("Produces {} {}", format_mining_rate(per_unit), res_name)
                 };
                 effects.push((EffectTone::Positive, line));
             }
         }
     }
-    // Reserve: "Res: 142.3 Gt" or "no deposit" / "Survey the body...".
+    // Reserve: "Available Deposits: 142 Gt" or "no deposit" /
+    // "Survey the body...". v0.5.2 (2026-08-03): the verbose
+    // "Available Deposits:" label matches the Build tab so the
+    // two read as one UI surface. `format_mining_reserve` now
+    // picks the smallest SI suffix (g/kg/t/kt/Mt/Gt/Tt/Pt/Et/Zt)
+    // so the value lands in the 1..=999 range.
     let reserve_label = if card_data.reserve_mt > 0.0 {
-        format!("Res: {}", format_mining_reserve(card_data.reserve_mt))
+        format!(
+            "Available Deposits: {}",
+            format_mining_reserve(card_data.reserve_mt)
+        )
     } else if planet_resources.is_none() {
         "Survey the body to see deposits".to_string()
     } else {
@@ -7844,9 +8155,7 @@ fn spawn_mining_card(
                     },
                     BackgroundColor(CARD_BG),
                     BorderColor::all(CARD_BORDER),
-                    MiningCard {
-                        building_type: bt,
-                    },
+                    MiningCard { building_type: bt },
                     Name::new("mining_card_unknown"),
                 ))
                 .id();
@@ -7896,25 +8205,30 @@ fn spawn_mining_card(
         count,
         multiplier,
         body_font_medium,
+        DemolishMultiplierSource::Mining,
     );
 
     card
 }
 // ── Mining tab systems (v0.5.2 PR-A.2) ──────────────────────────
 
-/// Spawn a Demolish button on a Mining card. Pinned to the
+/// Spawn a Demolish button on a card. Pinned to the
 /// bottom-right of the card (opposite of the Queue button) via
 /// absolute positioning — the card's `Overflow::clip` keeps the
 /// button from bleeding past the border. The button reads
-/// "Demolish ×N" (or just "Demolish" when multiplier == 1) so the
-/// player sees the batch size at a glance. Red border + dim red
-/// fill makes the destructive action visually distinct from the
-/// Queue button without screaming.
+/// "Demolish -N" (or just "Demolish -1" when multiplier == 1) so
+/// the player sees the batch size at a glance. Red border + dim
+/// red fill makes the destructive action visually distinct from
+/// the Queue button without screaming.
 ///
-/// `count == 0` → spawn the button with `MiningDemolishDisabled`
+/// `count == 0` → spawn the button with `DemolishDisabled`
 /// attached; the click handler skips pushes when the marker is
-/// present, and a per-frame system removes the marker once mines
-/// are built.
+/// present, and a per-frame system removes the marker once the
+/// count rises.
+///
+/// `multiplier_source` tells the click handler which chip-row
+/// value to apply (Mining tab uses `mining_build_multiplier`,
+/// Buildings tab uses `build_multiplier`).
 fn spawn_demolish_button(
     commands: &mut Commands,
     card: Entity,
@@ -7922,6 +8236,7 @@ fn spawn_demolish_button(
     count: u32,
     multiplier: u32,
     body_font_medium: &Handle<Font>,
+    multiplier_source: DemolishMultiplierSource,
 ) {
     let label = if multiplier > 1 {
         // v0.5.2: match the Build button's "Build +N" shape with
@@ -7960,17 +8275,18 @@ fn spawn_demolish_button(
             BackgroundColor(dim_red),
             BorderColor::all(dim_red_border),
             Name::new("card_demolish"),
-            MiningDemolishButton {
+            DemolishButton {
                 building_type: bt,
+                multiplier_source,
             },
             Pickable::default(),
         ))
         .id();
-    // Spawn-time disabled state — when no mines are built the
+    // Spawn-time disabled state — when no buildings are present the
     // button is dim and the click handler is a no-op. Removed by
-    // `tick_mining_demolish_disabled` once the count rises.
+    // `tick_demolish_disabled` once the count rises.
     if count == 0 {
-        commands.entity(demolish).insert(MiningDemolishDisabled);
+        commands.entity(demolish).insert(DemolishDisabled);
     }
     commands.entity(card).add_child(demolish);
 
@@ -7997,24 +8313,32 @@ fn spawn_demolish_button(
     commands.entity(demolish).add_child(label_entity);
 }
 
-/// Click handler for the Mining Demolish button. Pushes
+/// Click handler for the Demolish button. Pushes
 /// `(colony, bt, -multiplier)` to `PendingConstructionActions::mining_edits`
 /// so `process_construction_actions` removes up to `multiplier`
-/// mines on the next tick. Skips when `MiningDemolishDisabled` is
-/// attached (i.e. count == 0). Rising-edge detection identical to
-/// the other chip/CTA click handlers.
-pub fn tick_mining_demolish_click(
+/// buildings on the next tick. Which `multiplier` to use is read
+/// from `DemolishButton::multiplier_source`: Mining tab cards use
+/// `mining_build_multiplier` (independent of the Build tab's
+/// `build_multiplier`); Buildings tab cards use `build_multiplier`
+/// so the player's x1/x5/x25 chip choice carries straight
+/// through. Skips when `DemolishDisabled` is attached (i.e.
+/// count == 0). Rising-edge detection identical to the other
+/// chip/CTA click handlers.
+///
+/// Originally `tick_mining_demolish_click` (Mining-tab only);
+/// v0.5.2 (Buildings tab as a card list) generalises the same
+/// handler to both tabs.
+pub fn tick_demolish_click(
     mut params: ParamSet<(
-        Query<(Entity, &Interaction, &MiningDemolishButton), With<Button>>,
-        Query<Entity, With<MiningDemolishDisabled>>,
+        Query<(Entity, &Interaction, &DemolishButton), With<Button>>,
+        Query<Entity, With<DemolishDisabled>>,
     )>,
     ui_state: Res<ConstructionUiState>,
     mut pending: ResMut<PendingConstructionActions>,
     mut prev: Local<std::collections::HashMap<Entity, Interaction>>,
 ) {
     // Pre-compute the disabled set so the click loop stays single-Q.
-    let mut disabled_set: std::collections::HashSet<Entity> =
-        std::collections::HashSet::new();
+    let mut disabled_set: std::collections::HashSet<Entity> = std::collections::HashSet::new();
     for entity in params.p1().iter() {
         disabled_set.insert(entity);
     }
@@ -8031,12 +8355,13 @@ pub fn tick_mining_demolish_click(
             let Some(colony_entity) = ui_state.selected_colony else {
                 continue;
             };
-            let multiplier = ui_state.mining_build_multiplier.max(1) as i32;
-            pending.mining_edits.push((
-                colony_entity,
-                button.building_type,
-                -multiplier,
-            ));
+            let multiplier = match button.multiplier_source {
+                DemolishMultiplierSource::Mining => ui_state.mining_build_multiplier.max(1) as i32,
+                DemolishMultiplierSource::Build => ui_state.build_multiplier.max(1) as i32,
+            };
+            pending
+                .mining_edits
+                .push((colony_entity, button.building_type, -multiplier));
         }
     }
     *prev = current;
@@ -8051,11 +8376,11 @@ pub fn tick_mining_demolish_click(
 /// Uses `queue_silenced` (Bevy 0.18+) so the insert / remove commands
 /// don't panic if `update_mining_body` despawns the parent card
 /// between this system's iter and the command apply at stage end.
-pub fn tick_mining_demolish_disabled(
+pub fn tick_demolish_disabled(
     mut commands: Commands,
     ui_state: Res<ConstructionUiState>,
     colonies: Query<&crate::colony::Colony>,
-    demolish_buttons: Query<(Entity, &MiningDemolishButton, Has<MiningDemolishDisabled>)>,
+    demolish_buttons: Query<(Entity, &DemolishButton, Has<DemolishDisabled>)>,
 ) {
     let Some(colony_entity) = ui_state.selected_colony else {
         return;
@@ -8064,37 +8389,44 @@ pub fn tick_mining_demolish_disabled(
         return;
     };
     for (entity, button, is_disabled) in demolish_buttons.iter() {
-        let count = colony.buildings.get(&button.building_type).copied().unwrap_or(0);
+        let count = colony
+            .buildings
+            .get(&button.building_type)
+            .copied()
+            .unwrap_or(0);
         if count == 0 && !is_disabled {
-            commands.entity(entity).queue_silenced(InsertDemolishDisabled);
+            commands
+                .entity(entity)
+                .queue_silenced(InsertDemolishDisabled);
         } else if count > 0 && is_disabled {
-            commands.entity(entity).queue_silenced(RemoveDemolishDisabled);
+            commands
+                .entity(entity)
+                .queue_silenced(RemoveDemolishDisabled);
         }
     }
 }
 
-/// `EntityCommand` that inserts `MiningDemolishDisabled`. Used by
-/// `tick_mining_demolish_disabled` via `queue_silenced` so the insert
+/// `EntityCommand` that inserts `DemolishDisabled`. Used by
+/// `tick_demolish_disabled` via `queue_silenced` so the insert
 /// is dropped instead of panicking if the entity is despawned by the
 /// time the command applies.
 struct InsertDemolishDisabled;
 
 impl bevy::ecs::system::EntityCommand for InsertDemolishDisabled {
     fn apply(self, mut entity: bevy::ecs::world::EntityWorldMut) {
-        entity.insert(MiningDemolishDisabled);
+        entity.insert(DemolishDisabled);
     }
 }
 
-/// `EntityCommand` that removes `MiningDemolishDisabled`. See
+/// `EntityCommand` that removes `DemolishDisabled`. See
 /// `InsertDemolishDisabled` for the rationale.
 struct RemoveDemolishDisabled;
 
 impl bevy::ecs::system::EntityCommand for RemoveDemolishDisabled {
     fn apply(self, mut entity: bevy::ecs::world::EntityWorldMut) {
-        entity.remove::<MiningDemolishDisabled>();
+        entity.remove::<DemolishDisabled>();
     }
 }
-
 
 /// Group-visibility toggle: when the player clicks a group chevron
 /// (or the orbital section header), flip the corresponding bit in
@@ -8117,15 +8449,12 @@ pub fn tick_mining_group_visibility(
     for (entity, interaction, header) in headers.iter() {
         current.insert(entity, *interaction);
         let prev_interaction = prev.get(&entity).copied().unwrap_or(Interaction::None);
-        if *interaction == Interaction::Pressed
-            && prev_interaction != Interaction::Pressed
-        {
+        if *interaction == Interaction::Pressed && prev_interaction != Interaction::Pressed {
             if header.group_id == MiningGroupId::Helium3 {
                 // The orbital section header reuses the
                 // `MiningGroupHeader` marker with the Helium3
                 // sentinel. Distinguish by group id.
-                ui_state.mining_orbital_collapsed =
-                    !ui_state.mining_orbital_collapsed;
+                ui_state.mining_orbital_collapsed = !ui_state.mining_orbital_collapsed;
             } else {
                 let id = header.group_id;
                 if ui_state.mining_groups_collapsed.contains(&id) {
@@ -8138,4 +8467,50 @@ pub fn tick_mining_group_visibility(
     }
 
     *prev = current;
+}
+
+
+#[cfg(test)]
+mod formatter_tests {
+    use super::*;
+
+    #[test]
+    fn format_mining_rate_ladder_lands_in_one_to_three_digits() {
+        // Sanity-check the SI ladder. Each case picks the smallest
+        // suffix that lands the displayed value in 1..=999. Numbers
+        // come from real on-screen reads during v0.5.2 calibration
+        // so any regression on the ladder is loud.
+        assert_eq!(format_mining_rate(0.0), "0");
+        // IronMine ×25 = 3000 Mt = 3 Gt → smallest-suffix band is Gt.
+        assert_eq!(format_mining_rate(120.0 * 25.0), "3 Gt/yr");
+        // 5e6 Mt = 5 Tt = 5000 Gt → smallest-suffix band is Tt.
+        assert_eq!(format_mining_rate(5e6), "5.00 Tt/yr");
+        assert_eq!(format_mining_rate(5.97e15), "5.97 Zt/yr");
+        assert_eq!(format_mining_rate(1.8e5), "180 Gt/yr");
+        assert_eq!(format_mining_rate(500.0), "500 Mt/yr");
+        assert_eq!(format_mining_rate(0.5), "500 kt/yr");
+    }
+
+    #[test]
+    fn format_mining_reserve_ladder_lands_in_one_to_three_digits() {
+        assert_eq!(format_mining_reserve(0.0), "0");
+        assert_eq!(format_mining_reserve(1.8e5), "180 Gt");
+        assert_eq!(format_mining_reserve(500.0), "500 Mt");
+        assert_eq!(format_mining_reserve(0.5), "500 kt");
+        // 1e-3 Mt = 1000 t, lands in the kt band.
+        assert_eq!(format_mining_reserve(1e-3), "1 kt");
+    }
+
+    #[test]
+    fn format_power_picks_smallest_suffix() {
+        assert_eq!(format_power(0.0), "0 W");
+        assert_eq!(format_power(0.5), "500 kW");
+        assert_eq!(format_power(50.0), "50 MW");
+        assert_eq!(format_power(900.0), "900 MW");
+        assert_eq!(format_power(250.0), "250 MW");
+        // 5 GW fusion plant used to read as "5000 MW".
+        assert_eq!(format_power(5000.0), "5.0 GW");
+        // 12 TW helioforge-class generator.
+        assert_eq!(format_power(12_000_000.0), "12.00 TW");
+    }
 }

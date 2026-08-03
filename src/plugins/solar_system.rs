@@ -457,8 +457,7 @@ const ROCK_NORMAL_VARIANTS: &[&str] = &[
 /// it). The fallback is also what comets continue to use: comets
 /// keep the original sparse map because icy nucleus relief reads
 /// better against the lower-frequency legacy map.
-const ROCK_NORMAL_FALLBACK: &str =
-    "textures/celestial/asteroids/generic_rock_normal_2k.png";
+const ROCK_NORMAL_FALLBACK: &str = "textures/celestial/asteroids/generic_rock_normal_2k.png";
 
 /// Denser roughness map for asteroids. Same band as the legacy
 /// `generic_rock_roughness_2k.png` but with an extra procedural

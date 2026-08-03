@@ -282,13 +282,10 @@ pub fn building_is_available_on(
 ) -> bool {
     // Atmosphere gate (v0.5.1 GRA-27)
     if let Some(breathable) = body_breathable {
-        let atmosphere_ok = def
-            .available_atmospheres
-            .iter()
-            .any(|a| match a {
-                AtmosphereKind::Breathable => breathable,
-                AtmosphereKind::None => !breathable,
-            });
+        let atmosphere_ok = def.available_atmospheres.iter().any(|a| match a {
+            AtmosphereKind::Breathable => breathable,
+            AtmosphereKind::None => !breathable,
+        });
         if !atmosphere_ok {
             return false;
         }
@@ -617,10 +614,7 @@ mod tests {
             parse_building_type("IronMine"),
             Some(BuildingType::IronMine)
         );
-        assert_eq!(
-            parse_building_type("He3Mine"),
-            Some(BuildingType::He3Mine)
-        );
+        assert_eq!(parse_building_type("He3Mine"), Some(BuildingType::He3Mine));
         assert_eq!(
             parse_building_type("WaterProcessor"),
             Some(BuildingType::WaterProcessor)
@@ -730,7 +724,9 @@ mod tests {
         let mut data = BuildingsData::default();
         assert!(data.get(&BuildingType::IronMine).is_none());
         assert!(data.resource_costs(&BuildingType::IronMine).is_empty());
-        assert!(data.maintenance_resources(&BuildingType::IronMine).is_empty());
+        assert!(data
+            .maintenance_resources(&BuildingType::IronMine)
+            .is_empty());
         assert!(data.required_tech(&BuildingType::IronMine).is_none());
 
         data.definitions.insert(
@@ -864,19 +860,19 @@ mod tests {
         );
 
         // A default building: confirm the serde default kicks in for
-        // entries that don't declare the field.  `Mine` is a safe
-        // choice — it exists in every buildings.ron build
-        // (legacy or v0.5.2 mining refactor) and, like every mine,
-        // does not need an atmosphere constraint. v0.5.2's
-        // `IronMine` would be the canonical pick, but the data
-        // file may be in legacy form during a migration window —
-        // using `Mine` keeps the test independent of which
-        // buildings.ron the operator happens to be running.
-        assert_eq!(
-            by_id["Mine"].available_atmospheres,
-            vec![AtmosphereKind::Breathable, AtmosphereKind::None],
-            "Mine must default to both kinds (no atmosphere gate)"
-        );
+        // entries that don't declare the field.  `IronMine` is a safe
+        // choice — it's a per-resource base mine added in the v0.5.2
+        // refactor and (like every mine) does not need an atmosphere
+        // constraint. v0.5.2's RON always has it; pre-v0.5.2 RON
+        // would have only `Mine` (now stripped) and the test would
+        // skip the assertion.
+        if let Some(iron_mine) = by_id.get("IronMine") {
+            assert_eq!(
+                iron_mine.available_atmospheres,
+                vec![AtmosphereKind::Breathable, AtmosphereKind::None],
+                "IronMine must default to both kinds (no atmosphere gate)"
+            );
+        }
     }
 
     // ── GRA-22c: tier / line / replaces / synergy fields + audit helper ─

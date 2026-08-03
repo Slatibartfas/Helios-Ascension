@@ -235,7 +235,6 @@ pub(super) fn render_resource_name_row(
     });
 }
 
-
 /// Get color for resource category
 fn get_category_color(category: &str) -> egui::Color32 {
     theme::category_color(category)
@@ -1121,7 +1120,9 @@ fn render_kardashev_overlay(
                             ui.horizontal(|ui| {
                                 ui.spacing_mut().item_spacing.x = 4.0;
                                 render_resource_icon(ui, resource_icons, *resource, 16.0);
-                                if ui.selectable_label(is_selected, resource.display_name()).clicked()
+                                if ui
+                                    .selectable_label(is_selected, resource.display_name())
+                                    .clicked()
                                     && !is_selected
                                 {
                                     trend_state.resource = *resource;
@@ -3198,8 +3199,7 @@ pub(super) fn ui_resources_bar(
         if let Some(inner_response) = window_response {
             if ctx.input(|i| i.pointer.any_pressed()) {
                 if let Some(pos) = ctx.input(|i| i.pointer.interact_pos()) {
-                    if !inner_response.response.rect.contains(pos)
-                        && !cat_anchor_rect.contains(pos)
+                    if !inner_response.response.rect.contains(pos) && !cat_anchor_rect.contains(pos)
                     {
                         open_popup.resource_open = None;
                     }
@@ -3333,13 +3333,14 @@ fn render_resource_hover_preview(
             .size(11.0),
         );
         ui.label(
-            egui::RichText::new(format!(
-                "Net {:+} /yr",
-                format_mass(annual.abs())
-            ))
-            .color(if annual < 0.0 { theme::RED } else { theme::GREEN })
-            .size(10.0)
-            .monospace(),
+            egui::RichText::new(format!("Net {:+} /yr", format_mass(annual.abs())))
+                .color(if annual < 0.0 {
+                    theme::RED
+                } else {
+                    theme::GREEN
+                })
+                .size(10.0)
+                .monospace(),
         );
     } else {
         ui.label(
@@ -3348,7 +3349,11 @@ fn render_resource_hover_preview(
             } else {
                 format!("Sustainable · net {:+} /yr", format_mass(annual.abs()))
             })
-            .color(if annual < 0.0 { theme::RED } else { theme::GREEN })
+            .color(if annual < 0.0 {
+                theme::RED
+            } else {
+                theme::GREEN
+            })
             .size(11.0),
         );
     }
@@ -3485,7 +3490,10 @@ fn render_resource_mini_chart(
     // ── "Now" vertical line (subtle, series color, full-height) ──
     let x_now = plot_rect.left();
     painter.line_segment(
-        [egui::pos2(x_now, plot_rect.top()), egui::pos2(x_now, plot_rect.bottom())],
+        [
+            egui::pos2(x_now, plot_rect.top()),
+            egui::pos2(x_now, plot_rect.bottom()),
+        ],
         egui::Stroke::new(1.0_f32, stroke_color.linear_multiply(0.6)),
     );
 
@@ -3536,10 +3544,7 @@ fn render_resource_mini_chart(
                 let next_y = (y + dash_len).min(plot_rect.bottom());
                 painter.line_segment(
                     [egui::pos2(x, y), egui::pos2(x, next_y)],
-                    egui::Stroke::new(
-                        theme::FORECAST_RUNS_OUT_STROKE_WIDTH,
-                        runs_out_color,
-                    ),
+                    egui::Stroke::new(theme::FORECAST_RUNS_OUT_STROKE_WIDTH, runs_out_color),
                 );
                 y = next_y + dash_len;
             }

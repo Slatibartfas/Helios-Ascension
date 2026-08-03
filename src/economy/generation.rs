@@ -40,52 +40,52 @@ fn identified_reserves_cap_mt(resource: ResourceType) -> f64 {
     use ResourceType::*;
     match resource {
         // Construction
-        Iron => 1.8e5,         // 180 Gt USGS iron ore reserves
-        Aluminum => 3.0e4,     // 30 Gt USGS bauxite reserves
-        Titanium => 8.0e4,    // 80 Gt USGS Ti mineral reserves
+        Iron => 1.8e5,              // 180 Gt USGS iron ore reserves
+        Aluminum => 3.0e4,          // 30 Gt USGS bauxite reserves
+        Titanium => 8.0e4,          // 80 Gt USGS Ti mineral reserves
         Silicates => f64::INFINITY, // industrial sand: effectively unlimited
-        Nickel => 1.3e5,       // 130 Gt USGS Ni reserves
-        Tungsten => 4.0e3,    // 4 Gt USGS W reserves
-        Carbon => 3.2e5,      // 320 Gt graphite reserves
-        Chromium => 5.6e4,    // 56 Gt USGS Cr reserves
-        Magnesium => 1.0e5,   // 100 Gt USGS Mg reserves
+        Nickel => 1.3e5,            // 130 Gt USGS Ni reserves
+        Tungsten => 4.0e3,          // 4 Gt USGS W reserves
+        Carbon => 3.2e5,            // 320 Gt graphite reserves
+        Chromium => 5.6e4,          // 56 Gt USGS Cr reserves
+        Magnesium => 1.0e5,         // 100 Gt USGS Mg reserves
 
         // Fissiles
-        Uranium => 7.9e3,     // 8 Gt USGS RAR uranium
-        Thorium => 6.0e5,     // 600 Gt USGS Th (mostly in monazite sands)
-        Plutonium => 0.0,     // bred, not mined
+        Uranium => 7.9e3, // 8 Gt USGS RAR uranium
+        Thorium => 6.0e5, // 600 Gt USGS Th (mostly in monazite sands)
+        Plutonium => 0.0, // bred, not mined
 
         // Precious
-        Gold => 1.0e-1,       // 100 kt USGS gold reserves (Earth-equivalent)
-        Silver => 7.0e-1,     // 700 kt USGS silver reserves
-        Platinum => 2.1e-2,   // 21 kt USGS Pt reserves
+        Gold => 1.0e-1,     // 100 kt USGS gold reserves (Earth-equivalent)
+        Silver => 7.0e-1,   // 700 kt USGS silver reserves
+        Platinum => 2.1e-2, // 21 kt USGS Pt reserves
 
         // Strategic
-        Copper => 1.0e4,      // 10 Gt USGS Cu reserves
-        RareEarths => 1.4e2,  // 140 Mt USGS REE reserves
-        Lithium => 3.0e-1,    // 300 kt USGS Li reserves (Earth-equivalent)
-        Sulfur => 1.5e3,      // 1.5 Gt USGS sulfur reserves
+        Copper => 1.0e4,     // 10 Gt USGS Cu reserves
+        RareEarths => 1.4e2, // 140 Mt USGS REE reserves
+        Lithium => 3.0e-1,   // 300 kt USGS Li reserves (Earth-equivalent)
+        Sulfur => 1.5e3,     // 1.5 Gt USGS sulfur reserves
         Cobalt => 1.1e-1,    // 110 kt USGS Co reserves
-        Fluorine => 3.0e2,    // 300 Mt fluorite reserves
-        Polymers => 0.0,      // manufactured, never mined
+        Fluorine => 3.0e2,   // 300 Mt fluorite reserves
+        Polymers => 0.0,     // manufactured, never mined
 
         // Volatiles — bounded by atmospheric inventory, not crust
-        Water => 1.5e4,       // 15 Gt accessible freshwater reserves
+        Water => 1.5e4,            // 15 Gt accessible freshwater reserves
         Hydrogen => f64::INFINITY, // split from H₂O on demand
-        Ammonia => f64::INFINITY, // manufactured
-        Methane => 2.5e4,     // 25 Gt natural gas proved reserves
-        Phosphorus => 7.4e4,  // 74 Gt USGS phosphate rock
+        Ammonia => f64::INFINITY,  // manufactured
+        Methane => 2.5e4,          // 25 Gt natural gas proved reserves
+        Phosphorus => 7.4e4,       // 74 Gt USGS phosphate rock
 
         // Atmospheric gases — use atmospheric inventory directly
-        Nitrogen => 4.0e9,    // 4 Gt N₂ in Earth atmosphere
-        Oxygen => 1.1e9,      // 1.1 Gt O₂ in Earth atmosphere
+        Nitrogen => 4.0e9,      // 4 Gt N₂ in Earth atmosphere
+        Oxygen => 1.1e9,        // 1.1 Gt O₂ in Earth atmosphere
         CarbonDioxide => 3.0e6, // 3 Mt atmosphere; ~10⁵ Mt ocean
-        Argon => 7.0e7,       // 70 Mt atmosphere
+        Argon => 7.0e7,         // 70 Mt atmosphere
 
         // Fusion fuel
-        Helium3 => 4.0e-4,    // 400 kg He-3 in lunar regolith (theoretical)
-        Deuterium => 1.0e5,   // 100 Gt D in seawater (theoretically recoverable)
-        Tritium => 0.0,       // bred from lithium in reactors
+        Helium3 => 4.0e-4,  // 400 kg He-3 in lunar regolith (theoretical)
+        Deuterium => 1.0e5, // 100 Gt D in seawater (theoretically recoverable)
+        Tritium => 0.0,     // bred from lithium in reactors
 
         // Exotic — synthetic; no mineable reserves
         Antimatter | ExoticMatter | Metamaterials | Computronium => 0.0,
@@ -477,13 +477,7 @@ pub(super) fn create_deposit_legacy(
     body_mass_kg: f64,
     body_type: BodyType,
 ) -> MineralDeposit {
-    create_deposit_legacy_inner(
-        abundance,
-        accessibility,
-        body_mass_kg,
-        body_type,
-        None,
-    )
+    create_deposit_legacy_inner(abundance, accessibility, body_mass_kg, body_type, None)
 }
 
 /// Resource-aware overload of `create_deposit_legacy`.  Pass the actual
@@ -569,10 +563,7 @@ fn create_deposit_legacy_inner(
     // fully strippable".
     let cap = match body_type {
         BodyType::Asteroid | BodyType::Comet => f64::INFINITY,
-        _ => reserves_cap_for_body(
-            resource_hint.unwrap_or(ResourceType::Iron),
-            body_mass_kg,
-        ),
+        _ => reserves_cap_for_body(resource_hint.unwrap_or(ResourceType::Iron), body_mass_kg),
     };
     let raw_proven = total_mass_mt * proven_factor;
     let raw_deep = total_mass_mt * deep_factor;

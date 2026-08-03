@@ -15,9 +15,9 @@ use bevy::window::PrimaryWindow;
 use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 use std::collections::HashMap;
 
-pub mod interaction;
 pub mod bevy_theme;
 mod construction;
+pub mod interaction;
 
 pub use interaction::Selection;
 
@@ -36,8 +36,8 @@ mod personnel_panel;
 mod porkchop_color_ramp;
 mod porkchop_panel;
 mod research_panel;
-mod resources_bar;
 mod resource_icons;
+mod resources_bar;
 mod settings;
 mod shipbuilding_state;
 mod shipbuilding_tooltip;
@@ -64,9 +64,9 @@ use fleets_panel::{
     ShippingCompanyFilter,
 };
 use icons::{load_menu_icons, load_research_icons, process_menu_icons, process_research_icons};
-use resource_icons::{load_resource_icons_bevy_ui, post_process_resource_icons};
 use personnel_panel::ui_personnel_panel;
 use research_panel::ui_research_panels;
+use resource_icons::{load_resource_icons_bevy_ui, post_process_resource_icons};
 use resources_bar::ui_resources_bar;
 use shipbuilding_workspace::ShipbuildingWorkspacePlugin;
 use time::advance_simulation_time;
@@ -78,8 +78,8 @@ use crate::astronomy::{
     SpaceCoordinates,
 };
 use crate::colony::{
-    BuildingCategory, BuildingType, BuildingsData, Colony,
-    ConstructionProject, EstablishOutpostRequest, PendingConstructionActions,
+    BuildingCategory, BuildingType, BuildingsData, Colony, ConstructionProject,
+    EstablishOutpostRequest, PendingConstructionActions,
 };
 use crate::economy::components::{MineralDeposit, Population, SurveyLevel};
 use crate::economy::{

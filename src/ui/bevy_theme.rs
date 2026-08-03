@@ -324,7 +324,6 @@ impl Default for HairlineBundle {
 
 // ─── Text Helpers ──────────────────────────────────────────────────────────
 
-
 // ── Duration Formatter ─────────────────────────────────────
 
 /// Format a `Duration` (in seconds) as a compact "Xd Yh Zm" string.
@@ -393,10 +392,7 @@ pub fn format_duration_padded(total_seconds: f64) -> String {
     s -= minutes as f64 * 60.0;
     let seconds = s as u32;
 
-    format!(
-        "{:02}d {:02}h {:02}m {:02}s",
-        days, hours, minutes, seconds
-    )
+    format!("{:02}d {:02}h {:02}m {:02}s", days, hours, minutes, seconds)
 }
 
 /// Spawn a `Text` entity with the given content, font, size, and color.
@@ -458,11 +454,7 @@ impl ChipButtonBundle {
     }
 
     /// Like [`new`](Self::new) but with an optional border override.
-    pub fn new_with_border(
-        label: &str,
-        is_active: bool,
-        border_override: Option<UiRect>,
-    ) -> Self {
+    pub fn new_with_border(label: &str, is_active: bool, border_override: Option<UiRect>) -> Self {
         Self {
             button: Button,
             node: Node {
@@ -568,11 +560,7 @@ pub fn spawn_chip_text(
                 ..default()
             },
             // Active chips use bright white text on the cyan fill.
-            TextColor(if is_active {
-                ACTIVE_CHIP_TEXT
-            } else {
-                CYAN
-            }),
+            TextColor(if is_active { ACTIVE_CHIP_TEXT } else { CYAN }),
             ChipTextNode { is_active },
         ))
         .id();
@@ -593,7 +581,12 @@ pub fn spawn_chip_text(
 /// the system mutates the child's TextColor via `Children`.
 pub fn tick_chip_button_hover(
     mut button_query: Query<
-        (&Interaction, &mut BackgroundColor, &mut UiTransform, &Children),
+        (
+            &Interaction,
+            &mut BackgroundColor,
+            &mut UiTransform,
+            &Children,
+        ),
         With<Button>,
     >,
     mut text_query: Query<&mut TextColor, With<ChipTextNode>>,
@@ -656,7 +649,15 @@ pub fn tick_chip_button_hover(
 /// (clicking to toggle active state) is Phase C4 work.
 
 pub fn tick_chip_button_active_overlay(
-    mut chips: Query<(Entity, &super::construction::ChipKind, &mut BackgroundColor, &Children), With<Button>>,
+    mut chips: Query<
+        (
+            Entity,
+            &super::construction::ChipKind,
+            &mut BackgroundColor,
+            &Children,
+        ),
+        With<Button>,
+    >,
     mut text_query: Query<&mut TextColor, With<ChipTextNode>>,
     active: Res<super::construction::ActiveChips>,
 ) {
@@ -697,7 +698,6 @@ pub fn tick_chip_button_active_overlay(
     }
 }
 
-
 /// System: ensure every active chip has a subtle cyan glow, and every
 /// inactive chip has no glow. The active state is determined by the
 /// `ActiveChips` resource (single source of truth — the same resource
@@ -712,10 +712,7 @@ pub fn tick_chip_button_active_overlay(
 /// Build). Cost is negligible: < 30 chips per frame.
 pub fn tick_active_chip_glow(
     mut commands: Commands,
-    chips: Query<
-        (Entity, &super::construction::ChipKind, Option<&BoxShadow>),
-        With<Button>,
-    >,
+    chips: Query<(Entity, &super::construction::ChipKind, Option<&BoxShadow>), With<Button>>,
     active: Res<super::construction::ActiveChips>,
 ) {
     for (entity, kind, existing_shadow) in chips.iter() {

@@ -622,34 +622,101 @@ impl BuildingType {
             ],
             // ── Mining & Industry (v0.5.2: per-resource dedicated mines) ─
             // Construction (9)
-            BuildingType::IronMine => &["+120 Mt/yr iron per mine", "Yield × deposit.accessibility"],
-            BuildingType::AluminumMine => &["+5 Mt/yr aluminum per mine", "Yield × deposit.accessibility"],
-            BuildingType::TitaniumMine => &["+0.02 Mt/yr titanium per mine", "Yield × deposit.accessibility"],
-            BuildingType::SilicatesMine => &["+700 Mt/yr silicates per quarry", "Yield × deposit.accessibility"],
-            BuildingType::NickelMine => &["+0.2 Mt/yr nickel per mine", "Yield × deposit.accessibility"],
-            BuildingType::TungstenMine => &["+0.005 Mt/yr tungsten per mine", "Yield × deposit.accessibility"],
-            BuildingType::CarbonMine => &["+350 Mt/yr carbon per mine", "Yield × deposit.accessibility"],
-            BuildingType::ChromiumMine => &["+2 Mt/yr chromium per mine", "Yield × deposit.accessibility"],
-            BuildingType::MagnesiumMine => &["+0.07 Mt/yr magnesium per mine", "Yield × deposit.accessibility"],
+            BuildingType::IronMine => {
+                &["+120 Mt/yr iron per mine", "Yield × deposit.accessibility"]
+            }
+            BuildingType::AluminumMine => &[
+                "+5 Mt/yr aluminum per mine",
+                "Yield × deposit.accessibility",
+            ],
+            BuildingType::TitaniumMine => &[
+                "+0.02 Mt/yr titanium per mine",
+                "Yield × deposit.accessibility",
+            ],
+            BuildingType::SilicatesMine => &[
+                "+700 Mt/yr silicates per quarry",
+                "Yield × deposit.accessibility",
+            ],
+            BuildingType::NickelMine => &[
+                "+0.2 Mt/yr nickel per mine",
+                "Yield × deposit.accessibility",
+            ],
+            BuildingType::TungstenMine => &[
+                "+0.005 Mt/yr tungsten per mine",
+                "Yield × deposit.accessibility",
+            ],
+            BuildingType::CarbonMine => &[
+                "+350 Mt/yr carbon per mine",
+                "Yield × deposit.accessibility",
+            ],
+            BuildingType::ChromiumMine => &[
+                "+2 Mt/yr chromium per mine",
+                "Yield × deposit.accessibility",
+            ],
+            BuildingType::MagnesiumMine => &[
+                "+0.07 Mt/yr magnesium per mine",
+                "Yield × deposit.accessibility",
+            ],
             // Precious (3 — v0.5.1)
-            BuildingType::GoldMine => &["+0.0001 Mt/yr gold per mine", "Direct deposit (not share-fold)"],
-            BuildingType::SilverMine => &["+0.001 Mt/yr silver per mine", "Direct deposit (not share-fold)"],
-            BuildingType::PlatinumMine => &["+0.00001 Mt/yr platinum per mine", "Direct deposit (not share-fold)"],
+            BuildingType::GoldMine => &[
+                "+0.0001 Mt/yr gold per mine",
+                "Direct deposit (not share-fold)",
+            ],
+            BuildingType::SilverMine => &[
+                "+0.001 Mt/yr silver per mine",
+                "Direct deposit (not share-fold)",
+            ],
+            BuildingType::PlatinumMine => &[
+                "+0.00001 Mt/yr platinum per mine",
+                "Direct deposit (not share-fold)",
+            ],
             // Strategic (6)
-            BuildingType::CopperMine => &["+1.5 Mt/yr copper per mine", "Yield × deposit.accessibility"],
-            BuildingType::RareEarthsMine => &["+0.025 Mt/yr rare earths per mine", "Yield × deposit.accessibility"],
-            BuildingType::LithiumMine => &["+0.012 Mt/yr lithium per mine", "Yield × deposit.accessibility"],
-            BuildingType::SulfurMine => &["+5 Mt/yr sulfur per mine", "Yield × deposit.accessibility"],
-            BuildingType::PhosphorusMine => &["+0.003 Mt/yr phosphorus per mine", "Yield × deposit.accessibility"],
-            BuildingType::CobaltMine => &["+0.015 Mt/yr cobalt per mine", "Yield × deposit.accessibility"],
-            BuildingType::FluorineMine => &["+0.2 Mt/yr fluorine per mine", "Yield × deposit.accessibility"],
+            BuildingType::CopperMine => &[
+                "+1.5 Mt/yr copper per mine",
+                "Yield × deposit.accessibility",
+            ],
+            BuildingType::RareEarthsMine => &[
+                "+0.025 Mt/yr rare earths per mine",
+                "Yield × deposit.accessibility",
+            ],
+            BuildingType::LithiumMine => &[
+                "+0.012 Mt/yr lithium per mine",
+                "Yield × deposit.accessibility",
+            ],
+            BuildingType::SulfurMine => {
+                &["+5 Mt/yr sulfur per mine", "Yield × deposit.accessibility"]
+            }
+            BuildingType::PhosphorusMine => &[
+                "+0.003 Mt/yr phosphorus per mine",
+                "Yield × deposit.accessibility",
+            ],
+            BuildingType::CobaltMine => &[
+                "+0.015 Mt/yr cobalt per mine",
+                "Yield × deposit.accessibility",
+            ],
+            BuildingType::FluorineMine => &[
+                "+0.2 Mt/yr fluorine per mine",
+                "Yield × deposit.accessibility",
+            ],
             // Fissile (2)
-            BuildingType::UraniumMine => &["+0.003 Mt/yr uranium per mine", "Yield × deposit.accessibility"],
-            BuildingType::ThoriumMine => &["+0.0007 Mt/yr thorium per mine", "Yield × deposit.accessibility"],
+            BuildingType::UraniumMine => &[
+                "+0.003 Mt/yr uranium per mine",
+                "Yield × deposit.accessibility",
+            ],
+            BuildingType::ThoriumMine => &[
+                "+0.0007 Mt/yr thorium per mine",
+                "Yield × deposit.accessibility",
+            ],
             // Hydrocarbons (1)
-            BuildingType::MethaneExtractor => &["+270 Mt/yr methane per extractor", "Yield × deposit.accessibility"],
+            BuildingType::MethaneExtractor => &[
+                "+270 Mt/yr methane per extractor",
+                "Yield × deposit.accessibility",
+            ],
             // Heavy water (1)
-            BuildingType::DeuteriumExtractor => &["+0.5 Mt/yr deuterium per extractor", "Yield × deposit.accessibility"],
+            BuildingType::DeuteriumExtractor => &[
+                "+0.5 Mt/yr deuterium per extractor",
+                "Yield × deposit.accessibility",
+            ],
             // He-3 (1 — body-restricted)
             BuildingType::He3Mine => &[
                 "+0.5 Mt/yr He-3 per mine",
@@ -657,34 +724,106 @@ impl BuildingType {
                 "Requires lunar_colony tech",
             ],
             // AutoMines (22) — orbital/asteroid mining
-            BuildingType::AutoIronMine => &["+12 Mt/yr iron per rig (asteroid)", "Body: [Asteroid, Moon, GasGiant]"],
-            BuildingType::AutoAluminumMine => &["+0.5 Mt/yr aluminum per rig", "Body: [Asteroid, Moon, GasGiant]"],
-            BuildingType::AutoTitaniumMine => &["+0.002 Mt/yr titanium per rig", "Body: [Asteroid, Moon, GasGiant]"],
-            BuildingType::AutoSilicatesMine => &["+70 Mt/yr silicates per rig", "Body: [Asteroid, Moon, GasGiant]"],
-            BuildingType::AutoNickelMine => &["+0.02 Mt/yr nickel per rig (M-type)", "Body: [Asteroid, Moon, GasGiant]"],
-            BuildingType::AutoTungstenMine => &["+0.0005 Mt/yr tungsten per rig", "Body: [Asteroid, Moon, GasGiant]"],
-            BuildingType::AutoCarbonMine => &["+35 Mt/yr carbon per rig (C-type)", "Body: [Asteroid, Moon, GasGiant]"],
-            BuildingType::AutoChromiumMine => &["+0.2 Mt/yr chromium per rig", "Body: [Asteroid, Moon, GasGiant]"],
-            BuildingType::AutoMagnesiumMine => &["+0.007 Mt/yr magnesium per rig", "Body: [Asteroid, Moon, GasGiant]"],
-            BuildingType::AutoGoldMine => &["+0.00001 Mt/yr gold per rig", "Body: [Asteroid, Moon, GasGiant]"],
-            BuildingType::AutoSilverMine => &["+0.0001 Mt/yr silver per rig", "Body: [Asteroid, Moon, GasGiant]"],
-            BuildingType::AutoPlatinumMine => &["+0.000001 Mt/yr platinum per rig", "Body: [Asteroid, Moon, GasGiant]"],
-            BuildingType::AutoCopperMine => &["+0.15 Mt/yr copper per rig", "Body: [Asteroid, Moon, GasGiant]"],
-            BuildingType::AutoRareEarthsMine => &["+0.0025 Mt/yr rare earths per rig", "Body: [Asteroid, Moon, GasGiant]"],
-            BuildingType::AutoLithiumMine => &["+0.0012 Mt/yr lithium per rig", "Body: [Asteroid, Moon, GasGiant]"],
-            BuildingType::AutoSulfurMine => &["+0.5 Mt/yr sulfur per rig", "Body: [Asteroid, Moon, GasGiant]"],
-            BuildingType::AutoPhosphorusMine => &["+0.0003 Mt/yr phosphorus per rig", "Body: [Asteroid, Moon, GasGiant]"],
-            BuildingType::AutoCobaltMine => &["+0.0015 Mt/yr cobalt per rig", "Body: [Asteroid, Moon, GasGiant]"],
-            BuildingType::AutoFluorineMine => &["+0.02 Mt/yr fluorine per rig", "Body: [Asteroid, Moon, GasGiant]"],
-            BuildingType::AutoUraniumMine => &["+0.0003 Mt/yr uranium per rig", "Body: [Asteroid, Moon, GasGiant]"],
-            BuildingType::AutoThoriumMine => &["+0.00007 Mt/yr thorium per rig", "Body: [Asteroid, Moon, GasGiant]"],
-            BuildingType::AutoMethaneExtractor => &["+27 Mt/yr methane per rig (Titan)", "Body: [Asteroid, Moon, GasGiant]"],
-            BuildingType::AutoDeuteriumExtractor => &["+0.05 Mt/yr deuterium per rig", "Body: [Asteroid, Moon, GasGiant]"],
+            BuildingType::AutoIronMine => &[
+                "+12 Mt/yr iron per rig (asteroid)",
+                "Body: [Asteroid, Moon, GasGiant]",
+            ],
+            BuildingType::AutoAluminumMine => &[
+                "+0.5 Mt/yr aluminum per rig",
+                "Body: [Asteroid, Moon, GasGiant]",
+            ],
+            BuildingType::AutoTitaniumMine => &[
+                "+0.002 Mt/yr titanium per rig",
+                "Body: [Asteroid, Moon, GasGiant]",
+            ],
+            BuildingType::AutoSilicatesMine => &[
+                "+70 Mt/yr silicates per rig",
+                "Body: [Asteroid, Moon, GasGiant]",
+            ],
+            BuildingType::AutoNickelMine => &[
+                "+0.02 Mt/yr nickel per rig (M-type)",
+                "Body: [Asteroid, Moon, GasGiant]",
+            ],
+            BuildingType::AutoTungstenMine => &[
+                "+0.0005 Mt/yr tungsten per rig",
+                "Body: [Asteroid, Moon, GasGiant]",
+            ],
+            BuildingType::AutoCarbonMine => &[
+                "+35 Mt/yr carbon per rig (C-type)",
+                "Body: [Asteroid, Moon, GasGiant]",
+            ],
+            BuildingType::AutoChromiumMine => &[
+                "+0.2 Mt/yr chromium per rig",
+                "Body: [Asteroid, Moon, GasGiant]",
+            ],
+            BuildingType::AutoMagnesiumMine => &[
+                "+0.007 Mt/yr magnesium per rig",
+                "Body: [Asteroid, Moon, GasGiant]",
+            ],
+            BuildingType::AutoGoldMine => &[
+                "+0.00001 Mt/yr gold per rig",
+                "Body: [Asteroid, Moon, GasGiant]",
+            ],
+            BuildingType::AutoSilverMine => &[
+                "+0.0001 Mt/yr silver per rig",
+                "Body: [Asteroid, Moon, GasGiant]",
+            ],
+            BuildingType::AutoPlatinumMine => &[
+                "+0.000001 Mt/yr platinum per rig",
+                "Body: [Asteroid, Moon, GasGiant]",
+            ],
+            BuildingType::AutoCopperMine => &[
+                "+0.15 Mt/yr copper per rig",
+                "Body: [Asteroid, Moon, GasGiant]",
+            ],
+            BuildingType::AutoRareEarthsMine => &[
+                "+0.0025 Mt/yr rare earths per rig",
+                "Body: [Asteroid, Moon, GasGiant]",
+            ],
+            BuildingType::AutoLithiumMine => &[
+                "+0.0012 Mt/yr lithium per rig",
+                "Body: [Asteroid, Moon, GasGiant]",
+            ],
+            BuildingType::AutoSulfurMine => &[
+                "+0.5 Mt/yr sulfur per rig",
+                "Body: [Asteroid, Moon, GasGiant]",
+            ],
+            BuildingType::AutoPhosphorusMine => &[
+                "+0.0003 Mt/yr phosphorus per rig",
+                "Body: [Asteroid, Moon, GasGiant]",
+            ],
+            BuildingType::AutoCobaltMine => &[
+                "+0.0015 Mt/yr cobalt per rig",
+                "Body: [Asteroid, Moon, GasGiant]",
+            ],
+            BuildingType::AutoFluorineMine => &[
+                "+0.02 Mt/yr fluorine per rig",
+                "Body: [Asteroid, Moon, GasGiant]",
+            ],
+            BuildingType::AutoUraniumMine => &[
+                "+0.0003 Mt/yr uranium per rig",
+                "Body: [Asteroid, Moon, GasGiant]",
+            ],
+            BuildingType::AutoThoriumMine => &[
+                "+0.00007 Mt/yr thorium per rig",
+                "Body: [Asteroid, Moon, GasGiant]",
+            ],
+            BuildingType::AutoMethaneExtractor => &[
+                "+27 Mt/yr methane per rig (Titan)",
+                "Body: [Asteroid, Moon, GasGiant]",
+            ],
+            BuildingType::AutoDeuteriumExtractor => &[
+                "+0.05 Mt/yr deuterium per rig",
+                "Body: [Asteroid, Moon, GasGiant]",
+            ],
             BuildingType::AutoHe3Mine => &[
                 "+0.05 Mt/yr He-3 per rig (lunar regolith / asteroids)",
                 "Body: [Asteroid, Moon, GasGiant]",
             ],
-            BuildingType::AutoWaterProcessor => &["+1.6 Mt/yr water per rig (C-type ice)", "Body: [Asteroid, Moon, GasGiant]"],
+            BuildingType::AutoWaterProcessor => &[
+                "+1.6 Mt/yr water per rig (C-type ice)",
+                "Body: [Asteroid, Moon, GasGiant]",
+            ],
             // Generic industry
             BuildingType::Factory => &["+10 BP/yr construction speed", "-5% construction costs"],
             BuildingType::ChemicalPlant => &[
@@ -759,36 +898,36 @@ impl BuildingType {
             BuildingType::UndergroundHabitat => "⛏",
             BuildingType::WaterProcessor => "🧊",
             // Construction mines (9)
-            BuildingType::IronMine => "⛓",         // chain link / iron symbol
-            BuildingType::AluminumMine => "🪨",     // rock
-            BuildingType::TitaniumMine => "🔩",     // bolt (strong alloy)
-            BuildingType::SilicatesMine => "🪨",     // stone
-            BuildingType::NickelMine => "🟘",       // brown circle (nickel hue)
-            BuildingType::TungstenMine => "🟧",     // orange square (wolframite)
-            BuildingType::CarbonMine => "⬛",       // black square (coal)
-            BuildingType::ChromiumMine => "🟢",     // green circle (chromite green hue)
-            BuildingType::MagnesiumMine => "⬜",     // white square (magnesia)
+            BuildingType::IronMine => "⛓", // chain link / iron symbol
+            BuildingType::AluminumMine => "🪨", // rock
+            BuildingType::TitaniumMine => "🔩", // bolt (strong alloy)
+            BuildingType::SilicatesMine => "🪨", // stone
+            BuildingType::NickelMine => "🟘", // brown circle (nickel hue)
+            BuildingType::TungstenMine => "🟧", // orange square (wolframite)
+            BuildingType::CarbonMine => "⬛", // black square (coal)
+            BuildingType::ChromiumMine => "🟢", // green circle (chromite green hue)
+            BuildingType::MagnesiumMine => "⬜", // white square (magnesia)
             // Precious metals (3 — v0.5.1)
             BuildingType::GoldMine => "🥇",
             BuildingType::SilverMine => "🥈",
             BuildingType::PlatinumMine => "💍",
             // Strategic (6)
-            BuildingType::CopperMine => "🟠",       // orange circle (copper hue)
-            BuildingType::RareEarthsMine => "🌐",   // globe (rare elements)
-            BuildingType::LithiumMine => "🔋",      // battery
-            BuildingType::SulfurMine => "🟡",       // yellow circle (sulfur)
-            BuildingType::PhosphorusMine => "🟣",   // purple circle (phosphorus glow)
-            BuildingType::CobaltMine => "🔵",       // blue circle (cobalt)
-            BuildingType::FluorineMine => "🟩",     // green square (fluorite)
+            BuildingType::CopperMine => "🟠", // orange circle (copper hue)
+            BuildingType::RareEarthsMine => "🌐", // globe (rare elements)
+            BuildingType::LithiumMine => "🔋", // battery
+            BuildingType::SulfurMine => "🟡", // yellow circle (sulfur)
+            BuildingType::PhosphorusMine => "🟣", // purple circle (phosphorus glow)
+            BuildingType::CobaltMine => "🔵", // blue circle (cobalt)
+            BuildingType::FluorineMine => "🟩", // green square (fluorite)
             // Fissile (2)
-            BuildingType::UraniumMine => "☢",       // radioactive symbol
-            BuildingType::ThoriumMine => "🟤",      // brown square (monazite)
+            BuildingType::UraniumMine => "☢",  // radioactive symbol
+            BuildingType::ThoriumMine => "🟤", // brown square (monazite)
             // Hydrocarbons (1)
             BuildingType::MethaneExtractor => "🔥", // flame (methane combustion)
             // Heavy water (1)
             BuildingType::DeuteriumExtractor => "💧", // water drop
             // He-3 (1 — body-restricted)
-            BuildingType::He3Mine => "☀",          // sun (solar-wind-implanted He-3)
+            BuildingType::He3Mine => "☀", // sun (solar-wind-implanted He-3)
             // AutoMines (22) — orbital/asteroid mining (use '🛰' prefix to denote orbital)
             BuildingType::AutoIronMine => "🛰⛓",
             BuildingType::AutoAluminumMine => "🛰🪨",
@@ -1373,7 +1512,11 @@ mod tests {
         //   56 + 23 + 25 - 7 - 2 (GoldMine/SilverMine/PlatinumMine
         //   were already in v0.5.1; He3Mine was the v0.5.1 canary 3 that
         //   finally lands) = 95.
-        assert_eq!(all.len(), 95, "Should have exactly 95 building types (v0.5.2: per-resource mines + AutoMines)");
+        assert_eq!(
+            all.len(),
+            95,
+            "Should have exactly 95 building types (v0.5.2: per-resource mines + AutoMines)"
+        );
     }
 
     #[test]

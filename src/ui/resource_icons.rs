@@ -121,10 +121,7 @@ pub fn get_category_icon_handle<'a>(
 /// resource icon PNG and stores the resulting `Handle<Image>` in
 /// `ResourceIcons::bevy_handles`. The post-processor mutates the
 /// loaded pixels in place (see `post_process_resource_icons`).
-pub fn load_resource_icons_bevy_ui(
-    mut commands: Commands,
-    asset_server: Res<AssetServer>,
-) {
+pub fn load_resource_icons_bevy_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
     let mut handles = HashMap::new();
     let mut pending = std::collections::HashSet::new();
     for &resource in ResourceType::all() {
@@ -310,7 +307,8 @@ pub fn load_resource_icons(
         let rgba = image.to_rgba8();
         let (w, h) = rgba.dimensions();
         let processed = post_process_rgba(rgba.as_raw());
-        let color_image = egui::ColorImage::from_rgba_unmultiplied([w as usize, h as usize], &processed);
+        let color_image =
+            egui::ColorImage::from_rgba_unmultiplied([w as usize, h as usize], &processed);
         let handle = ctx.load_texture(
             format!("resource_icon_{:?}", resource),
             color_image,
@@ -333,8 +331,8 @@ pub fn load_resource_icons(
         let Some(slug) = category_icon_basename(category) else {
             continue;
         };
-        let path = std::path::Path::new("assets/textures/ui/resources")
-            .join(format!("{}.png", slug));
+        let path =
+            std::path::Path::new("assets/textures/ui/resources").join(format!("{}.png", slug));
         let Ok(bytes) = std::fs::read(&path) else {
             continue;
         };
@@ -348,7 +346,8 @@ pub fn load_resource_icons(
         // The regular resource icons go through `post_process_rgba`
         // which assumes the bake already happened.
         let processed = post_process_category_rgba(rgba.as_raw());
-        let color_image = egui::ColorImage::from_rgba_unmultiplied([w as usize, h as usize], &processed);
+        let color_image =
+            egui::ColorImage::from_rgba_unmultiplied([w as usize, h as usize], &processed);
         let handle = ctx.load_texture(
             format!("category_icon_{}", category),
             color_image,
@@ -406,8 +405,8 @@ fn resource_icon_path(resource: ResourceType) -> Option<String> {
     };
     // Absolute path is fine here — `std::fs::read` and the
     // `image` crate don't go through Bevy's asset server.
-    let abs = std::path::Path::new("assets/textures/ui/resources")
-        .join(format!("{}.png", basename));
+    let abs =
+        std::path::Path::new("assets/textures/ui/resources").join(format!("{}.png", basename));
     if !abs.exists() {
         return None;
     }

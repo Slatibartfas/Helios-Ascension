@@ -320,7 +320,9 @@ mod tests {
                 }
             }
         }
-        let _env_lock = USERDATA_ENV_LOCK.lock().expect("USERDATA_ENV_LOCK poisoned");
+        let _env_lock = USERDATA_ENV_LOCK
+            .lock()
+            .expect("USERDATA_ENV_LOCK poisoned");
         let prior = std::env::var_os("HELIOS_USERDATA_DIR");
         let override_dir =
             std::env::temp_dir().join(format!("helios-userdata-override-{}", std::process::id()));

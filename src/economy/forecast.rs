@@ -505,7 +505,10 @@ mod tests {
         let series = project_stockpile(50.0, 10.0, None);
         let last = series.samples.last().unwrap().value_mt;
         assert!((last - 250.0).abs() < 1e-6, "endpoint was {last}");
-        assert!(series.runs_out_at_s.is_none(), "stable resources never deplete");
+        assert!(
+            series.runs_out_at_s.is_none(),
+            "stable resources never deplete"
+        );
         // Monotonic non-decreasing
         for w in series.samples.windows(2) {
             assert!(w[1].value_mt >= w[0].value_mt - 1e-9);
@@ -554,7 +557,10 @@ mod tests {
         let hit = series.hits_reserve_cap_at_s.expect("must hit cap");
         // 5 years from t=0 in seconds.
         let expected = 5.0 * SECONDS_PER_YEAR;
-        assert!((hit - expected).abs() < SECONDS_PER_YEAR / 12.0, "hit at {hit}");
+        assert!(
+            (hit - expected).abs() < SECONDS_PER_YEAR / 12.0,
+            "hit at {hit}"
+        );
         // Samples after the cap must equal the cap (never below current).
         for s in &series.samples {
             assert!(s.value_mt <= 150.0 + 1e-6, "above cap: {}", s.value_mt);
@@ -586,7 +592,9 @@ mod tests {
         let at_5 = series
             .samples
             .iter()
-            .find(|s| (s.sim_seconds_offset - 5.0 * SECONDS_PER_YEAR).abs() < SECONDS_PER_YEAR / 24.0)
+            .find(|s| {
+                (s.sim_seconds_offset - 5.0 * SECONDS_PER_YEAR).abs() < SECONDS_PER_YEAR / 24.0
+            })
             .map(|s| s.value_mt)
             .expect("near-5yr sample");
         assert!((at_5 - 75.0).abs() < 5.0, "pre-impact value at 5yr: {at_5}");
@@ -607,17 +615,17 @@ mod tests {
     #[test]
     fn mixed_scope_emits_per_resource_series() {
         let mut scope = ScopeInputs::new();
-        scope
-            .resources
-            .insert(ResourceType::Iron, (100.0, -5.0));
-        scope
-            .resources
-            .insert(ResourceType::Food, (50.0, 10.0));
+        scope.resources.insert(ResourceType::Iron, (100.0, -5.0));
+        scope.resources.insert(ResourceType::Food, (50.0, 10.0));
         let bounds = ReserveBounds::new();
         let series = build_forecast(&scope, &[], 0.0, &bounds);
         assert_eq!(series.len(), 2);
-        assert!(series.iter().any(|s| s.resource == ResourceType::Iron && s.runs_out_at_s.is_some()));
-        assert!(series.iter().any(|s| s.resource == ResourceType::Food && s.runs_out_at_s.is_none()));
+        assert!(series
+            .iter()
+            .any(|s| s.resource == ResourceType::Iron && s.runs_out_at_s.is_some()));
+        assert!(series
+            .iter()
+            .any(|s| s.resource == ResourceType::Food && s.runs_out_at_s.is_none()));
     }
 
     #[test]
@@ -633,12 +641,8 @@ mod tests {
     fn flat_no_skipped_aggregation() {
         // Re-aggregation of two inputs into one series.
         let mut scope = ScopeInputs::new();
-        scope
-            .resources
-            .insert(ResourceType::Iron, (50.0, -2.5));
-        scope
-            .resources
-            .insert(ResourceType::Iron, (50.0, -2.5)); // overwrite same key
+        scope.resources.insert(ResourceType::Iron, (50.0, -2.5));
+        scope.resources.insert(ResourceType::Iron, (50.0, -2.5)); // overwrite same key
         let bounds = ReserveBounds::new();
         let series = build_forecast(&scope, &[], 0.0, &bounds);
         assert_eq!(series.len(), 1);
@@ -657,9 +661,7 @@ mod tests {
     fn reserve_bounds_propagate_to_series() {
         // 100 Mt at +5 Mt/yr, capped at 130 Mt → hits cap at t=6 yr.
         let mut scope = ScopeInputs::new();
-        scope
-            .resources
-            .insert(ResourceType::Iron, (100.0, 5.0));
+        scope.resources.insert(ResourceType::Iron, (100.0, 5.0));
         let mut bounds = ReserveBounds::new();
         bounds.insert(ResourceType::Iron, 130.0);
         let series = build_forecast(&scope, &[], 0.0, &bounds);

@@ -77,10 +77,7 @@ impl Plugin for ScreenshotPlugin {
             // handler covers `LaunchState::MainMenu / NewGame /
             // LoadGame / Settings / SaveGame` and routes them to the
             // matching slot.
-            .add_systems(
-                EguiPrimaryContextPass,
-                launch_screenshot_keybind_system,
-            );
+            .add_systems(EguiPrimaryContextPass, launch_screenshot_keybind_system);
         // Capture pump is `#[cfg(not(test))]` — it spawns Bevy 0.18
         // `Screenshot` observers. Tests don't build a renderer, so
         // there is nothing to drain.
@@ -162,8 +159,8 @@ fn launch_screenshot_keybind_system(
     // needing a text-field focus check; the egui path through
     // `EguiContexts` would be tripped by an in-flight TextField (e.g.
     // a partially-typed save name in the Save panel).
-    let shift_held = keyboard_input.pressed(KeyCode::ShiftLeft)
-        || keyboard_input.pressed(KeyCode::ShiftRight);
+    let shift_held =
+        keyboard_input.pressed(KeyCode::ShiftLeft) || keyboard_input.pressed(KeyCode::ShiftRight);
     if !shift_held || !keyboard_input.just_pressed(KeyCode::F12) {
         return;
     }

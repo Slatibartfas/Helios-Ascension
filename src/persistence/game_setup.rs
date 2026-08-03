@@ -853,7 +853,9 @@ mod tests {
     }
 
     fn install_userdata_dir(tag: &str) -> UserdataDirGuard {
-        let _env_lock = USERDATA_ENV_LOCK.lock().expect("USERDATA_ENV_LOCK poisoned");
+        let _env_lock = USERDATA_ENV_LOCK
+            .lock()
+            .expect("USERDATA_ENV_LOCK poisoned");
         let dir = fresh_dir(tag);
         let prior = env::var_os("HELIOS_USERDATA_DIR");
         // SAFETY: see `Drop` impl — we restore `prior` on drop, so no

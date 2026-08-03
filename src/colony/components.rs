@@ -321,10 +321,7 @@ impl Colony {
         let agri_count = self.building_count(BuildingType::AgriDome) as f64;
         let greenhouse_count = self.building_count(BuildingType::Greenhouse) as f64;
         let aquaculture_count = self.building_count(BuildingType::AquacultureFacility) as f64;
-        farm_count * 360.0
-            + agri_count * 4.0
-            + greenhouse_count * 200.0
-            + aquaculture_count * 200.0
+        farm_count * 360.0 + agri_count * 4.0 + greenhouse_count * 200.0 + aquaculture_count * 200.0
     }
 
     /// Calculate food consumption rate (Mt/year) based on population.

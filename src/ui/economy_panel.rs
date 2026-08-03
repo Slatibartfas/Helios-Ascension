@@ -3018,8 +3018,14 @@ pub(super) struct ForecastInputs<'w, 's> {
     sim_time: Res<'w, SimulationTime>,
     view_mode: Res<'w, ViewMode>,
     current_star_system: Res<'w, CurrentStarSystem>,
-    local_stockpile_query:
-        Query<'w, 's, (Option<&'static SystemId>, &'static crate::economy::components::LocalStockpile)>,
+    local_stockpile_query: Query<
+        'w,
+        's,
+        (
+            Option<&'static SystemId>,
+            &'static crate::economy::components::LocalStockpile,
+        ),
+    >,
     construction_project_query:
         Query<'w, 's, (Entity, &'static ConstructionProject, &'static Colony)>,
     /// Reserve-aggregation query: per-body PlanetResources +
@@ -3705,10 +3711,7 @@ pub(super) fn render_forecast_chart(
         while y < plot_rect.bottom() {
             let next_y = (y + dash_len).min(plot_rect.bottom());
             painter.line_segment(
-                [
-                    egui::pos2(x, y),
-                    egui::pos2(x, next_y),
-                ],
+                [egui::pos2(x, y), egui::pos2(x, next_y)],
                 egui::Stroke::new(stroke_w, runs_out_color),
             );
             y = next_y + dash_len;
@@ -3747,10 +3750,9 @@ pub(super) fn render_forecast_chart(
 
     // Interactive crosshair cursor.
     if interactive {
-        if let Some(pointer_pos) = response.hover_pos().filter(|pos| plot_rect.contains(*pos))
-        {
-            let fraction = ((pointer_pos.x - plot_rect.left()) / plot_rect.width())
-                .clamp(0.0, 1.0) as f64;
+        if let Some(pointer_pos) = response.hover_pos().filter(|pos| plot_rect.contains(*pos)) {
+            let fraction =
+                ((pointer_pos.x - plot_rect.left()) / plot_rect.width()).clamp(0.0, 1.0) as f64;
             let target_offset = horizon_s * fraction;
 
             // Vertical crosshair.

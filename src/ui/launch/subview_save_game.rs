@@ -623,7 +623,9 @@ mod tests {
         // drop window so a parallel test cannot sneak a `set_var`
         // call between this module's `current_slot_path()` and
         // `rescan_save_index` (which would read a different dir).
-        let _env_lock = USERDATA_ENV_LOCK.lock().expect("USERDATA_ENV_LOCK poisoned");
+        let _env_lock = USERDATA_ENV_LOCK
+            .lock()
+            .expect("USERDATA_ENV_LOCK poisoned");
         let dir = fresh_dir(tag);
         let prior = env::var_os("HELIOS_USERDATA_DIR");
         // SAFETY: see `Drop` impl — we restore `prior` on drop, so no

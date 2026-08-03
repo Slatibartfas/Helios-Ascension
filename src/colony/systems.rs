@@ -1065,8 +1065,8 @@ mod tests {
                 synergy: vec![],
                 available_atmospheres: vec![AtmosphereKind::Breathable, AtmosphereKind::None],
                 required_anomalies: vec![],
-            allowed_body_types: vec![],
-            replaces_in_line: None,
+                allowed_body_types: vec![],
+                replaces_in_line: None,
             },
         );
         BuildingsData { definitions: defs }
@@ -1206,8 +1206,8 @@ mod tests {
                 synergy: vec![],
                 available_atmospheres: vec![AtmosphereKind::Breathable, AtmosphereKind::None],
                 required_anomalies: vec![],
-            allowed_body_types: vec![],
-            replaces_in_line: None,
+                allowed_body_types: vec![],
+                replaces_in_line: None,
             },
         );
         defs.insert(
@@ -1237,8 +1237,8 @@ mod tests {
                 synergy: vec![],
                 available_atmospheres: vec![AtmosphereKind::Breathable, AtmosphereKind::None],
                 required_anomalies: vec![],
-            allowed_body_types: vec![],
-            replaces_in_line: None,
+                allowed_body_types: vec![],
+                replaces_in_line: None,
             },
         );
         BuildingsData { definitions: defs }
@@ -1293,8 +1293,8 @@ mod tests {
                 ],
                 available_atmospheres: vec![AtmosphereKind::Breathable, AtmosphereKind::None],
                 required_anomalies: vec![],
-            allowed_body_types: vec![],
-            replaces_in_line: None,
+                allowed_body_types: vec![],
+                replaces_in_line: None,
             },
         );
         defs.insert(
@@ -1324,8 +1324,8 @@ mod tests {
                 synergy: vec![],
                 available_atmospheres: vec![AtmosphereKind::Breathable, AtmosphereKind::None],
                 required_anomalies: vec![],
-            allowed_body_types: vec![],
-            replaces_in_line: None,
+                allowed_body_types: vec![],
+                replaces_in_line: None,
             },
         );
         defs.insert(
@@ -1355,8 +1355,8 @@ mod tests {
                 synergy: vec![],
                 available_atmospheres: vec![AtmosphereKind::Breathable, AtmosphereKind::None],
                 required_anomalies: vec![],
-            allowed_body_types: vec![],
-            replaces_in_line: None,
+                allowed_body_types: vec![],
+                replaces_in_line: None,
             },
         );
         BuildingsData { definitions: defs }
@@ -1369,8 +1369,8 @@ mod tests {
     #[test]
     fn test_tier_replacement_hydroponics_farm_replaces_farm() {
         use crate::colony::components::PendingConstructionActions;
-        use crate::colony::ConstructionDebugSettings;
         use crate::colony::events::ConstructionEvent;
+        use crate::colony::ConstructionDebugSettings;
         use crate::economy::logistics::PendingResourceRequests;
 
         let mut colony = Colony::new("Test".to_string(), 1_000.0);
@@ -1437,8 +1437,8 @@ mod tests {
     #[test]
     fn test_tier_replacement_no_predecessor_is_no_op() {
         use crate::colony::components::PendingConstructionActions;
-        use crate::colony::ConstructionDebugSettings;
         use crate::colony::events::ConstructionEvent;
+        use crate::colony::ConstructionDebugSettings;
         use crate::economy::logistics::PendingResourceRequests;
 
         let colony = Colony::new("Moon".to_string(), 1_000.0);
@@ -1615,8 +1615,8 @@ mod tests {
                 synergy: vec![],
                 available_atmospheres: vec![AtmosphereKind::Breathable, AtmosphereKind::None],
                 required_anomalies: vec![],
-            allowed_body_types: vec![],
-            replaces_in_line: None,
+                allowed_body_types: vec![],
+                replaces_in_line: None,
             },
         );
         BuildingsData { definitions: defs }

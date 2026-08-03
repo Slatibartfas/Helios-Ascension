@@ -8,7 +8,7 @@
 //! API contract.
 
 use helios_ascension::economy::forecast::{
-    build_forecast, project_stockpile, apply_construction_impact, ConstructionImpact,
+    apply_construction_impact, build_forecast, project_stockpile, ConstructionImpact,
     ReserveBounds, ScopeInputs, FORECAST_SAMPLES,
 };
 use helios_ascension::economy::ResourceType;
@@ -67,10 +67,7 @@ fn forecast_construction_step_change() {
         .find(|p| (p.sim_seconds_offset - 5.0 * 31_557_600.0).abs() < 31_557_600.0 / 24.0)
         .map(|p| p.value_mt)
         .expect("near-5yr sample");
-    assert!(
-        (at_5 - 25.0).abs() < 5.0,
-        "pre-impact value at 5yr: {at_5}"
-    );
+    assert!((at_5 - 25.0).abs() < 5.0, "pre-impact value at 5yr: {at_5}");
 
     let last = food.samples.last().unwrap().value_mt;
     assert!(
@@ -168,7 +165,10 @@ fn forecast_handles_zero_horizon_depletion() {
     let series = build_forecast(&scope, &[], 0.0, &ReserveBounds::new());
     assert_eq!(series.len(), 1);
     let runs_out = series[0].runs_out_at_s.expect("must deplete");
-    assert!(runs_out < 100.0, "depletion must be near-instant (was {runs_out})");
+    assert!(
+        runs_out < 100.0,
+        "depletion must be near-instant (was {runs_out})"
+    );
 }
 
 #[test]
@@ -177,7 +177,9 @@ fn forecast_impact_far_future_is_ignored() {
     // curve (we don't have samples beyond the horizon).
     let mut scope = ScopeInputs::new();
     // Monthly rate = -5 Mt/yr ÷ 12 ≈ -0.417
-    scope.resources.insert(ResourceType::Iron, (100.0, -5.0 / 12.0));
+    scope
+        .resources
+        .insert(ResourceType::Iron, (100.0, -5.0 / 12.0));
     let impact = ConstructionImpact {
         resource: ResourceType::Iron,
         completion_sim_seconds: 100.0 * 31_557_600.0, // 100 yr out

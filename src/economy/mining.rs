@@ -366,8 +366,7 @@ pub fn extract_resources(
                 // below; consumed by the direct-deposit block at the
                 // bottom. `direct_production[(resource, modifier_kind)]`
                 // is the rate in Mt/yr for that resource via that path.
-                let mut direct_production:
-                    std::collections::HashMap<ResourceType, f64> =
+                let mut direct_production: std::collections::HashMap<ResourceType, f64> =
                     std::collections::HashMap::new();
 
                 for (building_type, &count) in &colony.buildings {
@@ -392,9 +391,7 @@ pub fn extract_resources(
                                     // match USGS 700 kt/yr global
                                     // production, which is the dominant
                                     // real-world Ar extraction path).
-                                    *direct_production
-                                        .entry(ResourceType::Argon)
-                                        .or_insert(0.0) +=
+                                    *direct_production.entry(ResourceType::Argon).or_insert(0.0) +=
                                         modifier.value * count as f64 * yield_mult;
                                 }
                                 _ => {
@@ -405,9 +402,8 @@ pub fn extract_resources(
                                     // `He3Production`). We dispatch by
                                     // stripping the `Production` suffix
                                     // and looking up the ResourceType.
-                                    if let Some(resource_name) = modifier
-                                        .modifier_type
-                                        .strip_suffix("Production")
+                                    if let Some(resource_name) =
+                                        modifier.modifier_type.strip_suffix("Production")
                                     {
                                         if let Some(target) =
                                             parse_resource_type_static(resource_name)
@@ -518,12 +514,7 @@ pub fn extract_resources(
                     }
                     let amount = base_rate * access * bonus * years_elapsed;
                     if amount > 0.0 {
-                        deposit_with_fallback(
-                            &mut local_opt,
-                            &mut budget,
-                            *resource,
-                            amount,
-                        );
+                        deposit_with_fallback(&mut local_opt, &mut budget, *resource, amount);
                     }
                 }
 
@@ -732,15 +723,12 @@ pub fn update_resource_rates(
                                     total_atmo_rate += modifier.value * count as f64 * yield_mult;
                                 }
                                 "ArgonProduction" => {
-                                    *direct_production
-                                        .entry(ResourceType::Argon)
-                                        .or_insert(0.0) +=
+                                    *direct_production.entry(ResourceType::Argon).or_insert(0.0) +=
                                         modifier.value * count as f64 * yield_mult;
                                 }
                                 _ => {
-                                    if let Some(resource_name) = modifier
-                                        .modifier_type
-                                        .strip_suffix("Production")
+                                    if let Some(resource_name) =
+                                        modifier.modifier_type.strip_suffix("Production")
                                     {
                                         if let Some(target) =
                                             parse_resource_type_static(resource_name)
