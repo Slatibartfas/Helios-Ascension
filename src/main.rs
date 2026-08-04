@@ -43,13 +43,7 @@ use shipbuilding::ShipbuildingPlugin;
 use survey::SurveyPlugin;
 use ui::launch::SplashPlugin;
 use ui::UIPlugin;
-
-/// Minimum supported window dimensions for the main game.
-///
-/// The UI is now responsive enough to remain usable below 1080p, which
-/// avoids forcing oversized swap chains on smaller Windows displays.
-const MIN_WINDOW_WIDTH: f32 = 1280.0;
-const MIN_WINDOW_HEIGHT: f32 = 720.0;
+use plugins::window_constants::{MIN_WINDOW_HEIGHT, MIN_WINDOW_WIDTH};
 
 /// Entry point: build the game app and run it. The splash lives
 /// inside the same Bevy app as the main game (see
