@@ -2131,12 +2131,20 @@ pub(super) fn ui_resources_bar(
                 power_popup_queries.buildings_data.as_deref(),
             );
             let power_rows = super::economy_panel::collect_power_body_rows(&hierarchy);
-            // Determine color from budget - recalculate here
+            // Determine color from budget - recalculate here.
+            // v0.5.2 PR-A.7 (2026-08-04): three-band ladder
+            // matching the top-bar chip — ≤ 0 red, 0–50 GW
+            // yellow, > 50 GW green. The header title and the
+            // per-row amount share the same colour so the
+            // breakdown reads as a unified state read.
             let net_power = budget.net_power();
-            let power_color = if net_power >= 0.0 {
-                theme::GREEN
-            } else {
+            const POWER_SURPLUS_YELLOW_MAX_MW: f64 = 50_000.0;
+            let power_color = if net_power <= 0.0 {
                 theme::RED
+            } else if net_power <= POWER_SURPLUS_YELLOW_MAX_MW {
+                theme::STATUS_WARN
+            } else {
+                theme::GREEN
             };
 
             let window_response = egui::Window::new("Power Breakdown")
@@ -2150,11 +2158,24 @@ pub(super) fn ui_resources_bar(
                 .show(ctx, |ui| {
                     ui.set_min_width(300.0);
                     ui.horizontal(|ui| {
-                        ui.add(
-                            egui::Label::new(
-                                egui::RichText::new("⚡").size(18.0).color(power_color),
-                            )
-                            .selectable(false),
+                        // v0.5.2 PR-A.7 (2026-08-04): the
+                        // dedicated bolt-in-hex PNG
+                        // (`energy.png`) replaces the
+                        // legacy ⚡ emoji glyph in the popup
+                        // header. Tinted gold
+                        // (`theme::GOLD` = the egui twin of
+                        // `bevy_theme::YELLOW_ENERGY`) so the
+                        // "this is power" marker is
+                        // consistent with the top-bar chip
+                        // and the Build/Mining card chips.
+                        // 22-px size so it reads as the
+                        // primary visual element next to the
+                        // 16-pt bold title text.
+                        render_energy_icon(
+                            ui,
+                            &ui_runtime.resource_icons,
+                            theme::GOLD,
+                            22.0,
                         );
                         ui.add(
                             egui::Label::new(
