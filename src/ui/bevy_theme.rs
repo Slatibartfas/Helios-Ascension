@@ -58,10 +58,25 @@ pub const GREEN_FIN: Color = Color::srgba(0.373, 0.784, 0.471, 1.0);
 /// / efficiency-under-50% reads. Matches the legacy egui
 /// theme's `RED` (`src/ui/theme.rs`).
 pub const RED: Color = Color::srgba(0.847, 0.373, 0.392, 1.0);
+/// Bright gold-yellow for the energy icon + chip chrome (the
+/// bolt-in-hex power chip on the construction menu cards). The
+/// chip background is this colour at 12% alpha, the border at
+/// 35%, and the icon at full saturation. v0.5.2 PR-A.7
+/// (2026-08-04): yellow was chosen over cyan so the power chip
+/// reads as a distinct third category (consumption vs
+/// production, both yellow-chromed) while the text colour
+/// inside the chip still differentiates the two with red/green
+/// per the +/- convention. Matches the legacy `theme::GOLD`
+/// (255, 215, 0) in 0..=1 space.
+pub const YELLOW_ENERGY: Color = Color::srgba(1.0, 0.843, 0.0, 1.0);
 /// Filled cyan CTA background — translucent so glass bleeds through.
 pub const CTA_FILL: Color = Color::srgba(0.094, 0.298, 0.353, 0.85);
-/// Filled cyan CTA hover background.
-pub const CTA_FILL_HOVER: Color = Color::srgba(0.137, 0.392, 0.471, 0.90);
+/// Filled cyan CTA hover background. v0.5.2: bumped from
+/// `(0.137, 0.392, 0.471, 0.90)` (a subtle 0.04 RGB delta over the
+/// resting fill that players read as "no hover") to a fully-opaque,
+/// much brighter cyan that matches the active-chip background —
+/// unmistakable at a glance.
+pub const CTA_FILL_HOVER: Color = Color::srgba(0.275, 0.620, 0.706, 1.0);
 /// Active chip background — solid bright cyan so the active state
 /// reads as "selected" rather than "ghosted". Translucent enough to
 /// keep the glass feel (78% alpha).
@@ -672,13 +687,6 @@ pub fn tick_chip_button_active_overlay(
             super::construction::ChipKind::Category(idx) => *idx == active.category,
             // Filter chips are unused (replaced by Category in v3.9)
             super::construction::ChipKind::Filter(_) => false,
-            // v0.5.2 PR-A.2: Mining tab qty chip. The active
-            // overlay for the Mining tab qty chips is set by
-            // `spawn_mining_qty_row` (re-spawned each refresh);
-            // the bevy_theme.rs active overlay doesn't touch them.
-            // Returning false here prevents the Build tab's overlay
-            // from painting over the Mining tab's qty chips.
-            super::construction::ChipKind::MiningQty(_) => false,
         };
         if is_active {
             *bg = BackgroundColor(ACTIVE_CHIP_BG);
@@ -721,10 +729,6 @@ pub fn tick_active_chip_glow(
             super::construction::ChipKind::Qty(qty) => *qty == active.qty,
             super::construction::ChipKind::Category(idx) => *idx == active.category,
             super::construction::ChipKind::Filter(_) => false,
-            // v0.5.2 PR-A.2: see the active-overlay system
-            // above — MiningQty chips are managed by the Mining
-            // tab's own refresh system, not by this overlay.
-            super::construction::ChipKind::MiningQty(_) => false,
         };
         if is_active {
             if existing_shadow.is_none() {
