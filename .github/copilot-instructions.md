@@ -2,6 +2,54 @@
 
 Welcome to Helios Ascension, a 4X grand strategy game built with Rust and the Bevy game engine. These instructions help GitHub Copilot understand our project's architecture, conventions, and best practices.
 
+## Multi-Agent Worktree Safety (CRITICAL)
+
+This repository is frequently worked on by **multiple agents (Copilot sessions, Claude Code, subagents, CI bots) in parallel worktrees**, often on the same branch or on closely-related branches that share build artifacts (`target/`, `Cargo.lock`, asset caches). **Naive `git stash`, `git checkout`, `git reset`, or `git clean` commands have repeatedly destroyed concurrent work.** Treat any operation that mutates the working tree as load-bearing and read this section before running it.
+
+### Hard rules
+
+- **Never run `git stash` in a shared worktree.** It sweeps uncommitted edits (including edits made by other agents) into a stash that may not belong to you, and `git stash pop` from a parallel agent can clobber the original author's file. If you believe you need to "set the worktree back to a clean state" to test something, **do not stash** — work on a fresh worktree, or copy the specific files you need into a scratch directory and inspect them there.
+- **Never run `git stash --include-untracked` or `git stash -u`.** It silently vacuums up untracked files (logs, scratch notes, `.copilot/`, generated assets, other agents' in-flight work) that are not in git but may be in active use.
+- **Never run `git checkout -- <path>`, `git restore --source=HEAD <path>`, `git reset --hard`, or `git clean -fdx` without an explicit `--` path scope and a dry-run first.** These commands are unrecoverable and have repeatedly wiped parallel work in this repo. If you need to discard changes, restrict the scope to a single file or path that you authored, and prefer `git diff <path>` to read first.
+- **Never run `git switch` or `git checkout` to a different branch in a worktree that may be in use by another agent.** Create a new worktree (`git worktree add ../<branch>-worktree <branch>`) and work there instead.
+- **Never run `cargo clean`, `rm -rf target/`, or `rm Cargo.lock`** in a shared worktree. Other agents depend on incremental builds in `target/`. If you need a clean build, do it in a fresh clone or in your own dedicated worktree.
+- **Never assume a test failure is "pre-existing" and revert.** Re-running `cargo test` on an unchanged tree is the correct way to confirm a pre-existing failure. Do **not** stash, reset, or rebase to "check whether the failure was there before" — you will destroy the other agent's in-flight changes. See "Verifying pre-existing failures" below.
+
+### Verifying pre-existing failures (the safe way)
+
+When a test fails and you suspect it pre-dates your work:
+
+1. Note the exact failing test name and the failure output (copy/paste, don't truncate).
+2. Run `git status` and `git log -1 --oneline` in **your own worktree only** — never across worktrees.
+3. Use `git stash -k` is still unsafe on shared worktrees. Instead: copy the files you suspect of being yours (e.g., `git diff --name-only HEAD`) to a scratch directory, then re-run the test in a fresh worktree branched from `main` (or the branch's base). This proves pre-existence without touching anyone else's work.
+4. If the failure reproduces on a clean worktree of `main`, it is pre-existing. Report it; do **not** "fix" it as part of your task unless that is the assigned scope.
+5. If the failure does **not** reproduce on a clean `main` worktree, the regression is yours (or a peer agent's). Bisect by file ownership, not by `git stash`.
+
+### Why this matters here
+
+Multiple agents in this repo have run `git stash` "just to check whether a failure was pre-existing" and lost hours of unrelated edits — including data files under `assets/data/`, in-progress RON edits, generated icons, and scratch diagnostic logs. The repeated pattern is: agent sees red CI, stashes the worktree, runs the test, sees green, concludes "pre-existing", pops the stash — but another agent's untracked files or unstaged edits never made it into the stash in the first place, so when the second agent continues they find their workspace silently corrupted. **The cure is to never reach for `git stash` in a shared worktree.**
+
+### Safe alternatives (use these instead)
+
+| Want to do this… | Use this instead |
+|---|---|
+| "Is this failure pre-existing?" | Re-run the test on a fresh `main` worktree |
+| "Set the worktree to a clean state to debug" | Make a new worktree: `git worktree add ../clean main` |
+| "Stash my work and switch branches" | Commit on a branch (`git switch -c my-fix`) or use your own dedicated worktree |
+| "Discard my local changes to file X" | `git checkout HEAD -- <single-file-path>` **only** for files you authored; confirm with `git log -- <path>` first |
+| "Clean build artifacts" | `cargo clean -p <specific-package>` instead of full `cargo clean` |
+| "Run a hermetic experiment" | Copy the file(s) you need into `/tmp/<scratch>/` and inspect there |
+
+### Quick self-check before any worktree mutation
+
+Before running **any** of `git stash`, `git checkout`, `git restore`, `git reset`, `git clean`, `git switch`, `cargo clean`, `rm -rf target/`, or `rm Cargo.lock`, answer:
+
+1. Is this worktree shared with another agent (look at sibling `../<repo>-*` directories)?
+2. Could any of the files I'm about to touch belong to a peer agent?
+3. Is there a non-destructive alternative (new worktree, scoped `git checkout -- <path>`, fresh clone)?
+
+If any answer is "yes" or "unsure", **stop and use the safe alternative.** Document the choice in your final report so the user can audit it.
+
 ## Project Overview
 
 Helios Ascension is a high-performance space strategy game inspired by Aurora 4X and Terra Invicta. The project emphasizes:
@@ -677,6 +725,9 @@ canonical pattern.
 - Bevy 0.18 introduced high-level cargo feature collections: `2d`, `3d`, `ui`
 - Consider using these instead of listing individual sub-crate features for simpler `Cargo.toml` maintenance
 - Our project currently uses individual features for fine-grained control
+
+### Worktree & Build-Artifact Safety (recap)
+- See **Multi-Agent Worktree Safety** at the top of this document. The TL;DR: never `git stash`, never `cargo clean`, never `git reset --hard`, never `rm -rf target/` in a shared worktree. Use a fresh worktree (`git worktree add`) for hermetic experiments, and re-run failing tests on a clean `main` worktree to confirm pre-existence rather than stashing. This rule applies to **every agent** working in this repo.
 
 ## Getting Help
 
