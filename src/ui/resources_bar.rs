@@ -204,6 +204,42 @@ pub(super) fn render_category_icon(
     }
 }
 
+/// Render the dedicated energy icon
+/// (`assets/textures/ui/resources/energy.png`) at the requested
+/// size, tinted to the given colour. Energy is not a `ResourceType`
+/// so it lives outside `render_resource_icon`; this is the call
+/// site for the top resource bar's power chip (green/red) and the
+/// Build/Mining card energy rows.
+///
+/// Falls back to a small tinted square (same look as the
+/// resource/category fallbacks) when the PNG hasn't been decoded
+/// yet — visually consistent with the rest of the resource bar.
+pub(super) fn render_energy_icon(
+    ui: &mut egui::Ui,
+    icons: &super::resource_icons::ResourceIcons,
+    tint: egui::Color32,
+    size: f32,
+) {
+    use super::resource_icons::get_energy_icon_handle;
+    if let Some(handle) = get_energy_icon_handle(icons) {
+        ui.add(
+            egui::Image::from_texture(handle)
+                .tint(tint)
+                .fit_to_exact_size(egui::Vec2::splat(size)),
+        );
+    } else {
+        // Fallback: tinted square, matches the resource/category
+        // icon fallbacks so the chip still reads as "energy
+        // pending" before the PNG lands on the first frame.
+        let (rect, _) = ui.allocate_exact_size(egui::Vec2::splat(size), egui::Sense::hover());
+        ui.painter().rect_filled(
+            rect,
+            egui::CornerRadius::same(2),
+            egui::Color32::from_rgba_unmultiplied(tint.r(), tint.g(), tint.b(), 153),
+        );
+    }
+}
+
 /// v0.5.2: render a resource row as `[icon] [name]` — the icon
 /// uses the loaded PNG via `render_resource_icon` (cyan-tinted,
 /// matching the menu icons) and the name is a normal `Label`.
@@ -1862,17 +1898,27 @@ pub(super) fn ui_resources_bar(
                     let is_power_open = open_popup.open.as_ref().is_some_and(|(n, _)| n == "Power");
 
                     // Power generation display (clickable with tooltip)
+                    // v0.5.2+: dedicated bolt-in-hex PNG (`energy.png`)
+                    // replaces the legacy ⚡ emoji glyph. Same
+                    // green/red tinting as before; 16-px icon size
+                    // to sit visually next to the 14-pt bold power
+                    // number.
                     let response = egui::Frame::NONE
                         .inner_margin(egui::Margin::symmetric(1, 2))
                         .show(ui, |ui| {
                             ui.horizontal_centered(|ui| {
                                 ui.set_min_width(82.0); // Fixed width to prevent wiggling
                                 ui.set_max_width(82.0);
+                                render_energy_icon(
+                                    ui,
+                                    &ui_runtime.resource_icons,
+                                    power_color,
+                                    16.0,
+                                );
                                 ui.add(
                                     egui::Label::new(
-                                        egui::RichText::new(format!(
-                                            "⚡ {}",
-                                            format_power(budget.energy_grid.produced)
+                                        egui::RichText::new(format_power(
+                                            budget.energy_grid.produced,
                                         ))
                                         .size(14.0)
                                         .strong()
