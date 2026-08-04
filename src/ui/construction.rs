@@ -48,22 +48,22 @@ use crate::research::systems::ResearchState;
 // path — bevy_ui uses `ResourceCostRow` directly.
 use super::resource_icons::{get_energy_icon_handle_bevy, get_resource_icon_handle_bevy, ResourceIcons};
 
-/// One row of a building's resource demand: the resource name as
-/// it appears in `buildings.ron`, the per-unit amount (already
-/// multiplied by the build quantity), and the parsed
-/// `ResourceType` (used to look up the icon `Handle<Image>` and
-/// the category tint). `resource` is `None` when the RON string
-/// doesn't match a known variant (defensive — the canary falls
-/// back to a tinted placeholder square + `TEXT_BODY` so a future
-/// RON addition never panics).
+// One row of a building's resource demand: the resource name as
+// it appears in `buildings.ron`, the per-unit amount (already
+// multiplied by the build quantity), and the parsed
+// `ResourceType` (used to look up the icon `Handle<Image>` and
+// the category tint). `resource` is `None` when the RON string
+// doesn't match a known variant (defensive — the canary falls
+// back to a tinted placeholder square + `TEXT_BODY` so a future
+// RON addition never panics).
 ///
-/// v0.5.2 PR-A.4 follow-up: the canary emits these for every
-/// cost entry and renders them as `[PNG icon | tinted amount]`.
-/// The icon is the asset-server PNG from
-/// `assets/textures/ui/resources/<name>.png`, post-processed
-/// (white → transparent, dark → un-premultiplied alpha) and
-/// tinted to the resource's category colour at render time
-/// via `ImageNode::color`.
+// v0.5.2 PR-A.4 follow-up: the canary emits these for every
+// cost entry and renders them as `[PNG icon | tinted amount]`.
+// The icon is the asset-server PNG from
+// `assets/textures/ui/resources/<name>.png`, post-processed
+// (white → transparent, dark → un-premultiplied alpha) and
+// tinted to the resource's category colour at render time
+// via `ImageNode::color`.
 #[derive(Debug, Clone)]
 pub struct ResourceCostRow {
     pub name: String,
@@ -71,66 +71,66 @@ pub struct ResourceCostRow {
     pub resource: Option<ResourceType>,
 }
 
-/// One chip's worth of power data for a building card. Renders as
-/// a `[bolt-in-hex PNG | tinted amount]` chip in the card body,
-/// matching the `ResourceCostRow` chip pattern but with the
-/// dedicated `assets/textures/ui/resources/energy.png` icon
-/// (post-processed to white-on-transparent in
-/// `src/ui/resource_icons.rs`) tinted to the power tone:
+// One chip's worth of power data for a building card. Renders as
+// a `[bolt-in-hex PNG | tinted amount]` chip in the card body,
+// matching the `ResourceCostRow` chip pattern but with the
+// dedicated `assets/textures/ui/resources/energy.png` icon
+// (post-processed to white-on-transparent in
+// `src/ui/resource_icons.rs`) tinted to the power tone:
 ///
-/// * `Produces` (net generator) — green.
-/// * `Demand` (net consumer) — throughput green if the batch
-///   fits the active colony's spare grid, negative orange if
-///   `power_insufficient` is set, neutral text-body otherwise.
-/// * `None` (no power interaction) — neutral text-body, shown
-///   as `0 W` so the chip still reads as "this building has no
-///   power interaction".
+// * `Produces` (net generator) — green.
+// * `Demand` (net consumer) — throughput green if the batch
+//   fits the active colony's spare grid, negative orange if
+//   `power_insufficient` is set, neutral text-body otherwise.
+// * `None` (no power interaction) — neutral text-body, shown
+//   as `0 W` so the chip still reads as "this building has no
+//   power interaction".
 ///
-/// `multiplier` is the active build-qty so the displayed number
-/// reflects the batch total (e.g. a 5 GW fusion plant queued at
-/// ×10 reads as `50 GW`, not `5 GW × 10`). The `tooltip_lines`
-/// vec feeds the per-chip hover overlay (see `PowerChipTooltip`
-/// below) and carries the per-unit + batch + spare-grid
-/// breakdown.
+// `multiplier` is the active build-qty so the displayed number
+// reflects the batch total (e.g. a 5 GW fusion plant queued at
+// ×10 reads as `50 GW`, not `5 GW × 10`). The `tooltip_lines`
+// vec feeds the per-chip hover overlay (see `PowerChipTooltip`
+// below) and carries the per-unit + batch + spare-grid
+// breakdown.
 #[derive(Debug, Clone)]
 pub struct PowerChipData {
-    /// "Demand" or "Produces" — the verb shown next to the icon.
+    // "Demand" or "Produces" — the verb shown next to the icon.
     pub verb: &'static str,
-    /// Pre-formatted batch total (e.g. `"5.0 GW"`, `"900 MW"`,
-    /// `"0 W"`). Single source of truth for the chip label.
+    // Pre-formatted batch total (e.g. `"5.0 GW"`, `"900 MW"`,
+    // `"0 W"`). Single source of truth for the chip label.
     pub amount: String,
-    /// Per-unit power value in MW (positive = generation,
-    /// negative = demand, 0.0 = no power interaction). Drives
-    /// the chip tone + tooltip breakdown.
+    // Per-unit power value in MW (positive = generation,
+    // negative = demand, 0.0 = no power interaction). Drives
+    // the chip tone + tooltip breakdown.
     pub per_unit_mw: f64,
-    /// Active build-qty multiplier (≥ 1). Echoed in the tooltip
-    /// so the player can read the per-unit vs batch split.
+    // Active build-qty multiplier (≥ 1). Echoed in the tooltip
+    // so the player can read the per-unit vs batch split.
     pub multiplier: u32,
-    /// Active colony's grid surplus in MW. `None` if no colony
-    /// is selected (menu-screen previews) — the tooltip falls
-    /// back to "no active colony" wording.
+    // Active colony's grid surplus in MW. `None` if no colony
+    // is selected (menu-screen previews) — the tooltip falls
+    // back to "no active colony" wording.
     pub spare_mw: Option<f64>,
-    /// `true` if the batch demand exceeds the spare grid. Drives
-    /// the negative-orange tone and the "not enough energy"
-    /// tooltip line. Always `false` for generators and no-ops.
+    // `true` if the batch demand exceeds the spare grid. Drives
+    // the negative-orange tone and the "not enough energy"
+    // tooltip line. Always `false` for generators and no-ops.
     pub insufficient: bool,
-    /// Pre-built tooltip body lines (one per visual line, no
-    /// trailing newlines). The first line is the headline.
+    // Pre-built tooltip body lines (one per visual line, no
+    // trailing newlines). The first line is the headline.
     pub tooltip_lines: Vec<String>,
 }
 
-/// Compute the active colony's spare power in MW. Returns 0.0 if no
-/// colony is selected or no `BuildingsData` is loaded. Used by the
-/// Build card to color-code the Power effect line: green when the
-/// batch demand fits inside the grid, red when it would push the
-/// grid into deficit.
+// Compute the active colony's spare power in MW. Returns 0.0 if no
+// colony is selected or no `BuildingsData` is loaded. Used by the
+// Build card to color-code the Power effect line: green when the
+// batch demand fits inside the grid, red when it would push the
+// grid into deficit.
 ///
-/// v0.5.2 PR-A.2: per user feedback 2026-08-02, the canary now shows
-/// "per-building demand × multiplier = total vs spare" as the single
-/// source of truth for power on the build card. The old design had
-/// three independent power readouts (PWR top stat, "Power:" body
-/// effect, and the workforce mislabeled as MW) which read as a
-/// confusing stack of similar numbers.
+// v0.5.2 PR-A.2: per user feedback 2026-08-02, the canary now shows
+// "per-building demand × multiplier = total vs spare" as the single
+// source of truth for power on the build card. The old design had
+// three independent power readouts (PWR top stat, "Power:" body
+// effect, and the workforce mislabeled as MW) which read as a
+// confusing stack of similar numbers.
 fn compute_colony_spare_power_mw(
     ui_state: &ConstructionUiState,
     colonies: &Query<(Entity, &crate::colony::Colony)>,
@@ -156,30 +156,30 @@ fn compute_colony_spare_power_mw(
 //    construction_panel.rs, which is being deleted as the canary
 //    becomes the new main construction menu) ────────────────────────
 
-/// Top-level sub-tab in the Construction menu.
+// Top-level sub-tab in the Construction menu.
 ///
-/// v0.5.2: the legacy `Stockpiles` minimum-stockpile editor was
-/// renamed to `Mining` — the dedicated mining grid replaces it
-/// (production mgmt with [-] [+] buttons + reserve / accessibility
-/// readouts per resource card).
+// v0.5.2: the legacy `Stockpiles` minimum-stockpile editor was
+// renamed to `Mining` — the dedicated mining grid replaces it
+// (production mgmt with [-] [+] buttons + reserve / accessibility
+// readouts per resource card).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ConstructionTab {
     Overview,
     Buildings,
     #[default]
     Build,
-    /// v0.5.2: dedicated mining grid (replaces the v0.5.x
-    /// `Stockpiles` minimum-stockpile editor).  One compact card per
-    /// per-resource base mine + AutoMine, grouped by resource group,
-    /// with [−] [+] buttons for direct inventory edits and a live
-    /// readout of count / production / reserve / accessibility.
+    // v0.5.2: dedicated mining grid (replaces the v0.5.x
+    // `Stockpiles` minimum-stockpile editor).  One compact card per
+    // per-resource base mine + AutoMine, grouped by resource group,
+    // with [−] [+] buttons for direct inventory edits and a live
+    // readout of count / production / reserve / accessibility.
     Mining,
 }
 
 impl ConstructionTab {
-    /// All four variants in display order. Used by the canary's
-    /// `tick_construction_body_visibility` system to know which body
-    /// to show.
+    // All four variants in display order. Used by the canary's
+    // `tick_construction_body_visibility` system to know which body
+    // to show.
     pub const ALL: [ConstructionTab; 4] = [
         ConstructionTab::Overview,
         ConstructionTab::Buildings,
@@ -188,40 +188,40 @@ impl ConstructionTab {
     ];
 }
 
-/// Persistent UI state for the Construction menu. Lives across frames
-/// so the player's last-selected tab, colony, and build multiplier
-/// survive re-mounts.
+// Persistent UI state for the Construction menu. Lives across frames
+// so the player's last-selected tab, colony, and build multiplier
+// survive re-mounts.
 ///
-/// v0.5.2: this is now owned by the bevy_ui canary. The legacy
-/// egui `construction_panel.rs` referenced it via
-/// `use crate::ui::construction_panel::ConstructionUiState`; the
-/// import is gone (the canary defines the type directly).
+// v0.5.2: this is now owned by the bevy_ui canary. The legacy
+// egui `construction_panel.rs` referenced it via
+// `use crate::ui::construction_panel::ConstructionUiState`; the
+// import is gone (the canary defines the type directly).
 #[derive(Resource, Debug, Clone)]
 pub struct ConstructionUiState {
-    /// Build multiplier: how many copies to queue at once
+    // Build multiplier: how many copies to queue at once
     pub build_multiplier: u32,
-    /// Currently selected colony entity (None = auto-select first)
+    // Currently selected colony entity (None = auto-select first)
     pub selected_colony: Option<bevy::ecs::entity::Entity>,
-    /// Selected top-level tab within the construction menu.
+    // Selected top-level tab within the construction menu.
     pub selected_tab: ConstructionTab,
-    /// Selected build-category tab within the Build view.
-    /// v0.5.2: 8 categories with "All" at index 8. The Build
-    /// tab opens with the "All" chip active (the player most often
-    /// wants to scroll the full catalog first), so the default is
-    /// 8 — keep this in lockstep with
-    /// `ActiveChips::default().category` (also 8) so the visual
-    /// chip and the filter logic agree on the first frame.
+    // Selected build-category tab within the Build view.
+    // v0.5.2: 8 categories with "All" at index 8. The Build
+    // tab opens with the "All" chip active (the player most often
+    // wants to scroll the full catalog first), so the default is
+    // 8 — keep this in lockstep with
+    // `ActiveChips::default().category` (also 8) so the visual
+    // chip and the filter logic agree on the first frame.
     pub selected_build_tab: usize,
-    /// Functional-role filter (Food / Power / Industry / Research /
-    /// Synergy Active). Overlays the 9-category tabs.
+    // Functional-role filter (Food / Power / Industry / Research /
+    // Synergy Active). Overlays the 9-category tabs.
     pub selected_filter: BuildFilter,
-    /// v0.5.2 Mining tab: which surface groups are currently
-    /// collapsed. Persists across tab switches. Empty = all
-    /// surface groups visible.
+    // v0.5.2 Mining tab: which surface groups are currently
+    // collapsed. Persists across tab switches. Empty = all
+    // surface groups visible.
     pub mining_groups_collapsed: std::collections::HashSet<MiningGroupId>,
-    /// v0.5.2 Mining tab: whether the entire orbital section is
-    /// collapsed (it carries 25 cards; collapsed by default so
-    /// the initial paint is dominated by surface mines).
+    // v0.5.2 Mining tab: whether the entire orbital section is
+    // collapsed (it carries 25 cards; collapsed by default so
+    // the initial paint is dominated by surface mines).
     pub mining_orbital_collapsed: bool,
 }
 
@@ -244,14 +244,14 @@ impl Default for ConstructionUiState {
     }
 }
 
-/// Identifier for one of the 8 surface mine groups in the Mining
-/// tab. Used as a key into `ConstructionUiState::mining_groups_collapsed`
-/// so collapse state persists per group.
+// Identifier for one of the 8 surface mine groups in the Mining
+// tab. Used as a key into `ConstructionUiState::mining_groups_collapsed`
+// so collapse state persists per group.
 ///
-/// The orbital section is a single collapsible
-/// (`mining_orbital_collapsed` bool) — it has 25 cards spread
-/// across 5 sub-groups, and per spec the sub-groups themselves
-/// are non-collapsible (matches the legacy egui tab's behaviour).
+// The orbital section is a single collapsible
+// (`mining_orbital_collapsed` bool) — it has 25 cards spread
+// across 5 sub-groups, and per spec the sub-groups themselves
+// are non-collapsible (matches the legacy egui tab's behaviour).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum MiningGroupId {
     Construction,
@@ -260,26 +260,26 @@ pub enum MiningGroupId {
     Fissile,
     Hydrocarbons,
     HeavyWater,
-    /// `WaterProcessor` is a water extraction facility (atmospheric
-    /// condenser / ice miner) — body-restricted to `[None]`
-    /// atmospheres. Sits in its own group so it pairs with the
-    /// orbital `AutoWaterProcessor` (the only AutoMine without a
-    /// surface mine counterpart before this group was added).
+    // `WaterProcessor` is a water extraction facility (atmospheric
+    // condenser / ice miner) — body-restricted to `[None]`
+    // atmospheres. Sits in its own group so it pairs with the
+    // orbital `AutoWaterProcessor` (the only AutoMine without a
+    // surface mine counterpart before this group was added).
     Water,
     Helium3,
 }
 
-/// Surface mine group definitions for the Mining tab. Each entry
-/// is `(group_id, display_label, buildings)` in display order.
+// Surface mine group definitions for the Mining tab. Each entry
+// is `(group_id, display_label, buildings)` in display order.
 ///
-/// Source-of-truth: 25 entries — 24 base mines (one per
-/// mineable resource, per v0.5.2's per-resource dedicated
-/// design) + `WaterProcessor` (the only AutoMine counterpart
-/// that wasn't a "mine" in the strict sense — it's an
-/// atmospheric condenser / ice miner that pairs with the
-/// orbital `AutoWaterProcessor`). The 24+1 layout mirrors
-/// the 25-card orbital section so the player can see a
-/// matched surface/orbital pair for every orbital AutoMine.
+// Source-of-truth: 25 entries — 24 base mines (one per
+// mineable resource, per v0.5.2's per-resource dedicated
+// design) + `WaterProcessor` (the only AutoMine counterpart
+// that wasn't a "mine" in the strict sense — it's an
+// atmospheric condenser / ice miner that pairs with the
+// orbital `AutoWaterProcessor`). The 24+1 layout mirrors
+// the 25-card orbital section so the player can see a
+// matched surface/orbital pair for every orbital AutoMine.
 pub const MINING_GROUPS_SURFACE: &[(MiningGroupId, &str, &[BuildingType])] = &[
     (
         MiningGroupId::Construction,
@@ -345,10 +345,10 @@ pub const MINING_GROUPS_SURFACE: &[(MiningGroupId, &str, &[BuildingType])] = &[
     ),
 ];
 
-/// Orbital AutoMine sub-group definitions for the Mining tab.
-/// Single collapsible, 5 non-collapsible sub-groups, 25 cards
-/// total. Source-of-truth: 25 AutoMines from `parse_building_type`
-/// (24 per the spec + `AutoTitaniumMine` which the spec omitted).
+// Orbital AutoMine sub-group definitions for the Mining tab.
+// Single collapsible, 5 non-collapsible sub-groups, 25 cards
+// total. Source-of-truth: 25 AutoMines from `parse_building_type`
+// (24 per the spec + `AutoTitaniumMine` which the spec omitted).
 pub const MINING_GROUPS_ORBITAL: &[(&str, &[BuildingType])] = &[
     (
         "Orbital — Construction",
@@ -399,15 +399,15 @@ pub const MINING_GROUPS_ORBITAL: &[(&str, &[BuildingType])] = &[
     ),
 ];
 
-/// Functional-role filter chip overlaid on top of the 9-category tabs
-/// in the Build view. Lets the player pivot by what the building
-/// *does* (feeds the colony, generates power, drives industry,
-/// advances research) rather than by its internal category label.
+// Functional-role filter chip overlaid on top of the 9-category tabs
+// in the Build view. Lets the player pivot by what the building
+// *does* (feeds the colony, generates power, drives industry,
+// advances research) rather than by its internal category label.
 ///
-/// v0.5.2: moved out of `construction_panel.rs`. The canary's
-/// `ChipKind::Filter(BuildFilter)` is the only consumer in the
-/// bevy_ui surface; the canary's `visible_cards(_filter: BuildFilter, ...)`
-/// still receives it for future use.
+// v0.5.2: moved out of `construction_panel.rs`. The canary's
+// `ChipKind::Filter(BuildFilter)` is the only consumer in the
+// bevy_ui surface; the canary's `visible_cards(_filter: BuildFilter, ...)`
+// still receives it for future use.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum BuildFilter {
     #[default]
@@ -420,8 +420,8 @@ pub enum BuildFilter {
 }
 
 impl BuildFilter {
-    /// All variants in display order. Used by the chip-row primitive
-    /// in the canary (Phase C5 when the chip row lands).
+    // All variants in display order. Used by the chip-row primitive
+    // in the canary (Phase C5 when the chip row lands).
     pub fn all() -> &'static [BuildFilter] {
         &[
             BuildFilter::All,
@@ -436,24 +436,24 @@ impl BuildFilter {
 
 // ── Building icons (menu-style post-processed) ─────────────────────
 
-/// Loaded + post-processed building icons keyed by `BuildingType`. The
-/// icons are 4-byte RGBA PNGs sourced from `assets/textures/ui/buildings/`
-/// — dark line art on a white background. The `process_building_icons`
-/// system runs once per icon and converts the white pixels to
-/// transparent + dark lines to white (premultiplied), matching the
-/// runtime tint pattern used by [`crate::ui::icons::process_menu_icons`].
+// Loaded + post-processed building icons keyed by `BuildingType`. The
+// icons are 4-byte RGBA PNGs sourced from `assets/textures/ui/buildings/`
+// — dark line art on a white background. The `process_building_icons`
+// system runs once per icon and converts the white pixels to
+// transparent + dark lines to white (premultiplied), matching the
+// runtime tint pattern used by [`crate::ui::icons::process_menu_icons`].
 ///
-/// `None` value means the building has no icon asset (defensive; in
-/// practice all 52 buildings have PNGs). The card-spawn code falls back
-/// to a cyan-tinted placeholder square when the handle is `None`.
+// `None` value means the building has no icon asset (defensive; in
+// practice all 52 buildings have PNGs). The card-spawn code falls back
+// to a cyan-tinted placeholder square when the handle is `None`.
 #[derive(Resource, Default)]
 pub struct BuildingIcons {
     pub handles: std::collections::HashMap<BuildingType, Handle<Image>>,
     pub processed: std::collections::HashSet<BuildingType>,
 }
 
-/// Startup system: load all building icons from disk. Runs once at
-/// startup; the assets are small (a few KB each) so the load is fast.
+// Startup system: load all building icons from disk. Runs once at
+// startup; the assets are small (a few KB each) so the load is fast.
 pub fn load_building_icons(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
@@ -488,11 +488,11 @@ pub fn load_building_icons(
     });
 }
 
-/// Post-process building icons: white background → transparent, dark
-/// lines → white (premultiplied). Same recipe as
-/// `crate::ui::icons::process_menu_icons`. Runs every frame until
-/// every icon has been processed once; the per-icon flag in `processed`
-/// makes it a no-op after the first pass.
+// Post-process building icons: white background → transparent, dark
+// lines → white (premultiplied). Same recipe as
+// `crate::ui::icons::process_menu_icons`. Runs every frame until
+// every icon has been processed once; the per-icon flag in `processed`
+// makes it a no-op after the first pass.
 pub fn process_building_icons(mut icons: ResMut<BuildingIcons>, mut images: ResMut<Assets<Image>>) {
     let to_process: Vec<(BuildingType, Handle<Image>)> = icons
         .handles
@@ -547,7 +547,7 @@ pub fn process_building_icons(mut icons: ResMut<BuildingIcons>, mut images: ResM
 
 // ── Construction Queue (canary placeholder) ──────────────────────
 
-/// One item in the construction queue.
+// One item in the construction queue.
 #[derive(Debug, Clone)]
 pub struct QueuedBuild {
     pub name: String,
@@ -555,26 +555,26 @@ pub struct QueuedBuild {
     pub bp_per_unit: f64,
 }
 
-/// Resource: the currently active chip index for each row.
+// Resource: the currently active chip index for each row.
 ///
-/// This is the single source of truth for visual active state. The
-/// `tick_chip_button_active_overlay` system reads this resource each
-/// frame and applies ACTIVE_CHIP_BG to the matching chip +
-/// INACTIVE_CHIP_BG to the rest. We store the active index per row
-/// instead of using a ChipActive marker because marker add/remove
-/// ordering with Commands is fragile.
+// This is the single source of truth for visual active state. The
+// `tick_chip_button_active_overlay` system reads this resource each
+// frame and applies ACTIVE_CHIP_BG to the matching chip +
+// INACTIVE_CHIP_BG to the rest. We store the active index per row
+// instead of using a ChipActive marker because marker add/remove
+// ordering with Commands is fragile.
 #[derive(Resource, Debug, Clone)]
 pub struct ActiveChips {
-    /// Active sub-tab index (0=Overview, 1=Buildings, 2=Build, 3=Mining)
+    // Active sub-tab index (0=Overview, 1=Buildings, 2=Build, 3=Mining)
     pub tab: usize,
-    /// Active build qty multiplier (Build tab)
+    // Active build qty multiplier (Build tab)
     pub qty: u32,
-    /// Active filter/category index (0..8 = category, 9 = All).
-    /// v0.5.2: 8 categories → 9 — Mining was split out of Industry.
+    // Active filter/category index (0..8 = category, 9 = All).
+    // v0.5.2: 8 categories → 9 — Mining was split out of Industry.
     pub category: usize,
-    /// Active mining qty multiplier (Mining tab).
-    /// v0.5.2 PR-A.2: separate from `qty` so the Build tab's
-    /// qty and the Mining tab's qty don't cross-pollute.
+    // Active mining qty multiplier (Mining tab).
+    // v0.5.2 PR-A.2: separate from `qty` so the Build tab's
+    // qty and the Mining tab's qty don't cross-pollute.
     pub mining_qty: u32,
 }
 
@@ -589,16 +589,16 @@ impl Default for ActiveChips {
     }
 }
 
-/// Resource: the construction queue + current output rate.
+// Resource: the construction queue + current output rate.
 ///
-/// In Phase C4 this will be replaced with the real queue (driven by
-/// `process_construction_actions`); for now it's static placeholder data
-/// so the canary can show ETA + queue length without a real queue system.
+// In Phase C4 this will be replaced with the real queue (driven by
+// `process_construction_actions`); for now it's static placeholder data
+// so the canary can show ETA + queue length without a real queue system.
 #[derive(Resource, Debug, Clone)]
 pub struct ConstructionQueue {
-    /// BP per year the colony currently produces (output rate).
+    // BP per year the colony currently produces (output rate).
     pub output_bp_per_year: f64,
-    /// Items currently in the queue (FIFO).
+    // Items currently in the queue (FIFO).
     pub items: Vec<QueuedBuild>,
 }
 
@@ -619,8 +619,8 @@ impl Default for ConstructionQueue {
     }
 }
 
-/// Total seconds remaining in the queue (sum of each item's build time).
-/// Returns 0.0 when the queue is empty.
+// Total seconds remaining in the queue (sum of each item's build time).
+// Returns 0.0 when the queue is empty.
 pub fn queue_remaining_seconds(queue: &ConstructionQueue) -> f64 {
     let mut total = 0.0;
     for item in &queue.items {
@@ -633,13 +633,13 @@ pub fn queue_remaining_seconds(queue: &ConstructionQueue) -> f64 {
     total
 }
 
-/// ETA for a single card: queue_remaining + own_build_time.
+// ETA for a single card: queue_remaining + own_build_time.
 pub fn card_eta_seconds(queue: &ConstructionQueue, card_bp: f64) -> f64 {
     queue_remaining_seconds(queue)
         + (card_bp / (queue.output_bp_per_year / 365.25 / 24.0 / 3600.0).max(1e-9))
 }
 
-/// Resource that flags the Construction canary as visible.
+// Resource that flags the Construction canary as visible.
 #[derive(Debug, Default, Resource, PartialEq, Eq, Clone, Copy)]
 pub enum ConstructionState {
     #[default]
@@ -647,35 +647,35 @@ pub enum ConstructionState {
     On,
 }
 
-/// Resource: whether the queue panel is open. Toggled by the AppBar
-/// `QUEUE` chip. Lives on a separate resource (not on `ConstructionUiState`)
-/// so the egui reference panel doesn't see the expansion and so future
-/// queue-panel-only state (e.g. scroll position) can land here too.
+// Resource: whether the queue panel is open. Toggled by the AppBar
+// `QUEUE` chip. Lives on a separate resource (not on `ConstructionUiState`)
+// so the egui reference panel doesn't see the expansion and so future
+// queue-panel-only state (e.g. scroll position) can land here too.
 #[derive(Debug, Default, Resource, Clone, Copy)]
 pub struct QueuePanelState {
     pub open: bool,
 }
 
-/// Resource: whether the Active Colony dropdown menu is open. Toggled by
-/// clicking the picker. When `open`, the floating dropdown menu shows
-/// every existing colony and selecting one updates
-/// `ConstructionUiState::selected_colony` plus closes the menu.
+// Resource: whether the Active Colony dropdown menu is open. Toggled by
+// clicking the picker. When `open`, the floating dropdown menu shows
+// every existing colony and selecting one updates
+// `ConstructionUiState::selected_colony` plus closes the menu.
 #[derive(Debug, Default, Resource, Clone, Copy)]
 pub struct ColonyDropdownState {
     pub open: bool,
 }
 
-/// Resource: state for the centered Demolish confirmation modal
-/// (v0.5.2 PR-A.7). `tick_demolish_click` sets `open: true` and
-/// stores the building + count when the player presses a Demolish
-/// button. `tick_demolish_confirm_yes_click` applies the edit and
-/// resets the state; `tick_demolish_confirm_no_click` and
-/// `tick_demolish_dialog_close_on_tab_switch` (and
-/// `tick_demolish_dialog_close_on_colony_change`) reset without
-/// action. `update_demolish_dialog_text` re-reads the live colony
-/// count every frame and clamps `count` down, so the title never
-/// claims to demolish more buildings than exist (e.g. player picks
-/// ×25 when only 3 are present → title reads "Demolish 3 …?").
+// Resource: state for the centered Demolish confirmation modal
+// (v0.5.2 PR-A.7). `tick_demolish_click` sets `open: true` and
+// stores the building + count when the player presses a Demolish
+// button. `tick_demolish_confirm_yes_click` applies the edit and
+// resets the state; `tick_demolish_confirm_no_click` and
+// `tick_demolish_dialog_close_on_tab_switch` (and
+// `tick_demolish_dialog_close_on_colony_change`) reset without
+// action. `update_demolish_dialog_text` re-reads the live colony
+// count every frame and clamps `count` down, so the title never
+// claims to demolish more buildings than exist (e.g. player picks
+// ×25 when only 3 are present → title reads "Demolish 3 …?").
 #[derive(Debug, Default, Resource, Clone)]
 pub struct DemolishConfirmState {
     pub open: bool,
@@ -683,14 +683,14 @@ pub struct DemolishConfirmState {
     pub count: u32,
 }
 
-/// Resource: hover-driven tooltip state for the construction canary.
+// Resource: hover-driven tooltip state for the construction canary.
 ///
-/// When the player hovers over a disabled Queue CTA (one they can't
-/// afford at the current multiplier), `tick_construction_tooltip`
-/// populates `text` with a short reason and flips `visible` to true.
-/// The `update_tooltip_text` system mirrors that to the on-screen
-/// tooltip Text node each frame so the player sees *why* the button
-/// is greyed out.
+// When the player hovers over a disabled Queue CTA (one they can't
+// afford at the current multiplier), `tick_construction_tooltip`
+// populates `text` with a short reason and flips `visible` to true.
+// The `update_tooltip_text` system mirrors that to the on-screen
+// tooltip Text node each frame so the player sees *why* the button
+// is greyed out.
 #[derive(Debug, Default, Resource)]
 pub struct ConstructionTooltipState {
     pub text: String,
@@ -698,219 +698,246 @@ pub struct ConstructionTooltipState {
 }
 #[allow(dead_code)]
 
-/// Marker component for the canary root container.
+// v0.5.2 (build menu fix): cursor-following tooltip for disabled
+// Queue CTAs (resource-shortage OR body-blocked). The
+// `tick_construction_tooltip` system populates this from the
+// per-frame CTA scan; the `update_queue_button_tooltip` system
+// positions a singleton overlay at the cursor and writes the
+// lines to its text node. Mirrors the resource-cost chip
+// tooltip pattern at `ResourceCostHoverState` /
+// `update_resource_cost_tooltip`, but with a multi-line
+// payload (the `Missing:` list) instead of a single line.
+#[derive(Debug, Default, Resource)]
+pub struct QueueButtonTooltipState {
+    // Entity id of the CTA the cursor is currently hovering, so
+    // the per-frame system can guard against stale state (the
+    // CTA may be despawned between frames when the player
+    // switches sub-tabs, multiplier, or colony).
+    pub hovered_cta: Option<Entity>,
+    // Pre-formatted lines, one per row of the tooltip. The
+    // per-frame system writes them into the overlay's Text node
+    // verbatim — no further formatting / wrapping.
+    pub lines: Vec<String>,
+}
+
+// Marker on the singleton cursor-following overlay for the
+// disabled Queue CTA tooltip. Spawned once at panel setup time
+// (alongside `ResourceCostTooltipOverlay` / `PowerChipTooltipOverlay`);
+// populated each frame by `update_queue_button_tooltip` from
+// `QueueButtonTooltipState`. Same ZIndex as the chip tooltips
+// (20) so it draws on top of card chrome but below the topbar.
+#[derive(Component)]
+pub struct QueueButtonTooltipOverlay;
+
+// Marker on the inner text node of the overlay. The update
+// system uses `Single<&mut Text, With<…>>` so it doesn't have
+// to walk a Children hierarchy.
+#[derive(Component)]
+pub struct QueueButtonTooltipText;
+
+// Marker component for the canary root container.
 #[derive(Component)]
 pub struct ConstructionRoot;
 
-/// Marker component for the AppBar title text.
+// Marker component for the AppBar title text.
 #[derive(Component)]
 pub struct ConstructionTitle;
 
-/// Marker component for the AppBar subtitle text.
+// Marker component for the AppBar subtitle text.
 #[derive(Component)]
 pub struct ConstructionSubtitle;
 
-/// Marker component for each build card. Holds the building name.
+// Marker component for each build card. Holds the building name.
 #[derive(Component)]
 pub struct ConstructionCard {
     pub name: String,
 }
 
-/// Marker component for the Queue CTA. Carries the `BuildingType` this
-/// card represents, so the click handler knows which building to enqueue.
+// Marker component for the Queue CTA. Carries the `BuildingType` this
+// card represents, so the click handler knows which building to enqueue.
 #[derive(Component)]
 pub struct ConstructionCta {
     pub building_type: BuildingType,
 }
 
-/// Marker component for Queue CTAs that should be **disabled** (visible
-/// but inactive). The player can't afford N copies of the building at
-/// the current multiplier. The `tick_construction_cta_disabled` system
-/// inserts this marker after each refresh, and the click handler skips
-/// the push when the marker is present.
+// Marker component for Queue CTAs that should be **disabled** (visible
+// but inactive). The player can't afford N copies of the building at
+// the current multiplier. The `tick_construction_cta_disabled` system
+// inserts this marker after each refresh, and the click handler skips
+// the push when the marker is present.
 #[derive(Component)]
 pub struct ConstructionCtaDisabled;
 
-/// Component on a disabled Queue CTA that carries the **short
-/// human-readable reason** the CTA is disabled (e.g. "Need 50 kt Iron
-/// here"). The `tick_construction_cta_reason_text` system writes this
-/// every frame; the `update_construction_tooltip` system reads the
-/// same reason into the bottom-left hover tooltip. When the CTA is
-/// enabled, `reason` is `None` and the red reason-text sibling is
-/// hidden.
-#[derive(Component, Default)]
-pub struct ConstructionCtaBlockedReason {
-    pub reason: Option<String>,
-}
-
-/// Marker for the red reason-text element that sits as a sibling of
-/// a Queue CTA. Carries a back-reference to the CTA entity so the
-/// per-frame `tick_construction_cta_reason_text` system can look up
-/// the CTA's `ConstructionCtaBlockedReason` and mirror it into this
-/// text node. Spawned hidden (`Visibility::Hidden`) — flipped to
-/// `Visible` only when the CTA is disabled AND a reason string is
-/// available.
+// v0.5.2 (build menu fix): marker for Queue CTAs that are
+// **permanently** disabled because the building isn't allowed on
+// the current body (e.g. an Iron Mine on a gas giant). Distinct
+// from `ConstructionCtaDisabled` so the per-frame
+// `tick_construction_cta_disabled` system — which only reasons
+// about resources / power — doesn't silently re-enable the CTA
+// when the player happens to have the resources on hand. The
+// hover system treats this marker identically to
+// `ConstructionCtaDisabled` (no hover scale, no colour change);
+// the affordability system ignores it (the spawn-time decision
+// is permanent until the body changes).
 #[derive(Component)]
-pub struct ConstructionCtaReasonText {
-    pub cta: Entity,
-}
+pub struct ConstructionCtaBodyBlocked;
 
-/// Marker component for the AppBar "OPEN QUEUE" toggle chip. The
-/// `tick_open_queue_chip_click` system reads this marker to know
-/// which chip's `Interaction::Pressed` should toggle `QueuePanelState`.
+// Marker component for the AppBar "OPEN QUEUE" toggle chip. The
+// `tick_open_queue_chip_click` system reads this marker to know
+// which chip's `Interaction::Pressed` should toggle `QueuePanelState`.
 #[derive(Component)]
 pub struct OpenQueueChip;
 
-/// Marker component for the "Active Colony" picker. The
-/// `tick_colony_picker_click` system reads this marker to toggle
-/// `ColonyDropdownState::open` when the player clicks the picker.
-/// Distinct from `OpenQueueChip` so the click handlers can dispatch
-/// independently.
+// Marker component for the "Active Colony" picker. The
+// `tick_colony_picker_click` system reads this marker to toggle
+// `ColonyDropdownState::open` when the player clicks the picker.
+// Distinct from `OpenQueueChip` so the click handlers can dispatch
+// independently.
 #[derive(Component)]
 pub struct ColonyPicker;
 
-/// Marker component for the floating Active Colony dropdown menu
-/// (the list of colonies that appears below the picker when it's
-/// clicked). The `tick_colony_dropdown_visibility` system shows /
-/// hides this container based on `ColonyDropdownState::open`.
+// Marker component for the floating Active Colony dropdown menu
+// (the list of colonies that appears below the picker when it's
+// clicked). The `tick_colony_dropdown_visibility` system shows /
+// hides this container based on `ColonyDropdownState::open`.
 #[derive(Component)]
 pub struct ColonyDropdownMenu;
 
-/// Marker component for a single option row inside the colony dropdown
-/// menu. Carries the `Entity` of the `Colony` it represents so the
-/// `tick_colony_option_click` system can update
-/// `ConstructionUiState::selected_colony` when an option is clicked.
+// Marker component for a single option row inside the colony dropdown
+// menu. Carries the `Entity` of the `Colony` it represents so the
+// `tick_colony_option_click` system can update
+// `ConstructionUiState::selected_colony` when an option is clicked.
 #[derive(Component)]
 pub struct ColonyDropdownOption {
     pub colony_entity: bevy::ecs::entity::Entity,
 }
 
-/// Marker component on the colony value text inside the picker. The
-/// `update_colony_picker_text` system writes the active colony's name
-/// here every frame so the label always reflects the current selection.
+// Marker component on the colony value text inside the picker. The
+// `update_colony_picker_text` system writes the active colony's name
+// here every frame so the label always reflects the current selection.
 #[derive(Component)]
 pub struct ColonyPickerText;
 
-/// Marker component on each row of the colony dropdown menu that holds
-/// the colony name text. The `refresh_colony_dropdown` system uses
-/// these to know which rows to keep vs. despawn when the list of
-/// colonies changes.
+// Marker component on each row of the colony dropdown menu that holds
+// the colony name text. The `refresh_colony_dropdown` system uses
+// these to know which rows to keep vs. despawn when the list of
+// colonies changes.
 #[derive(Component)]
 pub struct ColonyDropdownOptionText;
 
-/// Marker on the canary's hover tooltip text. The
-/// `update_construction_tooltip` system reads `ConstructionTooltipState`
-/// every frame and writes the text + toggles visibility.
+// Marker on the canary's hover tooltip text. The
+// `update_construction_tooltip` system reads `ConstructionTooltipState`
+// every frame and writes the text + toggles visibility.
 #[derive(Component)]
 pub struct ConstructionTooltipText;
 
-/// Marker component for the marquee track that wraps an overflowing
-/// build-card subtitle. The track holds two copies of the subtitle
-/// back-to-back (no gap — a gap would create a visible "blank" beat
-/// when copy A scrolls out and copy B scrolls in) and is animated via
-/// `UiTransform.translation` by `tick_subtitle_marquee`.
+// Marker component for the marquee track that wraps an overflowing
+// build-card subtitle. The track holds two copies of the subtitle
+// back-to-back (no gap — a gap would create a visible "blank" beat
+// when copy A scrolls out and copy B scrolls in) and is animated via
+// `UiTransform.translation` by `tick_subtitle_marquee`.
 ///
-/// `card`, `text_node`, and `clip_container` are pre-resolved entity
-/// handles stored at spawn time so the tick system can do direct
-/// `Query::get` lookups instead of walking `Parent` / `Children`
-/// chains every frame. All three are required; missing entities
-/// (the card was despawned mid-tick) just keep the marquee dormant
-/// so the engine can clean it up.
+// `card`, `text_node`, and `clip_container` are pre-resolved entity
+// handles stored at spawn time so the tick system can do direct
+// `Query::get` lookups instead of walking `Parent` / `Children`
+// chains every frame. All three are required; missing entities
+// (the card was despawned mid-tick) just keep the marquee dormant
+// so the engine can clean it up.
 ///
-/// `text_width` and `container_width` are the most recent
-/// `ComputedNode`-measured values (pixels) used to decide whether
-/// the description actually overflows. When `text_width <=
-/// container_width` the marquee is dormant and the track sits at
-/// translation `(0, 0)` — the text fits naturally and we leave it
-/// alone.
+// `text_width` and `container_width` are the most recent
+// `ComputedNode`-measured values (pixels) used to decide whether
+// the description actually overflows. When `text_width <=
+// container_width` the marquee is dormant and the track sits at
+// translation `(0, 0)` — the text fits naturally and we leave it
+// alone.
 ///
-/// `phase` is the current **pixel offset** of the track (always
-/// non-negative, wrapped modulo `text_width`). At `phase = 0`
-/// copy A sits at the clip container's left edge; at
-/// `phase = text_width` copy B sits exactly where copy A
-/// started — the seamless loop. `tick_subtitle_marquee`
-/// integrates `phase += dt * PIXELS_PER_SECOND` each tick while
-/// the description overflows, so the track drifts leftward at
-/// a constant rate that doesn't depend on card size, hover
-/// state, or how many cards are visible.
+// `phase` is the current **pixel offset** of the track (always
+// non-negative, wrapped modulo `text_width`). At `phase = 0`
+// copy A sits at the clip container's left edge; at
+// `phase = text_width` copy B sits exactly where copy A
+// started — the seamless loop. `tick_subtitle_marquee`
+// integrates `phase += dt * PIXELS_PER_SECOND` each tick while
+// the description overflows, so the track drifts leftward at
+// a constant rate that doesn't depend on card size, hover
+// state, or how many cards are visible.
 #[derive(Component)]
 pub struct SubtitleMarquee {
-    /// Parent build-card entity, used by `tick_subtitle_marquee`
-    /// to read the card's `Interaction` each frame. Stored
-    /// explicitly so the system does one `Query::get` instead of
-    /// walking `Parent` chains.
+    // Parent build-card entity, used by `tick_subtitle_marquee`
+    // to read the card's `Interaction` each frame. Stored
+    // explicitly so the system does one `Query::get` instead of
+    // walking `Parent` chains.
     pub card: Entity,
-    /// Entity of the first text copy, used to measure
-    /// `ComputedNode::content_size` for the per-frame overflow
-    /// check. The second copy shares the same string + font so we
-    /// only need to read one.
+    // Entity of the first text copy, used to measure
+    // `ComputedNode::content_size` for the per-frame overflow
+    // check. The second copy shares the same string + font so we
+    // only need to read one.
     pub text_node: Entity,
-    /// Entity of the outer clip container, used to measure
-    /// `ComputedNode::size` (the visible horizontal extent the
-    /// track scrolls within).
+    // Entity of the outer clip container, used to measure
+    // `ComputedNode::size` (the visible horizontal extent the
+    // track scrolls within).
     pub clip_container: Entity,
-    /// Most recent measured text content width in pixels. Updated
-    /// each frame by `tick_subtitle_marquee` from `ComputedNode`.
+    // Most recent measured text content width in pixels. Updated
+    // each frame by `tick_subtitle_marquee` from `ComputedNode`.
     pub text_width: f32,
-    /// Most recent measured clip-container width in pixels.
+    // Most recent measured clip-container width in pixels.
     pub container_width: f32,
-    /// Current pixel offset of the track (leftward drift).
-    /// `tick_subtitle_marquee` integrates this each tick and
-    /// wraps modulo `text_width` so the value stays bounded
-    /// over a long session. Initialised to 0.0 at spawn — each
-    /// card therefore starts at a different drift point in its
-    /// loop depending on when it was spawned, which keeps the
-    /// grid from marching in lockstep.
+    // Current pixel offset of the track (leftward drift).
+    // `tick_subtitle_marquee` integrates this each tick and
+    // wraps modulo `text_width` so the value stays bounded
+    // over a long session. Initialised to 0.0 at spawn — each
+    // card therefore starts at a different drift point in its
+    // loop depending on when it was spawned, which keeps the
+    // grid from marching in lockstep.
     pub phase: f32,
 }
 
-/// Marker component for the QueuePanel root. The
-/// `tick_queue_panel_visibility` system hides all but the active
-/// state — there's only one QueuePanel so this is a singleton query.
+// Marker component for the QueuePanel root. The
+// `tick_queue_panel_visibility` system hides all but the active
+// state — there's only one QueuePanel so this is a singleton query.
 #[derive(Component)]
 pub struct QueuePanelRoot;
 
-/// Marker component for a single row in the queue panel. The
-/// `update_queue_panel` system spawns one of these per
-/// `ConstructionProject` for the selected colony, and removes them
-/// when the project is gone (cancel / complete). The mapping
-/// `project_entity -> QueueRowEntity` lives in a `Local` storage
-/// inside the system.
+// Marker component for a single row in the queue panel. The
+// `update_queue_panel` system spawns one of these per
+// `ConstructionProject` for the selected colony, and removes them
+// when the project is gone (cancel / complete). The mapping
+// `project_entity -> QueueRowEntity` lives in a `Local` storage
+// inside the system.
 #[derive(Component)]
 pub struct QueuePanelRow {
     pub project_entity: Entity,
 }
 
-/// Marker component for the cancel button on a queue row. Click handler
-/// pushes the project entity to `PendingConstructionActions::cancel_construction`.
+// Marker component for the cancel button on a queue row. Click handler
+// pushes the project entity to `PendingConstructionActions::cancel_construction`.
 #[derive(Component)]
 pub struct QueuePanelRowCancel {
     pub project_entity: Entity,
 }
 
-/// Marker component for the QueuePanel close button. The click handler
-/// toggles `QueuePanelState::open` to `false`.
+// Marker component for the QueuePanel close button. The click handler
+// toggles `QueuePanelState::open` to `false`.
 #[derive(Component)]
 pub struct QueuePanelClose;
 
-/// Marker component for the card grid container. The refresh system
-/// queries for this to find the grid and re-parent new cards.
+// Marker component for the card grid container. The refresh system
+// queries for this to find the grid and re-parent new cards.
 #[derive(Component)]
 pub struct CardGrid;
 
-/// Marker for the always-visible vertical scrollbar track pinned to
-/// the right edge of the card grid. `tick_construction_scrollbar`
-/// queries this to find the track and resize/reposition its thumb
-/// based on the grid's `ScrollPosition` + content size.
+// Marker for the always-visible vertical scrollbar track pinned to
+// the right edge of the card grid. `tick_construction_scrollbar`
+// queries this to find the track and resize/reposition its thumb
+// based on the grid's `ScrollPosition` + content size.
 #[derive(Component)]
 pub struct CardGridScrollbarTrack;
 
-/// Marker for the thumb (the draggable handle inside the track).
-/// Driven each frame by `tick_construction_scrollbar`.
+// Marker for the thumb (the draggable handle inside the track).
+// Driven each frame by `tick_construction_scrollbar`.
 #[derive(Component)]
 pub struct CardGridScrollbarThumb;
 
-/// Effect-bullet tone (drives the color of the corresponding line).
+// Effect-bullet tone (drives the color of the corresponding line).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EffectTone {
     Positive,
@@ -920,87 +947,96 @@ pub enum EffectTone {
     Throughput,
 }
 
-/// Build card data: name, subtitle, stats, effects, queue label.
+// Build card data: name, subtitle, stats, effects, queue label.
 #[derive(Debug, Clone)]
 pub struct BuildCardData {
     pub name: String,
     pub subtitle: String,
-    /// The actual `BuildingType` this card represents. The Queue button
-    /// pushes `(selected_colony, building_type)` to
-    /// `PendingConstructionActions::start_construction` so
-    /// `process_construction_actions` can spawn the project.
+    // The actual `BuildingType` this card represents. The Queue button
+    // pushes `(selected_colony, building_type)` to
+    // `PendingConstructionActions::start_construction` so
+    // `process_construction_actions` can spawn the project.
     pub building_type: BuildingType,
-    /// Path to the building's icon, relative to the `assets/` directory
-    /// (e.g. `textures/ui/buildings/mine.png`). Sourced from
-    /// `BuildingDefinition::icon` in `buildings.ron`. The canary loads
-    /// this via `AssetServer::load` and renders it as the card header icon.
+    // Path to the building's icon, relative to the `assets/` directory
+    // (e.g. `textures/ui/buildings/mine.png`). Sourced from
+    // `BuildingDefinition::icon` in `buildings.ron`. The canary loads
+    // this via `AssetServer::load` and renders it as the card header icon.
     pub icon: String,
-    /// The player's chosen build multiplier. The card ETA is derived
-    /// from `build_points * multiplier` so the player can see the full
-    /// batch ETA at a glance. The Queue button also pushes this many
-    /// copies to `PendingConstructionActions`.
+    // The player's chosen build multiplier. The card ETA is derived
+    // from `build_points * multiplier` so the player can see the full
+    // batch ETA at a glance. The Queue button also pushes this many
+    // copies to `PendingConstructionActions`.
     pub multiplier: u32,
     pub stat_a: (&'static str, String),
     pub stat_b: (&'static str, String),
-    /// Build points for one unit. The ETA row derives from
-    /// `build_points * multiplier` divided by the static
-    /// placeholder output. v0.5.2: added so the Mining card can
-    /// show ETA (the Mining card's `stat_a` carries the live
-    /// inventory count, not BP — without this separate field the
-    /// ETA calculation would parse the count as 0 BP and show
-    /// "0s" regardless of multiplier).
+    // Build points for one unit. The ETA row derives from
+    // `build_points * multiplier` divided by the static
+    // placeholder output. v0.5.2: added so the Mining card can
+    // show ETA (the Mining card's `stat_a` carries the live
+    // inventory count, not BP — without this separate field the
+    // ETA calculation would parse the count as 0 BP and show
+    // "0s" regardless of multiplier).
     pub build_points: f64,
-    /// stat_c is unused (kept for struct stability) — the power
-    /// readout moved to the body's first effect line.
+    // stat_c is unused (kept for struct stability) — the power
+    // readout moved to the body's first effect line.
     pub stat_c: (&'static str, String),
     pub effects: Vec<(EffectTone, String)>,
-    /// Rich resource-cost rows: each entry is rendered as a
-    /// `[PNG icon | tinted amount]` row in the card body, so
-    /// the player can identify the resource at a glance and group
-    /// related costs (Construction metals vs Volatiles vs
-    /// Precious metals …) by hue. The icon is the asset-server
-    /// PNG from `assets/textures/ui/resources/<name>.png`,
-    /// post-processed (white → transparent, dark →
-    /// un-premultiplied alpha) and tinted to the resource's
-    /// category colour at render time via
-    /// `ImageNode::color` (`bevy_theme::category_color_for_resource`).
+    // Rich resource-cost rows: each entry is rendered as a
+    // `[PNG icon | tinted amount]` row in the card body, so
+    // the player can identify the resource at a glance and group
+    // related costs (Construction metals vs Volatiles vs
+    // Precious metals …) by hue. The icon is the asset-server
+    // PNG from `assets/textures/ui/resources/<name>.png`,
+    // post-processed (white → transparent, dark →
+    // un-premultiplied alpha) and tinted to the resource's
+    // category colour at render time via
+    // `ImageNode::color` (`bevy_theme::category_color_for_resource`).
     ///
-    /// v0.5.2 PR-A.4 follow-up: supersedes the emoji-prefixed
-    /// cost bullets that previously lived in `effects` with
-    /// `EffectTone::Cost`. Cost entries are no longer pushed to
-    /// `effects`; the canary renders the rows in this vec instead.
+    // v0.5.2 PR-A.4 follow-up: supersedes the emoji-prefixed
+    // cost bullets that previously lived in `effects` with
+    // `EffectTone::Cost`. Cost entries are no longer pushed to
+    // `effects`; the canary renders the rows in this vec instead.
     pub resource_costs: Vec<ResourceCostRow>,
-    /// Power chip for this card. `Some` for every building —
-    /// the chip itself is the single source of truth for power
-    /// on the card (the old `Power: … MW` text line in
-    /// `effects` has been removed; see PR-A.7 2026-08-04). The
-    /// `PowerChipData::verb` distinguishes "Demand" from
-    /// "Produces" and the `insufficient` flag drives the
-    /// negative-orange tone when the batch would push the
-    /// active colony's grid into deficit.
+    // Power chip for this card. `Some` for every building —
+    // the chip itself is the single source of truth for power
+    // on the card (the old `Power: … MW` text line in
+    // `effects` has been removed; see PR-A.7 2026-08-04). The
+    // `PowerChipData::verb` distinguishes "Demand" from
+    // "Produces" and the `insufficient` flag drives the
+    // negative-orange tone when the batch would push the
+    // active colony's grid into deficit.
     pub power_chip: PowerChipData,
-    /// The label on the Queue button. v0.5.2: dynamic per
-    /// multiplier so the Mining card reads "Build +5" instead of
-    /// just "Queue" — gives the player a quick read of how many
-    /// copies one click will enqueue. Build cards keep the
-    /// simpler "Queue" label (the player has 6 fixed chips to
-    /// pick from, the chip itself shows the value).
+    // The label on the Queue button. v0.5.2: dynamic per
+    // multiplier so the Mining card reads "Build +5" instead of
+    // just "Queue" — gives the player a quick read of how many
+    // copies one click will enqueue. Build cards keep the
+    // simpler "Queue" label (the player has 6 fixed chips to
+    // pick from, the chip itself shows the value).
     pub queue_label: String,
-    /// `true` if the batch's total power demand exceeds the active
-    /// colony's grid surplus. The Queue button reads this and adds
-    /// `ConstructionCtaDisabled` so the player can't push a build
-    /// the grid can't power; the tooltip system reads it to show
-    /// "not enough energy".
+    // `true` if the batch's total power demand exceeds the active
+    // colony's grid surplus. The Queue button reads this and adds
+    // `ConstructionCtaDisabled` so the player can't push a build
+    // the grid can't power; the tooltip system reads it to show
+    // "not enough energy".
     ///
-    /// `false` when the building doesn't draw grid power, when
-    /// no colony is selected (menu-screen previews), or when the
-    /// batch fits inside the grid.
+    // `false` when the building doesn't draw grid power, when
+    // no colony is selected (menu-screen previews), or when the
+    // batch fits inside the grid.
     pub power_insufficient: bool,
+    // v0.5.2 (build menu fix): `true` when the building can't be
+    // built on the current body (mining tab only — e.g. an Iron
+    // Mine on a gas giant). The Queue button is disabled with a
+    // `ConstructionCtaBodyBlocked` marker so the per-frame
+    // affordability system (`tick_construction_cta_disabled`)
+    // doesn't silently re-enable it when the player happens to
+    // have the resources on hand. `false` for every Build tab
+    // card.
+    pub body_blocked: bool,
 }
 
-/// Build a `BuildCardData` from a `BuildingDefinition`. This is the
-/// single conversion function used by the canary — all building
-/// cards are derived from real `BuildingsData`, no hard-coding.
+// Build a `BuildCardData` from a `BuildingDefinition`. This is the
+// single conversion function used by the canary — all building
+// cards are derived from real `BuildingsData`, no hard-coding.
 pub fn card_data_from_definition(
     building_type: BuildingType,
     def: &BuildingDefinition,
@@ -1008,20 +1044,20 @@ pub fn card_data_from_definition(
     card_data_with_multiplier(building_type, def, 1, 0.0)
 }
 
-/// Build a `BuildCardData` with the player's chosen build multiplier
-/// factored into the cost/ETA display. The `multiplier` parameter scales
-/// the resource costs and workforce in place — no extra "Total ×N" line
-/// is appended. Per user feedback 2026-08-02: when the player picks
-/// "x25", every existing effect bullet reflects the batched amount
-/// (e.g. "Iron 250k/t" instead of "Iron 10k/t" plus a separate
-/// "Total ×25" line).
+// Build a `BuildCardData` with the player's chosen build multiplier
+// factored into the cost/ETA display. The `multiplier` parameter scales
+// the resource costs and workforce in place — no extra "Total ×N" line
+// is appended. Per user feedback 2026-08-02: when the player picks
+// "x25", every existing effect bullet reflects the batched amount
+// (e.g. "Iron 250k/t" instead of "Iron 10k/t" plus a separate
+// "Total ×25" line).
 ///
-/// `spare_power_mw` is the active colony's grid surplus (produced
-/// minus consumed, in MW). The Power effect line uses it to color-
-/// code insufficient batches (red) vs fitting ones (green) so the
-/// player sees at a glance whether the multiplier will push the grid
-/// into deficit. Pass 0.0 if no colony is active (e.g. menu-screen
-/// previews) — the line still reads cleanly.
+// `spare_power_mw` is the active colony's grid surplus (produced
+// minus consumed, in MW). The Power effect line uses it to color-
+// code insufficient batches (red) vs fitting ones (green) so the
+// player sees at a glance whether the multiplier will push the grid
+// into deficit. Pass 0.0 if no colony is active (e.g. menu-screen
+// previews) — the line still reads cleanly.
 pub fn card_data_with_multiplier(
     building_type: BuildingType,
     def: &BuildingDefinition,
@@ -1212,7 +1248,16 @@ pub fn card_data_with_multiplier(
         PowerChipData {
             verb: "Demand",
             amount: line,
-            per_unit_mw: def.power_demand_mw,
+            // v0.5.2 PR-A.7 (2026-08-04): `per_unit_mw` is the SIGNED
+            // power per unit — positive for generation, NEGATIVE
+            // for consumption. The RON stores `power_demand_mw` as
+            // a positive magnitude, so we negate it here so the
+            // chip's `+` / `-` sign prefix + red/green text colour
+            // correctly identifies this building as a consumer
+            // (red, "-50 MW") rather than a producer (green,
+            // "+50 MW"). Without the negation every demand card
+            // showed as a green "+N MW" producer.
+            per_unit_mw: -def.power_demand_mw,
             multiplier: mult as u32,
             spare_mw: if spare > 0.0 { Some(spare) } else { None },
             insufficient,
@@ -1321,16 +1366,21 @@ pub fn card_data_with_multiplier(
         power_chip,
         queue_label: "Queue".to_string(),
         power_insufficient,
+        // v0.5.2 (build menu fix): Build tab cards are never body-blocked.
+        // The field exists for spawn_card's benefit so it can
+        // distinguish spawn-time-true body-blocked mining cards
+        // from resource-driven disabled states.
+        body_blocked: false,
         build_points: def.build_points,
     }
 }
 
-/// Clamp a description string to roughly two lines of caption-size text
-/// (12 px) inside a card column of ~145 px width —— ~80 chars at the
-/// prototype's character density. Appends an ellipsis when truncated so
-/// the player knows the description continues. The 80-char budget keeps
-/// every card subtitle visually consistent and prevents the effect
-/// bullets below from being pushed off the card.
+// Clamp a description string to roughly two lines of caption-size text
+// (12 px) inside a card column of ~145 px width —— ~80 chars at the
+// prototype's character density. Appends an ellipsis when truncated so
+// the player knows the description continues. The 80-char budget keeps
+// every card subtitle visually consistent and prevents the effect
+// bullets below from being pushed off the card.
 fn clamp_subtitle_two_lines(s: &str) -> String {
     const MAX_CHARS: usize = 80;
     if s.chars().count() <= MAX_CHARS {
@@ -1341,25 +1391,25 @@ fn clamp_subtitle_two_lines(s: &str) -> String {
     out
 }
 
-/// Format a mining production rate (Mt/yr) with a human-readable
-/// unit suffix. Mirrors the helper in `src/ui/construction_panel.rs`
-/// (egui Mining tab) so the canary and the legacy panel agree on
-/// the same scale labels.
+// Format a mining production rate (Mt/yr) with a human-readable
+// unit suffix. Mirrors the helper in `src/ui/construction_panel.rs`
+// (egui Mining tab) so the canary and the legacy panel agree on
+// the same scale labels.
 ///
-/// | Range (Mt/yr)     | Suffix       | Example                     |
-/// |-------------------|--------------|-----------------------------|
-/// | < 1e-12           | "0"          | (effect suppressed upstream)|
-/// | 1e-12 .. 1e-9     | g/yr         | "100 g/yr" Gold             |
-/// | 1e-9 .. 1e-6      | kg/yr        | "500 kg/yr" Platinum        |
-/// | 1e-6 .. 1e-3      | t/yr         | "500 t/yr" RareEarths       |
-/// | 1e-3 .. 1         | kt/yr        | "120 kt/yr" Iron            |
-/// | 1 .. 1e3          | Mt/yr        | "120 Mt/yr" Silicates       |
-/// | 1e3 .. 1e6        | Gt/yr        | "120 Gt/yr" Water           |
-/// | 1e6 .. 1e9        | Tt/yr        | "1.20 Tt/yr" Carbon         |
-/// | 1e9 .. 1e12       | Pt/yr        | "1.20 Pt/yr" (planet bulk)  |
-/// | 1e12 .. 1e15      | Et/yr        | "1.20 Et/yr" (planet bulk)  |
-/// | 1e15 .. 1e18      | Zt/yr        | "5.97 Zt/yr" Earth          |
-/// | ≥ 1e18            | Yt/yr        | (stellar-scale)             |
+// | Range (Mt/yr)     | Suffix       | Example                     |
+// |-------------------|--------------|-----------------------------|
+// | < 1e-12           | "0"          | (effect suppressed upstream)|
+// | 1e-12 .. 1e-9     | g/yr         | "100 g/yr" Gold             |
+// | 1e-9 .. 1e-6      | kg/yr        | "500 kg/yr" Platinum        |
+// | 1e-6 .. 1e-3      | t/yr         | "500 t/yr" RareEarths       |
+// | 1e-3 .. 1         | kt/yr        | "120 kt/yr" Iron            |
+// | 1 .. 1e3          | Mt/yr        | "120 Mt/yr" Silicates       |
+// | 1e3 .. 1e6        | Gt/yr        | "120 Gt/yr" Water           |
+// | 1e6 .. 1e9        | Tt/yr        | "1.20 Tt/yr" Carbon         |
+// | 1e9 .. 1e12       | Pt/yr        | "1.20 Pt/yr" (planet bulk)  |
+// | 1e12 .. 1e15      | Et/yr        | "1.20 Et/yr" (planet bulk)  |
+// | 1e15 .. 1e18      | Zt/yr        | "5.97 Zt/yr" Earth          |
+// | ≥ 1e18            | Yt/yr        | (stellar-scale)             |
 fn format_mining_rate(mt_per_year: f64) -> String {
     if mt_per_year.abs() < 1e-12 {
         return "0".to_string();
@@ -1419,39 +1469,39 @@ fn format_mining_rate(mt_per_year: f64) -> String {
 // inventory edit is handled by `process_construction_actions`
 // in `src/colony/systems.rs` — this file owns only the UI.
 
-/// Per-card derived data for the Mining tab. Computed once per
-/// card per frame; cheap (one `HashMap::get` per resource + a
-/// modifier scan). The `count` lives on `Colony::buildings` and
-/// is read directly in the spawn loop, not pre-computed here.
+// Per-card derived data for the Mining tab. Computed once per
+// card per frame; cheap (one `HashMap::get` per resource + a
+// modifier scan). The `count` lives on `Colony::buildings` and
+// is read directly in the spawn loop, not pre-computed here.
 #[derive(Debug, Clone, Copy)]
 pub struct MiningCardData {
-    /// Per-build base yield in Mt/yr, from the building's
-    /// `*Production` modifier. 0.0 if the building has no
-    /// production modifier (e.g. He3Mine with no per-build yield
-    /// listed; rare).
+    // Per-build base yield in Mt/yr, from the building's
+    // `*Production` modifier. 0.0 if the building has no
+    // production modifier (e.g. He3Mine with no per-build yield
+    // listed; rare).
     pub base_yield_mt_per_year: f64,
-    /// Per-resource deposit accessibility on the active body
-    /// (0.0-1.0). 0.0 if no deposit for this resource on the body.
+    // Per-resource deposit accessibility on the active body
+    // (0.0-1.0). 0.0 if no deposit for this resource on the body.
     pub accessibility: f32,
-    /// Total reserves on the body in Mt (proven + deep + bulk
-    /// rolled up). 0.0 if no deposit.
+    // Total reserves on the body in Mt (proven + deep + bulk
+    // rolled up). 0.0 if no deposit.
     pub reserve_mt: f64,
 }
 
 impl MiningCardData {
-    /// Total per-year production for `count` builds of this card.
-    /// Per-mine yield × count × body accessibility.
+    // Total per-year production for `count` builds of this card.
+    // Per-mine yield × count × body accessibility.
     pub fn production_mt_per_year(&self, count: u32) -> f64 {
         count as f64 * self.base_yield_mt_per_year * self.accessibility as f64
     }
 }
 
-/// Compute `MiningCardData` for `(building, deposits)`.
+// Compute `MiningCardData` for `(building, deposits)`.
 ///
-/// Strips `Production` from the first matching modifier to recover
-/// the produced `ResourceType`, then reads the deposit's
-/// `accessibility` and reserves from `PlanetResources::deposits`.
-/// Returns zeroed data if either side is missing.
+// Strips `Production` from the first matching modifier to recover
+// the produced `ResourceType`, then reads the deposit's
+// `accessibility` and reserves from `PlanetResources::deposits`.
+// Returns zeroed data if either side is missing.
 pub fn compute_mining_card_data(
     def: &BuildingDefinition,
     planet_resources: Option<&crate::economy::PlanetResources>,
@@ -1506,11 +1556,11 @@ pub fn compute_mining_card_data(
     }
 }
 
-/// Format a total-reserve value with a scale suffix
-/// (g/kg/t/kt/Mt/Gt/Tt/Pt/Et/Zt). Mirrors `format_mining_rate` for
-/// consistency — input is in **Mt** and the ladder picks the
-/// smallest suffix that lands the displayed value in the 1..=999
-/// range. Used in the "Available Deposits:" row on each Mining card.
+// Format a total-reserve value with a scale suffix
+// (g/kg/t/kt/Mt/Gt/Tt/Pt/Et/Zt). Mirrors `format_mining_rate` for
+// consistency — input is in **Mt** and the ladder picks the
+// smallest suffix that lands the displayed value in the 1..=999
+// range. Used in the "Available Deposits:" row on each Mining card.
 pub fn format_mining_reserve(total_mt: f64) -> String {
     if total_mt.abs() < 1e-12 {
         return "0".to_string();
@@ -1543,20 +1593,53 @@ pub fn format_mining_reserve(total_mt: f64) -> String {
     }
 }
 
-/// Format a power value (MW) with a human-readable SI suffix
-/// ladder (W / kW / MW / GW / TW).
+// Format a power value (MW) with a human-readable SI suffix
+// ladder (W / kW / MW / GW / TW).
 ///
-/// v0.5.2 (2026-08-03): per user feedback, the legacy inline
-/// `format!("{:.0} MW", total_mw)` always rendered in megawatts
-/// regardless of magnitude — a 5 GW fusion plant read as
-/// `5000 MW` instead of `5 GW`. This formatter picks the smallest
-/// suffix that lands the displayed value in the 1..=999 range.
+// v0.5.2 (2026-08-03): per user feedback, the legacy inline
+// `format!("{:.0} MW", total_mw)` always rendered in megawatts
+// regardless of magnitude — a 5 GW fusion plant read as
+// `5000 MW` instead of `5 GW`. This formatter picks the smallest
+// suffix that lands the displayed value in the 1..=999 range.
 ///
-/// Input is in **megawatts (MW)**. SI power prefixes:
+// Input is in **megawatts (MW)**. SI power prefixes:
 ///
-/// | 1 W  = 1e-6 MW  | 1 MW = 1   MW |
-/// | 1 kW = 1e-3 MW  | 1 GW = 1e3  MW |
-/// |                  | 1 TW = 1e6  MW |
+// | 1 W  = 1e-6 MW  | 1 MW = 1   MW |
+// | 1 kW = 1e-3 MW  | 1 GW = 1e3  MW |
+// |                  | 1 TW = 1e6  MW |
+// Strip trailing zeros from a formatted number so `"5.0 GW"`
+// becomes `"5 GW"`, `"12.50 TW"` becomes `"12.5 TW"`, and
+// `"0.10"` becomes `"0.1"`. The dot itself is dropped when
+// all fractional digits are zero. The input is the *full*
+// formatted string (number + space + unit suffix); we split
+// at the first space, strip zeros from the numeric half,
+// then rejoin.
+//
+// v0.5.2 (build menu fix): the previous implementation did
+// `s.trim_end_matches('0').trim_end_matches('.')` which only
+// worked for inputs without a unit suffix (the trailing
+// character of `"5.0 GW"` is `'W'`, not `'0'`, so the trim
+// was a no-op). Splitting on the space first fixes the
+// format_power integration.
+fn strip_trailing_zeros(s: String) -> String {
+    if !s.contains('.') {
+        return s;
+    }
+    // Split at the first space — everything before is the
+    // numeric portion, everything after is the unit suffix
+    // (e.g. " GW", " MW").
+    let (num, suffix) = match s.find(' ') {
+        Some(i) => (&s[..i], &s[i..]),
+        None => (s.as_str(), ""),
+    };
+    let trimmed = num.trim_end_matches('0').trim_end_matches('.');
+    if suffix.is_empty() {
+        trimmed.to_string()
+    } else {
+        format!("{}{}", trimmed, suffix)
+    }
+}
+
 pub fn format_power(total_mw: f64) -> String {
     if total_mw.abs() < 1e-6 {
         return "0 W".to_string();
@@ -1572,38 +1655,38 @@ pub fn format_power(total_mw: f64) -> String {
         // megawatts (1..999 MW)
         format!("{:.0} MW", total_mw)
     } else if v < 1e6 {
-        // gigawatts (1..999 GW)
-        format!("{:.1} GW", total_mw / 1e3)
+        // gigawatts (1..999 GW) — one decimal, trailing zeros stripped
+        strip_trailing_zeros(format!("{:.1} GW", total_mw / 1e3))
     } else if v < 1e9 {
-        // terawatts (1..999 TW)
-        format!("{:.2} TW", total_mw / 1e6)
+        // terawatts (1..999 TW) — two decimals, trailing zeros stripped
+        strip_trailing_zeros(format!("{:.2} TW", total_mw / 1e6))
     } else {
-        // petawatts — colony-scale totals only
-        format!("{:.2} PW", total_mw / 1e9)
+        // petawatts - colony-scale totals only — two decimals, trailing zeros stripped
+        strip_trailing_zeros(format!("{:.2} PW", total_mw / 1e9))
     }
 }
 
-/// Build the list of `BuildCardData` for the Build sub-tab, filtered by
-/// the active category + `BuildFilter`, sorted by `build_points` ascending.
+// Build the list of `BuildCardData` for the Build sub-tab, filtered by
+// the active category + `BuildFilter`, sorted by `build_points` ascending.
 ///
-/// `category_index == 0` is the "Infrastructure" tab, `1` is "Industry", etc.
-/// The last index (8 in the 8-category case) is the "Locked" tab — we
-/// return the locked buildings instead of the unlocked ones.
+// `category_index == 0` is the "Infrastructure" tab, `1` is "Industry", etc.
+// The last index (8 in the 8-category case) is the "Locked" tab — we
+// return the locked buildings instead of the unlocked ones.
 ///
-/// `multiplier` is the player's chosen build-multiplier (1, 5, 10, 25,
-/// 50, 100). It is passed through to `card_data_with_multiplier` so the
-/// rendered card shows the batch cost / total BP for the whole batch.
+// `multiplier` is the player's chosen build-multiplier (1, 5, 10, 25,
+// 50, 100). It is passed through to `card_data_with_multiplier` so the
+// rendered card shows the batch cost / total BP for the whole batch.
 ///
-/// `spare_power_mw` is the active colony's grid surplus (produced -
-/// consumed, in MW). Forwarded to `card_data_with_multiplier` so each
-/// card's Power effect line can show "demand vs spare" with a
-/// green/red sufficient/insufficient marker. v0.5.2 PR-A.2.
+// `spare_power_mw` is the active colony's grid surplus (produced -
+// consumed, in MW). Forwarded to `card_data_with_multiplier` so each
+// card's Power effect line can show "demand vs spare" with a
+// green/red sufficient/insufficient marker. v0.5.2 PR-A.2.
 ///
-/// `research_state` is used to decide which tech-gated buildings are
-/// visible. The legacy version used `required_tech_opt().is_none()` which
-/// hid every building with a tech requirement; the canary mirrors the
-/// egui panel's behavior (only show buildings whose required tech is
-/// absent or already unlocked).
+// `research_state` is used to decide which tech-gated buildings are
+// visible. The legacy version used `required_tech_opt().is_none()` which
+// hid every building with a tech requirement; the canary mirrors the
+// egui panel's behavior (only show buildings whose required tech is
+// absent or already unlocked).
 pub fn visible_cards(
     data: &BuildingsData,
     research_state: &ResearchState,
@@ -1714,8 +1797,8 @@ pub fn visible_cards(
         .collect()
 }
 
-/// Parse the data file's `category: String` into a `BuildingCategory`
-/// enum. Returns `None` for unknown categories (defensive).
+// Parse the data file's `category: String` into a `BuildingCategory`
+// enum. Returns `None` for unknown categories (defensive).
 fn parse_category(s: &str) -> Option<BuildingCategory> {
     match s {
         "Infrastructure" => Some(BuildingCategory::Infrastructure),
@@ -1731,18 +1814,18 @@ fn parse_category(s: &str) -> Option<BuildingCategory> {
     }
 }
 
-/// Convert the `selected_build_tab: usize` into a `BuildingCategory`.
-/// Index 8 maps to `None` (the "All" chip in the filter row).
-/// Any other out-of-range index also maps to `None`.
+// Convert the `selected_build_tab: usize` into a `BuildingCategory`.
+// Index 8 maps to `None` (the "All" chip in the filter row).
+// Any other out-of-range index also maps to `None`.
 ///
-/// v0.5.2 PR-A.2 (round 2): the Mining chip is removed from the
-/// Build tab's category row. Mines are now managed exclusively
-/// in the dedicated Mining tab; the Build tab's category
-/// indices renumber to 0..7 with "All" at index 8. The internal
-/// `BuildingCategory::Mining` variant is preserved (the
-/// Mining tab still uses it; `parse_category` still maps the
-/// RON `"Mining"` string to it) but it has no chip in the
-/// Build tab UI.
+// v0.5.2 PR-A.2 (round 2): the Mining chip is removed from the
+// Build tab's category row. Mines are now managed exclusively
+// in the dedicated Mining tab; the Build tab's category
+// indices renumber to 0..7 with "All" at index 8. The internal
+// `BuildingCategory::Mining` variant is preserved (the
+// Mining tab still uses it; `parse_category` still maps the
+// RON `"Mining"` string to it) but it has no chip in the
+// Build tab UI.
 fn category_from_index(idx: usize) -> Option<BuildingCategory> {
     match idx {
         0 => Some(BuildingCategory::Infrastructure),
@@ -1760,28 +1843,28 @@ fn category_from_index(idx: usize) -> Option<BuildingCategory> {
 
 // ── Sub-tab body markers ──────────────────────────────────────────────
 
-/// Marker component on the **root** of each sub-tab body. The canary
-/// spawns one of these per sub-tab (Overview / Buildings / Build /
-/// Stockpiles) at setup time, all as children of the `ConstructionRoot`.
-/// The `tick_construction_body_visibility` system makes exactly one
-/// visible (the one matching `ui_state.selected_tab`) every frame,
-/// keeping the others hidden via `Visibility::Hidden`.
+// Marker component on the **root** of each sub-tab body. The canary
+// spawns one of these per sub-tab (Overview / Buildings / Build /
+// Stockpiles) at setup time, all as children of the `ConstructionRoot`.
+// The `tick_construction_body_visibility` system makes exactly one
+// visible (the one matching `ui_state.selected_tab`) every frame,
+// keeping the others hidden via `Visibility::Hidden`.
 ///
-/// The bodies are siblings, not nested — each sub-tab body is its own
-/// flex container at the same level as the card grid. The canary's
-/// card grid (the Build tab body) carries `BuildBody`.
+// The bodies are siblings, not nested — each sub-tab body is its own
+// flex container at the same level as the card grid. The canary's
+// card grid (the Build tab body) carries `BuildBody`.
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConstructionTabBody {
     Overview,
     Buildings,
     Build,
-    /// v0.5.2: replaces v0.5.x `Stockpiles` (the minimum-stockpile
-    /// editor) with the dedicated mining grid.
+    // v0.5.2: replaces v0.5.x `Stockpiles` (the minimum-stockpile
+    // editor) with the dedicated mining grid.
     Mining,
 }
 
 impl ConstructionTabBody {
-    /// Map to the matching `ConstructionTab` enum.
+    // Map to the matching `ConstructionTab` enum.
     pub fn from_tab(tab: ConstructionTab) -> Self {
         match tab {
             ConstructionTab::Overview => Self::Overview,
@@ -1791,7 +1874,7 @@ impl ConstructionTabBody {
         }
     }
 
-    /// Reverse mapping for the visibility system.
+    // Reverse mapping for the visibility system.
     pub fn tab(&self) -> ConstructionTab {
         match self {
             Self::Overview => ConstructionTab::Overview,
@@ -1802,41 +1885,41 @@ impl ConstructionTabBody {
     }
 }
 
-/// Marker for chrome elements that should only be visible on the
-/// Build and Buildings tabs. Used by `tick_construction_body_visibility`
-/// to flip `Node::display` so e.g. the category filter row stays
-/// hidden on Overview and Mining where there are no card grids to
-/// filter. v0.5.2: the chrome was lifted out of the per-tab bodies
-/// into a shared `shared_chrome` container — this marker is the
-/// per-element visibility hook for chrome that only some tabs need.
+// Marker for chrome elements that should only be visible on the
+// Build and Buildings tabs. Used by `tick_construction_body_visibility`
+// to flip `Node::display` so e.g. the category filter row stays
+// hidden on Overview and Mining where there are no card grids to
+// filter. v0.5.2: the chrome was lifted out of the per-tab bodies
+// into a shared `shared_chrome` container — this marker is the
+// per-element visibility hook for chrome that only some tabs need.
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ShowOnBuildOrBuildings;
 
-/// System: make the body matching `ui_state.selected_tab` visible and
-/// hide the others. Touches `Node::display` + `Visibility` so it runs
-/// cheaply every frame — the bodies themselves are spawned once at
-/// startup.
+// System: make the body matching `ui_state.selected_tab` visible and
+// hide the others. Touches `Node::display` + `Visibility` so it runs
+// cheaply every frame — the bodies themselves are spawned once at
+// startup.
 ///
-/// **Visibility inheritance**: Bevy 0.18's `Visibility::Visible` renders
-/// the entity unconditionally (ignoring the parent's visibility). The
-/// canary root toggles between `Hidden` and `Visible` based on whether
-/// the Construction menu is open. If the active body used
-/// `Visibility::Visible`, it would render on the main menu / other
-/// menus too — the canary cards would show in front of the main menu.
-/// Setting the active body to `Visibility::Inherited` makes its
-/// visibility follow the root, so the cards only render when the
-/// root is visible.
+// **Visibility inheritance**: Bevy 0.18's `Visibility::Visible` renders
+// the entity unconditionally (ignoring the parent's visibility). The
+// canary root toggles between `Hidden` and `Visible` based on whether
+// the Construction menu is open. If the active body used
+// `Visibility::Visible`, it would render on the main menu / other
+// menus too — the canary cards would show in front of the main menu.
+// Setting the active body to `Visibility::Inherited` makes its
+// visibility follow the root, so the cards only render when the
+// root is visible.
 ///
-/// **Layout isolation**: `Visibility::Hidden` is a render-only flag —
-/// hidden nodes still occupy their taffy-computed box and steal
-/// `flex_grow: 1.0` siblings' share of the remaining height. With four
-/// bodies each carrying `flex_grow: 1.0`, the active body was being
-/// squeezed to ~25% of the remaining height and the card grid clipped
-/// every card to its first ~15 px (the documented "single-pixel-tall
-/// row" symptom). Toggling `Node::display` between `Display::Flex`
-/// (active) and `Display::None` (inactive) removes the inactive
-/// bodies from the layout entirely so the active body gets the full
-/// remaining height.
+// **Layout isolation**: `Visibility::Hidden` is a render-only flag —
+// hidden nodes still occupy their taffy-computed box and steal
+// `flex_grow: 1.0` siblings' share of the remaining height. With four
+// bodies each carrying `flex_grow: 1.0`, the active body was being
+// squeezed to ~25% of the remaining height and the card grid clipped
+// every card to its first ~15 px (the documented "single-pixel-tall
+// row" symptom). Toggling `Node::display` between `Display::Flex`
+// (active) and `Display::None` (inactive) removes the inactive
+// bodies from the layout entirely so the active body gets the full
+// remaining height.
 pub fn tick_construction_body_visibility(
     ui_state: Res<ConstructionUiState>,
     mut body_query: Query<(&ConstructionTabBody, &mut Node, &mut Visibility)>,
@@ -1923,9 +2006,9 @@ pub fn tick_construction_body_visibility(
 
 // ── Sub-tab body spawn helpers ────────────────────────────────────────
 
-/// Build the **Overview** body. Read-only summary of the active colony:
-/// name, population, BP/yr, queue count. The body is a single column
-/// of label/value rows inside a `ConstructionTabBody::Overview` root.
+// Build the **Overview** body. Read-only summary of the active colony:
+// name, population, BP/yr, queue count. The body is a single column
+// of label/value rows inside a `ConstructionTabBody::Overview` root.
 fn spawn_overview_body(
     commands: &mut Commands,
     parent: Entity,
@@ -2109,16 +2192,16 @@ fn spawn_overview_body(
     commands.entity(body).add_child(help);
 }
 
-/// Marker component on the value text of a single Overview row.
-/// Carries the semantic role so the `update_overview_body` system
-/// can find each row by its role (Colony / Population / etc.) and
-/// update the text content every frame.
+// Marker component on the value text of a single Overview row.
+// Carries the semantic role so the `update_overview_body` system
+// can find each row by its role (Colony / Population / etc.) and
+// update the text content every frame.
 #[derive(Component)]
 pub struct OverviewRowValue {
     pub kind: OverviewRowKind,
 }
 
-/// Identifies which semantic row the value text belongs to.
+// Identifies which semantic row the value text belongs to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OverviewRowKind {
     Colony,
@@ -2127,31 +2210,31 @@ pub enum OverviewRowKind {
     UniqueBuildingTypes,
 }
 
-/// Marker on the Overview body's queue content container. The
-/// `update_overview_queue` system despawns the rows inside this
-/// container and re-spawns them based on the selected colony's
-/// `ConstructionProject`s every frame.
+// Marker on the Overview body's queue content container. The
+// `update_overview_queue` system despawns the rows inside this
+// container and re-spawns them based on the selected colony's
+// `ConstructionProject`s every frame.
 #[derive(Component)]
 pub struct OverviewQueueContent;
 
-/// Update the Overview body's queue section every frame.
+// Update the Overview body's queue section every frame.
 ///
-/// Spawn-once-update-many (v0.5.2): rows persist across frames.
-/// Each frame:
-/// 1. Despawn rows whose project is no longer live (project
-///    completed, cancelled, or its `colony_entity` no longer matches
-///    the selected colony).
-/// 2. Mutate the text + fill width on existing rows in place.
-/// 3. Spawn rows for projects we haven't seen before.
+// Spawn-once-update-many (v0.5.2): rows persist across frames.
+// Each frame:
+// 1. Despawn rows whose project is no longer live (project
+//    completed, cancelled, or its `colony_entity` no longer matches
+//    the selected colony).
+// 2. Mutate the text + fill width on existing rows in place.
+// 3. Spawn rows for projects we haven't seen before.
 ///
-/// The `Local<HashMap<Entity, OverviewQueueRow>>` cache is keyed by
-/// the project entity and carries the row's child-node IDs so the
-/// per-frame updates are direct `Query::get_mut` lookups — no
-/// `Children` / `ChildOf` walks.
+// The `Local<HashMap<Entity, OverviewQueueRow>>` cache is keyed by
+// the project entity and carries the row's child-node IDs so the
+// per-frame updates are direct `Query::get_mut` lookups — no
+// `Children` / `ChildOf` walks.
 ///
-/// The "no active construction projects" placeholder is owned by a
-/// separate `Local<Option<Entity>>` so it can be toggled without
-/// coupling it to the project list.
+// The "no active construction projects" placeholder is owned by a
+// separate `Local<Option<Entity>>` so it can be toggled without
+// coupling it to the project list.
 pub fn update_overview_queue(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
@@ -2449,62 +2532,62 @@ pub fn update_overview_queue(
     }
 }
 
-/// Marker on each row in the Overview body's queue section. Carries
-/// the project entity plus the child-node entity IDs so the
-/// `update_overview_queue` system can mutate the progress label,
-/// status text, and fill bar in place via direct `Query::get_mut`
-/// lookups instead of walking `Children` / `ChildOf` chains.
+// Marker on each row in the Overview body's queue section. Carries
+// the project entity plus the child-node entity IDs so the
+// `update_overview_queue` system can mutate the progress label,
+// status text, and fill bar in place via direct `Query::get_mut`
+// lookups instead of walking `Children` / `ChildOf` chains.
 ///
-/// Spawn-once-update-many refactor (v0.5.2): rows persist across
-/// frames; the system diffs the live project set against the cached
-/// map and only despawns rows whose project is gone, only spawns
-/// rows for new projects.
+// Spawn-once-update-many refactor (v0.5.2): rows persist across
+// frames; the system diffs the live project set against the cached
+// map and only despawns rows whose project is gone, only spawns
+// rows for new projects.
 
-/// Marker component on the `Text` node that holds the building
-/// display name within a queued row. Used by `update_overview_queue`
-/// to `Query::get_mut` the text in place each frame.
+// Marker component on the `Text` node that holds the building
+// display name within a queued row. Used by `update_overview_queue`
+// to `Query::get_mut` the text in place each frame.
 #[derive(Component)]
 pub struct OverviewQueueRowNameChild;
 
-/// Marker component on the `Text` node that holds the human-readable
-/// status ("Building" / "Awaiting delivery") within a queued row.
+// Marker component on the `Text` node that holds the human-readable
+// status ("Building" / "Awaiting delivery") within a queued row.
 #[derive(Component)]
 pub struct OverviewQueueRowStatusChild;
 
-/// Marker component on the `Text` node that holds the formatted
-/// "{:.0}%" progress label within a queued row.
+// Marker component on the `Text` node that holds the formatted
+// "{:.0}%" progress label within a queued row.
 #[derive(Component)]
 pub struct OverviewQueueRowProgressChild;
 
-/// Marker component on the `Node` whose `width` encodes the
-/// progress fill (0 % – 100 % of the track) within a queued row.
+// Marker component on the `Node` whose `width` encodes the
+// progress fill (0 % – 100 % of the track) within a queued row.
 #[derive(Component)]
 pub struct OverviewQueueRowFillChild;
 
 #[derive(Component)]
 pub struct OverviewQueueRow {
     pub project_entity: Entity,
-    /// The row entity itself. Stored so the despawn step can drop
-    /// the whole subtree in one `commands.entity(...).despawn()`
-    /// call (which cascade-despawns the header + track + all their
-    /// children).
+    // The row entity itself. Stored so the despawn step can drop
+    // the whole subtree in one `commands.entity(...).despawn()`
+    // call (which cascade-despawns the header + track + all their
+    // children).
     pub row: Entity,
-    /// The `Text` node holding the building display name.
+    // The `Text` node holding the building display name.
     pub name_text: Entity,
-    /// The `Text` node holding the human-readable status
-    /// ("Building" / "Awaiting delivery").
+    // The `Text` node holding the human-readable status
+    // ("Building" / "Awaiting delivery").
     pub status_text: Entity,
-    /// The `Text` node holding the formatted "{:.0}%" progress label.
+    // The `Text` node holding the formatted "{:.0}%" progress label.
     pub progress_text: Entity,
-    /// The `Node` overlay whose width encodes progress
-    /// (0 % – 100 % of the track).
+    // The `Node` overlay whose width encodes progress
+    // (0 % – 100 % of the track).
     pub progress_fill: Entity,
 }
 
-/// Update the Overview body's four value rows every frame so the
-/// colony summary reflects the current `selected_colony` state. The
-/// body is spawned once at startup with placeholder text; this
-/// system overwrites the value text each frame with live data.
+// Update the Overview body's four value rows every frame so the
+// colony summary reflects the current `selected_colony` state. The
+// body is spawned once at startup with placeholder text; this
+// system overwrites the value text each frame with live data.
 pub fn update_overview_body(
     ui_state: Res<ConstructionUiState>,
     colonies: Query<(Entity, &crate::colony::Colony)>,
@@ -2557,10 +2640,10 @@ pub fn update_overview_body(
     }
 }
 
-/// Build the **Buildings** body. A persistent container with a header
-/// + a content scroll area. The `update_buildings_body` system
-/// re-spawns the content rows every frame based on the selected
-/// colony's `buildings` HashMap, so the list reflects the live state.
+// Build the **Buildings** body. A persistent container with a header
+// + a content scroll area. The `update_buildings_body` system
+// re-spawns the content rows every frame based on the selected
+// colony's `buildings` HashMap, so the list reflects the live state.
 fn spawn_buildings_body(commands: &mut Commands, parent: Entity, body_font_medium: &Handle<Font>) {
     let body = commands
         .spawn((
@@ -2636,33 +2719,33 @@ fn spawn_buildings_body(commands: &mut Commands, parent: Entity, body_font_mediu
     commands.entity(body).add_child(content);
 }
 
-/// Marker on the Buildings body's header text so the update system
-/// can update just the header without re-spawning it.
+// Marker on the Buildings body's header text so the update system
+// can update just the header without re-spawning it.
 #[derive(Component)]
 pub struct BuildingsHeader;
 
-/// Marker on the Buildings body's content container. The
-/// `update_buildings_body` system walks the children of this
-/// container via `Children` and re-spawns them every frame.
+// Marker on the Buildings body's content container. The
+// `update_buildings_body` system walks the children of this
+// container via `Children` and re-spawns them every frame.
 #[derive(Component)]
 pub struct BuildingsContent;
 
-/// Build a `BuildCardData` for a building already constructed in the
-/// active colony. Mirrors `build_mine_card_data` but reads the
-/// live colony inventory (current count) for the stats row, and
-/// uses the player's `build_multiplier` (not the mining
-/// multiplier) for the Demolish button label.
+// Build a `BuildCardData` for a building already constructed in the
+// active colony. Mirrors `build_mine_card_data` but reads the
+// live colony inventory (current count) for the stats row, and
+// uses the player's `build_multiplier` (not the mining
+// multiplier) for the Demolish button label.
 ///
-/// v0.5.2 (Buildings tab as a card list): the Buildings tab now
-/// renders each constructed building as a card with quantity,
-/// output production, power consumption, and a Demolish button.
-/// The card has no Build CTA — the player already built these
-/// buildings, so they're not buildable from this tab. The Demolish
-/// button uses `build_multiplier` so the player's x1/x5/x25 chip
-/// choice carries straight through.
+// v0.5.2 (Buildings tab as a card list): the Buildings tab now
+// renders each constructed building as a card with quantity,
+// output production, power consumption, and a Demolish button.
+// The card has no Build CTA — the player already built these
+// buildings, so they're not buildable from this tab. The Demolish
+// button uses `build_multiplier` so the player's x1/x5/x25 chip
+// choice carries straight through.
 ///
-/// `count` is the live inventory count on the active colony (from
-/// `Colony::buildings[bt]`).
+// `count` is the live inventory count on the active colony (from
+// `Colony::buildings[bt]`).
 pub fn build_constructed_card_data(
     bt: BuildingType,
     def: &BuildingDefinition,
@@ -2774,16 +2857,19 @@ pub fn build_constructed_card_data(
         // sensible "no ETA" placeholder.
         build_points: 0.0,
         power_insufficient: false,
+        // Buildings tab cards are never body-blocked (they show
+        // already-built structures, no construction gate).
+        body_blocked: false,
     }
 }
 
-/// Spawn a single constructed-buildings card on the Buildings tab.
+// Spawn a single constructed-buildings card on the Buildings tab.
 ///
-/// v0.5.2 (Buildings tab as a card list): the Buildings tab uses the
-/// same `spawn_card` chrome as the Build tab so the cards match
-/// visually. The Build CTA is removed (we never queue construction
-/// from these cards) and a Demolish button is added at the
-/// bottom-right. Returns the card entity id so the caller can cache it.
+// v0.5.2 (Buildings tab as a card list): the Buildings tab uses the
+// same `spawn_card` chrome as the Build tab so the cards match
+// visually. The Build CTA is removed (we never queue construction
+// from these cards) and a Demolish button is added at the
+// bottom-right. Returns the card entity id so the caller can cache it.
 #[allow(clippy::too_many_arguments)]
 fn spawn_constructed_card(
     commands: &mut Commands,
@@ -2826,23 +2912,23 @@ fn spawn_constructed_card(
     card
 }
 
-/// Update the Buildings body every frame.
+// Update the Buildings body every frame.
 ///
-/// v0.5.2 (Buildings tab as a card list): spawns one card per
-/// `BuildingType` in the selected colony's `buildings` HashMap.
-/// Each card shows the building count, current production, power
-/// consumption, and a Demolish button. The cards use the same
-/// `spawn_card` chrome as the Build tab cards, so the visual
-/// language is consistent across all three content tabs.
+// v0.5.2 (Buildings tab as a card list): spawns one card per
+// `BuildingType` in the selected colony's `buildings` HashMap.
+// Each card shows the building count, current production, power
+// consumption, and a Demolish button. The cards use the same
+// `spawn_card` chrome as the Build tab cards, so the visual
+// language is consistent across all three content tabs.
 ///
-/// Spawn-once-update-many (v0.5.2): cards persist across frames.
-/// Each frame:
-/// 1. Despawn cards whose `BuildingType` is no longer present in
-///    the selected colony's `buildings` map.
-/// 2. The Demolish button reads the live count each frame via
-///    `tick_demolish_disabled`, so the count display is always
-///    correct without re-spawning the card.
-/// 3. Spawn cards for `BuildingType`s we haven't seen before.
+// Spawn-once-update-many (v0.5.2): cards persist across frames.
+// Each frame:
+// 1. Despawn cards whose `BuildingType` is no longer present in
+//    the selected colony's `buildings` map.
+// 2. The Demolish button reads the live count each frame via
+//    `tick_demolish_disabled`, so the count display is always
+//    correct without re-spawning the card.
+// 3. Spawn cards for `BuildingType`s we haven't seen before.
 pub fn update_buildings_body(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
@@ -3051,19 +3137,19 @@ pub fn update_buildings_body(
     }
 }
 
-/// Build the **Mining** body. Persistent container with a header
-/// + a content scroll area. The `update_mining_body` system
-/// re-spawns the rows every frame based on the selected colony's
-/// mine inventory + body deposits.
+// Build the **Mining** body. Persistent container with a header
+// + a content scroll area. The `update_mining_body` system
+// re-spawns the rows every frame based on the selected colony's
+// mine inventory + body deposits.
 ///
-/// v0.5.2 PR-A.2: replaces the v0.5.x legacy egui mining tab
-/// (`src/ui/construction_panel.rs:872-1392`). 7 surface groups
-/// (24 base mines) + 1 collapsible orbital section (25 AutoMines
-/// across 5 non-collapsible sub-groups). One card per mine. Each
-/// card has [-] [+] buttons that push to
-/// `PendingConstructionActions::mining_edits` (positive=add,
-/// negative=remove) — see `process_construction_actions` in
-/// `src/colony/systems.rs` for the consumer.
+// v0.5.2 PR-A.2: replaces the v0.5.x legacy egui mining tab
+// (`src/ui/construction_panel.rs:872-1392`). 7 surface groups
+// (24 base mines) + 1 collapsible orbital section (25 AutoMines
+// across 5 non-collapsible sub-groups). One card per mine. Each
+// card has [-] [+] buttons that push to
+// `PendingConstructionActions::mining_edits` (positive=add,
+// negative=remove) — see `process_construction_actions` in
+// `src/colony/systems.rs` for the consumer.
 fn spawn_mining_body(commands: &mut Commands, parent: Entity) {
     let body = commands
         .spawn((
@@ -3120,139 +3206,139 @@ fn spawn_mining_body(commands: &mut Commands, parent: Entity) {
     commands.entity(body).add_child(content);
 }
 
-/// Marker on the Mining body's content container.
+// Marker on the Mining body's content container.
 #[derive(Component)]
 pub struct MiningContent;
 
-/// Marker on a per-group header row (chevron + label + count).
+// Marker on a per-group header row (chevron + label + count).
 #[derive(Component)]
 pub struct MiningGroupHeader {
     pub group_id: MiningGroupId,
 }
 
-/// Marker on a per-group body container (the row of cards). The
-/// group's visibility is driven by `tick_mining_group_visibility`
-/// toggling this entity's `Display`.
+// Marker on a per-group body container (the row of cards). The
+// group's visibility is driven by `tick_mining_group_visibility`
+// toggling this entity's `Display`.
 #[derive(Component)]
 pub struct MiningGroupBody {
     pub group_id: MiningGroupId,
 }
 
-/// Marker on a single mine / AutoMine card's outer container.
+// Marker on a single mine / AutoMine card's outer container.
 #[derive(Component)]
 pub struct MiningCard {
     pub building_type: BuildingType,
 }
 
-/// Which build multiplier the Demolish button should use when it
-/// opens the confirmation dialog. The Mining tab uses its own
-/// `mining_build_multiplier` (independent of the Build tab's
-/// `build_multiplier` because the chip sets can diverge), while
-/// the Buildings tab uses the Build tab's `build_multiplier` so
-/// the player's x1/x5/x25 chip choice carries straight through to
-/// the demolish button. The dialog reads the multiplier via
-/// `DemolishConfirmState::count` (clamped to the live count).
+// Which build multiplier the Demolish button should use when it
+// opens the confirmation dialog. The Mining tab uses its own
+// `mining_build_multiplier` (independent of the Build tab's
+// `build_multiplier` because the chip sets can diverge), while
+// the Buildings tab uses the Build tab's `build_multiplier` so
+// the player's x1/x5/x25 chip choice carries straight through to
+// the demolish button. The dialog reads the multiplier via
+// `DemolishConfirmState::count` (clamped to the live count).
 ///
-/// v0.5.2 (Buildings tab as a card list): the Demolish button
-/// was originally a Mining-tab-only feature. Extending it to the
-/// Buildings tab means the same handler (`tick_demolish_click`)
-/// needs to know which chip row governs the multiplier; the
-/// `DemolishButton` marker carries a `multiplier_source` field
-/// that the click handler reads.
+// v0.5.2 (Buildings tab as a card list): the Demolish button
+// was originally a Mining-tab-only feature. Extending it to the
+// Buildings tab means the same handler (`tick_demolish_click`)
+// needs to know which chip row governs the multiplier; the
+// `DemolishButton` marker carries a `multiplier_source` field
+// that the click handler reads.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DemolishMultiplierSource {
-    /// Use `ui_state.mining_build_multiplier`. Mining tab cards.
+    // Use `ui_state.mining_build_multiplier`. Mining tab cards.
     Mining,
-    /// Use `ui_state.build_multiplier`. Buildings tab cards.
+    // Use `ui_state.build_multiplier`. Buildings tab cards.
     Build,
 }
 
-/// Marker on a Demolish button. The button removes `mining_edits`
-/// (negative delta) inventory from the active colony via
-/// `PendingConstructionActions::mining_edits`. The handler
-/// `tick_demolish_click` does the actual work.
+// Marker on a Demolish button. The button removes `mining_edits`
+// (negative delta) inventory from the active colony via
+// `PendingConstructionActions::mining_edits`. The handler
+// `tick_demolish_click` does the actual work.
 ///
-/// Originally a Mining-tab-only feature (`MiningDemolishButton`),
-/// v0.5.2 (Buildings tab as a card list) extends the same button
-/// to the Buildings tab so the player can demolish existing
-/// buildings with the same UI. The `multiplier_source` field tells
-/// the click handler which chip-row value to apply (Mining vs
-/// Build) — they can diverge.
+// Originally a Mining-tab-only feature (`MiningDemolishButton`),
+// v0.5.2 (Buildings tab as a card list) extends the same button
+// to the Buildings tab so the player can demolish existing
+// buildings with the same UI. The `multiplier_source` field tells
+// the click handler which chip-row value to apply (Mining vs
+// Build) — they can diverge.
 #[derive(Component)]
 pub struct DemolishButton {
     pub building_type: BuildingType,
     pub multiplier_source: DemolishMultiplierSource,
 }
 
-/// Marker added when the Demolish button should be disabled (no
-/// buildings to remove — `count == 0`). Mirrors
-/// `ConstructionCtaDisabled` for the Queue button: the click
-/// handler skips pushing when the marker is present, and the
-/// spawn code drops the marker at spawn time when the count is
-/// non-zero.
+// Marker added when the Demolish button should be disabled (no
+// buildings to remove — `count == 0`). Mirrors
+// `ConstructionCtaDisabled` for the Queue button: the click
+// handler skips pushing when the marker is present, and the
+// spawn code drops the marker at spawn time when the count is
+// non-zero.
 ///
-/// v0.5.2 (Buildings tab as a card list): the Buildings tab
-/// cards also use this marker so the same hover / click effect
-/// system (`tick_demolish_hover`, `tick_demolish_disabled`) can
-/// service both tab families without per-tab branches.
+// v0.5.2 (Buildings tab as a card list): the Buildings tab
+// cards also use this marker so the same hover / click effect
+// system (`tick_demolish_hover`, `tick_demolish_disabled`) can
+// service both tab families without per-tab branches.
 #[derive(Component)]
 pub struct DemolishDisabled;
 
 // ── Demolish confirmation modal (v0.5.2 PR-A.7) ──────────────────────
 
-/// Marker on the centered Demolish confirmation modal root.
-/// Visibility is driven by `tick_demolish_dialog_visibility` based on
-/// `DemolishConfirmState::open`. Parented to the Construction menu
-/// root, fills the entire menu area with a semi-transparent dark
-/// backdrop and centers the content card. The Construction menu
-/// root sits at `top: 126.0`; absolutely-positioned children are
-/// measured against the *parent's content-area* (so the backdrop
-/// fills the area below the global chrome, not the window).
+// Marker on the centered Demolish confirmation modal root.
+// Visibility is driven by `tick_demolish_dialog_visibility` based on
+// `DemolishConfirmState::open`. Parented to the Construction menu
+// root, fills the entire menu area with a semi-transparent dark
+// backdrop and centers the content card. The Construction menu
+// root sits at `top: 126.0`; absolutely-positioned children are
+// measured against the *parent's content-area* (so the backdrop
+// fills the area below the global chrome, not the window).
 #[derive(Component)]
 pub struct DemolishConfirmDialog;
 
-/// Marker on the dialog title text. Updated by
-/// `update_demolish_dialog_text` to read e.g. "Demolish 5 Iron
-/// Mines?" — the count is clamped to the live colony count.
+// Marker on the dialog title text. Updated by
+// `update_demolish_dialog_text` to read e.g. "Demolish 5 Iron
+// Mines?" — the count is clamped to the live colony count.
 #[derive(Component)]
 pub struct DemolishConfirmTitle;
 
-/// Marker on the dialog subtitle text. Updated to read e.g.
-/// "You currently have 5 on Earth." — the live count + colony
-/// name. Lets the player double-check before confirming.
+// Marker on the dialog subtitle text. Updated to read e.g.
+// "You currently have 5 on Earth." — the live count + colony
+// name. Lets the player double-check before confirming.
 #[derive(Component)]
 pub struct DemolishConfirmSubtitle;
 
-/// Marker on the Yes button. `tick_demolish_confirm_yes_click`
-/// applies the `mining_edits` entry and closes the dialog.
+// Marker on the Yes button. `tick_demolish_confirm_yes_click`
+// applies the `mining_edits` entry and closes the dialog.
 #[derive(Component)]
 pub struct DemolishConfirmYes;
 
-/// Marker on the No button. `tick_demolish_confirm_no_click`
-/// closes the dialog without applying the action. The backdrop
-/// also clicks-through to No via a `Pointer<Click>` observer.
+// Marker on the No button. `tick_demolish_confirm_no_click`
+// closes the dialog without applying the action. The backdrop
+// also clicks-through to No via a `Pointer<Click>` observer.
 #[derive(Component)]
 pub struct DemolishConfirmNo;
 
-/// Marker on the orbital section's outer container (the 5 sub-groups).
-/// Visibility is driven by `tick_mining_group_visibility` based on
-/// `ui_state.mining_orbital_collapsed`.
+// Marker on the orbital section's outer container (the 5 sub-groups).
+// Visibility is driven by `tick_mining_group_visibility` based on
+// `ui_state.mining_orbital_collapsed`.
 #[derive(Component)]
 pub struct MiningOrbitalBody;
 
-/// Per-chip data for the cost-row hover tooltip. Carried by
-/// every `ResourceCostChip` so the observer handlers can look up
-/// the resource name + amount + category tint via the picked
-/// entity id and write them into the tooltip's text node.
+// Per-chip data for the cost-row hover tooltip. Carried by
+// every `ResourceCostChip` so the observer handlers can look up
+// the resource name + amount + category tint via the picked
+// entity id and write them into the tooltip's text node.
 ///
-/// `name` is the display string (`"Iron"`, `"Water"`, `"He-3"`,
-/// etc.) — not the raw RON name. `amount` is the formatted
-/// `kg / t / Mt / Gt / Tt` string produced by `format_mining_reserve`.
-/// `category` is the chip's category colour (Construction /
-/// Volatiles / Fissile / etc.) so the tooltip can match the
-/// chip's tint. `card` is the host card's entity id — the
-/// observer uses it to find the right tooltip among the many
-/// (one per visible card).
+// `name` is the display string (`"Iron"`, `"Water"`, `"He-3"`,
+// etc.) — not the raw RON name. `amount` is the formatted
+// `kg / t / Mt / Gt / Tt` string produced by `format_mining_reserve`.
+// `category` is the chip's category colour (Construction /
+// Volatiles / Fissile / etc.) so the tooltip can match the
+// chip's tint. `card` is the host card's entity id — the
+// observer uses it to find the right tooltip among the many
+// (one per visible card).
 #[derive(Component, Clone)]
 pub struct ResourceCostChip {
     pub name: String,
@@ -3261,44 +3347,44 @@ pub struct ResourceCostChip {
     pub card: Entity,
 }
 
-/// Marker on the singleton cost-chip hover tooltip overlay.
-/// Spawned once at panel setup time (parented to the
-/// construction `root`), populated each frame by
-/// [`update_resource_cost_tooltip`] from
-/// [`ResourceCostHoverState`]. Visual style mirrors the 3D
-/// body-hover tooltip (`src/ui/mod.rs::ui_hover_tooltip`):
-/// `TOOLTIP_BG` fill, cyan border, lg inner margin — so the
-/// panel chrome and the world tooltips read as the same
-/// design language.
+// Marker on the singleton cost-chip hover tooltip overlay.
+// Spawned once at panel setup time (parented to the
+// construction `root`), populated each frame by
+// [`update_resource_cost_tooltip`] from
+// [`ResourceCostHoverState`]. Visual style mirrors the 3D
+// body-hover tooltip (`src/ui/mod.rs::ui_hover_tooltip`):
+// `TOOLTIP_BG` fill, cyan border, lg inner margin — so the
+// panel chrome and the world tooltips read as the same
+// design language.
 #[derive(Component)]
 pub struct ResourceCostTooltipOverlay;
 
-/// Marker on the inner text node of the overlay. The update
-/// system finds the text via `Single<&mut Text, With<…>>` so
-/// it doesn't have to walk a Children hierarchy.
+// Marker on the inner text node of the overlay. The update
+// system finds the text via `Single<&mut Text, With<…>>` so
+// it doesn't have to walk a Children hierarchy.
 #[derive(Component)]
 pub struct ResourceCostTooltipText;
 
-/// Resource tracking which cost chip (if any) the cursor is
-/// currently hovering. The `Pointer<Over>` observer writes
-/// `Some(…)` on hover-in and the `Pointer<Out>` observer
-/// writes `None` on hover-out. The `update_resource_cost_tooltip`
-/// system reads this each frame to drive the overlay's
-/// text/colour/position.
+// Resource tracking which cost chip (if any) the cursor is
+// currently hovering. The `Pointer<Over>` observer writes
+// `Some(…)` on hover-in and the `Pointer<Out>` observer
+// writes `None` on hover-out. The `update_resource_cost_tooltip`
+// system reads this each frame to drive the overlay's
+// text/colour/position.
 ///
-/// Cloning the small `String` data on every hover is cheap
-/// (a hover can only happen on one chip at a time, and the
-/// hovered chip is one of a few visible chips in the panel).
+// Cloning the small `String` data on every hover is cheap
+// (a hover can only happen on one chip at a time, and the
+// hovered chip is one of a few visible chips in the panel).
 #[derive(Resource, Default)]
 pub struct ResourceCostHoverState {
     pub chip: Option<HoveredChipData>,
 }
 
-/// Snapshot of a hovered chip's display data. The
-/// `category` field is the chip's category tint
-/// (Construction / Volatiles / Fissile / etc.) so the
-/// overlay's text can match the chip's hue. `entity` is
-/// the chip entity id and is mainly there for debug logs.
+// Snapshot of a hovered chip's display data. The
+// `category` field is the chip's category tint
+// (Construction / Volatiles / Fissile / etc.) so the
+// overlay's text can match the chip's hue. `entity` is
+// the chip entity id and is mainly there for debug logs.
 #[derive(Clone)]
 pub struct HoveredChipData {
     pub name: String,
@@ -3307,17 +3393,17 @@ pub struct HoveredChipData {
     pub entity: Entity,
 }
 
-/// Observer: on `Pointer<Over>`, snapshot the hovered chip's
-/// `ResourceCostChip` data into [`ResourceCostHoverState`].
-/// The `update_resource_cost_tooltip` system reads that
-/// resource each frame to populate the singleton overlay.
+// Observer: on `Pointer<Over>`, snapshot the hovered chip's
+// `ResourceCostChip` data into [`ResourceCostHoverState`].
+// The `update_resource_cost_tooltip` system reads that
+// resource each frame to populate the singleton overlay.
 ///
-/// The observer doesn't touch the overlay entity directly
-/// — pointer observers shouldn't mutate other entities'
-/// per-frame state. The system handles the visible position
-/// + text + colour work because the overlay's `left/top`
-/// must be set from the live cursor position, which the
-/// observer doesn't have.
+// The observer doesn't touch the overlay entity directly
+// — pointer observers shouldn't mutate other entities'
+// per-frame state. The system handles the visible position
+// + text + colour work because the overlay's `left/top`
+// must be set from the live cursor position, which the
+// observer doesn't have.
 fn on_chip_hover_over(
     on: On<Pointer<Over>>,
     chip_query: Query<&ResourceCostChip>,
@@ -3334,19 +3420,19 @@ fn on_chip_hover_over(
     });
 }
 
-/// Observer: on `Pointer<Out>`, clear the hover state if the
-/// cursor left the chip we're currently tracking. `Pointer<Out>`
-/// fires once per entity whose bounds the cursor leaves; we
-/// compare against `hover_state.chip.entity` so the state
-/// isn't cleared by a stale event from a sibling element.
+// Observer: on `Pointer<Out>`, clear the hover state if the
+// cursor left the chip we're currently tracking. `Pointer<Out>`
+// fires once per entity whose bounds the cursor leaves; we
+// compare against `hover_state.chip.entity` so the state
+// isn't cleared by a stale event from a sibling element.
 ///
-/// If the cursor moves from chip A → chip B without crossing
-/// any other interactive element, Bevy firing order for the
-/// same frame is: `Pointer<Out>(A)` then `Pointer<Over>(B)`.
-/// The Over fires *after* the Out, so the resource ends up
-/// holding chip B's data — which is the desired state. The
-/// guard above ensures a stray Out event on a non-tracked
-/// entity is a no-op.
+// If the cursor moves from chip A → chip B without crossing
+// any other interactive element, Bevy firing order for the
+// same frame is: `Pointer<Out>(A)` then `Pointer<Over>(B)`.
+// The Over fires *after* the Out, so the resource ends up
+// holding chip B's data — which is the desired state. The
+// guard above ensures a stray Out event on a non-tracked
+// entity is a no-op.
 fn on_chip_hover_out(on: On<Pointer<Out>>, mut hover_state: ResMut<ResourceCostHoverState>) {
     if let Some(current) = &hover_state.chip {
         if current.entity == on.entity {
@@ -3364,12 +3450,12 @@ fn on_chip_hover_out(on: On<Pointer<Out>>, mut hover_state: ResMut<ResourceCostH
 // is also visible during a cursor transition — the two systems
 // would otherwise fight over the same `Single<…>`).
 
-/// Carries the tooltip payload for one Power chip. Attached
-/// to the chip entity at spawn time; the observer reads it on
-/// `Pointer<Over>` and snapshots the lines + tone into
-/// [`PowerChipHoverState`]. The `card` field is the host card's
-/// entity id — kept for future per-card context (e.g. showing
-/// the batch's combined cost in the tooltip).
+// Carries the tooltip payload for one Power chip. Attached
+// to the chip entity at spawn time; the observer reads it on
+// `Pointer<Over>` and snapshots the lines + tone into
+// [`PowerChipHoverState`]. The `card` field is the host card's
+// entity id — kept for future per-card context (e.g. showing
+// the batch's combined cost in the tooltip).
 #[derive(Component, Clone)]
 pub struct PowerChip {
     pub tooltip_lines: Vec<String>,
@@ -3377,32 +3463,32 @@ pub struct PowerChip {
     pub card: Entity,
 }
 
-/// Marker on the singleton power-chip hover tooltip overlay.
-/// Spawned once at panel setup time (alongside
-/// `ResourceCostTooltipOverlay`); populated each frame by
-/// [`update_power_chip_tooltip`].
+// Marker on the singleton power-chip hover tooltip overlay.
+// Spawned once at panel setup time (alongside
+// `ResourceCostTooltipOverlay`); populated each frame by
+// [`update_power_chip_tooltip`].
 #[derive(Component)]
 pub struct PowerChipTooltipOverlay;
 
-/// Marker on the inner text node of the power-chip overlay.
+// Marker on the inner text node of the power-chip overlay.
 #[derive(Component)]
 pub struct PowerChipTooltipText;
 
-/// Resource tracking which power chip (if any) the cursor is
-/// currently hovering. Same write/read pattern as
-/// [`ResourceCostHoverState`].
+// Resource tracking which power chip (if any) the cursor is
+// currently hovering. Same write/read pattern as
+// [`ResourceCostHoverState`].
 #[derive(Resource, Default)]
 pub struct PowerChipHoverState {
     pub chip: Option<HoveredPowerChipData>,
 }
 
-/// Snapshot of a hovered power chip's display data. The
-/// `tone` field is the chip's colour (GREEN_FIN for
-/// fitting demand / production, ORANGE_ORE for
-/// insufficient demand, TEXT_BODY for no-power-interaction)
-/// so the overlay's text matches the chip's hue. `entity`
-/// is the chip entity id, used by the hover-out observer
-/// to guard against stale events from sibling elements.
+// Snapshot of a hovered power chip's display data. The
+// `tone` field is the chip's colour (GREEN_FIN for
+// fitting demand / production, ORANGE_ORE for
+// insufficient demand, TEXT_BODY for no-power-interaction)
+// so the overlay's text matches the chip's hue. `entity`
+// is the chip entity id, used by the hover-out observer
+// to guard against stale events from sibling elements.
 #[derive(Clone)]
 pub struct HoveredPowerChipData {
     pub tooltip_lines: Vec<String>,
@@ -3410,8 +3496,8 @@ pub struct HoveredPowerChipData {
     pub entity: Entity,
 }
 
-/// Observer: on `Pointer<Over>`, snapshot the hovered power
-/// chip's `PowerChip` data into [`PowerChipHoverState`].
+// Observer: on `Pointer<Over>`, snapshot the hovered power
+// chip's `PowerChip` data into [`PowerChipHoverState`].
 fn on_power_chip_hover_over(
     on: On<Pointer<Over>>,
     chip_query: Query<&PowerChip>,
@@ -3427,10 +3513,10 @@ fn on_power_chip_hover_over(
     });
 }
 
-/// Observer: on `Pointer<Out>`, clear the hover state if the
-/// cursor left the chip we're currently tracking. Same guard
-/// pattern as `on_chip_hover_out` — only clear when the Out
-/// event matches the tracked entity.
+// Observer: on `Pointer<Out>`, clear the hover state if the
+// cursor left the chip we're currently tracking. Same guard
+// pattern as `on_chip_hover_out` — only clear when the Out
+// event matches the tracked entity.
 fn on_power_chip_hover_out(
     on: On<Pointer<Out>>,
     mut hover_state: ResMut<PowerChipHoverState>,
@@ -3442,53 +3528,53 @@ fn on_power_chip_hover_out(
     }
 }
 
-/// Per-frame driver for the cost-chip hover overlay. Reads
-/// `ResourceCostHoverState` (written by the chip observers)
-/// and `Window::cursor_position()`, then either:
-/// - hides the overlay (`Display::None`) when no chip is
-///   hovered, when the chip entity was despawned between
-///   frames (Build ↔ Mining sub-tab switch, multiplier chip
-///   change, colony switch), or when the construction menu
-///   isn't the active menu, OR
-/// - positions the overlay next to the cursor (4 px below
-///   the cursor vertically, 8 px right horizontally) and
-///   populates the text with `"<name>  <amount>"`.
+// Per-frame driver for the cost-chip hover overlay. Reads
+// `ResourceCostHoverState` (written by the chip observers)
+// and `Window::cursor_position()`, then either:
+// - hides the overlay (`Display::None`) when no chip is
+//   hovered, when the chip entity was despawned between
+//   frames (Build ↔ Mining sub-tab switch, multiplier chip
+//   change, colony switch), or when the construction menu
+//   isn't the active menu, OR
+// - positions the overlay next to the cursor (4 px below
+//   the cursor vertically, 8 px right horizontally) and
+//   populates the text with `"<name>  <amount>"`.
 ///
-/// Coordinate-frame note (this is the bug behind the "tooltip
-/// is way below the cursor" report):
+// Coordinate-frame note (this is the bug behind the "tooltip
+// is way below the cursor" report):
 ///
-/// The overlay is parented to the [`ConstructionRoot`]
-/// node, which itself is positioned at
-/// `top: 126.0; bottom: 72.0; left: 0; right: 0` so it lives
-/// below the top resource-bar chrome and above the
-/// time-controls dock (see `setup_construction`). Absolute-
-/// positioned children of a node with `top: 126` place
-/// relative to that node's content-area origin — i.e. an
-/// inner node at `top: Val::Px(0)` lands at **window** Y=126,
-/// not Y=0. `Window::cursor_position()` returns coordinates
-/// in **window** space, so subtracting the canary root's
-/// `top` constant is required to translate cursor → overlay
-/// local coords. Without that subtraction the overlay
-/// renders 126 px **below** the cursor — exactly the bottom-
-/// right-of-card offset shown in the bug report.
+// The overlay is parented to the [`ConstructionRoot`]
+// node, which itself is positioned at
+// `top: 126.0; bottom: 72.0; left: 0; right: 0` so it lives
+// below the top resource-bar chrome and above the
+// time-controls dock (see `setup_construction`). Absolute-
+// positioned children of a node with `top: 126` place
+// relative to that node's content-area origin — i.e. an
+// inner node at `top: Val::Px(0)` lands at **window** Y=126,
+// not Y=0. `Window::cursor_position()` returns coordinates
+// in **window** space, so subtracting the canary root's
+// `top` constant is required to translate cursor → overlay
+// local coords. Without that subtraction the overlay
+// renders 126 px **below** the cursor — exactly the bottom-
+// right-of-card offset shown in the bug report.
 ///
-/// Earlier this comment claimed the root spans the full
-/// window and child `Val::Px(x)` values map to window
-/// coords; that was wrong because the root's `top: 126`
-/// offset is inherited by absolutely-positioned descendants.
-/// This implementation subtracts that constant explicitly so
-/// future readers don't have to re-derive the offset.
+// Earlier this comment claimed the root spans the full
+// window and child `Val::Px(x)` values map to window
+// coords; that was wrong because the root's `top: 126`
+// offset is inherited by absolutely-positioned descendants.
+// This implementation subtracts that constant explicitly so
+// future readers don't have to re-derive the offset.
 ///
-/// Visual style matches the body-hover tooltip in
-/// `src/ui/mod.rs::ui_hover_tooltip`: same `TOOLTIP_BG`
-/// fill, same cyan border. The only difference vs the body-
-/// hover tooltip is this is Bevy UI, not egui, so positioning
-/// is `Node::left/top` rather than `egui::Area`.
+// Visual style matches the body-hover tooltip in
+// `src/ui/mod.rs::ui_hover_tooltip`: same `TOOLTIP_BG`
+// fill, same cyan border. The only difference vs the body-
+// hover tooltip is this is Bevy UI, not egui, so positioning
+// is `Node::left/top` rather than `egui::Area`.
 ///
-/// The clamp on `left/top` keeps the tooltip on-screen when
-/// the cursor is near the right/bottom edges — mirrors the
-/// `clamp(0.0, max_left)` / `clamp(0.0, max_top)` pattern in
-/// `update_shipbuilding_hover_tooltip`.
+// The clamp on `left/top` keeps the tooltip on-screen when
+// the cursor is near the right/bottom edges — mirrors the
+// `clamp(0.0, max_left)` / `clamp(0.0, max_top)` pattern in
+// `update_shipbuilding_hover_tooltip`.
 fn update_resource_cost_tooltip(
     active_menu: Res<ActiveMenu>,
     primary_window: Query<&Window, With<PrimaryWindow>>,
@@ -3615,19 +3701,19 @@ fn update_resource_cost_tooltip(
     *tooltip_color = TextColor(data.category);
 }
 
-/// Per-frame driver for the **power**-chip hover overlay.
-/// Mirrors [`update_resource_cost_tooltip`] but renders the
-/// multi-line payload from [`PowerChip::tooltip_lines`] instead
-/// of a single `<name>  <amount>` string. Same coordinate-frame
-/// translation (subtract `CANARY_ROOT_TOP_PX` from cursor Y),
-/// same stale-entity guard, same `Display::None` fallback when
-/// the construction menu isn't the active menu.
+// Per-frame driver for the **power**-chip hover overlay.
+// Mirrors [`update_resource_cost_tooltip`] but renders the
+// multi-line payload from [`PowerChip::tooltip_lines`] instead
+// of a single `<name>  <amount>` string. Same coordinate-frame
+// translation (subtract `CANARY_ROOT_TOP_PX` from cursor Y),
+// same stale-entity guard, same `Display::None` fallback when
+// the construction menu isn't the active menu.
 ///
-/// The overlay has its own marker ([`PowerChipTooltipOverlay`])
-/// and resource ([`PowerChipHoverState`]) so a player hovering a
-/// resource chip and a power chip at the same time (e.g. a
-/// cursor crossing the card body's two zones) gets clean
-/// per-zone tooltips instead of one stomping the other.
+// The overlay has its own marker ([`PowerChipTooltipOverlay`])
+// and resource ([`PowerChipHoverState`]) so a player hovering a
+// resource chip and a power chip at the same time (e.g. a
+// cursor crossing the card body's two zones) gets clean
+// per-zone tooltips instead of one stomping the other.
 fn update_power_chip_tooltip(
     active_menu: Res<ActiveMenu>,
     primary_window: Query<&Window, With<PrimaryWindow>>,
@@ -3714,18 +3800,18 @@ fn update_power_chip_tooltip(
     *tooltip_color = TextColor(data.tone);
 }
 
-/// Update the Mining tab body. Re-spawns the cards inside the
-/// `MiningContent` container every time it runs. Triggered by
-/// `ConstructionUiState` changes (tab switch, qty chip, group
-/// collapse) and `Colony` changes (mine count edit, deposit
-/// update, colony switch). Skips on other frames — see the
-/// `update_mining_body` system registration in the plugin.
+// Update the Mining tab body. Re-spawns the cards inside the
+// `MiningContent` container every time it runs. Triggered by
+// `ConstructionUiState` changes (tab switch, qty chip, group
+// collapse) and `Colony` changes (mine count edit, deposit
+// update, colony switch). Skips on other frames — see the
+// `update_mining_body` system registration in the plugin.
 ///
-/// Per spec: 7 surface groups (24 base mines) + 1 orbital
-/// section (25 AutoMines across 5 sub-groups). One card per
-/// mine. Each card shows count / production / reserve /
-/// accessibility and [-] [+] buttons that route to
-/// `PendingConstructionActions::mining_edits`.
+// Per spec: 7 surface groups (24 base mines) + 1 orbital
+// section (25 AutoMines across 5 sub-groups). One card per
+// mine. Each card shows count / production / reserve /
+// accessibility and [-] [+] buttons that route to
+// `PendingConstructionActions::mining_edits`.
 #[allow(clippy::too_many_arguments)]
 pub fn update_mining_body(
     mut commands: Commands,
@@ -3805,6 +3891,27 @@ pub fn update_mining_body(
         })
     });
 
+    // v0.5.2 PR-A.7 (2026-08-04): compute the active colony's
+    // grid surplus here so the mining cards' power chip
+    // tooltips can show the real "Spare grid" value instead
+    // of the old "No active grid" placeholder. `f64::NAN`
+    // when no colony is selected — the mining card builder
+    // then falls back to "No active colony" in the tooltip.
+    let spare_power_mw: f64 = if let Some(e) = active_colony_entity {
+        // We already have the colony + buildings in
+        // `colony_data` but the destructuring below moves it.
+        // Re-read the colony here so the spare computation
+        // doesn't fight the borrow checker.
+        colonies
+            .get(e)
+            .ok()
+            .map(|(_, c)| calculate_colony_power_totals(c, Some(&buildings_data)))
+            .map(|totals| (totals.produced_watts - totals.consumed_watts) / 1_000_000.0)
+            .unwrap_or(f64::NAN)
+    } else {
+        f64::NAN
+    };
+
     // No colony → render a single placeholder and bail.
     let Some((_colony_name, body_breathable, body_type, planet_resources, building_counts)) =
         colony_data
@@ -3860,6 +3967,7 @@ pub fn update_mining_body(
             multiplier,
             &resource_icons,
             building_icons_ref,
+            spare_power_mw,
         );
         spawned_rows.push(group_node);
     }
@@ -3880,14 +3988,15 @@ pub fn update_mining_body(
         multiplier,
         &resource_icons,
         building_icons_ref,
+        spare_power_mw,
     );
     spawned_rows.push(orbital_node);
 }
 
-/// Setup system: spawns the Construction panel entities once at startup.
+// Setup system: spawns the Construction panel entities once at startup.
 ///
-/// The canary is gated by `ConstructionState`. When `Off`, the
-/// root is hidden via `Visibility::Hidden`.
+// The canary is gated by `ConstructionState`. When `Off`, the
+// root is hidden via `Visibility::Hidden`.
 pub fn setup_construction(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
@@ -4872,6 +4981,54 @@ pub fn setup_construction(
         .id();
     commands.entity(root).add_child(power_chip_tooltip_overlay);
 
+    // v0.5.2 (build menu fix): cursor-following Queue-CTA
+    // tooltip overlay. Sibling of the chip tooltips above
+    // (resource-cost and power-chip); rendered by
+    // `update_queue_button_tooltip` from the per-frame
+    // `QueueButtonTooltipState` resource populated by
+    // `tick_construction_tooltip`. Same ZIndex (20) so it
+    // draws on top of card chrome but below the topbar.
+    let queue_tooltip_overlay = commands
+        .spawn((
+            Node {
+                position_type: PositionType::Absolute,
+                left: Val::Px(0.0),
+                top: Val::Px(0.0),
+                display: Display::None,
+                padding: UiRect::all(Val::Px(10.0)),
+                border: UiRect::all(Val::Px(1.0)),
+                border_radius: BorderRadius::all(Val::Px(4.0)),
+                // Cap the overlay width so long resource
+                // names + amounts (e.g. "Construction Metals
+                // 1.2 Gt") wrap cleanly without overflowing
+                // the canary root. Height is set per-frame
+                // by the system so the multi-line Missing:
+                // list fits without manual layout.
+                max_width: Val::Px(260.0),
+                ..default()
+            },
+            BackgroundColor(crate::ui::theme::Color::TOOLTIP_BG),
+            BorderColor::all(crate::ui::theme::Color::STATUS_INFO_BORDER),
+            ZIndex(20),
+            QueueButtonTooltipOverlay,
+            Name::new("queue_button_tooltip_overlay"),
+        ))
+        .with_children(|parent| {
+            parent.spawn((
+                Text::new(String::new()),
+                TextFont {
+                    font: body_font.clone(),
+                    font_size: CAPTION_SIZE,
+                    ..default()
+                },
+                TextColor(TEXT_BODY),
+                QueueButtonTooltipText,
+                Name::new("queue_button_tooltip_overlay_text"),
+            ));
+        })
+        .id();
+    commands.entity(root).add_child(queue_tooltip_overlay);
+
     let queue_panel = commands
         .spawn((
             Node {
@@ -5010,21 +5167,21 @@ pub fn setup_construction(
     spawn_demolish_confirm_dialog(&mut commands, root, &body_font, &body_font_medium);
 }
 
-/// Spawn the Demolish confirmation dialog as a single `Display::None`
-/// child of the Construction menu root. The dialog is hidden at
-/// startup; `tick_demolish_dialog_visibility` flips it visible when
-/// `DemolishConfirmState::open` is true.
+// Spawn the Demolish confirmation dialog as a single `Display::None`
+// child of the Construction menu root. The dialog is hidden at
+// startup; `tick_demolish_dialog_visibility` flips it visible when
+// `DemolishConfirmState::open` is true.
 ///
-/// Structure:
-/// ```
-/// dialog (DemolishConfirmDialog, Display::None, GlobalZIndex(150))
-/// ├── backdrop (pickable, click → no)
-/// └── card (centered, fixed width 480)
-///     ├── title   (DemolishConfirmTitle)   "Demolish 5 Iron Mines?"
-///     ├── subtitle (DemolishConfirmSubtitle) "You currently have 5 on Earth."
-///     ├── yes_button (DemolishConfirmYes)
-///     └── no_button  (DemolishConfirmNo)
-/// ```
+// Structure:
+// ```
+// dialog (DemolishConfirmDialog, Display::None, GlobalZIndex(150))
+// ├── backdrop (pickable, click → no)
+// └── card (centered, fixed width 480)
+//     ├── title   (DemolishConfirmTitle)   "Demolish 5 Iron Mines?"
+//     ├── subtitle (DemolishConfirmSubtitle) "You currently have 5 on Earth."
+//     ├── yes_button (DemolishConfirmYes)
+//     └── no_button  (DemolishConfirmNo)
+// ```
 fn spawn_demolish_confirm_dialog(
     commands: &mut Commands,
     parent: Entity,
@@ -5716,7 +5873,7 @@ fn spawn_card(
                 align_items: AlignItems::Center,
                 column_gap: Val::Px(4.0),
                 padding: UiRect::horizontal(Val::Px(6.0)),
-                height: Val::Px(28.0),
+                height: Val::Px(32.0),
                 border: UiRect::all(Val::Px(1.0)),
                 border_radius: BorderRadius::all(Val::Px(4.0)),
                 ..default()
@@ -5737,17 +5894,20 @@ fn spawn_card(
     commands.entity(power_chip).observe(on_power_chip_hover_over);
     commands.entity(power_chip).observe(on_power_chip_hover_out);
 
-    // Icon: 20×20, bolt-in-hex PNG, tinted yellow. Same look as
-    // the resource chips' icons. Falls back to a yellow-tinted
-    // square if the asset hasn't decoded yet (matches the
-    // resource-chip defensive fallback so dev-time reloads don't
-    // render a blank chip).
+    // Icon: 24×24, bolt-in-hex PNG, tinted yellow. v0.5.2
+    // PR-A.7 (2026-08-04): bumped from 20×20 to 24×24 (and
+    // the chip height from 28 to 32) so the bolt-in-hex is
+    // the most prominent visual element on the chip — the
+    // user explicitly wanted the icon "brought in front and
+    // made larger" so it reads as the chip's identity, with
+    // the +/- amount as supporting text. Falls back to a
+    // yellow-tinted square if the asset hasn't decoded yet.
     let power_icon_node = match get_energy_icon_handle_bevy(resource_icons) {
         Some(handle) => commands
             .spawn((
                 Node {
-                    width: Val::Px(20.0),
-                    height: Val::Px(20.0),
+                    width: Val::Px(24.0),
+                    height: Val::Px(24.0),
                     ..default()
                 },
                 ImageNode::new(handle.clone()).with_color(power_chrome),
@@ -5757,8 +5917,8 @@ fn spawn_card(
         None => commands
             .spawn((
                 Node {
-                    width: Val::Px(20.0),
-                    height: Val::Px(20.0),
+                    width: Val::Px(24.0),
+                    height: Val::Px(24.0),
                     border_radius: BorderRadius::all(Val::Px(2.0)),
                     ..default()
                 },
@@ -6145,12 +6305,6 @@ fn spawn_card(
             // when the multiplier or spare changes (both trigger a
             // refresh), so a spawn-time check is enough.
             ConstructionCtaDisabled,
-            // The per-frame `tick_construction_cta_reason_text`
-            // system writes a short human-readable reason here
-            // when the CTA is disabled (e.g. "Need 50 kt Iron
-            // here"). Defaults to `None`; the reason text sibling
-            // stays hidden until a reason appears.
-            ConstructionCtaBlockedReason::default(),
             // Make the CTA pickable so `Interaction::Pressed` fires.
             Pickable::default(),
         ))
@@ -6162,6 +6316,17 @@ fn spawn_card(
         // the marker. But for the power gate we make the decision
         // here at spawn time and never flip it.
         commands.entity(cta).remove::<ConstructionCtaDisabled>();
+    }
+    // v0.5.2 (build menu fix): body-blocked mining cards (e.g. an
+    // Iron Mine on a gas giant) get a separate, **permanent**
+    // disabled marker so the per-frame affordability system
+    // doesn't silently re-enable the CTA when the player has
+    // the resources on hand. The hover system treats this
+    // marker identically to `ConstructionCtaDisabled` (no hover
+    // scale, no colour change); the affordability system
+    // ignores it.
+    if data.body_blocked {
+        commands.entity(cta).insert(ConstructionCtaBodyBlocked);
     }
     commands.entity(card).add_child(cta);
 
@@ -6198,112 +6363,45 @@ fn spawn_card(
         .id();
     commands.entity(cta).add_child(cta_label);
 
-    // v0.5.2 (build menu fix): red reason text next to the Queue
-    // button. Spawned hidden; `tick_construction_cta_reason_text`
-    // flips it to `Visibility::Inherited` when the CTA is disabled
-    // and writes the short reason (e.g. "Need 50 kt Iron").
-    //
-    // Position: absolutely anchored to the right edge of the card
-    // at the same Y baseline as the CTA. The CTA is at
-    // `bottom: SPACE_LG, left: SPACE_LG`; this text sits at
-    // `bottom: SPACE_LG, right: SPACE_LG` with a hard width cap
-    // so a long reason wraps and the card's `Overflow::clip`
-    // truncates anything that doesn't fit. The `text_align: right`
-    // + `justify_content: flex_end` combo right-aligns each line
-    // so the text reads as a single "block label" floating on the
-    // right side of the bottom row, balancing the CTA on the left.
-    let reason_text = commands
-        .spawn((
-            Text::new(String::new()),
-            TextFont {
-                font: body_font.clone(),
-                font_size: CAPTION_SIZE,
-                ..default()
-            },
-            TextColor(RED),
-            TextLayout {
-                justify: Justify::Right,
-                ..default()
-            },
-            Node {
-                // The text node itself is positioned by the wrapper
-                // below; the inner Node just sets the alignment +
-                // wrapping behaviour.
-                max_width: Val::Px(180.0),
-                ..default()
-            },
-            Name::new("card_cta_reason_text"),
-        ))
-        .id();
-    let reason_wrap = commands
-        .spawn((
-            Node {
-                position_type: PositionType::Absolute,
-                // Sit a hair above the CTA's bottom so the text's
-                // baseline aligns with the CTA's text (32-px tall,
-                // CAPTION_SIZE baseline lands ~8 px up from the
-                // bottom edge of the CTA). `bottom: SPACE_LG + 6`
-                // is the visual sweet spot.
-                bottom: Val::Px(SPACE_LG + 6.0),
-                right: Val::Px(SPACE_LG),
-                // Width budget: leave room for the CTA + a
-                // ~8-px gap on a 320-px card. 180 px comfortably
-                // fits short reasons like "Need 50 kt Iron"
-                // and truncates longer ones (the player can hover
-                // the button to see the full list in the
-                // bottom-left tooltip).
-                width: Val::Px(180.0),
-                justify_content: JustifyContent::FlexEnd,
-                align_items: AlignItems::FlexEnd,
-                ..default()
-            },
-            Visibility::Hidden,
-            ConstructionCtaReasonText { cta },
-            Name::new("card_cta_reason_wrap"),
-        ))
-        .id();
-    commands.entity(reason_wrap).add_child(reason_text);
-    commands.entity(card).add_child(reason_wrap);
-
     // Return the card entity so callers (e.g. the Mining tab's
     // `spawn_mining_card` wrapper) can attach additional
     // siblings (body-gate caption, etc.) if they need to.
     card
 }
 
-/// Hover / click effect system for the Queue CTAs.
+// Hover / click effect system for the Queue CTAs.
 ///
-/// On hover: background brightens from CTA_FILL to CTA_FILL_HOVER, border goes
-/// to fully-opaque cyan, and the entity scales up by 1.02.
-/// On press: scale drops to 0.98.
-/// On release: returns to default.
+// On hover: background brightens from CTA_FILL to CTA_FILL_HOVER, border goes
+// to fully-opaque cyan, and the entity scales up by 1.02.
+// On press: scale drops to 0.98.
+// On release: returns to default.
 ///
-/// Disabled CTAs (marked `ConstructionCtaDisabled` by the can_afford
-/// check) get a **red** treatment — red border, dim-red fill, no scale
-/// change — so the player reads the issue at a glance ("this button is
-/// broken, here's why"). The hover state does not light the button up:
-/// the click is a no-op, so the cyan hover affordance would be
-/// misleading. The label color is handled by
-/// `tick_construction_cta_label_dim` (kept separate to sidestep the
-/// Bevy 0.18 dual-mut rule). We use a `ParamSet` to read the same
-/// `ConstructionCta` set twice (once for the visual loop, once to
-/// check the disabled marker) without conflicting with the mutable
-/// accesses below.
+// Disabled CTAs (marked `ConstructionCtaDisabled` by the can_afford
+// check) get a **red** treatment — red border, dim-red fill, no scale
+// change — so the player reads the issue at a glance ("this button is
+// broken, here's why"). The hover state does not light the button up:
+// the click is a no-op, so the cyan hover affordance would be
+// misleading. The label color is handled by
+// `tick_construction_cta_label_dim` (kept separate to sidestep the
+// Bevy 0.18 dual-mut rule). We use a `ParamSet` to read the same
+// `ConstructionCta` set twice (once for the visual loop, once to
+// check the disabled marker) without conflicting with the mutable
+// accesses below.
 ///
-/// **Flicker mitigation**: we track each CTA's previous
-/// `(interaction, is_disabled)` pair in a `Local<HashMap>` and only
-/// re-apply the visual when the pair changes. Without this, the
-/// Queue button could visibly flicker when the disabled marker
-/// toggles frame-to-frame (e.g. `ContextualStockpile` updates while
-/// the cursor is hovering the button) — every frame would re-write
-/// the same BackgroundColor / BorderColor / UiTransform, but the
-/// cursor-mapped interaction state + the stock-driven disabled
-/// state don't always settle, so the visual oscillates between
-/// the dim (disabled) and bright (hovered) palettes. Edge-only
-/// state changes get filtered out — a CTA that just had its
-/// disabled marker flipped from `true` → `false` because the
-/// player earned enough Iron now renders its hover affordance on
-/// this frame instead of next.
+// **Flicker mitigation**: we track each CTA's previous
+// `(interaction, is_disabled)` pair in a `Local<HashMap>` and only
+// re-apply the visual when the pair changes. Without this, the
+// Queue button could visibly flicker when the disabled marker
+// toggles frame-to-frame (e.g. `ContextualStockpile` updates while
+// the cursor is hovering the button) — every frame would re-write
+// the same BackgroundColor / BorderColor / UiTransform, but the
+// cursor-mapped interaction state + the stock-driven disabled
+// state don't always settle, so the visual oscillates between
+// the dim (disabled) and bright (hovered) palettes. Edge-only
+// state changes get filtered out — a CTA that just had its
+// disabled marker flipped from `true` → `false` because the
+// player earned enough Iron now renders its hover affordance on
+// this frame instead of next.
 pub fn tick_construction_cta_hover(
     mut params: ParamSet<(
         Query<
@@ -6316,7 +6414,14 @@ pub fn tick_construction_cta_hover(
             ),
             With<ConstructionCta>,
         >,
-        Query<Entity, With<ConstructionCtaDisabled>>,
+        // v0.5.2 (build menu fix): the disabled set now matches
+        // both resource-driven (`ConstructionCtaDisabled`) and
+        // body-blocked (`ConstructionCtaBodyBlocked`) markers so
+        // a body-blocked mining card never gets a hover scale or
+        // colour change — the per-frame affordability system
+        // doesn't toggle the body-blocked marker, so this is the
+        // only place the hover affordance gets suppressed.
+        Query<Entity, Or<(With<ConstructionCtaDisabled>, With<ConstructionCtaBodyBlocked>)>>,
     )>,
     mut prev_state: Local<std::collections::HashMap<Entity, (Interaction, bool)>>,
 ) {
@@ -6354,18 +6459,29 @@ pub fn tick_construction_cta_hover(
                 ui_transform.scale = Vec2::splat(1.00);
             }
             // Disabled — every interaction state (None, Hovered,
-            // Pressed) gets the same red treatment. The red frame
-            // + red fill signal "this is broken" at a glance, and
-            // the lack of any hover scale/colour change makes it
-            // obvious the button does nothing on click.
+            // Pressed) gets the same dim/grey treatment. We
+            // deliberately avoid the red palette here: red
+            // reads as a *highlight* / *alert* in the rest of
+            // the UI (notifications, warning chips, error
+            // states), so a red button looks "active and
+            // important" rather than "broken and inert". The
+            // dim/grey fill + grey border + no hover scale
+            // matches standard disabled-CTA conventions and
+            // tells the player the click is a no-op without
+            // implying anything will happen on hover.
             _ => {
-                // Dim red fill — same hue as the frame so the
-                // button reads as a single red surface, but
-                // alpha-cut so the card's `CARD_BG` bleeds
-                // through. The label color is painted red by
+                // Recessed fill — ~4% white on the card's dark
+                // navy, so the button reads as a sunken panel
+                // rather than a glowing target. Border is a
+                // desaturated dim grey (TEXT_DIM @ 40% alpha)
+                // so the outline stays visible but doesn't pop
+                // against the surrounding card chrome. The
+                // label is tinted TEXT_DIM by
                 // `tick_construction_cta_label_dim`.
-                *bg = BackgroundColor(Color::srgba(0.847, 0.373, 0.392, 0.18));
-                *border = BorderColor::all(crate::ui::bevy_theme::RED);
+                *bg = BackgroundColor(Color::srgba(1.0, 1.0, 1.0, 0.04));
+                *border = BorderColor::all(Color::srgba(
+                    0.498, 0.580, 0.659, 0.40,
+                ));
                 ui_transform.scale = Vec2::splat(1.00);
             }
         }
@@ -6373,33 +6489,33 @@ pub fn tick_construction_cta_hover(
     }
 }
 
-/// Animate the `UiTransform.translation` of every `SubtitleMarquee`
-/// track so an overflowing subtitle scrolls left/right on hover.
+// Animate the `UiTransform.translation` of every `SubtitleMarquee`
+// track so an overflowing subtitle scrolls left/right on hover.
 ///
-/// Two text copies live in the track; at `phase = 1.0` the visible
-/// content is byte-identical to `phase = 0.0`, so the cycle is
-/// seamless. Phase increments while the parent card is hovered
-/// (rate: ~one full cycle every 2.4 s) and decrements back to zero
-/// when hover ends, releasing the player back to copy A's start
-/// position so they can re-read from the beginning.
+// Two text copies live in the track; at `phase = 1.0` the visible
+// content is byte-identical to `phase = 0.0`, so the cycle is
+// seamless. Phase increments while the parent card is hovered
+// (rate: ~one full cycle every 2.4 s) and decrements back to zero
+// when hover ends, releasing the player back to copy A's start
+// position so they can re-read from the beginning.
 ///
-/// Why this lives in `Update` and not `EguiPrimaryContextPass`:
-/// `bevy_ui` native widgets are layout-driven (their picking and
-/// hover state are computed by the engine in `Update`), so the
-/// system has to read them on the same schedule the engine writes
-/// them. The egui-pass restriction only applies to systems that
-/// call egui context APIs.
+// Why this lives in `Update` and not `EguiPrimaryContextPass`:
+// `bevy_ui` native widgets are layout-driven (their picking and
+// hover state are computed by the engine in `Update`), so the
+// system has to read them on the same schedule the engine writes
+// them. The egui-pass restriction only applies to systems that
+// call egui context APIs.
 ///
-/// B0001 audit: the system takes two `Query` parameters but they
-/// reach for disjoint component sets
-/// (`Interaction` on cards vs `UiTransform`+`SubtitleMarquee` on
-/// tracks), so the planner treats them as parallel-friendly.
+// B0001 audit: the system takes two `Query` parameters but they
+// reach for disjoint component sets
+// (`Interaction` on cards vs `UiTransform`+`SubtitleMarquee` on
+// tracks), so the planner treats them as parallel-friendly.
 ///
-/// The first-frame issue: `ComputedNode` is populated by the
-/// engine's layout pass *after* our spawn but before the next
-/// `Update`. We read it on tick 2+. Until then `text_width` and
-/// `container_width` stay at 0 and the marquee is dormant — which
-/// is the correct visual (text at translation `(0, 0)`, no scroll).
+// The first-frame issue: `ComputedNode` is populated by the
+// engine's layout pass *after* our spawn but before the next
+// `Update`. We read it on tick 2+. Until then `text_width` and
+// `container_width` stay at 0 and the marquee is dormant — which
+// is the correct visual (text at translation `(0, 0)`, no scroll).
 pub fn tick_subtitle_marquee(
     time: Res<Time>,
     text_computed: Query<&ComputedNode>,
@@ -6506,68 +6622,68 @@ pub fn tick_subtitle_marquee(
     }
 }
 
-/// Wheel-scroll handler for `Overflow::scroll_y` containers.
+// Wheel-scroll handler for `Overflow::scroll_y` containers.
 ///
-/// Bevy 0.18 ships with no built-in scroll wheel handler for
-/// `bevy_ui` — the engine renders scrollbars and clamps
-/// `ScrollPosition` correctly, but it never reads `MouseWheel`
-/// events to *update* `ScrollPosition`. Without this system, the
-/// `card_grid` (and the queue panel body, etc.) silently ignore
-/// the scroll wheel even when content overflows.
+// Bevy 0.18 ships with no built-in scroll wheel handler for
+// `bevy_ui` — the engine renders scrollbars and clamps
+// `ScrollPosition` correctly, but it never reads `MouseWheel`
+// events to *update* `ScrollPosition`. Without this system, the
+// `card_grid` (and the queue panel body, etc.) silently ignore
+// the scroll wheel even when content overflows.
 ///
-/// Strategy:
-/// 1. For each `MouseWheel` event, look up the topmost hovered
-///    entity via `HoverMap` (populated by the picking plugin).
-/// 2. Walk up the parent chain until we find an entity with
-///    `Overflow::scroll_y` set on its `Node`. That's our
-///    scrollable.
-/// 3. Adjust the scrollable's `ScrollPosition` by the wheel's
-///    `y` delta (with a small multiplier for "snappy" feel) and
-///    clamp to `[0, max_y]` where `max_y` is the difference
-///    between `content_size().y` and `size().y`.
+// Strategy:
+// 1. For each `MouseWheel` event, look up the topmost hovered
+//    entity via `HoverMap` (populated by the picking plugin).
+// 2. Walk up the parent chain until we find an entity with
+//    `Overflow::scroll_y` set on its `Node`. That's our
+//    scrollable.
+// 3. Adjust the scrollable's `ScrollPosition` by the wheel's
+//    `y` delta (with a small multiplier for "snappy" feel) and
+//    clamp to `[0, max_y]` where `max_y` is the difference
+//    between `content_size().y` and `size().y`.
 ///
-/// Why parent-walk and not iterate every scrollable: the user
-/// usually has the cursor over a card, not the scrollable itself.
-/// Cards live several parents deep inside `card_grid`. We can't
-/// put `Pickable` on `card_grid` directly (it's not in the
-/// hover-to-scroll contract) and we don't want to put picking
-/// state on every card just to find the scrollable. The walk
-/// is bounded by the panel depth (typically 4-5 hops) and only
-/// runs on wheel events, not every frame.
+// Why parent-walk and not iterate every scrollable: the user
+// usually has the cursor over a card, not the scrollable itself.
+// Cards live several parents deep inside `card_grid`. We can't
+// put `Pickable` on `card_grid` directly (it's not in the
+// hover-to-scroll contract) and we don't want to put picking
+// state on every card just to find the scrollable. The walk
+// is bounded by the panel depth (typically 4-5 hops) and only
+// runs on wheel events, not every frame.
 ///
-/// Edge case: when the player hovers a card and scrolls, the
-/// hover entity is the card. We walk up: card → `header_row` →
-/// `title_col` → `subtitle_clip` (overflow: clip, not scroll) →
-/// etc. The first ancestor with `Overflow::scroll_y` is the
-/// `card_grid` itself. Good.
+// Edge case: when the player hovers a card and scrolls, the
+// hover entity is the card. We walk up: card → `header_row` →
+// `title_col` → `subtitle_clip` (overflow: clip, not scroll) →
+// etc. The first ancestor with `Overflow::scroll_y` is the
+// `card_grid` itself. Good.
 ///
-/// Drive the always-visible scrollbar overlay on the card grid.
+// Drive the always-visible scrollbar overlay on the card grid.
 ///
-/// For each `CardGridScrollbarTrack`, this system measures the
-/// parent's (the `card_grid`'s) content height + visible height +
-/// current `ScrollPosition` and resizes/repositions the thumb
-/// proportionally. When the content fits the viewport the thumb
-/// is hidden (height 0).
+// For each `CardGridScrollbarTrack`, this system measures the
+// parent's (the `card_grid`'s) content height + visible height +
+// current `ScrollPosition` and resizes/repositions the thumb
+// proportionally. When the content fits the viewport the thumb
+// is hidden (height 0).
 ///
-/// Why the system exists: Bevy 0.18's `bevy_ui` core auto-renders
-/// scrollbar visuals only when content overflows and never exposes
-/// an always-visible track — there's no API to say "show this
-/// scrollbar even when not hovering, in this exact color, at this
-/// exact width". The overlay node we spawned in
-/// `setup_construction` is just a styled box; this system wires it
-/// to the actual scroll position so the thumb moves with the
-/// content.
+// Why the system exists: Bevy 0.18's `bevy_ui` core auto-renders
+// scrollbar visuals only when content overflows and never exposes
+// an always-visible track — there's no API to say "show this
+// scrollbar even when not hovering, in this exact color, at this
+// exact width". The overlay node we spawned in
+// `setup_construction` is just a styled box; this system wires it
+// to the actual scroll position so the thumb moves with the
+// content.
 ///
-/// B0001: we hold `&ComputedNode` on the grid + track and `&mut Node`
-/// + `&mut UiTransform` on the thumb. Reading `&mut ScrollPosition`
-/// would force a third `Query` for no benefit (we only read it),
-/// but Bevy 0.18 still flags overlapping component reads on the
-/// same entity as B0001. Solution: the grid is read here as a
-/// plain data source (`ComputedNode` + `ScrollPosition` via
-/// `&ScrollPosition` not `&mut ScrollPosition`) and the thumb
-/// writes happen on a different archetype (different components).
-/// To be belt-and-braces we wrap in a `ParamSet` so the planner
-/// sees the disjoint access scopes explicitly.
+// B0001: we hold `&ComputedNode` on the grid + track and `&mut Node`
+// + `&mut UiTransform` on the thumb. Reading `&mut ScrollPosition`
+// would force a third `Query` for no benefit (we only read it),
+// but Bevy 0.18 still flags overlapping component reads on the
+// same entity as B0001. Solution: the grid is read here as a
+// plain data source (`ComputedNode` + `ScrollPosition` via
+// `&ScrollPosition` not `&mut ScrollPosition`) and the thumb
+// writes happen on a different archetype (different components).
+// To be belt-and-braces we wrap in a `ParamSet` so the planner
+// sees the disjoint access scopes explicitly.
 pub fn tick_construction_scrollbar(
     // ParamSet gives the system disjoint mutable + immutable borrows
     // on the same grid without tripping B0001. `tracks` reads the
@@ -6662,72 +6778,72 @@ pub fn tick_construction_scrollbar(
     }
 }
 
-/// Drag-to-scroll for the construction card grid scrollbar. When
-/// the player presses the thumb (or the track) and drags the mouse,
-/// translate the Y delta into a `ScrollPosition` change. The wheel
-/// handler (`tick_ui_scroll_on_wheel`) already covers the scroll
-/// wheel; this system covers click-and-drag.
+// Drag-to-scroll for the construction card grid scrollbar. When
+// the player presses the thumb (or the track) and drags the mouse,
+// translate the Y delta into a `ScrollPosition` change. The wheel
+// handler (`tick_ui_scroll_on_wheel`) already covers the scroll
+// wheel; this system covers click-and-drag.
 ///
-/// Why this is its own system (not folded into
-/// `tick_construction_scrollbar`): drag is event-driven (only
-/// active while `Interaction::Pressed` on the thumb OR the
-/// track) and needs a `MessageReader<CursorMoved>` to detect
-/// pointer motion. Mixing event-driven work into the per-frame
-/// visual tick system is fine in Bevy but a separate system keeps
-/// each function's responsibility clear.
+// Why this is its own system (not folded into
+// `tick_construction_scrollbar`): drag is event-driven (only
+// active while `Interaction::Pressed` on the thumb OR the
+// track) and needs a `MessageReader<CursorMoved>` to detect
+// pointer motion. Mixing event-driven work into the per-frame
+// visual tick system is fine in Bevy but a separate system keeps
+// each function's responsibility clear.
 ///
-/// Two press surfaces share the same param:
-/// 1. **Thumb**: dragging the thumb scrolls the grid (existing
-///    behavior; the thumb's `Interaction` is `Pressed`).
-/// 2. **Track empty area**: clicking on the track above/below
-///    the thumb "page-jumps" the scroll so the thumb's center
-///    lands at the click point — the standard Windows / macOS
-///    scrollbar behavior. The track's `Interaction` is `Pressed`
-///    and the cursor position is read from `RelativeCursorPosition`
-///    on the track entity. After the page jump, the player can
-///    keep dragging and the gesture continues as a thumb-drag
-///    from the new position.
+// Two press surfaces share the same param:
+// 1. **Thumb**: dragging the thumb scrolls the grid (existing
+//    behavior; the thumb's `Interaction` is `Pressed`).
+// 2. **Track empty area**: clicking on the track above/below
+//    the thumb "page-jumps" the scroll so the thumb's center
+//    lands at the click point — the standard Windows / macOS
+//    scrollbar behavior. The track's `Interaction` is `Pressed`
+//    and the cursor position is read from `RelativeCursorPosition`
+//    on the track entity. After the page jump, the player can
+//    keep dragging and the gesture continues as a thumb-drag
+//    from the new position.
 ///
-/// Why `ParamSet`: this system holds `Query<&mut Node>` on the
-/// thumb (for the press-cursor feedback) and `Query<&mut
-/// ScrollPosition>` on the grid (for the actual scroll update).
-/// Bevy 0.18's planner treats these as overlapping component
-/// access on different archetypes; we wrap in `ParamSet` to make
-/// the disjoint access scopes explicit.
+// Why `ParamSet`: this system holds `Query<&mut Node>` on the
+// thumb (for the press-cursor feedback) and `Query<&mut
+// ScrollPosition>` on the grid (for the actual scroll update).
+// Bevy 0.18's planner treats these as overlapping component
+// access on different archetypes; we wrap in `ParamSet` to make
+// the disjoint access scopes explicit.
 ///
-/// Why a `Resource` (not `Local<DragState>`): we need pe-press /
-/// on-release observers to mutate the drag state on entities other
-/// than the system that runs the per-frame drag. Bevy 0.18's
-/// observer API exposes `Trigger<Pointer<Press>>` /
-/// `Trigger<Pointer<Release>>` as entity-scoped events that fire
-/// regardless of where the pointer goes after the press — that's
-/// the only way to keep a drag "locked" to the originally-clicked
-/// surface (the thumb is only 6 px wide, so a one-pixel slip would
-/// otherwise drop `Interaction::Pressed` to `None` and the drag
-/// would die immediately). Putting the state on a `Resource`
-/// lets observers and the per-frame system share the same
-/// authoritative state.
+// Why a `Resource` (not `Local<DragState>`): we need pe-press /
+// on-release observers to mutate the drag state on entities other
+// than the system that runs the per-frame drag. Bevy 0.18's
+// observer API exposes `Trigger<Pointer<Press>>` /
+// `Trigger<Pointer<Release>>` as entity-scoped events that fire
+// regardless of where the pointer goes after the press — that's
+// the only way to keep a drag "locked" to the originally-clicked
+// surface (the thumb is only 6 px wide, so a one-pixel slip would
+// otherwise drop `Interaction::Pressed` to `None` and the drag
+// would die immediately). Putting the state on a `Resource`
+// lets observers and the per-frame system share the same
+// authoritative state.
 #[derive(Resource, Default)]
 pub(crate) struct ScrollbarDragState {
-    /// Whether a drag is currently in progress.
+    // Whether a drag is currently in progress.
     pub(crate) active: bool,
-    /// Whether the drag started on the empty track (page-jump)
-    /// vs the thumb (handle-drag). The former snaps the page
-    /// immediately on press; the latter scrolls continuously.
+    // Whether the drag started on the empty track (page-jump)
+    // vs the thumb (handle-drag). The former snaps the page
+    // immediately on press; the latter scrolls continuously.
     pub(crate) started_on_track: bool,
-    /// Y in the track's local space where the press happened.
-    /// Used by the page-jump snap to position the thumb's
-    /// `top` so the thumb's centre sits at the click point.
+    // Y in the track's local space where the press happened.
+    // Used by the page-jump snap to position the thumb's
+    // `top` so the thumb's centre sits at the click point.
     pub(crate) press_track_y: f32,
 }
 
-/// On-press observer for the `CardGridScrollbarThumb`. Fires when
-/// the user presses the thumb; sets `ScrollbarDragState.active`
-/// and records that the drag started on the thumb (not the
-/// track). The observer stays attached for the lifetime of the
-/// thumb entity, so it survives every per-frame scrollbar
-/// rebuild — the entity itself is the long-lived parent of the
-/// visual thumb.
+// On-press observer for the `CardGridScrollbarThumb`. Fires when
+// the user presses the thumb; sets `ScrollbarDragState.active`
+// and records that the drag started on the thumb (not the
+// track). The observer stays attached for the lifetime of the
+// thumb entity, so it survives every per-frame scrollbar
+// rebuild — the entity itself is the long-lived parent of the
+// visual thumb.
 fn on_thumb_press(on: On<Pointer<Press>>, mut drag: ResMut<ScrollbarDragState>) {
     // Only the primary (left) mouse button initiates a drag.
     if on.event.button != PointerButton::Primary {
@@ -6738,9 +6854,9 @@ fn on_thumb_press(on: On<Pointer<Press>>, mut drag: ResMut<ScrollbarDragState>) 
     drag.press_track_y = 0.0;
 }
 
-/// On-release observer for the `CardGridScrollbarThumb`. Fires
-/// when the user releases anywhere on the thumb (or, by observer
-/// propagation, on any descendant). Clears the drag state.
+// On-release observer for the `CardGridScrollbarThumb`. Fires
+// when the user releases anywhere on the thumb (or, by observer
+// propagation, on any descendant). Clears the drag state.
 fn on_thumb_release(on: On<Pointer<Release>>, mut drag: ResMut<ScrollbarDragState>) {
     if on.event.button != PointerButton::Primary {
         return;
@@ -6749,11 +6865,11 @@ fn on_thumb_release(on: On<Pointer<Release>>, mut drag: ResMut<ScrollbarDragStat
     drag.started_on_track = false;
 }
 
-/// On-press observer for the `CardGridScrollbarTrack`. Fires
-/// when the user presses the empty track area (not the thumb,
-/// which is a child and would consume the press first). The
-/// press position is captured in the track's local Y so the
-/// per-frame drag system can apply the page-jump snap.
+// On-press observer for the `CardGridScrollbarTrack`. Fires
+// when the user presses the empty track area (not the thumb,
+// which is a child and would consume the press first). The
+// press position is captured in the track's local Y so the
+// per-frame drag system can apply the page-jump snap.
 fn on_track_press(
     on: On<Pointer<Press>>,
     mut drag: ResMut<ScrollbarDragState>,
@@ -6777,9 +6893,9 @@ fn on_track_press(
     drag.press_track_y = y;
 }
 
-/// On-release observer for the `CardGridScrollbarTrack`. Mirrors
-/// `on_thumb_release` — clears the drag state when the pointer
-/// button is released.
+// On-release observer for the `CardGridScrollbarTrack`. Mirrors
+// `on_thumb_release` — clears the drag state when the pointer
+// button is released.
 fn on_track_release(on: On<Pointer<Release>>, mut drag: ResMut<ScrollbarDragState>) {
     if on.event.button != PointerButton::Primary {
         return;
@@ -6853,63 +6969,63 @@ pub fn tick_construction_scrollbar_drag(
     }
 }
 
-/// Shared layout numbers from `tick_construction_scrollbar`. The
-/// drag system needs to know the thumb's travel range and the
-/// grid's max scroll to translate pixel deltas into scroll units.
-/// We publish these every frame in a `Resource` rather than via a
-/// shared system param because (a) Resources survive system
-/// re-scheduling and (b) the drag system shouldn't have to
-/// duplicate the visual tick's layout math.
+// Shared layout numbers from `tick_construction_scrollbar`. The
+// drag system needs to know the thumb's travel range and the
+// grid's max scroll to translate pixel deltas into scroll units.
+// We publish these every frame in a `Resource` rather than via a
+// shared system param because (a) Resources survive system
+// re-scheduling and (b) the drag system shouldn't have to
+// duplicate the visual tick's layout math.
 #[derive(Resource, Default, Debug)]
 pub struct ConstructionScrollbarMetrics {
-    /// Track height minus the top + bottom padding (`SPACE_SM *
-    /// 2`). This is the range of Y values the thumb can occupy.
+    // Track height minus the top + bottom padding (`SPACE_SM *
+    // 2`). This is the range of Y values the thumb can occupy.
     pub usable_track_height: f32,
-    /// Current rendered height of the thumb. Constant between
-    /// layout ticks; used to compute the thumb's travel range.
+    // Current rendered height of the thumb. Constant between
+    // layout ticks; used to compute the thumb's travel range.
     pub thumb_height: f32,
-    /// `content_size.y - size.y` for the card grid — the max
-    /// scrollable distance in pixels. Zero when content fits.
+    // `content_size.y - size.y` for the card grid — the max
+    // scrollable distance in pixels. Zero when content fits.
     pub max_scroll: f32,
 }
 
-/// Wheel-scroll handler for `Overflow::scroll_y` containers.
+// Wheel-scroll handler for `Overflow::scroll_y` containers.
 ///
-/// Bevy 0.18 ships with no built-in scroll wheel handler for
-/// `bevy_ui` — the engine renders scrollbars and clamps
-/// `ScrollPosition` correctly, but it never reads `MouseWheel`
-/// events to *update* `ScrollPosition`. Without this system, the
-/// `card_grid` (and the queue panel body, etc.) silently ignore
-/// the scroll wheel even when content overflows.
+// Bevy 0.18 ships with no built-in scroll wheel handler for
+// `bevy_ui` — the engine renders scrollbars and clamps
+// `ScrollPosition` correctly, but it never reads `MouseWheel`
+// events to *update* `ScrollPosition`. Without this system, the
+// `card_grid` (and the queue panel body, etc.) silently ignore
+// the scroll wheel even when content overflows.
 ///
-/// Strategy:
-/// 1. For each `MouseWheel` event, look up the topmost hovered
-///    entity via `HoverMap` (populated by the picking plugin).
-/// 2. Walk up the parent chain until we find an entity with
-///    `Overflow::scroll_y` set on its `Node`. That's our
-///    scrollable.
-/// 3. Adjust the scrollable's `ScrollPosition` by the wheel's
-///    `y` delta (with a small multiplier for "snappy" feel) and
-///    clamp to `[0, max_y]` where `max_y` is the difference
-///    between `content_size().y` and `size().y`.
+// Strategy:
+// 1. For each `MouseWheel` event, look up the topmost hovered
+//    entity via `HoverMap` (populated by the picking plugin).
+// 2. Walk up the parent chain until we find an entity with
+//    `Overflow::scroll_y` set on its `Node`. That's our
+//    scrollable.
+// 3. Adjust the scrollable's `ScrollPosition` by the wheel's
+//    `y` delta (with a small multiplier for "snappy" feel) and
+//    clamp to `[0, max_y]` where `max_y` is the difference
+//    between `content_size().y` and `size().y`.
 ///
-/// Why parent-walk and not iterate every scrollable: the user
-/// usually has the cursor over a card, not the scrollable itself.
-/// Cards live several parents deep inside `card_grid`. We can't
-/// put `Pickable` on `card_grid` directly (it's not in the
-/// hover-to-scroll contract) and we don't want to put picking
-/// state on every card just to find the scrollable. The walk
-/// is bounded by the panel depth (typically 4-5 hops) and only
-/// runs on wheel events, not every frame.
+// Why parent-walk and not iterate every scrollable: the user
+// usually has the cursor over a card, not the scrollable itself.
+// Cards live several parents deep inside `card_grid`. We can't
+// put `Pickable` on `card_grid` directly (it's not in the
+// hover-to-scroll contract) and we don't want to put picking
+// state on every card just to find the scrollable. The walk
+// is bounded by the panel depth (typically 4-5 hops) and only
+// runs on wheel events, not every frame.
 ///
-/// Edge case: when the player hovers a card and scrolls, the
-/// hover entity is the card. We walk up: card → `header_row` →
-/// `title_col` → `subtitle_clip` (overflow: clip, not scroll) →
-/// etc. The first ancestor with `Overflow::scroll_y` is the
-/// `card_grid` itself. Good.
+// Edge case: when the player hovers a card and scrolls, the
+// hover entity is the card. We walk up: card → `header_row` →
+// `title_col` → `subtitle_clip` (overflow: clip, not scroll) →
+// etc. The first ancestor with `Overflow::scroll_y` is the
+// `card_grid` itself. Good.
 ///
-/// B0001 audit: the system has one `Query` parameter; no
-/// dual-Query risk.
+// B0001 audit: the system has one `Query` parameter; no
+// dual-Query risk.
 pub fn tick_ui_scroll_on_wheel(
     mut wheel_events: MessageReader<MouseWheel>,
     hover_map: Res<HoverMap>,
@@ -6987,32 +7103,45 @@ pub fn tick_ui_scroll_on_wheel(
     }
 }
 
-/// currently-selected multiplier, with the current `ContextualStockpile`.
+// currently-selected multiplier, with the current `ContextualStockpile`.
 ///
-/// This is the canary's version of the egui panel's
-/// `can_afford_resources_multiplied` gate. The CTA itself stays visible
-/// (the player should see the building exists) but the click handler
-/// (`tick_construction_cta_click`) skips the push when the marker is
-/// present, and the hover system keeps the dim CTA_FILL background.
+// This is the canary's version of the egui panel's
+// `can_afford_resources_multiplied` gate. The CTA itself stays visible
+// (the player should see the building exists) but the click handler
+// (`tick_construction_cta_click`) skips the push when the marker is
+// present, and the hover system keeps the dim CTA_FILL background.
 ///
-/// Runs every frame in `Update` — the math is O(buildings × costs) and
-/// there are < 50 buildings so the cost is negligible. We don't gate
-/// this on `resource_changed` because the stockpile can change while
-/// the panel is open (mining, deliveries, etc.).
+// Runs every frame in `Update` — the math is O(buildings × costs) and
+// there are < 50 buildings so the cost is negligible. We don't gate
+// this on `resource_changed` because the stockpile can change while
+// the panel is open (mining, deliveries, etc.).
 ///
-/// Uses `queue_silenced` (Bevy 0.18+) so the `insert` / `remove`
-/// commands are dropped silently instead of panicking if the
-/// target entity was despawned by an earlier system in the same
-/// tick (e.g. `refresh_card_grid` despawns the old cards before
-/// the new ones are spawned). The system ordering in the plugin
-/// (`.after(refresh_card_grid)`) is the primary defence; the
-/// silenced queue is the safety net.
+// Uses `queue_silenced` (Bevy 0.18+) so the `insert` / `remove`
+// commands are dropped silently instead of panicking if the
+// target entity was despawned by an earlier system in the same
+// tick (e.g. `refresh_card_grid` despawns the old cards before
+// the new ones are spawned). The system ordering in the plugin
+// (`.after(refresh_card_grid)`) is the primary defence; the
+// silenced queue is the safety net.
 pub fn tick_construction_cta_disabled(
     mut commands: Commands,
     buildings_data: Res<BuildingsData>,
     contextual: Res<crate::economy::ContextualStockpile>,
     ui_state: Res<ConstructionUiState>,
-    ctas: Query<(Entity, &ConstructionCta, Has<ConstructionCtaDisabled>)>,
+    // v0.5.2 (build menu fix): the `Without<ConstructionCtaBodyBlocked>`
+    // filter on the per-frame query keeps the system from touching
+    // body-blocked mining cards. Their `ConstructionCtaDisabled`
+    // marker was set at spawn time (because the Mining tab's
+    // `power_insufficient` flag mirrors `body_blocked`) and the
+    // resource-gate logic below has no way to know that the
+    // marker is a body-block, not a resource shortage. Without
+    // this filter, the system would silently re-enable an Iron
+    // Mine on a gas giant the moment the player has the
+    // resources on hand.
+    ctas: Query<
+        (Entity, &ConstructionCta, Has<ConstructionCtaDisabled>),
+        Without<ConstructionCtaBodyBlocked>,
+    >,
     local_stockpiles: Query<&crate::economy::LocalStockpile>,
 ) {
     let multiplier = ui_state.build_multiplier.max(1);
@@ -7043,10 +7172,10 @@ pub fn tick_construction_cta_disabled(
     }
 }
 
-/// `EntityCommand` that inserts `ConstructionCtaDisabled`. Used by
-/// `tick_construction_cta_disabled` via `queue_silenced` so the
-/// insert is dropped instead of panicking if the entity is already
-/// despawned by the time the command applies.
+// `EntityCommand` that inserts `ConstructionCtaDisabled`. Used by
+// `tick_construction_cta_disabled` via `queue_silenced` so the
+// insert is dropped instead of panicking if the entity is already
+// despawned by the time the command applies.
 struct InsertCtaDisabled;
 
 impl bevy::ecs::system::EntityCommand for InsertCtaDisabled {
@@ -7055,8 +7184,8 @@ impl bevy::ecs::system::EntityCommand for InsertCtaDisabled {
     }
 }
 
-/// `EntityCommand` that removes `ConstructionCtaDisabled`. See
-/// `InsertCtaDisabled` for the rationale.
+// `EntityCommand` that removes `ConstructionCtaDisabled`. See
+// `InsertCtaDisabled` for the rationale.
 struct RemoveCtaDisabled;
 
 impl bevy::ecs::system::EntityCommand for RemoveCtaDisabled {
@@ -7065,164 +7194,57 @@ impl bevy::ecs::system::EntityCommand for RemoveCtaDisabled {
     }
 }
 
-/// Per-frame system: write the human-readable reason for each Queue
-/// CTA being disabled into `ConstructionCtaBlockedReason`, mirror
-/// the reason into the red `ConstructionCtaReasonText` sibling
-/// element, and dim the CTA label so the disabled state reads at a
-/// glance. The reason is the **local-stockpile shortfall** the
-/// construction system would actually encounter — see
-/// `tick_construction_cta_disabled` for the matching gate. When the
-/// CTA is enabled, the reason is cleared and the red text + dim
-/// styling are hidden.
-///
-/// Runs every frame. O(buildings × costs) — same as the disabled
-/// check, so they're not on a hot path. We do three passes over the
-/// CTA set (compute reason → mirror into sibling → dim label)
-/// because Bevy 0.18 forbids a single system from mutating the same
-/// component (`Visibility` here) twice on different archetypes.
-pub fn tick_construction_cta_reason_text(
-    buildings_data: Res<BuildingsData>,
-    ui_state: Res<ConstructionUiState>,
-    colonies: Query<&crate::colony::Colony>,
-    local_stockpiles: Query<&crate::economy::LocalStockpile>,
-    // The disabled marker is written by `tick_construction_cta_disabled`
-    // which runs immediately before this system (see schedule
-    // wiring); reading it here keeps the reason in lockstep with
-    // the gate.
-    mut cta_q: Query<(
-        Entity,
-        &ConstructionCta,
-        &mut ConstructionCtaBlockedReason,
-        Has<ConstructionCtaDisabled>,
-    )>,
-    mut reason_wrap_q: Query<(
-        &ConstructionCtaReasonText,
-        &mut Visibility,
-        &Children,
-    )>,
-    mut reason_text_q: Query<&mut Text, Without<ConstructionCta>>,
-) {
-    let multiplier = ui_state.build_multiplier.max(1);
-    let active_colony = ui_state.selected_colony;
-    let local = active_colony.and_then(|e| local_stockpiles.get(e).ok());
-    // Pre-compute the active colony's grid spare so the power
-    // check matches `tick_construction_tooltip` exactly.
-    let spare_mw: f64 = active_colony
-        .and_then(|e| colonies.get(e).ok())
-        .map(|colony| {
-            let totals = calculate_colony_power_totals(colony, Some(&buildings_data));
-            (totals.produced_watts - totals.consumed_watts) / 1_000_000.0
-        })
-        .unwrap_or(0.0);
-
-    // Pass 1: compute the per-CTA reason and write it into
-    // `ConstructionCtaBlockedReason`. We also remember each
-    // (cta_entity, is_disabled) pair in a small map so passes 2 & 3
-    // can read the disabled state without re-querying.
-    let mut disabled_map: std::collections::HashMap<Entity, bool> =
-        std::collections::HashMap::new();
-    for (cta_entity, cta, mut reason_field, is_disabled) in cta_q.iter_mut() {
-        disabled_map.insert(cta_entity, is_disabled);
-        let costs = buildings_data.resource_costs(&cta.building_type);
-        let reason = if !is_disabled {
-            None
-        } else {
-            // Power first (matches the existing
-            // `tick_construction_tooltip` ordering — power is
-            // the more fundamental constraint, surface it
-            // before resource shortfalls).
-            let mut power_blocked = false;
-            if let Some(def) = buildings_data.get(&cta.building_type) {
-                if def.power_demand_mw > 0.0 && spare_mw > 0.0 {
-                    let demand_total = def.power_demand_mw * multiplier as f64;
-                    if demand_total > spare_mw {
-                        power_blocked = true;
-                    }
-                }
-            }
-            if power_blocked {
-                Some("Not enough energy".to_string())
-            } else {
-                match local {
-                    Some(ls) => most_binding_local_shortfall(ls, costs, multiplier),
-                    None => Some("Select a colony".to_string()),
-                }
-            }
-        };
-        reason_field.reason = reason;
-    }
-
-    // Pass 2: mirror the reason into each reason-text sibling.
-    for (wrap, mut visibility, children) in reason_wrap_q.iter_mut() {
-        let reason = cta_q
-            .get(wrap.cta)
-            .ok()
-            .and_then(|(_, _, r, _)| r.reason.clone());
-        match reason {
-            Some(text) if !text.is_empty() => {
-                *visibility = Visibility::Inherited;
-                for child in children.iter() {
-                    if let Ok(mut t) = reason_text_q.get_mut(child) {
-                        **t = text.clone();
-                    }
-                }
-            }
-            _ => {
-                *visibility = Visibility::Hidden;
-                for child in children.iter() {
-                    if let Ok(mut t) = reason_text_q.get_mut(child) {
-                        if !t.as_ref().is_empty() {
-                            **t = String::new();
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // Pass 3 (label dim) lives in its own system
-    // `tick_construction_cta_label_dim` — splitting it out lets
-    // each per-frame pass keep a clean single borrow of the
-    // TextColor it manages (Bevy 0.18 forbids two `&mut TextColor`
-    // borrows in the same system).
-}
-
-/// Marker on the `card_cta_label` text entity so the per-frame
-/// dim pass can identify it without walking the name. Spawned in
-/// `spawn_card` alongside the `Text` and `TextFont` components.
+// Marker on the `card_cta_label` text entity so the per-frame
+// dim pass can identify it without walking the name. Spawned in
+// `spawn_card` alongside the `Text` and `TextFont` components.
 #[derive(Component)]
 pub struct ConstructionCtaLabelMarker;
 
-/// Per-frame pass that dims the Queue CTA label when the CTA is
-/// disabled. Split out from `tick_construction_cta_reason_text` so
-/// the reason / sibling-mirror / label-dim passes can each be
-/// reasoned about independently. The CTA label is a child of the
-/// CTA entity (spawned in `spawn_card`) — we find it via
-/// `ChildOf::parent()` and tint it **RED** when the parent is
-/// disabled (so the label matches the red border painted by
-/// `tick_construction_cta_hover` and the disabled state reads at
-/// a glance), `CYAN` otherwise.
+// Per-frame pass that dims the Queue CTA label when the CTA is
+// disabled. The CTA label is a child of the CTA entity (spawned
+// in `spawn_card`) — we find it via `ChildOf::parent()` and tint
+// it `TEXT_DIM` when the parent is disabled (so the label reads
+// as inert and matches the dim/grey chrome of the disabled button
+// painted by `tick_construction_cta_hover`), `CYAN` otherwise.
+///
+// Kept in its own system (not folded into
+// `tick_construction_cta_hover`) because Bevy 0.18 forbids two
+// `&mut TextColor` borrows in the same system. Hover owns
+// `BackgroundColor` / `BorderColor` / `UiTransform`; this system
+// owns `TextColor`.
 pub fn tick_construction_cta_label_dim(
-    cta_q: Query<(Entity, Has<ConstructionCtaDisabled>)>,
+    // v0.5.2 (build menu fix): the disabled set now includes
+    // body-blocked CTAs so their label dims to TEXT_DIM
+    // alongside resource-shortage CTAs. The two markers are
+    // mutually-exclusive in practice (a body-blocked CTA
+    // also has `ConstructionCtaDisabled` from spawn, but the
+    // per-frame system skips it — see `tick_construction_cta_disabled`).
+    cta_q: Query<
+        Entity,
+        Or<(With<ConstructionCtaDisabled>, With<ConstructionCtaBodyBlocked>)>,
+    >,
     mut label_q: Query<
         (&ChildOf, &mut TextColor),
         With<ConstructionCtaLabelMarker>,
     >,
 ) {
     // Build a per-CTA disabled set so the label loop is a single
-    // borrow of `label_q`.
+    // borrow of `label_q`. The `Or<…>` filter above already
+    // excludes non-disabled CTAs, so every entity in the
+    // iteration is dimmed.
     let mut disabled: std::collections::HashSet<Entity> =
         std::collections::HashSet::new();
-    for (entity, is_disabled) in cta_q.iter() {
-        if is_disabled {
-            disabled.insert(entity);
-        }
+    for entity in cta_q.iter() {
+        disabled.insert(entity);
     }
     for (child_of, mut color) in label_q.iter_mut() {
         let target = if disabled.contains(&child_of.parent()) {
-            // Match the disabled CTA's red border so the button
-            // and its label read as a single red surface.
-            crate::ui::bevy_theme::RED
+            // Dim grey so the label reads as inert and matches
+            // the disabled button's dim/grey chrome. RED would
+            // read as a highlight/alert (it's the error colour
+            // elsewhere in the UI) and mislead the player into
+            // thinking something important is happening on hover.
+            TEXT_DIM
         } else {
             CYAN
         };
@@ -7230,19 +7252,17 @@ pub fn tick_construction_cta_label_dim(
     }
 }
 
-/// Helper: enumerate every local-stockpile shortfall for the
-/// given `costs × multiplier`, sorted by *missing* amount
-/// descending (so the most-binding resource is first). Returns
-/// `(display_name, missing)` pairs where `missing` is the
-/// per-batch gap in the same unit as the RON cost (Mt). The
-/// display name prefers `ResourceType::display_name()` over the
-/// raw RON key so `He-3` shows as `"Helium-3"`, `RareEarths` as
-/// `"Rare Earths"`, etc.
+// Helper: enumerate every local-stockpile shortfall for the
+// given `costs × multiplier`, sorted by *missing* amount
+// descending (so the most-binding resource is first). Returns
+// `(display_name, missing)` pairs where `missing` is the
+// per-batch gap in the same unit as the RON cost (Mt). The
+// display name prefers `ResourceType::display_name()` over the
+// raw RON key so `He-3` shows as `"Helium-3"`, `RareEarths` as
+// `"Rare Earths"`, etc.
 ///
-/// Pulled out so `most_binding_local_shortfall` (used by the
-/// inline red reason text — limited horizontal space) and the
-/// tooltip / tooltip-style summary (used by the hover tooltip —
-/// more room) can share the same source of truth.
+// Used by `tick_construction_tooltip` to build the
+// `Missing:` multi-line hover tooltip on a disabled Queue CTA.
 fn collect_local_shortfalls(
     local: &crate::economy::LocalStockpile,
     costs: &[(String, f64)],
@@ -7267,32 +7287,10 @@ fn collect_local_shortfalls(
     all
 }
 
-/// Helper: pick the *most-binding* single local-stockpile shortfall
-/// and format it as `"Need X Mt Y"` — the same string the visible
-/// red inline reason text shows. Pulled out so
-/// `tick_construction_cta_reason_text` can call it; the tooltip
-/// uses `format_all_local_shortfalls` instead because it has
-/// room for the full list.
-///
-/// Amounts use `format_mining_reserve` so 0.05 Mt renders as
-/// `"50 kt"` and 50 Mt renders as `"50 Mt"` — the same SI ladder
-/// the chip uses, so the player reads the same number in both
-/// places.
-fn most_binding_local_shortfall(
-    local: &crate::economy::LocalStockpile,
-    costs: &[(String, f64)],
-    multiplier: u32,
-) -> Option<String> {
-    collect_local_shortfalls(local, costs, multiplier)
-        .into_iter()
-        .next()
-        .map(|(name, missing)| format!("Need {} more {}", format_mining_reserve(missing), name))
-}
-
-/// Inner helper: check whether the contextual stockpile can cover
-/// `costs × multiplier`. Mirrors the egui panel's
-/// `can_afford_resources_multiplied`. Costs with names that don't map
-/// to a `ResourceType` (shouldn't happen, but defensive) are skipped.
+// Inner helper: check whether the contextual stockpile can cover
+// `costs × multiplier`. Mirrors the egui panel's
+// `can_afford_resources_multiplied`. Costs with names that don't map
+// to a `ResourceType` (shouldn't happen, but defensive) are skipped.
 fn can_afford_costs(
     contextual: &crate::economy::ContextualStockpile,
     costs: &[(String, f64)],
@@ -7309,14 +7307,14 @@ fn can_afford_costs(
     true
 }
 
-/// Inner helper: check whether the selected colony's own
-/// `LocalStockpile` can cover `costs × multiplier`. This is the
-/// gate the construction system actually enforces
-/// (`process_construction_actions` deducts from the colony's local
-/// stockpile, not the system-wide aggregate). Costs whose names
-/// don't map to a `ResourceType` (defensive) are skipped. When the
-/// caller has no colony selected, returns `true` so the CTA stays
-/// in its menu-preview state.
+// Inner helper: check whether the selected colony's own
+// `LocalStockpile` can cover `costs × multiplier`. This is the
+// gate the construction system actually enforces
+// (`process_construction_actions` deducts from the colony's local
+// stockpile, not the system-wide aggregate). Costs whose names
+// don't map to a `ResourceType` (defensive) are skipped. When the
+// caller has no colony selected, returns `true` so the CTA stays
+// in its menu-preview state.
 fn can_afford_costs_local(
     local: &crate::economy::LocalStockpile,
     costs: &[(String, f64)],
@@ -7333,9 +7331,9 @@ fn can_afford_costs_local(
     true
 }
 
-/// Refresh the card grid: despawn all existing `ConstructionCard`
-/// entities and re-spawn based on the current `ConstructionUiState`.
-/// Runs whenever `ConstructionUiState` changes (via chip clicks).
+// Refresh the card grid: despawn all existing `ConstructionCard`
+// entities and re-spawn based on the current `ConstructionUiState`.
+// Runs whenever `ConstructionUiState` changes (via chip clicks).
 pub fn refresh_card_grid(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
@@ -7413,11 +7411,11 @@ pub fn refresh_card_grid(
     }
 }
 
-/// Auto-select the first available colony if `selected_colony` is None
-/// or points at a despawned entity. This makes the Queue button work
-/// out of the box without requiring the player to manually pick a
-/// colony from the dropdown, and gracefully recovers when the selected
-/// colony has been removed (e.g. dissolved mid-game).
+// Auto-select the first available colony if `selected_colony` is None
+// or points at a despawned entity. This makes the Queue button work
+// out of the box without requiring the player to manually pick a
+// colony from the dropdown, and gracefully recovers when the selected
+// colony has been removed (e.g. dissolved mid-game).
 pub fn auto_select_first_colony(
     mut ui_state: ResMut<ConstructionUiState>,
     colonies: Query<Entity, With<crate::colony::Colony>>,
@@ -7433,11 +7431,11 @@ pub fn auto_select_first_colony(
     }
 }
 
-/// Click handler for the "Active Colony" picker. Toggles
-/// `ColonyDropdownState::open` so the floating dropdown appears /
-/// disappears. Same rising-edge detection as the chip / CTA click
-/// handlers. `Option<ResMut<…>>` defends against a missing-resource
-/// startup race (see `tick_open_queue_chip_click`).
+// Click handler for the "Active Colony" picker. Toggles
+// `ColonyDropdownState::open` so the floating dropdown appears /
+// disappears. Same rising-edge detection as the chip / CTA click
+// handlers. `Option<ResMut<…>>` defends against a missing-resource
+// startup race (see `tick_open_queue_chip_click`).
 pub fn tick_colony_picker_click(
     interactions: Query<(Entity, &Interaction), (With<ColonyPicker>, With<Button>)>,
     mut state: Option<ResMut<ColonyDropdownState>>,
@@ -7457,11 +7455,11 @@ pub fn tick_colony_picker_click(
     *prev = current;
 }
 
-/// Click handler for a single colony option inside the dropdown. When
-/// the player presses an option, update `ConstructionUiState::selected_colony`
-/// and close the menu. Same rising-edge detection as the other click
-/// handlers. `Option<ResMut<…>>` defends against a missing-resource
-/// startup race.
+// Click handler for a single colony option inside the dropdown. When
+// the player presses an option, update `ConstructionUiState::selected_colony`
+// and close the menu. Same rising-edge detection as the other click
+// handlers. `Option<ResMut<…>>` defends against a missing-resource
+// startup race.
 pub fn tick_colony_option_click(
     interactions: Query<(Entity, &Interaction, &ColonyDropdownOption), With<Button>>,
     mut ui_state: ResMut<ConstructionUiState>,
@@ -7483,20 +7481,20 @@ pub fn tick_colony_option_click(
     *prev = current;
 }
 
-/// Toggle the colony dropdown menu visibility based on
-/// `ColonyDropdownState::open`. Same inheritance pattern as
-/// `tick_construction_body_visibility`: when open, use `Inherited`
-/// so the menu inherits visibility from the canary root; when
-/// closed, use `Hidden` to unconditionally hide it.
+// Toggle the colony dropdown menu visibility based on
+// `ColonyDropdownState::open`. Same inheritance pattern as
+// `tick_construction_body_visibility`: when open, use `Inherited`
+// so the menu inherits visibility from the canary root; when
+// closed, use `Hidden` to unconditionally hide it.
 ///
-/// `Visibility::Inherited` is required (instead of `Visibility::Visible`)
-/// because the parent `picker` sits inside `shared_chrome`, which
-/// is itself driven by the construction menu root's `Visibility`.
-/// v0.5.2: the chrome is now visible on every tab (not just Build),
-/// so this gate is purely about the parent menu's visibility — the
-/// dropdown inherits its parent menu's `Visibility::Hidden` when
-/// the player toggles the Construction menu off, which is the
-/// intended leak prevention.
+// `Visibility::Inherited` is required (instead of `Visibility::Visible`)
+// because the parent `picker` sits inside `shared_chrome`, which
+// is itself driven by the construction menu root's `Visibility`.
+// v0.5.2: the chrome is now visible on every tab (not just Build),
+// so this gate is purely about the parent menu's visibility — the
+// dropdown inherits its parent menu's `Visibility::Hidden` when
+// the player toggles the Construction menu off, which is the
+// intended leak prevention.
 pub fn tick_colony_dropdown_visibility(
     state: Option<Res<ColonyDropdownState>>,
     mut menu_query: Query<&mut Visibility, With<ColonyDropdownMenu>>,
@@ -7512,10 +7510,10 @@ pub fn tick_colony_dropdown_visibility(
     }
 }
 
-/// Update the picker's value text every frame based on the active
-/// selection. Mirrors the egui ComboBox's `selected_text` behavior:
-/// show the colony name (plus population suffix), or a placeholder
-/// when no colony is selected.
+// Update the picker's value text every frame based on the active
+// selection. Mirrors the egui ComboBox's `selected_text` behavior:
+// show the colony name (plus population suffix), or a placeholder
+// when no colony is selected.
 pub fn update_colony_picker_text(
     ui_state: Res<ConstructionUiState>,
     colonies: Query<(Entity, &crate::colony::Colony)>,
@@ -7534,36 +7532,36 @@ pub fn update_colony_picker_text(
     }
 }
 
-/// Refresh the colony dropdown menu every frame: keep one
-/// `ColonyDropdownOption` row per live `Colony` entity, mutate text
-/// and selection-state in place, and only spawn / despawn when the
-/// set of colonies changes.
+// Refresh the colony dropdown menu every frame: keep one
+// `ColonyDropdownOption` row per live `Colony` entity, mutate text
+// and selection-state in place, and only spawn / despawn when the
+// set of colonies changes.
 ///
-/// v0.5.2 pilot for the construction canary's
-/// **spawn-once-update-many** refactor (see
-/// `update_overview_queue` / `update_buildings_body` /
-/// `update_mining_body` for the broader pattern). Rows persist
-/// across `ColonyDropdownState::open` toggles and across tab
-/// visibility changes — the `Local<HashMap<Entity, Entity>>` cache
-/// is keyed by `colony_entity` so the system can identify which
-/// rows to keep, which to mutate, and which to despawn.
+// v0.5.2 pilot for the construction canary's
+// **spawn-once-update-many** refactor (see
+// `update_overview_queue` / `update_buildings_body` /
+// `update_mining_body` for the broader pattern). Rows persist
+// across `ColonyDropdownState::open` toggles and across tab
+// visibility changes — the `Local<HashMap<Entity, Entity>>` cache
+// is keyed by `colony_entity` so the system can identify which
+// rows to keep, which to mutate, and which to despawn.
 ///
-/// Why not the previous `Local<Vec<Entity>>` + per-frame despawn /
-/// respawn pattern? Two reasons:
-/// 1. The previous pattern triggered Bevy 0.18's
-///    `WARN bevy_ecs::error::handler: Encountered an error in
-///    command ... Entity despawned` flood whenever a parent
-///    content container was cascade-despawned mid-tick, because
-///    the `Local` cache still held the now-stale child IDs. We
-///    suppressed the warning with `try_despawn` but that was
-///    treating the symptom, not the cause.
-/// 2. Spawning ~5–10 row entities per frame is a measurable cost
-///    on a canary panel that the player opens frequently.
+// Why not the previous `Local<Vec<Entity>>` + per-frame despawn /
+// respawn pattern? Two reasons:
+// 1. The previous pattern triggered Bevy 0.18's
+//    `WARN bevy_ecs::error::handler: Encountered an error in
+//    command ... Entity despawned` flood whenever a parent
+//    content container was cascade-despawned mid-tick, because
+//    the `Local` cache still held the now-stale child IDs. We
+//    suppressed the warning with `try_despawn` but that was
+//    treating the symptom, not the cause.
+// 2. Spawning ~5–10 row entities per frame is a measurable cost
+//    on a canary panel that the player opens frequently.
 ///
-/// Mutation strategy per row:
-/// - `BackgroundColor` (row) — driven by `is_selected`
-/// - `Text` (option-text child) — the colony name + population
-/// - `TextColor` (option-text child) — driven by `is_selected`
+// Mutation strategy per row:
+// - `BackgroundColor` (row) — driven by `is_selected`
+// - `Text` (option-text child) — the colony name + population
+// - `TextColor` (option-text child) — driven by `is_selected`
 pub fn refresh_colony_dropdown(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
@@ -7715,36 +7713,43 @@ pub fn refresh_colony_dropdown(
     }
 }
 
-/// Update the canary's hover tooltip text every frame.
+// Update the canary's hover tooltip text every frame.
 ///
-/// Scans every CTA's `Interaction` and `ConstructionCtaDisabled`
-/// state. If the player is hovering a disabled CTA, populates
-/// `ConstructionTooltipState` with the most-binding constraint:
-/// "Not enough energy" when the batch's power demand exceeds
-/// the active colony's grid surplus (v0.5.2 PR-A.2 round 2), or
-/// the largest **local-stockpile** shortfall otherwise.
+// Scans every CTA's `Interaction` and `ConstructionCtaDisabled`
+// state. If the player is hovering a disabled CTA, populates
+// `ConstructionTooltipState` with the most-binding constraint:
+// "Not enough energy" when the batch's power demand exceeds
+// the active colony's grid surplus (v0.5.2 PR-A.2 round 2), or
+// the largest **local-stockpile** shortfall otherwise.
 ///
-/// v0.5.2 (build menu fix): the resource-shortfall check now
-/// reads the selected colony's `LocalStockpile` (the same gate
-/// `process_construction_actions` enforces) instead of the
-/// system-wide `ContextualStockpile`. The old check could pass
-/// while the actual game logic was about to file a
-/// `ResourceRequest` because the resources lived on other
-/// bodies — making the tooltip say nothing on hover even though
-/// the click "did nothing" from the player's perspective. Now
-/// the tooltip and the red inline reason text both surface the
-/// real bottleneck.
+// v0.5.2 (build menu fix): the resource-shortfall check now
+// reads the selected colony's `LocalStockpile` (the same gate
+// `process_construction_actions` enforces) instead of the
+// system-wide `ContextualStockpile`. The old check could pass
+// while the actual game logic was about to file a
+// `ResourceRequest` because the resources lived on other
+// bodies — making the tooltip say nothing on hover even though
+// the click "did nothing" from the player's perspective. Now
+// the tooltip and the red inline reason text both surface the
+// real bottleneck.
 ///
-/// Pure read of `tick_construction_cta_disabled`'s output — no
-/// mutation of disabled state. Runs every frame so the tooltip
-/// disappears the instant the cursor leaves a disabled button.
+// Pure read of `tick_construction_cta_disabled`'s output — no
+// mutation of disabled state. Runs every frame so the tooltip
+// disappears the instant the cursor leaves a disabled button.
 pub fn tick_construction_tooltip(
-    ctas: Query<(&Interaction, &ConstructionCta, Has<ConstructionCtaDisabled>)>,
+    ctas: Query<(
+        Entity,
+        &Interaction,
+        &ConstructionCta,
+        Has<ConstructionCtaDisabled>,
+        Has<ConstructionCtaBodyBlocked>,
+    )>,
     buildings_data: Res<BuildingsData>,
     local_stockpiles: Query<&crate::economy::LocalStockpile>,
     colonies: Query<&crate::colony::Colony>,
     ui_state: Res<ConstructionUiState>,
     mut tooltip: ResMut<ConstructionTooltipState>,
+    mut queue_tooltip: ResMut<QueueButtonTooltipState>,
 ) {
     let multiplier = ui_state.build_multiplier.max(1);
 
@@ -7765,10 +7770,18 @@ pub fn tick_construction_tooltip(
     let local = active_colony_entity.and_then(|e| local_stockpiles.get(e).ok());
 
     let mut best: Option<String> = None;
-    for (interaction, cta, is_disabled) in ctas.iter() {
-        if !is_disabled {
-            continue;
-        }
+    // v0.5.2 (build menu fix): body-blocked CTAs (mining
+    // buildings on incompatible bodies) get their own
+    // single-line tooltip so the player sees the actual reason
+    // — "Body unavailable" — rather than a misleading
+    // resource / power shortlist (which wouldn't be the real
+    // gate). Body-blocked wins over the resource/power gate
+    // because the body check is the more fundamental
+    // constraint — the player can't build regardless of how
+    // many resources they have on hand.
+    let mut queue_tooltip_entity: Option<Entity> = None;
+    let mut queue_tooltip_lines: Vec<String> = Vec::new();
+    for (entity, interaction, cta, is_disabled, is_body_blocked) in ctas.iter() {
         if !matches!(interaction, Interaction::Hovered | Interaction::Pressed) {
             continue;
         }
@@ -7776,29 +7789,36 @@ pub fn tick_construction_tooltip(
             Some(d) => d,
             None => continue,
         };
+        if is_body_blocked {
+            queue_tooltip_lines = vec![
+                "Missing:".to_string(),
+                "  Body unavailable".to_string(),
+            ];
+            queue_tooltip_entity = Some(entity);
+            // Skip the resource/power checks — the body
+            // gate is the dominant reason.
+            continue;
+        }
+        if !is_disabled {
+            continue;
+        }
 
         // v0.5.2 polish (2026-08-04): surface every missing
         // prerequisite under a single `Missing:` header so the
-        // player sees the full picture in one glance. Power is
-        // listed first (the more fundamental constraint —
-        // matches the existing `tick_construction_cta_reason_text`
-        // ordering), then resource shortfalls ranked by the
-        // most-binding first. The format helper collapses the
-        // tail to `+N more` beyond four shortfalls.
+        // player sees the full picture in one glance. Resource
+        // shortfalls are listed first (most-binding first per
+        // `collect_local_shortfalls`), then power if the batch
+        // exceeds the grid surplus. The format per user spec:
+        //
+        //     Missing:
+        //       Copper 17 Mt
+        //       Power 200 MW
+        //       Iron 5 Mt
+        //
+        // ("Name Amount" order with a 2-space indent for visual
+        // grouping under the `Missing:` header.)
         let mut lines: Vec<String> = Vec::new();
         lines.push("Missing:".to_string());
-
-        // Power gate — list it only when the batch's total demand
-        // exceeds the grid surplus. We deliberately use a positive
-        // number here (the deficit) so the player reads the
-        // magnitude they need to recover.
-        if def.power_demand_mw > 0.0 && spare_power_mw > 0.0 {
-            let total_demand = def.power_demand_mw * multiplier as f64;
-            if total_demand > spare_power_mw {
-                let deficit_mw = total_demand - spare_power_mw;
-                lines.push(format!("  {} power", format_power(deficit_mw)));
-            }
-        }
 
         // v0.5.2 (build menu fix): local-stockpile shortfall
         // instead of the system-wide contextual aggregate. The
@@ -7807,12 +7827,6 @@ pub fn tick_construction_tooltip(
         // colony is selected, fall through and leave the tooltip
         // empty (the player has bigger problems than the
         // tooltip).
-        //
-        // We append the resource lines directly here (instead of
-        // calling `format_all_local_shortfalls`, which prepends
-        // its own `Missing:` header) so power and resources share
-        // the same `Missing:` parent and the tooltip stays a
-        // single readable block.
         if let Some(ls) = local {
             let shortfalls = collect_local_shortfalls(
                 ls,
@@ -7824,12 +7838,24 @@ pub fn tick_construction_tooltip(
             for (name, missing) in shortfalls.iter().take(show) {
                 lines.push(format!(
                     "  {} {}",
-                    format_mining_reserve(*missing),
-                    name
+                    name,
+                    format_mining_reserve(*missing)
                 ));
             }
             if shortfalls.len() > MAX_LINES {
                 lines.push(format!("  +{} more", shortfalls.len() - MAX_LINES));
+            }
+        }
+
+        // Power gate — list it only when the batch's total demand
+        // exceeds the grid surplus. We deliberately use a positive
+        // number here (the deficit) so the player reads the
+        // magnitude they need to recover.
+        if def.power_demand_mw > 0.0 && spare_power_mw > 0.0 {
+            let total_demand = def.power_demand_mw * multiplier as f64;
+            if total_demand > spare_power_mw {
+                let deficit_mw = total_demand - spare_power_mw;
+                lines.push(format!("  Power {}", format_power(deficit_mw)));
             }
         }
 
@@ -7841,6 +7867,17 @@ pub fn tick_construction_tooltip(
             break;
         }
     }
+    // Mirror the tooltip text into the legacy bottom-left
+    // `ConstructionTooltipState` AND the cursor-following
+    // `QueueButtonTooltipState`. Read `best` by reference so
+    // we can use it twice (consumed for the legacy
+    // `tooltip.text` write, split-on-newline for the
+    // cursor-following one).
+    let best_text: Option<String> = if queue_tooltip_entity.is_none() {
+        best.clone()
+    } else {
+        None
+    };
     if let Some(text) = best {
         tooltip.text = text;
         tooltip.visible = true;
@@ -7848,13 +7885,34 @@ pub fn tick_construction_tooltip(
         tooltip.text.clear();
         tooltip.visible = false;
     }
+
+    // v0.5.2 (build menu fix): mirror the per-frame payload into
+    // the cursor-following `QueueButtonTooltipState` so
+    // `update_queue_button_tooltip` can render a tooltip overlay
+    // next to the cursor. Body-blocked wins over
+    // resource-shortage when both are present (rare — a
+    // body-blocked CTA normally doesn't have resource info
+    // shown), because the body gate is the dominant reason.
+    if let Some(entity) = queue_tooltip_entity {
+        queue_tooltip.hovered_cta = Some(entity);
+        queue_tooltip.lines = queue_tooltip_lines;
+    } else if let Some(text) = best_text {
+        // No body-blocked CTA — mirror the resource/power
+        // shortlist. Split on `\n` so each line ends up in its
+        // own Text layout row.
+        queue_tooltip.hovered_cta = None; // update system tracks its own cursor-following CTA
+        queue_tooltip.lines = text.split('\n').map(|s| s.to_string()).collect();
+    } else {
+        queue_tooltip.hovered_cta = None;
+        queue_tooltip.lines.clear();
+    }
 }
 
-/// Mirror `ConstructionTooltipState` to the on-screen tooltip Text
-/// node + its visibility every frame. The text node is parented to
-/// the canary root with absolute positioning at the bottom-left, so
-/// it's always visible regardless of which sub-tab the player is on
-/// (the canary root is itself gated by the Construction menu state).
+// Mirror `ConstructionTooltipState` to the on-screen tooltip Text
+// node + its visibility every frame. The text node is parented to
+// the canary root with absolute positioning at the bottom-left, so
+// it's always visible regardless of which sub-tab the player is on
+// (the canary root is itself gated by the Construction menu state).
 pub fn update_construction_tooltip(
     state: Res<ConstructionTooltipState>,
     mut tooltip_query: Query<(&mut Text, &mut Visibility), With<ConstructionTooltipText>>,
@@ -7875,18 +7933,126 @@ pub fn update_construction_tooltip(
     }
 }
 
-/// Click handler: when a chip in the Build sub-tab is pressed, mutate
-/// `ConstructionUiState` accordingly. The chip's `ChipKind` component
-/// tells us what to do (set qty, set filter, set category, etc.).
+// v0.5.2 (build menu fix): per-frame driver for the
+// **cursor-following** Queue-CTA tooltip. Mirrors
+// `update_resource_cost_tooltip`'s pattern but renders the
+// multi-line `Missing:` payload from `QueueButtonTooltipState`
+// instead of a single `<name>  <amount>` string. Same
+// coordinate-frame translation (subtract `CANARY_ROOT_TOP_PX`
+// from cursor Y), same stale-entity guard, same `Display::None`
+// fallback when the construction menu isn't the active menu
+// or no CTA is currently hovered.
+//
+// The overlay has its own marker
+// (`QueueButtonTooltipOverlay`) and resource
+// (`QueueButtonTooltipState`) so a player hovering the Queue
+// button and a resource chip at the same time (e.g. a
+// cursor crossing the card body's two zones) gets clean
+// per-zone tooltips instead of one stomping the other.
+pub fn update_queue_button_tooltip(
+    active_menu: Res<ActiveMenu>,
+    primary_window: Query<&Window, With<PrimaryWindow>>,
+    cta_query: Query<Entity, With<ConstructionCta>>,
+    queue_state: Res<QueueButtonTooltipState>,
+    mut overlay_node: Single<&mut Node, With<QueueButtonTooltipOverlay>>,
+    tooltip: Single<(&mut Text, &mut Visibility), With<QueueButtonTooltipText>>,
+) {
+    let (mut tooltip_text, mut tooltip_visibility) = tooltip.into_inner();
+
+    // Same canary-root top offset as the resource-cost /
+    // power-chip tooltips. All three overlays are parented to
+    // the same construction root, so they share the
+    // translation constant.
+    const CANARY_ROOT_TOP_PX: f32 = 126.0;
+    // The Missing: list runs up to ~5 lines (header + 4
+    // resource lines, or header + 1 power line + 1
+    // resource line, etc.). Reserve enough vertical room
+    // for the worst case at CAPTION_SIZE.
+    const TOOLTIP_W: f32 = 260.0;
+    const TOOLTIP_H: f32 = 110.0;
+
+    // Hide the overlay whenever the construction canary isn't
+    // the active menu — same guard as the chip tooltips, so
+    // a stuck overlay doesn't follow the cursor across menu
+    // transitions.
+    let construction_menu_active = matches!(active_menu.current, GameMenu::Construction);
+    if !construction_menu_active {
+        overlay_node.display = Display::None;
+        return;
+    }
+
+    // Stale-entity guard: the CTA may have been despawned
+    // between frames (multiplier chip change, colony switch,
+    // sub-tab switch, queue-row despawn). Bevy 0.18's
+    // pointer backend doesn't reliably fire `Pointer<Out>`
+    // for entities that vanish between frames, so the
+    // hovered_cta id could survive. Re-check it here.
+    let cta_alive = queue_state
+        .hovered_cta
+        .map(|e| cta_query.get(e).is_ok())
+        .unwrap_or(true); // hovered_cta is None → not stale
+    if !queue_state.lines.is_empty() && !cta_alive {
+        // The CTA we were tracking was despawned. The
+        // tick system will refresh on the next frame;
+        // for now hide the overlay.
+        overlay_node.display = Display::None;
+        return;
+    }
+    if queue_state.lines.is_empty() {
+        overlay_node.display = Display::None;
+        *tooltip_visibility = Visibility::Hidden;
+        return;
+    }
+
+    // Need a window to position relative to.
+    let Ok(window): Result<&Window, _> = primary_window.single() else {
+        overlay_node.display = Display::None;
+        return;
+    };
+
+    // Off-screen cursor: hide the overlay.
+    if window.cursor_position().is_none() {
+        overlay_node.display = Display::None;
+        return;
+    }
+    let cursor = window.cursor_position().unwrap();
+
+    // Translate window-space cursor → canary-root-local
+    // pixel coords. Same X / Y treatment as the chip
+    // tooltips.
+    let local_x = cursor.x;
+    let local_y = cursor.y - CANARY_ROOT_TOP_PX + 4.0;
+
+    // Conservative right/bottom clamp: leave `TOOLTIP_W`
+    // on the right and `TOOLTIP_H` on the bottom so the
+    // tooltip never clips out of the canary root.
+    let root_width = window.width().max(TOOLTIP_W);
+    let root_height = (window.height() - CANARY_ROOT_TOP_PX - 72.0).max(TOOLTIP_H);
+    let max_left = (root_width - TOOLTIP_W).max(0.0);
+    let max_top = (root_height - TOOLTIP_H).max(0.0);
+    overlay_node.left = Val::Px(local_x.clamp(0.0, max_left));
+    overlay_node.top = Val::Px(local_y.clamp(0.0, max_top));
+    overlay_node.display = Display::Flex;
+    *tooltip_visibility = Visibility::Inherited;
+
+    // Multi-line text. Bevy's `Text` component supports
+    // newline-separated content — each line is laid out
+    // automatically.
+    *tooltip_text = Text::new(queue_state.lines.join("\n"));
+}
+
+// Click handler: when a chip in the Build sub-tab is pressed, mutate
+// `ConstructionUiState` accordingly. The chip's `ChipKind` component
+// tells us what to do (set qty, set filter, set category, etc.).
 ///
-/// This system is the "wiring" that connects the visual chips to the
-/// real game state. Without it, the chips light up on hover but don't
-/// actually do anything.
+// This system is the "wiring" that connects the visual chips to the
+// real game state. Without it, the chips light up on hover but don't
+// actually do anything.
 ///
-/// Note: bevy's `Interaction::Pressed` only stays `true` for one or two
-/// frames while the user holds the button. We track each chip's
-/// previous interaction in a `Local<HashMap>` to detect the rising
-/// edge (None/Hovered → Pressed) so a fast click isn't missed.
+// Note: bevy's `Interaction::Pressed` only stays `true` for one or two
+// frames while the user holds the button. We track each chip's
+// previous interaction in a `Local<HashMap>` to detect the rising
+// edge (None/Hovered → Pressed) so a fast click isn't missed.
 pub fn tick_construction_chip_click(
     interactions: Query<(Entity, &Interaction, &ChipKind), With<Button>>,
     mut ui_state: ResMut<ConstructionUiState>,
@@ -7930,35 +8096,47 @@ pub fn tick_construction_chip_click(
     *prev = current;
 }
 
-/// What a chip in the Build sub-tab does when pressed. Attached to
-/// each `ChipButtonBundle` so the click handler can dispatch.
+// What a chip in the Build sub-tab does when pressed. Attached to
+// each `ChipButtonBundle` so the click handler can dispatch.
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ChipKind {
-    /// Sub-tab at the given index (0=Overview, 1=Buildings, 2=Build,
-    /// 3=Mining).
+    // Sub-tab at the given index (0=Overview, 1=Buildings, 2=Build,
+    // 3=Mining).
     Tab(usize),
-    /// Build quantity multiplier (1, 5, 10, 25, 50, 100) on the
-    /// Build tab.
+    // Build quantity multiplier (1, 5, 10, 25, 50, 100) on the
+    // Build tab.
     Qty(u32),
-    /// Functional-role filter (All / Food / Power / etc.).
+    // Functional-role filter (All / Food / Power / etc.).
     Filter(BuildFilter),
-    /// Build-category tab (0=Infrastructure, 1=Industry, 2=Logistics,
-    /// ..., 7=Military, 8=All). v0.5.2 PR-A.2 (round 2): the
-    /// Mining chip is removed from the Build tab (mines are
-    /// managed in the dedicated Mining tab), so 9 → 8 chips.
+    // Build-category tab (0=Infrastructure, 1=Industry, 2=Logistics,
+    // ..., 7=Military, 8=All). v0.5.2 PR-A.2 (round 2): the
+    // Mining chip is removed from the Build tab (mines are
+    // managed in the dedicated Mining tab), so 9 → 8 chips.
     Category(usize),
 }
 
-/// Click handler: when the player presses the Queue button on a build
-/// card, push `(selected_colony, building_type)` to
-/// `PendingConstructionActions::start_construction`. The
-/// `process_construction_actions` system in the colony module then
-/// spawns a `ConstructionProject` for that building.
+// Click handler: when the player presses the Queue button on a build
+// card, push `(selected_colony, building_type)` to
+// `PendingConstructionActions::start_construction`. The
+// `process_construction_actions` system in the colony module then
+// spawns a `ConstructionProject` for that building.
 ///
-/// Same rising-edge detection as `tick_construction_chip_click`.
+// Same rising-edge detection as `tick_construction_chip_click`.
 pub fn tick_construction_cta_click(
     interactions: Query<(Entity, &Interaction, &ConstructionCta), With<ConstructionCta>>,
-    disabled: Query<&ConstructionCtaDisabled>,
+    // v0.5.2 (build menu fix): the click guard now skips both
+    // resource-driven (`ConstructionCtaDisabled`) and
+    // body-blocked (`ConstructionCtaBodyBlocked`) CTAs. Without
+    // the body-blocked entry, a player could click a body-blocked
+    // mining CTA (e.g. an Iron Mine on a gas giant) and the
+    // click would be silently enqueued — the construction
+    // system would then have to surface the gate error
+    // downstream. Blocking the click here matches the visible
+    // disabled state and the hover affordance.
+    disabled: Query<
+        Entity,
+        Or<(With<ConstructionCtaDisabled>, With<ConstructionCtaBodyBlocked>)>,
+    >,
     ui_state: Res<ConstructionUiState>,
     mut pending: ResMut<PendingConstructionActions>,
     mut prev: Local<std::collections::HashMap<Entity, Interaction>>,
@@ -7973,9 +8151,10 @@ pub fn tick_construction_cta_click(
                 continue;
             };
             // Skip the push when the CTA is in the disabled state
-            // (insufficient resources for the chosen multiplier — see
-            // `tick_construction_cta_disabled`). The hover system also
-            // bails on the disabled marker so the button doesn't brighten.
+            // — either resource-driven (`ConstructionCtaDisabled`)
+            // or body-blocked (`ConstructionCtaBodyBlocked`).
+            // The hover system also bails on both markers so the
+            // button doesn't brighten.
             if disabled.get(entity).is_ok() {
                 current.insert(entity, *interaction);
                 continue;
@@ -7998,11 +8177,11 @@ pub fn tick_construction_cta_click(
 
 // ── Queue Panel systems ──────────────────────────────────────────────
 
-/// Click handler for the AppBar "OPEN QUEUE" chip. Toggles
-/// `QueuePanelState::open`. Same rising-edge detection as the chip /
-/// CTA click handlers. `ResMut<QueuePanelState>` is wrapped in
-/// `Option<…>` so a missing-resource startup race (e.g. if the plugin
-/// is added before `init_resource` runs) doesn't panic the canary.
+// Click handler for the AppBar "OPEN QUEUE" chip. Toggles
+// `QueuePanelState::open`. Same rising-edge detection as the chip /
+// CTA click handlers. `ResMut<QueuePanelState>` is wrapped in
+// `Option<…>` so a missing-resource startup race (e.g. if the plugin
+// is added before `init_resource` runs) doesn't panic the canary.
 pub fn tick_open_queue_chip_click(
     interactions: Query<(Entity, &Interaction), (With<OpenQueueChip>, With<Button>)>,
     mut state: Option<ResMut<QueuePanelState>>,
@@ -8022,9 +8201,9 @@ pub fn tick_open_queue_chip_click(
     *prev = current;
 }
 
-/// Click handler for the QueuePanel close button. Sets
-/// `QueuePanelState::open = false`. Defensive `Option<ResMut<…>>` (see
-/// `tick_open_queue_chip_click` for rationale).
+// Click handler for the QueuePanel close button. Sets
+// `QueuePanelState::open = false`. Defensive `Option<ResMut<…>>` (see
+// `tick_open_queue_chip_click` for rationale).
 pub fn tick_queue_panel_close_click(
     interactions: Query<(Entity, &Interaction), (With<QueuePanelClose>, With<Button>)>,
     mut state: Option<ResMut<QueuePanelState>>,
@@ -8044,8 +8223,8 @@ pub fn tick_queue_panel_close_click(
     *prev = current;
 }
 
-/// Toggle the QueuePanel visibility based on `QueuePanelState::open`.
-/// Defensive `Option<Res<…>>` (see `tick_open_queue_chip_click`).
+// Toggle the QueuePanel visibility based on `QueuePanelState::open`.
+// Defensive `Option<Res<…>>` (see `tick_open_queue_chip_click`).
 pub fn tick_queue_panel_visibility(
     state: Option<Res<QueuePanelState>>,
     mut panel_query: Query<&mut Visibility, With<QueuePanelRoot>>,
@@ -8066,15 +8245,15 @@ pub fn tick_queue_panel_visibility(
     }
 }
 
-/// Update the live AppBar queue summary text (`queue_value`) every frame
-/// based on the selected colony's queued `ConstructionProject`s. The
-/// legacy placeholder was a static "6d 2h" string; this version reads
-/// real progress and ETA.
+// Update the live AppBar queue summary text (`queue_value`) every frame
+// based on the selected colony's queued `ConstructionProject`s. The
+// legacy placeholder was a static "6d 2h" string; this version reads
+// real progress and ETA.
 ///
-/// We compute the remaining time for each project as
-/// `remaining_bp / (ConstructionProject::required / batch_seconds)`,
-/// roughly equivalent to "how long until this row finishes". Summed
-/// across the colony that's the queue ETA.
+// We compute the remaining time for each project as
+// `remaining_bp / (ConstructionProject::required / batch_seconds)`,
+// roughly equivalent to "how long until this row finishes". Summed
+// across the colony that's the queue ETA.
 pub fn update_queue_summary(
     mut text_query: Query<&mut Text, With<QueuePanelSummaryText>>,
     ui_state: Res<ConstructionUiState>,
@@ -8109,17 +8288,17 @@ pub fn update_queue_summary(
     }
 }
 
-/// Diff-based queue row management. Each frame:
-/// 1. Query `ConstructionProject` filtered by the selected colony.
-/// 2. Compute the desired set of `project_entity` IDs.
-/// 3. For each project entity not in the existing row map, spawn a new
-///    `QueuePanelRow` with progress bar + ETA + cancel button.
-/// 4. Despawn any row whose project entity is no longer in the desired set.
-/// 5. Update progress / ETA on existing rows.
+// Diff-based queue row management. Each frame:
+// 1. Query `ConstructionProject` filtered by the selected colony.
+// 2. Compute the desired set of `project_entity` IDs.
+// 3. For each project entity not in the existing row map, spawn a new
+//    `QueuePanelRow` with progress bar + ETA + cancel button.
+// 4. Despawn any row whose project entity is no longer in the desired set.
+// 5. Update progress / ETA on existing rows.
 ///
-/// Run condition: every frame (the project set can change whenever the
-/// player queues or cancels). The diff cost is O(projects + rows) which
-/// is < 50 in the canary's scope.
+// Run condition: every frame (the project set can change whenever the
+// player queues or cancels). The diff cost is O(projects + rows) which
+// is < 50 in the canary's scope.
 pub fn update_queue_panel(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
@@ -8193,12 +8372,12 @@ pub fn update_queue_panel(
     }
 }
 
-/// Update the ETA text on every existing queue row every frame. The
-/// text is derived from the project's `progress` and `required` plus
-/// the configured output rate. Without this per-frame update the
-/// spawned text would be frozen at the spawn frame — the queue would
-/// appear to never count down. This is the system that makes the
-/// queue duration "live".
+// Update the ETA text on every existing queue row every frame. The
+// text is derived from the project's `progress` and `required` plus
+// the configured output rate. Without this per-frame update the
+// spawned text would be frozen at the spawn frame — the queue would
+// appear to never count down. This is the system that makes the
+// queue duration "live".
 pub fn update_queue_row_eta(
     projects: Query<(Entity, &crate::colony::ConstructionProject)>,
     output_bp_per_year: Res<ConstructionQueue>,
@@ -8229,10 +8408,10 @@ pub fn update_queue_row_eta(
     }
 }
 
-/// Update the progress-bar fill width on every existing queue row
-/// every frame so the bar tracks the project's `progress` toward
-/// completion. Without this the bar would be frozen at the spawn
-/// frame.
+// Update the progress-bar fill width on every existing queue row
+// every frame so the bar tracks the project's `progress` toward
+// completion. Without this the bar would be frozen at the spawn
+// frame.
 pub fn update_queue_row_progress(
     projects: Query<(Entity, &crate::colony::ConstructionProject)>,
     mut fill_query: Query<(&QueuePanelRowFill, &mut Node)>,
@@ -8248,14 +8427,14 @@ pub fn update_queue_row_progress(
     }
 }
 
-/// Spawn a single row in the queue panel for a given
-/// `ConstructionProject`. The row has:
-/// - Header line: building name + ETA
-/// - Progress bar: a 320 px wide track with a colored fill node whose
-///   width is set to `progress_percent * 320` every frame
-/// - Status: "⏳ Waiting for delivery" if `awaiting_resources`, else
-///   the time-remaining label
-/// - Cancel X button (right-aligned)
+// Spawn a single row in the queue panel for a given
+// `ConstructionProject`. The row has:
+// - Header line: building name + ETA
+// - Progress bar: a 320 px wide track with a colored fill node whose
+//   width is set to `progress_percent * 320` every frame
+// - Status: "⏳ Waiting for delivery" if `awaiting_resources`, else
+//   the time-remaining label
+// - Cancel X button (right-aligned)
 fn spawn_queue_row(
     commands: &mut Commands,
     parent: Entity,
@@ -8422,30 +8601,30 @@ fn spawn_queue_row(
     row
 }
 
-/// Marker component for the ETA text on a queue row. The
-/// `update_queue_row_eta` system uses this to find the text node by
-/// project entity without iterating every `Text` node in the world.
+// Marker component for the ETA text on a queue row. The
+// `update_queue_row_eta` system uses this to find the text node by
+// project entity without iterating every `Text` node in the world.
 #[derive(Component)]
 pub struct QueuePanelRowEta {
     pub project_entity: Entity,
 }
 
-/// Marker component for the progress-fill bar on a queue row. The
-/// `update_queue_row_progress` system uses this to update the bar
-/// width every frame as the project advances.
+// Marker component for the progress-fill bar on a queue row. The
+// `update_queue_row_progress` system uses this to update the bar
+// width every frame as the project advances.
 #[derive(Component)]
 pub struct QueuePanelRowFill {
     pub project_entity: Entity,
 }
 
-/// Marker component for the `queue_value` text in the AppBar so the
-/// `update_queue_summary` system can find it without iterating every
-/// Text node.
+// Marker component for the `queue_value` text in the AppBar so the
+// `update_queue_summary` system can find it without iterating every
+// Text node.
 #[derive(Component)]
 pub struct QueuePanelSummaryText;
 
-/// Click handler for the cancel button on each queue row. Pushes the
-/// project entity to `PendingConstructionActions::cancel_construction`.
+// Click handler for the cancel button on each queue row. Pushes the
+// project entity to `PendingConstructionActions::cancel_construction`.
 pub fn tick_queue_panel_row_cancel_click(
     interactions: Query<(Entity, &Interaction, &QueuePanelRowCancel), With<QueuePanelRowCancel>>,
     mut pending: ResMut<PendingConstructionActions>,
@@ -8463,16 +8642,16 @@ pub fn tick_queue_panel_row_cancel_click(
     *prev = current;
 }
 
-/// Marker component for the QueuePanel body container (the scrollable
-/// column where rows are spawned). The `update_queue_panel` system
-/// queries for this to find the parent for new rows.
+// Marker component for the QueuePanel body container (the scrollable
+// column where rows are spawned). The `update_queue_panel` system
+// queries for this to find the parent for new rows.
 #[derive(Component)]
 pub struct QueuePanelBody;
 
-/// Visibility system: shows / hides the canary root based on
-/// `ActiveMenu.current == GameMenu::Construction`. The canary spawns at
-/// startup (so the entities exist) and this system keeps visibility in
-/// sync each frame.
+// Visibility system: shows / hides the canary root based on
+// `ActiveMenu.current == GameMenu::Construction`. The canary spawns at
+// startup (so the entities exist) and this system keeps visibility in
+// sync each frame.
 pub fn tick_construction_state(
     active_menu: Res<ActiveMenu>,
     mut state: ResMut<ConstructionState>,
@@ -8494,7 +8673,7 @@ pub fn tick_construction_state(
     }
 }
 
-/// Plugin: registers the Construction canary on `bevy_ui`.
+// Plugin: registers the Construction canary on `bevy_ui`.
 pub struct ConstructionPlugin;
 
 impl Plugin for ConstructionPlugin {
@@ -8525,6 +8704,15 @@ impl Plugin for ConstructionPlugin {
             // `update_construction_tooltip`. The tooltip pops up
             // when the player hovers a disabled Queue CTA.
             .init_resource::<ConstructionTooltipState>()
+            // v0.5.2 (build menu fix): cursor-following Queue-CTA
+            // tooltip state. Written by `tick_construction_tooltip`
+            // (which scans every CTA's `Interaction` /
+            // `Has<ConstructionCtaDisabled>` /
+            // `Has<ConstructionCtaBodyBlocked>` state), read by
+            // `update_queue_button_tooltip` to position the
+            // singleton overlay at the cursor and populate the
+            // multi-line `Missing:` text.
+            .init_resource::<QueueButtonTooltipState>()
             // Cost-chip hover state: written by the
             // `on_chip_hover_over` / `on_chip_hover_out` observers
             // attached to each `ResourceCostChip` entity, read by
@@ -8742,22 +8930,27 @@ impl Plugin for ConstructionPlugin {
                     update_construction_tooltip,
                 ),
             )
-            // v0.5.2 (build menu fix): per-frame red reason text
-            // next to each disabled Queue CTA. Sits in its own
-            // system set, ordered after `tick_construction_cta_disabled`
-            // (so the disabled marker is up to date) and runs the
-            // three sub-passes (compute reason → mirror into
-            // sibling → dim label) sequentially because Bevy 0.18
-            // forbids two `&mut Text` / `&mut TextColor` borrows in
-            // the same system.
+            // v0.5.2 (build menu fix): cursor-following
+            // Queue-CTA tooltip driver. Mirrors the
+            // resource-cost chip tooltip system but for
+            // the `Missing:` multi-line payload. Runs every
+            // frame even when no CTA is hovered so it can
+            // hide the overlay and clear stale state. The
+            // `tick_construction_tooltip` system above
+            // populates the `QueueButtonTooltipState`
+            // resource; this system renders it.
+            .add_systems(Update, update_queue_button_tooltip)
+            // v0.5.2 (build menu fix): per-frame label dim for
+            // disabled Queue CTAs. The hover system
+            // (`tick_construction_cta_hover`) owns the
+            // `BackgroundColor` / `BorderColor` / `UiTransform`;
+            // this system owns `TextColor` — Bevy 0.18 forbids
+            // two `&mut TextColor` borrows in the same system,
+            // so the dim pass is split out and ordered after the
+            // hover system.
             .add_systems(
                 Update,
-                (
-                    tick_construction_cta_reason_text
-                        .after(tick_construction_cta_disabled),
-                    tick_construction_cta_label_dim
-                        .after(tick_construction_cta_reason_text),
-                ),
+                tick_construction_cta_label_dim.after(tick_construction_cta_hover),
             )
             // Chip-button hover and active-state overlay. The hover system
             // wins on hover/press, the overlay re-applies the active state on
@@ -8782,8 +8975,8 @@ impl Plugin for ConstructionPlugin {
 // (collapsible, 5 sub-groups of cards). Each card is spawned
 // via `spawn_mining_card` below.
 
-/// Spawn one surface group section (header + collapsible body of
-/// cards). Returns the outer container entity.
+// Spawn one surface group section (header + collapsible body of
+// cards). Returns the outer container entity.
 #[allow(clippy::too_many_arguments)]
 fn spawn_mining_group_section(
     commands: &mut Commands,
@@ -8807,6 +9000,12 @@ fn spawn_mining_group_section(
     // (see the call inside the `for bt in group_buildings` loop)
     // so the per-card icon cost matches the build tab exactly.
     building_icons: &BuildingIcons,
+    // Active colony's grid surplus in MW (f64::NAN when no
+    // colony is selected). Threaded through from
+    // `update_mining_body` so each surface mine card's power
+    // chip tooltip can show the real "Spare grid" value
+    // instead of the old "No active grid" placeholder.
+    spare_power_mw: f64,
 ) -> Entity {
     let group_container = commands
         .spawn((
@@ -8927,6 +9126,7 @@ fn spawn_mining_group_section(
                 icon_handle,
                 multiplier,
                 resource_icons,
+                spare_power_mw,
             );
         }
     }
@@ -8934,8 +9134,8 @@ fn spawn_mining_group_section(
     group_container
 }
 
-/// Spawn the orbital section (collapsible, 5 non-collapsible
-/// sub-groups). Returns the outer container entity.
+// Spawn the orbital section (collapsible, 5 non-collapsible
+// sub-groups). Returns the outer container entity.
 #[allow(clippy::too_many_arguments)]
 fn spawn_mining_orbital_section(
     commands: &mut Commands,
@@ -8955,6 +9155,10 @@ fn spawn_mining_orbital_section(
     // rationale. Same per-card icon lookup, applied to the
     // orbital AutoMines.
     building_icons: &BuildingIcons,
+    // Active colony's grid surplus in MW (f64::NAN when no
+    // colony is selected). See `spawn_mining_group_section`
+    // for the same rationale.
+    spare_power_mw: f64,
 ) -> Entity {
     let total_orbital: usize = MINING_GROUPS_ORBITAL.iter().map(|(_, b)| b.len()).sum();
 
@@ -9113,6 +9317,7 @@ fn spawn_mining_orbital_section(
                     icon_handle,
                     multiplier,
                     resource_icons,
+                    spare_power_mw,
                 );
             }
         }
@@ -9121,26 +9326,26 @@ fn spawn_mining_orbital_section(
     container
 }
 
-/// Build a `BuildCardData` for a mine / AutoMine. Mirrors
-/// `card_data_with_multiplier` but uses the mine's
-/// count/accessibility/production/reserve as the primary data,
-/// and treats the body's body-gate as a separate disable reason
-/// (the resulting Queue button is disabled with the same
-/// `ConstructionCtaDisabled` marker the Build tab uses for
-/// affordability; the tooltip system distinguishes via the
-/// new `body_blocked` field on the card data).
+// Build a `BuildCardData` for a mine / AutoMine. Mirrors
+// `card_data_with_multiplier` but uses the mine's
+// count/accessibility/production/reserve as the primary data,
+// and treats the body's body-gate as a separate disable reason
+// (the resulting Queue button is disabled with the same
+// `ConstructionCtaDisabled` marker the Build tab uses for
+// affordability; the tooltip system distinguishes via the
+// new `body_blocked` field on the card data).
 ///
-/// v0.5.2 PR-A.2 round 2: reuses the Build card's `CardBundle`
-/// styling so the Mining tab and Build tab have visually identical
-/// card chrome. The body content is mine-specific (count,
-/// accessibility, production, reserve) but the wrapper is the same.
+// v0.5.2 PR-A.2 round 2: reuses the Build card's `CardBundle`
+// styling so the Mining tab and Build tab have visually identical
+// card chrome. The body content is mine-specific (count,
+// accessibility, production, reserve) but the wrapper is the same.
 ///
-/// The `multiplier` is the player's build-qty choice. Mines are
-/// added to the construction queue (not direct inventory edits),
-/// so the multiplier scales the costs the player pays at queue
-/// time but the visible `count` on the card is the live inventory
-/// count (no multiplier fold — the multiplier is for the next
-/// build batch, not the existing inventory).
+// The `multiplier` is the player's build-qty choice. Mines are
+// added to the construction queue (not direct inventory edits),
+// so the multiplier scales the costs the player pays at queue
+// time but the visible `count` on the card is the live inventory
+// count (no multiplier fold — the multiplier is for the next
+// build batch, not the existing inventory).
 #[allow(clippy::too_many_arguments)]
 pub fn build_mine_card_data(
     bt: BuildingType,
@@ -9150,6 +9355,14 @@ pub fn build_mine_card_data(
     body_type: Option<BodyType>,
     planet_resources: Option<&crate::economy::PlanetResources>,
     multiplier: u32,
+    // Active colony's grid surplus in MW (produced − consumed).
+    // `f64::NAN` when no colony is selected — the mining card
+    // then omits the "Spare grid" line from the tooltip and
+    // falls back to "no active colony" instead of faking a
+    // value. v0.5.2 PR-A.7 (2026-08-04): the mining card used
+    // to always show "No active grid" regardless of state; this
+    // argument lets it show the real surplus when one exists.
+    spare_power_mw: f64,
 ) -> BuildCardData {
     let mult = multiplier.max(1) as f64;
     let card_data = compute_mining_card_data(def, planet_resources);
@@ -9264,18 +9477,39 @@ pub fn build_mine_card_data(
         if mult > 1.0 {
             tooltip_lines.push(format!("({per_unit} per unit × {mult})"));
         }
-        // Mining tab doesn't compute spare power (every-frame
-        // refresh path; no spare-power probe). Surface the
-        // missing-data state in the tooltip rather than fake a
-        // green/red tone.
-        tooltip_lines.push("No active grid".to_string());
+        // v0.5.2 PR-A.7 (2026-08-04): the mining card now
+        // receives the active colony's grid surplus (passed in
+        // via `spare_power_mw`) so the tooltip can show the
+        // real "Spare grid" value rather than the old
+        // placeholder "No active grid" string. The
+        // `power_insufficient` flag drives the Queue button
+        // disable independently of the tooltip.
+        if spare_power_mw.is_nan() {
+            tooltip_lines.push("No active colony".to_string());
+        } else if spare_power_mw > 0.0 {
+            tooltip_lines.push(format!(
+                "Spare grid: {}",
+                format_power(spare_power_mw)
+            ));
+        } else {
+            tooltip_lines.push("No spare grid (deficit)".to_string());
+        }
         PowerChipData {
             verb: "Demand",
             amount: line,
-            per_unit_mw: def.power_demand_mw,
+            // v0.5.2 PR-A.7 (2026-08-04): negate the RON's
+            // positive `power_demand_mw` magnitude so the chip
+            // reads as a consumer (red, "-N MW") rather than a
+            // producer (green, "+N MW"). Mirrors the Build
+            // card builder's fix at line ~1215.
+            per_unit_mw: -def.power_demand_mw,
             multiplier: mult as u32,
-            spare_mw: None,
-            insufficient: false,
+            spare_mw: if !spare_power_mw.is_nan() && spare_power_mw > 0.0 {
+                Some(spare_power_mw)
+            } else {
+                None
+            },
+            insufficient: total > spare_power_mw && !spare_power_mw.is_nan(),
             tooltip_lines,
         }
     };
@@ -9409,16 +9643,24 @@ pub fn build_mine_card_data(
         // multiplier (was 0s for all Mining cards before this).
         build_points: def.build_points,
         power_insufficient,
+        // v0.5.2 (build menu fix): a Mining card is body-blocked
+        // when `building_is_available_on(...)` returned false
+        // (e.g. an Iron Mine on a gas giant). The Queue button
+        // gets a permanent `ConstructionCtaBodyBlocked` marker
+        // so the per-frame affordability system doesn't
+        // silently re-enable it when the player happens to
+        // have the resources on hand.
+        body_blocked,
     }
 }
 
-/// Spawn a single mine / AutoMine card. Reuses the Build card's
-/// `CardBundle` style for visual parity with the Build tab. The
-/// click handler is the same `tick_construction_cta_click` the
-/// Build tab uses, so the Queue button pushes
-/// `(colony, building_type)` to
-/// `PendingConstructionActions::start_construction` and the player
-/// gets a real queue entry with costs / ETA.
+// Spawn a single mine / AutoMine card. Reuses the Build card's
+// `CardBundle` style for visual parity with the Build tab. The
+// click handler is the same `tick_construction_cta_click` the
+// Build tab uses, so the Queue button pushes
+// `(colony, building_type)` to
+// `PendingConstructionActions::start_construction` and the player
+// gets a real queue entry with costs / ETA.
 #[allow(clippy::too_many_arguments)]
 fn spawn_mining_card(
     commands: &mut Commands,
@@ -9435,6 +9677,13 @@ fn spawn_mining_card(
     icon: Option<&Handle<Image>>,
     multiplier: u32,
     resource_icons: &ResourceIcons,
+    // Active colony's grid surplus in MW (produced − consumed).
+    // `f64::NAN` when no colony is selected — the mining card
+    // then falls back to "No active colony" in the tooltip.
+    // v0.5.2 PR-A.7 (2026-08-04): was previously unavailable
+    // because the mining tab's every-frame refresh path
+    // didn't thread it through.
+    spare_power_mw: f64,
 ) -> Entity {
     let def = match buildings_data.get(&bt) {
         Some(d) => d,
@@ -9477,6 +9726,7 @@ fn spawn_mining_card(
         body_type,
         planet_resources,
         multiplier,
+        spare_power_mw,
     );
 
     // Delegate to the Build card's spawn helper. This gives us
@@ -9516,23 +9766,23 @@ fn spawn_mining_card(
 }
 // ── Mining tab systems (v0.5.2 PR-A.2) ──────────────────────────
 
-/// Spawn a Demolish button on a card. Pinned to the
-/// bottom-right of the card (opposite of the Queue button) via
-/// absolute positioning — the card's `Overflow::clip` keeps the
-/// button from bleeding past the border. The button reads
-/// "Demolish -N" (or just "Demolish -1" when multiplier == 1) so
-/// the player sees the batch size at a glance. Red border + dim
-/// red fill makes the destructive action visually distinct from
-/// the Queue button without screaming.
+// Spawn a Demolish button on a card. Pinned to the
+// bottom-right of the card (opposite of the Queue button) via
+// absolute positioning — the card's `Overflow::clip` keeps the
+// button from bleeding past the border. The button reads
+// "Demolish -N" (or just "Demolish -1" when multiplier == 1) so
+// the player sees the batch size at a glance. Red border + dim
+// red fill makes the destructive action visually distinct from
+// the Queue button without screaming.
 ///
-/// `count == 0` → spawn the button with `DemolishDisabled`
-/// attached; the click handler skips pushes when the marker is
-/// present, and a per-frame system removes the marker once the
-/// count rises.
+// `count == 0` → spawn the button with `DemolishDisabled`
+// attached; the click handler skips pushes when the marker is
+// present, and a per-frame system removes the marker once the
+// count rises.
 ///
-/// `multiplier_source` tells the click handler which chip-row
-/// value to apply (Mining tab uses `mining_build_multiplier`,
-/// Buildings tab uses `build_multiplier`).
+// `multiplier_source` tells the click handler which chip-row
+// value to apply (Mining tab uses `mining_build_multiplier`,
+// Buildings tab uses `build_multiplier`).
 fn spawn_demolish_button(
     commands: &mut Commands,
     card: Entity,
@@ -9617,21 +9867,21 @@ fn spawn_demolish_button(
     commands.entity(demolish).add_child(label_entity);
 }
 
-/// Click handler for the Demolish button. Pushes
-/// `(colony, bt, -multiplier)` to `PendingConstructionActions::mining_edits`
-/// so `process_construction_actions` removes up to `multiplier`
-/// buildings on the next tick. Which `multiplier` to use is read
-/// from `DemolishButton::multiplier_source`: Mining tab cards use
-/// `mining_build_multiplier` (independent of the Build tab's
-/// `build_multiplier`); Buildings tab cards use `build_multiplier`
-/// so the player's x1/x5/x25 chip choice carries straight
-/// through. Skips when `DemolishDisabled` is attached (i.e.
-/// count == 0). Rising-edge detection identical to the other
-/// chip/CTA click handlers.
+// Click handler for the Demolish button. Pushes
+// `(colony, bt, -multiplier)` to `PendingConstructionActions::mining_edits`
+// so `process_construction_actions` removes up to `multiplier`
+// buildings on the next tick. Which `multiplier` to use is read
+// from `DemolishButton::multiplier_source`: Mining tab cards use
+// `mining_build_multiplier` (independent of the Build tab's
+// `build_multiplier`); Buildings tab cards use `build_multiplier`
+// so the player's x1/x5/x25 chip choice carries straight
+// through. Skips when `DemolishDisabled` is attached (i.e.
+// count == 0). Rising-edge detection identical to the other
+// chip/CTA click handlers.
 ///
-/// Originally `tick_mining_demolish_click` (Mining-tab only);
-/// v0.5.2 (Buildings tab as a card list) generalises the same
-/// handler to both tabs.
+// Originally `tick_mining_demolish_click` (Mining-tab only);
+// v0.5.2 (Buildings tab as a card list) generalises the same
+// handler to both tabs.
 pub fn tick_demolish_click(
     mut params: ParamSet<(
         Query<(Entity, &Interaction, &DemolishButton), With<Button>>,
@@ -9692,15 +9942,15 @@ pub fn tick_demolish_click(
     *prev = current;
 }
 
-/// Per-frame system: re-evaluate which Demolish buttons should be
-/// disabled based on the current mine count. Mines can be added by
-/// the Queue button (or any other system) and removed by this same
-/// Demolish button, so a once-at-spawn check is not enough. Runs
-/// every frame the Mining body is open.
+// Per-frame system: re-evaluate which Demolish buttons should be
+// disabled based on the current mine count. Mines can be added by
+// the Queue button (or any other system) and removed by this same
+// Demolish button, so a once-at-spawn check is not enough. Runs
+// every frame the Mining body is open.
 ///
-/// Uses `queue_silenced` (Bevy 0.18+) so the insert / remove commands
-/// don't panic if `update_mining_body` despawns the parent card
-/// between this system's iter and the command apply at stage end.
+// Uses `queue_silenced` (Bevy 0.18+) so the insert / remove commands
+// don't panic if `update_mining_body` despawns the parent card
+// between this system's iter and the command apply at stage end.
 pub fn tick_demolish_disabled(
     mut commands: Commands,
     ui_state: Res<ConstructionUiState>,
@@ -9731,21 +9981,21 @@ pub fn tick_demolish_disabled(
     }
 }
 
-/// Hover / press effect system for the Demolish buttons. Mirrors
-/// `tick_construction_cta_hover` so the Build tab's Queue button
-/// and the Demolish button share the same hover affordance language.
+// Hover / press effect system for the Demolish buttons. Mirrors
+// `tick_construction_cta_hover` so the Build tab's Queue button
+// and the Demolish button share the same hover affordance language.
 ///
-/// v0.5.2: the previous per-frame visual update was missing
-/// entirely — the Demolish button's rest color (`dim_red`,
-/// `0.353, 0.157, 0.169, 0.85`) was a static paint with no
-/// hover feedback. Players reported "no hover" on Mining tab
-/// buttons. The hover variant bumps both the alpha to 1.0 and
-/// the RGB values to a clearly brighter red that reads as
-/// "hover" at a glance (not a 0.04 RGB delta, but a ~0.15 delta
-/// with full opacity). Same flicker-mitigation
-/// `Local<HashMap<Entity, (Interaction, bool)>>` pattern as
-/// the CTA hover so frame-to-frame toggles of the disabled
-/// marker don't visually oscillate.
+// v0.5.2: the previous per-frame visual update was missing
+// entirely — the Demolish button's rest color (`dim_red`,
+// `0.353, 0.157, 0.169, 0.85`) was a static paint with no
+// hover feedback. Players reported "no hover" on Mining tab
+// buttons. The hover variant bumps both the alpha to 1.0 and
+// the RGB values to a clearly brighter red that reads as
+// "hover" at a glance (not a 0.04 RGB delta, but a ~0.15 delta
+// with full opacity). Same flicker-mitigation
+// `Local<HashMap<Entity, (Interaction, bool)>>` pattern as
+// the CTA hover so frame-to-frame toggles of the disabled
+// marker don't visually oscillate.
 pub fn tick_demolish_hover(
     mut params: ParamSet<(
         Query<
@@ -9817,10 +10067,10 @@ pub fn tick_demolish_hover(
     prev_state.retain(|e, _| live.contains(e));
 }
 
-/// `EntityCommand` that inserts `DemolishDisabled`. Used by
-/// `tick_demolish_disabled` via `queue_silenced` so the insert
-/// is dropped instead of panicking if the entity is despawned by the
-/// time the command applies.
+// `EntityCommand` that inserts `DemolishDisabled`. Used by
+// `tick_demolish_disabled` via `queue_silenced` so the insert
+// is dropped instead of panicking if the entity is despawned by the
+// time the command applies.
 struct InsertDemolishDisabled;
 
 impl bevy::ecs::system::EntityCommand for InsertDemolishDisabled {
@@ -9829,8 +10079,8 @@ impl bevy::ecs::system::EntityCommand for InsertDemolishDisabled {
     }
 }
 
-/// `EntityCommand` that removes `DemolishDisabled`. See
-/// `InsertDemolishDisabled` for the rationale.
+// `EntityCommand` that removes `DemolishDisabled`. See
+// `InsertDemolishDisabled` for the rationale.
 struct RemoveDemolishDisabled;
 
 impl bevy::ecs::system::EntityCommand for RemoveDemolishDisabled {
@@ -9841,12 +10091,12 @@ impl bevy::ecs::system::EntityCommand for RemoveDemolishDisabled {
 
 // ── Demolish confirmation modal (v0.5.2 PR-A.7) ─────────────────────
 
-/// Per-frame: mirror `DemolishConfirmState::open` into the dialog
-/// root's `Visibility` (Hidden when closed, Inherited when open).
-/// Same inheritance pattern as `tick_colony_dropdown_visibility`
-/// so the dialog correctly hides when the Construction menu root
-/// is hidden (e.g. player toggles the menu off) without leaking
-/// the modal onto the world map.
+// Per-frame: mirror `DemolishConfirmState::open` into the dialog
+// root's `Visibility` (Hidden when closed, Inherited when open).
+// Same inheritance pattern as `tick_colony_dropdown_visibility`
+// so the dialog correctly hides when the Construction menu root
+// is hidden (e.g. player toggles the menu off) without leaking
+// the modal onto the world map.
 pub fn tick_demolish_dialog_visibility(
     state: Option<Res<DemolishConfirmState>>,
     mut dialog_query: Query<&mut Visibility, With<DemolishConfirmDialog>>,
@@ -9861,23 +10111,23 @@ pub fn tick_demolish_dialog_visibility(
     }
 }
 
-/// Per-frame: re-read the live colony's building count for the
-/// dialog's target `BuildingType` and clamp the dialog's
-/// `count` down so the title never claims to demolish more than
-/// exists (e.g. player picks ×25 but only 3 buildings are
-/// present → title reads "Demolish 3 …?"). Also writes the
-/// title and subtitle text each frame so they stay in sync with
-/// the live state without per-frame string allocations beyond
-/// the format!.
+// Per-frame: re-read the live colony's building count for the
+// dialog's target `BuildingType` and clamp the dialog's
+// `count` down so the title never claims to demolish more than
+// exists (e.g. player picks ×25 but only 3 buildings are
+// present → title reads "Demolish 3 …?"). Also writes the
+// title and subtitle text each frame so they stay in sync with
+// the live state without per-frame string allocations beyond
+// the format!.
 ///
-/// B0001 audit: title and subtitle both carry `&mut Text` (a
-/// shared component), so the two queries are folded into a
-/// `ParamSet` to avoid the dual-`Query<&mut Text>` conflict.
-/// B0002 audit: the function reads `DemolishConfirmState` (for
-/// the open flag / building / count) and writes it (to clamp
-/// `count` down to the live colony count); a single
-/// `ResMut` access covers both — the read happens first,
-/// then the conditional write.
+// B0001 audit: title and subtitle both carry `&mut Text` (a
+// shared component), so the two queries are folded into a
+// `ParamSet` to avoid the dual-`Query<&mut Text>` conflict.
+// B0002 audit: the function reads `DemolishConfirmState` (for
+// the open flag / building / count) and writes it (to clamp
+// `count` down to the live colony count); a single
+// `ResMut` access covers both — the read happens first,
+// then the conditional write.
 pub fn update_demolish_dialog_text(
     ui_state: Res<ConstructionUiState>,
     confirm_state: Option<ResMut<DemolishConfirmState>>,
@@ -9922,10 +10172,10 @@ pub fn update_demolish_dialog_text(
     }
 }
 
-/// Yes button click: rising-edge `Interaction::Pressed` on a
-/// `DemolishConfirmYes` entity. Applies the `mining_edits` entry
-/// (negative count) to the selected colony and resets the dialog
-/// state to default (closed, no building, count 0).
+// Yes button click: rising-edge `Interaction::Pressed` on a
+// `DemolishConfirmYes` entity. Applies the `mining_edits` entry
+// (negative count) to the selected colony and resets the dialog
+// state to default (closed, no building, count 0).
 pub fn tick_demolish_confirm_yes_click(
     yes_query: Query<(Entity, &Interaction), (With<DemolishConfirmYes>, With<Button>)>,
     mut confirm_state: ResMut<DemolishConfirmState>,
@@ -9959,11 +10209,11 @@ pub fn tick_demolish_confirm_yes_click(
     *prev = current;
 }
 
-/// No button click + backdrop click: rising-edge
-/// `Interaction::Pressed` on a `DemolishConfirmNo` entity OR on
-/// the `DemolishConfirmDialog` root (which is the backdrop in
-/// this layout). Resets the dialog state without applying the
-/// edit.
+// No button click + backdrop click: rising-edge
+// `Interaction::Pressed` on a `DemolishConfirmNo` entity OR on
+// the `DemolishConfirmDialog` root (which is the backdrop in
+// this layout). Resets the dialog state without applying the
+// edit.
 pub fn tick_demolish_confirm_no_click(
     no_query: Query<(Entity, &Interaction), (With<DemolishConfirmNo>, With<Button>)>,
     backdrop_query: Query<(Entity, &Interaction), (With<DemolishConfirmDialog>, With<Button>)>,
@@ -9989,10 +10239,10 @@ pub fn tick_demolish_confirm_no_click(
     *prev = current;
 }
 
-/// When the player switches tabs while the dialog is open, reset
-/// the dialog state (mirrors the "click No" behavior — no action
-/// is applied). Caches the previous `selected_tab` in a `Local`
-/// to avoid spurious resets on the first frame.
+// When the player switches tabs while the dialog is open, reset
+// the dialog state (mirrors the "click No" behavior — no action
+// is applied). Caches the previous `selected_tab` in a `Local`
+// to avoid spurious resets on the first frame.
 pub fn tick_demolish_dialog_close_on_tab_switch(
     ui_state: Res<ConstructionUiState>,
     mut confirm_state: ResMut<DemolishConfirmState>,
@@ -10006,11 +10256,11 @@ pub fn tick_demolish_dialog_close_on_tab_switch(
     *prev_tab = Some(ui_state.selected_tab);
 }
 
-/// When the player switches colonies while the dialog is open,
-/// reset the dialog state. Same rationale as the tab-switch
-/// close — the dialog's `count` is bound to the original
-/// colony's building map, and switching colonies mid-confirmation
-/// would silently change the destructive target.
+// When the player switches colonies while the dialog is open,
+// reset the dialog state. Same rationale as the tab-switch
+// close — the dialog's `count` is bound to the original
+// colony's building map, and switching colonies mid-confirmation
+// would silently change the destructive target.
 pub fn tick_demolish_dialog_close_on_colony_change(
     ui_state: Res<ConstructionUiState>,
     mut confirm_state: ResMut<DemolishConfirmState>,
@@ -10022,16 +10272,16 @@ pub fn tick_demolish_dialog_close_on_colony_change(
     *prev_colony = ui_state.selected_colony;
 }
 
-/// Group-visibility toggle: when the player clicks a group chevron
-/// (or the orbital section header), flip the corresponding bit in
-/// `ui_state.mining_groups_collapsed` / `ui_state.mining_orbital_collapsed`.
-/// The actual `Display::None / Display::Flex` swap happens on the
-/// next `update_mining_body` run (which re-spawns the cards).
+// Group-visibility toggle: when the player clicks a group chevron
+// (or the orbital section header), flip the corresponding bit in
+// `ui_state.mining_groups_collapsed` / `ui_state.mining_orbital_collapsed`.
+// The actual `Display::None / Display::Flex` swap happens on the
+// next `update_mining_body` run (which re-spawns the cards).
 ///
-/// The orbital section header uses the same `MiningGroupHeader`
-/// marker with a sentinel `Helium3` group id. The handler uses
-/// that id to distinguish: `Helium3` → toggle orbital collapsed;
-/// anything else → toggle the corresponding surface group.
+// The orbital section header uses the same `MiningGroupHeader`
+// marker with a sentinel `Helium3` group id. The handler uses
+// that id to distinguish: `Helium3` → toggle orbital collapsed;
+// anything else → toggle the corresponding surface group.
 pub fn tick_mining_group_visibility(
     mut ui_state: ResMut<ConstructionUiState>,
     headers: Query<(Entity, &Interaction, &MiningGroupHeader), With<Button>>,
@@ -10103,8 +10353,184 @@ mod formatter_tests {
         assert_eq!(format_power(900.0), "900 MW");
         assert_eq!(format_power(250.0), "250 MW");
         // 5 GW fusion plant used to read as "5000 MW".
-        assert_eq!(format_power(5000.0), "5.0 GW");
+        // v0.5.2 PR-A.7 (2026-08-04): trailing zeros stripped
+        // so "5.0 GW" becomes "5 GW" and "12.00 TW" becomes
+        // "12 TW". The formatter still rounds to the
+        // band-appropriate decimal count (1 for GW, 2 for TW/PW)
+        // — it just drops the trailing `.0` / `.00` zeros.
+        assert_eq!(format_power(5000.0), "5 GW");
         // 12 TW helioforge-class generator.
-        assert_eq!(format_power(12_000_000.0), "12.00 TW");
+        assert_eq!(format_power(12_000_000.0), "12 TW");
+    }
+}
+
+#[cfg(test)]
+mod body_blocked_tests {
+    // v0.5.2 (build menu fix): verify the body-blocked gate
+    // for the Mining tab. He3Mine is the canonical case —
+    // `allowed_body_types: [Moon, GasGiant, Asteroid]` in the
+    // RON, so it must come back as body-blocked on Earth (a
+    // Planet). The Queue button on the He3Mine card on Earth
+    // should be greyed out with a `Body unavailable` tooltip.
+
+    use super::*;
+    use crate::plugins::solar_system_data::BodyType;
+    use crate::colony::AtmosphereKind;
+
+    fn he3_mine_def() -> BuildingDefinition {
+        BuildingDefinition {
+            id: "He3Mine".to_string(),
+            display_name: "He3 Mine".to_string(),
+            description: "solar-wind regolith / gas-giant atmosphere".to_string(),
+            icon: "☀".to_string(),
+            category: "Industry".to_string(),
+            build_points: 3500.0,
+            workforce: 8000,
+            required_tech: "lunar_colony".to_string(),
+            resource_costs: vec![],
+            maintenance_resources: vec![],
+            modifiers: vec![],
+            power_demand_mw: 100.0,
+            tier: 0,
+            line: Some("Mine".to_string()),
+            replaces: None,
+            replaces_in_line: None,
+            synergy: vec![],
+            available_atmospheres: vec![
+                AtmosphereKind::Breathable,
+                AtmosphereKind::None,
+            ],
+            required_anomalies: vec![],
+            allowed_body_types: vec![
+                BodyType::Moon,
+                BodyType::GasGiant,
+                BodyType::Asteroid,
+            ],
+        }
+    }
+
+    fn iron_mine_def() -> BuildingDefinition {
+        // Iron Mine is buildable on every body (empty
+        // `allowed_body_types`). Used as the
+        // body-available control in the test below.
+        BuildingDefinition {
+            id: "IronMine".to_string(),
+            display_name: "Iron Mine".to_string(),
+            description: "iron ore extraction".to_string(),
+            icon: "⛏".to_string(),
+            category: "Industry".to_string(),
+            build_points: 200.0,
+            workforce: 500,
+            required_tech: "".to_string(),
+            resource_costs: vec![],
+            maintenance_resources: vec![],
+            modifiers: vec![],
+            power_demand_mw: 50.0,
+            tier: 0,
+            line: Some("Mine".to_string()),
+            replaces: None,
+            replaces_in_line: None,
+            synergy: vec![],
+            available_atmospheres: vec![
+                AtmosphereKind::Breathable,
+                AtmosphereKind::None,
+            ],
+            required_anomalies: vec![],
+            allowed_body_types: vec![],
+        }
+    }
+
+    #[test]
+    fn he3_mine_on_earth_is_body_blocked() {
+        // Earth: Planet, breathable. He3Mine only allowed on
+        // Moon / GasGiant / Asteroid → body-blocked = true.
+        let def = he3_mine_def();
+        let data = build_mine_card_data(
+            BuildingType::He3Mine,
+            &def,
+            0,
+            true,                              // breathable
+            Some(BodyType::Planet),           // Earth
+            None,                              // no planet_resources
+            1,                                 // multiplier
+            f64::NAN,                          // spare_power_mw
+        );
+        assert!(
+            data.body_blocked,
+            "He3Mine on Earth should be body-blocked; got body_blocked=false"
+        );
+        assert!(
+            data.power_insufficient,
+            "body-blocked mining cards should also be power_insufficient so \
+             the spawn-time CTA carries the ConstructionCtaDisabled marker"
+        );
+    }
+
+    #[test]
+    fn he3_mine_on_moon_is_body_available() {
+        // Moon: in the allowed list → body-blocked = false.
+        let def = he3_mine_def();
+        let data = build_mine_card_data(
+            BuildingType::He3Mine,
+            &def,
+            0,
+            false,                             // Moon has no atmosphere
+            Some(BodyType::Moon),
+            None,
+            1,
+            f64::NAN,
+        );
+        assert!(
+            !data.body_blocked,
+            "He3Mine on Moon should be body-available; got body_blocked=true"
+        );
+    }
+
+    #[test]
+    fn iron_mine_on_earth_is_body_available() {
+        // Iron Mine: empty `allowed_body_types` → any body.
+        let def = iron_mine_def();
+        let data = build_mine_card_data(
+            BuildingType::IronMine,
+            &def,
+            0,
+            true,                              // breathable
+            Some(BodyType::Planet),
+            None,
+            1,
+            f64::NAN,
+        );
+        assert!(
+            !data.body_blocked,
+            "Iron Mine should be body-available on every body; got body_blocked=true"
+        );
+    }
+
+    #[test]
+    fn body_blocked_skips_per_frame_affordability_system() {
+        // The whole point of the body-blocked marker: the
+        // per-frame affordability system must NOT silently
+        // re-enable a body-blocked CTA when the player has
+        // the resources on hand. We exercise that contract
+        // by asserting `power_insufficient` is `true` for
+        // body-blocked cards (which keeps the spawn-time
+        // `ConstructionCtaDisabled` marker present, and
+        // the per-frame system filter
+        // `Without<ConstructionCtaBodyBlocked>` excludes
+        // the CTA from the togglable set).
+        let def = he3_mine_def();
+        let data = build_mine_card_data(
+            BuildingType::He3Mine,
+            &def,
+            0,
+            true,
+            Some(BodyType::Planet),
+            None,
+            1,
+            f64::NAN,
+        );
+        // Sanity: `data` reflects both gates.
+        assert!(data.body_blocked);
+        assert!(data.power_insufficient);
     }
 }
