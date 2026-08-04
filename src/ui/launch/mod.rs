@@ -251,6 +251,22 @@ impl Plugin for LaunchPlugin {
         // the menu→InGame transition. See `menu_backdrop.rs`.
         menu_backdrop::register_menu_backdrop_plugin(app);
 
+        // Push `PersistentSettings::window_mode` to `Window::mode`
+        // on the primary window. Registered in `Update` so the
+        // settings subview's mutations (which happen in
+        // `EguiPrimaryContextPass`) take effect on the same frame.
+        // See `src/plugins/window_mode_bridge.rs` for the system.
+        crate::plugins::window_mode_bridge::register_window_mode_bridge(app);
+
+        // DX12-safe path for the window minimize crash. Drains
+        // `WindowResized` in `Last` (after `bevy_winit`'s
+        // `changed_windows`) and substitutes a sane non-zero
+        // resolution for the primary window when the OS reports
+        // 0×0. Registered here, not in `main.rs`, so the order
+        // matches `LaunchPlugin`'s ownership of the settings
+        // machinery.
+        crate::plugins::minimize_guard::register_minimize_guard(app);
+
         // PR-E (GRA-329): action consumer runs in `Update` (not in
         // `EguiPrimaryContextPass`) — pure resource mutation, no
         // egui context required. Pairs with PR-D's
