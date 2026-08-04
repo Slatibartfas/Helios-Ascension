@@ -770,6 +770,32 @@ pub fn promote_pending_world(world: &mut World) {
     // insert it so the player gets a working main menu; the
     // boot_init chain is idempotent and the toast above surfaces
     // the corruption.
+    //
+    // ── Tier 3 hook (planned, not yet implemented) ────────────────
+    // Async offload of the heaviest boot-init steps
+    // (`setup_solar_system`, `populate_nearby_systems`) should be
+    // triggered HERE — the moment the player commits to New Game /
+    // Continue / Load Save. Never at plain app launch, because the
+    // async parse must wait for a kickoff decision (GRA-358 PR-B).
+    //
+    // Concrete plan:
+    //   1. After `world.insert_resource(WorldReady)`, call
+    //      `AsyncComputeTaskPool::get().spawn(...)` for the two
+    //      heaviest steps' parsing work (the RON file reads +
+    //      entity spawn loops).
+    //   2. Hand the resulting task handles to the boot-init chain
+    //      via a `BootAsyncTasks` resource; the chain awaits the
+    //      handles on the relevant frame instead of running the
+    //      blocking body inline.
+    //   3. The splash's "Loading… N/total" counter (added in
+    //      Tier 2) ticks the same way — players still see
+    //      progress, but the egui pass paints *while* the heavy
+    //      parse runs on a worker thread instead of being blocked
+    //      by it.
+    //
+    // This file is the right anchor because it's the single
+    // chokepoint where a player kickoff decision lands; the same
+    // function handles all three (New Game, Continue, Load Save).
     if !world.contains_resource::<super::swap::WorldReady>() {
         world.insert_resource(super::swap::WorldReady);
     }

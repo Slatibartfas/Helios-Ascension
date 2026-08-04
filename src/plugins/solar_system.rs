@@ -622,6 +622,13 @@ pub fn setup_solar_system(
     mut ring_alpha_queue: ResMut<RingAlphaCombineQueue>,
     sim_time: Res<crate::ui::SimulationTime>,
     solar_system_marker: Option<Res<SolarSystemSpawned>>,
+    // Tier 3: if `boot_init::start_pre_parse` already drained
+    // the RON parse onto the async pool, the parsed value lives
+    // here and we skip the synchronous file read + RON decode.
+    // The chain's step 0 lands here on a typical New Game click
+    // (5+ s after splash dismiss), so the 150 ms parse is hidden
+    // behind the player's menu time.
+    boot_pre_parse: Res<crate::boot_init::BootPreParseState>,
 ) {
     if solar_system_marker.is_some() {
         // Idempotency: do not re-spawn. The marker must be removed
@@ -633,17 +640,34 @@ pub fn setup_solar_system(
     // Queue to collect normal/specular handles that must be treated as linear textures
     let mut linear_handle_queue: Vec<Handle<Image>> = Vec::new();
 
-    // Load solar system data
-    let mut data = match SolarSystemData::load_from_file("assets/data/solar_system.ron") {
-        Ok(data) => data,
-        Err(e) => {
-            error!("Failed to load solar system data: {}", e);
-            // Mark spawned even on load failure to prevent
-            // boot-init from retrying every tick and spamming the
-            // log. Matches the `AsteroidRegistryLoaded` failure
-            // pattern.
-            commands.init_resource::<SolarSystemSpawned>();
-            return;
+    // Load solar system data — Tier 3 fast path first, sync parse
+    // as fallback. The fast path clones the pre-parsed value
+    // (SolarSystemData is `Clone`), the fallback path is the
+    // original synchronous file read + RON decode.
+    let mut data = if let Some(cached) = boot_pre_parse.solar_data.as_ref() {
+        info!(
+            "setup_solar_system: using Tier 3 pre-parsed data ({} bodies cached)",
+            cached.bodies.len()
+        );
+        cached.clone()
+    } else {
+        match SolarSystemData::load_from_file("assets/data/solar_system.ron") {
+            Ok(data) => {
+                info!(
+                    "setup_solar_system: pre-parse not ready, fell back to sync parse ({} bodies)",
+                    data.bodies.len()
+                );
+                data
+            }
+            Err(e) => {
+                error!("Failed to load solar system data: {}", e);
+                // Mark spawned even on load failure to prevent
+                // boot-init from retrying every tick and spamming the
+                // log. Matches the `AsteroidRegistryLoaded` failure
+                // pattern.
+                commands.init_resource::<SolarSystemSpawned>();
+                return;
+            }
         }
     };
 

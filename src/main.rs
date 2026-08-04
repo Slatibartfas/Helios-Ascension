@@ -99,10 +99,15 @@ fn build_game_app() -> App {
                     },
                     ..default()
                 }),
-                // The dismissed splash window remains hidden until shutdown so
-                // Windows can deliver its final native events while Bevy still
-                // owns the WindowId mapping. Closing the primary window should
-                // therefore end the app even though that hidden window exists.
+                // The splash window stays alive (hidden) until app
+                // exit so Bevy's WindowPlugin can retain its
+                // window→entity mapping without orphaning
+                // `SplashWindowEntity`. Closing the primary window
+                // therefore ends the app even though that hidden
+                // window exists. See `cleanup_dismissed_splash` in
+                // `src/ui/launch/splash.rs` for the live-surface
+                // mitigation that drops the splash's
+                // `RawHandleWrapper` on dismissal.
                 exit_condition: ExitCondition::OnPrimaryClosed,
                 ..default()
             })

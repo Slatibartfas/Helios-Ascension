@@ -5,10 +5,38 @@
 //! The splash lives in its own OS-level **Window** entity that the
 //! Bevy `WindowPlugin` spawns at Startup. The main game window also
 //! exists from the start but has `visible: false`; on splash
-//! dismissal the splash window hides and the main window shows.
-//! Both windows share a single Bevy `app.run()` because winit 0.30
-//! forbids creating a second `EventLoop` after the first exits
-//! (`RecreationAttempt` panic at `bevy_winit-0.18/src/lib.rs:128`).
+//! dismissal the splash window is hidden and the main window is
+//! shown. Both windows share a single Bevy `app.run()` because
+//! winit 0.30 forbids creating a second `EventLoop` after the
+//! first exits (`RecreationAttempt` panic at
+//! `bevy_winit-0.18/src/lib.rs:128`).
+//!
+//! ## Why the splash window stays alive after dismissal
+//!
+//! Bevy 0.18's `bevy_winit` integration (`state.rs:229-239`)
+//! warn-and-skips unknown WindowIds rather than panicking, so the
+//! historical "winit delivers late events after Bevy drops its
+//! WindowId mapping" concern is no longer applicable. We still
+//! keep the splash window entity alive (hidden) because:
+//!
+//! - `WindowPlugin`'s window→entity table maps `WindowId → Entity`
+//!   at startup. Despawning the splash window orphans the
+//!   resource-side `SplashWindowEntity` and floods Bevy with
+//!   `Entity despawned` warnings on every subsequent frame.
+//! - `bevy_egui`'s input system processes events for all known
+//!   windows; despawning the splash camera's egui context too
+//!   aggressively breaks that integration (we learned this the
+//!   hard way — see git history).
+//!
+//! The crash-investigation report hypothesized that the hidden
+//! splash's live DX12 surface feeds `prepare_windows` and could
+//! panic at `Couldn't get swap chain texture`. The minimal
+//! mitigation (Option 2 in the report) is to drop the wgpu
+//! surface by removing `RawHandleWrapper` from the window entity
+//! on dismissal — `extract_windows` requires that component, so
+//! the splash drops out of the render path entirely while the
+//! native HWND stays alive exactly as the original design
+//! intended. See [`cleanup_dismissed_splash`].
 //!
 //! Bevy_egui multi-window setup follows the project's `two_windows`
 //! pattern:
@@ -28,10 +56,10 @@
 //!
 //! Dismissal: the splash render system hides the splash window +
 //! shows the main window. The system self-gates on splash-window
-//! visibility, so once dismissed it stops rendering. The hidden native
-//! window stays alive until application exit: removing a secondary
-//! window at runtime causes winit on Windows to deliver final focus and
-//! destruction events after Bevy has removed its WindowId mapping.
+//! visibility, so once dismissed it stops rendering. The
+//! `cleanup_dismissed_splash` system (Last) despawns the splash
+//! camera and drops the splash window's `RawHandleWrapper` one
+//! frame later so bevy_egui can release its context borrows.
 
 use bevy::camera::RenderTarget;
 use bevy::ecs::schedule::ScheduleLabel;
@@ -184,14 +212,62 @@ impl Plugin for SplashPlugin {
 }
 
 /// Despawn the splash camera after the egui pass loop has finished for
-/// the dismissal frame. The hidden splash window remains alive until the
-/// application exits so winit can retain its native WindowId mapping.
+/// the dismissal frame. The hidden splash window stays alive until
+/// app exit (its `visible: false` keeps it off-screen).
+///
+/// ## Why we don't despawn the splash window entity
+///
+/// Despawning it would orphan the `SplashWindowEntity` resource
+/// (which still holds the stale `Entity` ID) and break
+/// `bevy_egui::input`'s window→context mapping — Bevy 0.18's egui
+/// integration warns-and-skips unknown winit windows, but the
+/// `Entity` reference in `WindowPlugin`'s window-to-entity table
+/// goes stale and triggers `Entity despawned` warnings every
+/// frame. The hidden-but-alive approach is correct for Bevy 0.18.
+///
+/// ## The live DX12 surface concern
+///
+/// The crash-investigation report theorized that the hidden splash
+/// window kept a live DX12 surface in `prepare_windows` (no
+/// visibility filter in `extract_windows`). The minimal mitigation
+/// here is to drop the surface as soon as the splash dismisses by
+/// removing [`bevy::render::render_resource::RawHandleWrapper`]
+/// from the window entity. `extract_windows` requires that
+/// component, so the splash drops out of the render path entirely
+/// while the native HWND stays alive exactly as the original
+/// design intended.
 fn cleanup_dismissed_splash(
     mut commands: Commands,
     cleanup_pending: Query<Entity, With<SplashCleanupPending>>,
+    splash_window: Option<Res<SplashWindowEntity>>,
 ) {
+    // Only do work when there's actually a pending cleanup. The
+    // marker is only inserted by `dismiss_splash` (max_s timeout,
+    // early input, force-skip, or boot complete) — i.e. after the
+    // splash has been hidden. Running the wgpu-surface teardown
+    // on every frame would strip `RawHandleWrapper` from a
+    // still-rendering splash and turn the splash white.
+    if cleanup_pending.is_empty() {
+        return;
+    }
     for entity in &cleanup_pending {
         commands.entity(entity).despawn();
+    }
+    // Drop the wgpu surface (the crash-investigation report's
+    // hypothesized live-surface defect) without despawning the
+    // window itself. Bevy 0.18's `despawn_windows` would also
+    // clean this up if we did despawn, but despawning here
+    // regresses the bevy_egui integration (see fn doc).
+    //
+    // `RawHandleWrapper` lives in `bevy_window`, not `bevy_render`
+    // — it's the component `extract_windows` requires, so removing
+    // it takes the splash out of the render path entirely while
+    // the native HWND stays alive exactly as the original design
+    // intended.
+    if let Some(window) = splash_window {
+        commands
+            .entity(window.0)
+            .remove::<bevy::window::RawHandleWrapper>();
     }
 }
 
@@ -348,6 +424,7 @@ pub fn ui_splash_system(
     splash_logo_image: Option<Res<SplashLogoImage>>,
     manifest: Res<LaunchUiManifest>,
     boot_state: Res<crate::boot_init::BootState>,
+    boot_progress: Option<Res<crate::boot_init::BootProgress>>,
     keyboard_input: Res<ButtonInput<KeyCode>>,
     real_time: Res<Time<Real>>,
     mut splash_timer: ResMut<SplashTimer>,
@@ -422,6 +499,23 @@ pub fn ui_splash_system(
 
     let still_loading = *boot_state == crate::boot_init::BootState::Loading;
 
+    // Build the progress label. `BootProgress` is optional because
+    // the splash egui system runs during `SplashContextPass`, which
+    // the bevy_egui multi-pass schedule drives once the splash
+    // camera's egui context is initialized — typically frame 1 or
+    // 2. If the resource isn't yet present (very early frames, or a
+    // plugin-build that hasn't inserted it yet) fall back to the
+    // bare "Loading…" label so the player always sees feedback.
+    //
+    // `min(step + 1, total)` instead of `step` so the closing frame
+    // shows `15/15` instead of `14/15` — `mark_boot_ready` flips
+    // `done = true` but the splash may have already painted with
+    // `step == 14` before the flip lands.
+    let progress_label = boot_progress.as_ref().map(|p| {
+        let shown = (p.step as u32).saturating_add(1).min(p.total);
+        format!("Loading… {shown}/{}", p.total)
+    });
+
     // CRITICAL: `Frame::NONE` (NOT `Frame::default()`) — a default
     // frame paints an opaque dark background, which would cover the
     // splash artwork. The logo image paints only where its pixels
@@ -440,10 +534,11 @@ pub fn ui_splash_system(
             }
             if still_loading {
                 let rect = ui.max_rect();
+                let label = progress_label.as_deref().unwrap_or("Loading…");
                 ui.painter().text(
                     egui::pos2(rect.center().x, rect.max.y - 28.0),
                     egui::Align2::CENTER_CENTER,
-                    "Loading…",
+                    label,
                     egui::FontId::proportional(18.0),
                     crate::ui::theme::ACCENT,
                 );
@@ -455,11 +550,13 @@ pub fn ui_splash_system(
 /// calling twice doesn't double-flip visibility (both transitions
 /// are no-ops on the second call).
 ///
-/// The splash camera despawn is **deferred** to the `Last` schedule via
-/// [`SplashCleanupPending`]. Despawning it during the egui pass can
-/// invalidate bevy_egui's held context references. The hidden splash
-/// window remains alive until application exit to avoid late native-window
-/// events arriving after Bevy has discarded its WindowId mapping.
+/// The splash camera despawn is **deferred** to the `Last` schedule
+/// via [`SplashCleanupPending`]. Despawning the camera during the
+/// egui pass can invalidate bevy_egui's held context references.
+/// The splash window itself stays alive (hidden); the
+/// `RawHandleWrapper` is dropped on the same deferred frame so the
+/// wgpu surface tears down and the splash drops out of the render
+/// path without orphaning `SplashWindowEntity`.
 fn dismiss_splash(
     mut commands: Commands,
     splash_window: &mut Query<&mut Window, With<SplashWindow>>,
