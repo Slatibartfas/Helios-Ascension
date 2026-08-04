@@ -1887,22 +1887,42 @@ pub(super) fn ui_resources_bar(
                     ui.separator();
 
                     // Power grid status
-                    // Color code power: Green if surplus, Red if deficit
+                    // v0.5.2 PR-A.7 (2026-08-04): three-band text
+                    // colour ladder keyed off the current grid
+                    // surplus (`net_power`, produced − consumed, in
+                    // MW):
+                    //   * ≤ 0 MW  → red    (deficit or zero — grid
+                    //                      can't cover demand)
+                    //   * 0–50 GW → yellow (low/medium surplus —
+                    //                      comfortable but not
+                    //                      abundant)
+                    //   * > 50 GW → green  (abundant surplus)
+                    // The icon itself stays `theme::GOLD` (the egui
+                    // twin of `bevy_theme::YELLOW_ENERGY`) so the
+                    // power chip reads as a distinct third category
+                    // — the gold icon is the "this is power" marker,
+                    // the text colour carries the surplus signal.
+                    // 50 GW = 50_000 MW (matches the `format_power`
+                    // SI ladder's MW→GW band at 1000×).
                     let net_power = budget.net_power();
-                    let power_color = if net_power >= 0.0 {
-                        theme::GREEN
-                    } else {
+                    const POWER_SURPLUS_YELLOW_MAX_MW: f64 = 50_000.0;
+                    let power_text_color = if net_power <= 0.0 {
                         theme::RED
+                    } else if net_power <= POWER_SURPLUS_YELLOW_MAX_MW {
+                        theme::STATUS_WARN
+                    } else {
+                        theme::GREEN
                     };
 
                     let is_power_open = open_popup.open.as_ref().is_some_and(|(n, _)| n == "Power");
 
                     // Power generation display (clickable with tooltip)
                     // v0.5.2+: dedicated bolt-in-hex PNG (`energy.png`)
-                    // replaces the legacy ⚡ emoji glyph. Same
-                    // green/red tinting as before; 16-px icon size
-                    // to sit visually next to the 14-pt bold power
-                    // number.
+                    // replaces the legacy ⚡ emoji glyph. Icon is
+                    // always tinted gold (the energy-chrome constant);
+                    // text colour carries the three-band surplus
+                    // signal. 16-px icon size to sit visually next to
+                    // the 14-pt bold power number.
                     let response = egui::Frame::NONE
                         .inner_margin(egui::Margin::symmetric(1, 2))
                         .show(ui, |ui| {
@@ -1912,7 +1932,7 @@ pub(super) fn ui_resources_bar(
                                 render_energy_icon(
                                     ui,
                                     &ui_runtime.resource_icons,
-                                    power_color,
+                                    theme::GOLD,
                                     16.0,
                                 );
                                 ui.add(
@@ -1922,7 +1942,7 @@ pub(super) fn ui_resources_bar(
                                         ))
                                         .size(14.0)
                                         .strong()
-                                        .color(power_color),
+                                        .color(power_text_color),
                                     )
                                     .selectable(false),
                                 );
@@ -1936,7 +1956,7 @@ pub(super) fn ui_resources_bar(
                         ui.painter().rect_stroke(
                             interact.rect,
                             2.0,
-                            egui::Stroke::new(1.0_f32, power_color),
+                            egui::Stroke::new(1.0_f32, power_text_color),
                             egui::StrokeKind::Outside,
                         );
                         interact
