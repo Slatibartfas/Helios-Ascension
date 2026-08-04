@@ -30,6 +30,7 @@
 use std::collections::HashMap;
 
 use bevy::prelude::*;
+use bevy::render::render_resource::Extent3d;
 use bevy_egui::egui;
 
 use crate::economy::ResourceType;
@@ -76,6 +77,37 @@ pub struct ResourceIcons {
     /// below. Missing entries fall back to a small tinted
     /// square, the same fallback as resource icons.
     pub category_handles: HashMap<String, egui::TextureHandle>,
+    /// egui `TextureHandle` for the dedicated energy icon
+    /// (`assets/textures/ui/resources/energy.png`). Energy is not
+    /// a `ResourceType` (it's a power-balance concept, not a
+    /// stockpile), so it gets its own slot instead of living in
+    /// `handles`. Tinted at the call site: green for surplus,
+    /// red for deficit on the top resource bar's power chip;
+    /// cyan by default on the forecast popup and build cards.
+    /// `None` until `load_resource_icons` decodes the PNG; the
+    /// render side falls back to a tinted square in that case.
+    pub energy_handle: Option<egui::TextureHandle>,
+    /// Bevy `Handle<Image>` for the energy icon, consumed by the
+    /// bevy_ui canary (Build/Mining card energy demand + production
+    /// rows). Same post-processing as the per-resource bevy handles.
+    pub energy_bevy_handle: Option<Handle<Image>>,
+    /// Set to `true` while the bevy_ui energy icon is waiting on
+    /// the asset server to finish decoding. Cleared once
+    /// `Assets<Image>::get_mut` returns the buffer and the
+    /// post-processor runs.
+    pub energy_bevy_pending: bool,
+    /// Edge length (px) the egui textures in `handles`,
+    /// `category_handles` and `energy_handle` were baked at. Icons are
+    /// resampled to roughly their display size at load time (see
+    /// `downscale_icon_rgba`), so a DPI change makes the cached
+    /// textures the wrong resolution. `load_resource_icons` drops the
+    /// egui caches and rebakes when the computed size changes.
+    ///
+    /// Keyed on the *texture size* rather than `pixels_per_point`
+    /// directly: the size is a clamped integer, so a jittering scale
+    /// factor can't thrash 48 PNG decodes every frame. `0` on startup,
+    /// which never matches a real size, so the first frame always bakes.
+    pub texture_size: u32,
 }
 
 /// Canonical on-disk basename for each category-badge PNG in
@@ -133,11 +165,21 @@ pub fn load_resource_icons_bevy_ui(mut commands: Commands, asset_server: Res<Ass
         pending.insert(resource);
         handles.insert(resource, handle);
     }
+    // Energy is not a ResourceType (it's a power concept), so it
+    // lives in its own slot. Load it through the asset server so
+    // the bevy_ui canary (Build / Mining cards) can tint the
+    // `ImageNode` per-row (red for demand, green for production).
+    let energy_bevy_handle: Handle<Image> =
+        asset_server.load("textures/ui/resources/energy.png");
     commands.insert_resource(ResourceIcons {
         handles: HashMap::new(), // egui path remains untouched
         bevy_handles: handles,
         bevy_pending: pending,
         category_handles: HashMap::new(), // populated by load_resource_icons (egui path)
+        energy_handle: None,              // populated by load_resource_icons (egui path)
+        energy_bevy_handle: Some(energy_bevy_handle),
+        energy_bevy_pending: true,
+        texture_size: 0, // forces the egui loader to bake on its first frame
     });
 }
 
@@ -201,7 +243,7 @@ pub fn post_process_resource_icons(
     mut icons: ResMut<ResourceIcons>,
     mut images: ResMut<Assets<Image>>,
 ) {
-    if icons.bevy_pending.is_empty() {
+    if icons.bevy_pending.is_empty() && !icons.energy_bevy_pending {
         return;
     }
     // Snapshot the (resource, handle) pairs we still need to
@@ -214,7 +256,6 @@ pub fn post_process_resource_icons(
         .map(|(r, h)| (*r, h.clone()))
         .collect();
 
-    let bytes_per_pixel = 4usize;
     for (resource, handle) in candidates {
         let Some(image) = images.get_mut(&handle) else {
             // AssetServer hasn't decoded the PNG yet; try again
@@ -223,35 +264,66 @@ pub fn post_process_resource_icons(
             // the load would block the schedule.
             continue;
         };
-        let expected_len = (image.texture_descriptor.size.width as usize)
-            .saturating_mul(image.texture_descriptor.size.height as usize)
-            .saturating_mul(bytes_per_pixel);
-        if image.data.as_ref().unwrap().len() != expected_len {
-            // Wrong pixel format (compressed, sRGB-float, …) —
-            // mark processed to avoid retrying every frame.
-            icons.bevy_pending.remove(&resource);
-            continue;
-        }
         // Icons are pre-baked (see scripts/bake_resource_icons.py):
         //   - RGB is pure black (0,0,0) for the line
         //   - Alpha is the line opacity: 0 on the white
         //     background, 255 on the solid line, linear
         //     ramp on antialiased edges.
-        // All we need to do at runtime is convert RGB to
-        // pure white so the tint shader (ImageNode::with_color
-        // / egui Image::tint) colours the line; alpha is
-        // already correct.
-        for chunk in image
-            .data
-            .as_mut()
-            .unwrap()
-            .chunks_exact_mut(bytes_per_pixel)
-        {
-            chunk[0] = 255;
-            chunk[1] = 255;
-            chunk[2] = 255;
-        }
+        // The runtime converts RGB to pure white so the tint shader
+        // (ImageNode::with_color / egui Image::tint) colours the line,
+        // then resamples 1024 px → 64 px so the 20 px card chip isn't
+        // minified 51:1 by a mip-less bilinear sampler.
+        //
+        // A `false` return means the wrong pixel format (compressed,
+        // sRGB-float, …) — mark processed to avoid retrying every frame.
+        process_and_downscale_bevy_icon(image);
         icons.bevy_pending.remove(&resource);
+    }
+
+    // Dedicated energy icon. v0.5.2 PR-A.7 (2026-08-04): unlike
+    // the per-resource icons (which are pre-baked on disk to
+    // RGB-black + alpha-keyed), the energy PNG is a fresh
+    // `image_synthesize` output with the standard white
+    // background — alpha is 255 everywhere. Apply the
+    // luminance-key recipe (`post_process_category_rgba` on
+    // the egui side) IN PLACE before the standard RGB→white +
+    // downscale so the bolt-in-hex PNG ends up with a
+    // transparent background and a white tintable line. Without
+    // this step the icon renders as a solid coloured square
+    // (the entire 1024×1024 image is opaque, the tint fills
+    // every pixel, the line is invisible against the
+    // background).
+    if icons.energy_bevy_pending {
+        let Some(handle) = icons.energy_bevy_handle.clone() else {
+            icons.energy_bevy_pending = false;
+            return;
+        };
+        let Some(image) = images.get_mut(&handle) else {
+            // AssetServer hasn't decoded yet; try again next frame.
+            return;
+        };
+        // Step 1: apply the luminance key in place — rewrite
+        // alpha based on the source RGB luminance, keep RGB
+        // untouched for now.
+        if let Some(data) = image.data.as_mut() {
+            let w = image.texture_descriptor.size.width;
+            let h = image.texture_descriptor.size.height;
+            if w > 0 && h > 0 && data.len() == (w as usize).saturating_mul(h as usize) * 4 {
+                for chunk in data.chunks_exact_mut(4) {
+                    let r = chunk[0] as f32 / 255.0;
+                    let g = chunk[1] as f32 / 255.0;
+                    let b = chunk[2] as f32 / 255.0;
+                    let luminance = 0.299 * r + 0.587 * g + 0.114 * b;
+                    let alpha = ((0.86 - luminance) / (0.86 - 0.42)).clamp(0.0, 1.0);
+                    chunk[3] = (alpha * 255.0).round() as u8;
+                }
+            }
+        }
+        // Step 2: standard RGB→white + downscale. The alpha is
+        // already keyed so the line survives as the only opaque
+        // pixel after the downsample.
+        process_and_downscale_bevy_icon(image);
+        icons.energy_bevy_pending = false;
     }
 }
 
@@ -287,6 +359,19 @@ pub fn load_resource_icons(
     };
     let ctx = ctx.clone();
 
+    // Icons are baked at (roughly) their display size rather than the
+    // 1024 px source resolution — see `downscale_icon_rgba`. That makes
+    // the textures DPI-dependent, so when the window moves to a monitor
+    // with a different scale factor the cached textures are the wrong
+    // resolution and have to be rebuilt.
+    let target = icon_texture_size(ctx.pixels_per_point());
+    if icons.texture_size != target {
+        icons.handles.clear();
+        icons.category_handles.clear();
+        icons.energy_handle = None;
+        icons.texture_size = target;
+    }
+
     for &resource in ResourceType::all() {
         if icons.handles.contains_key(&resource) {
             continue;
@@ -307,6 +392,7 @@ pub fn load_resource_icons(
         let rgba = image.to_rgba8();
         let (w, h) = rgba.dimensions();
         let processed = post_process_rgba(rgba.as_raw());
+        let (processed, w, h) = downscale_icon_rgba(&processed, w, h, target);
         let color_image =
             egui::ColorImage::from_rgba_unmultiplied([w as usize, h as usize], &processed);
         let handle = ctx.load_texture(
@@ -346,6 +432,7 @@ pub fn load_resource_icons(
         // The regular resource icons go through `post_process_rgba`
         // which assumes the bake already happened.
         let processed = post_process_category_rgba(rgba.as_raw());
+        let (processed, w, h) = downscale_icon_rgba(&processed, w, h, target);
         let color_image =
             egui::ColorImage::from_rgba_unmultiplied([w as usize, h as usize], &processed);
         let handle = ctx.load_texture(
@@ -354,6 +441,35 @@ pub fn load_resource_icons(
             egui::TextureOptions::LINEAR,
         );
         icons.category_handles.insert(category.to_string(), handle);
+    }
+
+    // Dedicated energy icon (`assets/textures/ui/resources/energy.png`).
+    // Energy is not a `ResourceType` — it's the power-balance concept
+    // used by the top resource bar's "TW" chip and (eventually) the
+    // Build/Mining card energy rows. Loaded with the same
+    // luminance-key recipe as the category badges (dark navy on white
+    // → premultiplied white on transparent) and tinted at the call
+    // site: green/red for the power chip, cyan by default elsewhere.
+    if icons.energy_handle.is_none() {
+        let path = std::path::Path::new("assets/textures/ui/resources/energy.png");
+        if let Ok(bytes) = std::fs::read(path) {
+            if let Ok(image) = image::load_from_memory(&bytes) {
+                let rgba = image.to_rgba8();
+                let (w, h) = rgba.dimensions();
+                let processed = post_process_category_rgba(rgba.as_raw());
+                let (processed, w, h) = downscale_icon_rgba(&processed, w, h, target);
+                let color_image = egui::ColorImage::from_rgba_unmultiplied(
+                    [w as usize, h as usize],
+                    &processed,
+                );
+                let handle = ctx.load_texture(
+                    "energy_icon".to_string(),
+                    color_image,
+                    egui::TextureOptions::LINEAR,
+                );
+                icons.energy_handle = Some(handle);
+            }
+        }
     }
 }
 
@@ -457,6 +573,124 @@ fn post_process_category_rgba(rgba: &[u8]) -> Vec<u8> {
     out
 }
 
+/// Largest logical (pre-DPI) size any egui call site asks an icon to
+/// draw at: category badges 30 pt (`resources_bar.rs`, category popup
+/// header), resource icons 24 pt (forecast window header), energy 16 pt
+/// (power chip). Rounded up to 32 so one baked texture serves all three.
+const ICON_MAX_LOGICAL_SIZE: f32 = 32.0;
+
+/// Bounds on the baked texture edge. The floor keeps a usable texture if
+/// `pixels_per_point` is reported as ~0 while the window is initialising;
+/// the ceiling stops a 4× HiDPI display from baking the full 1024 px
+/// source straight back in and re-creating the problem.
+const ICON_TEXTURE_MIN: u32 = 32;
+const ICON_TEXTURE_MAX: u32 = 256;
+
+/// Baked texture edge length for the current DPI.
+fn icon_texture_size(pixels_per_point: f32) -> u32 {
+    let px = ICON_MAX_LOGICAL_SIZE * pixels_per_point;
+    if !px.is_finite() {
+        return ICON_TEXTURE_MIN;
+    }
+    (px.ceil() as u32).clamp(ICON_TEXTURE_MIN, ICON_TEXTURE_MAX)
+}
+
+/// Downscales an already-post-processed RGBA buffer to `target` px on its
+/// long edge, using an area-integrating filter.
+///
+/// This is the fix for the top-bar icons looking crunchy. The source PNGs
+/// are 1024×1024 and the top bar draws them at 28 pt, but nothing resized
+/// them — the full 1024 px texture went to the GPU and the sampler
+/// minified it 36:1 with a 2×2 bilinear tap and no mip chain, i.e. it
+/// averaged 4 of the ~1340 source texels covering each output pixel
+/// (0.3% of the footprint). That is undersampling, not filtering: thin
+/// strokes drop out where they fall between taps and crawl under motion.
+///
+/// Both post-processors leave RGB at a constant 255 and carry all the
+/// shape in alpha, so only alpha needs resampling — and because the
+/// colour is constant, alpha *is* the premultiplied value. That sidesteps
+/// the usual premultiply-before-you-filter trap: there is no colour to
+/// bleed in from transparent texels, and no gamma decision to get wrong,
+/// since alpha is linear coverage by definition rather than an
+/// sRGB-encoded quantity.
+///
+/// `Lanczos3` matches the existing precedent in
+/// `src/plugins/window_icon.rs`. At these ratios the practical difference
+/// between Lanczos3, CatmullRom and Triangle is a few percent; the win is
+/// resampling on the CPU at all rather than the specific kernel.
+///
+/// Returns the buffer untouched when it is already at or below the
+/// target, so this is a no-op for sources that are already small.
+fn downscale_icon_rgba(processed: &[u8], w: u32, h: u32, target: u32) -> (Vec<u8>, u32, u32) {
+    if w == 0 || h == 0 || (w <= target && h <= target) {
+        return (processed.to_vec(), w, h);
+    }
+    let alpha: Vec<u8> = processed.iter().skip(3).step_by(4).copied().collect();
+    let Some(gray) = image::GrayImage::from_raw(w, h, alpha) else {
+        // Buffer wasn't w*h*4 — leave it alone rather than corrupt it.
+        return (processed.to_vec(), w, h);
+    };
+    // The icons are square today, but preserve aspect so a non-square
+    // source doesn't silently get stretched.
+    let (tw, th) = if w >= h {
+        (target, (target as u64 * h as u64 / w as u64).max(1) as u32)
+    } else {
+        ((target as u64 * w as u64 / h as u64).max(1) as u32, target)
+    };
+    let small = image::imageops::resize(&gray, tw, th, image::imageops::FilterType::Lanczos3);
+    let mut out = Vec::with_capacity(tw as usize * th as usize * 4);
+    for px in small.pixels() {
+        out.extend_from_slice(&[255, 255, 255, px.0[0]]);
+    }
+    (out, tw, th)
+}
+
+/// Baked texture edge for the bevy_ui path. The Build/Mining card cost
+/// chips draw their icons at 20 logical px (`construction.rs`), so 64 px
+/// covers them up to a 3× scale factor with headroom.
+///
+/// Fixed rather than DPI-derived like the egui side: this loader runs
+/// once at startup off the `AssetServer` and has no egui context to ask
+/// for `pixels_per_point`, and the residual 64→20 minification is mild
+/// enough that the bilinear sampler handles it cleanly.
+const BEVY_ICON_TEXTURE_SIZE: u32 = 64;
+
+/// Rewrites a decoded bevy_ui icon `Image` to white-RGB + original alpha
+/// and resamples it down to `BEVY_ICON_TEXTURE_SIZE`.
+///
+/// Same rationale as `downscale_icon_rgba` on the egui side: the source
+/// PNGs are 1024×1024 and these draw at 20 px, a 51:1 minification that
+/// the sampler cannot do cleanly without a mip chain. Returns `false` if
+/// the buffer isn't tightly-packed RGBA8, in which case the caller should
+/// mark the icon processed rather than retry forever.
+fn process_and_downscale_bevy_icon(image: &mut Image) -> bool {
+    let w = image.texture_descriptor.size.width;
+    let h = image.texture_descriptor.size.height;
+    let Some(data) = image.data.as_mut() else {
+        return false;
+    };
+    if w == 0 || h == 0 || data.len() != (w as usize).saturating_mul(h as usize) * 4 {
+        return false;
+    }
+    // RGB → pure white so a tinted `ImageNode` reads as the category
+    // colour; alpha already carries the line (icons are pre-baked).
+    for chunk in data.chunks_exact_mut(4) {
+        chunk[0] = 255;
+        chunk[1] = 255;
+        chunk[2] = 255;
+    }
+    let (resized, tw, th) = downscale_icon_rgba(data, w, h, BEVY_ICON_TEXTURE_SIZE);
+    if tw != w || th != h {
+        *data = resized;
+        image.texture_descriptor.size = Extent3d {
+            width: tw,
+            height: th,
+            depth_or_array_layers: 1,
+        };
+    }
+    true
+}
+
 /// Convenience: returns the icon handle for a resource, or `None`
 /// if it hasn't loaded yet (the render side falls back to a small
 /// cyan placeholder in that case).
@@ -465,4 +699,112 @@ pub fn get_resource_icon_handle(
     resource: ResourceType,
 ) -> Option<&egui::TextureHandle> {
     icons.handles.get(&resource)
+}
+
+/// Convenience: returns the dedicated energy icon's egui
+/// `TextureHandle`, or `None` if the PNG hasn't been decoded yet
+/// (the render side falls back to a tinted square in that case).
+/// Energy is not a `ResourceType` so it lives outside
+/// `ResourceIcons::handles`.
+pub fn get_energy_icon_handle<'a>(icons: &'a ResourceIcons) -> Option<&'a egui::TextureHandle> {
+    icons.energy_handle.as_ref()
+}
+
+/// Convenience: returns the bevy_ui `Handle<Image>` for the
+/// energy icon, or `None` if the asset hasn't loaded yet. The
+/// Build/Mining card render side falls back to a tinted square
+/// in that case (same fallback as `get_resource_icon_handle_bevy`).
+///
+/// Forward-declared for the upcoming per-row energy demand /
+/// production display on the canary Build / Mining cards. Not
+/// called yet — silence the dead-code lint until the card side
+/// wires it in.
+#[allow(dead_code)]
+pub fn get_energy_icon_handle_bevy(icons: &ResourceIcons) -> Option<&Handle<Image>> {
+    icons.energy_bevy_handle.as_ref()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Builds a `w`×`h` RGBA buffer whose alpha is a 1-px-wide vertical
+    /// stripe every `period` columns — the pathological case for
+    /// minification, and a fair stand-in for the thin line art in the
+    /// category badges.
+    fn striped_rgba(w: u32, h: u32, period: u32) -> Vec<u8> {
+        let mut v = Vec::with_capacity((w * h * 4) as usize);
+        for _ in 0..h {
+            for x in 0..w {
+                let a = if x % period == 0 { 255 } else { 0 };
+                v.extend_from_slice(&[255, 255, 255, a]);
+            }
+        }
+        v
+    }
+
+    #[test]
+    fn downscale_reduces_to_target_and_keeps_rgba_layout() {
+        let src = striped_rgba(1024, 1024, 16);
+        let (out, w, h) = downscale_icon_rgba(&src, 1024, 1024, 64);
+        assert_eq!((w, h), (64, 64));
+        assert_eq!(out.len(), 64 * 64 * 4);
+        // RGB must stay pure white so the egui/bevy tint shader still
+        // produces the category colour.
+        assert!(out.chunks_exact(4).all(|c| c[0] == 255 && c[1] == 255 && c[2] == 255));
+    }
+
+    #[test]
+    fn downscale_preserves_mean_coverage() {
+        // The whole point: an area-integrating filter conserves total ink.
+        // A 2x2 bilinear tap on this input would sample only whole
+        // stripes or whole gaps and land nowhere near the true mean.
+        let src = striped_rgba(1024, 1024, 16);
+        let src_mean =
+            src.iter().skip(3).step_by(4).map(|&a| a as f64).sum::<f64>() / (1024.0 * 1024.0);
+        let (out, w, h) = downscale_icon_rgba(&src, 1024, 1024, 64);
+        let out_mean = out.iter().skip(3).step_by(4).map(|&a| a as f64).sum::<f64>()
+            / (w as f64 * h as f64);
+        assert!(
+            (src_mean - out_mean).abs() < 2.0,
+            "coverage drifted: {src_mean:.2} -> {out_mean:.2}"
+        );
+    }
+
+    #[test]
+    fn downscale_is_a_noop_when_already_small() {
+        let src = striped_rgba(32, 32, 4);
+        let (out, w, h) = downscale_icon_rgba(&src, 32, 32, 64);
+        assert_eq!((w, h), (32, 32));
+        assert_eq!(out, src);
+    }
+
+    #[test]
+    fn downscale_preserves_aspect_ratio() {
+        let src = striped_rgba(512, 256, 8);
+        let (_, w, h) = downscale_icon_rgba(&src, 512, 256, 64);
+        assert_eq!((w, h), (64, 32));
+    }
+
+    #[test]
+    fn downscale_rejects_malformed_buffer_without_corrupting_it() {
+        // Not w*h*4 bytes — must hand the buffer back untouched rather
+        // than build a `GrayImage` from a short slice.
+        let src = vec![255u8; 10];
+        let (out, w, h) = downscale_icon_rgba(&src, 1024, 1024, 64);
+        assert_eq!((w, h), (1024, 1024));
+        assert_eq!(out, src);
+    }
+
+    #[test]
+    fn icon_texture_size_scales_with_dpi_and_clamps() {
+        assert_eq!(icon_texture_size(1.0), 32);
+        assert_eq!(icon_texture_size(2.0), 64);
+        assert_eq!(icon_texture_size(1.5), 48);
+        // Degenerate scale factors during window init must not panic or
+        // produce a zero-sized texture.
+        assert_eq!(icon_texture_size(0.0), ICON_TEXTURE_MIN);
+        assert_eq!(icon_texture_size(f32::NAN), ICON_TEXTURE_MIN);
+        assert_eq!(icon_texture_size(100.0), ICON_TEXTURE_MAX);
+    }
 }
