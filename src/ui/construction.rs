@@ -493,7 +493,22 @@ pub fn load_building_icons(
 // `crate::ui::icons::process_menu_icons`. Runs every frame until
 // every icon has been processed once; the per-icon flag in `processed`
 // makes it a no-op after the first pass.
+//
+// ## Per-frame budget (2026-08-05)
+//
+// The icons are 256×256 (65K px) so a single one is cheap, but the
+// batch is ~95 and they all load asynchronously — the frame where
+// the whole batch lands would run 95 × 65K-pixel luminance-key loops
+// inline. That's the same hazard class as the resource-icon stall
+// (GRA regression, fixed 2026-08-05): not seconds, but it shares its
+// frame with `process_menu_icons` + `process_research_icons` and the
+// first boot-chain steps. Capping at 4/frame spreads the batch over
+// ~24 frames with no single-frame spike; unprocessed icons are
+// retried next frame (they early-continue when not decoded yet).
 pub fn process_building_icons(mut icons: ResMut<BuildingIcons>, mut images: ResMut<Assets<Image>>) {
+    const MAX_ICONS_PER_FRAME: usize = 4;
+    let mut processed_this_frame = 0usize;
+
     let to_process: Vec<(BuildingType, Handle<Image>)> = icons
         .handles
         .iter()
@@ -502,6 +517,9 @@ pub fn process_building_icons(mut icons: ResMut<BuildingIcons>, mut images: ResM
         .collect();
 
     for (building_type, handle) in to_process {
+        if processed_this_frame >= MAX_ICONS_PER_FRAME {
+            break;
+        }
         if let Some(image) = images.get_mut(&handle) {
             let bytes_per_pixel = 4usize;
             let expected = (image.texture_descriptor.size.width as usize)
@@ -541,6 +559,7 @@ pub fn process_building_icons(mut icons: ResMut<BuildingIcons>, mut images: ResM
                 chunk[3] = pa;
             }
             icons.processed.insert(building_type);
+            processed_this_frame += 1;
         }
     }
 }
@@ -3946,6 +3965,21 @@ pub fn update_mining_body(
     let Ok(content) = content_query.single() else {
         return;
     };
+
+    // Per-frame respawn gate (v0.5.2, 2026-08-05): the Mining body
+    // re-spawns ~30 cards every frame from scratch (despawn-all +
+    // spawn-all). When the player is on another tab (Overview /
+    // Buildings / Build) the Mining body is `Visibility::Hidden`
+    // and re-spawning its content is pure waste — the cards are
+    // invisible AND the spawn happens before the visibility toggle
+    // in `tick_construction_body_visibility`, so it's ~30 card
+    // spawns per frame even when the player never looks at Mining.
+    // Skipping the respawn when the Mining tab isn't active keeps
+    // the tab-switch paint fresh (the first frame on Mining
+    // re-spawns) while eliminating the hidden-tab churn.
+    if ui_state.selected_tab != ConstructionTab::Mining {
+        return;
+    }
 
     // Despawn the previous frame's spawn.
     //
