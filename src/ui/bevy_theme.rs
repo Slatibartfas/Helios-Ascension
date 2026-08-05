@@ -602,7 +602,15 @@ pub fn tick_chip_button_hover(
             &mut UiTransform,
             &Children,
         ),
-        With<Button>,
+        // v0.5.2 (2026-08-05 audit): scope to chips ONLY. The old
+        // `With<Button>` filter matched EVERY Button in the world —
+        // the queue panel's cancel buttons, the demolish buttons,
+        // the colony-dropdown options, even unrelated in-game UI —
+        // and re-painted their background / scale / text every frame
+        // (the "huge compute for a simple menu" sink). Chips are the
+        // only Button entities carrying `ChipKind`; the filter keeps
+        // this system on the ~25 chip entities it's meant for.
+        (With<Button>, With<super::construction::ChipKind>),
     >,
     mut text_query: Query<&mut TextColor, With<ChipTextNode>>,
 ) {

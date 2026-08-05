@@ -7238,6 +7238,19 @@ pub fn tick_ui_scroll_on_wheel(
     // as the scrollable directly. The walk-up still works for
     // cards / body / chips; only the track needs the lookup.
     tracks: Query<&ConstructionScrollbarTrack>,
+    ui_state: Res<ConstructionUiState>,
+    // v0.5.2 (2026-08-05 audit): fallback scroll containers for the
+    // stale-hover case (Mining tab). `update_mining_body` despawns +
+    // re-spawns every mining card each frame, so the `HoverMap`
+    // (computed in `PreUpdate`) holds entity ids that are gone by the
+    // time this system runs in `Update` — the walk-up above finds no
+    // scroll ancestor and the wheel event is silently dropped. Build
+    // cards persist (spawned by `refresh_card_grid` only on change),
+    // so Build never hit this. Resolve by the active tab instead:
+    // the tab's scroll container is stable, so even a stale hover
+    // lands on the right scrollable.
+    card_grids: Query<Entity, (With<CardGrid>, With<Node>)>,
+    mining_contents: Query<Entity, (With<MiningContent>, With<Node>)>,
 ) {
     for event in wheel_events.read() {
         // Skip zero-delta events (some mice emit X-only scrolls).
@@ -7305,6 +7318,20 @@ pub fn tick_ui_scroll_on_wheel(
                 };
                 cursor = parent.0;
             }
+        }
+        // 4) v0.5.2 (2026-08-05 audit): tab fallback for stale
+        //    hover entities (the Mining respawn churn). When the
+        //    walk-up found nothing — the hovered card was despawned
+        //    by `update_mining_body` this frame — resolve the
+        //    scrollable from the active tab's stable container.
+        //    This keeps wheel scrolling working on Mining even
+        //    though its cards don't persist between frames.
+        if scrollable.is_none() {
+            scrollable = match ui_state.selected_tab {
+                ConstructionTab::Mining => mining_contents.iter().next(),
+                ConstructionTab::Build => card_grids.iter().next(),
+                _ => None,
+            };
         }
         let Some(scrollable_entity) = scrollable else {
             continue;
@@ -8134,19 +8161,35 @@ pub fn update_construction_tooltip(
     state: Res<ConstructionTooltipState>,
     mut tooltip_query: Query<(&mut Text, &mut Visibility), With<ConstructionTooltipText>>,
 ) {
-    let text = if state.visible {
-        state.text.clone()
-    } else {
-        String::new()
-    };
-    let visibility = if state.visible {
-        Visibility::Inherited
-    } else {
-        Visibility::Hidden
-    };
+    // v0.5.2 (2026-08-05 audit): early-out when the tooltip is not
+    // visible AND the current text is empty — the old code wrote
+    // `Text` + `Visibility` on the node every frame regardless,
+    // mutating components with identical values (change-detection /
+    // re-layout churn). When `!state.visible` we only need to write
+    // once to hide; the `state` stays empty-until-next-hover (the
+    // menu-open gate + `tick_construction_state` clearing on close
+    // means a stale visible flag never lingers).
+    if !state.visible {
+        let mut already_hidden = true;
+        for (t, v) in tooltip_query.iter() {
+            if !t.0.is_empty() || *v != Visibility::Hidden {
+                already_hidden = false;
+                break;
+            }
+        }
+        if already_hidden {
+            return;
+        }
+        for (mut t, mut v) in tooltip_query.iter_mut() {
+            **t = String::new();
+            *v = Visibility::Hidden;
+        }
+        return;
+    }
+    let text = state.text.clone();
     for (mut t, mut v) in tooltip_query.iter_mut() {
         **t = text.clone();
-        *v = visibility.clone();
+        *v = Visibility::Inherited;
     }
 }
 
@@ -8869,10 +8912,22 @@ pub struct QueuePanelBody;
 // `ActiveMenu.current == GameMenu::Construction`. The canary spawns at
 // startup (so the entities exist) and this system keeps visibility in
 // sync each frame.
+//
+// v0.5.2 (2026-08-05 audit): on the Off transition we also clear the
+// transient UI states (tooltip text, demolish dialog, dropdown, queue
+// panel). This lets the heavy per-frame systems below be gated on
+// `construction_menu_open` — they skip entirely while the menu is
+// closed — without leaving a stale tooltip/dialog visible for a
+// frame when the menu reopens.
 pub fn tick_construction_state(
     active_menu: Res<ActiveMenu>,
     mut state: ResMut<ConstructionState>,
     mut root_query: Query<&mut Visibility, With<ConstructionRoot>>,
+    mut tooltip_state: ResMut<ConstructionTooltipState>,
+    mut queue_tooltip: ResMut<QueueButtonTooltipState>,
+    mut demolish_state: ResMut<DemolishConfirmState>,
+    mut dropdown_state: ResMut<ColonyDropdownState>,
+    mut queue_panel_state: ResMut<QueuePanelState>,
 ) {
     let should_be_on = matches!(active_menu.current, GameMenu::Construction);
     let is_on = *state == ConstructionState::On;
@@ -8887,7 +8942,24 @@ pub fn tick_construction_state(
         for mut v in root_query.iter_mut() {
             *v = Visibility::Hidden;
         }
+        // Clear transient UI state so a stale tooltip / dialog /
+        // dropdown never reappears when the menu reopens.
+        *tooltip_state = ConstructionTooltipState::default();
+        *queue_tooltip = QueueButtonTooltipState::default();
+        *demolish_state = DemolishConfirmState::default();
+        dropdown_state.open = false;
+        queue_panel_state.open = false;
     }
+}
+
+/// `run_if` predicate: the Construction canary is currently visible.
+/// v0.5.2 (2026-08-05 audit): ~40 of the 49 per-frame systems only
+/// mutate entities inside the hidden canary root, yet ran every frame
+/// regardless — the "huge compute for a simple menu" sink. Gating them
+/// on this predicate (plus `tick_construction_state` clearing transient
+/// state on close) skips them entirely while the menu is closed.
+fn construction_menu_open(state: Res<ConstructionState>) -> bool {
+    *state == ConstructionState::On
 }
 
 // Plugin: registers the Construction canary on `bevy_ui`.
@@ -8980,13 +9052,15 @@ impl Plugin for ConstructionPlugin {
             // the chip observers) and `Window::cursor_position()`;
             // runs every frame even when no chip is hovered so it
             // can set `Display::None` and clear stale state.
-            .add_systems(Update, update_resource_cost_tooltip)
+            // v0.5.2 (audit): gated on menu-open — the overlay is
+            // parented to the hidden ConstructionRoot when closed.
+            .add_systems(Update, update_resource_cost_tooltip.run_if(construction_menu_open))
             // v0.5.2 PR-A.7 (2026-08-04): power-chip tooltip
             // driver. Mirrors `update_resource_cost_tooltip` but
             // reads `PowerChipHoverState` and writes the
             // `PowerChipTooltipOverlay` text.
-            .add_systems(Update, update_power_chip_tooltip)
-            .add_systems(Update, tick_construction_cta_hover)
+            .add_systems(Update, update_power_chip_tooltip.run_if(construction_menu_open))
+            .add_systems(Update, tick_construction_cta_hover.run_if(construction_menu_open))
             // Marquee: oscillate subtitle `UiTransform.translation.x`
             // when the description overflows horizontally. Reads
             // `ComputedNode` (populated by the engine's layout pass)
@@ -8994,33 +9068,33 @@ impl Plugin for ConstructionPlugin {
             // like every other UI tick system (the egui-pass
             // restriction only applies to systems that call egui
             // context APIs, which this doesn't).
-            .add_systems(Update, tick_subtitle_marquee)
+            .add_systems(Update, tick_subtitle_marquee.run_if(construction_menu_open))
             // Always-visible scrollbar overlay: resizes / repositions
             // the thumb of the card-grid scrollbar track based on
             // the grid's `ScrollPosition` + content size. Bevy 0.18
             // has no always-on scrollbar option in `bevy_ui` core,
             // so this drives our custom overlay.
-            .add_systems(Update, tick_construction_scrollbar)
+            .add_systems(Update, tick_construction_scrollbar.run_if(construction_menu_open))
             // Drag-to-scroll: while the thumb has Interaction::Pressed,
             // translate pointer Y deltas into ScrollPosition changes.
             // Runs in the same Update schedule as the visual tick; the
             // visual tick publishes layout numbers to
             // `ConstructionScrollbarMetrics` which this system reads.
-            .add_systems(Update, tick_construction_scrollbar_drag)
+            .add_systems(Update, tick_construction_scrollbar_drag.run_if(construction_menu_open))
             // Scroll wheel → `ScrollPosition` for any `Overflow::scroll_y`
             // container under the cursor. Bevy 0.18 has no built-in
             // wheel handler (only renders scrollbars + clamps the
             // position); without this the card_grid and queue panel
             // body silently ignore the wheel even when content
             // overflows.
-            .add_systems(Update, tick_ui_scroll_on_wheel)
+            .add_systems(Update, tick_ui_scroll_on_wheel.run_if(construction_menu_open))
             // Click handler: pushes (colony, building) to
             // PendingConstructionActions when a Queue button is pressed.
-            .add_systems(Update, tick_construction_cta_click)
+            .add_systems(Update, tick_construction_cta_click.run_if(construction_menu_open))
             // Chip-button click handler: when a qty / filter / category /
             // tab chip is pressed, mutate `ConstructionUiState`
             // accordingly. Without this, the chips are visual-only.
-            .add_systems(Update, tick_construction_chip_click)
+            .add_systems(Update, tick_construction_chip_click.run_if(construction_menu_open))
             // Auto-select the first colony if none is picked yet.
             .add_systems(Update, auto_select_first_colony)
             // Refresh the card grid when the user clicks a chip
@@ -9031,7 +9105,9 @@ impl Plugin for ConstructionPlugin {
             // when the queued `insert(ConstructionCtaDisabled)` applies.
             .add_systems(
                 Update,
-                refresh_card_grid.run_if(resource_changed::<ConstructionUiState>),
+                refresh_card_grid
+                    .run_if(resource_changed::<ConstructionUiState>)
+                    .run_if(construction_menu_open),
             )
             // Affordability gate: toggles the `ConstructionCtaDisabled`
             // marker on every CTA based on the player's
@@ -9043,13 +9119,14 @@ impl Plugin for ConstructionPlugin {
                 Update,
                 tick_construction_cta_disabled
                     .after(refresh_card_grid)
-                    .after(auto_select_first_colony),
+                    .after(auto_select_first_colony)
+                    .run_if(construction_menu_open),
             )
             // Toggle sub-tab body visibility based on the active tab.
             // Runs every frame; the cost is one Visibility mutation per
             // body (4 bodies) and an early-return when the tab hasn't
             // changed, which is a no-op.
-            .add_systems(Update, tick_construction_body_visibility)
+            .add_systems(Update, tick_construction_body_visibility.run_if(construction_menu_open))
             // Per-frame content updates for the non-Build sub-tab bodies.
             // These systems re-spawn (or re-write) the body content
             // each frame so the summary reflects the current selected
@@ -9093,7 +9170,8 @@ impl Plugin for ConstructionPlugin {
                     tick_demolish_confirm_no_click,
                     tick_demolish_dialog_close_on_tab_switch,
                     tick_demolish_dialog_close_on_colony_change,
-                ),
+                )
+                    .run_if(construction_menu_open),
             )
             // Queue panel: open/close, summary, diff-based rows, and
             // per-frame ETA + progress-bar updates so the queue
@@ -9109,7 +9187,8 @@ impl Plugin for ConstructionPlugin {
                     update_queue_row_eta,
                     update_queue_row_progress,
                     tick_queue_panel_row_cancel_click,
-                ),
+                )
+                    .run_if(construction_menu_open),
             )
             // Active Colony dropdown: open/close the picker menu,
             // dispatch option clicks, refresh the row set every frame,
@@ -9132,7 +9211,8 @@ impl Plugin for ConstructionPlugin {
                     tick_colony_dropdown_visibility,
                     update_colony_picker_text,
                     refresh_colony_dropdown,
-                ),
+                )
+                    .run_if(construction_menu_open),
             )
             // Hover tooltip — surfaces "Need X more Y at ×N" when
             // the player hovers a disabled Queue CTA. Runs every
@@ -9143,8 +9223,10 @@ impl Plugin for ConstructionPlugin {
             .add_systems(
                 Update,
                 (
-                    tick_construction_tooltip.after(tick_construction_cta_disabled),
-                    update_construction_tooltip,
+                    tick_construction_tooltip
+                        .after(tick_construction_cta_disabled)
+                        .run_if(construction_menu_open),
+                    update_construction_tooltip.run_if(construction_menu_open),
                 ),
             )
             // v0.5.2 (build menu fix): cursor-following
@@ -9156,7 +9238,7 @@ impl Plugin for ConstructionPlugin {
             // `tick_construction_tooltip` system above
             // populates the `QueueButtonTooltipState`
             // resource; this system renders it.
-            .add_systems(Update, update_queue_button_tooltip)
+            .add_systems(Update, update_queue_button_tooltip.run_if(construction_menu_open))
             // v0.5.2 (build menu fix): per-frame label dim for
             // disabled Queue CTAs. The hover system
             // (`tick_construction_cta_hover`) owns the
@@ -9167,7 +9249,9 @@ impl Plugin for ConstructionPlugin {
             // hover system.
             .add_systems(
                 Update,
-                tick_construction_cta_label_dim.after(tick_construction_cta_hover),
+                tick_construction_cta_label_dim
+                    .after(tick_construction_cta_hover)
+                    .run_if(construction_menu_open),
             )
             // Chip-button hover and active-state overlay. The hover system
             // wins on hover/press, the overlay re-applies the active state on
@@ -9179,7 +9263,8 @@ impl Plugin for ConstructionPlugin {
                     tick_chip_button_active_overlay,
                     tick_active_chip_glow,
                 )
-                    .chain(),
+                    .chain()
+                    .run_if(construction_menu_open),
             );
     }
 }

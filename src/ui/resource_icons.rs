@@ -144,16 +144,25 @@ pub struct ResourceIcons {
 /// the badge silently falls back to a placeholder; this is the
 /// expected dev-mode behaviour.
 pub fn category_icon_basename(category: &str) -> Option<&'static str> {
+    // v0.5.2 PR-A.7 (2026-08-05): point the loader at the
+    // 64px-authored `category-*-64.png` set (Lanczos3
+    // downscaled from 1024px at author time, not at runtime)
+    // rather than the legacy 1024px originals. The
+    // 64px set is authored at the final display size so
+    // thin strokes survive — the 1024px originals were
+    // 16:1 downscaled at draw time which smeared thin
+    // detail. The legacy `category-*.png` files are kept
+    // on disk just in case the user wants to roll back.
     match category {
-        "Biological" => Some("category-biological"),
-        "Volatiles" => Some("category-volatiles"),
-        "Atmospheric Gases" => Some("category-atmospheric"),
-        "Construction" => Some("category-construction"),
-        "Fusion Fuel" => Some("category-fusion-fuel"),
-        "Fissiles" => Some("category-fissiles"),
-        "Precious Metals" => Some("category-precious"),
-        "Strategic" => Some("category-strategic"),
-        "Exotic" => Some("category-exotic"),
+        "Biological" => Some("category-biological-64"),
+        "Volatiles" => Some("category-volatiles-64"),
+        "Atmospheric Gases" => Some("category-atmospheric-64"),
+        "Construction" => Some("category-construction-64"),
+        "Fusion Fuel" => Some("category-fusion-fuel-64"),
+        "Fissiles" => Some("category-fissiles-64"),
+        "Precious Metals" => Some("category-precious-64"),
+        "Strategic" => Some("category-strategic-64"),
+        "Exotic" => Some("category-exotic-64"),
         _ => None,
     }
 }
