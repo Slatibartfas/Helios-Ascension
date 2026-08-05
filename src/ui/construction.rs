@@ -925,17 +925,40 @@ pub struct QueuePanelClose;
 #[derive(Component)]
 pub struct CardGrid;
 
-// Marker for the always-visible vertical scrollbar track pinned to
-// the right edge of the card grid. `tick_construction_scrollbar`
-// queries this to find the track and resize/reposition its thumb
-// based on the grid's `ScrollPosition` + content size.
+// Marker for the always-visible vertical scrollbar track. The
+// track pins itself to the right edge of whichever scrollable
+// body the construction menu exposes (Build tab card grid, Mining
+// tab body, etc.). The `target` field tells
+// `tick_construction_scrollbar` which entity's
+// `ScrollPosition` + `ComputedNode::content_size` drives the
+// thumb's height + Y offset. The `tab` field tells
+// `tick_construction_body_visibility` which tab this scrollbar
+// belongs to so it can show/hide alongside the body. This is the
+// v0.5.2 PR-A.8 generalisation of the original Build-tab-only
+// `CardGridScrollbarTrack`: the same chrome now appears on every
+// construction tab whose content can overflow vertically.
 #[derive(Component)]
-pub struct CardGridScrollbarTrack;
+pub struct ConstructionScrollbarTrack {
+    // The scrollable entity this track drives. Set at spawn time
+    // from `setup_construction` (Build tab → `card_grid`) or
+    // `spawn_mining_body` (Mining tab → `mining_content`). The
+    // visual tick reads `target`'s `ScrollPosition` each frame.
+    pub target: Entity,
+    // The tab this scrollbar belongs to. The visibility system
+    // shows the track only when the matching body is active, so a
+    // Mining-track overlay doesn't bleed onto the Build tab and
+    // vice versa. Mirrors the `ConstructionTabBody` marker the
+    // body root carries — the two move in lockstep.
+    pub tab: ConstructionTabBody,
+}
 
 // Marker for the thumb (the draggable handle inside the track).
-// Driven each frame by `tick_construction_scrollbar`.
+// Driven each frame by `tick_construction_scrollbar`. The thumb
+// inherits its `target` from the parent track via the observer
+// pattern (`on_thumb_press` / `on_track_press` both look up the
+// track's `target` so the drag updates the right scrollable).
 #[derive(Component)]
-pub struct CardGridScrollbarThumb;
+pub struct ConstructionScrollbarThumb;
 
 // Effect-bullet tone (drives the color of the corresponding line).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1928,26 +1951,16 @@ pub fn tick_construction_body_visibility(
         (
             With<ShowOnBuildOrBuildings>,
             Without<ConstructionTabBody>,
-            Without<CardGridScrollbarTrack>,
-            Without<CardGridScrollbarThumb>,
+            Without<ConstructionScrollbarTrack>,
+            Without<ConstructionScrollbarThumb>,
         ),
     >,
     mut scrollbar_track: Query<
-        &mut Node,
+        (&ConstructionScrollbarTrack, &mut Node),
         (
-            With<CardGridScrollbarTrack>,
             Without<ConstructionTabBody>,
             Without<ShowOnBuildOrBuildings>,
-            Without<CardGridScrollbarThumb>,
-        ),
-    >,
-    mut scrollbar_thumb: Query<
-        &mut Node,
-        (
-            With<CardGridScrollbarThumb>,
-            Without<ConstructionTabBody>,
-            Without<ShowOnBuildOrBuildings>,
-            Without<CardGridScrollbarTrack>,
+            Without<ConstructionScrollbarThumb>,
         ),
     >,
 ) {
@@ -1976,32 +1989,25 @@ pub fn tick_construction_body_visibility(
             Display::None
         };
     }
-    // The custom scrollbar track + thumb are parented to the
-    // Construction menu root (not to `card_grid` — see the
-    // commentary at `setup_construction` line ~4107). Without
-    // this flip they stay visible on every tab, where they
-    // (a) read as a stray vertical pill on Overview / Buildings /
-    // Mining and (b) intercept hover events that should land
-    // on the cards behind them. v0.5.2: hide them whenever the
-    // Build tab is not active. The track system
-    // (`tick_construction_scrollbar`) continues to write
-    // metrics for the Build tab — it just no-ops on
-    // non-Build tabs because the track is `Display::None`.
-    let show_scrollbar = matches!(active, ConstructionTabBody::Build);
-    for mut node in scrollbar_track.iter_mut() {
-        node.display = if show_scrollbar {
-            Display::Flex
-        } else {
-            Display::None
-        };
+    // The custom scrollbar tracks + thumbs are parented to the
+    // Construction menu root (not to the scrollable body — see
+    // the commentary at `setup_construction` line ~4107). Without
+    // this flip they stay visible on every tab, where they (a)
+    // read as stray vertical pills on Overview / Buildings /
+    // Stockpiles and (b) intercept hover events that should land
+    // on the cards behind them. v0.5.2 PR-A.8: each scrollbar
+    // carries a `tab` field so we can show only the matching
+    // scrollbar. Build + Buildings show the card-grid scrollbar;
+    // Mining shows its own body scrollbar; Overview / Stockpiles
+    // show nothing (their bodies fit on a single screen).
+    for (track, mut node) in scrollbar_track.iter_mut() {
+        let visible = track.tab == active;
+        node.display = if visible { Display::Flex } else { Display::None };
     }
-    for mut node in scrollbar_thumb.iter_mut() {
-        node.display = if show_scrollbar {
-            Display::Flex
-        } else {
-            Display::None
-        };
-    }
+    // The thumb is a direct child of the track entity. When the
+    // track flips to `Display::None` its children inherit Hidden
+    // via Bevy's normal hierarchy propagation — no separate
+    // visibility flip on the thumb is required.
 }
 
 // ── Sub-tab body spawn helpers ────────────────────────────────────────
@@ -3204,6 +3210,108 @@ fn spawn_mining_body(commands: &mut Commands, parent: Entity) {
         ))
         .id();
     commands.entity(body).add_child(content);
+
+    // Always-visible vertical scrollbar pinned to the right
+    // edge of the Mining body. Mirrors the Build tab's
+    // card_grid scrollbar — same chrome, same drag handler,
+    // same thumb style — so the two surfaces read as one UI.
+    // The track is parented to `parent` (the Construction menu
+    // root, NOT `body`) for the same reason as the Build tab:
+    // if we parented it to `body` it would scroll out of view
+    // when the player scrolls the content, because `body`
+    // inherits `Overflow::clip` from the body root.
+    //
+    // v0.5.2 PR-A.8: track carries `target: content` so
+    // `tick_construction_scrollbar` knows which scrollable to
+    // drive, and `tab: ConstructionTabBody::Mining` so
+    // `tick_construction_body_visibility` flips the track's
+    // visibility in lockstep with the body. Without the `tab`
+    // marker, the track would show on every tab and read as
+    // a stray vertical pill on Overview / Build / Buildings.
+    spawn_construction_scrollbar(
+        commands,
+        parent,
+        content,
+        "mining_scrollbar_track",
+        98.0_f32,
+        SPACE_SM,
+        ConstructionTabBody::Mining,
+    );
+}
+
+// Shared helper: spawn the always-visible vertical scrollbar
+// (track + thumb + observers) parented to a panel root, aimed
+// at a specific scrollable body. Used by both the Build tab's
+// card grid and the Mining tab's body so the two surfaces
+// share identical chrome.
+//
+// `tab` lets `tick_construction_body_visibility` show/hide the
+// track alongside the body. The track is parented to `root`
+// (not the scrollable) so it stays pinned to the panel even
+// when the player scrolls content — `Overflow::clip` /
+// `Overflow::scroll_y` on the parent would otherwise carry
+// the track away with the content.
+//
+// Takes `&mut Commands` so it composes cleanly with the
+// surrounding `setup_construction` (owned `Commands`) and
+// `spawn_mining_body` (`&mut Commands`) call sites.
+fn spawn_construction_scrollbar(
+    commands: &mut Commands,
+    root: Entity,
+    target: Entity,
+    track_name: &'static str,
+    track_top_px: f32,
+    track_bottom_px: f32,
+    tab: ConstructionTabBody,
+) {
+    let scrollbar_track = commands
+        .spawn((
+            Node {
+                position_type: PositionType::Absolute,
+                right: Val::Px(2.0),
+                top: Val::Px(track_top_px),
+                bottom: Val::Px(track_bottom_px),
+                width: Val::Px(12.0),
+                border_radius: BorderRadius::all(Val::Px(6.0)),
+                ..default()
+            },
+            BackgroundColor(Color::srgba(1.0, 1.0, 1.0, 0.06)),
+            ZIndex(10),
+            Pickable::default(),
+            Name::new(track_name),
+            ConstructionScrollbarTrack { target, tab },
+        ))
+        .id();
+    commands.entity(root).add_child(scrollbar_track);
+    // Press/release observers keep the drag locked to the track
+    // entity even when the cursor slips off the slim track
+    // surface mid-drag. Without these, `Interaction::Pressed`
+    // would drop to `None` the moment the cursor leaves the
+    // 12-px-wide track and the drag would die immediately.
+    commands.entity(scrollbar_track).observe(on_track_press);
+    commands.entity(scrollbar_track).observe(on_track_release);
+
+    let scrollbar_thumb = commands
+        .spawn((
+            Node {
+                position_type: PositionType::Absolute,
+                left: Val::Px(0.0),
+                right: Val::Px(0.0),
+                top: Val::Px(0.0),    // updated each frame
+                height: Val::Px(0.0), // updated each frame
+                border_radius: BorderRadius::all(Val::Px(6.0)),
+                ..default()
+            },
+            BackgroundColor(CYAN.with_alpha(0.6)),
+            ZIndex(11),
+            Pickable::default(),
+            Name::new("construction_scrollbar_thumb"),
+            ConstructionScrollbarThumb,
+        ))
+        .id();
+    commands.entity(scrollbar_track).add_child(scrollbar_thumb);
+    commands.entity(scrollbar_thumb).observe(on_thumb_press);
+    commands.entity(scrollbar_thumb).observe(on_thumb_release);
 }
 
 // Marker on the Mining body's content container.
@@ -4664,68 +4772,21 @@ pub fn setup_construction(
     // Width was 6 px before v0.5.2 PR-A.4 — felt too thin to hit
     // reliably with a mouse. Doubled to 12 px so the track and
     // thumb read as a proper "rail" without dominating the panel.
-    let scrollbar_track = commands
-        .spawn((
-            Node {
-                position_type: PositionType::Absolute,
-                right: Val::Px(2.0),
-                top: Val::Px(track_top_px),
-                bottom: Val::Px(track_bottom_px),
-                width: Val::Px(12.0),
-                // No flex children — the thumb is `position_type:
-                // Absolute` so it positions itself via `top` /
-                // `height`. The track itself has no children layout
-                // responsibilities. Border radius is half the
-                // width so the track reads as a pill.
-                border_radius: BorderRadius::all(Val::Px(6.0)),
-                ..default()
-            },
-            BackgroundColor(Color::srgba(1.0, 1.0, 1.0, 0.06)),
-            ZIndex(10),
-            Pickable::default(),
-            Name::new("card_grid_scrollbar_track"),
-            CardGridScrollbarTrack,
-        ))
-        .id();
-    commands.entity(root).add_child(scrollbar_track);
-    // Attach press / release observers so the drag stays
-    // "locked" to the track entity even when the cursor moves
-    // out of the slim track area during the drag. Without
-    // these observers we'd be polling `Interaction::Pressed`,
-    // which drops to `None` the moment the cursor leaves the
-    // thin (6px-wide) track — making drag impossible.
-    commands.entity(scrollbar_track).observe(on_track_press);
-    commands.entity(scrollbar_track).observe(on_track_release);
-
-    let scrollbar_thumb = commands
-        .spawn((
-            Node {
-                position_type: PositionType::Absolute,
-                left: Val::Px(0.0),
-                right: Val::Px(0.0),
-                top: Val::Px(0.0),    // updated each frame
-                height: Val::Px(0.0), // updated each frame
-                // Border radius matches the track's pill (half its
-                // 12 px width) so the thumb visually nests inside
-                // the track.
-                border_radius: BorderRadius::all(Val::Px(6.0)),
-                ..default()
-            },
-            BackgroundColor(CYAN.with_alpha(0.6)),
-            ZIndex(11),
-            Pickable::default(),
-            Name::new("card_grid_scrollbar_thumb"),
-            CardGridScrollbarThumb,
-        ))
-        .id();
-    commands.entity(scrollbar_track).add_child(scrollbar_thumb);
-    // Same rationale as the track observers: the thumb is only
-    // ~6 px wide, so a one-pixel slip on `Interaction::Pressed`
-    // would drop the drag. The press/release observers keep
-    // `drag.active` true until the user actually releases the
-    // pointer button, regardless of where the cursor goes.
-    commands.entity(scrollbar_thumb).observe(on_thumb_press);
-    commands.entity(scrollbar_thumb).observe(on_thumb_release);
+    // v0.5.2 PR-A.8: scrollbar spawn goes through the shared
+    // helper so Build + Mining tabs use identical chrome. The
+    // inline spawn is gone (the helper replaces it). Same
+    // `track_top_px = 138` magic number (tab strip ~36 + chip
+    // rows ~80 + 12-px padding) preserved from the original
+    // Build tab setup.
+    spawn_construction_scrollbar(
+        &mut commands,
+        root,
+        card_grid,
+        "card_grid_scrollbar_track",
+        track_top_px,
+        track_bottom_px,
+        ConstructionTabBody::Build,
+    );
 
     // Spawn card placeholders from real `BuildingsData` filtered by the
     // active category tab + functional-role filter (all read from
@@ -5481,19 +5542,37 @@ fn spawn_card(
                 ..default()
             },
             BackgroundColor(CARD_BG),
-            BorderColor::all(CYAN_BORDER),
-            // Outer drop shadow — gives the card a 3D lift off the backdrop.
-            // Heavy (16 px blur) so it's clearly visible against the deep
-            // space backdrop. The blur radius is the key parameter: a
-            // 2-4 px blur disappears into the dark navy; 16 px stays
-            // distinct.
-            BoxShadow::new(
-                Color::srgba(0.0, 0.0, 0.0, 0.6),
-                Val::Px(0.0),
-                Val::Px(4.0),
-                Val::Px(2.0),
-                Val::Px(16.0),
-            ),
+            // Stronger border for a 3D "raised glass" reading — the
+            // previous CYAN_BORDER @ 50% alpha blended into the card
+            // background and the cards looked flat. Full alpha cyan
+            // at the top fades to a dim outline at the bottom via the
+            // two-tone gradient overlay spawned below, so the border
+            // reads as a beveled edge (light catches the top).
+            BorderColor::all(Color::srgba(0.498, 0.804, 0.847, 0.90)),
+            // v0.5.2 PR-A.9 (2026-08-05): single subtle dark drop
+            // shadow for 3D lift. The previous two-layer version
+            // (cyan glow halo + dark drop shadow) read as a heavy
+            // "neon outline" against the dark navy chrome and
+            // distracted from the card content. Replacing the halo
+            // with a darker, smaller, lower-offset drop shadow gives
+            // the same 3D lift (card visibly sits above the panel)
+            // without the glow artefact. The top + bottom inner
+            // rim overlays (cyan highlight above, dark line below)
+            // still provide the bevel hint; this shadow just adds
+            // the depth offset.
+            BoxShadow(vec![bevy::ui::ShadowStyle {
+                color: Color::srgba(0.0, 0.0, 0.0, 0.45),
+                // 4 px y-offset (was 8) so the shadow sits closer
+                // to the card and reads as a tight drop rather
+                // than a far-away cast. 10 px blur (was 18) keeps
+                // it soft but compact. 0 px spread (was 4) so the
+                // shadow doesn't bleed beyond the card's
+                // silhouette and create a wider halo.
+                x_offset: Val::Px(0.0),
+                y_offset: Val::Px(4.0),
+                spread_radius: Val::Px(0.0),
+                blur_radius: Val::Px(10.0),
+            }]),
             // Pickable makes the whole card area pickable so
             // `tick_subtitle_marquee` can read the card's `Interaction`
             // and scroll the description on hover. The CTA keeps its
@@ -5534,6 +5613,35 @@ fn spawn_card(
         ))
         .id();
     commands.entity(card).add_child(rim);
+
+    // Inner bottom-edge shadow — thin dark line at the bottom of
+    // the card body, complementary to the cyan rim at the top.
+    // Together they read as a beveled glass edge: light hits the
+    // top, shadow falls to the bottom, and the card visibly
+    // protrudes above the panel backdrop. The previous single-rim
+    // approach left the bottom edge visually flat, so the cards
+    // read as 2D rectangles rather than raised panels.
+    let bottom_shadow = commands
+        .spawn((
+            Node {
+                position_type: PositionType::Absolute,
+                bottom: Val::Px(0.0),
+                // Inset 0.5 px to match the top rim and avoid
+                // overlapping the corner radius.
+                left: Val::Px(0.5),
+                right: Val::Px(0.5),
+                height: Val::Px(1.0),
+                ..default()
+            },
+            // Dark shadow colour — same as the drop shadow's
+            // tint, slightly less alpha so it reads as the inner
+            // shadow cast by the rim rather than a duplicate
+            // outline.
+            BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.45)),
+            Name::new("card_bottom_shadow"),
+        ))
+        .id();
+    commands.entity(card).add_child(bottom_shadow);
 
     // Header row: icon + title + subtitle column. The row is a flex
     // row with the icon (16x16) on the left and the title_col on the
@@ -6686,44 +6794,59 @@ pub fn tick_subtitle_marquee(
 // sees the disjoint access scopes explicitly.
 pub fn tick_construction_scrollbar(
     // ParamSet gives the system disjoint mutable + immutable borrows
-    // on the same grid without tripping B0001. `tracks` reads the
-    // track node's measured height + size to scale the thumb; `grids`
-    // reads each grid's content height + scroll position so we can
-    // position the thumb. `thumbs` then writes the thumb's height
-    // + Y top-offset.
+    // on the same grid without tripping B0001. `tracks` reads each
+    // track's measured height + the scrollable target it points
+    // at; `bodies` reads each scrollable's content height + scroll
+    // position so we can position the thumb. `thumbs` then writes
+    // the thumb's height + Y top-offset.
     //
-    // The two `With<CardGrid>` queries are read-only on disjoint
-    // components (ComputedNode vs ScrollPosition) — but Bevy 0.18's
-    // planner still flags overlapping access to the same entity's
-    // archetype. We split them into the ParamSet so the access
-    // scopes are explicit.
+    // v0.5.2 PR-A.8: previously the queries were filtered by
+    // `With<CardGrid>` so only the Build tab's card grid had a
+    // scrollbar. Now we read the track's `target: Entity` field
+    // and look up the scrollable by id, so any tab with a
+    // `ConstructionScrollbarTrack { target, tab }` gets the same
+    // overlay (currently: Build + Mining).
     mut params: ParamSet<(
-        Query<&ComputedNode, With<CardGridScrollbarTrack>>,
-        Query<&ComputedNode, With<CardGrid>>,
-        Query<&ScrollPosition, With<CardGrid>>,
-        Query<&mut Node, With<CardGridScrollbarThumb>>,
+        Query<(&ComputedNode, &ConstructionScrollbarTrack)>,
+        Query<&ComputedNode>,
+        Query<&ScrollPosition>,
+        Query<&mut Node, With<ConstructionScrollbarThumb>>,
     )>,
+    ui_state: Res<ConstructionUiState>,
     mut metrics: ResMut<ConstructionScrollbarMetrics>,
 ) {
-    // We expect exactly one track and one grid, but loop to be safe
-    // (the canary is a single-canary test panel so the count is
-    // always 1). Read all inputs first so the ParamSet borrows drop
-    // before we write — Bevy 0.18 still flags holding multiple
-    // mutable borrows from one ParamSet as overlapping.
-    let track_height: f32 = {
+    // We expect exactly one active track (the visibility system
+    // hides the others), but loop to be safe. Read all inputs
+    // first so the ParamSet borrows drop before we write — Bevy
+    // 0.18 still flags holding multiple mutable borrows from one
+    // ParamSet as overlapping.
+    let track_data: Option<(f32, Entity)> = {
         let p0 = params.p0();
-        p0.iter().next().map(|c| c.size().y).unwrap_or(0.0)
+        // Find the track whose `tab` matches the currently-active
+        // body. The visibility system already flipped
+        // `Display::None` on the inactive tracks' nodes; their
+        // `ComputedNode::size()` may be stale but reading it is
+        // safe (returns last-known size). We rely on the `tab`
+        // field as the source of truth so we don't accidentally
+        // drive a hidden scrollbar's thumb.
+        let active = ConstructionTabBody::from_tab(ui_state.selected_tab);
+        p0.iter()
+            .find(|(_, track)| track.tab == active)
+            .map(|(c, track)| (c.size().y, track.target))
+    };
+    let Some((track_height, scrollable_entity)) = track_data else {
+        return;
     };
     let (grid_size, grid_content_height, scroll_y) = {
         let p1 = params.p1();
-        let Some(grid_computed) = p1.iter().next() else {
+        let Some(grid_computed) = p1.get(scrollable_entity).ok() else {
             return;
         };
         let grid_size = grid_computed.size();
         let grid_content_height = grid_computed.content_size().y;
         let scroll_y = {
             let p2 = params.p2();
-            let Some(scroll_pos) = p2.iter().next() else {
+            let Some(scroll_pos) = p2.get(scrollable_entity).ok() else {
                 return;
             };
             scroll_pos.y
@@ -6771,7 +6894,11 @@ pub fn tick_construction_scrollbar(
     metrics.max_scroll = max_scroll_y;
     // The thumb is `position_type: Absolute` with `top` /
     // `height` driven each frame. `top` is in parent-local pixels
-    // (the track's own coordinate space, top-left origin).
+    // (the track's own coordinate space, top-left origin). All
+    // thumbs get the same height + Y (only the visible one is
+    // hit by the picking backend; the hidden ones inherit
+    // `Display::None` from their parent track and never see a
+    // pointer event).
     for mut node in params.p3().iter_mut() {
         node.height = Val::Px(thumb_height);
         node.top = Val::Px(thumb_y);
@@ -6837,7 +6964,7 @@ pub(crate) struct ScrollbarDragState {
     pub(crate) press_track_y: f32,
 }
 
-// On-press observer for the `CardGridScrollbarThumb`. Fires when
+// On-press observer for the `ConstructionScrollbarThumb`. Fires when
 // the user presses the thumb; sets `ScrollbarDragState.active`
 // and records that the drag started on the thumb (not the
 // track). The observer stays attached for the lifetime of the
@@ -6854,7 +6981,7 @@ fn on_thumb_press(on: On<Pointer<Press>>, mut drag: ResMut<ScrollbarDragState>) 
     drag.press_track_y = 0.0;
 }
 
-// On-release observer for the `CardGridScrollbarThumb`. Fires
+// On-release observer for the `ConstructionScrollbarThumb`. Fires
 // when the user releases anywhere on the thumb (or, by observer
 // propagation, on any descendant). Clears the drag state.
 fn on_thumb_release(on: On<Pointer<Release>>, mut drag: ResMut<ScrollbarDragState>) {
@@ -6865,7 +6992,7 @@ fn on_thumb_release(on: On<Pointer<Release>>, mut drag: ResMut<ScrollbarDragStat
     drag.started_on_track = false;
 }
 
-// On-press observer for the `CardGridScrollbarTrack`. Fires
+// On-press observer for the `ConstructionScrollbarTrack`. Fires
 // when the user presses the empty track area (not the thumb,
 // which is a child and would consume the press first). The
 // press position is captured in the track's local Y so the
@@ -6873,7 +7000,7 @@ fn on_thumb_release(on: On<Pointer<Release>>, mut drag: ResMut<ScrollbarDragStat
 fn on_track_press(
     on: On<Pointer<Press>>,
     mut drag: ResMut<ScrollbarDragState>,
-    track_query: Query<&RelativeCursorPosition, With<CardGridScrollbarTrack>>,
+    track_query: Query<&RelativeCursorPosition, With<ConstructionScrollbarTrack>>,
 ) {
     if on.event.button != PointerButton::Primary {
         return;
@@ -6893,7 +7020,7 @@ fn on_track_press(
     drag.press_track_y = y;
 }
 
-// On-release observer for the `CardGridScrollbarTrack`. Mirrors
+// On-release observer for the `ConstructionScrollbarTrack`. Mirrors
 // `on_thumb_release` — clears the drag state when the pointer
 // button is released.
 fn on_track_release(on: On<Pointer<Release>>, mut drag: ResMut<ScrollbarDragState>) {
@@ -6906,7 +7033,13 @@ fn on_track_release(on: On<Pointer<Release>>, mut drag: ResMut<ScrollbarDragStat
 
 pub fn tick_construction_scrollbar_drag(
     mut cursor_events: MessageReader<CursorMoved>,
-    mut grid_query: Query<&mut ScrollPosition, With<CardGrid>>,
+    ui_state: Res<ConstructionUiState>,
+    tracks: Query<&ConstructionScrollbarTrack>,
+    // Untyped `ScrollPosition` query — we look up the scrollable
+    // entity by id from the active track's `target` field rather
+    // than filtering by a marker, since the scrollable can be the
+    // Build tab's card grid OR the Mining tab's body.
+    mut scrollable_query: Query<&mut ScrollPosition>,
     metrics: Res<ConstructionScrollbarMetrics>,
     mut drag: ResMut<ScrollbarDragState>,
 ) {
@@ -6918,10 +7051,28 @@ pub fn tick_construction_scrollbar_drag(
         return;
     }
 
+    // 2) Find the active track's scrollable entity. The drag
+    //    may have started on a track that's been hidden by a
+    //    tab switch (e.g. user pressed the Mining scrollbar
+    //    then switched to Build while still holding the
+    //    button). Cancel the drag in that case rather than
+    //    drive a hidden scrollable.
+    let active = ConstructionTabBody::from_tab(ui_state.selected_tab);
+    let scrollable = tracks
+        .iter()
+        .find(|t| t.tab == active)
+        .map(|t| t.target);
+    let Some(scrollable_entity) = scrollable else {
+        drag.active = false;
+        drag.started_on_track = false;
+        cursor_events.clear();
+        return;
+    };
+
     let travel = (metrics.usable_track_height - metrics.thumb_height).max(1.0);
     let factor = metrics.max_scroll / travel;
 
-    // 2) Page-jump snap: if the drag *started* on the empty
+    // 3) Page-jump snap: if the drag *started* on the empty
     //    track (not the thumb), the observer already captured
     //    the press Y in `drag.press_track_y`. Apply the snap
     //    exactly once and then suppress further snaps until
@@ -6933,7 +7084,7 @@ pub fn tick_construction_scrollbar_drag(
             (metrics.usable_track_height - metrics.thumb_height).max(0.0),
         );
         let target_scroll: f32 = target_thumb_y * factor;
-        if let Ok(mut pos) = grid_query.single_mut() {
+        if let Ok(mut pos) = scrollable_query.get_mut(scrollable_entity) {
             pos.y = target_scroll.clamp(0.0_f32, metrics.max_scroll);
         }
         // The page-jump snap already moved the scroll. Drop any
@@ -6947,7 +7098,7 @@ pub fn tick_construction_scrollbar_drag(
         return;
     }
 
-    // 3) Continuous drag: each `CursorMoved.delta.y` translates
+    // 4) Continuous drag: each `CursorMoved.delta.y` translates
     //    into a `ScrollPosition` change. The conversion factor
     //    is `max_scroll / (usable_track - thumb_height)`: 1 pixel
     //    of pointer Y → `factor` pixels of scroll.
@@ -6963,7 +7114,7 @@ pub fn tick_construction_scrollbar_drag(
         // didn't actually move this frame.
         let Some(delta) = event.delta else { continue };
         let dy = delta.y;
-        if let Ok(mut pos) = grid_query.single_mut() {
+        if let Ok(mut pos) = scrollable_query.get_mut(scrollable_entity) {
             pos.y = (pos.y + dy * factor).clamp(0.0, metrics.max_scroll);
         }
     }
@@ -7039,6 +7190,20 @@ pub fn tick_ui_scroll_on_wheel(
         Query<(Entity, &mut ScrollPosition, &ComputedNode)>,
     )>,
     parents: Query<&ChildOf>,
+    // v0.5.2 PR-A.9 (2026-08-05): the scrollbar track is parented
+    // to the panel root (not to its target scrollable) so it
+    // stays pinned when the user scrolls. That means a wheel
+    // event that lands on the track — picking the slim 12-px
+    // track instead of the body behind it — would walk up the
+    // chain and never find an `Overflow::scroll_y` ancestor
+    // (the panel root has none). The user would see "wheel
+    // doesn't work" exactly when their cursor happened to be
+    // over the new track. We resolve by recognising the track
+    // here: if the hover starts on a `ConstructionScrollbarTrack`
+    // (or any descendant like the thumb), use its `target` field
+    // as the scrollable directly. The walk-up still works for
+    // cards / body / chips; only the track needs the lookup.
+    tracks: Query<&ConstructionScrollbarTrack>,
 ) {
     for event in wheel_events.read() {
         // Skip zero-delta events (some mice emit X-only scrolls).
@@ -7060,34 +7225,52 @@ pub fn tick_ui_scroll_on_wheel(
             .keys()
             .next()
             .expect("non-empty checked above");
-        // Walk up the parent chain (immutable scope) looking for
-        // the first ancestor whose `Overflow` is `OverflowAxis::Scroll`
-        // on the y axis AND whose `Node::display` is not `None`.
-        // v0.5.2: the Build tab's `card_grid` is `Display::None` on
-        // Overview / Buildings / Mining (driven by
-        // `tick_construction_body_visibility`); without the
-        // visibility check, a wheel event that lands on a hidden
-        // scrollable would target the wrong body. The hidden body
-        // can't be hit by hover in Bevy 0.18 (Display::None is
-        // respected by the picking backend), but the check is
-        // belt-and-braces in case the body is mid-transition.
-        let mut cursor = start_entity;
+        // v0.5.2 PR-A.9 (2026-08-05): fast path — if the
+        // hovered entity is a scrollbar track (or any
+        // descendant of one), use the track's `target` field
+        // as the scrollable. Walking up from the track would
+        // reach the panel root (no `Overflow::scroll_y`) and
+        // the wheel would no-op, which is the user-visible
+        // "Mining tab doesn't scroll" bug.
         let mut scrollable: Option<Entity> = None;
-        loop {
-            // Read-only pass via `p0()`. Holding this borrow ends
-            // when we exit the `if let` block.
-            if let Ok((_entity, node, _computed)) = nodes.p0().get(cursor) {
-                if matches!(node.overflow.y, OverflowAxis::Scroll)
-                    && node.display != Display::None
-                {
-                    scrollable = Some(cursor);
+        // 1) Is the start entity itself a track?
+        if let Ok(track) = tracks.get(start_entity) {
+            scrollable = Some(track.target);
+        } else {
+            // 2) Walk up to find a track ancestor (the thumb is
+            //    a child of the track). The walk is bounded by
+            //    panel depth (3-4 hops) so the cost is trivial.
+            let mut cursor = start_entity;
+            for _ in 0..10 {
+                if let Ok(track) = tracks.get(cursor) {
+                    scrollable = Some(track.target);
                     break;
                 }
+                let Ok(parent) = parents.get(cursor) else {
+                    break;
+                };
+                cursor = parent.0;
             }
-            let Ok(parent) = parents.get(cursor) else {
-                break;
-            };
-            cursor = parent.0;
+        }
+        // 3) If no track ancestor, fall back to the original
+        //    walk-up that finds the first `Overflow::scroll_y`
+        //    ancestor. This is the path for cards / chips /
+        //    group headers / body — i.e. anything inside the
+        //    scrollable itself, which has the right overflow.
+        if scrollable.is_none() {
+            let mut cursor = start_entity;
+            loop {
+                if let Ok((_entity, node, _computed)) = nodes.p0().get(cursor) {
+                    if matches!(node.overflow.y, OverflowAxis::Scroll) {
+                        scrollable = Some(cursor);
+                        break;
+                    }
+                }
+                let Ok(parent) = parents.get(cursor) else {
+                    break;
+                };
+                cursor = parent.0;
+            }
         }
         let Some(scrollable_entity) = scrollable else {
             continue;
