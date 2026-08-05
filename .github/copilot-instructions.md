@@ -729,6 +729,44 @@ canonical pattern.
 ### Worktree & Build-Artifact Safety (recap)
 - See **Multi-Agent Worktree Safety** at the top of this document. The TL;DR: never `git stash`, never `cargo clean`, never `git reset --hard`, never `rm -rf target/` in a shared worktree. Use a fresh worktree (`git worktree add`) for hermetic experiments, and re-run failing tests on a clean `main` worktree to confirm pre-existence rather than stashing. This rule applies to **every agent** working in this repo.
 
+### Splash / First-Frame Stall Prevention (CRITICAL)
+
+A ~20 s splash black-box regression was git-bisected to commit `4d4dc23`
+and fixed in commit `2d3223d` (2026-08-05). **Do not silently re-introduce
+the same pattern.** Details, the bisection method, and the canonical
+fix are in `memories/repo/splash-stall-prevention.md`. The invariant
+the repo must keep:
+
+- **Async + batch processes must cap their per-frame work**. Any system
+  that processes an unknown or large number of items in one `Update`
+  tick — and where each item's cost is O(pixels) or O(vertices) — must
+  use a per-frame budget (e.g. `MAX_ICONS_PER_FRAME = 2`) and resume
+  on later frames. The canonical example is `src/ui/resource_icons.rs`
+  (`load_resource_icons` + `post_process_resource_icons`). If you add
+  a new icon set, atlas, or asset pre-bake, follow the same pattern.
+- **No per-pixel RGBA loops on 1024×1024 buffers in a single frame.**
+  ~4.2M pixel writes × N items = measurable seconds even on a fast
+  CPU. If a transform is "free" because the output buffer is the same
+  shape, question whether it is redundant with another pass (the
+  original `process_and_downscale_bevy_icon` had a redundant full-res
+  RGB→white loop that the downscale pass already performed — it was
+  deleted).
+- **Splash / launch timer systems must clamp their per-frame dt.**
+  `Time<Real>` records the frame's full wall-clock delta, so a
+  multi-second first-frame stall (DX12 + custom-shader pipeline warm-up,
+  asset IO, etc.) instantly trips any max-duration fallback. The
+  maximum clamped dt for the splash subsystem is `MAX_SPLASH_FRAME_DT_S`
+  in `src/ui/launch/splash.rs` (0.25 s). Any new "auto-dismiss after N
+  seconds" timer in the splash / launch / menu flow must apply the
+  same clamp and ship a regression test that asserts a 20 s simulated
+  first-frame dt does not trip the max duration.
+
+**When you see a "game hangs for N seconds at startup" or "menu takes N
+seconds to appear" report, bisect by worktree-per-commit.** Do not
+reason about plugins, schedules, or renderer order. The pattern is
+purely a CPU cost on the main thread and the bisection recipe is in
+`memories/repo/splash-stall-prevention.md`.
+
 ## Getting Help
 
 - Check the [Bevy documentation](https://bevyengine.org/)
