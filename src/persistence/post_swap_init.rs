@@ -124,6 +124,35 @@ use crate::plugins::solar_system_data::{
 #[derive(Resource, Debug, Default, Clone, Copy)]
 pub struct RestoredBodiesRendered;
 
+/// Resolve `solar_system.ron` data, preferring the boot pre-parse
+/// cache warmed during menu time.
+///
+/// ## Why (v0.5.2, 2026-08-05)
+///
+/// The Restore path previously parsed `solar_system.ron`
+/// **synchronously up to four times**: `regenerate_bodies_minimal`
+/// (stub spawn, in `state_store_apply.rs`), `populate_restored_bodies_3d`
+/// (orbit/mesh decoration), `populate_planet_resources` (deposits),
+/// and `populate_restored_star_shells` (star shells). New Game gets
+/// the file for free via the async pre-parse (`BootPreParseState`),
+/// so Restore should too: this helper returns the warmed cache when
+/// available and only falls back to a synchronous `load_from_file`
+/// when the player clicked before the pre-parse finished.
+///
+/// The caller passes `world` (the live `App` world — the same world
+/// `BootPreParseState` lives in). Returns `None` on any load failure
+/// so the caller can log + degrade gracefully (stub bodies stay
+/// invisible) instead of panicking.
+fn resolve_solar_data(world: &World) -> Option<SolarSystemData> {
+    if let Some(cached) = world
+        .get_resource::<crate::boot_init::BootPreParseState>()
+        .and_then(|p| p.solar_data.clone())
+    {
+        return Some(cached);
+    }
+    SolarSystemData::load_from_file("assets/data/solar_system.ron").ok()
+}
+
 /// Populate the 3D scene for the restore path. Runs on the live
 /// `App`'s world, AFTER `swap_world_into` has committed the
 /// minimal-body stub set.
@@ -165,12 +194,12 @@ pub fn populate_restored_bodies_3d(world: &mut World) {
         return;
     }
 
-    let data = match SolarSystemData::load_from_file("assets/data/solar_system.ron") {
-        Ok(d) => d,
-        Err(e) => {
+    let data = match resolve_solar_data(world) {
+        Some(d) => d,
+        None => {
             warn!(
-                "populate_restored_bodies_3d: failed to load solar_system.ron ({e}); \
-                 bodies will remain stubs"
+                "populate_restored_bodies_3d: failed to load solar_system.ron (cache miss + \
+                 sync load failure); bodies will remain stubs"
             );
             world.insert_resource(RestoredBodiesRendered);
             return;
@@ -504,15 +533,15 @@ pub fn populate_restored_bodies_3d(world: &mut World) {
 /// restore reproduces the same deposit map as the original
 /// New Game.
 fn populate_planet_resources(world: &mut World) {
-    // Reload solar_system.ron so we can re-derive distance /
-    // frost-line values per body in the same loop. Cheap —
-    // ~700 rows and the loader is plain `ron::from_str`.
-    let data = match SolarSystemData::load_from_file("assets/data/solar_system.ron") {
-        Ok(d) => d,
-        Err(e) => {
+    // Use the boot pre-parse cache when available; fall back to a
+    // synchronous load otherwise (v0.5.2 — Restore no longer pays
+    // 4 sync parses of solar_system.ron).
+    let data = match resolve_solar_data(world) {
+        Some(d) => d,
+        None => {
             warn!(
-                "populate_planet_resources: failed to load solar_system.ron ({e}); \
-                 mining deposits will stay empty"
+                "populate_planet_resources: failed to load solar_system.ron (cache miss + \
+                 sync load failure); mining deposits will stay empty"
             );
             return;
         }
@@ -673,8 +702,10 @@ fn populate_restored_star_shells(world: &mut World) {
             .collect()
     };
 
-    // Look up RON data for emissive colour overrides.
-    let data = SolarSystemData::load_from_file("assets/data/solar_system.ron").ok();
+    // Look up RON data for emissive colour overrides. Use the
+    // boot pre-parse cache when available (v0.5.2 — Restore no
+    // longer pays 4 sync parses of solar_system.ron).
+    let data = resolve_solar_data(world);
     let by_name: std::collections::HashMap<&str, &CelestialBodyData> = data
         .as_ref()
         .map(|d| d.bodies.iter().map(|b| (b.name.as_str(), b)).collect())

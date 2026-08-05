@@ -385,20 +385,30 @@ fn entry_timestamp(entry: &SaveSummary) -> Option<u64> {
 ///
 /// The on-disk format is a v2 [`StateStore`] — `metadata`, an
 /// optional divergences array, and per-section sub-stores
-/// (fleets, research, economy, ui, etc.). We read the whole file
-/// (saves are KB-scale per the persistence module's CLAUDE.md
-/// note) and dispatch on the magic header
-/// `helios_state_store_v2`; anything past that header is an
-/// unsupported legacy v1 DynamicScene save. The parsed metadata
-/// block is converted to a [`SaveHeader`] field-by-field.
+/// (fleets, research, economy, ui, etc.). We dispatch on the magic
+/// header `helios_state_store_v2`; anything past that header is an
+/// unsupported legacy v1 DynamicScene save.
+///
+/// ## Header-only parse (2026-08-05)
+///
+/// The scanner only needs `metadata` (timestamp, seed, version,
+/// preview) to build the menu list — the divergences/bodies/fleets/
+/// economy/notifications sub-stores are read later, only when the
+/// player actually clicks Load. So instead of `StateStore::from_ron`
+/// (which deserialises the entire body), we deserialise a
+/// `SaveHeaderOnly` struct that carries just `metadata`. Serde
+/// ignores unknown fields by default, so the same RON body parses
+/// in a fraction of the time — the expensive bodies/fleets maps
+/// never materialise.
 ///
 /// v1 history: PR-A scanned a 4 KB prefix against a bare
 /// [`SaveHeader`] struct; the struct's field names never matched
 /// the [`StateStoreMetadata`] the writer actually emits, so the
 /// prefix scan silently produced all-None headers on small saves
 /// and truncated mid-string on larger ones. PR-I replaced that
-/// code path entirely — the magic-header sniff + full-file
-/// StateStore parse is the only legitimate scan path now.
+/// code path with the magic-header sniff + full-file StateStore
+/// parse. This header-only variant keeps PR-I's magic sniff and
+/// adds the metadata-only decode.
 pub fn parse_header_from_file(path: &Path) -> Result<SaveHeader, String> {
     let bytes = fs::read(path).map_err(|e| format!("read failed: {}", e))?;
     if bytes.is_empty() {
@@ -415,37 +425,29 @@ pub fn parse_header_from_file(path: &Path) -> Result<SaveHeader, String> {
         .trim_start()
         .starts_with(crate::persistence::state_store::StateStore::MAGIC)
     {
-        let store = crate::persistence::state_store::StateStore::from_ron(text)
-            .map_err(|e| format!("StateStore parse failed: {e}"))?;
-        // Convert the StateStore preview into the
-        // SaveHeader's SavePreview shape. The fields are
-        // identical so the conversion is a field-by-field
-        // copy (no expensive deep work).
-        let preview = SavePreview {
-            current_date: store.metadata.preview.current_date.clone(),
-            colony_count: store.metadata.preview.colony_count,
-            total_population: store.metadata.preview.total_population,
-            ship_count: store.metadata.preview.ship_count,
-            power_produced_watts: store.metadata.preview.power_produced_watts,
-            kardashev_value: store.metadata.preview.kardashev_value,
-            resources: store.metadata.preview.resources.clone(),
-            kardashev_history: store.metadata.preview.kardashev_history.clone(),
-            screenshot_file: store.metadata.preview.screenshot_file.clone(),
-        };
-        return Ok(SaveHeader {
-            format_version: Some(store.metadata.format_version),
-            saved_at_unix_s: Some(store.metadata.saved_at_unix_s as u64),
-            playtime_s: Some(store.metadata.playtime_s as u64),
-            seed: Some(store.metadata.seed),
-            helios_version: Some(store.metadata.helios_version.clone()),
-            preview,
-        });
+        // Strip the magic line (same as `StateStore::from_ron`), then
+        // deserialise ONLY the metadata block. Serde ignores the
+        // unknown bodies/fleets/research/… fields entirely.
+        let body_start = text.find('\n').ok_or("save has no body".to_string())? + 1;
+        let only: SaveHeaderOnly = ron::from_str(&text[body_start..])
+            .map_err(|e| format!("StateStore metadata parse failed: {e}"))?;
+        let header = SaveHeader::from_metadata(&only.metadata);
+        return Ok(header);
     }
 
     // v1 path: retired in PR-I. PR-I ships the v2 StateStore
     // format only, so anything past the magic-header check is
     // an unsupported legacy save.
     Err("save is not a v2 StateStore (PR-I dropped the v1 DynamicScene format)".to_string())
+}
+
+/// Minimal deserialisation target for the header-only scan path.
+/// Carries just the `metadata` block; serde drops the other
+/// `StateStore` fields (bodies, fleets, research, economy, ui,
+/// notifications, surveys, meta_autosave) without parsing them.
+#[derive(Debug, serde::Deserialize)]
+struct SaveHeaderOnly {
+    pub metadata: StateStoreMetadata,
 }
 
 #[cfg(test)]

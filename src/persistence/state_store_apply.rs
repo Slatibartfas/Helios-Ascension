@@ -51,6 +51,7 @@ use crate::fleets::types::{FleetRole, PropulsionType, ShipClass};
 use crate::persistence::playtime::PlaytimeTracker;
 use crate::plugins::camera::ViewMode;
 use crate::plugins::solar_system::CelestialBody;
+use crate::plugins::solar_system_data::SolarSystemData;
 use crate::research::components::ResearchTeamCapacity;
 use crate::research::systems::ResearchState;
 use crate::survey::types::SurveyDimension;
@@ -212,17 +213,40 @@ fn world_has_celestial_bodies(world: &mut World) -> bool {
 /// RON loader failed or the world already had entities (so we
 /// could leave a useful log line on the warning trail).
 pub(crate) fn regenerate_bodies_minimal(world: &mut World, start_timestamp: i64) -> bool {
-    use crate::plugins::solar_system_data::SolarSystemData;
+    regenerate_bodies_minimal_cached(world, start_timestamp, None)
+}
 
-    let data = match SolarSystemData::load_from_file("assets/data/solar_system.ron") {
-        Ok(d) => d,
-        Err(e) => {
-            warn!(
-                "regenerate_bodies_minimal: failed to load solar_system.ron ({e}); \
-                 per-body divergences will be skipped"
-            );
-            return false;
-        }
+/// Cache-aware variant of [`regenerate_bodies_minimal`]: when
+/// `cached` carries the boot pre-parse result (warmed during menu
+/// time by `BootPreParseState`, see `src/boot_init.rs`), it is used
+/// directly — no second `solar_system.ron` read + RON decode.
+/// Falls back to `SolarSystemData::load_from_file` when `None`.
+///
+/// ## Why (v0.5.2, 2026-08-05)
+///
+/// The restore path previously parsed `solar_system.ron` **twice**
+/// synchronously: once here (to spawn the stub bodies) and again in
+/// `populate_restored_bodies_3d` (`post_swap_init.rs`). New Game
+/// gets the same file for free via the async pre-parse cache; the
+/// restore path should too. See `resolve_solar_data` in
+/// `post_swap_init.rs`.
+pub(crate) fn regenerate_bodies_minimal_cached(
+    world: &mut World,
+    start_timestamp: i64,
+    cached: Option<SolarSystemData>,
+) -> bool {
+    let data = match cached {
+        Some(d) => d,
+        None => match SolarSystemData::load_from_file("assets/data/solar_system.ron") {
+            Ok(d) => d,
+            Err(e) => {
+                warn!(
+                    "regenerate_bodies_minimal: failed to load solar_system.ron ({e}); \
+                     per-body divergences will be skipped"
+                );
+                return false;
+            }
+        },
     };
 
     // Filter out historically-destroyed bodies the same way

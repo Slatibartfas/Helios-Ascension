@@ -247,6 +247,27 @@ impl PreloadedMenuAssets {
     pub fn is_initialized(&self) -> bool {
         self.earth_daymap != Handle::<Image>::default()
     }
+
+    /// True when every preload handle has been populated AND the
+    /// underlying asset has finished decoding (present in
+    /// `Assets<Image>`).
+    ///
+    /// ## Why (v0.5.2, 2026-08-05, bugfix round 2)
+    ///
+    /// The four 8K textures are ~30 MB combined. `preload_menu_assets`
+    /// kicks the load off at `Startup`, but the backdrop spawns on the
+    /// menu's first frame — if the decode + GPU upload isn't done by
+    /// then, the first few seconds of the Moon's orbit stutter as the
+    /// render thread uploads 30 MB of textures mid-animation. Waiting
+    /// for the assets to be *ready* (not just requested) before
+    /// spawning means the menu's first paint is already smooth.
+    pub fn all_ready(&self, images: &Assets<Image>) -> bool {
+        self.is_initialized()
+            && images.contains(&self.earth_daymap)
+            && images.contains(&self.earth_normal)
+            && images.contains(&self.earth_clouds)
+            && images.contains(&self.moon_8k)
+    }
 }
 
 /// Startup system: kick off the async load of the menu backdrop's
@@ -355,6 +376,7 @@ fn menu_backdrop_transition_system(
     mut materials: ResMut<Assets<StandardMaterial>>,
     asset_server: Res<AssetServer>,
     preloaded: Res<PreloadedMenuAssets>,
+    images: Res<Assets<Image>>,
     marker_query: Query<Entity, (With<MenuBackdropMarker>, Without<ChildOf>)>,
     // GRA-XYZ: append `&mut CameraAnchor` to the camera query so the
     // enter-path can snapshot the player's anchor (e.g. Saturn) and
@@ -377,6 +399,24 @@ fn menu_backdrop_transition_system(
     if in_menu && !active.0 {
         // ── Entering the menu family (first frame OR state edge):
         // spawn backdrop + save camera state. Idempotent — sets active.0.
+        //
+        // Wait for the preloaded textures to be READY (v0.5.2 bugfix
+        // round 2): spawning on the first menu frame while the 8K
+        // textures are still streaming makes the Moon's orbit stutter
+        // for the first few seconds (the render thread uploads ~30 MB
+        // mid-animation). If the assets aren't loaded yet, skip this
+        // frame — the system re-fires next frame and the menu shows
+        // the dark backdrop + egui menu meanwhile. This only delays
+        // the *spawn*; the first painted backdrop frame is already
+        // smooth.
+        //
+        // Fallback: if the preload system never ran (a test App that
+        // boots straight into the menu without `Startup`), spawn
+        // anyway and let `spawn_menu_earth` live-load the textures.
+        if preloaded.is_initialized() && !preloaded.all_ready(&images) {
+            // Textures still streaming — wait one frame.
+            return;
+        }
         info!(
             "menu_backdrop: spawn branch fired (in_menu={}, active={})",
             in_menu, active.0
@@ -908,5 +948,50 @@ mod tests {
                 t
             );
         }
+    }
+
+    #[test]
+    fn preloaded_assets_require_all_four_textures_ready() {
+        let preloaded = PreloadedMenuAssets::default();
+        // Not initialized (default handles) → not ready, even against
+        // an empty asset store.
+        let mut images = Assets::<Image>::default();
+        assert!(!preloaded.all_ready(&images));
+
+        // Populate one handle in the store but NOT the resource →
+        // still uninitialized → not ready.
+        let h = images.add(Image::default());
+        let preloaded_partial = PreloadedMenuAssets {
+            earth_daymap: h,
+            ..default()
+        };
+        assert!(!preloaded_partial.all_ready(&images));
+
+        // All four handles populated + present in the store → ready.
+        let daymap = images.add(Image::default());
+        let normal = images.add(Image::default());
+        let clouds = images.add(Image::default());
+        let moon = images.add(Image::default());
+        let full = PreloadedMenuAssets {
+            earth_daymap: daymap,
+            earth_normal: normal,
+            earth_clouds: clouds,
+            moon_8k: moon,
+        };
+        assert!(full.all_ready(&images));
+
+        // One handle missing from the store (despawned asset) → not
+        // ready — this is the exact "spawn while streaming" guard.
+        let mut images2 = Assets::<Image>::default();
+        let present = images2.add(Image::default());
+        let missing = images2.add(Image::default());
+        images2.remove(missing.id());
+        let partial = PreloadedMenuAssets {
+            earth_daymap: present.clone(),
+            earth_normal: missing,
+            earth_clouds: present.clone(),
+            moon_8k: present,
+        };
+        assert!(!partial.all_ready(&images2));
     }
 }

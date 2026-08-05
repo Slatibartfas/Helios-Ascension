@@ -45,6 +45,7 @@ use super::state_store_extract::extract_state_store;
 use crate::economy::{kardashev_scale_from_watts, ResourceType, SimulationHistory};
 use crate::game_state::GameSeed;
 use crate::persistence::playtime::PlaytimeTracker;
+use crate::plugins::solar_system_data::SolarSystemData;
 use crate::ui::launch::save_index::{SaveIndex, SaveIndexState};
 use crate::ui::launch::userdata::{resolve_userdata_dir, PersistentSettings};
 use crate::ui::launch::{LaunchState, NewGameRequest};
@@ -202,6 +203,21 @@ pub fn play_new_game(world: &mut World, request: NewGameRequest) -> Result<u64, 
     // them so the boot-init chain's spawners actually fire.
     world.remove_resource::<crate::fleets::DayOneFleetSpawned>();
     world.remove_resource::<crate::fleets::DebugEarthJupiterFleetSpawned>();
+    // Same hazard for the world-spawn markers (v0.5.2,
+    // 2026-08-05): `setup_solar_system` and
+    // `populate_nearby_systems` gate on
+    // `SolarSystemSpawned` / `NearbySystemsPopulated`
+    // respectively. After a "🏠 Main Menu" → New Game
+    // cycle the swap despawns the old session's entities but
+    // these markers survive the resource pass (they're
+    // `#[reflect(Resource)]`), so without stripping them the
+    // boot-init chain's step 0 / step 3 would short-circuit
+    // and the new world would come up empty — the empty-world
+    // hazard flagged in `boot_init.rs`'s reset-path note.
+    // `play_new_game` already strips the fleet markers here;
+    // the body-spawn markers belong in the same strip list.
+    world.remove_resource::<crate::plugins::solar_system::SolarSystemSpawned>();
+    world.remove_resource::<crate::plugins::system_populator::NearbySystemsPopulated>();
 
     let fresh = build_minimal_world(seed);
 
@@ -335,6 +351,15 @@ fn build_minimal_world(seed: u64) -> World {
 /// to not set `ChildOf` on rings so the live world never has
 /// a `Children`-bearing parent after a swap).
 pub fn build_minimal_world_for_restore() -> World {
+    build_minimal_world_for_restore_cached(None)
+}
+
+/// Cache-aware variant of [`build_minimal_world_for_restore`]:
+/// when `cached` carries the boot pre-parse result (warmed during
+/// menu time by `BootPreParseState`), `regenerate_bodies_minimal`
+/// skips the synchronous `solar_system.ron` read + RON decode.
+/// See [`super::state_store_apply::regenerate_bodies_minimal_cached`].
+pub fn build_minimal_world_for_restore_cached(cached: Option<SolarSystemData>) -> World {
     let mut world = build_minimal_world(0);
     // Seed the regen-minimal body stub set so `apply_bodies`
     // can find bodies to attach divergences to. The apply
@@ -342,7 +367,7 @@ pub fn build_minimal_world_for_restore() -> World {
     // calls `regenerate_bodies_minimal`, but doing it here
     // makes the factory contract explicit: the world already
     // has the baseline bodies when `apply_state_store` runs.
-    crate::persistence::state_store_apply::regenerate_bodies_minimal(&mut world, 0);
+    crate::persistence::state_store_apply::regenerate_bodies_minimal_cached(&mut world, 0, cached);
     world
 }
 

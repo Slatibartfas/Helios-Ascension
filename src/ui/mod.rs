@@ -36,6 +36,7 @@ mod personnel_panel;
 mod porkchop_color_ramp;
 mod porkchop_panel;
 mod research_panel;
+mod icon_cache;
 mod resource_icons;
 mod resources_bar;
 mod settings;
@@ -700,6 +701,7 @@ impl Plugin for UIPlugin {
             .init_resource::<Settings>()
             .init_resource::<ShippingCompanyFilter>()
             .init_resource::<FleetUiState>()
+            .init_resource::<resource_icons::ResourceIconNeeds>()
             // GRA-367-A Phase 1: planner-shaped mirror of the transfer
             // state.  Rebuilt from `FleetUiState` each frame inside
             // `render_transfer_planner` (Phase 1 keeps `FleetUiState`
@@ -854,7 +856,13 @@ impl Plugin for UIPlugin {
                 (
                     sync_selection_with_astronomy,
                     sync_active_menu_with_view_mode,
-                    advance_simulation_time,
+                    advance_simulation_time
+                        // v0.5.2 (2026-08-05): sim time only
+                        // advances in-game. Freezing it on the menu
+                        // stops the clock from accruing while the
+                        // player reads the menu; it resumes the
+                        // moment the launch flow hands over.
+                        .run_if(in_game_chrome),
                     process_menu_icons,
                     process_research_icons,
                     // v0.5.2 PR-A.4 follow-up: post-process
@@ -869,8 +877,11 @@ impl Plugin for UIPlugin {
                     // and bake them into egui `TextureHandle`s
                     // for the resources bar. Runs every frame
                     // (cheap) so any newly-authored icon file
-                    // picks up on the next tick.
-                    resource_icons::load_resource_icons,
+                    // picks up on the next tick. Gated on
+                    // `in_game_chrome` so the main menu does
+                    // zero icon work (the resources bar only
+                    // renders in-game).
+                    resource_icons::load_resource_icons.run_if(in_game_chrome),
                     switch_anchor_on_arrival
                         .after(crate::fleets::systems::complete_fleet_maneuvers),
                 ),

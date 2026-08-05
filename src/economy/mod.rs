@@ -10,6 +10,15 @@
 
 use bevy::prelude::*;
 
+/// `run_if` predicate: true only once the launch flow has handed
+/// control to the simulation (mirrors `in_game_chrome` in
+/// `src/ui/mod.rs`). Used to gate per-frame economy systems that
+/// are meaningless in the menu (no colonies, no stockpiles, no
+/// storage modifiers).
+fn in_game_only(launch_state: Res<crate::ui::launch::LaunchState>) -> bool {
+    launch_state.is_in_game()
+}
+
 pub mod auto_build;
 pub mod auto_freight;
 pub mod budget;
@@ -93,13 +102,28 @@ impl Plugin for EconomyPlugin {
             .add_systems(
                 Update,
                 (
-                    update_storage_capacity,
+                    update_storage_capacity
+                        // v0.5.2 (2026-08-05): colony storage
+                        // modifiers only change when buildings change,
+                        // and the menu has no colonies. Gated on
+                        // in-game so the per-frame colonies ×
+                        // buildings × modifiers walk is skipped in
+                        // the menu.
+                        .run_if(in_game_only),
                     update_power_grid,
                     update_civilization_score.after(update_power_grid),
                     extract_resources,
                     update_resource_rates,
                     // Context-aware aggregation: must run after mining/production
-                    update_contextual_stockpile.after(extract_resources),
+                    update_contextual_stockpile
+                        .after(extract_resources)
+                        // v0.5.2 (2026-08-05): the stockpile
+                        // aggregation is display-only (the resources
+                        // bar reads it). It clears + re-sums every
+                        // body's LocalStockpile each frame; the menu
+                        // has no stockpiles to sum, so gate it on
+                        // in-game.
+                        .run_if(in_game_only),
                     // Logistics: check minimums → company AI → deliver → return freighters
                     // check_minimum_stockpile_requests must run after extraction/drains
                     // so it reads up-to-date stockpile values.

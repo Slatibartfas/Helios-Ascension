@@ -433,10 +433,13 @@ fn size_window_to_image(
 ///    letting impatient players skip the splash once the brand has
 ///    had its mandated on-screen time.
 ///
-/// When `BootState::Loading`, a small "Loading…" label is painted
-/// under the logo so the player can see the boot-init chain is in
-/// progress. The label disappears on the same frame the splash
-/// dismisses.
+/// When `BootState::Loading`, a small spinner + "Loading…" label is
+/// painted under the logo (v0.5.2, 2026-08-05). The label is an
+/// indeterminate indicator — the boot-init chain is gated on
+/// `WorldReady` (player decision), so during the splash there is no
+/// real progress to report. The actual `N/15` progress moves to the
+/// post-kickoff boot overlay (`src/ui/launch/boot_overlay.rs`), which
+/// shows once the player clicks New Game / Continue / Load.
 pub fn ui_splash_system(
     commands: Commands,
     mut contexts: EguiContexts,
@@ -446,7 +449,6 @@ pub fn ui_splash_system(
     splash_logo_image: Option<Res<SplashLogoImage>>,
     manifest: Res<LaunchUiManifest>,
     boot_state: Res<crate::boot_init::BootState>,
-    boot_progress: Option<Res<crate::boot_init::BootProgress>>,
     keyboard_input: Res<ButtonInput<KeyCode>>,
     real_time: Res<Time<Real>>,
     mut splash_timer: ResMut<SplashTimer>,
@@ -525,22 +527,29 @@ pub fn ui_splash_system(
 
     let still_loading = *boot_state == crate::boot_init::BootState::Loading;
 
-    // Build the progress label. `BootProgress` is optional because
-    // the splash egui system runs during `SplashContextPass`, which
-    // the bevy_egui multi-pass schedule drives once the splash
-    // camera's egui context is initialized — typically frame 1 or
-    // 2. If the resource isn't yet present (very early frames, or a
-    // plugin-build that hasn't inserted it yet) fall back to the
-    // bare "Loading…" label so the player always sees feedback.
+    // Indeterminate progress indicator (v0.5.2, 2026-08-05).
     //
-    // `min(step + 1, total)` instead of `step` so the closing frame
-    // shows `15/15` instead of `14/15` — `mark_boot_ready` flips
-    // `done = true` but the splash may have already painted with
-    // `step == 14` before the flip lands.
-    let progress_label = boot_progress.as_ref().map(|p| {
-        let shown = (p.step as u32).saturating_add(1).min(p.total);
-        format!("Loading… {shown}/{}", p.total)
-    });
+    // The old code rendered `Loading… {step+1}/{total}` from
+    // `BootProgress`, but the boot-init chain is gated on
+    // `WorldReady` (inserted only after the player clicks New
+    // Game / Continue / Load — see `swap.rs`), so during the
+    // splash `BootProgress` is frozen at step 0 and the label
+    // claimed `Loading… 1/15` the entire time. That was a lie.
+    //
+    // The splash now shows an egui `Spinner` — an honest
+    // indeterminate indicator — with a neutral "Loading…" label
+    // (no fake fractions). The REAL progress counter moves to the
+    // post-kickoff boot overlay (`src/ui/launch/boot_overlay.rs`),
+    // where the chain actually runs.
+    //
+    // `real_time` is already a system param (used for the timer
+    // clamp above); the spinner animates on egui's internal
+    // frame time, so no extra resource is needed.
+    let progress_label = if still_loading {
+        Some("Loading…".to_string())
+    } else {
+        None
+    };
 
     // CRITICAL: `Frame::NONE` (NOT `Frame::default()`) — a default
     // frame paints an opaque dark background, which would cover the
@@ -559,14 +568,23 @@ pub fn ui_splash_system(
                 );
             }
             if still_loading {
+                // Bottom-center: [spinner] Loading…
                 let rect = ui.max_rect();
-                let label = progress_label.as_deref().unwrap_or("Loading…");
+                let bottom = egui::pos2(rect.center().x, rect.max.y - 36.0);
                 ui.painter().text(
-                    egui::pos2(rect.center().x, rect.max.y - 28.0),
+                    bottom,
                     egui::Align2::CENTER_CENTER,
-                    label,
-                    egui::FontId::proportional(18.0),
+                    progress_label.as_deref().unwrap_or("Loading…"),
+                    egui::FontId::proportional(16.0),
                     crate::ui::theme::ACCENT,
+                );
+                let spinner = egui::Spinner::new().size(20.0).color(crate::ui::theme::ACCENT);
+                ui.put(
+                    egui::Rect::from_center_size(
+                        egui::pos2(rect.center().x, rect.max.y - 62.0),
+                        egui::Vec2::splat(20.0),
+                    ),
+                    spinner,
                 );
             }
         });

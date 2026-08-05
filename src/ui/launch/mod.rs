@@ -41,6 +41,7 @@ pub mod splash;
 pub mod transitions;
 pub mod userdata;
 
+pub mod boot_overlay;
 pub mod subview_kickoff;
 pub mod subview_load_game;
 pub mod subview_manifests;
@@ -238,6 +239,11 @@ impl Plugin for LaunchPlugin {
         subview_settings::register_settings_subview(app);
         subview_save_game::register_save_panel_subview(app);
         subview_kickoff::register_kickoff_system(app);
+        // Boot overlay (v0.5.2, 2026-08-05): native Bevy UI
+        // "Generating world… N/15" panel that shows while the
+        // post-kickoff boot chain runs after the player clicks
+        // New Game / Continue / Load. See `boot_overlay.rs`.
+        app.add_plugins(boot_overlay::BootOverlayPlugin);
         // GRA-358 PR-F: in-game "🏠 Main Menu" button. The
         // consumer reads the one-shot `PendingReturnToMenu`
         // resource written by the in-game options panel and
