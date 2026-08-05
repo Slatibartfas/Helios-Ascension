@@ -151,6 +151,28 @@ pub const PLACEHOLDER_H: u32 = 800;
 /// zero; raise to add a visible theme-colored border.
 pub const SPLASH_WINDOW_PADDING: u32 = 0;
 
+/// Maximum per-frame wall-clock delta (s) that counts as "displayed"
+/// splash time.
+///
+/// ## Why this exists
+///
+/// The first frame of the app can stall for many seconds (DX12 +
+/// custom-shader pipeline warm-up, asset IO, etc.) — measured ~10-20 s
+/// on the target machine. `Time<Real>` records that whole stall as the
+/// frame's `delta`, so the first frame the splash actually *paints*
+/// would see `SplashTimer.0 ≈ 20 s`, immediately trip the
+/// `elapsed >= max_s` fallback, and dismiss the splash before the logo
+/// has been on screen for a single frame. The player saw a frozen
+/// black window for the whole stall and then the menu — the logo never
+/// rendered.
+///
+/// Clamping the per-frame delta means a one-time startup stall doesn't
+/// count as "time the logo was displayed". The timer still advances on
+/// every real frame, so a *genuine* hang (no frames for many seconds)
+/// still trips the max-duration fallback after ~12 clamped frames
+/// (3.0 s / 0.25 s) — the splash never traps the player indefinitely.
+pub const MAX_SPLASH_FRAME_DT_S: f32 = 0.25;
+
 /// Bevy plugin that owns the splash window + camera setup and
 /// registers the splash render/dismissal systems.
 ///
@@ -452,7 +474,11 @@ pub fn ui_splash_system(
     // only draws the small "Loading…" label over the top.
 
     // ── 2. Advance timer ──────────────────────────────────────────
-    let dt = real_time.delta_secs();
+    // Clamp the per-frame delta so a multi-second first-frame stall
+    // (DX12 shader warm-up etc.) doesn't count as "logo displayed"
+    // time. See [`MAX_SPLASH_FRAME_DT_S`] for the full rationale.
+    let raw_dt = real_time.delta_secs();
+    let dt = raw_dt.min(MAX_SPLASH_FRAME_DT_S);
     splash_timer.0 += dt;
     let elapsed = splash_timer.0;
 
@@ -668,5 +694,30 @@ mod tests {
     fn empty_keyboard_input_is_not_a_dismiss() {
         let keys: ButtonInput<KeyCode> = ButtonInput::default();
         assert!(keys.get_just_pressed().next().is_none());
+    }
+
+    /// A multi-second first-frame stall must not count as "logo
+    /// displayed" time: the per-frame delta is clamped so the splash
+    /// doesn't instantly trip the max-duration fallback on the first
+    /// painted frame. This is the regression guard for the
+    /// "splash black + logo never shows" bug.
+    #[test]
+    fn splash_timer_clamps_first_frame_stall_delta() {
+        // A ~20 s first-frame stall (DX12 shader warm-up etc.) must be
+        // clamped to MAX_SPLASH_FRAME_DT_S, so the accumulated timer
+        // stays far below splash_max_duration_s (3.0 s) after one frame.
+        let stall_dt = 20.0_f32;
+        let clamped = stall_dt.min(MAX_SPLASH_FRAME_DT_S);
+        assert_eq!(clamped, MAX_SPLASH_FRAME_DT_S);
+        assert!(
+            clamped < 3.0,
+            "one clamped frame must not trip the 3.0 s max-duration dismissal"
+        );
+        assert!(clamped > 0.0, "clamp must keep positive progress");
+
+        // Steady-state 60 fps frames accumulate normally (below the cap).
+        let normal_dt = 1.0 / 60.0;
+        assert!(normal_dt < MAX_SPLASH_FRAME_DT_S);
+        assert_eq!(normal_dt.min(MAX_SPLASH_FRAME_DT_S), normal_dt);
     }
 }

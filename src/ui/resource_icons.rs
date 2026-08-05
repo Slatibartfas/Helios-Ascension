@@ -256,28 +256,47 @@ pub fn post_process_resource_icons(
         .map(|(r, h)| (*r, h.clone()))
         .collect();
 
-    for (resource, handle) in candidates {
+    // Process AT MOST ONE pre-baked resource icon per frame.
+    //
+    // ## Why (GRA regression, 2026-08-05)
+    //
+    // Each icon is a 1024×1024 RGBA image (4.2M pixels). The old
+    // code processed every pending icon in a single `Update` tick,
+    // and the icons load asynchronously — the frame where the whole
+    // batch finally became available ran ~38 × (4M-pixel RGB→white
+    // loop + alpha extraction + Lanczos3 1024→64 downscale) inline,
+    // which blocked the main thread for ~20 s (the "splash black
+    // box" at startup: frame 0's Update→PostUpdate boundary stalls).
+    //
+    // Processing one icon per frame spreads the same total work over
+    // ~38 frames (~0.6 s of real time at 60 fps) with no single-frame
+    // stall. Icons that aren't decoded yet are naturally retried on
+    // later frames, and the per-icon cost is tiny once the first one
+    // has been processed (the loop below early-returns on frames with
+    // nothing pending).
+    if let Some((resource, handle)) = candidates.into_iter().next() {
         let Some(image) = images.get_mut(&handle) else {
             // AssetServer hasn't decoded the PNG yet; try again
             // next frame. Skipping is the right behaviour — we
             // can't mutate a buffer we don't have, and forcing
             // the load would block the schedule.
-            continue;
+            return;
         };
         // Icons are pre-baked (see scripts/bake_resource_icons.py):
         //   - RGB is pure black (0,0,0) for the line
         //   - Alpha is the line opacity: 0 on the white
         //     background, 255 on the solid line, linear
         //     ramp on antialiased edges.
-        // The runtime converts RGB to pure white so the tint shader
-        // (ImageNode::with_color / egui Image::tint) colours the line,
-        // then resamples 1024 px → 64 px so the 20 px card chip isn't
-        // minified 51:1 by a mip-less bilinear sampler.
+        // The runtime resamples 1024 px → 64 px so the 20 px card
+        // chip isn't minified 51:1 by a mip-less bilinear sampler.
         //
         // A `false` return means the wrong pixel format (compressed,
         // sRGB-float, …) — mark processed to avoid retrying every frame.
         process_and_downscale_bevy_icon(image);
         icons.bevy_pending.remove(&resource);
+        // Only one icon per frame — return now; the energy icon gets
+        // its own frame (see below).
+        return;
     }
 
     // Dedicated energy icon. v0.5.2 PR-A.7 (2026-08-04): unlike
@@ -372,7 +391,21 @@ pub fn load_resource_icons(
         icons.texture_size = target;
     }
 
+    // Process a bounded number of icons per frame so the initial
+    // load doesn't stall the main thread. Each icon is a 1024×1024
+    // RGBA image; loading + luminance/white processing + Lanczos3
+    // downscale for all ~47 icons in one tick blocked frame 0 for
+    // ~20 s (the GRA splash-stall regression fixed 2026-08-05).
+    // Spreading the same work over ~24 frames removes the single
+    // long frame entirely; the loop below resumes where it left off
+    // because processed icons are skipped via `handles.contains_key`.
+    const MAX_ICONS_PER_FRAME: usize = 2;
+    let mut processed_this_frame = 0usize;
+
     for &resource in ResourceType::all() {
+        if processed_this_frame >= MAX_ICONS_PER_FRAME {
+            break;
+        }
         if icons.handles.contains_key(&resource) {
             continue;
         }
@@ -401,6 +434,7 @@ pub fn load_resource_icons(
             egui::TextureOptions::LINEAR,
         );
         icons.handles.insert(resource, handle);
+        processed_this_frame += 1;
     }
 
     // Same pattern for the 9 category-badge PNGs
@@ -411,6 +445,9 @@ pub fn load_resource_icons(
     // category added before the icon is authored) silently fall
     // through to the placeholder.
     for (category, _) in ResourceType::by_category() {
+        if processed_this_frame >= MAX_ICONS_PER_FRAME {
+            break;
+        }
         if icons.category_handles.contains_key(category) {
             continue;
         }
@@ -441,6 +478,7 @@ pub fn load_resource_icons(
             egui::TextureOptions::LINEAR,
         );
         icons.category_handles.insert(category.to_string(), handle);
+        processed_this_frame += 1;
     }
 
     // Dedicated energy icon (`assets/textures/ui/resources/energy.png`).
@@ -672,13 +710,16 @@ fn process_and_downscale_bevy_icon(image: &mut Image) -> bool {
     if w == 0 || h == 0 || data.len() != (w as usize).saturating_mul(h as usize) * 4 {
         return false;
     }
-    // RGB → pure white so a tinted `ImageNode` reads as the category
-    // colour; alpha already carries the line (icons are pre-baked).
-    for chunk in data.chunks_exact_mut(4) {
-        chunk[0] = 255;
-        chunk[1] = 255;
-        chunk[2] = 255;
-    }
+    // NOTE: we deliberately do NOT do a full-resolution RGB→white
+    // pass here. `downscale_icon_rgba` extracts only the alpha
+    // channel and re-emits pure-white RGB, so the per-pixel RGB
+    // rewrite below would be pure waste on a 1024×1024 buffer
+    // (4.2M pixels per icon × ~38 icons ≈ a multi-second stall
+    // when the icons first become available — the GRA regression
+    // fixed 2026-08-05). The energy icon's luminance key has
+    // already rewritten alpha before this call, and the pre-baked
+    // icons carry their line in alpha. Skipping the RGB pass is
+    // free and correct.
     let (resized, tw, th) = downscale_icon_rgba(data, w, h, BEVY_ICON_TEXTURE_SIZE);
     if tw != w || th != h {
         *data = resized;
