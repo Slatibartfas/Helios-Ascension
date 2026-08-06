@@ -4447,26 +4447,13 @@ pub fn setup_construction(
     // Overview | Buildings | Build | Mining — Build is the active tab.
     // v0.5.2: "Stockpiles" renamed to "Mining" (the dedicated mining
     // grid replaces the v0.5.x minimum-stockpile editor).
-    // v0.5.2 (Commit D): the tab strip is no longer wrapped in a
-    // bordered `ChipRowContainerBundle` — that bordered box was the
-    // "trailer" the player saw on Overview / Buildings, where the
-    // shared chrome sits below it on every other tab. The active
-    // tab still gets a `BoxShadow` glow on its bottom edge, so the
-    // selected affordance is preserved without the surrounding frame.
+    // v0.5.2 (2026-08-06): the tab strip is wrapped in a
+    // `ChipRowContainerBundle` (the bordered box around the submenu
+    // buttons) so the four tabs read as one grouped control. The
+    // bundle's 1-px cyan border + low-alpha navy fill provide the
+    // "box around the submenu buttons" the player expects.
     let tab_strip = commands
-        .spawn((
-            Node {
-                display: Display::Flex,
-                flex_direction: FlexDirection::Row,
-                align_items: AlignItems::Center,
-                column_gap: Val::Px(SPACE_XS),
-                padding: UiRect::all(Val::Px(SPACE_XS)),
-                width: Val::Auto,
-                height: Val::Px(TAB_STRIP_H),
-                ..default()
-            },
-            Name::new("tab_strip"),
-        ))
+        .spawn(ChipRowContainerBundle::new("tabs", TAB_STRIP_H))
         .id();
     commands.entity(root).add_child(tab_strip);
 
@@ -4479,34 +4466,14 @@ pub fn setup_construction(
     .iter()
     .enumerate()
     {
-        // The active tab gets a thicker bottom border (2 px) to match the
-        // prototype's tab indicator, plus a `BoxShadow` glow on the bottom
-        // edge for the "lit underline" look.
-        let border_override = if *is_active {
-            Some(UiRect {
-                left: Val::Px(1.0),
-                right: Val::Px(1.0),
-                top: Val::Px(1.0),
-                bottom: Val::Px(2.0),
-            })
-        } else {
-            None
-        };
-        let chip = ChipButtonBundle::new_with_border(label, *is_active, border_override);
+        // The active tab is styled by `tick_chip_button_active_overlay`
+        // (cyan fill + white text) — no per-tab border override, so all
+        // four tabs have IDENTICAL geometry (no 2-px bottom border on
+        // the active tab that would shift the whole strip's height and
+        // make the body "jump down" when switching to Overview).
+        let chip = ChipButtonBundle::new(label, *is_active);
         let mut entity_commands = commands.spawn(chip);
         entity_commands.insert(ChipKind::Tab(i));
-        if *is_active {
-            // Subtle cyan glow under the active tab — the "lit underline"
-            // effect seen in the prototype. Tight spread (4 px) and low
-            // alpha (35%) so it reads as a glow, not a flare.
-            entity_commands.insert(BoxShadow::new(
-                Color::srgba(0.373, 0.784, 0.847, 0.35),
-                Val::Px(0.0),
-                Val::Px(2.0),
-                Val::Px(0.0),
-                Val::Px(4.0),
-            ));
-        }
         let tab = entity_commands.id();
         commands.entity(tab_strip).add_child(tab);
         // Spawn the text as a child node so it gets centered within the
