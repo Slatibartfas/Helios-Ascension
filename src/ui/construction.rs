@@ -886,6 +886,26 @@ pub struct ConstructionCard {
     pub name: String,
 }
 
+// v0.5.2 (2026-08-06): marker for **Build-tab-only** cards.
+//
+// `spawn_card` (the shared chrome builder) attaches `ConstructionCard`
+// to every card — Build, Buildings, AND Mining. `refresh_card_grid`
+// used to despawn `Query<Entity, With<ConstructionCard>>` — i.e. EVERY
+// card in the world — whenever `ConstructionUiState` changed (chip
+// click, tab switch, mining group collapse). That silently wiped the
+// Mining + Buildings cards, and their per-tab caches (the mining
+// fingerprint gate + the buildings `spawned_cards` map) had no way to
+// recover: the Buildings cache still believed the cards existed, so it
+// never re-spawned them (the "Buildings tab shows the header but no
+// cards" bug), and the Mining tab churned a full 49-card teardown +
+// rebuild on every click (the "Build button flickers" bug).
+//
+// `refresh_card_grid` now despawns ONLY `With<BuildCard>` entities —
+// the cards IT spawned — and inserts `BuildCard` on each. Mining and
+// Buildings cards are untouched.
+#[derive(Component)]
+pub struct BuildCard;
+
 // Marker component for the Queue CTA. Carries the `BuildingType` this
 // card represents, so the click handler knows which building to enqueue.
 #[derive(Component)]
@@ -2980,6 +3000,12 @@ pub fn update_buildings_body(
     mut header_query: Query<&mut Text, With<BuildingsHeader>>,
     mut empty_placeholder: Local<Option<Entity>>,
     mut no_colony_placeholder: Local<Option<Entity>>,
+    // v0.5.2 (2026-08-06): the colony the cached cards were spawned
+    // for. `spawned_cards` is keyed by `BuildingType`, so switching
+    // colonies would otherwise keep cards from the previous colony
+    // (same building types → stale ×N / demolish labels). Clear the
+    // cache on colony change so the cards re-spawn for the new one.
+    mut last_colony: Local<Option<bevy::ecs::entity::Entity>>,
 ) {
     let Ok(content) = content_query.single() else {
         return;
@@ -3085,10 +3111,22 @@ pub fn update_buildings_body(
         if let Some(p) = empty_placeholder.take() {
             commands.entity(p).try_despawn();
         }
+        *last_colony = None;
         *no_colony_placeholder =
             spawn_no_colony_placeholder(&mut commands, content, body_font.clone(), None);
         return;
     };
+
+    // v0.5.2 (2026-08-06): if the selected colony changed, drop the
+    // cached cards so they re-spawn with the new colony's counts.
+    // Without this, switching colonies with overlapping building
+    // types would keep the previous colony's cards (stale ×N).
+    if *last_colony != ui_state.selected_colony {
+        for (_, card_entity) in spawned_cards.drain() {
+            commands.entity(card_entity).try_despawn();
+        }
+        *last_colony = ui_state.selected_colony;
+    }
 
     if colony.buildings.is_empty() {
         for (_, card_entity) in spawned_cards.drain() {
@@ -3943,22 +3981,37 @@ fn update_power_chip_tooltip(
 // the fingerprint — `calculate_colony_power_totals` is a pure
 // function of the building counts (see `budget.rs`), so spare is
 // fully determined by `counts` and recomputed on rebuild.
+//
+// v0.5.2 (2026-08-06, bugfix round 2): `deposit_sig` now folds ONLY
+// the accessibility (generation-static — it changes only on survey
+// completion, a discrete event). The old signature also folded the
+// rounded total reserve, which `extract_resources` decrements every
+// frame while mines run — so the fingerprint changed on extraction
+// boundaries and the whole grid rebuilt periodically (one of the
+// "Build button flickers" sources). The reserve display being stale
+// between rebuilds is acceptable; accessibility reveals still
+// trigger a rebuild.
 #[derive(PartialEq)]
 struct MiningBodyFingerprint {
+    /// The colony the cards were spawned for (counts are
+    /// colony-scoped; `counts` alone can't distinguish two colonies
+    /// with identical building tallies).
+    colony_entity: Option<bevy::ecs::entity::Entity>,
     multiplier: u32,
     collapsed: std::collections::HashSet<MiningGroupId>,
     orbital_collapsed: bool,
     counts: std::collections::HashMap<BuildingType, u32>,
     breathable: bool,
     body_type: Option<BodyType>,
-    /// Hash of the body's deposit state (resource → accessibility +
-    /// rounded reserves). Changes on survey / mining depletion.
+    /// Hash of the body's deposit accessibility (see the doc above —
+    /// reserves deliberately excluded).
     deposit_sig: u64,
 }
 
 impl MiningBodyFingerprint {
     fn no_colony(ui_state: &ConstructionUiState) -> Self {
         Self {
+            colony_entity: None,
             multiplier: ui_state.build_multiplier,
             collapsed: ui_state.mining_groups_collapsed.clone(),
             orbital_collapsed: ui_state.mining_orbital_collapsed,
@@ -3970,10 +4023,14 @@ impl MiningBodyFingerprint {
     }
 }
 
-/// Cheap hash of a body's deposit state. Folds each deposit's
-/// `(resource, accessibility, rounded total reserve)` into an FNV-1a
-/// hash — enough to detect survey reveals and mining depletion
-/// without cloning the `PlanetResources` struct.
+/// Cheap hash of a body's deposit accessibility. Folds each deposit's
+/// `(resource, accessibility)` into an FNV-1a hash — enough to detect
+/// survey reveals without cloning `PlanetResources`.
+///
+/// NOTE: reserves are deliberately NOT folded in — `extract_resources`
+/// decrements them every frame while mines run, so including them made
+/// the mining-body fingerprint change on extraction boundaries and
+/// trigger a full grid rebuild periodically.
 fn mining_deposit_signature(resources: Option<&crate::economy::PlanetResources>) -> u64 {
     let Some(res) = resources else {
         return 0;
@@ -3982,10 +4039,7 @@ fn mining_deposit_signature(resources: Option<&crate::economy::PlanetResources>)
     for (rt, dep) in res.deposits.iter() {
         h ^= *rt as u64;
         h = h.wrapping_mul(0x100000001b3);
-        let total_reserve =
-            dep.reserve.proven_crustal + dep.reserve.deep_deposits + dep.reserve.planetary_bulk;
-        let bits = (dep.accessibility.to_bits() as u64)
-            ^ (total_reserve.round() as i64 as u64);
+        let bits = dep.accessibility.to_bits() as u64;
         h ^= bits;
         h = h.wrapping_mul(0x100000001b3);
     }
@@ -4072,6 +4126,7 @@ fn update_mining_body(
     // frame; now a hash compare + clone).
     let fingerprint = match &colony_data {
         Some((_, breathable, body_type, planet_resources, counts)) => MiningBodyFingerprint {
+            colony_entity: active_colony_entity,
             multiplier: ui_state.build_multiplier,
             collapsed: ui_state.mining_groups_collapsed.clone(),
             orbital_collapsed: ui_state.mining_orbital_collapsed,
@@ -7629,7 +7684,16 @@ pub fn refresh_card_grid(
     ui_state: Res<ConstructionUiState>,
     building_icons: Option<Res<BuildingIcons>>,
     resource_icons: Option<Res<ResourceIcons>>,
-    card_query: Query<Entity, With<ConstructionCard>>,
+    // v0.5.2 (2026-08-06): despawn ONLY the Build-tab cards (the ones
+    // this system spawned, tagged `BuildCard`). The old
+    // `With<ConstructionCard>` matched EVERY card in the world —
+    // Build, Mining, AND Buildings — because `spawn_card` attaches
+    // `ConstructionCard` to all of them. The Mining + Buildings
+    // cards were wiped on every `ConstructionUiState` change (chip
+    // click / tab switch / mining group collapse) and their caches
+    // couldn't recover (Buildings stayed empty; Mining churned a
+    // full rebuild per click → the flicker + missing scrollbar).
+    card_query: Query<Entity, With<BuildCard>>,
     grid_query: Query<Entity, With<CardGrid>>,
     colonies: Query<(Entity, &crate::colony::Colony)>,
 ) {
@@ -7686,7 +7750,7 @@ pub fn refresh_card_grid(
             .as_ref()
             .map(|r: &Res<ResourceIcons>| -> &ResourceIcons { r.as_ref() })
             .unwrap_or(&empty_resource_icons);
-        spawn_card(
+        let card = spawn_card(
             &mut commands,
             card_grid,
             &card_data,
@@ -7697,6 +7761,10 @@ pub fn refresh_card_grid(
             icon_handle,
             resource_icons_ref,
         );
+        // v0.5.2 (2026-08-06): tag this card as Build-tab-owned so the
+        // next `refresh_card_grid` despawn (filtered on `BuildCard`)
+        // leaves Mining + Buildings cards alone.
+        commands.entity(card).insert(BuildCard);
     }
 }
 
@@ -9865,13 +9933,12 @@ pub fn build_mine_card_data(
     }
 
     // Power gate: if the batch's power demand exceeds the grid
-    // spare, disable the Queue. For v0.5.2 PR-A.2 round 2 we
-    // don't have spare_power_mw on the Mining tab side (the
-    // Build tab threads it through; the Mining tab refresh path
-    // is every-frame and doesn't compute spare). The Mining tab
-    // gates only on body-blocked, which is the relevant
-    // constraint for orbital / He-3 mines.
-    let power_insufficient = body_blocked;
+    // spare, disable the Queue. v0.5.2 (2026-08-06, bugfix round 2):
+    // `power_chip` now carries the REAL spare (threaded through from
+    // `update_mining_body`) so `power_chip.insufficient` is the true
+    // demand-vs-spare gate. Body-blocked is an independent permanent
+    // gate. Either one disables the CTA.
+    let power_insufficient = body_blocked || power_chip.insufficient;
 
     BuildCardData {
         name: def.display_name.clone(),
@@ -10804,5 +10871,69 @@ mod body_blocked_tests {
         // Sanity: `data` reflects both gates.
         assert!(data.body_blocked);
         assert!(data.power_insufficient);
+    }
+
+    /// v0.5.2 (2026-08-06, bugfix round 2): the mining power gate.
+    /// Before, `power_insufficient = body_blocked` — a mine whose
+    /// batch demand exceeded the colony's grid spare was NOT gated
+    /// (the CTA stayed enabled, the player queued it, the grid went
+    /// into deficit). Now `power_insufficient = body_blocked ||
+    /// power_chip.insufficient`, and the power chip carries the real
+    /// spare threaded from `update_mining_body`. A 50 MW mine at ×5
+    /// on a 100 MW grid must be power-insufficient (disabled CTA).
+    #[test]
+    fn mine_power_demand_gates_cta_when_grid_short() {
+        let def = iron_mine_def(); // 50 MW demand
+        // ×5 batch = 250 MW on a 100 MW spare grid → insufficient.
+        let data = build_mine_card_data(
+            BuildingType::IronMine,
+            &def,
+            0,
+            true,
+            Some(BodyType::Planet),
+            None,
+            5,
+            100.0, // spare_power_mw: 100 MW
+        );
+        assert!(
+            data.power_insufficient,
+            "50 MW mine ×5 (250 MW) on a 100 MW spare grid must be \
+             power-insufficient (CTA disabled)"
+        );
+        assert!(data.power_chip.insufficient);
+        assert!(data.power_chip.spare_mw.is_some());
+
+        // ×1 batch = 50 MW on the same 100 MW grid → fits.
+        let ok = build_mine_card_data(
+            BuildingType::IronMine,
+            &def,
+            0,
+            true,
+            Some(BodyType::Planet),
+            None,
+            1,
+            100.0,
+        );
+        assert!(
+            !ok.power_insufficient,
+            "50 MW mine ×1 on a 100 MW spare grid must be affordable"
+        );
+        assert!(!ok.power_chip.insufficient);
+
+        // No colony (NAN spare) → no power gate (like the Build tab).
+        let no_colony = build_mine_card_data(
+            BuildingType::IronMine,
+            &def,
+            0,
+            true,
+            Some(BodyType::Planet),
+            None,
+            5,
+            f64::NAN,
+        );
+        assert!(
+            !no_colony.power_insufficient,
+            "no colony selected → power gate must not disable the CTA"
+        );
     }
 }

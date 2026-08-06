@@ -83,7 +83,7 @@ pub struct ResourceIcons {
     /// square, the same fallback as resource icons.
     pub category_handles: HashMap<String, egui::TextureHandle>,
     /// egui `TextureHandle` for the dedicated energy icon
-    /// (`assets/textures/ui/resources/energy.png`). Energy is not
+    /// (`assets/textures/ui/resources/energy-64.png`). Energy is not
     /// a `ResourceType` (it's a power-balance concept, not a
     /// stockpile), so it gets its own slot instead of living in
     /// `handles`. Tinted at the call site: green for surplus,
@@ -200,7 +200,7 @@ pub fn load_resource_icons_bevy_ui(mut commands: Commands, asset_server: Res<Ass
     // the bevy_ui canary (Build / Mining cards) can tint the
     // `ImageNode` per-row (red for demand, green for production).
     let energy_bevy_handle: Handle<Image> =
-        asset_server.load("textures/ui/resources/energy.png");
+        asset_server.load("textures/ui/resources/energy-64.png");
     commands.insert_resource(ResourceIcons {
         handles: HashMap::new(), // egui path remains untouched
         bevy_handles: handles,
@@ -643,7 +643,7 @@ pub fn load_resource_icons(
     }
 
     // ── 4. Energy icon from cache ────────────────────────────────
-    // Dedicated energy icon (`assets/textures/ui/resources/energy.png`).
+    // Dedicated energy icon (`assets/textures/ui/resources/energy-64.png`).
     // Energy is not a `ResourceType` — it's the power-balance concept
     // used by the top resource bar's "TW" chip and (eventually) the
     // Build/Mining card energy rows. Loaded with the same
@@ -656,7 +656,7 @@ pub fn load_resource_icons(
                 icons.energy_handle = Some(handle);
             }
         } else {
-            let path = std::path::Path::new("assets/textures/ui/resources/energy.png");
+            let path = std::path::Path::new("assets/textures/ui/resources/energy-64.png");
             if let Ok(bytes) = std::fs::read(path) {
                 if let Ok(image) = image::load_from_memory(&bytes) {
                     let rgba = image.to_rgba8();
@@ -964,7 +964,7 @@ fn all_icon_sources() -> HashMap<String, std::path::PathBuf> {
     }
     sources.insert(
         icon_cache::ENERGY_KEY.to_string(),
-        std::path::PathBuf::from("assets/textures/ui/resources/energy.png"),
+        std::path::PathBuf::from("assets/textures/ui/resources/energy-64.png"),
     );
     sources
 }
