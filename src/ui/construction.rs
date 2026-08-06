@@ -1208,6 +1208,13 @@ pub struct BuildCardData {
     // have the resources on hand. `false` for every Build tab
     // card.
     pub body_blocked: bool,
+    // v0.5.2 (2026-08-06): `true` for the Buildings tab's
+    // constructed-building cards. `spawn_card` skips the Queue
+    // CTA + the ETA row (and the CTA bottom-padding reservation)
+    // when set — a constructed card has no "build" action and no
+    // ETA (it's already built). The Demolish button is the only
+    // action. `false` for Build + Mining cards.
+    pub constructed: bool,
 }
 
 // Build a `BuildCardData` from a `BuildingDefinition`. This is the
@@ -1457,6 +1464,9 @@ pub fn card_data_with_multiplier(
         // from resource-driven disabled states.
         body_blocked: false,
         build_points: def.build_points,
+        // v0.5.2 (2026-08-06): Build-tab cards are NOT constructed —
+        // they show the buildable catalog with a Queue CTA + ETA.
+        constructed: false,
     }
 }
 
@@ -2091,6 +2101,12 @@ fn spawn_overview_body(
                 flex_direction: FlexDirection::Column,
                 width: Val::Percent(100.0),
                 flex_grow: 1.0,
+                // v0.5.2 (2026-08-06, bugfix): `min_height: 0` is the
+                // flexbox shrink fix — WITHOUT it this wrapper refuses
+                // to shrink below its intrinsic content height, so the
+                // inner `Overflow::scroll_y` container grows to fit its
+                // content and never overflows (no scroll, no thumb).
+                min_height: Val::Px(0.0),
                 padding: UiRect::all(Val::Px(SPACE_LG)),
                 row_gap: Val::Px(SPACE_SM),
                 overflow: Overflow::clip(),
@@ -2710,6 +2726,10 @@ fn spawn_buildings_body(commands: &mut Commands, parent: Entity, body_font_mediu
                 flex_direction: FlexDirection::Column,
                 width: Val::Percent(100.0),
                 flex_grow: 1.0,
+                // v0.5.2 (2026-08-06, bugfix): `min_height: 0` — see
+                // the overview_body comment. Without it the inner
+                // `buildings_content` scroll container never overflows.
+                min_height: Val::Px(0.0),
                 padding: UiRect::all(Val::Px(SPACE_LG)),
                 row_gap: Val::Px(SPACE_SM),
                 overflow: Overflow::clip(),
@@ -2810,50 +2830,21 @@ pub fn build_constructed_card_data(
     count: u32,
     multiplier: u32,
 ) -> BuildCardData {
-    let mult = multiplier.max(1) as f64;
+    let _ = multiplier; // the Demolish label scales per-frame from `build_multiplier`; not needed here.
 
-    // Stats row: current count (left) + batch size for the next
-    // Demolish click (right). Mirrors the Mining tab's count +
-    // accessibility layout so the two tabs read as a matched pair.
+    // Stats row: current count (left). The right-hand stat is left
+    // empty — v0.5.2 (2026-08-06): the old "Demolish -N" text in
+    // the header is removed (the Demolish button itself carries the
+    // batch size, and it updates live from the qty chip).
     let count_label = format!("\u{00d7}{}", count);
-    let batch_label = if mult > 1.0 {
-        format!("Demolish \u{2212}{}", mult as u32)
-    } else {
-        "Demolish -1".to_string()
-    };
     let bp_str = count_label;
-    let cost_str = batch_label;
 
-    // Effects: power (if any), production (if any). v0.5.2 mirrors
-    // the Mining tab's PowerGeneration-aware power line so power
-    // plants surface their generation while consumers show their
-    // demand. The active multiplier is folded in via `mult` so the
-    // player sees the "next demolish batch" total.
+    // Effects: production (if any), summed across the built count.
+    // v0.5.2 (2026-08-06): the Power line is NOT pushed to effects —
+    // the power chip below carries the aggregated demand/production.
     let mut effects: Vec<(EffectTone, String)> = Vec::new();
-    let power_output_gw_per_unit: f64 = def
-        .modifiers
-        .iter()
-        .filter(|m| m.modifier_type == "PowerGeneration")
-        .map(|m| m.value)
-        .sum();
-    if power_output_gw_per_unit > 0.0 {
-        let total_mw = power_output_gw_per_unit * 1_000.0 * mult;
-        // v0.5.2 (2026-08-03): batch-total only. `format_power`
-        // picks W/kW/MW/GW/TW so the value lands in 1..=999.
-        effects.push((
-            EffectTone::Positive,
-            format!("Produces {}", format_power(total_mw)),
-        ));
-    } else if def.power_demand_mw.abs() >= 0.01 {
-        let total_mw = def.power_demand_mw * mult;
-        effects.push((
-            EffectTone::Throughput,
-            format!("Power: {}", format_power(total_mw)),
-        ));
-    } else {
-        effects.push((EffectTone::Neutral, "Power: 0 W".to_string()));
-    }
-    // Production: same as Mining tab — "X.X Mt/yr Iron" using the modifier's value.
+    // Production: "X Mt/yr Iron" — total = per-unit × count (the
+    // actual built inventory, NOT the build-multiplier).
     if let Some(prod) = def
         .modifiers
         .iter()
@@ -2862,14 +2853,12 @@ pub fn build_constructed_card_data(
         if prod.value > 0.0 {
             if let Some(res_name) = prod.modifier_type.strip_suffix("Production") {
                 let per_unit = prod.value;
-                let total = per_unit * mult;
-                // v0.5.2 (2026-08-03): `format_mining_rate` already
-                // trails its band in `/yr`. Don't append another.
-                let line = if mult > 1.0 {
+                let total = per_unit * count as f64;
+                let line = if count > 1 {
                     format!(
                         "Produces {} \u{00d7} {} = {} {}",
                         format_mining_rate(per_unit),
-                        mult as u32,
+                        count,
                         format_mining_rate(total),
                         res_name
                     )
@@ -2881,6 +2870,67 @@ pub fn build_constructed_card_data(
         }
     }
 
+    // Power chip: the AGGREGATED power across the built count.
+    //
+    // v0.5.2 (2026-08-06): the old chip was a per-unit no-op
+    // ("Already built", 0 W). Now it sums the stock:
+    // - Net generator: `+{count × gen_mw}` green ("Produces").
+    // - Net consumer:  `-{count × demand_mw}` red ("Demand").
+    // The `per_unit_mw` sign drives the chip's red/green + sign
+    // prefix (see `spawn_card`), and `amount` is the total.
+    let power_output_gw_per_unit: f64 = def
+        .modifiers
+        .iter()
+        .filter(|m| m.modifier_type == "PowerGeneration")
+        .map(|m| m.value)
+        .sum();
+    let power_chip = if power_output_gw_per_unit > 0.0 {
+        let per_unit_mw = power_output_gw_per_unit * 1_000.0;
+        let total_mw = per_unit_mw * count as f64;
+        PowerChipData {
+            verb: "Produces",
+            amount: format_power(total_mw),
+            // Signed per-unit × count so the render treats the whole
+            // stock as one producer (green "+N").
+            per_unit_mw: total_mw,
+            multiplier: count.max(1) as u32,
+            spare_mw: None,
+            insufficient: false,
+            tooltip_lines: vec![
+                format!("Total generation: {}", format_power(total_mw)),
+                format!("{} built \u{00d7} {} each", count, format_power(per_unit_mw)),
+                "Net surplus to the grid".to_string(),
+            ],
+        }
+    } else if def.power_demand_mw.abs() < 0.01 {
+        PowerChipData {
+            verb: "Power",
+            amount: "0 W".to_string(),
+            per_unit_mw: 0.0,
+            multiplier: count.max(1) as u32,
+            spare_mw: None,
+            insufficient: false,
+            tooltip_lines: vec!["No grid interaction".to_string()],
+        }
+    } else {
+        let per_unit_mw = def.power_demand_mw;
+        let total_mw = per_unit_mw * count as f64;
+        PowerChipData {
+            verb: "Demand",
+            amount: format_power(total_mw),
+            // Negative × count so the render treats the whole stock
+            // as one consumer (red "-N").
+            per_unit_mw: -total_mw,
+            multiplier: count.max(1) as u32,
+            spare_mw: None,
+            insufficient: false,
+            tooltip_lines: vec![
+                format!("Total demand: {}", format_power(total_mw)),
+                format!("{} built \u{00d7} {} each", count, format_power(per_unit_mw)),
+            ],
+        }
+    };
+
     BuildCardData {
         name: def.display_name.clone(),
         subtitle: clamp_subtitle_two_lines(&def.description),
@@ -2888,36 +2938,26 @@ pub fn build_constructed_card_data(
         icon: def.icon.clone(),
         multiplier: multiplier.max(1),
         stat_a: ("\u{00d7}N", bp_str),
-        stat_b: ("DM", cost_str),
+        stat_b: ("", String::new()),
         stat_c: ("", String::new()),
         effects,
         // No build cost rows — the building is already built; the player
         // doesn't re-pay for it. The Demolish button is the only action.
         resource_costs: Vec::new(),
-        // v0.5.2 PR-A.7 (2026-08-04): Buildings tab shows no power
-        // chip (the building is already built; power interaction
-        // was settled at queue time). Fall back to a no-op chip
-        // so the field is always populated.
-        power_chip: PowerChipData {
-            verb: "Power",
-            amount: "0 W".to_string(),
-            per_unit_mw: 0.0,
-            multiplier: 1,
-            spare_mw: None,
-            insufficient: false,
-            tooltip_lines: vec!["Already built".to_string()],
-        },
+        // Aggregated power across the built count (v0.5.2, 2026-08-06).
+        power_chip,
         // Placeholder; the Buildings tab skips the Build CTA.
         queue_label: String::new(),
         // The Buildings tab doesn't drive construction so the ETA is
-        // irrelevant. Pass 0 so `spawn_card`'s ETA derivation
-        // (batch_bp / 12_001 * 365.25 * 24 * 3600) computes to "0s" — a
-        // sensible "no ETA" placeholder.
+        // irrelevant (and `spawn_card` skips it for constructed cards).
         build_points: 0.0,
         power_insufficient: false,
         // Buildings tab cards are never body-blocked (they show
         // already-built structures, no construction gate).
         body_blocked: false,
+        // v0.5.2 (2026-08-06): Buildings-tab cards ARE constructed —
+        // `spawn_card` skips the Queue CTA + ETA row.
+        constructed: true,
     }
 }
 
@@ -3006,6 +3046,12 @@ pub fn update_buildings_body(
     // (same building types → stale ×N / demolish labels). Clear the
     // cache on colony change so the cards re-spawn for the new one.
     mut last_colony: Local<Option<bevy::ecs::entity::Entity>>,
+    // v0.5.2 (2026-08-06): fingerprint of the colony's buildings map.
+    // Cards are spawn-once; when the player builds or demolishes, the
+    // count / power chip would go stale. Rebuild when the map changes
+    // (building + count pairs — not population, which doesn't affect
+    // the rendered cards).
+    mut last_buildings_sig: Local<Option<u64>>,
 ) {
     let Ok(content) = content_query.single() else {
         return;
@@ -3126,6 +3172,24 @@ pub fn update_buildings_body(
             commands.entity(card_entity).try_despawn();
         }
         *last_colony = ui_state.selected_colony;
+        *last_buildings_sig = None;
+    }
+
+    // v0.5.2 (2026-08-06): rebuild when the buildings map changes
+    // (the player queued or demolished). Cards are spawn-once — the
+    // ×N stat + aggregated power chip would otherwise go stale.
+    let mut sig: u64 = 0xcbf29ce484222325;
+    for (bt, count) in colony.buildings.iter() {
+        sig ^= *bt as u64;
+        sig = sig.wrapping_mul(0x100000001b3);
+        sig ^= *count as u64;
+        sig = sig.wrapping_mul(0x100000001b3);
+    }
+    if *last_buildings_sig != Some(sig) {
+        for (_, card_entity) in spawned_cards.drain() {
+            commands.entity(card_entity).try_despawn();
+        }
+        *last_buildings_sig = Some(sig);
     }
 
     if colony.buildings.is_empty() {
@@ -3151,22 +3215,50 @@ pub fn update_buildings_body(
         commands.entity(p).try_despawn();
     }
 
+    // v0.5.2 (2026-08-06): apply the active Build-tab category chip to
+    // the Buildings index — the filter previously had no effect here
+    // (every constructed building showed regardless of the chip). The
+    // "All" chip (index 8) shows every constructed building; 0..8
+    // narrows to one `BuildingCategory`. Mines are excluded — they
+    // are handled in the dedicated Mining tab.
+    let active_category = category_from_index(ui_state.selected_build_tab);
+    let filtered: Vec<(BuildingType, u32)> = colony
+        .buildings
+        .iter()
+        .filter(|(bt, _count)| {
+            // Skip Mining-category buildings (handled in the Mining tab).
+            let def = buildings_data.get(*bt);
+            let cat = def.and_then(|d| parse_category(&d.category));
+            if cat == Some(BuildingCategory::Mining) {
+                return false;
+            }
+            match active_category {
+                Some(c) => cat == Some(c),
+                None => true, // "All" chip (index 8)
+            }
+        })
+        .map(|(bt, count)| (*bt, *count))
+        .collect();
+
     // Sort buildings by name for stable presentation.
-    let mut entries: Vec<_> = colony.buildings.iter().collect();
+    let mut entries: Vec<BuildingType> = filtered
+        .iter()
+        .map(|(bt, _)| *bt)
+        .collect::<Vec<_>>();
     entries.sort_by(|a, b| {
         let an = buildings_data
-            .get(a.0)
+            .get(a)
             .map(|d| d.display_name.as_str())
             .unwrap_or("");
         let bn = buildings_data
-            .get(b.0)
+            .get(b)
             .map(|d| d.display_name.as_str())
             .unwrap_or("");
         an.cmp(bn)
     });
 
     let live_keys: std::collections::HashSet<crate::colony::BuildingType> =
-        entries.iter().map(|(bt, _)| **bt).collect();
+        entries.iter().copied().collect();
 
     // 1. Despawn cards whose BuildingType is gone.
     let to_remove: Vec<crate::colony::BuildingType> = spawned_cards
@@ -3186,7 +3278,7 @@ pub fn update_buildings_body(
     // don't re-spawn cards for count changes — that would be wasteful
     // and would defeat the per-frame debouncing of the cache.
     let multiplier = ui_state.build_multiplier;
-    for (building_type, _count) in &entries {
+    for building_type in &entries {
         if spawned_cards.contains_key(building_type) {
             continue;
         }
@@ -3200,7 +3292,7 @@ pub fn update_buildings_body(
         let card = spawn_constructed_card(
             &mut commands,
             content,
-            **building_type,
+            *building_type,
             def,
             count,
             multiplier,
@@ -3210,7 +3302,7 @@ pub fn update_buildings_body(
             icon_handle.as_ref(),
             resource_icons,
         );
-        spawned_cards.insert(**building_type, card);
+        spawned_cards.insert(*building_type, card);
     }
 }
 
@@ -3235,6 +3327,11 @@ fn spawn_mining_body(commands: &mut Commands, parent: Entity) {
                 flex_direction: FlexDirection::Column,
                 width: Val::Percent(100.0),
                 flex_grow: 1.0,
+                // v0.5.2 (2026-08-06, bugfix): `min_height: 0` — see
+                // the overview_body comment. Without it the inner
+                // `mining_content` scroll container never overflows and
+                // the Mining tab shows a grey track with no thumb.
+                min_height: Val::Px(0.0),
                 padding: UiRect::all(Val::Px(SPACE_LG)),
                 row_gap: Val::Px(SPACE_SM),
                 overflow: Overflow::clip(),
@@ -3429,6 +3526,14 @@ pub struct DemolishButton {
     pub building_type: BuildingType,
     pub multiplier_source: DemolishMultiplierSource,
 }
+
+// v0.5.2 (2026-08-06): marker on the Demolish button's label text.
+// `update_demolish_button_labels` rewrites it every frame from the
+// live `build_multiplier` — the old code spawned the label once at
+// card-spawn time, so a Buildings-tab card (spawn-once-update-many)
+// kept "Demolish -1" forever even after the player picked ×25.
+#[derive(Component)]
+pub struct DemolishButtonLabel;
 
 // Marker added when the Demolish button should be disabled (no
 // buildings to remove — `count == 0`). Mirrors
@@ -5643,9 +5748,14 @@ fn spawn_card(
                     // SPACE_LG baseline padding) so the flex flow
                     // never crosses into the CTA's absolute-positioned
                     // area.
+                    //
+                    // v0.5.2 (2026-08-06): constructed cards skip the
+                    // CTA entirely (the Demolish button is the only
+                    // action), so they don't need the bottom
+                    // reservation — use SPACE_LG everywhere.
                     top: Val::Px(SPACE_LG),
                     right: Val::Px(SPACE_LG),
-                    bottom: Val::Px(CTA_FOOTPRINT),
+                    bottom: Val::Px(if data.constructed { SPACE_LG } else { CTA_FOOTPRINT }),
                     left: Val::Px(SPACE_LG),
                 },
                 row_gap: Val::Px(SPACE_SM),
@@ -6453,179 +6563,189 @@ fn spawn_card(
     // "how long until it's built?". Mirrors the hairline below
     // the stats row so the card body reads as three labelled
     // zones: [stats | build requirements | ETA].
-    let eta_hairline = commands.spawn(HairlineBundle::default()).id();
-    commands.entity(card).add_child(eta_hairline);
+    //
+    // v0.5.2 (2026-08-06): constructed cards have no ETA (already
+    // built) — skip the hairline + ETA row entirely.
+    if !data.constructed {
+        let eta_hairline = commands.spawn(HairlineBundle::default()).id();
+        commands.entity(card).add_child(eta_hairline);
 
-    // ETA row — derived from `BuildDefinition::build_points × multiplier`
-    // divided by the static placeholder output (12 001 BP/yr; the full
-    // live recompute is gated on the queue panel + active colony wiring
-    // in Phase C4). The batch-aware ETA makes the per-card progress
-    // visible to the player when they pick x25 / x50 / x100.
-    //
-    // v0.5.2: uses the dedicated `build_points` field on the card
-    // data instead of parsing it from `stat_a` — the Mining card's
-    // `stat_a` carries the live inventory count (e.g. "×25"), not
-    // BP, so the old parser would read 0 and the ETA would always
-    // be "0s" on the Mining tab.
-    //
-    // v0.5.2 PR-A.6 (2026-08-03): the "ETA:" label now uses
-    // `mono_font` (was `body_font`) so the dim "ETA:" prefix and
-    // the yellow duration both render in GeistMono, matching the
-    // bullet text and chip-strip amounts above. The mixed Inter
-    // Regular + GeistMono pair read as a "two different fonts in
-    // one row" mismatch.
-    let unit_bp = data.build_points;
-    let batch_bp = unit_bp * data.multiplier.max(1) as f64;
-    let eta_seconds = batch_bp / 12_001.0 * 365.25 * 24.0 * 3600.0;
-    let eta_str = format_duration_compact(eta_seconds);
-    let eta_row = commands
-        .spawn((
-            Node {
-                display: Display::Flex,
-                flex_direction: FlexDirection::Row,
-                align_items: AlignItems::Center,
-                width: Val::Percent(100.0),
-                padding: UiRect::horizontal(Val::Px(SPACE_XS)),
-                column_gap: Val::Px(SPACE_SM),
-                ..default()
-            },
-            BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.0)),
-            Name::new("card_eta_row"),
-        ))
-        .id();
-    commands.entity(card).add_child(eta_row);
-    let eta_label = commands
-        .spawn((
-            Text::new("ETA: "),
-            TextFont {
-                font: mono_font.clone(),
-                font_size: CAPTION_SIZE,
-                ..default()
-            },
-            TextColor(TEXT_DIM),
-            Name::new("card_eta_label"),
-        ))
-        .id();
-    commands.entity(eta_row).add_child(eta_label);
-    let eta_value = commands
-        .spawn((
-            Text::new(eta_str),
-            TextFont {
-                font: mono_font.clone(),
-                font_size: CAPTION_SIZE,
-                ..default()
-            },
-            TextColor(YELLOW_ETA),
-            Name::new("card_eta_value"),
-        ))
-        .id();
-    commands.entity(eta_row).add_child(eta_value);
+        // ETA row — derived from `BuildDefinition::build_points × multiplier`
+        // divided by the static placeholder output (12 001 BP/yr; the full
+        // live recompute is gated on the queue panel + active colony wiring
+        // in Phase C4). The batch-aware ETA makes the per-card progress
+        // visible to the player when they pick x25 / x50 / x100.
+        //
+        // v0.5.2: uses the dedicated `build_points` field on the card
+        // data instead of parsing it from `stat_a` — the Mining card's
+        // `stat_a` carries the live inventory count (e.g. "×25"), not
+        // BP, so the old parser would read 0 and the ETA would always
+        // be "0s" on the Mining tab.
+        //
+        // v0.5.2 PR-A.6 (2026-08-03): the "ETA:" label now uses
+        // `mono_font` (was `body_font`) so the dim "ETA:" prefix and
+        // the yellow duration both render in GeistMono, matching the
+        // bullet text and chip-strip amounts above. The mixed Inter
+        // Regular + GeistMono pair read as a "two different fonts in
+        // one row" mismatch.
+        let unit_bp = data.build_points;
+        let batch_bp = unit_bp * data.multiplier.max(1) as f64;
+        let eta_seconds = batch_bp / 12_001.0 * 365.25 * 24.0 * 3600.0;
+        let eta_str = format_duration_compact(eta_seconds);
+        let eta_row = commands
+            .spawn((
+                Node {
+                    display: Display::Flex,
+                    flex_direction: FlexDirection::Row,
+                    align_items: AlignItems::Center,
+                    width: Val::Percent(100.0),
+                    padding: UiRect::horizontal(Val::Px(SPACE_XS)),
+                    column_gap: Val::Px(SPACE_SM),
+                    ..default()
+                },
+                BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.0)),
+                Name::new("card_eta_row"),
+            ))
+            .id();
+        commands.entity(card).add_child(eta_row);
+        let eta_label = commands
+            .spawn((
+                Text::new("ETA: "),
+                TextFont {
+                    font: mono_font.clone(),
+                    font_size: CAPTION_SIZE,
+                    ..default()
+                },
+                TextColor(TEXT_DIM),
+                Name::new("card_eta_label"),
+            ))
+            .id();
+        commands.entity(eta_row).add_child(eta_label);
+        let eta_value = commands
+            .spawn((
+                Text::new(eta_str),
+                TextFont {
+                    font: mono_font.clone(),
+                    font_size: CAPTION_SIZE,
+                    ..default()
+                },
+                TextColor(YELLOW_ETA),
+                Name::new("card_eta_value"),
+            ))
+            .id();
+        commands.entity(eta_row).add_child(eta_value);
+    }
 
     // Filled cyan CTA. Uses the `Button` widget so picking interaction
     // is wired automatically (Button has `#[require(Interaction)]`,
     // so the picking plugin auto-sets the hover/pressed state).
     //
-    // The CTA is `position: absolute` and pinned to the bottom-left
-    // corner of the card. This is the cleanest way to keep the Queue
-    // button at the same Y position across cards with different content
-    // heights (cards with 2 effect bullets vs 3+ effect bullets had
-    // visibly different CTA positions when using `margin: top(Auto)`).
-    // Absolute positioning removes the CTA from the flex column flow,
-    // so it doesn't push the card content above it down. The CTA is
-    // inset from the card edges by SPACE_LG (matching the card's own
-    // padding) so it sits aligned with the title and stats row above.
-    let cta = commands
-        .spawn((
-            Button,
-            Node {
-                display: Display::Flex,
-                flex_direction: FlexDirection::Row,
-                align_items: AlignItems::Center,
-                justify_content: JustifyContent::Center,
-                align_self: AlignSelf::FlexStart,
-                height: Val::Px(32.0),
-                padding: UiRect::horizontal(Val::Px(SPACE_XL)),
-                border: UiRect::all(Val::Px(1.0)),
-                border_radius: BorderRadius::all(Val::Px(4.0)),
-                // Pin to the bottom-left of the card. The card's
-                // `Overflow::clip` ensures the CTA never bleeds outside
-                // the card border, even if the absolute Y is bigger than
-                // the card's natural content height.
-                position_type: PositionType::Absolute,
-                bottom: Val::Px(SPACE_LG),
-                left: Val::Px(SPACE_LG),
-                ..default()
-            },
-            BackgroundColor(CTA_FILL),
-            BorderColor::all(CYAN_BORDER_STRONG),
-            Name::new("card_cta"),
-            ConstructionCta { building_type },
-            // v0.5.2 PR-A.2 (round 2): when the batch's power demand
-            // exceeds the active colony's grid spare, disable the
-            // Queue button at spawn time. The affordability system
-            // (`tick_construction_cta_disabled`) re-checks the
-            // resource gate every frame; the power gate is a
-            // derived property of the card data and changes only
-            // when the multiplier or spare changes (both trigger a
-            // refresh), so a spawn-time check is enough.
-            ConstructionCtaDisabled,
-            // Make the CTA pickable so `Interaction::Pressed` fires.
-            Pickable::default(),
-        ))
-        .id();
-    if !data.power_insufficient {
-        // Spawn-time default is "disabled" for the affordability
-        // gate; if the batch fits the grid AND the player can
-        // afford it, the per-frame affordability system removes
-        // the marker. But for the power gate we make the decision
-        // here at spawn time and never flip it.
-        commands.entity(cta).remove::<ConstructionCtaDisabled>();
-    }
-    // v0.5.2 (build menu fix): body-blocked mining cards (e.g. an
-    // Iron Mine on a gas giant) get a separate, **permanent**
-    // disabled marker so the per-frame affordability system
-    // doesn't silently re-enable the CTA when the player has
-    // the resources on hand. The hover system treats this
-    // marker identically to `ConstructionCtaDisabled` (no hover
-    // scale, no colour change); the affordability system
-    // ignores it.
-    if data.body_blocked {
-        commands.entity(cta).insert(ConstructionCtaBodyBlocked);
-    }
-    commands.entity(card).add_child(cta);
+    // v0.5.2 (2026-08-06): constructed cards skip the CTA entirely
+    // (the Demolish button is the only action) — the old code spawned
+    // an empty grey button stub on every Buildings-tab card.
+    if !data.constructed {
+        // The CTA is `position: absolute` and pinned to the bottom-left
+        // corner of the card. This is the cleanest way to keep the Queue
+        // button at the same Y position across cards with different content
+        // heights (cards with 2 effect bullets vs 3+ effect bullets had
+        // visibly different CTA positions when using `margin: top(Auto)`).
+        // Absolute positioning removes the CTA from the flex column flow,
+        // so it doesn't push the card content above it down. The CTA is
+        // inset from the card edges by SPACE_LG (matching the card's own
+        // padding) so it sits aligned with the title and stats row above.
+        let cta = commands
+            .spawn((
+                Button,
+                Node {
+                    display: Display::Flex,
+                    flex_direction: FlexDirection::Row,
+                    align_items: AlignItems::Center,
+                    justify_content: JustifyContent::Center,
+                    align_self: AlignSelf::FlexStart,
+                    height: Val::Px(32.0),
+                    padding: UiRect::horizontal(Val::Px(SPACE_XL)),
+                    border: UiRect::all(Val::Px(1.0)),
+                    border_radius: BorderRadius::all(Val::Px(4.0)),
+                    // Pin to the bottom-left of the card. The card's
+                    // `Overflow::clip` ensures the CTA never bleeds outside
+                    // the card border, even if the absolute Y is bigger than
+                    // the card's natural content height.
+                    position_type: PositionType::Absolute,
+                    bottom: Val::Px(SPACE_LG),
+                    left: Val::Px(SPACE_LG),
+                    ..default()
+                },
+                BackgroundColor(CTA_FILL),
+                BorderColor::all(CYAN_BORDER_STRONG),
+                Name::new("card_cta"),
+                ConstructionCta { building_type },
+                // v0.5.2 PR-A.2 (round 2): when the batch's power demand
+                // exceeds the active colony's grid spare, disable the
+                // Queue button at spawn time. The affordability system
+                // (`tick_construction_cta_disabled`) re-checks the
+                // resource gate every frame; the power gate is a
+                // derived property of the card data and changes only
+                // when the multiplier or spare changes (both trigger a
+                // refresh), so a spawn-time check is enough.
+                ConstructionCtaDisabled,
+                // Make the CTA pickable so `Interaction::Pressed` fires.
+                Pickable::default(),
+            ))
+            .id();
+        if !data.power_insufficient {
+            // Spawn-time default is "disabled" for the affordability
+            // gate; if the batch fits the grid AND the player can
+            // afford it, the per-frame affordability system removes
+            // the marker. But for the power gate we make the decision
+            // here at spawn time and never flip it.
+            commands.entity(cta).remove::<ConstructionCtaDisabled>();
+        }
+        // v0.5.2 (build menu fix): body-blocked mining cards (e.g. an
+        // Iron Mine on a gas giant) get a separate, **permanent**
+        // disabled marker so the per-frame affordability system
+        // doesn't silently re-enable the CTA when the player has
+        // the resources on hand. The hover system treats this
+        // marker identically to `ConstructionCtaDisabled` (no hover
+        // scale, no colour change); the affordability system
+        // ignores it.
+        if data.body_blocked {
+            commands.entity(cta).insert(ConstructionCtaBodyBlocked);
+        }
+        commands.entity(card).add_child(cta);
 
-    // CTA label (text child needs flex_grow: 1.0 to participate in the parent's
-    // justify-content: center — without it, text defaults to its own intrinsic
-    // width and sits at the left edge).
-    //
-    // v0.5.2 (build menu fix): tagged with `ConstructionCtaLabelMarker`
-    // so `tick_construction_cta_label_dim` can find it without
-    // walking the name. The marker dim pass tints the label
-    // `TEXT_DIM` when the parent CTA carries
-    // `ConstructionCtaDisabled` so the disabled state reads at a
-    // glance — the cyan text on a dim background was misleading
-    // ("looks clickable, does nothing").
-    let cta_label = commands
-        .spawn((
-            Text::new(data.queue_label.clone()),
-            TextFont {
-                font: body_font_medium.clone(),
-                font_size: BODY_SIZE,
-                ..default()
-            },
-            TextColor(CYAN),
-            Node {
-                flex_grow: 1.0,
-                justify_content: JustifyContent::Center,
-                align_items: AlignItems::Center,
-                display: Display::Flex,
-                ..default()
-            },
-            ConstructionCtaLabelMarker,
-            Name::new("card_cta_label"),
-        ))
-        .id();
-    commands.entity(cta).add_child(cta_label);
+        // CTA label (text child needs flex_grow: 1.0 to participate in the parent's
+        // justify-content: center — without it, text defaults to its own intrinsic
+        // width and sits at the left edge).
+        //
+        // v0.5.2 (build menu fix): tagged with `ConstructionCtaLabelMarker`
+        // so `tick_construction_cta_label_dim` can find it without
+        // walking the name. The marker dim pass tints the label
+        // `TEXT_DIM` when the parent CTA carries
+        // `ConstructionCtaDisabled` so the disabled state reads at a
+        // glance — the cyan text on a dim background was misleading
+        // ("looks clickable, does nothing").
+        let cta_label = commands
+            .spawn((
+                Text::new(data.queue_label.clone()),
+                TextFont {
+                    font: body_font_medium.clone(),
+                    font_size: BODY_SIZE,
+                    ..default()
+                },
+                TextColor(CYAN),
+                Node {
+                    flex_grow: 1.0,
+                    justify_content: JustifyContent::Center,
+                    align_items: AlignItems::Center,
+                    display: Display::Flex,
+                    ..default()
+                },
+                ConstructionCtaLabelMarker,
+                Name::new("card_cta_label"),
+            ))
+            .id();
+        commands.entity(cta).add_child(cta_label);
+    }
 
     // Return the card entity so callers (e.g. the Mining tab's
     // `spawn_mining_card` wrapper) can attach additional
@@ -9270,6 +9390,10 @@ impl Plugin for ConstructionPlugin {
                     // systems are no longer mining-specific.
                     tick_demolish_click,
                     tick_demolish_disabled,
+                    // v0.5.2 (2026-08-06): keep the Demolish button
+                    // label in sync with the live build_multiplier
+                    // (Buildings + Mining cards are spawn-once).
+                    update_demolish_button_labels,
                     // v0.5.2: hover affordance for the Demolish
                     // button. Mirrors `tick_construction_cta_hover`
                     // — the Mining tab's [+] and [−] now light up
@@ -9990,6 +10114,9 @@ pub fn build_mine_card_data(
         // silently re-enable it when the player happens to
         // have the resources on hand.
         body_blocked,
+        // v0.5.2 (2026-08-06): Mining cards are NOT constructed —
+        // they show the buildable mine catalog with a Queue CTA.
+        constructed: false,
     }
 }
 
@@ -10201,6 +10328,9 @@ fn spawn_demolish_button(
                 ..default()
             },
             Name::new("card_demolish_label"),
+            // v0.5.2 (2026-08-06): per-frame label updates from the
+            // live `build_multiplier` (Buildings + Mining tabs).
+            DemolishButtonLabel,
         ))
         .id();
     commands.entity(demolish).add_child(label_entity);
@@ -10316,6 +10446,30 @@ pub fn tick_demolish_disabled(
             commands
                 .entity(entity)
                 .queue_silenced(RemoveDemolishDisabled);
+        }
+    }
+}
+
+// v0.5.2 (2026-08-06): rewrite every Demolish button's label from the
+// live `build_multiplier` each frame. The Buildings-tab cards are
+// spawn-once-update-many — their Demolish label used to freeze at the
+// spawn-frame multiplier ("Demolish -1" forever). Both multiplier
+// sources resolve to `build_multiplier` in `tick_demolish_click`, so
+// the label tracks the same value. Rewriting is cheap (a handful of
+// Text nodes); the Text value only triggers relayout when it changes.
+pub fn update_demolish_button_labels(
+    ui_state: Res<ConstructionUiState>,
+    mut labels: Query<&mut Text, With<DemolishButtonLabel>>,
+) {
+    let mult = ui_state.build_multiplier.max(1);
+    let label = if mult > 1 {
+        format!("Demolish \u{2212}{}", mult)
+    } else {
+        "Demolish -1".to_string()
+    };
+    for mut text in labels.iter_mut() {
+        if text.0 != label {
+            **text = label.clone();
         }
     }
 }
@@ -10935,5 +11089,40 @@ mod body_blocked_tests {
             !no_colony.power_insufficient,
             "no colony selected → power gate must not disable the CTA"
         );
+    }
+
+    /// v0.5.2 (2026-08-06): the constructed-buildings card.
+    /// - `constructed: true` → `spawn_card` skips the CTA + ETA.
+    /// - The power chip aggregates across the built count (red for
+    ///   a net consumer, green for a generator).
+    /// - The header has no "Demolish -N" stat.
+    #[test]
+    fn constructed_card_aggregates_power_and_has_no_cta() {
+        // 3 × 50 MW Iron Mines → -150 MW (red consumer).
+        let def = iron_mine_def();
+        let data = build_constructed_card_data(BuildingType::IronMine, &def, 3, 5);
+        assert!(data.constructed, "constructed card must set the flag");
+        assert!(
+            data.power_chip.per_unit_mw < 0.0,
+            "constructed consumer chip must be signed negative (red)"
+        );
+        assert_eq!(data.power_chip.amount, "150 MW");
+        // The demolish batch label must NOT be in the header anymore.
+        assert_eq!(data.stat_b.1, "", "Demolish -N text must not be in the header");
+        assert_eq!(data.stat_a.1, "\u{00d7}3", "header shows the built count");
+
+        // A generator (PowerGeneration modifier) → green +N sum.
+        let mut gen_def = iron_mine_def();
+        gen_def.modifiers = vec![crate::colony::data::BuildingModifierDef {
+            modifier_type: "PowerGeneration".to_string(),
+            value: 2.0, // 2 GW per unit
+        }];
+        let gen = build_constructed_card_data(BuildingType::IronMine, &gen_def, 4, 1);
+        assert!(
+            gen.power_chip.per_unit_mw > 0.0,
+            "constructed generator chip must be signed positive (green)"
+        );
+        // 4 × 2 GW = 8 GW.
+        assert_eq!(gen.power_chip.amount, "8 GW");
     }
 }

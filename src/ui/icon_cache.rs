@@ -169,7 +169,13 @@ pub enum CacheValidation {
 /// on freshly-written manifests — a manifest written with `Default`
 /// (`0`) would otherwise fail every `validate` (the "49 stale every
 /// launch" bug).
-pub(crate) const CACHE_VERSION: u32 = 1;
+///
+/// v0.5.2 PR-A.7 final: bumped to `2` after the bake recipe changed
+/// (LANCZOS 1024→64 pre-bake + lo/hi 0.40/0.70 luminance key — see
+/// `post_process_category_rgba` doc in `resource_icons.rs`).
+/// Anything baked under `1` is stale and will be re-baked on the
+/// next launch.
+pub(crate) const CACHE_VERSION: u32 = 2;
 
 /// Resolve the absolute cache directory path.
 pub fn cache_dir() -> PathBuf {

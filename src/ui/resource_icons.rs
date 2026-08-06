@@ -401,7 +401,12 @@ pub fn post_process_resource_icons(
         }
         // Step 1: apply the luminance key in place — rewrite
         // alpha based on the source RGB luminance, keep RGB
-        // untouched for now.
+        // untouched for now. Threshold matches
+        // `post_process_category_rgba` (lo=0.4, hi=0.7) so the
+        // bevy_ui path and the egui path produce the same
+        // alpha key for the same source. See the doc on
+        // `post_process_category_rgba` for the full recipe
+        // rationale.
         if let Some(data) = image.data.as_mut() {
             let w = image.texture_descriptor.size.width;
             let h = image.texture_descriptor.size.height;
@@ -411,7 +416,7 @@ pub fn post_process_resource_icons(
                     let g = chunk[1] as f32 / 255.0;
                     let b = chunk[2] as f32 / 255.0;
                     let luminance = 0.299 * r + 0.587 * g + 0.114 * b;
-                    let alpha = ((0.86 - luminance) / (0.86 - 0.42)).clamp(0.0, 1.0);
+                    let alpha = ((0.70 - luminance) / (0.70 - 0.40)).clamp(0.0, 1.0);
                     chunk[3] = (alpha * 255.0).round() as u8;
                 }
             }
@@ -1013,14 +1018,40 @@ fn bake_one_key(
     };
     let rgba = image.to_rgba8();
     let (w, h) = rgba.dimensions();
+    // Pre-bake to 64 px before the post-process. The 1024 px synthesized
+    // source is anti-aliased gray on opaque white; LANCZOS3 1024→64 is
+    // a 16:1 downscale that leaves gray halos on every line edge. The
+    // luminance-key post-process (lo 0.4, hi 0.7) needs to see those
+    // halos to cut them off, but if we run the post-process at 1024 it
+    // binarises the still-thick gray core; the cache then averages
+    // that binary into each output size and reintroduces the halos.
+    //
+    // Baking to 64 first is the *minimum* edge length that keeps the
+    // LANCZOS3 smearing (a kernel ±3 source px = 48 px at 1024 vs
+    // 12 px at 64) from overrunning the line cores. Smaller than 64
+    // (e.g. 32) and the kernel's bleed bleeds into neighbouring texels
+    // and washes out the icon.
+    //
+    // Resources skip the pre-bake (they are already pre-baked on
+    // disk) but get the same 64 px treatment for the downscale to
+    // the smaller cache sizes.
+    const PRE_BAKE: u32 = 64;
+    let pre_baked: image::RgbaImage = if w >= PRE_BAKE && h >= PRE_BAKE {
+        image::DynamicImage::ImageRgba8(rgba)
+            .resize_exact(PRE_BAKE, PRE_BAKE, image::imageops::FilterType::Lanczos3)
+            .to_rgba8()
+    } else {
+        rgba
+    };
+    let (w, h) = pre_baked.dimensions();
     // Choose the processing recipe by key prefix: resources are
     // pre-baked (RGB→white + alpha passthrough); category badges
     // and energy need the luminance key.
     let is_resource = key.starts_with("resource:");
     let processed = if is_resource {
-        post_process_rgba(rgba.as_raw())
+        post_process_rgba(pre_baked.as_raw())
     } else {
-        post_process_category_rgba(rgba.as_raw())
+        post_process_category_rgba(pre_baked.as_raw())
     };
 
     let mut outputs = HashMap::new();
@@ -1147,8 +1178,25 @@ fn post_process_rgba(rgba: &[u8]) -> Vec<u8> {
 }
 
 /// Apply the shared clean threshold to category artwork while keeping
-/// RGB white for egui tinting. The narrow threshold rejects pale paper
-/// texture and avoids the noisy cubic falloff used previously.
+/// RGB white for egui tinting.
+///
+/// ## Recipe (v0.5.2 PR-A.7 final, 2026-08-06)
+///
+/// Threshold `(lo=0.40, hi=0.70)` chosen empirically against the
+/// 1024 px synthesized source after LANCZOS3 downscale to 64 px
+/// (`scripts/rebake_raw.py` mirrors this). The narrow band:
+///
+/// - Keeps the dark line cores fully opaque (lum<0.40 → α=255).
+/// - Cuts off the gray halos left by LANCZOS at 16:1 (lum>0.70 → α=0),
+///   which previously survived as 0.3% transparent specks under
+///   each output pixel and made the icons look "noisy" at 24-28 pt.
+/// - Maps the mid-gray anti-aliased edge to a 1-pixel linear alpha
+///   ramp so neighbouring texels don't get a hard aliased seam.
+///
+/// Anything looser (lo≤0.5) makes the lines fat and washes out the
+/// internal structure; anything tighter (hi≤0.6) reintroduces the
+/// halos. Verified against the 9 category badges and the energy icon
+/// at 16 / 22 / 24 / 28 / 32 pt display sizes.
 fn post_process_category_rgba(rgba: &[u8]) -> Vec<u8> {
     let mut out = vec![0u8; rgba.len()];
     for (src_chunk, dst_chunk) in rgba.chunks_exact(4).zip(out.chunks_exact_mut(4)) {
@@ -1156,7 +1204,7 @@ fn post_process_category_rgba(rgba: &[u8]) -> Vec<u8> {
         let g = src_chunk[1] as f32 / 255.0;
         let b = src_chunk[2] as f32 / 255.0;
         let luminance = 0.299 * r + 0.587 * g + 0.114 * b;
-        let alpha = ((0.86 - luminance) / (0.86 - 0.42)).clamp(0.0, 1.0);
+        let alpha = ((0.70 - luminance) / (0.70 - 0.40)).clamp(0.0, 1.0);
         dst_chunk[0] = 255;
         dst_chunk[1] = 255;
         dst_chunk[2] = 255;
