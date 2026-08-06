@@ -5108,7 +5108,7 @@ pub fn setup_construction(
             .as_ref()
             .map(|r: &Res<ResourceIcons>| -> &ResourceIcons { r.as_ref() })
             .unwrap_or(&empty_resource_icons);
-        spawn_card(
+        let card = spawn_card(
             &mut commands,
             card_grid,
             &card_data,
@@ -5119,6 +5119,15 @@ pub fn setup_construction(
             icon_handle,
             resource_icons_ref,
         );
+        // v0.5.2 (2026-08-06): tag this initial card as Build-tab-owned.
+        // WITHOUT this, the first chip click's `refresh_card_grid`
+        // (which despawns only `With<BuildCard>`) finds nothing to
+        // remove and spawns a fresh filtered set ON TOP of these —
+        // the old "All" cards persist, so the filter never visibly
+        // narrows the grid (and cards stack up). `refresh_card_grid`
+        // inserts the same marker on its own spawns, so after the
+        // first refresh the sets are consistent.
+        commands.entity(card).insert(BuildCard);
     }
 
     // No bottom dock — the global in-game footer (status + speed control + date)
@@ -9325,7 +9334,18 @@ impl Plugin for ConstructionPlugin {
             .add_systems(
                 Startup,
                 (
-                    setup_construction.after(crate::colony::data::load_buildings),
+                    // v0.5.2 (2026-08-06): `setup_construction` MUST
+                    // run after `load_building_icons` — both were
+                    // `.after(load_buildings)` with no mutual order,
+                    // so Bevy could run setup FIRST, read
+                    // `Option<Res<BuildingIcons>>` as None, and spawn
+                    // every initial Build card with the cyan
+                    // placeholder square (the "filled cyan square,
+                    // no icon" report). Ordering setup after the icon
+                    // load guarantees the handles exist at spawn.
+                    setup_construction
+                        .after(crate::colony::data::load_buildings)
+                        .after(load_building_icons),
                     // Load building icons after the buildings data is
                     // available. The icons themselves are async-loaded
                     // by the asset server; this just registers the
