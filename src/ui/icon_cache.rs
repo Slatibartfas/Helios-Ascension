@@ -170,12 +170,14 @@ pub enum CacheValidation {
 /// (`0`) would otherwise fail every `validate` (the "49 stale every
 /// launch" bug).
 ///
-/// v0.5.2 PR-A.7 final: bumped to `2` after the bake recipe changed
-/// (LANCZOS 1024→64 pre-bake + lo/hi 0.40/0.70 luminance key — see
-/// `post_process_category_rgba` doc in `resource_icons.rs`).
-/// Anything baked under `1` is stale and will be re-baked on the
-/// next launch.
-pub(crate) const CACHE_VERSION: u32 = 2;
+/// v0.5.2 PR-A.7 final: bumped to `3` after the on-disk icon format
+/// changed (1024×1024 dark-on-white → 64×64 white-on-transparent,
+/// cropped to the content bounding box). The cache is now a 1:1
+/// copy of the on-disk source; the pre-bake + luminance-key work
+/// moved into `scripts/one_shot_bake2.py` and runs once at author
+/// time. Anything baked under `1` or `2` is stale and will be
+/// re-baked on the next launch.
+pub(crate) const CACHE_VERSION: u32 = 3;
 
 /// Resolve the absolute cache directory path.
 pub fn cache_dir() -> PathBuf {

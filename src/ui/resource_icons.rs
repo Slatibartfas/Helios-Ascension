@@ -32,6 +32,7 @@ use std::future::Future;
 
 use bevy::prelude::*;
 use bevy::render::render_resource::Extent3d;
+use bevy::image::ImageSampler;
 use bevy_egui::egui;
 
 use crate::economy::ResourceType;
@@ -83,7 +84,7 @@ pub struct ResourceIcons {
     /// square, the same fallback as resource icons.
     pub category_handles: HashMap<String, egui::TextureHandle>,
     /// egui `TextureHandle` for the dedicated energy icon
-    /// (`assets/textures/ui/resources/energy-64.png`). Energy is not
+    /// (`assets/textures/ui/resources/energy.png`). Energy is not
     /// a `ResourceType` (it's a power-balance concept, not a
     /// stockpile), so it gets its own slot instead of living in
     /// `handles`. Tinted at the call site: green for surplus,
@@ -144,25 +145,23 @@ pub struct ResourceIcons {
 /// the badge silently falls back to a placeholder; this is the
 /// expected dev-mode behaviour.
 pub fn category_icon_basename(category: &str) -> Option<&'static str> {
-    // v0.5.2 PR-A.7 (2026-08-05): point the loader at the
-    // 64px-authored `category-*-64.png` set (Lanczos3
-    // downscaled from 1024px at author time, not at runtime)
-    // rather than the legacy 1024px originals. The
-    // 64px set is authored at the final display size so
-    // thin strokes survive — the 1024px originals were
-    // 16:1 downscaled at draw time which smeared thin
-    // detail. The legacy `category-*.png` files are kept
-    // on disk just in case the user wants to roll back.
+    // v0.5.2 PR-A.7 (2026-08-06): the on-disk category icons are
+    // now pre-baked 64×64 white-on-transparent PNGs (cropped to
+    // their content bounding box, no padding). The runtime is a
+    // straight load + NEAREST-display; no luminance key, no
+    // downscale dance. Earlier 1024→64 / 1024→32 bake pipelines
+    // were a workaround for a thin-strokes problem that turned
+    // out to be an authoring issue, not a display-size issue.
     match category {
-        "Biological" => Some("category-biological-64"),
-        "Volatiles" => Some("category-volatiles-64"),
-        "Atmospheric Gases" => Some("category-atmospheric-64"),
-        "Construction" => Some("category-construction-64"),
-        "Fusion Fuel" => Some("category-fusion-fuel-64"),
-        "Fissiles" => Some("category-fissiles-64"),
-        "Precious Metals" => Some("category-precious-64"),
-        "Strategic" => Some("category-strategic-64"),
-        "Exotic" => Some("category-exotic-64"),
+        "Biological" => Some("category-biological"),
+        "Volatiles" => Some("category-volatiles"),
+        "Atmospheric Gases" => Some("category-atmospheric"),
+        "Construction" => Some("category-construction"),
+        "Fusion Fuel" => Some("category-fusion-fuel"),
+        "Fissiles" => Some("category-fissiles"),
+        "Precious Metals" => Some("category-precious"),
+        "Strategic" => Some("category-strategic"),
+        "Exotic" => Some("category-exotic"),
         _ => None,
     }
 }
@@ -200,7 +199,7 @@ pub fn load_resource_icons_bevy_ui(mut commands: Commands, asset_server: Res<Ass
     // the bevy_ui canary (Build / Mining cards) can tint the
     // `ImageNode` per-row (red for demand, green for production).
     let energy_bevy_handle: Handle<Image> =
-        asset_server.load("textures/ui/resources/energy-64.png");
+        asset_server.load("textures/ui/resources/energy.png");
     commands.insert_resource(ResourceIcons {
         handles: HashMap::new(), // egui path remains untouched
         bevy_handles: handles,
@@ -360,19 +359,13 @@ pub fn post_process_resource_icons(
         return;
     }
 
-    // Dedicated energy icon. v0.5.2 PR-A.7 (2026-08-04): unlike
-    // the per-resource icons (which are pre-baked on disk to
-    // RGB-black + alpha-keyed), the energy PNG is a fresh
-    // `image_synthesize` output with the standard white
-    // background — alpha is 255 everywhere. Apply the
-    // luminance-key recipe (`post_process_category_rgba` on
-    // the egui side) IN PLACE before the standard RGB→white +
-    // downscale so the bolt-in-hex PNG ends up with a
-    // transparent background and a white tintable line. Without
-    // this step the icon renders as a solid coloured square
-    // (the entire 1024×1024 image is opaque, the tint fills
-    // every pixel, the line is invisible against the
-    // background).
+    // Dedicated energy icon. v0.5.2 PR-A.7 (2026-08-06): the
+    // on-disk `energy.png` is already a 64×64 white-on-transparent
+    // PNG (cropped to its content bounding box, luminance key applied
+    // at author time). The bevy_ui path just needs to copy the cache
+    // bytes in (if available) or apply the same RGB→white + alpha
+    // passthrough the egui path uses. No per-pixel luminance key
+    // needed at runtime.
     if icons.energy_bevy_pending {
         let Some(handle) = icons.energy_bevy_handle.clone() else {
             icons.energy_bevy_pending = false;
@@ -383,7 +376,7 @@ pub fn post_process_resource_icons(
             return;
         };
         // Cache fast-path: the 64 px baked energy icon is already
-        // luminance-keyed + downscaled; copy it straight in.
+        // white-on-transparent; copy it straight in.
         let cache_hit = if let Some(manifest) = icons.cache_manifest.clone() {
             cached_icon_path(&Some(manifest), icon_cache::ENERGY_KEY, BEVY_ICON_TEXTURE_SIZE)
                 .and_then(|p| load_cached_png_rgba(&p))
@@ -399,31 +392,28 @@ pub fn post_process_resource_icons(
             icons.energy_bevy_pending = false;
             return;
         }
-        // Step 1: apply the luminance key in place — rewrite
-        // alpha based on the source RGB luminance, keep RGB
-        // untouched for now. Threshold matches
-        // `post_process_category_rgba` (lo=0.4, hi=0.7) so the
-        // bevy_ui path and the egui path produce the same
-        // alpha key for the same source. See the doc on
-        // `post_process_category_rgba` for the full recipe
-        // rationale.
+        // Inline path: rewrite RGB to white (the AssetServer-decoded
+        // 64 px file has whatever RGB the synthesis tool emitted —
+        // for the new pre-baked format that's already white, but the
+        // rewrite is idempotent and protects against a rolled-back
+        // source format). Alpha is passed through as-is.
         if let Some(data) = image.data.as_mut() {
             let w = image.texture_descriptor.size.width;
             let h = image.texture_descriptor.size.height;
             if w > 0 && h > 0 && data.len() == (w as usize).saturating_mul(h as usize) * 4 {
                 for chunk in data.chunks_exact_mut(4) {
-                    let r = chunk[0] as f32 / 255.0;
-                    let g = chunk[1] as f32 / 255.0;
-                    let b = chunk[2] as f32 / 255.0;
-                    let luminance = 0.299 * r + 0.587 * g + 0.114 * b;
-                    let alpha = ((0.70 - luminance) / (0.70 - 0.40)).clamp(0.0, 1.0);
-                    chunk[3] = (alpha * 255.0).round() as u8;
+                    chunk[0] = 255;
+                    chunk[1] = 255;
+                    chunk[2] = 255;
+                    // Alpha unchanged.
                 }
             }
         }
-        // Step 2: standard RGB→white + downscale. The alpha is
-        // already keyed so the line survives as the only opaque
-        // pixel after the downsample.
+        // The image is already 64 px (matches BEVY_ICON_TEXTURE_SIZE);
+        // process_and_downscale_bevy_icon's downscale is a 1:1
+        // no-op for a 64 px source. Still call it for the
+        // RGB→white pass on the alpha-channel extraction path
+        // (the function re-emits white RGB + alpha).
         process_and_downscale_bevy_icon(image);
         icons.energy_bevy_pending = false;
     }
@@ -648,7 +638,7 @@ pub fn load_resource_icons(
     }
 
     // ── 4. Energy icon from cache ────────────────────────────────
-    // Dedicated energy icon (`assets/textures/ui/resources/energy-64.png`).
+    // Dedicated energy icon (`assets/textures/ui/resources/energy.png`).
     // Energy is not a `ResourceType` — it's the power-balance concept
     // used by the top resource bar's "TW" chip and (eventually) the
     // Build/Mining card energy rows. Loaded with the same
@@ -661,7 +651,7 @@ pub fn load_resource_icons(
                 icons.energy_handle = Some(handle);
             }
         } else {
-            let path = std::path::Path::new("assets/textures/ui/resources/energy-64.png");
+            let path = std::path::Path::new("assets/textures/ui/resources/energy.png");
             if let Ok(bytes) = std::fs::read(path) {
                 if let Ok(image) = image::load_from_memory(&bytes) {
                     let rgba = image.to_rgba8();
@@ -969,7 +959,7 @@ fn all_icon_sources() -> HashMap<String, std::path::PathBuf> {
     }
     sources.insert(
         icon_cache::ENERGY_KEY.to_string(),
-        std::path::PathBuf::from("assets/textures/ui/resources/energy-64.png"),
+        std::path::PathBuf::from("assets/textures/ui/resources/energy.png"),
     );
     sources
 }
@@ -1018,40 +1008,17 @@ fn bake_one_key(
     };
     let rgba = image.to_rgba8();
     let (w, h) = rgba.dimensions();
-    // Pre-bake to 64 px before the post-process. The 1024 px synthesized
-    // source is anti-aliased gray on opaque white; LANCZOS3 1024→64 is
-    // a 16:1 downscale that leaves gray halos on every line edge. The
-    // luminance-key post-process (lo 0.4, hi 0.7) needs to see those
-    // halos to cut them off, but if we run the post-process at 1024 it
-    // binarises the still-thick gray core; the cache then averages
-    // that binary into each output size and reintroduces the halos.
-    //
-    // Baking to 64 first is the *minimum* edge length that keeps the
-    // LANCZOS3 smearing (a kernel ±3 source px = 48 px at 1024 vs
-    // 12 px at 64) from overrunning the line cores. Smaller than 64
-    // (e.g. 32) and the kernel's bleed bleeds into neighbouring texels
-    // and washes out the icon.
-    //
-    // Resources skip the pre-bake (they are already pre-baked on
-    // disk) but get the same 64 px treatment for the downscale to
-    // the smaller cache sizes.
-    const PRE_BAKE: u32 = 64;
-    let pre_baked: image::RgbaImage = if w >= PRE_BAKE && h >= PRE_BAKE {
-        image::DynamicImage::ImageRgba8(rgba)
-            .resize_exact(PRE_BAKE, PRE_BAKE, image::imageops::FilterType::Lanczos3)
-            .to_rgba8()
-    } else {
-        rgba
-    };
-    let (w, h) = pre_baked.dimensions();
-    // Choose the processing recipe by key prefix: resources are
-    // pre-baked (RGB→white + alpha passthrough); category badges
-    // and energy need the luminance key.
+    // v0.5.2 PR-A.7 (2026-08-06): the on-disk source is already
+    // a 64×64 white-on-transparent PNG (cropped to its content
+    // bounding box, luminance key applied at author time). No
+    // pre-bake, no luminance-key recomputation — both post-process
+    // functions are now RGB→white + alpha passthrough (idempotent
+    // on a pre-baked source).
     let is_resource = key.starts_with("resource:");
     let processed = if is_resource {
-        post_process_rgba(pre_baked.as_raw())
+        post_process_rgba(rgba.as_raw())
     } else {
-        post_process_category_rgba(pre_baked.as_raw())
+        post_process_category_rgba(rgba.as_raw())
     };
 
     let mut outputs = HashMap::new();
@@ -1180,35 +1147,25 @@ fn post_process_rgba(rgba: &[u8]) -> Vec<u8> {
 /// Apply the shared clean threshold to category artwork while keeping
 /// RGB white for egui tinting.
 ///
-/// ## Recipe (v0.5.2 PR-A.7 final, 2026-08-06)
+/// ## v0.5.2 PR-A.7 final (2026-08-06): pass-through
 ///
-/// Threshold `(lo=0.40, hi=0.70)` chosen empirically against the
-/// 1024 px synthesized source after LANCZOS3 downscale to 64 px
-/// (`scripts/rebake_raw.py` mirrors this). The narrow band:
+/// The on-disk category icons are pre-baked 64×64 white-on-transparent
+/// PNGs (cropped to their content bounding box, luminance key applied
+/// at author time by `scripts/one_shot_bake2.py`). The runtime no
+/// longer needs to do any per-pixel work — this function is a
+/// RGB→white + alpha passthrough, identical to `post_process_rgba`.
 ///
-/// - Keeps the dark line cores fully opaque (lum<0.40 → α=255).
-/// - Cuts off the gray halos left by LANCZOS at 16:1 (lum>0.70 → α=0),
-///   which previously survived as 0.3% transparent specks under
-///   each output pixel and made the icons look "noisy" at 24-28 pt.
-/// - Maps the mid-gray anti-aliased edge to a 1-pixel linear alpha
-///   ramp so neighbouring texels don't get a hard aliased seam.
-///
-/// Anything looser (lo≤0.5) makes the lines fat and washes out the
-/// internal structure; anything tighter (hi≤0.6) reintroduces the
-/// halos. Verified against the 9 category badges and the energy icon
-/// at 16 / 22 / 24 / 28 / 32 pt display sizes.
+/// The two functions exist as separate symbols so a future change
+/// (e.g. a different category source format, a per-category tint
+/// override) has a clear place to add a recipe without touching the
+/// resource path.
 fn post_process_category_rgba(rgba: &[u8]) -> Vec<u8> {
     let mut out = vec![0u8; rgba.len()];
     for (src_chunk, dst_chunk) in rgba.chunks_exact(4).zip(out.chunks_exact_mut(4)) {
-        let r = src_chunk[0] as f32 / 255.0;
-        let g = src_chunk[1] as f32 / 255.0;
-        let b = src_chunk[2] as f32 / 255.0;
-        let luminance = 0.299 * r + 0.587 * g + 0.114 * b;
-        let alpha = ((0.70 - luminance) / (0.70 - 0.40)).clamp(0.0, 1.0);
         dst_chunk[0] = 255;
         dst_chunk[1] = 255;
         dst_chunk[2] = 255;
-        dst_chunk[3] = (alpha * 255.0).round() as u8;
+        dst_chunk[3] = src_chunk[3];
     }
     out
 }
@@ -1325,11 +1282,16 @@ const BEVY_ICON_TEXTURE_SIZE: u32 = 64;
 /// Rewrites a decoded bevy_ui icon `Image` to white-RGB + original alpha
 /// and resamples it down to `BEVY_ICON_TEXTURE_SIZE`.
 ///
-/// Same rationale as `downscale_icon_rgba` on the egui side: the source
-/// PNGs are 1024×1024 and these draw at 20 px, a 51:1 minification that
-/// the sampler cannot do cleanly without a mip chain. Returns `false` if
-/// the buffer isn't tightly-packed RGBA8, in which case the caller should
-/// mark the icon processed rather than retry forever.
+/// v0.5.2 PR-A.7 (2026-08-06): the on-disk source is now a 64×64
+/// white-on-transparent PNG (matches `BEVY_ICON_TEXTURE_SIZE`), so
+/// the downscale step is a 1:1 no-op for the typical case. The
+/// sampler is explicitly set to NEAREST so the 64→20 minification
+/// at the draw call keeps thin strokes crisp (Bevy's default is
+/// linear, which softens them).
+///
+/// Returns `false` if the buffer isn't tightly-packed RGBA8, in
+/// which case the caller should mark the icon processed rather
+/// than retry forever.
 fn process_and_downscale_bevy_icon(image: &mut Image) -> bool {
     let w = image.texture_descriptor.size.width;
     let h = image.texture_descriptor.size.height;
@@ -1358,6 +1320,10 @@ fn process_and_downscale_bevy_icon(image: &mut Image) -> bool {
             depth_or_array_layers: 1,
         };
     }
+    // Force NEAREST sampling so the 64→20-ish minification at the
+    // draw call keeps thin strokes crisp. Bevy's default is linear,
+    // which softens 1-2 px line art into a gray haze.
+    image.sampler = ImageSampler::nearest();
     true
 }
 

@@ -188,6 +188,14 @@ fn update_boot_overlay(
     boot_progress: Option<Res<BootProgress>>,
     icons: Option<Res<crate::ui::resource_icons::ResourceIcons>>,
     needs: Option<Res<crate::ui::resource_icons::ResourceIconNeeds>>,
+    real_time: Res<Time<Real>>,
+    // v0.5.2 (2026-08-06): the timestamp (real seconds) at which the
+    // chain reached `Ready` while icons were still missing. When this
+    // exceeds `MAX_FINALIZING_S`, force-hide the overlay — a stuck
+    // icon (missing file, cache bake failure) must NEVER permanently
+    // block the player behind the opaque backdrop. Icons popping in
+    // late is far better than an unreachable menu.
+    mut finalizing_started: Local<Option<f64>>,
 ) {
     let in_game = launch_state.is_in_game();
     let loading = *boot_state == BootState::Loading;
@@ -199,6 +207,29 @@ fn update_boot_overlay(
         (Some(icons), Some(needs)) => icons.all_needed_loaded(&needs),
         _ => true,
     };
+
+    // v0.5.2 (2026-08-06): hard fail-safe. If the chain is Ready but
+    // icons are still missing, start a timer. Once it exceeds
+    // `MAX_FINALIZING_S`, treat icons as ready (hide the overlay) so
+    // a single missing icon can't lock the game. The timer resets
+    // when the overlay isn't in the Finalizing state, so a legit slow
+    // load that completes keeps its full grace period.
+    const MAX_FINALIZING_S: f64 = 5.0;
+    let now = real_time.elapsed_secs_f64();
+    let mut icons_ready = icons_ready;
+    if !loading && !icons_ready {
+        let started = *finalizing_started.get_or_insert(now);
+        if now - started >= MAX_FINALIZING_S {
+            warn!(
+                "boot overlay: force-dismissing after {MAX_FINALIZING_S:.0}s (icons not all \
+                 loaded — check resource_icons.rs for a missing file); menus may show \
+                 placeholder icons"
+            );
+            icons_ready = true;
+        }
+    } else {
+        *finalizing_started = None;
+    }
 
     // Visible while the chain runs OR while the icons are still
     // trickling in — the opaque backdrop hides the pop-in until both
