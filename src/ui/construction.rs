@@ -47,6 +47,10 @@ use crate::research::systems::ResearchState;
 // The emoji fallback above is kept for the legacy egui code
 // path — bevy_ui uses `ResourceCostRow` directly.
 use super::resource_icons::{get_energy_icon_handle_bevy, get_resource_icon_handle_bevy, ResourceIcons};
+// v0.5.2 (2026-08-06): the three canonical font handles, loaded once
+// at Startup by `widgets::init_ui_fonts`. Per-frame systems read
+// `Res<UiFonts>` instead of calling `asset_server.load("fonts/...")`.
+use super::widgets::{spawn_scrollable_container, UiFonts};
 
 // One row of a building's resource demand: the resource name as
 // it appears in `buildings.ron`, the per-unit amount (already
@@ -117,6 +121,116 @@ pub struct PowerChipData {
     // Pre-built tooltip body lines (one per visual line, no
     // trailing newlines). The first line is the headline.
     pub tooltip_lines: Vec<String>,
+}
+
+// Total `PowerGeneration` modifier value (GW per unit) for a
+// building. `0.0` = not a generator. Shared by the three card-data
+// builders via [`build_power_chip_data`] (v0.5.2, 2026-08-06) —
+// previously each builder re-implemented the same filter+sum inline.
+fn power_output_gw_per_unit(def: &BuildingDefinition) -> f64 {
+    def.modifiers
+        .iter()
+        .filter(|m| m.modifier_type == "PowerGeneration")
+        .map(|m| m.value)
+        .sum()
+}
+
+// Build the power-chip data for a building card (v0.5.2, 2026-08-06).
+//
+// Extracted from the near-identical power-chip blocks that used to
+// live in `card_data_with_multiplier` (Build tab), `build_mine_card_data`
+// (Mining tab), and the constant chip in `build_constructed_card_data`.
+// One helper, three call sites — the 3-way generator / no-op / demand
+// branch is the same everywhere.
+//
+// `mult` is the active build-qty multiplier (≥ 1); the displayed
+// number reflects the batch total. `spare` is the active colony's grid
+// surplus in MW: `None` = no colony selected, `Some(s)` = the real
+// surplus (s may be ≤ 0 for a deficit). The three builders map their
+// own sentinels onto this:
+// - Build tab: `spare_power_mw > 0.0 → Some`, else `None`
+//   (its `compute_colony_spare_power_mw` returns 0.0 for no colony).
+// - Mining tab: `spare_power_mw.is_nan() → None`, else `Some`
+//   (the mining refresh passes `f64::NAN` for no colony).
+fn build_power_chip_data(
+    def: &BuildingDefinition,
+    mult: f64,
+    spare: Option<f64>,
+) -> PowerChipData {
+    let gw_per_unit = power_output_gw_per_unit(def);
+    // Generator: green "Produces X" with a net-surplus tooltip.
+    if gw_per_unit > 0.0 {
+        let per_unit_mw = gw_per_unit * 1_000.0;
+        let total_mw = per_unit_mw * mult;
+        let line = format_power(total_mw);
+        let per_unit = format_power(per_unit_mw);
+        let tooltip_lines = if mult > 1.0 {
+            vec![
+                format!("Power generation: {line}"),
+                format!("({per_unit} per unit × {mult})"),
+                "Net surplus to the grid".to_string(),
+            ]
+        } else {
+            vec![
+                format!("Power generation: {line}"),
+                "Net surplus to the grid".to_string(),
+            ]
+        };
+        return PowerChipData {
+            verb: "Produces",
+            amount: line,
+            per_unit_mw,
+            multiplier: mult as u32,
+            spare_mw: None, // generators don't gate on spare
+            insufficient: false,
+            tooltip_lines,
+        };
+    }
+    // No power interaction: neutral "0 W".
+    if def.power_demand_mw.abs() < 0.01 {
+        return PowerChipData {
+            verb: "Power",
+            amount: "0 W".to_string(),
+            per_unit_mw: 0.0,
+            multiplier: mult as u32,
+            spare_mw: None,
+            insufficient: false,
+            tooltip_lines: vec!["No grid interaction".to_string()],
+        };
+    }
+    // Net consumer: "Demand" with the spare-grid breakdown.
+    let total = def.power_demand_mw * mult;
+    let per_unit = format_power(def.power_demand_mw);
+    let line = format_power(total);
+    let insufficient = spare.is_some_and(|s| total > s);
+    let mut tooltip_lines = vec![format!("Power demand: {line}")];
+    if mult > 1.0 {
+        tooltip_lines.push(format!("({per_unit} per unit × {mult})"));
+    }
+    match spare {
+        Some(s) if s > 0.0 => {
+            tooltip_lines.push(format!("Spare grid: {}", format_power(s)));
+        }
+        Some(_) => tooltip_lines.push("No spare grid (deficit)".to_string()),
+        None => tooltip_lines.push("No active colony".to_string()),
+    }
+    if insufficient {
+        tooltip_lines.push("Not enough energy".to_string());
+    }
+    PowerChipData {
+        verb: "Demand",
+        amount: line,
+        // `per_unit_mw` is the SIGNED power per unit — positive for
+        // generation, NEGATIVE for consumption. The RON stores
+        // `power_demand_mw` as a positive magnitude, so we negate it
+        // here so the chip's `+`/`-` sign prefix + red/green text
+        // correctly identifies this building as a consumer.
+        per_unit_mw: -def.power_demand_mw,
+        multiplier: mult as u32,
+        spare_mw: spare.filter(|s| *s > 0.0),
+        insufficient,
+        tooltip_lines,
+    }
 }
 
 // Compute the active colony's spare power in MW. Returns 0.0 if no
@@ -1205,117 +1319,26 @@ pub fn card_data_with_multiplier(
     // still appears as the second power-related effect (rare in
     // practice — most producers have a tiny parasitic draw which is
     // folded into the modifier or omitted).
-    let power_output_gw_per_unit: f64 = def
-        .modifiers
-        .iter()
-        .filter(|m| m.modifier_type == "PowerGeneration")
-        .map(|m| m.value)
-        .sum();
-    let power_chip: PowerChipData = if power_output_gw_per_unit > 0.0 {
-        // RON is GW per unit; convert to MW (× 1000) for the card
-        // line so it lines up with the demand line's MW units.
-        let per_unit_mw = power_output_gw_per_unit * 1_000.0;
-        let total_mw = per_unit_mw * mult;
-        // v0.5.2 (2026-08-03): batch-total only. The legacy
-        // "X MW × N = Y MW" formula duplicated the multiplier
-        // visible in the [−] [+] controls and didn't scale (a
-        // 5 GW fusion plant read as "5000 MW"). `format_power`
-        // picks the smallest SI suffix that lands the value in
-        // 1..=999 so the player reads "5 GW" / "900 MW" / "50 kW"
-        // depending on magnitude.
-        //
-        // v0.5.2 PR-A.7 (2026-08-04): the "Produces" line is no
-        // longer pushed to `effects`; the canary renders a
-        // dedicated Power chip with the bolt-in-hex icon and a
-        // hover tooltip. Tone stays Positive for generators
-        // (green), Throughput for fitting demand, Negative
-        // (orange) for insufficient demand, Neutral for the
-        // no-power-interaction case.
-        let line = format_power(total_mw);
-        let per_unit = format_power(per_unit_mw);
-        let tooltip_lines = if mult > 1.0 {
-            vec![
-                format!("Power generation: {line}"),
-                format!("({per_unit} per unit × {mult})"),
-                "Net surplus to the grid".to_string(),
-            ]
+    // Power chip (v0.5.2, 2026-08-06): shared builder extracted from
+    // the three card-data builders. The Build tab maps its spare-power
+    // sentinel (0.0 = no colony) onto `Option`: a positive surplus is
+    // `Some`, anything ≤ 0 (no colony OR a deficit) is `None` — the
+    // chip then reads "No active colony" and never gates on a deficit
+    // it can't distinguish from "no colony".
+    let power_chip = build_power_chip_data(
+        def,
+        mult,
+        if spare_power_mw > 0.0 {
+            Some(spare_power_mw)
         } else {
-            vec![
-                format!("Power generation: {line}"),
-                "Net surplus to the grid".to_string(),
-            ]
-        };
-        PowerChipData {
-            verb: "Produces",
-            amount: line,
-            per_unit_mw,
-            multiplier: mult as u32,
-            spare_mw: None, // generators don't gate on spare
-            insufficient: false,
-            tooltip_lines,
-        }
-    } else if def.power_demand_mw.abs() < 0.01 {
-        let amount = "0 W".to_string();
-        PowerChipData {
-            verb: "Power",
-            amount,
-            per_unit_mw: 0.0,
-            multiplier: mult as u32,
-            spare_mw: None,
-            insufficient: false,
-            tooltip_lines: vec!["No grid interaction".to_string()],
-        }
-    } else {
-        let total = def.power_demand_mw * mult;
-        let per_unit = format_power(def.power_demand_mw);
-        let line = format_power(total);
-        let spare = spare_power_mw;
-        let insufficient = if spare <= 0.0 {
-            false
-        } else {
-            total > spare
-        };
-        let mut tooltip_lines = vec![format!("Power demand: {line}")];
-        if mult > 1.0 {
-            tooltip_lines.push(format!("({per_unit} per unit × {mult})"));
-        }
-        if spare > 0.0 {
-            tooltip_lines.push(format!("Spare grid: {}", format_power(spare)));
-        } else {
-            tooltip_lines.push("No active colony".to_string());
-        }
-        if insufficient {
-            tooltip_lines.push("Not enough energy".to_string());
-        }
-        PowerChipData {
-            verb: "Demand",
-            amount: line,
-            // v0.5.2 PR-A.7 (2026-08-04): `per_unit_mw` is the SIGNED
-            // power per unit — positive for generation, NEGATIVE
-            // for consumption. The RON stores `power_demand_mw` as
-            // a positive magnitude, so we negate it here so the
-            // chip's `+` / `-` sign prefix + red/green text colour
-            // correctly identifies this building as a consumer
-            // (red, "-50 MW") rather than a producer (green,
-            // "+50 MW"). Without the negation every demand card
-            // showed as a green "+N MW" producer.
-            per_unit_mw: -def.power_demand_mw,
-            multiplier: mult as u32,
-            spare_mw: if spare > 0.0 { Some(spare) } else { None },
-            insufficient,
-            tooltip_lines,
-        }
-    };
-    // Compute `power_insufficient` so the Queue button can disable
-    // itself. `false` when no colony is selected (spare=0 → no gate)
-    // OR when the building doesn't draw power.
-    let power_insufficient = if def.power_demand_mw.abs() < 0.01 {
-        false
-    } else if spare_power_mw <= 0.0 {
-        false
-    } else {
-        def.power_demand_mw * mult > spare_power_mw
-    };
+            None
+        },
+    );
+    // `power_insufficient` drives the Queue-button disable. It matches
+    // the chip's `insufficient` (the shared builder computes the same
+    // "batch demand > spare" predicate, `false` for generators and
+    // no-colony cases).
+    let power_insufficient = power_chip.insufficient;
 
     // v0.5.2 canary fix: surface the building's `*Production`
     // modifier (per-mine yield) as the most prominent non-Power
@@ -2170,29 +2193,17 @@ fn spawn_overview_body(
         .id();
     commands.entity(body).add_child(queue_section_header);
 
-    let queue_content = commands
-        .spawn((
-            Node {
-                display: Display::Flex,
-                flex_direction: FlexDirection::Column,
-                width: Val::Percent(100.0),
-                flex_grow: 1.0,
-                // v0.5.2 PR-A.5: same flex-overflow fix as the
-                // mining/buildings/queue bodies — without
-                // `min_height: 0`, the column refuses to shrink
-                // below its intrinsic content height and the
-                // scroll wheel silently no-ops.
-                min_height: Val::Px(0.0),
-                row_gap: Val::Px(SPACE_XS),
-                overflow: Overflow::scroll_y(),
-                ..default()
-            },
-            BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.0)),
-            Name::new("overview_queue_content"),
-            OverviewQueueContent,
-        ))
-        .id();
-    commands.entity(body).add_child(queue_content);
+    // Queue section scroll container (v0.5.2, 2026-08-06): shared
+    // `Overflow::scroll_y` + `min_height: 0` + `flex_grow: 1` helper
+    // from `widgets::spawn_scrollable_container`. The entity is found
+    // by the `OverviewQueueContent` marker; no id binding needed here.
+    spawn_scrollable_container(
+        commands,
+        body,
+        "overview_queue_content",
+        SPACE_XS,
+        OverviewQueueContent,
+    );
 
     // Short help line at the bottom.
     let help = commands
@@ -2262,7 +2273,7 @@ pub struct OverviewQueueContent;
 // coupling it to the project list.
 pub fn update_overview_queue(
     mut commands: Commands,
-    asset_server: Res<AssetServer>,
+    fonts: Res<UiFonts>,
     ui_state: Res<ConstructionUiState>,
     buildings_data: Res<BuildingsData>,
     projects: Query<(Entity, &crate::colony::ConstructionProject)>,
@@ -2288,9 +2299,11 @@ pub fn update_overview_queue(
         return;
     };
 
-    let body_font: Handle<Font> = asset_server.load("fonts/Inter-Regular.otf");
-    let body_font_medium: Handle<Font> = asset_server.load("fonts/Inter-SemiBold.otf");
-    let mono_font: Handle<Font> = asset_server.load("fonts/GeistMono-Medium.ttf");
+    // Fonts come from the cached `UiFonts` resource (v0.5.2,
+    // 2026-08-06) — no per-frame `asset_server.load` lookup.
+    let body_font: Handle<Font> = fonts.body.clone();
+    let body_font_medium: Handle<Font> = fonts.medium.clone();
+    let mono_font: Handle<Font> = fonts.mono.clone();
 
     // Resolve the selected colony's projects.
     let selected_colony = ui_state.selected_colony;
@@ -2956,7 +2969,7 @@ fn spawn_constructed_card(
 // 3. Spawn cards for `BuildingType`s we haven't seen before.
 pub fn update_buildings_body(
     mut commands: Commands,
-    asset_server: Res<AssetServer>,
+    fonts: Res<UiFonts>,
     ui_state: Res<ConstructionUiState>,
     buildings_data: Res<BuildingsData>,
     building_icons: Option<Res<BuildingIcons>>,
@@ -2972,10 +2985,11 @@ pub fn update_buildings_body(
         return;
     };
 
-    // Load fonts for the text nodes (cached by the asset server).
-    let body_font: Handle<Font> = asset_server.load("fonts/Inter-Regular.otf");
-    let body_font_medium: Handle<Font> = asset_server.load("fonts/Inter-SemiBold.otf");
-    let mono_font: Handle<Font> = asset_server.load("fonts/GeistMono-Medium.ttf");
+    // Fonts come from the cached `UiFonts` resource (v0.5.2,
+    // 2026-08-06) — no per-frame `asset_server.load` lookup.
+    let body_font: Handle<Font> = fonts.body.clone();
+    let body_font_medium: Handle<Font> = fonts.medium.clone();
+    let mono_font: Handle<Font> = fonts.mono.clone();
 
     // Resolve the selected colony.
     let colony = ui_state
@@ -3199,36 +3213,17 @@ fn spawn_mining_body(commands: &mut Commands, parent: Entity) {
     // Content container — `update_mining_body` despawns and
     // re-spawns the rows inside this container every frame.
     //
-    // v0.5.2 PR-A.5: `min_height: Val::Px(0.0)` mirrors the build
-    // tab's `card_grid` (line ~3694). Without it, the flex item
-    // refuses to shrink below its intrinsic content height — the
-    // default `min-height: auto` in flexbox layout. The result is
-    // that the scroll container grows to fit its content, the
-    // `Overflow::scroll_y()` never has anything to scroll, and the
-    // `tick_ui_scroll_on_wheel` system silently no-ops on every
-    // wheel event (the computed `max_y` is 0 because the content
-    // fits without clipping). This is the exact fix the build tab
-    // relies on for the same reason — the `card_grid` comment
-    // explicitly calls this out as "critical for Bevy 0.18's flex
-    // sizing behavior".
-    let content = commands
-        .spawn((
-            Node {
-                display: Display::Flex,
-                flex_direction: FlexDirection::Column,
-                width: Val::Percent(100.0),
-                flex_grow: 1.0,
-                min_height: Val::Px(0.0),
-                row_gap: Val::Px(SPACE_XS),
-                overflow: Overflow::scroll_y(),
-                ..default()
-            },
-            BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.0)),
-            Name::new("mining_content"),
-            MiningContent,
-        ))
-        .id();
-    commands.entity(body).add_child(content);
+    // v0.5.2 (2026-08-06): uses the shared
+    // `widgets::spawn_scrollable_container` helper (the
+    // `min_height: 0` + `flex_grow: 1` + `scroll_y` trio that
+    // `update_mining_body`'s wheel-scroll depends on).
+    let content = spawn_scrollable_container(
+        commands,
+        body,
+        "mining_content",
+        SPACE_XS,
+        MiningContent,
+    );
 
     // Always-visible vertical scrollbar pinned to the right
     // edge of the Mining body. Mirrors the Build tab's
@@ -3939,10 +3934,68 @@ fn update_power_chip_tooltip(
 // mine. Each card shows count / production / reserve /
 // accessibility and [-] [+] buttons that route to
 // `PendingConstructionActions::mining_edits`.
+
+// Fingerprint of the inputs that determine the Mining body's card
+// content (v0.5.2, 2026-08-06). The body used to despawn + re-spawn
+// all ~49 cards every frame; this captures the values that can
+// change the rendered cards, so a rebuild only happens when one of
+// them actually changes. `spare_power_mw` is deliberately NOT in
+// the fingerprint — `calculate_colony_power_totals` is a pure
+// function of the building counts (see `budget.rs`), so spare is
+// fully determined by `counts` and recomputed on rebuild.
+#[derive(PartialEq)]
+struct MiningBodyFingerprint {
+    multiplier: u32,
+    collapsed: std::collections::HashSet<MiningGroupId>,
+    orbital_collapsed: bool,
+    counts: std::collections::HashMap<BuildingType, u32>,
+    breathable: bool,
+    body_type: Option<BodyType>,
+    /// Hash of the body's deposit state (resource → accessibility +
+    /// rounded reserves). Changes on survey / mining depletion.
+    deposit_sig: u64,
+}
+
+impl MiningBodyFingerprint {
+    fn no_colony(ui_state: &ConstructionUiState) -> Self {
+        Self {
+            multiplier: ui_state.build_multiplier,
+            collapsed: ui_state.mining_groups_collapsed.clone(),
+            orbital_collapsed: ui_state.mining_orbital_collapsed,
+            counts: std::collections::HashMap::new(),
+            breathable: false,
+            body_type: None,
+            deposit_sig: 0,
+        }
+    }
+}
+
+/// Cheap hash of a body's deposit state. Folds each deposit's
+/// `(resource, accessibility, rounded total reserve)` into an FNV-1a
+/// hash — enough to detect survey reveals and mining depletion
+/// without cloning the `PlanetResources` struct.
+fn mining_deposit_signature(resources: Option<&crate::economy::PlanetResources>) -> u64 {
+    let Some(res) = resources else {
+        return 0;
+    };
+    let mut h: u64 = 0xcbf29ce484222325;
+    for (rt, dep) in res.deposits.iter() {
+        h ^= *rt as u64;
+        h = h.wrapping_mul(0x100000001b3);
+        let total_reserve =
+            dep.reserve.proven_crustal + dep.reserve.deep_deposits + dep.reserve.planetary_bulk;
+        let bits = (dep.accessibility.to_bits() as u64)
+            ^ (total_reserve.round() as i64 as u64);
+        h ^= bits;
+        h = h.wrapping_mul(0x100000001b3);
+    }
+    h
+}
+
 #[allow(clippy::too_many_arguments)]
-pub fn update_mining_body(
+fn update_mining_body(
     mut commands: Commands,
-    asset_server: Res<AssetServer>,
+    fonts: Res<UiFonts>,
     ui_state: Res<ConstructionUiState>,
     buildings_data: Res<BuildingsData>,
     resource_icons: Option<Res<ResourceIcons>>,
@@ -3961,6 +4014,12 @@ pub fn update_mining_body(
     )>,
     content_query: Query<Entity, With<MiningContent>>,
     mut spawned_rows: Local<Vec<Entity>>,
+    // v0.5.2 (2026-08-06): the fingerprint of the last rebuild.
+    // When the current inputs match it, nothing changed — skip the
+    // despawn+re-spawn entirely (the "huge compute for a simple
+    // menu" fix: was ~150 entity spawns per frame, now a hash
+    // compare).
+    mut last_fingerprint: Local<Option<MiningBodyFingerprint>>,
 ) {
     let Ok(content) = content_query.single() else {
         return;
@@ -3980,34 +4039,6 @@ pub fn update_mining_body(
     if ui_state.selected_tab != ConstructionTab::Mining {
         return;
     }
-
-    // Despawn the previous frame's spawn.
-    //
-    // `try_despawn` is the Bevy 0.18 idiom for "despawn if alive,
-    // silently drop if gone." The `Local<Vec<Entity>>` cache can hold
-    // IDs from a frame where the `MiningContent` parent (and all its
-    // children) was cascade-despawned — for example when the player
-    // toggled the Construction menu visibility off, or when a UI
-    // re-root teardown cleared the body. Without `try_despawn` we get
-    // a flood of `WARN ... Entity despawned` log lines every frame.
-    for entity in spawned_rows.drain(..) {
-        commands.entity(entity).try_despawn();
-    }
-
-    let body_font: Handle<Font> = asset_server.load("fonts/Inter-Regular.otf");
-    let body_font_medium: Handle<Font> = asset_server.load("fonts/Inter-SemiBold.otf");
-    let mono_font: Handle<Font> = asset_server.load("fonts/GeistMono-Medium.ttf");
-    let multiplier = ui_state.build_multiplier;
-    // v0.5.2 PR-A.4 follow-up: hand each mining card a
-    // concrete reference to the resource-icon atlas (or an
-    // empty fallback when the Startup loader hasn't
-    // populated `ResourceIcons` yet — `post_process_resource_icons`
-    // will catch up on the next tick).
-    let empty_resource_icons = ResourceIcons::default();
-    let resource_icons: &ResourceIcons = resource_icons
-        .as_ref()
-        .map(|r: &Res<ResourceIcons>| -> &ResourceIcons { r.as_ref() })
-        .unwrap_or(&empty_resource_icons);
 
     // Resolve the active colony + body data in one pass.
     let active_colony_entity = ui_state.selected_colony;
@@ -4033,17 +4064,66 @@ pub fn update_mining_body(
         })
     });
 
+    // v0.5.2 (2026-08-06): diff gate. The inputs above (counts,
+    // multiplier, collapse state, body context, deposits) fully
+    // determine the rendered cards — spare power is a pure function
+    // of the counts. When nothing changed since the last rebuild,
+    // skip the despawn+re-spawn entirely (was ~150 entity spawns /
+    // frame; now a hash compare + clone).
+    let fingerprint = match &colony_data {
+        Some((_, breathable, body_type, planet_resources, counts)) => MiningBodyFingerprint {
+            multiplier: ui_state.build_multiplier,
+            collapsed: ui_state.mining_groups_collapsed.clone(),
+            orbital_collapsed: ui_state.mining_orbital_collapsed,
+            counts: counts.clone(),
+            breathable: *breathable,
+            body_type: *body_type,
+            deposit_sig: mining_deposit_signature(*planet_resources),
+        },
+        None => MiningBodyFingerprint::no_colony(&ui_state),
+    };
+    if last_fingerprint.as_ref() == Some(&fingerprint) {
+        // Nothing changed — the existing cards are current.
+        return;
+    }
+    *last_fingerprint = Some(fingerprint);
+
+    // Despawn the previous frame's spawn (only reached when the
+    // fingerprint changed).
+    //
+    // `try_despawn` is the Bevy 0.18 idiom for "despawn if alive,
+    // silently drop if gone." The `Local<Vec<Entity>>` cache can hold
+    // IDs from a frame where the `MiningContent` parent (and all its
+    // children) was cascade-despawned — for example when the player
+    // toggled the Construction menu visibility off, or when a UI
+    // re-root teardown cleared the body. Without `try_despawn` we get
+    // a flood of `WARN ... Entity despawned` log lines every frame.
+    for entity in spawned_rows.drain(..) {
+        commands.entity(entity).try_despawn();
+    }
+
+    let body_font: Handle<Font> = fonts.body.clone();
+    let body_font_medium: Handle<Font> = fonts.medium.clone();
+    let mono_font: Handle<Font> = fonts.mono.clone();
+    let multiplier = ui_state.build_multiplier;
+    // v0.5.2 PR-A.4 follow-up: hand each mining card a
+    // concrete reference to the resource-icon atlas (or an
+    // empty fallback when the Startup loader hasn't
+    // populated `ResourceIcons` yet — `post_process_resource_icons`
+    // will catch up on the next tick).
+    let empty_resource_icons = ResourceIcons::default();
+    let resource_icons: &ResourceIcons = resource_icons
+        .as_ref()
+        .map(|r: &Res<ResourceIcons>| -> &ResourceIcons { r.as_ref() })
+        .unwrap_or(&empty_resource_icons);
+
     // v0.5.2 PR-A.7 (2026-08-04): compute the active colony's
-    // grid surplus here so the mining cards' power chip
-    // tooltips can show the real "Spare grid" value instead
-    // of the old "No active grid" placeholder. `f64::NAN`
-    // when no colony is selected — the mining card builder
-    // then falls back to "No active colony" in the tooltip.
+    // grid surplus so the mining cards' power chip tooltips can
+    // show the real "Spare grid" value instead of the old
+    // "No active grid" placeholder. `f64::NAN` when no colony is
+    // selected. Only computed on rebuild — it's a pure function of
+    // the building counts, which the fingerprint already tracks.
     let spare_power_mw: f64 = if let Some(e) = active_colony_entity {
-        // We already have the colony + buildings in
-        // `colony_data` but the destructuring below moves it.
-        // Re-read the colony here so the spare computation
-        // doesn't fight the borrow checker.
         colonies
             .get(e)
             .ok()
@@ -4141,7 +4221,7 @@ pub fn update_mining_body(
 // root is hidden via `Visibility::Hidden`.
 pub fn setup_construction(
     mut commands: Commands,
-    asset_server: Res<AssetServer>,
+    fonts: Res<UiFonts>,
     buildings_data_opt: Option<Res<BuildingsData>>,
     research_state: Res<ResearchState>,
     ui_state: Res<ConstructionUiState>,
@@ -4149,9 +4229,9 @@ pub fn setup_construction(
     resource_icons: Option<Res<ResourceIcons>>,
     colonies: Query<(Entity, &crate::colony::Colony)>,
 ) {
-    let body_font = asset_server.load("fonts/Inter-Regular.otf");
-    let body_font_medium = asset_server.load("fonts/Inter-SemiBold.otf");
-    let mono_font = asset_server.load("fonts/GeistMono-Medium.ttf");
+    let body_font = fonts.body.clone();
+    let body_font_medium = fonts.medium.clone();
+    let mono_font = fonts.mono.clone();
 
     // Window-filling root container. The `top: 126.0` offset pushes the
     // canary below the global in-game chrome (top resource bar + icon
@@ -5224,29 +5304,16 @@ pub fn setup_construction(
     // filtered by the selected colony, and removes stale rows when
     // projects are cancelled or completed.
     //
-    // v0.5.2 PR-A.5: `min_height: 0` is the same flex-overflow
-    // fix as the mining/buildings content containers — without it,
-    // the scroll container grows to fit its content and the wheel
-    // handler's `max_y` is always 0. The `card_grid` (build tab)
-    // has the same line with the same rationale.
-    let queue_body = commands
-        .spawn((
-            Node {
-                display: Display::Flex,
-                flex_direction: FlexDirection::Column,
-                width: Val::Percent(100.0),
-                flex_grow: 1.0,
-                min_height: Val::Px(0.0),
-                row_gap: Val::Px(SPACE_SM),
-                overflow: Overflow::scroll_y(),
-                ..default()
-            },
-            BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.0)),
-            Name::new("queue_panel_body"),
-            QueuePanelBody,
-        ))
-        .id();
-    commands.entity(queue_panel).add_child(queue_body);
+    // v0.5.2 (2026-08-06): uses the shared
+    // `widgets::spawn_scrollable_container` helper (the
+    // `min_height: 0` + `flex_grow: 1` + `scroll_y` trio).
+    spawn_scrollable_container(
+        &mut commands,
+        queue_panel,
+        "queue_panel_body",
+        SPACE_SM,
+        QueuePanelBody,
+    );
 
     // ── Demolish confirmation modal (v0.5.2 PR-A.7) ──────────────────
     // Centered modal that opens when the player clicks a Demolish
@@ -7402,9 +7469,23 @@ pub fn tick_construction_cta_disabled(
     let local = active_colony.and_then(|e| local_stockpiles.get(e).ok());
     for (entity, cta, already_disabled) in ctas.iter() {
         let costs = buildings_data.resource_costs(&cta.building_type);
-        let can_afford = can_afford_costs(contextual.as_ref(), costs, multiplier);
+        // v0.5.2 (2026-08-06): parse each cost name ONCE and reuse for
+        // both the contextual + local checks. The old code called
+        // `parse_resource_type` twice per cost entry (once in each of
+        // `can_afford_costs` / `can_afford_costs_local`) — the string
+        // parse is the only non-trivial per-CTA work in this sweep,
+        // so halving it matters at 60+ CTAs.
+        let typed_costs: Vec<(ResourceType, f64)> = costs
+            .iter()
+            .filter_map(|(name, amt)| {
+                parse_resource_type(name).map(|rt| (rt, amt * multiplier as f64))
+            })
+            .collect();
+        let can_afford = typed_costs
+            .iter()
+            .all(|(rt, need)| contextual.get(rt) >= *need);
         let can_pay_locally = match local {
-            Some(ls) => can_afford_costs_local(ls, costs, multiplier),
+            Some(ls) => typed_costs.iter().all(|(rt, need)| ls.get(rt) >= *need),
             None => true, // no colony selected (menu-screen preview) — leave the CTA active
         };
         let should_disable = !can_afford || !can_pay_locally;
@@ -7531,56 +7612,18 @@ fn collect_local_shortfalls(
     all
 }
 
-// Inner helper: check whether the contextual stockpile can cover
-// `costs × multiplier`. Mirrors the egui panel's
-// `can_afford_resources_multiplied`. Costs with names that don't map
-// to a `ResourceType` (shouldn't happen, but defensive) are skipped.
-fn can_afford_costs(
-    contextual: &crate::economy::ContextualStockpile,
-    costs: &[(String, f64)],
-    multiplier: u32,
-) -> bool {
-    for (name, amount) in costs {
-        let total_needed = amount * multiplier as f64;
-        if let Some(rt) = crate::colony::data::parse_resource_type(name) {
-            if contextual.get(&rt) < total_needed {
-                return false;
-            }
-        }
-    }
-    true
-}
-
-// Inner helper: check whether the selected colony's own
-// `LocalStockpile` can cover `costs × multiplier`. This is the
-// gate the construction system actually enforces
-// (`process_construction_actions` deducts from the colony's local
-// stockpile, not the system-wide aggregate). Costs whose names
-// don't map to a `ResourceType` (defensive) are skipped. When the
-// caller has no colony selected, returns `true` so the CTA stays
-// in its menu-preview state.
-fn can_afford_costs_local(
-    local: &crate::economy::LocalStockpile,
-    costs: &[(String, f64)],
-    multiplier: u32,
-) -> bool {
-    for (name, amount) in costs {
-        let total_needed = amount * multiplier as f64;
-        if let Some(rt) = crate::colony::data::parse_resource_type(name) {
-            if local.get(&rt) < total_needed {
-                return false;
-            }
-        }
-    }
-    true
-}
+// v0.5.2 (2026-08-06): `can_afford_costs` / `can_afford_costs_local`
+// were removed — the affordability sweep (`tick_construction_cta_disabled`)
+// now parses each cost name once into a typed `Vec<(ResourceType, f64)>`
+// and checks both the contextual + local stockpiles against that single
+// parse. See the sweep body for the canonical shape.
 
 // Refresh the card grid: despawn all existing `ConstructionCard`
 // entities and re-spawn based on the current `ConstructionUiState`.
 // Runs whenever `ConstructionUiState` changes (via chip clicks).
 pub fn refresh_card_grid(
     mut commands: Commands,
-    asset_server: Res<AssetServer>,
+    fonts: Res<UiFonts>,
     buildings_data: Res<BuildingsData>,
     research_state: Res<ResearchState>,
     ui_state: Res<ConstructionUiState>,
@@ -7606,9 +7649,11 @@ pub fn refresh_card_grid(
         return;
     };
     // Re-spawn based on the current state.
-    let body_font = asset_server.load("fonts/Inter-Regular.otf");
-    let body_font_medium = asset_server.load("fonts/Inter-SemiBold.otf");
-    let mono_font = asset_server.load("fonts/GeistMono-Medium.ttf");
+    // v0.5.2 (2026-08-06): fonts from the cached `UiFonts` resource
+    // (was re-loading all three on every state change).
+    let body_font = fonts.body.clone();
+    let body_font_medium = fonts.medium.clone();
+    let mono_font = fonts.mono.clone();
     let category_idx = ui_state.selected_build_tab;
     let filter = ui_state.selected_filter;
     let multiplier = ui_state.build_multiplier;
@@ -7808,7 +7853,7 @@ pub fn update_colony_picker_text(
 // - `TextColor` (option-text child) — driven by `is_selected`
 pub fn refresh_colony_dropdown(
     mut commands: Commands,
-    asset_server: Res<AssetServer>,
+    fonts: Res<UiFonts>,
     colonies: Query<(Entity, &crate::colony::Colony)>,
     menu_query: Query<Entity, With<ColonyDropdownMenu>>,
     ui_state: Res<ConstructionUiState>,
@@ -7825,7 +7870,7 @@ pub fn refresh_colony_dropdown(
         return;
     };
 
-    let body_font_medium: Handle<Font> = asset_server.load("fonts/Inter-SemiBold.otf");
+    let body_font_medium: Handle<Font> = fonts.medium.clone();
 
     // Build the desired set: (colony_entity -> label) for the live
     // colonies, sorted by label so the menu order is stable across
@@ -8561,7 +8606,7 @@ pub fn update_queue_summary(
 // is < 50 in the canary's scope.
 pub fn update_queue_panel(
     mut commands: Commands,
-    asset_server: Res<AssetServer>,
+    fonts: Res<UiFonts>,
     buildings_data: Res<BuildingsData>,
     ui_state: Res<ConstructionUiState>,
     output_bp_per_year: Res<ConstructionQueue>,
@@ -8625,7 +8670,7 @@ pub fn update_queue_panel(
             *project_entity,
             display_name,
             project,
-            &asset_server,
+            &fonts,
             &output_bp_per_year,
         );
         let _ = row;
@@ -8638,17 +8683,20 @@ pub fn update_queue_panel(
 // spawned text would be frozen at the spawn frame — the queue would
 // appear to never count down. This is the system that makes the
 // queue duration "live".
+//
+// v0.5.2 (2026-08-06): the old code did `projects.iter().find(...)`
+// per row → O(rows × projects). Build a `HashMap<Entity, _>` once at
+// the top so each row is a single `get` — O(rows + projects).
 pub fn update_queue_row_eta(
     projects: Query<(Entity, &crate::colony::ConstructionProject)>,
     output_bp_per_year: Res<ConstructionQueue>,
     mut eta_text_query: Query<(&QueuePanelRowEta, &mut Text, &mut TextColor)>,
 ) {
+    let by_entity: std::collections::HashMap<Entity, &crate::colony::ConstructionProject> =
+        projects.iter().map(|(e, p)| (e, p)).collect();
     let bp_per_sec = (output_bp_per_year.output_bp_per_year / 365.25 / 24.0 / 3600.0).max(1e-9);
     for (eta_marker, mut text, mut color) in eta_text_query.iter_mut() {
-        let Some((_, project)) = projects
-            .iter()
-            .find(|(e, _)| *e == eta_marker.project_entity)
-        else {
+        let Some(project) = by_entity.get(&eta_marker.project_entity) else {
             continue;
         };
         let remaining_bp = (project.required - project.progress).max(0.0);
@@ -8672,15 +8720,17 @@ pub fn update_queue_row_eta(
 // every frame so the bar tracks the project's `progress` toward
 // completion. Without this the bar would be frozen at the spawn
 // frame.
+//
+// v0.5.2 (2026-08-06): same O(rows + projects) HashMap fix as
+// `update_queue_row_eta` (was O(rows × projects) `find` per row).
 pub fn update_queue_row_progress(
     projects: Query<(Entity, &crate::colony::ConstructionProject)>,
     mut fill_query: Query<(&QueuePanelRowFill, &mut Node)>,
 ) {
+    let by_entity: std::collections::HashMap<Entity, &crate::colony::ConstructionProject> =
+        projects.iter().map(|(e, p)| (e, p)).collect();
     for (fill_marker, mut node) in fill_query.iter_mut() {
-        let Some((_, project)) = projects
-            .iter()
-            .find(|(e, _)| *e == fill_marker.project_entity)
-        else {
+        let Some(project) = by_entity.get(&fill_marker.project_entity) else {
             continue;
         };
         node.width = Val::Percent((project.progress_percent() as f32).clamp(0.0, 1.0) * 100.0);
@@ -8701,12 +8751,12 @@ fn spawn_queue_row(
     project_entity: Entity,
     display_name: &str,
     project: &crate::colony::ConstructionProject,
-    asset_server: &Res<AssetServer>,
+    fonts: &UiFonts,
     output_bp_per_year: &Res<ConstructionQueue>,
 ) -> Entity {
-    let body_font: Handle<Font> = asset_server.load("fonts/Inter-Regular.otf");
-    let body_font_medium: Handle<Font> = asset_server.load("fonts/Inter-SemiBold.otf");
-    let mono_font: Handle<Font> = asset_server.load("fonts/GeistMono-Medium.ttf");
+    let body_font: Handle<Font> = fonts.body.clone();
+    let body_font_medium: Handle<Font> = fonts.medium.clone();
+    let mono_font: Handle<Font> = fonts.mono.clone();
     let _ = (body_font.clone(), body_font_medium.clone()); // suppress unused
 
     let row = commands
@@ -9720,101 +9770,21 @@ pub fn build_mine_card_data(
     // future mine-with-on-site-generator; in that case the
     // producer line should win over the demand line.
     let mut effects: Vec<(EffectTone, String)> = Vec::new();
-    let power_output_gw_per_unit: f64 = def
-        .modifiers
-        .iter()
-        .filter(|m| m.modifier_type == "PowerGeneration")
-        .map(|m| m.value)
-        .sum();
-    // v0.5.2 PR-A.7 (2026-08-04): the inline `Power: … MW` /
-    // `Produces … MW` text effect is removed in favour of a
-    // dedicated Power chip (`power_chip` below) rendered with
-    // the bolt-in-hex icon and a hover tooltip. The Mining tab
-    // doesn't thread the active colony's grid surplus through
-    // (the refresh path is every-frame, not on demand) so
-    // `spare_mw` is `None` and the tone falls back to
-    // neutral-throughput. The tooltip omits the "Spare grid"
-    // line and reads "no active grid" instead.
-    let power_chip: PowerChipData = if power_output_gw_per_unit > 0.0 {
-        let per_unit_mw = power_output_gw_per_unit * 1_000.0;
-        let total_mw = per_unit_mw * mult;
-        let line = format_power(total_mw);
-        let per_unit = format_power(per_unit_mw);
-        let tooltip_lines = if mult > 1.0 {
-            vec![
-                format!("Power generation: {line}"),
-                format!("({per_unit} per unit × {mult})"),
-                "Net surplus to the grid".to_string(),
-            ]
-        } else {
-            vec![
-                format!("Power generation: {line}"),
-                "Net surplus to the grid".to_string(),
-            ]
-        };
-        PowerChipData {
-            verb: "Produces",
-            amount: line,
-            per_unit_mw,
-            multiplier: mult as u32,
-            spare_mw: None,
-            insufficient: false,
-            tooltip_lines,
-        }
-    } else if def.power_demand_mw.abs() < 0.01 {
-        PowerChipData {
-            verb: "Power",
-            amount: "0 W".to_string(),
-            per_unit_mw: 0.0,
-            multiplier: mult as u32,
-            spare_mw: None,
-            insufficient: false,
-            tooltip_lines: vec!["No grid interaction".to_string()],
-        }
-    } else {
-        let total = def.power_demand_mw * mult;
-        let per_unit = format_power(def.power_demand_mw);
-        let line = format_power(total);
-        let mut tooltip_lines = vec![format!("Power demand: {line}")];
-        if mult > 1.0 {
-            tooltip_lines.push(format!("({per_unit} per unit × {mult})"));
-        }
-        // v0.5.2 PR-A.7 (2026-08-04): the mining card now
-        // receives the active colony's grid surplus (passed in
-        // via `spare_power_mw`) so the tooltip can show the
-        // real "Spare grid" value rather than the old
-        // placeholder "No active grid" string. The
-        // `power_insufficient` flag drives the Queue button
-        // disable independently of the tooltip.
+    // Power chip (v0.5.2, 2026-08-06): shared builder extracted from
+    // the three card-data builders. The Mining tab maps its spare
+    // sentinel (`f64::NAN` = no colony) onto `Option`: `NAN → None`
+    // (tooltip reads "No active colony"), a real surplus (including
+    // a deficit) → `Some(s)` (tooltip reads "Spare grid" / "No
+    // spare grid (deficit)").
+    let power_chip = build_power_chip_data(
+        def,
+        mult,
         if spare_power_mw.is_nan() {
-            tooltip_lines.push("No active colony".to_string());
-        } else if spare_power_mw > 0.0 {
-            tooltip_lines.push(format!(
-                "Spare grid: {}",
-                format_power(spare_power_mw)
-            ));
+            None
         } else {
-            tooltip_lines.push("No spare grid (deficit)".to_string());
-        }
-        PowerChipData {
-            verb: "Demand",
-            amount: line,
-            // v0.5.2 PR-A.7 (2026-08-04): negate the RON's
-            // positive `power_demand_mw` magnitude so the chip
-            // reads as a consumer (red, "-N MW") rather than a
-            // producer (green, "+N MW"). Mirrors the Build
-            // card builder's fix at line ~1215.
-            per_unit_mw: -def.power_demand_mw,
-            multiplier: mult as u32,
-            spare_mw: if !spare_power_mw.is_nan() && spare_power_mw > 0.0 {
-                Some(spare_power_mw)
-            } else {
-                None
-            },
-            insufficient: total > spare_power_mw && !spare_power_mw.is_nan(),
-            tooltip_lines,
-        }
-    };
+            Some(spare_power_mw)
+        },
+    );
     // Production: "X.X Mt/yr Iron" using the modifier's value.
     // v0.5.2 fix (2026-08-03): per user feedback, the Mining tab's
     // "Produces" line did NOT scale with the build multiplier while

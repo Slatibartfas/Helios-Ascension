@@ -52,6 +52,9 @@ pub mod transfer_planner;
 // `transfer_planner` so the card module can be unit-tested without
 // pulling in the 9000-line planner body.
 pub mod transfer_planner_card;
+// Reusable native Bevy UI widgets (fonts, scrollable containers,
+// text labels). The foundation for the bevy_ui rollout to all menus.
+pub mod widgets;
 
 pub use settings::Settings;
 
@@ -702,6 +705,11 @@ impl Plugin for UIPlugin {
             .init_resource::<ShippingCompanyFilter>()
             .init_resource::<FleetUiState>()
             .init_resource::<resource_icons::ResourceIconNeeds>()
+            // v0.5.2 (2026-08-06): the three canonical bevy_ui font
+            // handles, loaded once at Startup by `init_ui_fonts`.
+            // `init_resource` gives a null-handle default so any test
+            // App that never runs Startup still has a valid resource.
+            .init_resource::<widgets::UiFonts>()
             // GRA-367-A Phase 1: planner-shaped mirror of the transfer
             // state.  Rebuilt from `FleetUiState` each frame inside
             // `render_transfer_planner` (Phase 1 keeps `FleetUiState`
@@ -747,6 +755,12 @@ impl Plugin for UIPlugin {
                     load_resource_icons_bevy_ui,
                     setup_egui_fonts,
                     check_window_resolution,
+                    // v0.5.2 (2026-08-06): cache the three bevy_ui
+                    // font handles so per-frame systems read
+                    // `Res<UiFonts>` instead of re-asking
+                    // `asset_server.load` (the Construction canary
+                    // did that in five per-frame systems).
+                    widgets::init_ui_fonts,
                 ),
             )
             // UI rendering systems

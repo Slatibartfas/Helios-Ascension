@@ -13,6 +13,9 @@ use super::shipbuilding_tooltip::{
     ShipbuildingTooltipTone,
 };
 use super::theme;
+// v0.5.2 (2026-08-06): shared bevy_ui widgets — the chrome top
+// offset const + the scrollable-container helper.
+use super::widgets::{spawn_scrollable_container_child, UI_CHROME_TOP_PX};
 use crate::colony::{BuildingType, Colony};
 use crate::economy::components::LocalStockpile;
 use crate::economy::GlobalBudget;
@@ -369,7 +372,9 @@ fn spawn_shipbuilding_workspace(mut commands: Commands) {
                 position_type: PositionType::Absolute,
                 left: Val::Px(0.0),
                 right: Val::Px(0.0),
-                top: Val::Px(126.0),
+                // v0.5.2 (2026-08-06): shared chrome-top-offset const —
+                // the Construction canary uses the same 126 px.
+                top: Val::Px(UI_CHROME_TOP_PX),
                 bottom: Val::Px(42.0),
                 display: Display::None,
                 flex_direction: FlexDirection::Column,
@@ -4395,17 +4400,16 @@ fn populate_components_tab_native(
             theme::Color::CHIP_TEXT_BODY,
         ));
 
-        parent
-            .spawn((Node {
-                width: Val::Percent(100.0),
-                flex_grow: 1.0,
-                min_height: Val::Px(0.0),
-                flex_direction: FlexDirection::Column,
-                row_gap: Val::Px(4.0),
-                overflow: Overflow::scroll_y(),
-                ..default()
-            },))
-            .with_children(|list| {
+        // v0.5.2 (2026-08-06): shared scrollable-container helper
+        // (the `min_height: 0` + `flex_grow: 1` + `scroll_y` trio
+        // from `widgets::spawn_scrollable_container_child`).
+        spawn_scrollable_container_child(
+            parent,
+            "component_database_scroll",
+            4.0,
+            (),
+        )
+        .with_children(|rows| {
                 for module in modules {
                     let selected = selected_module
                         .is_some_and(|selected_module| selected_module.id == module.id);
@@ -4442,7 +4446,7 @@ fn populate_components_tab_native(
                     } else {
                         theme::Color::TEXT_MEDIUM_DIM
                     };
-                    list.spawn((
+                    rows.spawn((
                         Button,
                         ShipbuildingComponentDatabaseButton {
                             module_id: module.id.clone(),

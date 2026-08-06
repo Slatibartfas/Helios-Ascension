@@ -576,7 +576,7 @@ pub fn load_resource_icons(
         let handle = ctx.load_texture(
             format!("resource_icon_{:?}", resource),
             color_image,
-            egui::TextureOptions::LINEAR,
+            egui::TextureOptions::NEAREST,
         );
         icons.handles.insert(resource, handle);
         processed_this_frame += 1;
@@ -636,7 +636,7 @@ pub fn load_resource_icons(
         let handle = ctx.load_texture(
             format!("category_icon_{}", category),
             color_image,
-            egui::TextureOptions::LINEAR,
+            egui::TextureOptions::NEAREST,
         );
         icons.category_handles.insert(category.to_string(), handle);
         processed_this_frame += 1;
@@ -670,7 +670,7 @@ pub fn load_resource_icons(
                     let handle = ctx.load_texture(
                         "energy_icon".to_string(),
                         color_image,
-                        egui::TextureOptions::LINEAR,
+                        egui::TextureOptions::NEAREST,
                     );
                     icons.energy_handle = Some(handle);
                 }
@@ -839,7 +839,7 @@ fn load_cached_icon(
     Some(ctx.load_texture(
         texture_name.to_string(),
         color_image,
-        egui::TextureOptions::LINEAR,
+        egui::TextureOptions::NEAREST,
     ))
 }
 
@@ -1229,7 +1229,34 @@ fn downscale_icon_rgba(processed: &[u8], w: u32, h: u32, target: u32) -> (Vec<u8
     } else {
         ((target as u64 * w as u64 / h as u64).max(1) as u32, target)
     };
-    let small = image::imageops::resize(&gray, tw, th, image::imageops::FilterType::Lanczos3);
+    // v0.5.2 PR-A.7 (2026-08-06): the source icons are now
+    // authored at 64 px (the `category-*-64.png` set), so the
+    // runtime downscale is only 2:1 (64→32 at 1× DPI) or
+    // 1:1 (64→64 at 2× DPI, which the early-return above
+    // already skips). Lanczos3 is designed for 8:1+ ratios
+    // (the original 1024→64 case) where it provides real
+    // anti-aliased averaging. At 2:1 the Lanczos kernel is
+    // wider than the downscale itself and just smears the
+    // alpha across two destination texels, blurring thin
+    // strokes into a semi-transparent haze.
+    //
+    // Switch to NEAREST for the 2:1 (and similar small) case
+    // so each source texel maps cleanly to one destination
+    // texel with no kernel bleed. For the legacy 1024 px
+    // source (if anyone runs with the old icons) the ratio
+    // is 16:1 and Lanczos3 still helps — the threshold at
+    // 4:1 keeps both paths well-tuned.
+    let downscale_ratio = (w as f64 / tw as f64).max(h as f64 / th as f64);
+    let filter = if downscale_ratio > 4.0 {
+        image::imageops::FilterType::Lanczos3
+    } else {
+        // Nearest preserves thin strokes at small ratios; the
+        // 1-texel stair-stepping is invisible at 28-32 px
+        // display sizes (the eye reads the shape, not the
+        // individual texels).
+        image::imageops::FilterType::Nearest
+    };
+    let small = image::imageops::resize(&gray, tw, th, filter);
     let mut out = Vec::with_capacity(tw as usize * th as usize * 4);
     for px in small.pixels() {
         out.extend_from_slice(&[255, 255, 255, px.0[0]]);
