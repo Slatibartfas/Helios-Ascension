@@ -5941,6 +5941,14 @@ fn spawn_card(
                 Node {
                     width: Val::Px(36.0),
                     height: Val::Px(36.0),
+                    // v0.5.2 (2026-08-06): never let the header row
+                    // squeeze the icon — when a long no-wrap subtitle
+                    // overflowed, flexbox shrank the icon (default
+                    // `flex_shrink: 1`) down to ~1 px, rendering it
+                    // as a "vertical cyan line". The title column's
+                    // `min_width: 0` (see above) fixes the overflow;
+                    // this guarantees the icon size is untouchable.
+                    flex_shrink: 0.0,
                     border_radius: BorderRadius::all(Val::Px(4.0)),
                     border: UiRect::all(Val::Px(1.0)),
                     ..default()
@@ -5955,6 +5963,7 @@ fn spawn_card(
                 Node {
                     width: Val::Px(36.0),
                     height: Val::Px(36.0),
+                    flex_shrink: 0.0,
                     border_radius: BorderRadius::all(Val::Px(4.0)),
                     border: UiRect::all(Val::Px(1.0)),
                     ..default()
@@ -5979,6 +5988,20 @@ fn spawn_card(
                 display: Display::Flex,
                 flex_direction: FlexDirection::Column,
                 flex_grow: 1.0,
+                // v0.5.2 (2026-08-06): `min_width: 0` is load-bearing.
+                // The subtitle's no-wrap marquee track (two wide text
+                // copies, `flex_shrink: 0`) forces this column's
+                // intrinsic width to the full text width. WITHOUT
+                // `min_width: 0` the column refuses to shrink below
+                // that content, so it overflows the header row and
+                // the flex algorithm shrinks the 36-px icon (default
+                // `flex_shrink: 1`) down to ~1 px — the "vertical
+                // cyan line" instead of the building icon. With it,
+                // the column bounds to the row, the icon keeps its
+                // size, and the clip container's measured width is
+                // the real column width (so the marquee's overflow
+                // detection fires).
+                min_width: Val::Px(0.0),
                 row_gap: Val::Px(SPACE_XS),
                 ..default()
             },
@@ -6040,6 +6063,18 @@ fn spawn_card(
                 // stray longer strings and masks the off-screen
                 // half during the marquee scroll animation.
                 height: Val::Px(20.0),
+                // v0.5.2 (2026-08-06): bound the clip to the title
+                // column so its measured `size().x` is the real
+                // visible width — the marquee's overflow test
+                // (`text_width > container_width`) needs this to
+                // be smaller than the full no-wrap text width.
+                // Without an explicit width the clip grows to fit
+                // its wide track, container_width == text_width,
+                // and the marquee never fires (subtitles just get
+                // cut off). `min_width: 0` lets the flex column
+                // shrink it below the track's intrinsic width.
+                width: Val::Percent(100.0),
+                min_width: Val::Px(0.0),
                 overflow: Overflow::clip(),
                 ..default()
             },
@@ -7318,11 +7353,30 @@ pub fn tick_construction_scrollbar_drag(
     mut scrollable_query: Query<&mut ScrollPosition>,
     metrics: Res<ConstructionScrollbarMetrics>,
     mut drag: ResMut<ScrollbarDragState>,
+    // v0.5.2 (2026-08-06): the `Pointer<Release>` observers only
+    // fire when the pointer is over the thumb/track at release
+    // time. If the player drags the thumb and releases OUTSIDE it
+    // (a completely normal gesture), `drag.active` stayed true and
+    // the scroll kept following the cursor — "it keeps scrolling
+    // when I release outside the thumb". Reading the button state
+    // directly catches every release, wherever it happens.
+    mouse_buttons: Res<ButtonInput<MouseButton>>,
 ) {
     // 1) Fast-path: no drag in progress. Drop any stale
     //    `CursorMoved` events so they don't pile up while the
     //    user is just hovering.
     if !drag.active {
+        cursor_events.clear();
+        return;
+    }
+    // 1b) Release-anywhere: if the primary button is no longer
+    //     pressed (the player let go — possibly outside the
+    //     thumb), cancel the drag. This is the fix for "keeps
+    //     scrolling after release outside the thumb": the
+    //     observer-based release never fired there.
+    if !mouse_buttons.pressed(MouseButton::Left) {
+        drag.active = false;
+        drag.started_on_track = false;
         cursor_events.clear();
         return;
     }
@@ -9977,46 +10031,14 @@ pub fn build_mine_card_data(
             Some(spare_power_mw)
         },
     );
-    // Production: "X.X Mt/yr Iron" using the modifier's value.
-    // v0.5.2 fix (2026-08-03): per user feedback, the Mining tab's
-    // "Produces" line did NOT scale with the build multiplier while
-    // every other value on the card (Power demand ×N, resource
-    // costs, BP, …) did. The Build tab's
-    // `card_data_with_multiplier` mirrors the Power-generation
-    // pattern: show the per-unit rate, the multiplier, and the
-    // batch total. Use `mult` (the build multiplier) rather than
-    // `count` (already-built mines — that's the inventory tally
-    // shown in `stat_a`), and fold accessibility into the
-    // per-unit base so the ×N expansion reflects the player's full
-    // batch contribution to the colony's output. The base per-mine
-    // yield without accessibility is still shown as the "per unit"
-    // figure (matches Build tab convention: per-unit, ×N, total).
-    if let Some(prod) = def
-        .modifiers
-        .iter()
-        .find(|m| m.modifier_type.ends_with("Production"))
-    {
-        if prod.value > 0.0 {
-            if let Some(res_name) = prod.modifier_type.strip_suffix("Production") {
-                let per_unit = prod.value * card_data.accessibility as f64;
-                let total = per_unit * mult;
-                // v0.5.2 (2026-08-03): `format_mining_rate` already
-                // trails its band in `/yr`. Don't append another.
-                let line = if mult > 1.0 {
-                    format!(
-                        "Produces {} \u{00d7} {} = {} {}",
-                        format_mining_rate(per_unit),
-                        mult as u32,
-                        format_mining_rate(total),
-                        res_name
-                    )
-                } else {
-                    format!("Produces {} {}", format_mining_rate(per_unit), res_name)
-                };
-                effects.push((EffectTone::Positive, line));
-            }
-        }
-    }
+    // Production: the per-mine yield is ALREADY shown in the stat_a
+    // row (`×N │ 2700 kt/yr` — count + current rate). v0.5.2
+    // (2026-08-06): the old code ALSO pushed a green "Produces
+    // X × N = Y Mt/yr" effect, so every mining card showed BOTH the
+    // power chip AND a duplicate green production line — the
+    // "power demand/production chip AND the text in green" the
+    // player reported. The stat row is the single production
+    // readout on mining cards; the effect is dropped.
     // Reserve: "Available Deposits: 142 Gt" or "no deposit" /
     // "Survey the body...". v0.5.2 (2026-08-03): the verbose
     // "Available Deposits:" label matches the Build tab so the
