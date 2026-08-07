@@ -176,20 +176,32 @@ fn consume_with_fallback(
 /// rate, giving the player a "net = 0" readout (and a stable
 /// cap-saturated stockpile in steady state).
 ///
-/// Formula:
-///   throttled = min(desired, headroom + consumption_per_tick)
+/// v3.8.1 (2026-08-07): added a soft-knee so the rate visibly
+/// tapers as the stockpile approaches cap, not just at cap. Below
+/// `SOFT_KNEE_START` (80% fill) the throttle is a passthrough;
+/// between the soft-knee and 100% fill the rate ramps linearly
+/// from `desired` down to `consumption_per_tick`. The hard cap
+/// (`headroom + consumption`) is still applied as a safety net so
+/// the deposit never exceeds the cap. Without the soft knee the
+/// ramp is so steep (only the last 5% of cap on a typical Earth
+/// body) that the player can't see the throttle happen.
 ///
-/// where `headroom = max(0, cap - current)`. The
-/// `+ consumption_per_tick` term keeps a small floor of production
-/// running at cap so the body still extracts enough material to
-/// cover its own draw (the excess over `headroom` is "vented" —
-/// see `extract_resources` for the body-mass accounting).
+/// Formula:
+///   fill        = current / cap               (clamped 0..1)
+///   soft_ramp   = if fill < SOFT_KNEE_START
+///                   0.0
+///                else
+///                   (fill - SOFT_KNEE_START) / (1 - SOFT_KNEE_START)
+///   throttled   = lerp(desired, consumption_per_tick, soft_ramp)
+///   throttled   = min(throttled, headroom + consumption_per_tick)
+///                  // mass-balance safety; never over-produce
 ///
 /// Behaviour:
 /// * `cap >= f64::MAX` (exotic / uncapped resources): passthrough
 /// * `desired <= 0`: passthrough (no mining, no throttle)
-/// * `headroom >= desired`: passthrough (full production, plenty of room)
-/// * `headroom < desired`: throttled
+/// * `fill < SOFT_KNEE_START`: throttled = `desired` (full)
+/// * `fill >= SOFT_KNEE_START`: throttled lerps toward
+///   `consumption_per_tick`
 /// * `headroom == 0` (at cap): throttled = `consumption_per_tick`
 ///   (production covers the local draw; net flow = 0)
 fn throttle_production(
@@ -205,7 +217,30 @@ fn throttle_production(
     }
     let headroom = (cap - current).max(0.0);
     let effective_capacity = headroom + consumption_per_tick.max(0.0);
-    desired.min(effective_capacity)
+
+    // v3.8.1: soft knee — start scaling down before the cap.
+    // Without this, the player can't see the throttle happen
+    // because the ramp from `headroom + consumption = desired` to
+    // `headroom + consumption = consumption` is the last few
+    // percent of fill.
+    let fill = if cap > 0.0 {
+        (current / cap).clamp(0.0, 1.0)
+    } else {
+        1.0
+    };
+    const SOFT_KNEE_START: f64 = 0.8;
+    let soft_ramp = if fill < SOFT_KNEE_START {
+        0.0
+    } else {
+        ((fill - SOFT_KNEE_START) / (1.0 - SOFT_KNEE_START)).clamp(0.0, 1.0)
+    };
+    let soft_throttled = desired * (1.0 - soft_ramp) + consumption_per_tick.max(0.0) * soft_ramp;
+
+    // Mass-balance safety: the soft-knee lerp can theoretically
+    // produce more than the cap can absorb (e.g. when fill is
+    // exactly 0.8 and headroom is smaller than expected). Clamp
+    // to the strict cap + consumption floor.
+    soft_throttled.min(effective_capacity)
 }
 
 /// v3.8: deposit `amount` of `resource` into the body's local
@@ -1511,18 +1546,79 @@ mod tests {
         assert_eq!(throttled, desired);
     }
 
-    /// Near the cap, the throttle is reduced by the headroom
-    /// constraint.  At fill_ratio = 0.99 with desired = 100 and
-    /// consumption = 20:
-    ///   headroom = 25, throttled = min(100, 25 + 20) = 45
+    /// Near the cap (99% fill), the soft-knee is at 95% of its
+    /// ramp.  throttled = lerp(desired, consumption, 0.95) =
+    /// 100 × 0.05 + 20 × 0.95 = 24.  The strict cap-floor
+    /// (headroom + consumption = 25 + 20 = 45) is well above
+    /// this so the soft-knee wins, not the hard cap.
     #[test]
-    fn throttle_production_near_cap_throttles_by_headroom() {
+    fn throttle_production_near_cap_throttles_by_soft_knee() {
         let desired = 100.0;
         let current = 2_475.0; // 99% of 2500
         let cap = 2_500.0;
         let consumption = 20.0;
         let throttled = throttle_production(desired, current, cap, consumption);
-        assert!((throttled - 45.0).abs() < 1e-9, "expected 45, got {throttled}");
+        // soft_ramp = (0.99 - 0.8) / 0.2 = 0.95
+        // soft_throttled = 100 * 0.05 + 20 * 0.95 = 5 + 19 = 24
+        // effective_capacity = 25 + 20 = 45
+        // throttled = min(24, 45) = 24
+        assert!(
+            (throttled - 24.0).abs() < 1e-9,
+            "expected 24 (soft-knee), got {throttled}",
+        );
+    }
+
+    /// v3.8.1: at 80% fill (the soft-knee start) the throttle is
+    /// still a passthrough — no ramp yet.  This is the boundary
+    /// where feedback starts.
+    #[test]
+    fn throttle_production_at_soft_knee_start_is_passthrough() {
+        let desired = 100.0;
+        let current = 2_000.0; // 80% of 2500
+        let cap = 2_500.0;
+        let consumption = 20.0;
+        let throttled = throttle_production(desired, current, cap, consumption);
+        assert_eq!(throttled, desired);
+    }
+
+    /// v3.8.1: at 90% fill (mid soft-knee), the throttle is
+    /// halfway between desired and consumption.  Without the
+    /// soft-knee this case would still be at full production.
+    #[test]
+    fn throttle_production_at_mid_soft_knee_is_half() {
+        let desired = 100.0;
+        let current = 2_250.0; // 90% of 2500
+        let cap = 2_500.0;
+        let consumption = 20.0;
+        let throttled = throttle_production(desired, current, cap, consumption);
+        // soft_ramp = 0.5, soft_throttled = 100*0.5 + 20*0.5 = 60
+        // effective_capacity = 250 + 20 = 270
+        // throttled = min(60, 270) = 60
+        assert!(
+            (throttled - 60.0).abs() < 1e-9,
+            "expected 60 (mid soft-knee), got {throttled}",
+        );
+    }
+
+    /// v3.8.1: the soft-knee lerp can theoretically over-produce
+    /// in degenerate cases (very small cap relative to desired).
+    /// The mass-balance safety clamps to `headroom + consumption`
+    /// so the deposit never exceeds the cap.
+    #[test]
+    fn throttle_production_soft_knee_respects_hard_cap() {
+        // Degenerate: cap is 1, desired is 1000, current is 1
+        // (100% fill). soft_ramp = 1, soft_throttled = 1*0 + 20*1 = 20.
+        // effective_capacity = 0 + 20 = 20.
+        // throttled = min(20, 20) = 20.  OK.
+        let desired = 1000.0;
+        let current = 1.0;
+        let cap = 1.0;
+        let consumption = 20.0;
+        let throttled = throttle_production(desired, current, cap, consumption);
+        assert!(
+            (throttled - 20.0).abs() < 1e-9,
+            "expected 20, got {throttled}",
+        );
     }
 
     /// Resources with no per-body cap (exotic / late-game) bypass

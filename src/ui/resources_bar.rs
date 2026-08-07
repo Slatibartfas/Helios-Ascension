@@ -1484,6 +1484,23 @@ pub(super) fn ui_resources_bar(
                         .map(|r| rate_tracker.get_resource_rate(r))
                         .sum();
 
+                    // v3.8.1: aggregate fill ratio = total / (cap × N_bodies).
+                    // The per-body cap is `effective_stockpile_cap(r)` which
+                    // already includes the storage_multiplier; multiplying by
+                    // the number of bodies in view gives the aggregate cap.
+                    // We count bodies that have a LocalStockpile (every
+                    // surveyed body) to get the right denominator.
+                    let n_bodies = breakdown_queries.per_body_breakdown.iter().count() as f64;
+                    let category_cap: f64 = resources
+                        .iter()
+                        .map(|r| budget.effective_stockpile_cap(*r) * n_bodies)
+                        .sum();
+                    let fill_ratio = if category_cap > 0.0 {
+                        (category_total / category_cap).clamp(0.0, 1.0)
+                    } else {
+                        0.0
+                    };
+
                     let color = get_category_color(category_name);
                     let text_color = theme::TEXT;
                     // v0.5.2 PR-A.4: use the category-badge PNG
@@ -1504,6 +1521,28 @@ pub(super) fn ui_resources_bar(
                         .as_ref()
                         .is_some_and(|(n, _)| n == category_name);
 
+                    // v3.8.1: cap-throttle indicator. Lit when any
+                    // body in this category is past the soft-knee
+                    // (fill > 0.8) so the player can see "this rate
+                    // is being reduced" at a glance. Per-body fill
+                    // is the body-stockpile / body-cap; we surface
+                    // the worst-case body.
+                    let any_body_throttled = resources.iter().any(|r| {
+                        let cap = budget.effective_stockpile_cap(*r);
+                        if cap <= 0.0 || cap >= f64::MAX {
+                            return false;
+                        }
+                        // Sample the per-body max fill across bodies
+                        // in view.
+                        breakdown_queries
+                            .per_body_breakdown
+                            .iter()
+                            .any(|(_, _, stockpile)| {
+                                let current = stockpile.get(r);
+                                current / cap > 0.8
+                            })
+                    });
+
                     // Use a Frame for the category display
                     let response = egui::Frame::NONE
                         .inner_margin(egui::Margin::symmetric(1, 2))
@@ -1519,14 +1558,33 @@ pub(super) fn ui_resources_bar(
                                 ui.vertical(|ui| {
                                     ui.set_min_width(68.0); // Fixed width to prevent wiggling
                                     ui.set_max_width(68.0);
-                                    ui.add(
-                                        egui::Label::new(
-                                            egui::RichText::new(format_mass(category_total))
-                                                .size(13.0)
-                                                .color(text_color),
-                                        )
-                                        .selectable(false),
-                                    );
+                                    // Top row: total + (optional) cap icon
+                                    ui.horizontal(|ui| {
+                                        ui.add(
+                                            egui::Label::new(
+                                                egui::RichText::new(format_mass(category_total))
+                                                    .size(13.0)
+                                                    .color(text_color),
+                                            )
+                                            .selectable(false),
+                                        );
+                                        if any_body_throttled {
+                                            ui.add_space(2.0);
+                                            ui.add(
+                                                egui::Label::new(
+                                                    egui::RichText::new("🔒")
+                                                        .size(11.0)
+                                                        .color(theme::AMBER),
+                                                )
+                                                .selectable(false),
+                                            )
+                                            .on_hover_text(
+                                                "Cap-throttled: at least one body in this \
+                                                 category is past the 80% soft-knee; production \
+                                                 is being reduced to headroom + consumption.",
+                                            );
+                                        }
+                                    });
                                     let (rate_text, rate_color) =
                                         format_rate_monthly(category_rate);
                                     ui.add(
@@ -1537,6 +1595,41 @@ pub(super) fn ui_resources_bar(
                                         )
                                         .selectable(false),
                                     );
+                                    // v3.8.1: tiny fill-ratio bar
+                                    // (4px tall) so the player can see
+                                    // how full the aggregate stockpile
+                                    // is at a glance. Coloured by fill
+                                    // band (green < 60%, yellow 60-80%,
+                                    // orange 80-95%, red 95%+).
+                                    let bar_color = if fill_ratio >= 0.95 {
+                                        theme::RED
+                                    } else if fill_ratio >= 0.80 {
+                                        egui::Color32::from_rgb(255, 165, 0) // orange
+                                    } else if fill_ratio >= 0.60 {
+                                        egui::Color32::from_rgb(255, 215, 0) // yellow
+                                    } else {
+                                        egui::Color32::from_rgb(80, 200, 120) // green
+                                    };
+                                    let bar_rect = ui.allocate_space(egui::vec2(60.0, 4.0)).1;
+                                    ui.painter().rect_filled(
+                                        egui::Rect::from_min_size(
+                                            bar_rect.min,
+                                            egui::vec2(60.0, 4.0),
+                                        ),
+                                        1.0,
+                                        egui::Color32::from_gray(50),
+                                    );
+                                    let fill_w = (60.0 * fill_ratio as f32).max(0.0);
+                                    if fill_w > 0.0 {
+                                        ui.painter().rect_filled(
+                                            egui::Rect::from_min_size(
+                                                bar_rect.min,
+                                                egui::vec2(fill_w, 4.0),
+                                            ),
+                                            1.0,
+                                            bar_color,
+                                        );
+                                    }
                                 });
                             });
                         })
@@ -3141,6 +3234,7 @@ pub(super) fn ui_resources_bar(
                         &breakdown_queries.pending_resource_requests,
                         *breakdown_queries.view_mode,
                         breakdown_queries.current_star_system.0,
+                        &budget,
                     );
                 });
 
@@ -3719,6 +3813,53 @@ fn in_view_context(
 /// Render the per-body / per-system breakdown table that appears in the
 /// resource category popup (GRA-31 PR-A).
 ///
+/// v3.8.1: render a single per-body fill cell in the per-body
+/// breakdown table. Shows a small progress bar (40px wide) plus
+/// the fill % as text. The bar colour matches the v0.5.2 PR-A.4
+/// fill-ratio bands so the player can see at a glance which
+/// bodies are at the soft-knee (80%+) and are being throttled.
+fn render_fill_cell(ui: &mut egui::Ui, fill_ratio: f64) {
+    ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+        let bar_color = if fill_ratio >= 0.95 {
+            theme::RED
+        } else if fill_ratio >= 0.80 {
+            egui::Color32::from_rgb(255, 165, 0) // orange = soft-knee
+        } else if fill_ratio >= 0.60 {
+            egui::Color32::from_rgb(255, 215, 0) // yellow
+        } else {
+            egui::Color32::from_rgb(80, 200, 120) // green
+        };
+        let bar_rect = ui.allocate_space(egui::vec2(40.0, 6.0)).1;
+        ui.painter().rect_filled(
+            egui::Rect::from_min_size(bar_rect.min, egui::vec2(40.0, 6.0)),
+            1.0,
+            egui::Color32::from_gray(50),
+        );
+        let fill_w = (40.0 * fill_ratio as f32).max(0.0);
+        if fill_w > 0.0 {
+            ui.painter().rect_filled(
+                egui::Rect::from_min_size(bar_rect.min, egui::vec2(fill_w, 6.0)),
+                1.0,
+                bar_color,
+            );
+        }
+        ui.add_space(4.0);
+        ui.add(
+            egui::Label::new(
+                egui::RichText::new(format!("{:>3.0}%", fill_ratio * 100.0))
+                    .monospace()
+                    .size(10.0)
+                    .color(if fill_ratio >= 0.80 {
+                        theme::AMBER
+                    } else {
+                        theme::TEXT_DIM
+                    }),
+            )
+            .selectable(false),
+        );
+    });
+}
+
 /// - **System view** → list every body in the current system that holds
 ///   any of the resources in `resources`, sorted by total stockpile desc.
 /// - **Starmap view** → group by system, show system subtotals, list
@@ -3735,7 +3876,18 @@ fn render_per_body_breakdown(
     pending_resource_requests: &crate::economy::logistics::PendingResourceRequests,
     view_mode: ViewMode,
     current_star_id: usize,
+    budget: &GlobalBudget,
 ) {
+    // v3.8.1: per-body cap = sum of `effective_stockpile_cap(r)` across
+    // the resources in this category.  The cap is the same for every
+    // body (storage_multiplier is global), so we can compute it once
+    // outside the body loop and reuse it.
+    let body_cap: f64 = resources
+        .iter()
+        .map(|r| budget.effective_stockpile_cap(*r))
+        .sum();
+    let cap_is_meaningful = body_cap > 0.0 && body_cap < f64::MAX;
+
     // Collect (body_name, system_id, total_for_category, per_resource) rows
     // for the bodies that hold at least one of the resources in `resources`.
     let mut rows: Vec<BreakdownRow> = Vec::new();
@@ -3753,10 +3905,16 @@ fn render_per_body_breakdown(
         if total <= 0.0 {
             continue;
         }
+        let fill_ratio = if cap_is_meaningful {
+            (total / body_cap).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
         rows.push(BreakdownRow {
             body_name,
             system_id: sid.0,
             total,
+            fill_ratio,
         });
     }
     rows.sort_by(|a, b| {
@@ -3792,8 +3950,12 @@ fn render_per_body_breakdown(
         map
     };
 
+    // v3.8.1: 4 columns now — Body, Stockpile, Fill, Incoming.  The
+    // Fill column shows the per-body cap-throttle state so the
+    // player can see at a glance which bodies are past the soft
+    // knee (80% fill) and are having their production reduced.
     egui::Grid::new("res_popup_breakdown")
-        .num_columns(3)
+        .num_columns(4)
         .spacing([16.0, 2.0])
         .striped(true)
         .show(ui, |ui| {
@@ -3804,6 +3966,12 @@ fn render_per_body_breakdown(
                 egui::Label::new(egui::RichText::new("Stockpile").strong().size(10.0))
                     .selectable(false),
             );
+            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                ui.add(
+                    egui::Label::new(egui::RichText::new("Fill").strong().size(10.0))
+                        .selectable(false),
+                );
+            });
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.add(
                     egui::Label::new(egui::RichText::new("Incoming").strong().size(10.0))
@@ -3827,6 +3995,7 @@ fn render_per_body_breakdown(
                             )
                             .selectable(false),
                         );
+                        render_fill_cell(ui, row.fill_ratio);
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             // Look up incoming by walking the request list
                             // for the body name.  Bodies are not addressable
@@ -3894,6 +4063,7 @@ fn render_per_body_breakdown(
                                 )
                                 .selectable(false),
                             );
+                            render_fill_cell(ui, row.fill_ratio);
                             ui.with_layout(
                                 egui::Layout::right_to_left(egui::Align::Center),
                                 |ui| {
@@ -3919,6 +4089,11 @@ struct BreakdownRow {
     body_name: String,
     system_id: usize,
     total: f64,
+    /// v3.8.1: per-body CATEGORY fill ratio (0..1). The
+    /// category cap is the same for every body (storage
+    /// multiplier is global) so this is computed once per
+    /// row from `total` + the precomputed `body_cap`.
+    fill_ratio: f64,
 }
 
 pub(super) fn format_population(count: f64) -> String {

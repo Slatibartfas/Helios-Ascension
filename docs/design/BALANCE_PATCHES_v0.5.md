@@ -3123,30 +3123,104 @@ behave as follows when the output cap is full:
   and industrial processes don't touch body mass (they refine
   or synthesise, not extract).
 
-### 0.N.8 Files modified
+### 0.N.8 v3.8.1 — soft-knee + fill-ratio UI (2026-08-07)
 
-* `src/economy/mining.rs` — new `throttle_production` helper,
-  `deposit_with_fallback` returns `f64`, throttle applied in
-  `extract_resources` (4 deposit sites) and
-  `update_resource_rates` (4 per-entity rate sites), 10 new
-  unit tests for the throttle + 1 for `deposit_with_fallback`.
-* `src/colony/components.rs` — new
-  `Colony::annual_resource_consumption` method, 3 new unit
-  tests.
+User feedback on the v3.8 ship: rates didn't visibly change
+because the per-body cap is much higher than expected (the
+v3.7 starting state has 500 Warehouses, which gives
+`storage_multiplier = 13.5x` → Iron per-body cap = 33,750 Mt
+× 470+ bodies in view = 16 Gt aggregate cap). Earth's 28.5 Gt
+Iron is 84% of the *aggregate* cap but only 84% of the
+*per-body* cap. So the v3.8 throttle is a passthrough for
+Earth — no rate reduction. The aggregate view made the
+stockpile LOOK full when no individual body was actually
+throttled.
 
-### 0.N.9 v3.8 status
+**Two changes:**
+
+1. **Soft knee on the throttle** (80% → 100% fill). The
+   production rate now ramps from `desired` to
+   `consumption_per_tick` between 80% and 100% fill
+   (linearly), with a hard mass-balance safety clamp so
+   the deposit never exceeds the cap. Below 80%: full
+   production. At 100%: production = consumption. The ramp
+   is visible to the player as the body approaches cap, not
+   only at cap. Mass-balance still holds: at 100% the body
+   produces exactly what it consumes (venting the rest).
+
+   Formula (per body, per resource):
+   ```
+   fill        = current / cap
+   soft_ramp   = if fill < 0.8 then 0
+                 else (fill - 0.8) / 0.2
+   throttled   = lerp(desired, consumption_per_tick, soft_ramp)
+   throttled   = min(throttled, headroom + consumption_per_tick)
+   ```
+
+2. **Fill-ratio UI** in the top resource bar tiles and
+   per-body breakdown popup. Each category tile now shows
+   a small (60×4 px) progress bar coloured by fill band
+   (green < 60%, yellow 60-80%, orange 80-95%, red 95%+
+   — the orange band is the soft-knee zone). When ANY body
+   in the category is past the soft-knee, a small 🔒
+   indicator appears next to the total. The per-body
+   breakdown popup has a new **Fill** column with a
+   per-body bar (40×6 px) + percentage.
+
+### 0.N.9 Open question — atmospheric deposit depletion
+
+The atmo_rate share-fold rate display in
+`update_resource_rates` uses `total_atmo_rate × share ×
+monthly_fraction` (the intended production). The actual
+extraction in `extract_resources` is then capped by the
+deposit's `proven_crustal + deep_deposits` reserves. If
+the atmospheric deposit is depleted, the rate display
+shows the intended rate but no extraction happens.
+
+**This is what the user observed as "Nitrogen stays at 0
+despite positive rates":** Earth's atmospheric N2 deposit
+is finite (calibrated to ~1,000 Mt at 2026 atmospheric
+concentrations), and 300 AtmosphericProcessors at 2.78
+Mt/yr/build produce 834 Mt/yr total atmo_rate (54 Mt/mo
+N2 share). The deposit would be depleted in ~1.5 years
+of full production. Once depleted, the rate display
+continues to show +32.5 Mt/mo but the deposit is zero.
+
+**Fix (planned, v3.8.2):** the rate display in
+`update_resource_rates` should also cap the rate by the
+deposit's remaining reserves. Same throttle pattern
+applies — the rate display is the *expected* extraction,
+not the *intended* one. Tracked separately from v3.8.1.
+
+### 0.N.10 Files modified (v3.8.1)
+
+* `src/economy/mining.rs` — `throttle_production` gains the
+  80% soft-knee ramp + mass-balance safety clamp. 4 new
+  unit tests cover the soft-knee boundaries
+  (`at_soft_knee_start_is_passthrough`,
+  `at_mid_soft_knee_is_half`,
+  `near_cap_throttles_by_soft_knee`,
+  `soft_knee_respects_hard_cap`).
+* `src/ui/resources_bar.rs`:
+  * `BreakdownRow` gains `fill_ratio: f64`.
+  * `render_per_body_breakdown` accepts a `&GlobalBudget`
+    and renders a new **Fill** column with a 40×6 px bar
+    + percentage (orange = soft-knee, red = at-cap).
+  * Category tile in the top bar gets a 60×4 px fill-ratio
+    bar + 🔒 icon when any body in the category is past
+    the soft-knee.
+  * `render_fill_cell` helper extracted for reuse.
+
+### 0.N.11 v3.8.1 status
 
 | Check | Status |
 |-------|--------|
-| `throttle_production` helper in `mining.rs` | ✅ |
-| `deposit_with_fallback` returns added amount | ✅ |
-| Throttle applied in `extract_resources` (4 sites) | ✅ |
-| Throttle applied in `update_resource_rates` (4 sites) | ✅ |
-| `LocalStockpile` added to `mining_ops` query | ✅ |
-| `Colony::annual_resource_consumption` helper | ✅ |
-| Industrial process idle-on-saturation | ✅ |
+| Soft-knee throttle (80% → 100% fill, mass-balance safe) | ✅ |
+| Per-body fill bar in per-body breakdown popup | ✅ |
+| Category fill bar in top resource bar tiles | ✅ |
+| Cap-throttle 🔒 icon when any body in category is throttled | ✅ |
 | `cargo build` clean (no new warnings) | ✅ |
-| `cargo test` 1092 lib + 1089 bin, all green | ✅ |
+| `cargo test` 1095 lib + 1092 bin, all green | ✅ |
 
 ---
 
