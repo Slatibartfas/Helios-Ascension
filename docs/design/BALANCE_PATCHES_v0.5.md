@@ -3250,6 +3250,148 @@ contract; the reserve cap is a simple `.min()` with a
 non-negative value that can't break the mass-balance
 guarantee).
 
+### 0.N.13 v3.8.3 — forecast storage cap (2026-08-07)
+
+User feedback (v3.8.2 ship): "In the forecast, I still see
+some resources massively exceeding the stockpile, like
+almost 150 Gt of carbon or 180 Gt Silicates after 20 years
+predicted, while the indicated stockpile size is less than
+30 Gt."  The forecast plateaued at the survey reserve alone
+(e.g. Silicates survey = 617 Gt, Carbon = 11.2 Tt) — far
+above the per-body cap the player sees in the resources bar
+(Iron per-body cap = 33.75 Gt with 500 Warehouses × 13.5×).
+
+The forecast now respects **two** upper bounds:
+
+* `storage_cap_mt`: per-body cap × N_bodies (the visible
+  "indicated stockpile size", the primary plateau the
+  player sees)
+* `reserve_upper_bound_mt`: the survey reserve (geological
+  limit, retained for the "Survey-known reserves" panel)
+* `effective_upper_bound_mt = min(storage, reserve)` —
+  whichever is smaller wins
+* When neither cap is set, the conservative 2×-annual
+  fallback is surfaced in `effective_upper_bound_mt` (so
+  unsurveyed positive-rate resources show *some* bound on
+  the chart instead of running to infinity)
+
+The forecast curve now plateaus at the per-body cap,
+matching the rate-display and the deposit-side cap. A
+player who has built enough Warehouses for the cap to
+exceed the survey reserve will see the curve plateau at
+the survey reserve (the geological limit) instead.
+
+**API changes:**
+* `project_stockpile(current, rate, storage_cap, survey_cap)`
+  — both caps now `Option<f64>`
+* `ForecastSeries` gained `storage_cap_mt`,
+  `effective_upper_bound_mt`, `cap_is_fallback` fields
+* `build_forecast` takes `&StorageCaps` and `&ReserveBounds`
+* `apply_construction_impact` clamps post-impact growth at
+  the effective cap (post-construction can't exceed storage
+  cap; the cap is **ignored** for construction on a
+  previously-negative rate, since the fallback cap for a
+  negative rate is `current_mt` and would freeze any
+  recovery)
+
+**Files modified:**
+* `src/economy/forecast.rs` — new fields, `StorageCaps`,
+  cap source tracking
+* `src/economy/mod.rs` — re-export `StorageCaps`
+* `src/ui/economy_panel.rs` — compute aggregate storage cap
+  from `GlobalBudget.storage_multiplier` × per-body cap ×
+  N_bodies
+* `tests/forecast_e2e.rs` — 7 test call sites updated
+
+`cargo test` 1095 lib + 1092 bin, all green.
+
+### 0.N.14 v3.8.4 — realistic stockpile caps + missing production facilities (2026-08-07)
+
+User feedback (v3.8.3 ship):
+
+1. **"Stockpile = actual storage facilities, not lying in the
+   ground waiting for mining"** — the per-body cap was
+   calibrated at 1 year of 2026 Earth demand (Iron 2,500 Mt,
+   Carbon 4,300 Mt, Food 820,000 Mt, etc.).  Real
+   active-storage in 2026 is much smaller: iron-ore
+   stockpiles ≈ 100 Mt, coal ≈ 200 Mt, LME-bonded copper
+   ≈ 30 Mt, FAO grain reserves ≈ 800 Mt.  The cap is now
+   the warehouse / port / tank, not the deposit.
+2. **"How could nitrogen be depleted? The atmosphere is
+   REALLY a lot."** — the v3.8.2 comment ("~1,000 Mt at
+   2026 concentrations") was wrong; the actual Earth
+   profile sets N₂ = 4×10⁹ Mt (4 Tt, real atmosphere).
+   Comment fixed; N₂ should plateau at the per-body cap,
+   not deplete.
+3. **"There seems to be mines or production facilities
+   missing to achieve the 2026 production rates!"** —
+   `WaterTreatmentPlant` had no production modifier (Earth
+   had 500 of them producing 0 water).  `ChemicalPlant`
+   was calibrated at 1 plant = 1× world demand (with 700
+   plants, 300× overproduction starved PolymerSynthesis of
+   Methane input).
+
+**Cap recalibration (v3.8.4):**
+
+| Resource     | Old (1-yr demand) | New (2026 active storage) | Source |
+|--------------|-------------------|---------------------------|--------|
+| Iron         | 2,500 Mt          | **100 Mt**                | USGS 2024 iron-ore stockpiles + LME bonded |
+| Silicates    | 50,000 Mt         | **5,000 Mt**              | Port stocks + construction-aggregate terminals |
+| Carbon       | 4,300 Mt          | **200 Mt**                | Strategic coal reserves + port stocks |
+| Methane      | 3,900 Mt          | **50 Mt**                 | Gas-storage facilities (US/EU/Russia) |
+| Copper       | 26 Mt             | **30 Mt**                 | LME + bonded warehouses |
+| Polymers     | 435 Mt            | **50 Mt**                 | Plastics-resin warehouses |
+| Food         | 820,000 Mt        | **800 Mt**                | FAO 2024 grain reserves (~30% annual) |
+| Water        | 600 Mt            | 600 Mt (unchanged)        | Industrial reservoir / desalinated buffer |
+| Nitrogen     | 130 Mt            | **30 Mt**                 | Industrial N₂ tank storage (atmosphere is the geological deposit) |
+| Oxygen       | 100 Mt            | **20 Mt**                 | Industrial O₂ tank storage |
+| Hydrogen     | 100 Mt            | **5 Mt**                  | H₂ tank storage |
+| Ammonia      | 190 Mt            | **30 Mt**                 | NH₃ refrigerated tanks |
+| Gold         | 0.0036 Mt         | **0.001 Mt**              | Central-bank + LBMA vault stock |
+| (etc.)       |                   |                           | |
+
+The starting stockpile was also rescaled to 50% of the
+new cap (mid-cycle inventory) — the previous
+"6 months of demand" calibration exceeded the new cap.
+
+**Atmospheric deposit (no change, comment fix only):**
+
+Earth's atmospheric N₂ is 4×10⁹ Mt (4 Tt, not 1,000 Mt).
+The v3.8.2 comment had a transcription error from an early
+draft of the v3.5 calibration.  The deposit is correct in
+`src/economy/profiles.rs`; the comment in
+`src/economy/mining.rs` has been corrected.  N₂ depletion
+was never realistic — even at 300 AtmosphericProcessors
+× 0.78 N₂ share × 2.78 Mt/yr × 0.6 access = 390 Mt/yr,
+draining the full 4 Tt would take 10,000 years.
+
+**Missing production facilities (v3.8.4):**
+
+| Building             | Issue | Fix |
+|----------------------|-------|-----|
+| `WaterTreatmentPlant` | No production modifier — Earth had 500 producing 0 water | Added `WaterProduction = 12.33 Mt/yr/build` (calibrated so 500 × 12.33 × 0.6 access = 3,700 Mt/yr = 2026 world water throughput) |
+| `ChemicalPlant`      | H/NH3/Polymers each at 1 plant = 1× world demand, overproducing 300× with 700 plants and starving PolymerSynthesis of Methane | H = 0.238, NH3 = 0.476, Polymers = 1.071 Mt/yr/build (calibrated so 700 × value × 0.6 = 100/200/450 Mt/yr = 2026 world demand) |
+
+For the 700 ChemicalPlant starting count: 700 × 1.071 × 0.6
+= 450 Mt/yr Polymers, 700 × 0.476 × 0.6 = 200 Mt/yr NH3,
+700 × 0.238 × 0.6 = 100 Mt/yr H.  Methane demand for the
+syntheses is now 200 + 142 + 483 = 825 Mt/yr, well within
+Earth's 1,700 Mt/yr Methane production (no starvation).
+
+**Files modified:**
+* `src/economy/budget.rs` — recalibrated `stockpile_cap`,
+  starting stockpiles at 50% of new cap, updated
+  `test_food_stockpile_initial_stays_within_one_year_margin`
+  and `test_add_resource_capped_respects_limit` to use
+  new values
+* `src/economy/mining.rs` — fixed v3.8.2 comments to
+  reference the real 4 Tt N₂ deposit
+* `assets/data/buildings.ron` — added `WaterProduction`
+  modifier to WaterTreatmentPlant, recalibrated
+  ChemicalPlant H/NH3/Polymers values
+
+`cargo test` 1095 lib + 1092 bin, all green.
+
 `cargo test` 1095 lib + 1092 bin, all green.
 
 ---

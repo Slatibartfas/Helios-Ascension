@@ -60,7 +60,8 @@ pub use discovery::{
 pub use forecast::{
     aggregate_scope_inputs, apply_construction_impact, build_forecast, parse_resource_type_name,
     pending_construction_impacts, project_stockpile, ConstructionImpact, ForecastSample,
-    ForecastSeries, ReserveBounds, ScopeInputs, FORECAST_HORIZON_YEARS, FORECAST_SAMPLES,
+    ForecastSeries, ReserveBounds, ScopeInputs, StorageCaps, FORECAST_HORIZON_YEARS,
+    FORECAST_SAMPLES,
 };
 pub use generation::{
     generate_ring_resources, generate_solar_system_resources, init_procedural_rng, ProceduralRng,

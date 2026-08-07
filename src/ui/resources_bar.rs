@@ -3454,11 +3454,14 @@ fn build_single_resource_forecast(
     };
     let annual_mt = monthly_mt * 12.0;
     // Per-resource, per-scope reserve upper bound is intentionally
-    // not threaded through the per-resource popup/hover path — that
+    // not threaded through the per-resource popup/hover path - that
     // mini-chart is a planning aid and the additional query wiring
     // would balloon the SystemParam surface.  See the Forecast sub-tab
-    // for the reserve-aware variant.
-    let mut series = crate::economy::project_stockpile(current_mt, annual_mt, None);
+    // for the reserve-aware variant.  v3.8.3: pass `None` for the
+    // storage cap too (this is the per-resource mini-chart, not the
+    // full forecast tab).
+    let mut series =
+        crate::economy::project_stockpile(current_mt, annual_mt, None, None);
     series.resource = resource;
     let _ = current_sim_seconds;
     series

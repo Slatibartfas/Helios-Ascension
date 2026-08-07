@@ -863,10 +863,13 @@ pub fn update_resource_rates(
         // v3.8.2: cap the rate by the deposit's remaining
         // extractable reserve. Without this, the rate display
         // shows the "intended" production even when the deposit
-        // is depleted (e.g. Earth's atmospheric N₂ is finite;
-        // once the deposit runs out the displayed rate is a
-        // phantom). The rate is the amount we'd extract in one
+        // is depleted (e.g. an asteroid's iron ore once fully
+        // mined). The rate is the amount we'd extract in one
         // month, so it can be at most the remaining reserve.
+        // For atmospheric gases on a planet the deposit is
+        // huge (Earth's atmospheric N₂ is ~4 Tt = 4×10⁹ Mt),
+        // so this is essentially a non-binding cap — it only
+        // matters for genuinely depleted bodies.
         if let Some(resources) = resources_opt {
             if let Some(deposit) = resources.deposits.get(&op.resource_type) {
                 let reserve = deposit.reserve.proven_crustal
@@ -1013,13 +1016,20 @@ pub fn update_resource_rates(
                             );
                             // v3.8.2: cap by the per-gas
                             // atmospheric deposit's remaining
-                            // reserve. Once the deposit is
-                            // depleted (Earth's atmospheric
-                            // N₂ is finite — ~1,000 Mt at
-                            // 2026 concentrations, drained by
-                            // 300 AtmosphericProcessors in
-                            // ~1.5 yr), the rate display
-                            // shouldn't show a phantom rate.
+                            // reserve. The deposit is huge
+                            // (Earth's atmospheric N₂ is ~4 Tt
+                            // = 4×10⁹ Mt — see
+                            // `src/economy/profiles.rs` Earth
+                            // profile), so for atmospheric gases
+                            // this is essentially a hard cap that
+                            // binds only at geological timescales
+                            // (10⁴ years at 300
+                            // AtmosphericProcessors). The cap
+                            // matters most for atmospheric gas
+                            // mines where the deposit has actually
+                            // been depleted (small moons with thin
+                            // atmospheres) — there the rate
+                            // display must not show a phantom.
                             if let Some(deposit) =
                                 resources.deposits.get(r_type)
                             {

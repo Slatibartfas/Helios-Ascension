@@ -437,13 +437,24 @@
                 ("Fluorine", 0.001),
             ],
             modifiers: [
-                // 2026 reference per product (operator bar: 1 plant ≈ world share).
-                // Hydrogen (commercial): ~100 Mt/yr.
-                (modifier_type: "HydrogenSynthesis", value: 100.0),
-                // Ammonia: ~200 Mt/yr (IEA 2024).
-                (modifier_type: "AmmoniaSynthesis", value: 200.0),
-                // Polymers (plastics): ~450 Mt/yr (OECD 2024).
-                (modifier_type: "PolymerSynthesis", value: 450.0),
+                // v3.8.4 (2026-08-07): per-build production calibrated at
+                // 1 plant ≈ world_demand / (N_plants × access) so the
+                // starting count exactly matches 1× world demand
+                // (CLAUDE.md operator bar for Tier 2).  Earth has
+                // 700 ChemicalPlant, access = 0.6, so:
+                //   - Hydrogen (commercial): 100 Mt/yr / 700 / 0.6 = 0.238 Mt/yr/build
+                //   - Ammonia: 200 Mt/yr / 700 / 0.6 = 0.476 Mt/yr/build
+                //   - Polymers: 450 Mt/yr / 700 / 0.6 = 1.071 Mt/yr/build
+                // The previous calibration (100/200/450) was 1 plant =
+                // world demand, which with 700 ChemicalPlants overproduced
+                // by 300× and starved downstream processes
+                // (PolymerSynthesis couldn't run because Methane was
+                // over-allocated to HydrogenSynthesis + AmmoniaSynthesis).
+                // New values give 700 × value × 0.6 = 100/200/450 Mt/yr
+                // = exact 2026 world demand.  The cap throttles excess.
+                (modifier_type: "HydrogenSynthesis", value: 0.238),
+                (modifier_type: "AmmoniaSynthesis", value: 0.476),
+                (modifier_type: "PolymerSynthesis", value: 1.071),
                 // Tritium breeding is only active once `fusion_power` is unlocked.
                 // 2026: 0 (no commercial fusion yet); game-unlock target 0.05 Mt/yr.
                 (modifier_type: "TritiumBreeding", value: 0.05),
@@ -2786,6 +2797,15 @@
             modifiers: [
                 // 1 complex ≈ 0.2% world growth-rate boost.
                 (modifier_type: "PopulationGrowth", value: 20.0),
+                // v3.8.4 (2026-08-07): per-build water production
+                // (was missing — Earth had 500 WaterTreatmentPlant
+                // producing 0 water). Calibrated so 500 plants ×
+                // value × 0.6 Earth access = 1× 2026 world water
+                // throughput (~3,700 Mt/yr = 1,500 Mt industrial +
+                // 1,600 Mt agricultural + 600 Mt municipal;
+                // UNESCO 2024 / IEA 2024).  value = 3,700 /
+                // 500 / 0.6 = 12.33 Mt/yr/build.
+                (modifier_type: "WaterProduction", value: 12.33),
             ],
             power_demand_mw: 150.0,
         ),

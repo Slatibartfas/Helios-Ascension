@@ -3023,6 +3023,11 @@ pub(super) struct ForecastInputs<'w, 's> {
     sim_time: Res<'w, SimulationTime>,
     view_mode: Res<'w, ViewMode>,
     current_star_system: Res<'w, CurrentStarSystem>,
+    // v3.8.3: GlobalBudget for the per-body stockpile cap
+    // (storage_multiplier × base_cap) and the StorageCaps
+    // aggregate.  The forecast plateaus at this cap, with
+    // the survey reserve as a hard geological limit below it.
+    budget: Res<'w, crate::economy::GlobalBudget>,
     local_stockpile_query: Query<
         'w,
         's,
@@ -3135,17 +3140,53 @@ fn render_econ_forecast(
     // IMPORTANT: we deliberately sum `proven_crustal + deep_deposits`
     // only.  The `planetary_bulk` tier is the entire planetary mass
     // (e.g. 1.1 Pt of oxygen from silicate mantles) and is *never*
-    // realistically mineable, even with future tech — that's why the
+    // realistically mineable, even with future tech - that's why the
     // survey module calls it "effectively inaccessible early-game".
     // Survey tier 4+ in the existing model unlocks it, but that's a
     // visualisation choice for the dossier, not a mining claim.
     // The forecast should match reality: bulk-tier resources are
     // not part of the player's 20-year extraction ceiling.
+    //
+    // v3.8.3: also aggregate the per-body STORAGE cap (the user-
+    // visible "indicated stockpile size" = per-body stockpile
+    // cap × N_bodies in view).  This is the primary plateau the
+    // forecast respects; the survey reserve acts as a hard
+    // geological limit below it.
     let mut reserve_bounds = crate::economy::ReserveBounds::new();
+    let mut storage_caps = crate::economy::StorageCaps::new();
     {
         use crate::survey::visibility::reserve_slice;
         let active_sys = forecast.current_star_system.0;
         let starmap = matches!(*forecast.view_mode, ViewMode::Starmap);
+        // v3.8.3: count bodies in view so the storage cap is
+        // scaled correctly.  The per-body cap is constant
+        // (storage_multiplier is global) so cap × N_bodies
+        // gives the aggregate cap for the view.
+        let n_bodies: f64 = forecast
+            .local_stockpile_query
+            .iter()
+            .filter(|(sid_opt, _)| match *forecast.view_mode {
+                ViewMode::Starmap => true,
+                ViewMode::System => {
+                    sid_opt.map(|s| s.0) == Some(forecast.current_star_system.0)
+                }
+            })
+            .count() as f64;
+        // Insert per-resource storage cap once (same for every
+        // body in view).
+        for rt in crate::economy::ResourceType::all() {
+            let base = crate::economy::GlobalBudget::stockpile_cap(*rt);
+            if base >= f64::MAX {
+                continue;
+            }
+            // Per-body effective cap = base × storage_multiplier.
+            // Aggregate = per-body × N_bodies.
+            let per_body = base * forecast.budget.storage_multiplier;
+            let aggregate = per_body * n_bodies;
+            if aggregate > 0.0 {
+                storage_caps.insert(*rt, aggregate);
+            }
+        }
         for (sid_opt, level_opt, state_opt, resources) in forecast.reserve_query.iter() {
             let in_scope = starmap
                 || sid_opt.is_some_and(|s| s.0 == active_sys);
@@ -3190,7 +3231,13 @@ fn render_econ_forecast(
     }
 
     // --- Build full forecast series list ---
-    let all_series = crate::economy::build_forecast(&scope_inputs, &impacts, current_sim, &reserve_bounds);
+    let all_series = crate::economy::build_forecast(
+        &scope_inputs,
+        &impacts,
+        current_sim,
+        &storage_caps,
+        &reserve_bounds,
+    );
 
     // --- Toggle row, grouped by category (matches the resource-bar popup) ---
     //

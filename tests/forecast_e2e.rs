@@ -9,7 +9,7 @@
 
 use helios_ascension::economy::forecast::{
     apply_construction_impact, build_forecast, project_stockpile, ConstructionImpact,
-    ReserveBounds, ScopeInputs, FORECAST_SAMPLES,
+    ReserveBounds, ScopeInputs, StorageCaps, FORECAST_SAMPLES,
 };
 use helios_ascension::economy::ResourceType;
 
@@ -27,7 +27,7 @@ fn forecast_end_to_end_basic_projection() {
         .resources
         .insert(ResourceType::Iron, (100.0, -10.0 / 12.0));
 
-    let series = build_forecast(&scope, &[], 0.0, &ReserveBounds::new());
+    let series = build_forecast(&scope, &[], 0.0, &StorageCaps::new(), &ReserveBounds::new());
     assert_eq!(series.len(), 1);
     let iron = &series[0];
     assert_eq!(iron.resource, ResourceType::Iron);
@@ -54,7 +54,7 @@ fn forecast_construction_step_change() {
         completion_sim_seconds: 5.0 * 31_557_600.0,
         delta_mt_per_year: 15.0, // -5 + 15 = +10 post-completion (annual)
     };
-    let series = build_forecast(&scope, &[impact], 0.0, &ReserveBounds::new());
+    let series = build_forecast(&scope, &[impact], 0.0, &StorageCaps::new(), &ReserveBounds::new());
     assert_eq!(series.len(), 1);
     let food = &series[0];
     assert_eq!(food.resource, ResourceType::Food);
@@ -81,7 +81,7 @@ fn forecast_skips_zero_resources_with_no_movement() {
     let mut scope = ScopeInputs::new();
     // 0 Mt, 0 rate → no projection (curve would be a flat 0 line).
     scope.resources.insert(ResourceType::Gold, (0.0, 0.0));
-    let series = build_forecast(&scope, &[], 0.0, &ReserveBounds::new());
+    let series = build_forecast(&scope, &[], 0.0, &StorageCaps::new(), &ReserveBounds::new());
     assert!(series.is_empty(), "empty series filtered out");
 }
 
@@ -91,7 +91,7 @@ fn forecast_skips_zero_stock_with_active_rate() {
     // to know they're bleeding).
     let mut scope = ScopeInputs::new();
     scope.resources.insert(ResourceType::Gold, (0.0, -2.0));
-    let series = build_forecast(&scope, &[], 0.0, &ReserveBounds::new());
+    let series = build_forecast(&scope, &[], 0.0, &StorageCaps::new(), &ReserveBounds::new());
     assert_eq!(series.len(), 1);
     // No runs_out (no stock to hit zero from).
     assert!(series[0].runs_out_at_s.is_none());
@@ -101,7 +101,7 @@ fn forecast_skips_zero_stock_with_active_rate() {
 fn forecast_piecewise_linear_no_discontinuity() {
     // Sample 4 is before the impact, sample 5 is at or after the impact.
     // The curve should be C0-continuous at the kink.
-    let mut series = project_stockpile(100.0, -10.0, None);
+    let mut series = project_stockpile(100.0, -10.0, None, None);
     let impact = ConstructionImpact {
         resource: ResourceType::Iron,
         completion_sim_seconds: 10.0 * 31_557_600.0,
@@ -147,7 +147,7 @@ fn forecast_sorted_alphabetically() {
     scope.resources.insert(ResourceType::Iron, (50.0, -1.0));
     scope.resources.insert(ResourceType::Food, (100.0, 1.0));
     scope.resources.insert(ResourceType::Water, (200.0, -5.0));
-    let series = build_forecast(&scope, &[], 0.0, &ReserveBounds::new());
+    let series = build_forecast(&scope, &[], 0.0, &StorageCaps::new(), &ReserveBounds::new());
     assert_eq!(series.len(), 3);
     let names: Vec<&str> = series.iter().map(|s| s.resource.display_name()).collect();
     let mut sorted = names.clone();
@@ -162,7 +162,7 @@ fn forecast_handles_zero_horizon_depletion() {
     // which empties 10 Mt in ~1 microsecond.
     let mut scope = ScopeInputs::new();
     scope.resources.insert(ResourceType::Iron, (10.0, -1e9));
-    let series = build_forecast(&scope, &[], 0.0, &ReserveBounds::new());
+    let series = build_forecast(&scope, &[], 0.0, &StorageCaps::new(), &ReserveBounds::new());
     assert_eq!(series.len(), 1);
     let runs_out = series[0].runs_out_at_s.expect("must deplete");
     assert!(
@@ -185,7 +185,7 @@ fn forecast_impact_far_future_is_ignored() {
         completion_sim_seconds: 100.0 * 31_557_600.0, // 100 yr out
         delta_mt_per_year: 50.0,
     };
-    let series = build_forecast(&scope, &[impact], 0.0, &ReserveBounds::new());
+    let series = build_forecast(&scope, &[impact], 0.0, &StorageCaps::new(), &ReserveBounds::new());
     assert_eq!(series.len(), 1);
     // Curve unchanged at the horizon: 100 + (-5/12)*12*20 = 100 - 100 = 0
     let last = series[0].samples.last().unwrap().value_mt;
