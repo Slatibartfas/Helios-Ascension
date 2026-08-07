@@ -3554,6 +3554,57 @@ to address:
 
 `cargo test` 1095 lib + 1092 bin, all green.
 
+### 0.N.17 v3.8.7 — cap-throttle lock semantics + per-resource lock + hover tooltip (2026-08-07)
+
+User feedback (v3.8.6 ship):
+
+1. **"The lock icon when reaching the soft cap per resource
+   group is misleading"** — the category-level `🔒` icon
+   in the topbar was shown when *any* body in the
+   category had fill ratio > 0.8 (the soft-knee).  The
+   user found this misleading because the soft-knee is
+   just the *start* of the throttle; production is still
+   positive (the throttled value interpolates from
+   `desired` at 0.8 to `consumption` at 1.0).  Showing
+   the lock at 0.8 implied production was already at
+   the consumption floor when it wasn't.
+2. **"should be also displayed per resource line in the
+   tooltip"** — the per-resource rows in the category
+   popup had no lock indicator.  The category-level
+   lock told the player "something in this category is
+   throttled" but not *which* resource.
+3. **"only once the cap is reached and not already at
+   soft cap"** — both indicators now show only at fill
+   ≥ 1.0, the *hard cap*.  The soft-knee is communicated
+   by the orange fill bar in the per-body breakdown.
+4. **"And add a tooltip when a player hovers over the
+   lock so he understands what the lock means"** —
+   both the category-level and the per-resource lock
+   now have a hover tooltip explaining "at the storage
+   cap" and what to do about it (build Warehouses,
+   trade off-world).
+
+**Behaviour:**
+* Category topbar `🔒` (amber): shown only when any
+  body in the category has *any* resource at fill ≥
+  1.0.  Hover: explains the cap, suggests Warehouses
+  or off-world trade.
+* Per-resource line `🔒` (amber): shown in the
+  category popup next to the amount when *any* body
+  in view has *this specific* resource at fill ≥ 1.0.
+  Hover: explains per-resource cap, name of the
+  throttled resource, suggests Warehouses or
+  off-world trade.
+
+**Files modified:**
+* `src/ui/resources_bar.rs` — category lock
+  threshold raised from 0.8 to 1.0, tooltip rewritten
+  to reference "at the cap" (not "soft-knee"); new
+  per-resource lock block in the Stockpile cell
+  with a context-specific hover tooltip.
+
+`cargo test` 1095 lib + 1092 bin, all green.
+
 `cargo test` 1095 lib + 1092 bin, all green.
 
 ---

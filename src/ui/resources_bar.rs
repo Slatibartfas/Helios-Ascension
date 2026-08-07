@@ -1527,19 +1527,31 @@ pub(super) fn ui_resources_bar(
                     // is being reduced" at a glance. Per-body fill
                     // is the body-stockpile / body-cap; we surface
                     // the worst-case body.
-                    let any_body_throttled = resources.iter().any(|r| {
+                    // v3.8.7 (2026-08-07): the per-category lock icon
+                    // is shown only when at least one body in the
+                    // category is *at the cap* (fill ≥ 1.0), not at
+                    // the 0.8 soft-knee.  The soft-knee is a warning
+                    // (orange fill bar) that the throttle is *starting*
+                    // to bite; the lock is a *status* that the cap is
+                    // hit and production is at the consumption floor.
+                    // Showing the lock at the soft-knee was misleading
+                    // because the player had visual signal that
+                    // production was already capped when in fact
+                    // production was still positive.
+                    let any_body_at_cap = resources.iter().any(|r| {
                         let cap = budget.effective_stockpile_cap(*r);
                         if cap <= 0.0 || cap >= f64::MAX {
                             return false;
                         }
                         // Sample the per-body max fill across bodies
-                        // in view.
+                        // in view — only the hard cap (fill ≥ 1.0)
+                        // counts as "at the cap".
                         breakdown_queries
                             .per_body_breakdown
                             .iter()
                             .any(|(_, _, stockpile)| {
                                 let current = stockpile.get(r);
-                                current / cap > 0.8
+                                current / cap >= 1.0 - 1e-9
                             })
                     });
 
@@ -1568,20 +1580,23 @@ pub(super) fn ui_resources_bar(
                                             )
                                             .selectable(false),
                                         );
-                                        if any_body_throttled {
+                                        if any_body_at_cap {
                                             ui.add_space(2.0);
-                                            ui.add(
+                                            let lock_response = ui.add(
                                                 egui::Label::new(
                                                     egui::RichText::new("🔒")
                                                         .size(11.0)
                                                         .color(theme::AMBER),
                                                 )
                                                 .selectable(false),
-                                            )
-                                            .on_hover_text(
-                                                "Cap-throttled: at least one body in this \
-                                                 category is past the 80% soft-knee; production \
-                                                 is being reduced to headroom + consumption.",
+                                            );
+                                            lock_response.on_hover_text(
+                                                "At the storage cap: at least one body in this\n\
+                                                 category is full. Production is throttled to the\n\
+                                                 per-body consumption draw (no net stockpile gain).\n\
+                                                 Build more Warehouses / Resource Depots to expand\n\
+                                                 the cap, or get a trade route set up to move\n\
+                                                 the surplus off-world.",
                                             );
                                         }
                                     });
@@ -3169,6 +3184,51 @@ pub(super) fn ui_resources_bar(
                                             )
                                             .selectable(false),
                                         );
+                                        // v3.8.7 (2026-08-07): per-resource
+                                        // cap-throttle lock.  Shown only
+                                        // when at least one body in view
+                                        // is at the *hard cap* (fill ≥
+                                        // 1.0), not the 0.8 soft-knee.  The
+                                        // soft-knee is communicated by the
+                                        // orange fill bar in the per-body
+                                        // breakdown; the lock is the
+                                        // "production is at the consumption
+                                        // floor" signal.
+                                        {
+                                            let per_body_cap =
+                                                budget.effective_stockpile_cap(*resource);
+                                            let any_body_at_cap = per_body_cap > 0.0
+                                                && per_body_cap < f64::MAX
+                                                && breakdown_queries
+                                                    .per_body_breakdown
+                                                    .iter()
+                                                    .any(|(_, _, stockpile)| {
+                                                        let current = stockpile.get(resource);
+                                                        current / per_body_cap
+                                                            >= 1.0 - 1e-9
+                                                    });
+                                            if any_body_at_cap {
+                                                ui.add_space(3.0);
+                                                let lock_response = ui.add(
+                                                    egui::Label::new(
+                                                        egui::RichText::new("🔒")
+                                                            .size(10.0)
+                                                            .color(theme::AMBER),
+                                                    )
+                                                    .selectable(false),
+                                                );
+                                                lock_response.on_hover_text(format!(
+                                                    "{}: at the storage cap on at least one\n\
+                                                     body in the current view. Production is\n\
+                                                     throttled to that body's consumption\n\
+                                                     draw (no net stockpile gain).\n\n\
+                                                     Build more Warehouses / Resource Depots to\n\
+                                                     expand the cap, or set up an off-world\n\
+                                                     trade route to ship the surplus out.",
+                                                    resource.display_name(),
+                                                ));
+                                            }
+                                        }
                                         let in_transit: f64 = breakdown_queries
                                             .pending_resource_requests
                                             .requests
