@@ -175,6 +175,11 @@ struct BuildingsFile {
     /// `100.0` so existing RON files written before GRA-22a still parse.
     #[serde(default = "default_population_scale_multiplier")]
     population_scale_multiplier: f64,
+    /// Colony-level tuning parameters (v3.6: food consumption, growth
+    /// rates, workforce fraction, operating-cost fraction). Defaults to
+    /// the v3.5 hard-coded values if the field is missing.
+    #[serde(default)]
+    colony_constants: ColonyConstants,
     buildings: Vec<BuildingDefinition>,
 }
 
@@ -183,11 +188,160 @@ fn default_population_scale_multiplier() -> f64 {
 }
 
 /// Resource that holds all building definitions loaded from data files
+/// Colony-level tuning parameters. v3.6 moved these from
+/// `src/colony/components.rs` hard-coded constants into the RON
+/// data file so the calibration file is the single source of truth.
+#[derive(Debug, Clone, Serialize, Deserialize, Reflect)]
+pub struct ColonyConstants {
+    /// Per-capita food consumption in Mt/person/yr. FAO 2024 SOFA:
+    /// 1,100 kg/person/yr = 0.0000011 Mt/person/yr.
+    pub food_consumption_per_capita_mt_per_year: f64,
+    /// Base annual population growth rate (Earth 2026 baseline = 0.9%/yr).
+    pub base_growth_rate: f64,
+    /// Per-MedicalCenter additive growth bonus.
+    pub medical_growth_per_center: f64,
+    /// Cap on total MedicalCenter growth bonus.
+    pub max_medical_growth_bonus: f64,
+    /// Housing utilisation penalty (0.8 → at 100% full, growth = 0.2×).
+    pub housing_utilization_penalty: f64,
+    /// Working-age fraction of population.
+    pub available_workforce_fraction: f64,
+    /// Operating cost as fraction of build cost per year.
+    pub operating_cost_fraction: f64,
+    /// v3.7: food-driven growth threshold. When food production /
+    /// consumption ratio drops below this, mortality kicks in.
+    pub food_decline_threshold: f64,
+    /// v3.7: max mortality rate at food_ratio=0. (0.005 = 0.5%/yr.)
+    pub food_decline_max_mortality: f64,
+    /// v3.7: per-capita consumer consumption rates (Mt/person/yr).
+    /// Calibrated so 8.2B people consume ~70% of USGS 2024 /
+    /// OECD 2024 / worldsteel 2024 world demand; the remaining ~30%
+    /// goes to industry, maintenance, feedstock, and power gen.
+    #[serde(default)]
+    pub per_capita_consumption: PerCapitaConsumption,
+}
+
+/// v3.7: per-capita consumer consumption. Each field is Mt/person/year.
+/// Population × field = colony's per-year draw on that resource.
+#[derive(Debug, Clone, Serialize, Deserialize, Reflect)]
+pub struct PerCapitaConsumption {
+    pub iron_mt_per_year: f64,
+    pub copper_mt_per_year: f64,
+    pub aluminum_mt_per_year: f64,
+    pub silicates_mt_per_year: f64,
+    pub titanium_mt_per_year: f64,
+    pub polymers_mt_per_year: f64,
+    pub phosphorus_mt_per_year: f64,
+    pub sulfur_mt_per_year: f64,
+    pub nitrogen_mt_per_year: f64,
+    pub methane_mt_per_year: f64,
+    pub uranium_mt_per_year: f64,
+    pub carbon_mt_per_year: f64,
+}
+
+impl Default for PerCapitaConsumption {
+    fn default() -> Self {
+        // Defaults match the RON values documented in §0.M.
+        // (1 kg = 1e-9 Mt; values in Mt/person/year.)
+        Self {
+            iron_mt_per_year: 0.000000213,
+            copper_mt_per_year: 0.0000000019,
+            aluminum_mt_per_year: 0.000000006,
+            silicates_mt_per_year: 0.00000041,
+            titanium_mt_per_year: 0.0000000011,
+            polymers_mt_per_year: 0.000000038,
+            phosphorus_mt_per_year: 0.0000000188,
+            sulfur_mt_per_year: 0.000000006,
+            nitrogen_mt_per_year: 0.000000019,
+            methane_mt_per_year: 0.00000025,
+            uranium_mt_per_year: 0.0000000000063,
+            carbon_mt_per_year: 0.0000007,
+        }
+    }
+}
+
+impl Default for ColonyConstants {
+    fn default() -> Self {
+        Self {
+            food_consumption_per_capita_mt_per_year: 0.0000011,
+            base_growth_rate: 0.009,
+            medical_growth_per_center: 0.0003,
+            max_medical_growth_bonus: 0.009,
+            housing_utilization_penalty: 0.8,
+            available_workforce_fraction: 0.4,
+            operating_cost_fraction: 0.05,
+            food_decline_threshold: 0.95,
+            food_decline_max_mortality: 0.03,
+            per_capita_consumption: PerCapitaConsumption::default(),
+        }
+    }
+}
+
 #[derive(Resource, Debug, Clone, Default, Reflect)]
 #[reflect(Resource)]
 pub struct BuildingsData {
     /// Building definitions indexed by BuildingType
     pub definitions: HashMap<BuildingType, BuildingDefinition>,
+    /// Colony-level tuning parameters (v3.6: moved from
+    /// `src/colony/components.rs` hard-coded constants).
+    pub colony_constants: ColonyConstants,
+}
+
+impl BuildingsData {
+    /// Look up the value of a specific modifier on a building, returning
+    /// `0.0` if the building or modifier is absent. v3.6 helper used by
+    /// the `Colony` methods that previously hard-coded per-build values.
+    pub fn per_build_value(&self, building_type: BuildingType, modifier_type: &str) -> f64 {
+        self.definitions
+            .get(&building_type)
+            .and_then(|d| d.modifiers.iter().find(|m| m.modifier_type == modifier_type))
+            .map(|m| m.value)
+            .unwrap_or(0.0)
+    }
+
+    /// Per-build `HousingCapacity` (residents).
+    pub fn housing_capacity_for(&self, bt: BuildingType) -> f64 {
+        self.per_build_value(bt, "HousingCapacity")
+    }
+
+    /// Per-build `FoodProduction` (Mt/yr).
+    pub fn food_production_for(&self, bt: BuildingType) -> f64 {
+        self.per_build_value(bt, "FoodProduction")
+    }
+
+    /// Per-build `WealthGeneration` (MC/yr).
+    pub fn wealth_generation_for(&self, bt: BuildingType) -> f64 {
+        self.per_build_value(bt, "WealthGeneration")
+    }
+
+    /// Per-build `LogisticsCapacity` (t/yr surface-to-orbit).
+    pub fn logistics_capacity_for(&self, bt: BuildingType) -> f64 {
+        self.per_build_value(bt, "LogisticsCapacity")
+    }
+
+    /// Load the BuildingsData from the RON file, falling back to
+    /// `Default::default()` if the file is missing or malformed. Use
+    /// this in tests where the Bevy Startup system hasn't run yet but
+    /// you need the real per-build values.
+    pub fn load_for_tests() -> Self {
+        use std::fs;
+        let path = "assets/data/buildings.ron";
+        if let Ok(contents) = fs::read_to_string(path) {
+            if let Ok(file) = ron::from_str::<BuildingsFile>(&contents) {
+                let mut data = BuildingsData {
+                    colony_constants: file.colony_constants,
+                    ..Default::default()
+                };
+                for def in file.buildings {
+                    if let Some(bt) = parse_building_type(&def.id) {
+                        data.definitions.insert(bt, def);
+                    }
+                }
+                return data;
+            }
+        }
+        BuildingsData::default()
+    }
 }
 
 impl BuildingsData {
@@ -337,6 +491,10 @@ pub(super) fn parse_building_type(id: &str) -> Option<BuildingType> {
         "LifeSupport" => Some(BuildingType::LifeSupport),
         "HabitatDome" => Some(BuildingType::HabitatDome),
         "UndergroundHabitat" => Some(BuildingType::UndergroundHabitat),
+        // v3.2 canary 12 (2026-08-07): starter-tier housing for new
+        // colonies. See `BALANCE_PATCHES_v0.5.md` §0.I (v3.2).
+        "HabitatTent" => Some(BuildingType::HabitatTent),
+        "HabitatModule" => Some(BuildingType::HabitatModule),
         "WaterProcessor" => Some(BuildingType::WaterProcessor),
         // Construction mines (9)
         "IronMine" => Some(BuildingType::IronMine),
@@ -455,7 +613,10 @@ pub fn load_buildings(mut commands: Commands) {
         Ok(contents) => match ron::from_str::<BuildingsFile>(&contents) {
             Ok(data) => {
                 let count = data.buildings.len();
-                let mut buildings_data = BuildingsData::default();
+                let mut buildings_data = BuildingsData {
+                    colony_constants: data.colony_constants,
+                    ..Default::default()
+                };
 
                 for def in data.buildings {
                     if let Some(bt) = parse_building_type(&def.id) {

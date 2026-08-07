@@ -14,6 +14,17 @@ pub enum BuildingType {
     Housing,
     /// Provides shelter on airless/hostile bodies
     UndergroundHabitat,
+    /// v3.2 canary 12 (2026-08-07): starter-tier inflatable
+    /// shelter, 1,000 residents. The smallest housing in the
+    /// catalog — first building on a new colony. Material cost:
+    /// 3 Fe + 5 Si (buildable from the new-colony bootstrap).
+    /// See `BALANCE_PATCHES_v0.5.md` §0.I (v3.2).
+    HabitatTent,
+    /// v3.2 canary 12 (2026-08-07): starter-tier prefab
+    /// habitat, 10,000 residents. Second-tier starter for
+    /// growing colonies. Material cost: 10 Fe + 15 Si + 1 Cu +
+    /// 3 Al. See `BALANCE_PATCHES_v0.5.md` §0.I (v3.2).
+    HabitatModule,
     /// Off-world water extraction (atmospheric condenser / ice miner).
     /// Required for non-breathable colony life support; body-restricted
     /// to `[None]` atmospheres (see `BALANCE_PATCHES_v0.5.md` §8.2.1).
@@ -262,6 +273,9 @@ impl BuildingType {
             LifeSupport,
             HabitatDome,
             UndergroundHabitat,
+            // v3.2 canary 12 (2026-08-07): starter-tier housing
+            HabitatTent,
+            HabitatModule,
             WaterProcessor,
             WaterTreatmentPlant,
             DesalinationPlant,
@@ -375,6 +389,9 @@ impl BuildingType {
             BuildingType::HabitatDome => "Habitat Dome",
             BuildingType::Housing => "Housing Complex",
             BuildingType::UndergroundHabitat => "Underground Habitat",
+            // v3.2 canary 12 (2026-08-07): starter-tier housing
+            BuildingType::HabitatTent => "Habitat Tent",
+            BuildingType::HabitatModule => "Habitat Module",
             BuildingType::WaterProcessor => "Water Processor",
             // Construction (9)
             BuildingType::IronMine => "Iron Mine",
@@ -489,6 +506,9 @@ impl BuildingType {
             BuildingType::Housing => "Standard residential buildings for habitable worlds",
             BuildingType::HabitatDome => "Provides living and working space for colonists",
             BuildingType::UndergroundHabitat => "Shelter on airless or hostile bodies",
+            // v3.2 canary 12 (2026-08-07): starter-tier housing
+            BuildingType::HabitatTent => "Inflatable emergency shelter for 1,000 residents. v3.2 starter-tier — first building on a new colony.",
+            BuildingType::HabitatModule => "Prefab habitat module for 10,000 residents. v3.2 starter-tier — second-tier for growing colonies.",
             BuildingType::WaterProcessor => "Atmospheric condenser / regolith ice miner. Extracts 16 Mt/yr water for non-breathable colony life support; body-restricted to non-breathable atmospheres (buildable on Moon, Mars, asteroids, gas-giant moons — not on Earth-like worlds).",
             // Construction mines (9)
             BuildingType::IronMine => "Iron ore extraction (open-pit / underground). 120 Mt/yr per build, scaled by deposit.accessibility.",
@@ -615,6 +635,15 @@ impl BuildingType {
             BuildingType::UndergroundHabitat => &[
                 "+30M housing capacity",
                 "Buried structure; ideal for airless bodies",
+            ],
+            // v3.2 canary 12 (2026-08-07): starter-tier housing
+            BuildingType::HabitatTent => &[
+                "+1k housing capacity",
+                "Inflatable emergency shelter; v3.2 starter-tier",
+            ],
+            BuildingType::HabitatModule => &[
+                "+10k housing capacity",
+                "Prefab habitat; v3.2 starter-tier for growing colonies",
             ],
             BuildingType::WaterProcessor => &[
                 "+16 Mt/yr water per processor",
@@ -896,6 +925,9 @@ impl BuildingType {
             BuildingType::LifeSupport => "🌬",
             BuildingType::HabitatDome => "🏠",
             BuildingType::UndergroundHabitat => "⛏",
+            // v3.2 canary 12 (2026-08-07): starter-tier housing
+            BuildingType::HabitatTent => "⛺",
+            BuildingType::HabitatModule => "🏗",
             BuildingType::WaterProcessor => "🧊",
             // Construction mines (9)
             BuildingType::IronMine => "⛓", // chain link / iron symbol
@@ -1014,6 +1046,9 @@ impl BuildingType {
             | BuildingType::HabitatDome
             | BuildingType::Housing
             | BuildingType::UndergroundHabitat
+            // v3.2 canary 12 (2026-08-07): starter-tier housing
+            | BuildingType::HabitatTent
+            | BuildingType::HabitatModule
             | BuildingType::WaterProcessor
             | BuildingType::WaterTreatmentPlant
             | BuildingType::DesalinationPlant => BuildingCategory::Infrastructure,
@@ -1131,6 +1166,9 @@ impl BuildingType {
             BuildingType::HabitatDome => 800.0,
             BuildingType::Housing => 200.0,
             BuildingType::UndergroundHabitat => 1200.0,
+            // v3.2 canary 12 (2026-08-07): starter-tier housing
+            BuildingType::HabitatTent => 50.0,
+            BuildingType::HabitatModule => 200.0,
             BuildingType::WaterProcessor => 600.0,
             // Construction mines (9) — scaled to per-build yield
             BuildingType::IronMine => 1500.0,
@@ -1255,6 +1293,11 @@ impl BuildingType {
             BuildingType::HabitatDome => 1_000,
             BuildingType::Housing => 500,
             BuildingType::UndergroundHabitat => 1_500,
+            // v3.2 canary 12 (2026-08-07): starter-tier housing.
+            // Tent is 5 workers (small inflatable, minimal crew).
+            // Module is 50 workers (prefab habitat, small staff).
+            BuildingType::HabitatTent => 5,
+            BuildingType::HabitatModule => 50,
             BuildingType::WaterProcessor => 2_000,
             // Construction mines (9) — surface-scale operations
             BuildingType::IronMine => 5_000,
@@ -1512,10 +1555,12 @@ mod tests {
         //   56 + 23 + 25 - 7 - 2 (GoldMine/SilverMine/PlatinumMine
         //   were already in v0.5.1; He3Mine was the v0.5.1 canary 3 that
         //   finally lands) = 95.
+        // v3.2 canary 12 (2026-08-07): 95 → 97 (added 2 starter-tier
+        // housing: HabitatTent 1k, HabitatModule 10k).
         assert_eq!(
             all.len(),
-            95,
-            "Should have exactly 95 building types (v0.5.2: per-resource mines + AutoMines)"
+            97,
+            "Should have exactly 97 building types (v0.5.2: 95 base + v3.2: 2 starter-tier housing)"
         );
     }
 
@@ -1593,13 +1638,18 @@ mod tests {
         // A starting colony (100K pop, 40K workers) should be able to run
         // several basic buildings without hitting workforce limits immediately.
         // v0.5.2: replaced generic Mine with IronMine (5,000 workers).
+        // v3.2: replaced HabitatDome with the new starter-tier
+        // HabitatTent + HabitatModule — the actual first buildings
+        // on a new colony (the v0.5.0 50M-per-dome is "metropolitan
+        // tier" and a 100k colony can't use it).
         let early_buildings = [
-            BuildingType::LifeSupport, // 2,000
-            BuildingType::HabitatDome, // 1,000
-            BuildingType::SolarPower,  // 500
-            BuildingType::IronMine,    // 5,000 (v0.5.2: was Mine)
-            BuildingType::Farm,        // 1,000
-            BuildingType::AgriDome,    // 4,000
+            BuildingType::LifeSupport,    // 2,000
+            BuildingType::HabitatTent,    // 5 (v3.2 starter-tier)
+            BuildingType::HabitatModule,  // 50 (v3.2 starter-tier)
+            BuildingType::SolarPower,     // 500
+            BuildingType::IronMine,       // 5,000 (v0.5.2: was Mine)
+            BuildingType::Farm,           // 2,000 (v3.1 canary 9)
+            BuildingType::AgriDome,       // 3,000
         ];
         let total: u32 = early_buildings.iter().map(|b| b.workforce_required()).sum();
         assert!(

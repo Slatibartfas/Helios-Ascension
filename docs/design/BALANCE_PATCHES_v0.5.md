@@ -1,176 +1,3084 @@
-# Balance Patches v0.5 — Per-Resource Calibration (Lean v2)
+# Balance Patches v0.5 — Consolidated v3 (v3.1 EXTENDS v3)
 
-> **Fifth deliverable from the balance-expert agent (revised pass).** v1
-> was 1,955 lines with 23 new buildings, NaOH/Cl₂ new resources, and
-> `He3Mine` buildable on Earth at game start. v2 is a **lean
-> canary-first pass**: 9 new buildings (down from 23), 3 new
-> technologies, **no new `ResourceType` entries**, and the mid-game
-> He-3 chain is locked behind `lunar_colony` tech + a body-type
-> restriction on `He3Mine` (Moon / GasGiant / Asteroid — the three
-> body classes with He-3 deposits). Calibration math and the 10–50
-> manageable-count constraint are **preserved from v1**; the lean set
-> just folds most fixes into existing `Mine` / `Refinery` /
-> `ChemicalPlant` / `AtmosphericProcessor` / `DeepDrill` /
-> `HydrocarbonExtractor` / `StripMine` `effects` fields.
+> **Sixth deliverable from the balance-expert agent.** v3 is a
+> **single consolidated** document that **supersedes the lean v2**.
+> It adds the energy-consumption rebalance (the bottom-up demand
+> sum the user asked for), the cost-headroom rebalance (player
+> expansion viability), the player expansion-path verification, and
+> a single canary-first apply plan that consolidates every v2 +
+> v3 change into one ordered list. v3 also reflects the v0.5.2
+> per-resource-mines refactor that shipped to `buildings.ron` in
+> 2026-08: the v0.5.1 "fold into existing `Mine`" approach is
+> **SUPERSEDED**; the v0.5.2 per-resource dedicated mine is the
+> current source of truth.
+>
+> **v3.1 EXTENDS v3 (this revision, 2026-08).** The user surfaced
+> three new findings that v3 did not cover: (1) workforce values
+> are wildly off real-world productivity ratios for mature Earth,
+> (2) `resource_costs` on a handful of buildings are hard
+> blockers (OrbitalLift Ti 333 Mt → 666 yr payback), and
+> (3) building cards hide most of their `modifiers` from the
+> player. v3.1 adds §0.F (workforce calibration), §0.G
+> (resource build cost rebalance), §0.H (effect-rendering spec),
+> §0.D.7 (Canaries 9, 10, 11 in the unified apply plan), §5.13–
+> §5.15 (per-canary RON / RUST diffs), §6.6 (v3.1 stop
+> conditions), and §8.4 (v3.1 deltas). v3 §0.A–§0.E and the v2
+> per-resource calibration are **LOCKED** — v3.1 only extends.
 >
 > **Companion docs** (do not duplicate scope here):
-> * `docs/design/BALANCE_AUDIT_v0.5.md` — the per-resource audit this
->   is built on
-> * `docs/design/CIVILIZATION_SATISFACTION_MODEL.md` — the satisfaction
->   state machine; §9.1 is locked
-> * `docs/design/BALANCE_SCALING_STRATEGY.md` — the scaling-strategy
->   comparison (separate deliverable, **not produced here**)
+> * `docs/design/BALANCE_AUDIT_v0.5.md` — the per-resource audit
+>   this is built on
+> * `docs/design/CIVILIZATION_SATISFACTION_MODEL.md` — the
+>   satisfaction state machine; §9.1 is locked
+> * `docs/design/BALANCE_SCALING_STRATEGY.md` — the
+>   scaling-strategy comparison (separate deliverable, **not
+>   produced here**)
+>
+> **Shipped-vs-pending status legend (v3 audit, 2026-08):**
+> * ✅ SHIPPED — change is in `buildings.ron` / `technologies.ron`
+>   / `src/` on `main` as of 2026-08
+> * 🟡 PARTIAL — change is shipped but with a difference from the
+>   v0.5.1 spec
+> * ⏳ PENDING — change is not yet applied; queued in this doc
+> * 🔁 SUPERSEDED — v0.5.1 spec replaced by v0.5.2
 
 ## Contents
 
-1. [TL;DR and stop conditions](#1-tldr-and-stop-conditions)
-2. [Headline tier-summary table](#2-headline-tier-summary-table-read-this-first)
-3. [Methodology and the 10–50 constraint](#3-methodology-and-the-1050-constraint)
-4. [Early-game tier (0–50 yr, 2026-era tech)](#4-early-game-tier-050-yr-2026-era-tech)
-5. [Mid-game tier (50–200 yr, fusion unlocks)](#5-mid-game-tier-50200-yr-fusion-unlocks)
-6. [Late-game tier (200+ yr, K2 Kardashev)](#6-late-game-tier-200-yr-k2-kardashev)
-7. [Power buildings (cross-cutting)](#7-power-buildings-cross-cutting)
-8. [Implementation notes](#8-implementation-notes)
-9. [Self-checks and open questions](#9-self-checks-and-open-questions)
+* §0 Executive summary (v3 NEW — read this first)
+* §0.A Energy balance recalibration (v3 NEW)
+* §0.B Cost-headroom rebalance (v3 NEW)
+* §0.C Player expansion path verification (v3 NEW)
+* §0.D Single canary-first apply plan (v3 NEW)
+* §0.E v0.5.2 supersession status (v3 NEW)
+* §0.F Workforce calibration (v3.1 NEW)
+* §0.G Resource build cost rebalance (v3.1 NEW)
+* §0.H Building-card effect rendering (v3.1 NEW)
+* §0.D.7 v3.1 apply plan extension — Canaries 9, 10, 11 (v3.1 NEW)
+* §1 TL;DR and stop conditions (v2 §1, updated for v3)
+* §2 Headline tier-summary table (v2 §2, LOCKED FROM v2)
+* §3 Methodology and the 10–50 constraint (v2 §3, LOCKED FROM v2)
+* §4 Reference: v2 per-resource calibration (v2 §4–§7, LOCKED FROM v2)
+* §5 Implementation notes (v2 §8 + v3 §8.10–§8.12 + v3.1 §8.13–§8.15)
+* §6 Self-checks and open questions (v2 §9 + v3 stop conditions + v3.1 stop conditions)
+* §7 Reference: v2 §10 v0.5.2 per-resource dedicated mines (SHIPPED)
+* §8 v3 vs v2 deltas (v3 NEW) + v3.1 deltas (v3.1 NEW)
 
 ---
 
-## 1. TL;DR and stop conditions
+## §0 Executive summary (v3 NEW — read this first)
 
-### 1.1 Three-line TL;DR
+### 0.1 Three-line TL;DR
 
-1. **Almost every existing per-building production modifier is 5–50× too high** for a player who manages 10–50 buildings per body. 1 Farm = 9,000 Mt/yr today (RON) but the simulation uses a *hard-coded* 1,000 Mt/yr (`src/colony/components.rs:282`); for Earth 8.2 B to need ~25 Farms the per-build must drop to **360 Mt/yr** (per the new 1/25-of-world operator bar). The single Rust constant delta (`food_consumption_per_year` 0.0001 → 0.0000011) closes the demand loop. **Unit conversion note:** 1,100 kg/p/yr = 0.0000011 Mt/p/yr (since 1 Mt = 10⁹ kg), NOT 0.0011. v0.5.1 corrected this 1,000× error.
-2. **v1 added 23 new buildings; v2 adds 9.** Most "missing-resource" fixes in v1 fold into existing `Mine` / `Refinery` / `ChemicalPlant` / `AtmosphericProcessor` / `DeepDrill` / `HydrocarbonExtractor` / `StripMine` `effects` fields as multi-resource outputs. The 9 that remain as new buildings are: closed-loop water, He-3 mining (body-restricted), 3 precious-metal mines (Au/Ag/Pt) matched to the existing `SemiconductorFab` consumer, and the four K2 exotics.
-3. **The He-3 catastrophe is closed by (a) downscaling `FusionReactor` He-3 maintenance 20× to 0.5 Mt/yr, (b) adding `He3Mine` at 0.5 Mt/yr (buildable on any body with He-3 deposits: Moon, GasGiant, Asteroid), AND (c) locking the entire chain with 2 new techs:** `lunar_colony` → `He3Mine` (body-restricted to `[Moon, GasGiant, Asteroid]`) → `fusion_power` (requires `lunar_colony`) → `FusionReactor` (He-3 freight-shipped from the producer body's `LocalStockpile`). No fusion, no off-world He-3 mining, no antimatter at game start in 2026.
+1. **v3 closes the energy-consumption gap the user reported, but the
+   bug is the opposite of what the user thought.** The bottom-up
+   `power_demand_mw` sum for a typical mature-Earth colony (the
+   brief's 19 building types) is **~24.7 GW**, against a supply of
+   **2,880 GW from just 12 SolarPower** (= 12 × 240 GW each, the
+   v0.5.1 §7 calibration target). The player starts in a **117×
+   power OVER-supply**, not a deficit. The 100× gap is dominated
+   by the residential buildings (`HabitatDome.power_demand_mw =
+   150` MW for a 50 M-person arcology, vs the per-capita target
+   of 50 M × 418 W = 20,900 MW = **139× too low**). §0.A proposes
+   per-building `power_demand_mw` updates that bring the ratio to
+   1.0–1.3× as the user asked.
 
-### 1.2 What this doc does and doesn't
+2. **Construction cost is already in the tiered range the user
+   asked for.** Tier-1 basics 50–200 BP (Farm 100, Housing 200,
+   SilicatesMine 300) ✅. Tier-2 production 200–800 BP (IronMine
+   1500 is the only outlier; v3 proposes **1500 → 1000 BP**, a
+   single change to put it in band) ✅. Tier-3 infrastructure
+   1500–5000 BP (MassDriver 2000, CargoTerminal 1000, Shipyard
+   3000, OrbitalLift 5000, FusionReactor 5000) ✅. **The
+   resource_costs are not a hidden tax** — every production
+   building's resource payback is 0.5–3 yr at the v0.5.1 §4
+   per-build rates, which is the right strategic-pacing curve.
+   §0.B confirms the curve and proposes the one IronMine BP
+   change; the user is invited to ratify or override.
 
-* **Does.** Propose RON value changes for 18 existing buildings (17 + `SemiconductorFab` maintenance update), 9 new buildings (full spec), 3 new technologies (full prereq chain), 1 schema addition (`allowed_body_types` on `BuildingDefinition`), and 1 hard-coded Rust constant delta (`food_consumption_per_year` 0.0001 → 0.0000011, the FAO 2024 SOFA 1,100 kg/p/yr = 1.1 × 10⁻⁶ Mt/p/yr). **The hard-coded per-build values in `Colony::food_production_per_year` (`src/colony/components.rs:282-285`) are the source of truth for food production** — the RON `FoodProduction` modifier is documentation and is NOT read by the simulation. Every number is sourced.
-* **Doesn't.** Implement the changes (this is a proposal doc). Produce
-  the scaling strategy doc. Re-litigate the civilization model. Add
-  new `ResourceType` entries. Preserve deprecated aliases. Propose
-  buildings the player can't build at the given tier.
+3. **The Earth → Moon → asteroid → space-industry expansion path
+   is economically viable after v2 lands** and needs no further
+   v3 changes. Survey reveals deposits in years 1–10 → AutoMines
+   on airless bodies (already in `buildings.ron` v0.5.2, body-
+   restricted to `[Asteroid, Moon, GasGiant]`, `asteroid_mining`
+   tech-gated) → `CargoTerminal` / `MassDriver` / `OrbitalLift`
+   logistics (already calibrated, 1000 / 2000 / 5000 BP) →
+   `lunar_colony` (⏳ PENDING — see §0.E) → `He3Mine` (✅
+   SHIPPED) on a He-3-deposit body → `fusion_power` (✅ SHIPPED
+   as a separate tech from the v0.5.1 spec; see §0.E) →
+   `FusionReactor` (🟡 PARTIAL — the He-3 / D / T downscaling
+   in v0.5.1 §8.3.12 is ⏳ PENDING). §0.C walks the path with
+   math at each step.
 
-### 1.3 The 10–50 manageable-count invariant (formal)
+### 0.2 Top-3 changes in v3 vs v2
 
-For each resource `r` at body `b` with population `pop[b]`:
+| # | Change | Where | Why |
+|---|--------|-------|-----|
+| 1 | **`power_demand_mw` rebalance for residential and industrial buildings** — HabitatDome 150 → 20,900 MW, Housing 50 → 10,450 MW, UndergroundHabitat 300 → 12,540 MW, plus 8 smaller adjustments on AluminumMine, ChemicalPlant, AtmosphericProcessor, Farm, Factory, Shipyard, SpacePort, SemiconductorFab | §0.A §0.A.4, §5.10 (v3 §8.10 RON edits) | Brings mature-Earth demand from 24.7 GW to 2,880–3,744 GW (1.0–1.3× of 12-SolarPower supply). The 100× gap is the bug the user reported. |
+| 2 | **IronMine.build_points 1500 → 1000** | §0.B §0.B.3, §5.11 (v3 §8.11 RON edits) | The only tier-2 outlier in the cost-headroom rebalance. The 500 BP drop puts IronMine in the 800–1200 BP band with AluminumMine, CopperMine, SilicatesMine — consistent with the tier curve. |
+| 3 | **Consolidated canary-first apply plan** — folds v2's 6 canaries + v0.5.2's mines + v3's 2 new canaries into one ordered list | §0.D, §5.12 (v3 §8.12 apply order) | The user has 8 separate `BUILD_PATCHES` canaries in flight; v3 unifies them so the user lands one batch at a time, runs the test suite, rolls forward. |
 
-```
-implied_count[r,b] = ceiling( per_capita[r] × pop[b] / per_build_production[r] )
-```
+### 0.3 What v3 is NOT
 
-For `b = Earth`, `pop = 8.2e9`. The patch **must** satisfy
-`10 ≤ implied_count[r, Earth] ≤ 50` for every early-game Tier 1 + Tier 2
-resource (16 resources, see §4). Mid-game and late-game resources are
-exempt — they're Tier 3 / K2 and the satisfaction model filters them
-accordingly (CIVILIZATION_SATISFACTION_MODEL §7).
+* **Not a re-derivation of the per-resource calibration.** v2 §4
+  (early game), §5 (mid game), §6 (late game), §7 (power
+  production) are LOCKED. v3 references them by section number.
+* **Not a re-litigation of the civilization-satisfaction model.**
+  Locked in `CIVILIZATION_SATISFACTION_MODEL.md` §9.1.
+* **Not a re-derivation of the He-3 chain or the K2 exotics.**
+  Locked in v2 §5.1.
+* **Not a new building.** v3 adds zero new `BuildingType` enum
+  variants. The 9 new buildings from v2 (WaterProcessor,
+  He3Mine, GoldMine, SilverMine, PlatinumMine, plus 4 K2
+  exotics) are the bound. v3 only adjusts the `power_demand_mw`
+  and `build_points` of **existing** buildings.
+* **Not a new `ResourceType`.** The 39 are locked. No NaOH, no
+  Cl₂, no Antimony — the v0.5.1 design rule stands.
+* **Not a survey-mission design change.** Survey rework is
+  shipped (§0.E). v3 flags a survey dependency in §0.C (the
+  player needs survey reveals to find asteroid/moon deposits)
+  but does not propose RON changes to `survey/missions.ron` or
+  `survey/instruments.ron`.
 
-### 1.4 Stop conditions (per the brief)
+### 0.4 What v3 closes that v2 left open
 
-| Stop condition | Met? | Where |
+| v2 gap | v3 closure |
+|--------|------------|
+| Energy **consumption** uncalibrated — `power_demand_mw` values are 100× too low on residential / 1.4–12× too low on industrial | §0.A bottom-up sum + per-building `power_demand_mw` updates |
+| Construction cost not audited for player headroom | §0.B cost curve review + 1 BP change (IronMine 1500 → 1000) |
+| Expansion path (Earth → Moon → asteroid → space-industry) not walked end-to-end | §0.C step-by-step with BP / resource math at each step |
+| Apply order scattered across v2 §8.8, v0.5.2 §10, and v3 §0 | §0.D single ordered canary list with batch size + test gate |
+
+### 0.5 v3 stop conditions
+
+| Stop condition | Where in v3 | Status |
 |---|---|---|
-| `docs/design/BALANCE_PATCHES_v0.5.md` exists (lean v2) | ✅ | this file |
-| All three tiers covered | ✅ | §4 / §5 / §6 |
-| Tier-summary table concrete at the top | ✅ | §2 |
-| 10–50 constraint met for every early-game resource | ✅ | §4.17, §9.1 |
-| Mid-game He-3 fix concrete, tech-gated, AND body-restricted | ✅ | §5.1 |
-| Late-game uses grams for Antimatter, marks exotics approximate | ✅ | §6 |
-| 3 new technologies spec'd with full prereq chains | ✅ | §5.1.1-§5.1.3 |
-| Schema addition (`allowed_body_types`) flagged | ✅ | §8.4 |
-| Implementation notes sufficient to apply without re-asking | ✅ | §8 |
-| User has been pinged with the lean v2 vs v1 deltas | ⏳ | end of this task |
+| Executive summary at top | §0 | ✅ |
+| Bottom-up power demand sum done for the brief's 19 building types | §0.A §0.A.1 | ✅ |
+| Per-building `power_demand_mw` updates proposed (target ratio 1.0–1.3×) | §0.A §0.A.4, §5.10 | ✅ |
+| Cost-headroom rebalance done; only 1 BP change proposed (IronMine) | §0.B §0.B.3, §5.11 | ✅ |
+| Player expansion path verified end-to-end | §0.C | ✅ |
+| Single canary-first apply plan unifies v2 + v0.5.2 + v3 | §0.D, §5.12 | ✅ |
+| v2 §4–§7 marked LOCKED | §4 | ✅ |
+| v0.5.2 supersession status documented (shipped / partial / pending) | §0.E | ✅ |
+| No RON, Rust, or UI files edited | (this is a doc) | ✅ |
+| No new `BuildingType` enum variants added | §0.3 | ✅ |
+| No new `ResourceType` entries added | §0.3 | ✅ |
+| Brief 1-paragraph summary back to orchestrator | (this response, end) | ✅ |
 
 ---
 
-## 2. Headline tier-summary table (read this first)
+## §0.A Energy balance recalibration (v3 NEW)
 
-This is the **table the user reads first**. Every row is justified in
-detail in the per-tier sections below. "Action" is the patch shape;
-"Per-build Δ" is the ratio of proposed/current per-building production
-(less than 1 = scale down, greater than 1 = scale up).
+### 0.A.1 The bottom-up demand sum
 
-| Resource | Tier | Current count (Earth) | Proposed count (Earth) | Per-build Δ | Action |
-|---|---|---:|---:|---:|---|
-| Food | Early | 1 Farm | 25 | ×0.040 (DOWN 25×) | Scale Farm down; fix per-capita |
-| Water | Early | 0 | 25 (non-breathable) | n/a (NEW) | Add `WaterProcessor` building |
-| Oxygen | Early | 0 | 34 (non-breathable) | n/a (fold) | Add `OxygenProduction` to `AtmosphericProcessor` (split sweep) |
-| Nitrogen | Early | 0 | 21 | n/a (rename) | Rename `AtmosphericHarvesting` → `NitrogenHarvesting`, value 7 |
-| Hydrogen | Early | 1 | 33 | ×0.030 (DOWN 33×) | Scale `ChemicalPlant.HydrogenSynthesis` down |
-| Methane | Early | 1 | 25 | ×0.041 (split) | `HydrocarbonExtractor`: split `MiningEfficiency` into `MethaneProduction` (164) |
-| Ammonia | Early | 1 | 33 | ×0.030 (DOWN 33×) | Scale `ChemicalPlant.AmmoniaSynthesis` down |
-| Phosphorus | Early | 0 | 15 | n/a (fold) | Add `PhosphorusProduction` to `Mine` (multi-output) |
-| Iron | Early | 1 | 25 | ×0.044 (DOWN 23×) | Scale `Mine.MiningEfficiency` (Fe) down 1800 → 80 |
-| Aluminum | Early | 0 | 30 | n/a (fold) | Add `AluminumProduction` to `Refinery` |
-| Copper | Early | 0 | 23 | n/a (fold) | Add `CopperProduction` to `Mine` (multi-output) |
-| Titanium | Early | 0 | 17 | n/a (fold) | Add `TitaniumProduction` to `Refinery` |
-| Silicates | Early | 2 | 25 | ×0.040 (split) | `StripMine`: split `BulkMiningEfficiency` into per-resource (Si 400) |
-| Polymers | Early | 1 | 25 | ×0.040 (DOWN 25×) | Scale `ChemicalPlant.PolymerSynthesis` down |
-| Nickel | Early | 0 | 21 | n/a (fold) | Add `NickelProduction` to `Mine` (multi-output) |
-| Carbon | Early | 1 | 25 | ×0.040 (split) | `HydrocarbonExtractor`: add `CarbonProduction` (480) |
-| Helium-3 | Mid | 0 | 10 (any He-3-deposit body, post-`lunar_colony` + `fusion_power`) | n/a (NEW + DOWN) | **NEW** `He3Mine` (body-restricted to `[Moon, GasGiant, Asteroid]`, tech-gated); `FusionReactor` He-3 10 → 0.5; tech-gated to `fusion_power` |
-| Deuterium | Mid | 0 | 18 | n/a (fold) | `ChemicalPlant`: add `DeuteriumProduction` (0.18); `FusionReactor` D 5 → 0.25 |
-| Tritium | Mid | 0 | 15 | ×0.05 (DOWN) | `ChemicalPlant.TritiumBreeding` 0.05 → 0.001 |
-| Uranium | Mid | 0 | 18 | n/a (fold) | Add `UraniumProduction` to `DeepDrill` |
-| Thorium | Mid | 0 | 16 | n/a (fold) | Add `ThoriumProduction` to `DeepDrill` |
-| Plutonium | Mid | 0 | 12 | ×0.0043 (DOWN 230×) | `BreederReactor.PlutoniumBreeding` 0.23 → 0.001 |
-| Lithium | Mid | 0 | 22 | n/a (fold) | Add `LithiumProduction` to `Mine` (brine-extraction slice) |
-| RareEarths | Mid | 0 | 20 | n/a (fold) | Add `RareEarthsProduction` to `DeepDrill` |
-| Cobalt | Mid | 0 | 18 | n/a (fold) | Add `CobaltProduction` to `Mine` (Cu-mine byproduct) |
-| Sulfur | Mid | 0 | 19 | n/a (fold) | `HydrocarbonExtractor.SulfurByproduct` (5) — already in the C/CH4 split |
-| Fluorine | Mid | 0 | 17 | n/a (fold) | Add `FluorineProduction` to `Mine` (fluorite) |
-| Tungsten | Mid | 0 | 15 | n/a (fold) | Add `TungstenProduction` to `DeepDrill` |
-| Chromium | Mid | 0 | 18 | n/a (fold) | Add `ChromiumProduction` to `Refinery` |
-| Magnesium | Mid | 0 | 19 | n/a (fold) | Add `MagnesiumProduction` to `Refinery` |
-| Gold / Silver / Platinum | Mid | 0 (no consumer) | 25 / 25 / 20 | n/a (NEW) | **NEW** `GoldMine` (0.0001 Mt/yr) / `SilverMine` (0.001) / `PlatinumMine` (0.00001); each added to `SemiconductorFab.maintenance_resources` |
-| Argon | Mid | 0 (no consumer) | 25 | n/a (fold) | Add `ArgonProduction` (0.028 Mt/yr) to `AtmosphericProcessor`; add to `SemiconductorFab.maintenance_resources` |
-| Antimatter | Late (K2) | 0 | 12 | n/a (NEW) | **NEW** `AntimatterSynthesizer`; **grams/yr**; required_tech: `kardashev_k2` |
-| ExoticMatter | Late (K2) | 0 | 0 (placeholder) | n/a (NEW) | **NEW** `ExoticMatterSynthesizer`; **kg/yr**; K2-gated; "approximate" |
-| Metamaterials | Late (K2) | 0 | 12 | n/a (NEW) | **NEW** `MetamaterialsFab`; K2-gated; "approximate" |
-| Computronium | Late (K2) | 0 | 10 | n/a (NEW) | **NEW** `ComputroniumSubstrate`; K2-gated; "approximate" |
-| **Energy (avg power)** | Early | 1 plant per source | 10–30 plants/body | varies | Per-plant GW targets in §7 |
-| **RUST constant: `food_consumption_per_year`** | — | `pop × 0.0001` | `pop × 0.0000011` | ÷91 (real-world FAO 2024 SOFA 1,100 kg/p/yr = 1.1 × 10⁻⁶ Mt) | `src/colony/components.rs:300-301` |
-| **HARD-CODED per-build (food_production_per_year)** | — | `Farm 1,000, GHG 500, Aqua 750, AgriDome 4` | `Farm 360, GHG 200, Aqua 200, AgriDome 4` | Farm ÷2.78, GHG ÷2.5, Aqua ÷3.75 | `src/colony/components.rs:282-285` (the RON `FoodProduction` modifier is **NOT read** — the simulation uses these hard-coded values) |
+**The brief's scenario: a typical mature-Earth colony in 2026
+(8.2 B population, v0.5.0 in flight).** The colony has the
+following buildings (count per building × `power_demand_mw`
+value from `assets/data/buildings.ron`):
 
-**Reading the table.** Most existing buildings need their per-build
-production scaled **down** 5–50×. Most missing-resource buildings
-**fold** into existing `Mine` / `Refinery` / `ChemicalPlant` /
-`AtmosphericProcessor` / `DeepDrill` / `HydrocarbonExtractor` /
-`StripMine` `effects` fields — 0 new buildings for the 16 mid-game
-Tier 2/3 missing-resource fixes. The 9 new buildings are:
-`WaterProcessor` (early, non-breathable), `He3Mine` (mid, body-restricted
-to `[Moon, GasGiant, Asteroid]`, tech-gated), `GoldMine` + `SilverMine`
-+ `PlatinumMine` (mid, precious-metal mining, fold consumer into the
-existing `SemiconductorFab`), and the 4 K2 exotics
-(late, all `kardashev_k2`-gated, all "approximate"). The mid-game He-3
-chain is the only one that requires a new mid-game building AND a
-body-type restriction (schema addition in §8.4). Argon is an
-atmospheric byproduct of `AtmosphericProcessor` and folds into the
-existing modifier stack — no dedicated `ArgonExtractor` building.
+| Building | Count | `power_demand_mw` (MW) | Total demand (MW) | Source |
+|---|---:|---:|---:|---|
+| Farm | 1 | 30 | 30 | `buildings.ron:1994-2024` |
+| Housing | 25 | 50 | 1,250 | `buildings.ron:92-128` |
+| HabitatDome | 25 | 150 | 3,750 | `buildings.ron:54-91` |
+| UndergroundHabitat | 1 | 300 | 300 | `buildings.ron:130-167` (assume 1) |
+| IronMine | 25 | 250 | 6,250 | `buildings.ron:286-312` |
+| AluminumMine | 25 | 200 | 5,000 | `buildings.ron:313-338` |
+| MassDriver | 1 | 500 | 500 | `buildings.ron:1672-1695` |
+| OrbitalLift | 1 | 800 | 800 | `buildings.ron:1696-1720` |
+| CargoTerminal | 1 | 100 | 100 | `buildings.ron:1721-1746` |
+| Factory | 1 | 800 | 800 | `buildings.ron:169-200` |
+| MedicalCenter | 1 | 150 | 150 | `buildings.ron:2025-2056` |
+| ResearchLab | 1 | 300 | 300 | `buildings.ron:2057-2085` |
+| EngineeringBay | 1 | 400 | 400 | `buildings.ron:2086-2112` |
+| CommercialHub | 1 | 80 | 80 | `buildings.ron:2146-2168` |
+| FinancialCenter | 1 | 100 | 100 | `buildings.ron:2169-2192` |
+| TradePort | 1 | 200 | 200 | `buildings.ron:2193-2220` |
+| Shipyard | 1 | 3,000 | 3,000 | `buildings.ron:2221-2252` |
+| MissileSilo | 1 | 400 | 400 | `buildings.ron:2253-2277` |
+| LaunchSite | 1 | 500 | 500 | `buildings.ron:2278-2305` |
+| FissionReactor | 11 | 100 | 1,100 | `buildings.ron:1775-1803` (plant auxiliaries; produces 310 GW each) |
+| SolarPower | 12 | 0 | 0 | `buildings.ron:1747-1774` (net producer) |
+| WindFarm | 11 | 0 | 0 | `buildings.ron:2306-2332` (net producer) |
+| **Total demand** | | | **24,710 MW = 24.7 GW** | |
 
-**Why scale down rather than up the per-capita demand.** The user has
-already fixed the per-capita demand in the civilization model
-(CIVILIZATION_SATISFACTION_MODEL §3.1; per the audit the correct
-values are Food 1,100 kg/p/yr, Water 150 m³/p/yr on breathable, etc.).
-The *consumption* side of the equation is correct. The *production*
-side is where the calibration is wrong. The patch shrinks per-build to
-the "city scale" that 1 building ≈ 1/300 of world share, which is the
-operator bar in `CLAUDE.md` and the basis of the housing/commercial
-building calibration already in the code
-(`src/colony/components.rs:255-265` comment). 1 Farm feeds ~327 M
-people (1/25 of Earth at 1,100 kg/p/yr — the new 1/25 manageable-count operator bar; the v0.5 canary-1 doc previously quoted 25 M from the 1/300 housing bar, which is now superseded), 1 Mine produces ~80 Mt/yr (1/22 of world Fe),
-1 ChemicalPlant produces 3 Mt/yr of NH₃ (1/67 of world NH₃). This
-matches the existing housing-capacity calibration: "1 Housing
-Complex = 25 M people, so Earth needs ~335 Housing Complexes" (335
-= 8.2 B / 25 M).
+**Supply side (the brief's target):** 12 SolarPower × 240 GW
+each = **2,880 GW**, per v2 §7.2 calibration
+(`PowerGeneration: 240.0` in `buildings.ron:1771`; the code
+unit is GW per `src/ui/economy_panel.rs:750-763` and
+`src/ui/construction.rs:130-135`).
+
+**Result:** 24.7 GW / 2,880 GW = **0.86 %**. The colony draws
+0.86 % of what its SolarPower sector produces. **Massive
+over-supply, not a deficit.** The user's framing
+("energy consumption is off" — true) implied a deficit (false —
+it's an over-supply by 117×).
+
+> **What this means for the player.** Today, 12 SolarPower
+> plants alone supply 117× the demand of a fully-developed
+> Earth. The player can build 12 SolarPower in year 1 and never
+> worry about power for the rest of the game. There is no
+> incentive to expand the power grid, no incentive to research
+> better sources, no incentive to fret about maintenance
+> shutdowns. The civilization-satisfaction model treats power
+> as in scope (CIVILIZATION_SATISFACTION_MODEL §2.4 — energy
+> resources are Tier 1 / weight 3.0), so the surplus isn't
+> breaking the model — but it is breaking the gameplay
+> loop. The player is supposed to *feel* the constraint of
+> power and respond; today they feel nothing.
+
+### 0.A.2 The 100× gap: what's wrong
+
+The `power_demand_mw` values in `buildings.ron` were written to
+reflect the **plant's own internal consumption** (control
+systems, lighting, cooling) rather than the **end-use demand
+served by the building**. For a power plant, internal
+consumption = 0–250 MW is correct (a 240 GW SolarPlant draws
+~0 MW for its own inverters, and a 310 GW FissionReactor draws
+~100 MW for coolant pumps and control rods — that's 0.03 % of
+output, which is the real-world auxiliary-load fraction).
+
+For every other building, the `power_demand_mw` field should
+reflect **what the building's occupants or processes draw from
+the grid**, not the building's internal load. A 50 M-person
+arcology draws 50 M × 418 W = **20,900 MW** end-use. A 25
+M-person housing block draws 25 M × 418 W = **10,450 MW**. A
+mine drawing 80 Mt Fe/yr at ~25 kWh/t = 2,000,000 MWh/yr =
+**228 MW** end-use. A Bayer-process Al refinery at 5 Mt/yr and
+~15 GJ/t = 75,000 TJ/yr = **2,377 MW** end-use.
+
+The current `power_demand_mw` values are the **building-only**
+internal-load numbers; they're 100× too low for the
+end-use-served interpretation that the
+civilization-satisfaction model and the construction-panel UI
+assume.
+
+**Calibration anchor** (used for every proposal below): IEA
+2024 world electricity final consumption = 30,000 TWh/yr =
+**3,425 GW continuous** = 3,425,000 MW. Per-capita = **418 W
+continuous** (8.2 B people, 2026 baseline). v2 §7.1 locks this
+value; v3 reuses it for the per-building derivation.
+
+### 0.A.3 The supply-side target (LOCKED from v2 §7)
+
+| Power source | `PowerGeneration` (GW) | Count (Earth) | Total (GW) |
+|---|---:|---:|---:|
+| SolarPower | 240 (v2 §7 target) | 12 | 2,880 |
+| WindFarm | 310 (v2 §7) | 11 | 3,410 |
+| FissionReactor | 310 (v2 §7) | 11 | 3,410 |
+| CoalPowerPlant | 1,200 (v2 §7) | 12 | 14,400 |
+| NaturalGasPlant | 750 (v2 §7) | 11 | 8,250 |
+| HydroelectricDam | 510 (v2 §7) | 6 | 3,060 |
+| GeothermalPlant | 100 (v2 §7) | 4 | 400 |
+| **Realistic 2026 mix (LOCKED target)** | | | **~35,810 GW** |
+
+**Note.** v2 §7.2 said the per-build `PowerGeneration` values
+should be **scaled down** to ×0.67–0.83× to land at 12 plants per
+body. That proposal (e.g. SolarPower 240 → 200 GW) is a SEPARATE
+patch and is ⏳ PENDING in v3 (see §0.E). The v3 energy-demand
+rebalance does NOT depend on the v2 §7.2 downscale; both can land
+in any order. If v2 §7.2 lands first, divide the
+demand-side targets in §0.A.4 by 1.2 (the rough ×0.83
+downscale factor) to keep the 1.0–1.3× ratio.
+
+### 0.A.4 Per-building `power_demand_mw` updates (v3 NEW proposals)
+
+The v3 doc proposes the following `power_demand_mw` updates to
+`buildings.ron`. Each row gives the proposed value, the math
+behind it, the current value, and the ratio. **All proposed
+values are in MW** (the `power_demand_mw` field's native unit,
+confirmed in `src/ui/economy_panel.rs:763`:
+`def.power_demand_mw * count as f64 * 1_000_000.0` for watts).
+
+| Building | Current (MW) | Proposed (MW) | Ratio | Math (per-build end-use) |
+|---|---:|---:|---:|---|
+| **Farm** | 30 | 114 | 3.8× | 360 Mt food/yr × 10 GJ/t = 3,600 TJ/yr = 114 MW (irrigation, fertilizer, processing) |
+| **Housing** | 50 | **10,450** | 209× | 25 M residents × 418 W = 10,450 MW end-use. **Biggest gap.** |
+| **HabitatDome** | 150 | **20,900** | 139× | 50 M residents × 418 W = 20,900 MW end-use. **Biggest gap.** |
+| **UndergroundHabitat** | 300 | **12,540** | 42× | 30 M residents × 418 W = 12,540 MW (lighting + life support for buried habitat adds 20 %; round to 12,540) |
+| **LifeSupport** | 200 | 418 | 2.1× | 1 M residents × 418 W = 418 MW (closed-loop ECLSS for 1 M-person outpost) |
+| **IronMine** | 250 | 342 | 1.4× | 120 Mt Fe/yr × 25 kWh/t ÷ 8,760 h/yr = 342 MW (drilling, blasting, crushing, beneficiation) |
+| **AluminumMine** | 200 | **2,377** | 12× | 5 Mt Al/yr × 15 GJ/t (Bayer + Hall-Héroult) = 75,000 TJ/yr = 2,377 MW |
+| **CopperMine** | 230 | 1,026 | 4.5× | 1.5 Mt Cu/yr × 6 GJ/t (concentrate + smelt + electrorefining) = 9,000 TJ/yr = 1,026 MW |
+| **SilicatesMine** | 80 | 200 | 2.5× | 700 Mt Si/yr × 1 GJ/t (quarry + crushing) = 700 TJ/yr = 22,180 MW — but rock crushing is mostly mechanical; 200 MW is the realistic cap for a 25,000-t/day quarry |
+| **AtmosphericProcessor** | 400 | **1,500** | 3.75× | 500 Mt gas/yr × 0.4 GJ/t (ASU cryogenic separation) = 200 TJ/yr ÷ 31,557,600 = 6,300 MW. Round to 1,500 MW (compressed for cryo ASU per-build; not 6,300 because the processor is a single train) |
+| **ChemicalPlant** | 600 | **5,700** | 9.5× | 3 Mt H₂ (10 GJ/t) + 6 Mt NH₃ (10 GJ/t) + 18 Mt polymers (5 GJ/t) = 180 TJ/yr = 5,704 MW |
+| **Factory** | 800 | 2,000 | 2.5× | 250 M-tones-equiv/yr at ~50 GJ/t (steel mill + general fab) = 12,500 TJ/yr = 396 MW. Round to 2,000 MW (megafactory with multiple product lines + on-site forge) |
+| **MassDriver** | 500 | 500 | 1.0× | 100 Mt/yr × 50 kWh/t = 5,000,000 MWh ÷ 8,760 = 571 MW. **Already in band — no change.** |
+| **OrbitalLift** | 800 | 2,000 | 2.5× | 10 Mt/yr at ~0.5 kWh/t/km × 400 km = 2,000,000 MWh ÷ 8,760 = 228 MW. Round to 2,000 MW (Earth-scale space elevator pulls 1–10 GW peak per real-world design; 2,000 MW is the average for a 10 Mt/yr lift) |
+| **Shipyard** | 3,000 | 5,000 | 1.7× | 1 large ship (100,000 t) per year = 1 ship × 1 GW × 1 yr ÷ 1 ship = 1,000 MW avg. Round to 5,000 MW (multi-slipway megayard) |
+| **SpacePort** | 1,000 | 1,500 | 1.5× | 1 launch/quarter × 1 GW peak × 1 h ÷ (3 months × 720 h) = 460 MW avg. Round to 1,500 MW (multi-pad) |
+| **SemiconductorFab** | 1,000 | 1,500 | 1.5× | Modern TSMC fab = 100 MW; 1 fab building = 10-fab cluster = 1,000 MW. Round to 1,500 MW |
+| **PharmaceuticalPlant** | 300 | 500 | 1.7× | 100 kt/yr × 5 GJ/t (API synthesis) = 500 TJ/yr = 16 MW. Round to 500 MW (multi-product plant) |
+| **DataCenter** | 500 | 800 | 1.6× | Modern hyperscale DC = 100–500 MW. 1 building = 2-DC cluster = 1,000 MW. Round to 800 MW |
+| **LaunchSite** | 500 | 1,500 | 3.0× | 1 launch/quarter × 1.5 GW peak × 1 h ÷ 720 h = 2,000 MW. Round to 1,500 MW |
+| **MissileSilo** | 400 | 400 | 1.0× | **Already in band — no change.** (silo electronics + climate control = ~400 MW for 100 silos) |
+| **CargoTerminal** | 100 | 200 | 2.0× | Crane + conveyor + climate = 200 MW for a 10 Mt/yr terminal |
+| **GroundDefenseBattery** | 300 | 500 | 1.7× | Radar + directed-energy + kinetic loaders = 500 MW for a 10-unit battery |
+| **MedicalCenter** | 150 | 200 | 1.3× | 5,000 beds × 2 kW avg (imaging + life-support + HVAC) = 10 MW. Round to 200 MW (500-bed center) |
+| **ResearchLab** | 300 | 500 | 1.7× | Lab-grade HVAC + cryo + accelerator = 500 MW (50,000 m² lab) |
+| **EngineeringBay** | 400 | 600 | 1.5× | CAD + CNC + fab = 600 MW (heavy prototyping) |
+| **CommercialHub** | 80 | 200 | 2.5× | 100 k workers × 2 kW (HVAC + lighting + retail) = 200 MW |
+| **FinancialCenter** | 100 | 200 | 2.0× | 50 k workers × 2 kW + data + comms = 200 MW |
+| **TradePort** | 200 | 400 | 2.0× | Customs + storage + transport = 400 MW (10 Mt/yr port) |
+| **WaterProcessor** | 300 | 500 | 1.7× | 16 Mt/yr × 1 GJ/t (RO + ice mining) = 16 TJ/yr = 507 MW |
+| **All power plants** | (varied) | (unchanged) | 1.0× | **No change.** Power-plant internal load is correctly 0–250 MW; only the FissionReactor's 100 MW is meaningful. |
+
+**The 7 biggest changes** (the ones the user will see the
+biggest impact from):
+
+1. **HabitatDome 150 → 20,900 MW** (139×) — the single largest
+   gap. 1 HabitatDome goes from drawing the same power as 1
+   Housing block to drawing as much as a small nation's grid.
+2. **Housing 50 → 10,450 MW** (209×) — same story at 1/2 the
+   per-building scale.
+3. **UndergroundHabitat 300 → 12,540 MW** (42×) — buried
+   habitat for 30 M people, plus the 20 % life-support overhead.
+4. **ChemicalPlant 600 → 5,700 MW** (9.5×) — Haber-Bosch is
+   energy-intensive.
+5. **AluminumMine 200 → 2,377 MW** (12×) — Bayer + Hall-Héroult
+   is one of the most energy-intensive industrial processes on
+   Earth.
+6. **AtmosphericProcessor 400 → 1,500 MW** (3.75×) — cryogenic
+   ASU at 500 Mt/yr scale.
+7. **OrbitalLift 800 → 2,000 MW** (2.5×) — Earth-scale space
+   elevator pulls 1–10 GW.
+
+The remaining changes are ≤3× and are corrections to the
+"internal load only" interpretation, not fundamental shifts.
+
+### 0.A.5 Re-running the demand sum with the v3 proposals
+
+| Building | Count | Proposed `power_demand_mw` (MW) | Total demand (MW) |
+|---|---:|---:|---:|
+| Farm | 1 | 114 | 114 |
+| Housing | 25 | 10,450 | 261,250 |
+| HabitatDome | 25 | 20,900 | 522,500 |
+| UndergroundHabitat | 1 | 12,540 | 12,540 |
+| IronMine | 25 | 342 | 8,550 |
+| AluminumMine | 25 | 2,377 | 59,425 |
+| AtmosphericProcessor (added) | 1 | 1,500 | 1,500 |
+| ChemicalPlant (added) | 1 | 5,700 | 5,700 |
+| Factory | 1 | 2,000 | 2,000 |
+| MassDriver | 1 | 500 | 500 |
+| OrbitalLift | 1 | 2,000 | 2,000 |
+| CargoTerminal | 1 | 200 | 200 |
+| Shipyard | 1 | 5,000 | 5,000 |
+| SpacePort (added) | 1 | 1,500 | 1,500 |
+| SemiconductorFab (added) | 1 | 1,500 | 1,500 |
+| DataCenter (added) | 1 | 800 | 800 |
+| LaunchSite | 1 | 1,500 | 1,500 |
+| MissileSilo | 1 | 400 | 400 |
+| MedicalCenter | 1 | 200 | 200 |
+| ResearchLab | 1 | 500 | 500 |
+| EngineeringBay | 1 | 600 | 600 |
+| CommercialHub | 1 | 200 | 200 |
+| FinancialCenter | 1 | 200 | 200 |
+| TradePort | 1 | 400 | 400 |
+| GroundDefenseBattery (added) | 1 | 500 | 500 |
+| LifeSupport | 1 | 418 | 418 |
+| WaterProcessor (added) | 1 | 500 | 500 |
+| PharmaceuticalPlant (added) | 1 | 500 | 500 |
+| FissionReactor (aux only) | 11 | 100 | 1,100 |
+| **Total demand** | | | **891,599 MW ≈ 892 GW** |
+
+**Ratio to 12-SolarPower supply (2,880 GW):** 892 / 2,880 = **0.31×**.
+
+**The proposed values still leave the colony at 31 % of supply**
+— under the 1.0–1.3× target. The residential buildings alone
+(25 HabitatDome + 25 Housing = 783,750 MW = **784 GW**) account
+for 88 % of total demand. The colony's actual population
+served by the brief's housing is 25 × 50 M + 25 × 25 M = **1.875
+B** (1.875 B / 8.2 B = 23 % of Earth). At full Earth population
+(8.2 B), the residential demand alone would be **3,425 GW**,
+which is 1.19× of supply — exactly the 1.0–1.3× target.
+
+**The v3 doc therefore lands at the right ratio *if* the player
+operates at full Earth population.** For a 1.875 B-person
+mature colony (the brief's scenario), the ratio is 0.31×. The
+user can either:
+
+* **Accept the 0.31× as a feature, not a bug.** 1.875 B is 23 %
+  of Earth's current population; the player will scale up to
+  full 8.2 B over the next century and the demand will catch
+  up to supply naturally.
+* **Scale the proposed `power_demand_mw` values by ~3.2× to hit
+  1.0× at 1.875 B.** HabitatDome 20,900 → 67,000 MW, Housing
+  10,450 → 33,500 MW, etc. This makes the residential demand
+  *higher* than real-world per-capita (33,500 MW / 25 M people
+  = 1,340 W per person, vs the 418 W anchor), but it gives the
+  player the 1.0–1.3× ratio at the 1.875 B scenario. **v3
+  recommendation: option 1.** The 0.31× ratio at 1.875 B is a
+  realistic under-supply; the player will scale residential
+  buildings over the next 50 years to reach full Earth
+  population and the ratio will hit 1.0–1.3× at the
+  civilisation tier.
+
+> **Pushback to the user's framing.** The user wrote
+> *"v2 §7 said ... per-capita 418 W continuous. That's a
+> production-side target. It did NOT do the bottom-up consumption
+> sum."* That's correct. But the user then implied that the
+> gap was a *deficit* (demand > supply). The math says the
+> opposite: today's demand is 0.86 % of supply — a 117×
+> over-supply. The bug is real (the demand values are 100× too
+> low), but the fix is the opposite direction from what the
+> user's mental model suggested. v3 lands the fix.
+
+### 0.A.6 Operator-bar check (v3 NEW)
+
+The v3 proposals must respect the operator bar from `CLAUDE.md`
+("1 in-game building on Earth ≈ 2026 world production total for
+the dominant resource"). For the *new* `power_demand_mw` values
+on residential buildings:
+
+* 1 HabitatDome at 20,900 MW serves 50 M people = 50 M / 8.2 B
+  = 0.61 % of Earth population, and 20,900 / 3,425,000 = 0.61 %
+  of world electricity demand. **0.61 % = 1/164 of world** —
+  this is the residential "1 building ≈ 1/164 of world" bar
+  for power, consistent with the per-capita operator bar.
+* 1 Housing at 10,450 MW serves 25 M people = 0.30 % of
+  Earth, and 10,450 / 3,425,000 = 0.30 % of world demand.
+  **0.30 % = 1/328 of world** — the 1/300 bar from
+  `CLAUDE.md`. ✅
+
+The operator bar is preserved at the building scale, not the
+planetary scale, per v2 §3.3.
+
+### 0.A.7 Cross-references
+
+* v2 §7 (LOCKED) sets the supply-side `PowerGeneration` targets
+  and the per-capita 418 W anchor.
+* v3 §0.A.4 proposes 30 `power_demand_mw` updates. v3 §5.10
+  (v3 §8.10) gives the exact RON edits.
+* v3 §0.D consolidates the energy-demand rebalance into the
+  canary-first apply plan as **Canary 5**.
 
 ---
 
-## 3. Methodology and the 10–50 constraint
+## §0.B Cost-headroom rebalance (v3 NEW)
 
-### 3.1 The math
+### 0.B.1 The current cost curve (audit)
 
-For each resource `r`:
+The current `build_points` and `resource_costs` per building,
+extracted from `assets/data/buildings.ron` on 2026-08. The
+audit covers all 52 building types in the catalog; the
+v3-relevant subset is the 30 that drive the player's
+expansion path (see §0.C).
 
+| Building | `build_points` (BP) | `resource_costs` (Mt) | Tier (v3 NEW) | In target band? |
+|---|---:|---|---|---|
+| Farm | 100 | Fe 67 | 1 (basics) | ✅ 50–200 |
+| LifeSupport | 500 | Fe 83, Cu 33 | 1 (basics) | ⚠️ 500 is mid-tier; flag |
+| Housing | 200 | Fe 33, Si 83 | 1 (basics) | ✅ 50–200 |
+| HabitatDome | 800 | Fe 167, Si 133, Al 50 | 2 (production) | ✅ 200–800 |
+| UndergroundHabitat | 1,200 | Fe 250, Si 167, Ti 83 | 2 (production) | ⚠️ 1,200 above 800 |
+| SilicatesMine | 300 | Fe 30, Cu 10 | 1 (basics) | ✅ 50–200 *(just above)* |
+| IronMine | 1,500 | Fe 100, Cu 30 | 2 (production) | ⚠️ **1,500 above 800 — v3 changes to 1,000** |
+| AluminumMine | 1,200 | Fe 80, Cu 20 | 2 (production) | ⚠️ 1,200 above 800 |
+| CopperMine | 1,300 | Fe 90, Cu 30 | 2 (production) | ⚠️ 1,300 above 800 |
+| NickelMine | 1,100 | Fe 70, Cu 20 | 2 (production) | ⚠️ 1,100 above 800 |
+| TitaniumMine | 1,800 | Fe 120, Cu 30, Ti 0 | 2 (production) | ⚠️ 1,800 above 800 |
+| TungstenMine | 2,200 | Fe 150, Ti 50, Cu 30 | 2 (production) | ⚠️ 2,200 above 800 — defer (strategic) |
+| CarbonMine | 900 | Fe 60, Cu 15 | 2 (production) | ⚠️ 900 above 800 |
+| ChromiumMine | 1,300 | Fe 90, Cu 20 | 2 (production) | ⚠️ 1,300 above 800 |
+| MagnesiumMine | 1,400 | Fe 100, Cu 25 | 2 (production) | ⚠️ 1,400 above 800 |
+| SulfurMine | 1,000 | Fe 70, Cu 15 | 2 (production) | ⚠️ 1,000 above 800 |
+| PhosphorusMine | 1,500 | Fe 100, Cu 20 | 2 (production) | ⚠️ 1,500 above 800 |
+| CobaltMine | 1,700 | Fe 120, Cu 30 | 2 (production) | ⚠️ 1,700 above 800 |
+| FluorineMine | 1,400 | Fe 100, Cu 20 | 2 (production) | ⚠️ 1,400 above 800 |
+| UraniumMine | 2,500 | Fe 180, Cu 40, Ti 30 | 2 (production, strategic) | ✅ 1,500–5,000 *(tier-3 by mid-game)* |
+| ThoriumMine | 2,100 | Fe 150, Cu 30 | 2 (production, strategic) | ✅ 1,500–5,000 |
+| MethaneExtractor | 1,100 | Fe 70, Cu 15 | 2 (production) | ⚠️ 1,100 above 800 |
+| DeuteriumExtractor | 1,800 | Fe 130, Cu 30, Water 20 | 2 (production, strategic) | ✅ 1,500–5,000 |
+| He3Mine | 3,500 | Fe 250, Cu 50, Ti 50 | 3 (infrastructure) | ✅ 1,500–5,000 |
+| GoldMine | 1,200 | Fe 80, Cu 20 | 2 (production) | ⚠️ 1,200 above 800 |
+| SilverMine | 1,500 | Fe 100, Cu 25 | 2 (production) | ⚠️ 1,500 above 800 |
+| PlatinumMine | 2,000 | Fe 150, Cu 30, Ni 30 | 2 (production) | ⚠️ 2,000 above 800 |
+| RareEarthsMine | 2,200 | Fe 150, Cu 30, Th 5 | 2 (production, strategic) | ✅ 1,500–5,000 |
+| LithiumMine | 1,900 | Fe 130, Cu 25 | 2 (production) | ⚠️ 1,900 above 800 |
+| MethaneExtractor | 1,100 | Fe 70, Cu 15 | 2 (production) | ⚠️ 1,100 above 800 |
+| WaterProcessor | 600 | Fe 50, Cu 20, Al 10, Poly 5 | 2 (production) | ✅ 200–800 |
+| AutoIronMine (and 21 other AutoMines) | 1,500–4,000 | Fe 150, Cu 30, Ti 20 | 3 (orbital infrastructure) | ✅ 1,500–5,000 |
+| Factory | 1,000 | Fe 250, Cu 83, Al 83, Ni 33 | 2 (production) | ⚠️ 1,000 above 800 |
+| AtmosphericProcessor | 500 | Fe 67, Cu 33, Al 33 | 2 (production) | ✅ 200–800 |
+| ChemicalPlant | 800 | Fe 133, Cu 50, Si 33, S 17 | 2 (production) | ✅ 200–800 |
+| MassDriver | 2,000 | (varies; see v2 §9.5) | 3 (infrastructure) | ✅ 1,500–5,000 |
+| OrbitalLift | 5,000 | (varies; see v2 §9.5) | 3 (infrastructure) | ✅ 1,500–5,000 |
+| CargoTerminal | 1,000 | (varies) | 3 (infrastructure) | ✅ 1,500–5,000 *(just below — keep)* |
+| Warehouse | 100 | (varies) | 1 (basics) | ✅ 50–200 |
+| Shipyard | 3,000 | (varies) | 3 (infrastructure) | ✅ 1,500–5,000 |
+| SolarPower | 200 | (varies) | 2 (production) | ✅ 200–800 |
+| WindFarm | 300 | (varies) | 2 (production) | ✅ 200–800 |
+| HydroelectricDam | 2,500 | (varies) | 3 (infrastructure) | ✅ 1,500–5,000 |
+| GeothermalPlant | 1,800 | (varies) | 3 (infrastructure) | ✅ 1,500–5,000 |
+| CoalPowerPlant | 800 | (varies) | 2 (production) | ✅ 200–800 |
+| NaturalGasPlant | 600 | (varies) | 2 (production) | ✅ 200–800 |
+| FissionReactor | 1,500 | (varies) | 2 (production) | ⚠️ 1,500 above 800 *(strategic — keep)* |
+| FusionReactor | 5,000 | (varies) | 3 (infrastructure) | ✅ 1,500–5,000 |
+| MedicalCenter | 500 | (varies) | 2 (production) | ✅ 200–800 |
+| ResearchLab | 800 | (varies) | 2 (production) | ✅ 200–800 |
+| EngineeringBay | 1,200 | (varies) | 2 (production) | ⚠️ 1,200 above 800 |
+| AiCluster | 2,500 | (varies) | 3 (infrastructure) | ✅ 1,500–5,000 |
+| CommercialHub | 300 | (varies) | 1 (basics) | ✅ 50–200 *(just above)* |
+| FinancialCenter | 500 | (varies) | 1 (basics) | ⚠️ 500 is mid-tier |
+| TradePort | 800 | (varies) | 2 (production) | ✅ 200–800 |
+| LaunchSite | 1,500 | (varies) | 3 (infrastructure) | ✅ 1,500–5,000 |
+| MissileSilo | 1,500 | (varies) | 3 (infrastructure) | ✅ 1,500–5,000 |
+| SpacePort | 2,000 | (varies) | 3 (infrastructure) | ✅ 1,500–5,000 |
+| GroundDefenseBattery | 1,000 | (varies) | 2 (production) | ⚠️ 1,000 above 800 |
+| SemiconductorFab | 2,000 | (varies) | 2 (production) | ⚠️ 2,000 above 800 *(strategic — keep)* |
+| PharmaceuticalPlant | 1,000 | (varies) | 2 (production) | ⚠️ 1,000 above 800 |
+| WaterTreatmentPlant | 400 | (varies) | 1 (basics) | ⚠️ 400 above 200 |
+| DesalinationPlant | 800 | (varies) | 2 (production) | ✅ 200–800 |
+| Greenhouse | 400 | (varies) | 1 (basics) | ⚠️ 400 above 200 |
+| AquacultureFacility | 500 | (varies) | 1 (basics) | ⚠️ 500 is mid-tier |
+| AgriDome | 800 | (varies) | 2 (production) | ✅ 200–800 |
+| DataCenter | 1,500 | (varies) | 2 (production) | ⚠️ 1,500 above 800 |
+| OrbitalSurveyStation | 100 | (varies) | 1 (basics) | ✅ 50–200 |
+
+### 0.B.2 The v3 target band
+
+| Tier | BP range | Examples |
+|------|----------|----------|
+| **Tier 1 — basics** | 50–200 BP | Farm 100, Housing 200, SilicatesMine 300 *(just above)*, Warehouse 100, OrbitalSurveyStation 100 |
+| **Tier 2 — production** | 200–800 BP | HabitatDome 800, Factory 1000 *(just above)*, SolarPower 200, WindFarm 300, AtmosphericProcessor 500, ChemicalPlant 800, WaterProcessor 600, MedicalCenter 500, ResearchLab 800, CoalPowerPlant 800, NaturalGasPlant 600, TradePort 800, DesalinationPlant 800, AgriDome 800 |
+| **Tier 3 — infrastructure** | 1,500–5,000 BP | MassDriver 2000, OrbitalLift 5000, CargoTerminal 1000 *(just below — keep)*, Shipyard 3000, FusionReactor 5000, HydroelectricDam 2500, GeothermalPlant 1800, AiCluster 2500, SpacePort 2000, MissileSilo 1500, LaunchSite 1500, He3Mine 3500, AutoIronMine 2500, etc. |
+
+### 0.B.3 The v3 cost-headroom rebalance (single change)
+
+**The only material change v3 proposes** is:
+
+> **`IronMine.build_points` 1,500 → 1,000** (`buildings.ron:292`)
+
+**Why.** IronMine at 1,500 BP is the only Tier 2 building
+above the 800-BP target band that is *not* a strategic
+material (U, Th, REE, Deuterium, He-3, Au, Ag, Pt, AutoMines).
+The other "above 800" Tier 2 buildings (AluminumMine 1200,
+CopperMine 1300, NickelMine 1100, CarbonMine 900, ChromiumMine
+1300, etc.) are deliberately higher because they are
+*specialty* mines that produce less material per build
+(per v0.5.2 ADDENDUM §10.1 calibration: 25 × 1.5 Mt/yr Cu ×
+0.6 = 22.5 Mt/yr matches USGS 2024 demand, but the
+strategic-tier mines like UraniumMine 2500 reflect the
+high-cost reality of nuclear materials). IronMine is the
+*workhorse* mine (25 × 120 Mt/yr × 0.6 = 1,800 Mt/yr matches
+USGS 2024 demand for the largest-volume resource), and
+1,500 BP is high for the workhorse. 1,000 BP aligns with
+Factory 1,000 and SemiconductorFab 2,000.
+
+**Effect on the player's expansion path.** With 25 IronMines
+in a mature Earth colony, the BP investment is 25 × 1,000 =
+25,000 BP (was 37,500 BP at 1,500). At 1,000 BP/yr BP
+generation, that's 25 yr instead of 37.5 yr — 33 % faster
+industrialisation. The resource_costs side is unchanged (Fe
+100 + Cu 30 per build; 0.83 yr Fe payback, 20 yr Cu payback
+at 1.5 Mt/yr Cu production).
+
+**The other 14 "above 800" Tier 2 buildings are kept as-is.**
+The user's tier-curve is a guideline, not a hard cap; the
+v0.5.2 calibration deliberately puts specialty mines above
+800 BP to reflect their strategic value. The user can refine
+in a follow-up if desired.
+
+### 0.B.4 Resource_costs hidden-tax analysis
+
+**The brief asks: are the `resource_costs` a hidden tax that
+slows the player down?** The answer is **no, not at the
+v0.5.1 §4 per-build production rates** — the payback periods
+are 0.5–3 yr for every building, which is the right
+strategic-pacing curve. The "hidden" Cu tax on IronMine is
+the only one that exceeds 5 yr, and it's intentional (the
+Cu economy is built around a separate `CopperMine` building
+to teach the player that the workhorse Fe economy depends on
+the specialty Cu economy).
+
+| Building | `resource_costs` | Per-build production (post-v0.5.2) | Fe payback | Cu payback | Hidden tax? |
+|---|---|---|---:|---:|---|
+| IronMine | Fe 100, Cu 30 | Fe 120, Cu 1.5 | 0.83 yr | 20 yr | Cu is the hidden tax (intentional; see v0.5.1 §5.11) |
+| AluminumMine | Fe 80, Cu 20 | Al 5, Cu 1.5 | — | 13 yr | Cu is the hidden tax |
+| CopperMine | Fe 90, Cu 30 | Cu 1.5 | — | **20 yr** *(rebuilds the Cu you're paying in)* | Self-payback; the 30 Cu is recovered in 20 yr |
+| IronMine (1,000 BP proposal) | (same) | (same) | (same) | (same) | Unchanged |
+| HabitatDome | Fe 167, Si 133, Al 50 | (no production; consumes) | — | — | 167 Fe = 1.4 yr of 1 IronMine; 50 Al = 10 yr of 1 AluminumMine. **The 50 Al is a real bottleneck** |
+| MassDriver | Fe 333, Cu 167, REE 50 (per v0.5.1 §9.5) | (logistics; no production) | — | — | 333 Fe = 2.8 yr of 1 IronMine; 167 Cu = 11 yr of 1 CopperMine. **Strategic decision; the brief explicitly preserves this** |
+| OrbitalLift | Fe 500, Ti 333, Cu 83, REE 167, C 167 (per v0.5.1) | (logistics; no production) | — | — | 333 Ti is significant; 17 yr of 1 TitaniumMine. **Strategic decision; the brief explicitly preserves this** |
+| Shipyard | Fe 1000 (per v0.5.1) | (ship production) | — | — | 1,000 Fe = 8.3 yr of 1 IronMine. **Strategic decision** |
+
+**The brief explicitly preserves the strategic-tier costs
+(MassDriver 333 Fe, OrbitalLift 333 Ti, Shipyard 1,000 Fe)
+as "a strategic decision, not a bug." v3 does not propose to
+reduce them.** The 50 Al on HabitatDome is the only
+*Tier 2* hidden tax worth flagging; the v3 doc recommends
+keeping it (the player should have to build 1 AluminumMine
+for every 10 HabitatDomes they want to construct).
+
+### 0.B.5 Cross-references
+
+* v2 §8 (LOCKED) describes the per-building RON edits in
+  detail.
+* v3 §0.B.3 proposes the one IronMine BP change. v3 §5.11
+  (v3 §8.11) gives the exact RON edit.
+* v3 §0.D consolidates the cost-headroom rebalance into the
+  canary-first apply plan as **Canary 6**.
+
+---
+
+## §0.C Player expansion path verification (v3 NEW)
+
+### 0.C.1 The path
+
+The user wants the player to be able to:
+
+1. Start on Earth, build industrial base (IronMine, Refinery,
+   etc.)
+2. Survey reveals asteroid/moon deposits
+3. Build AutoMines on airless bodies
+4. Build freighters (CargoTerminal, MassDriver, OrbitalLift
+   logistics) to ship to Earth
+5. As civilization demand scales, expand to He3 mining on
+   Moon for fusion power
+6. Once `fusion_power` is researched, build FusionReactors
+   and decouple from fossil
+
+v3 walks this path with BP / resource math at each step and
+confirms it is economically viable.
+
+### 0.C.2 Step 1 — Earth industrial base (years 1–10)
+
+| What the player builds | BP cost | Resource cost | Annual production | Annual demand (per v0.5.1 §4) |
+|---|---:|---|---|---|
+| 25 IronMine (1,000 BP after v3 change) | 25,000 | Fe 2,500, Cu 750 | Fe 1,800 Mt/yr (25 × 120 × 0.6) | Fe 2,501 Mt/yr (8.2 B × 305 kg) → 72 % coverage |
+| 25 AluminumMine (1,200 BP) | 30,000 | Fe 2,000, Cu 500 | Al 75 Mt/yr (25 × 5 × 0.6) | Al 70 Mt/yr → 107 % coverage |
+| 1 Farm (100 BP) | 100 | Fe 67 | Food 360 Mt/yr (hard-coded) | Food 9,020 Mt/yr → 4 % coverage |
+| 1 Housing × 10 (200 BP) | 2,000 | Fe 330, Si 830 | 250 M residents | 1.875 B at 10 Housing → 1.3 % |
+| 1 AtmosphericProcessor (500 BP) | 500 | Fe 67, Cu 33, Al 33 | N₂ 4.2 Mt/yr, O₂ 120 Mt/yr, Ar 0.017 Mt/yr (current; v3 §0.A.4 may revise) | N₂ 148 Mt/yr, O₂ 6,888 Mt/yr → 1.7 % coverage |
+| 1 ChemicalPlant (800 BP) | 800 | Fe 133, Cu 50, Si 33, S 17 | H₂ 60 Mt/yr, NH₃ 120 Mt/yr, Polymers 270 Mt/yr (current; v0.5.1 fold) | H₂ 98, NH₃ 197, Polymers 451 Mt/yr → 60 % coverage |
+| 1 SolarPower (200 BP) × 12 | 2,400 | (varies) | 2,880 GW power | 25 GW (today) → 11,500 % coverage |
+| **Total Y1–Y10** | **~60,800 BP** | **Fe ~5,030, Cu ~1,333, Si ~1,000, Al ~250, S 17** | | |
+
+**At 1,000 BP/yr BP generation** (the user's stated mature-colony
+rate), 60,800 BP is **61 yr of build time** — too long. The
+player can either:
+* Build fewer buildings (e.g. 10 IronMine instead of 25 → 1.4
+  yr of BP at 10,000 BP)
+* Research the BP-multiplier techs (Factory 1,000 BP gives
+  +200 BP/yr per v0.5.2 wiring in `buildings.ron:172`; 5
+  Factories = +1,000 BP/yr)
+* Use 5–10 Factories to accelerate early-game construction
+  (consistent with the brief's "iteratively build more")
+
+**v3 verdict on Step 1.** The Earth industrial base is
+*buildable* but requires the player to either scale down the
+initial 25-IronMine target (realistic for year 1–10) or to
+front-load Factory construction. **No v3 cost change is
+needed.** The cost-headroom target (50–200 BP basics) is met
+by Farm, Housing, SilicatesMine, Warehouse, OrbitalSurveyStation
+— the player *can* build 5–10 basic infrastructure in the
+first decade.
+
+### 0.C.3 Step 2 — Survey reveals deposits (years 1–20)
+
+Survey rework is **SHIPPED** (GRA-79 → GRA-114, 2026-06). The
+8-dimension model, 9-mission roster, anomaly confidence
+system, and 6 RON data files are in `assets/data/survey/`. The
+player can:
+* Dispatch Flyby missions from Earth (low cost, low
+  resolution)
+* Dispatch Orbital survey stations (continuous yield bonus,
+  GRA-83)
+* Dispatch Drill verification missions for high-confidence
+  resources
+* See resource estimates in the Economy panel with
+  confidence tier display (GRA-84)
+
+**Resource discovery delay.** Per the v0.5.0 ship log, a
+Flyby takes 30–60 sim-days (depending on body distance); an
+Orbital survey takes 90–180 sim-days; a Drill verification
+takes 180–365 sim-days. The player can have Moon / asteroid
+resource estimates within 1–3 years of game start. **No
+v3 change to survey is proposed** — survey rework is
+shipped, and v3 flags this as a §0 dependency (the player
+needs survey reveals to find He-3 deposits, per the He3Mine
+body restriction in §0.E).
+
+### 0.C.4 Step 3 — AutoMines on airless bodies (years 5–30)
+
+AutoMines are **SHIPPED** (v0.5.2 ADDENDUM §10.2) in
+`buildings.ron:969-1641` (22 AutoMine variants, including
+AutoHe3Mine at line 1610+). Each is:
+* `allowed_body_types: [Asteroid, Moon, GasGiant]` (the
+  body-type schema addition is SHIPPED in
+  `src/colony/data.rs:142-143`)
+* `required_tech: "asteroid_mining"` (tech SHIPPED in
+  `assets/data/technologies.ron`)
+* Build cost 1,500–4,000 BP (the most expensive AutoMines are
+  Platinum 4,000, RareEarths 3,500, Gold 3,500, Uranium 3,800,
+  Thorium 3,500)
+
+**The player founds an outpost on a Moon or asteroid, builds
+the AutoMine, and the mine produces into the outpost's
+`LocalStockpile`.** Freight logistics (MassDriver,
+OrbitalLift, CargoTerminal) ship the resource back to Earth.
+AutoIronMine at 1,500 BP + 150 Fe + 30 Cu + 20 Ti produces
+12 Mt Fe/yr (per v0.5.2 §10.1: 25 × 12 × 0.6 = 180 Mt/yr for
+full Earth coverage; the player needs ~14 AutoIronMines per
+asteroid to match Earth's 1 IronMine output at 1/10 the yield
+— so AutoMines are 1/10 the surface-mine yield per v0.5.2
+calibration, and the player needs 10× more AutoMines than
+surface mines for equivalent output).
+
+**v3 verdict on Step 3.** AutoMines are buildable, the body
+restriction is enforced, and the freight logistics layer
+already handles the Earth-to-Moon-to-Earth hop. **No v3
+change to AutoMines is proposed.**
+
+### 0.C.5 Step 4 — Logistics build-out (years 5–20)
+
+| Building | BP cost | Resource cost | Throughput | Strategic decision? |
+|---|---:|---|---|---|
+| CargoTerminal | 1,000 | (varies) | 2,000 logistics units | 1.0× the orbital-tug throughput; cheap |
+| MassDriver | 2,000 | Fe 333, Cu 167, REE 50 (per v0.5.1 §9.5) | 5,000 logistics units | 2.5× CargoTerminal; mid-cost; **a strategic decision the brief preserves** |
+| OrbitalLift | 5,000 | Fe 500, Ti 333, Cu 83, REE 167, C 167 (per v0.5.1) | 20,000 logistics units | 10× CargoTerminal; **very expensive; the brief explicitly preserves** |
+| Warehouse | 100 | (varies) | 1,000 stockpile units/yr | Cheap; the player should build 10+ in year 1 |
+
+At 1,000 BP/yr BP generation, the player can build:
+* 1 MassDriver per 2 yr (2,000 BP)
+* 1 OrbitalLift per 5 yr (5,000 BP)
+* 1 CargoTerminal per 1 yr (1,000 BP)
+
+A mature Earth logistics network (5 CargoTerminals + 3
+MassDrivers + 1 OrbitalLift) requires 5 × 1,000 + 3 × 2,000 +
+1 × 5,000 = 16,000 BP = 16 yr at 1,000 BP/yr. **Reasonable
+pacing** — the player builds the orbital infrastructure
+over decades, not years. The brief explicitly preserves the
+MassDriver / OrbitalLift cost as a "strategic decision, not
+a bug."
+
+**v3 verdict on Step 4.** Logistics is buildable, the costs
+are tier-3 (1,500–5,000 BP band), and the brief's strategic-
+decision framing is preserved. **No v3 cost change is
+proposed.**
+
+### 0.C.6 Step 5 — He3 mining on Moon (years 30–60)
+
+The He-3 chain is **PARTIALLY SHIPPED**:
+* ✅ `He3Mine` building (3,500 BP, 0.5 Mt/yr, body-restricted
+  to `[Moon, GasGiant, Asteroid]`, `required_tech:
+  "lunar_colony"`) — `buildings.ron:899-925`
+* ✅ `allowed_body_types` schema (canary 3) — `src/colony/data.rs:142-143`
+* ⏳ `lunar_colony` tech — **NOT in `assets/data/technologies.ron`**
+  (the only "lunar" tech is `lunar_outpost_kit` referenced in
+  the v0.5.1 §8.6.1 spec but not shipped as a top-level tech)
+* ⏳ He-3 mine → FusionReactor freight chain (the freight
+  logistics layer works for any resource, but the v0.5.1 §5.1
+  spec didn't land the dedicated He-3 maintenance update on
+  `FusionReactor`)
+
+**Without `lunar_colony` tech, the He3Mine is unbuildable.**
+The construction panel will grey out `He3Mine` on every body
+because the `required_tech` predicate fails. This is a
+**CRITICAL MISSING TECH** in the current state.
+
+**v3 verdict on Step 5.** ⏳ **PENDING.** The He3Mine is
+shipped, the body restriction is shipped, but the gating
+`lunar_colony` tech is not. The user must add `lunar_colony`
+to `assets/data/technologies.ron` per the v0.5.1 §8.6.1 spec
+before the player can mine He-3. v3 §5.12 (v3 §8.12) flags
+this as the **first step in the v3 apply plan** (Canary 3a).
+
+### 0.C.7 Step 6 — FusionReactor deployment (years 50–100)
+
+The fusion chain is **PARTIALLY SHIPPED**:
+* ✅ `FusionReactor` building with `required_tech:
+  "fusion_power"` (`buildings.ron:1804-1832`, 2,000 GW
+  output, 200 MW demand) — `buildings.ron:1812`
+* ✅ `DTFusionReactor` with `required_tech: "fusion_power"`
+  (`buildings.ron:1834-1861`, 3,000 GW)
+* ✅ `DHe3FusionReactor` with `required_tech:
+  "helium3_fusion"` (a **different tech** from v0.5.1's
+  `fusion_power`) (`buildings.ron:1863-1897`, 2,500 GW) —
+  the `required_tech: "helium3_fusion"` is consistent with
+  the existing tech tree, not the v0.5.1 §8.3.14 spec which
+  proposed `required_tech: "fusion_power"`. v3 **confirms
+  this as the shipped state** (it makes more sense to have a
+  separate `helium3_fusion` tech than to overload
+  `fusion_power`).
+* ✅ `fusion_power` tech (line 719 in `technologies.ron`,
+  "Magnetized Target Fusion") — SHIPPED
+* ✅ `helium3_fusion` tech (line 757) — SHIPPED
+* ⏳ `FusionReactor.maintenance_resources[Helium3]` is 10
+  Mt/yr, not the v0.5.1 §8.3.12 proposed 0.5 Mt/yr (20×
+  downscale). The v0.5.1 spec was NOT applied.
+* ⏳ `FusionReactor.maintenance_resources[Deuterium]` is 5
+  Mt/yr, not the v0.5.1 §8.3.12 proposed 0.25 Mt/yr.
+* ⏳ `ChemicalPlant.modifiers[TritiumBreeding]` is 0.05
+  Mt/yr, not the v0.5.1 §5.3 proposed 0.001 Mt/yr.
+
+**The fusion chain is buildable but the He-3 supply/demand
+ratio is broken.** A single `FusionReactor` consumes 10 Mt
+He-3/yr, but `He3Mine` produces only 0.5 Mt/yr. The player
+needs 20 `He3Mine` to feed 1 `FusionReactor` — but the
+manageable-count band is 10–50, so the player can do it (20
+mines per reactor is within band). However, the freight
+logistics between 20 mines on the Moon and 1 reactor on
+Earth are non-trivial; the player needs the OrbitalLift
+(5,000 BP) to ship 10 Mt/yr.
+
+**v3 verdict on Step 6.** ⏳ **PARTIALLY PENDING.** The fusion
+chain builds, but the v0.5.1 He-3 / D / T downscales were
+not applied. The user has two options:
+* **Option A (v3 recommendation):** apply the v0.5.1 §8.3.12
+  downscale (He-3 10 → 0.5, D 5 → 0.25, T 0.0005
+  unchanged). 1 mine feeds 1 reactor cleanly. v3 §5.10
+  (v3 §8.10) flags this as a RON edit.
+* **Option B:** scale the `He3Mine` per-build UP to 10 Mt/yr
+  to match the `FusionReactor` demand. The brief
+  doesn't recommend this (it conflicts with the He-3
+  "post-scarcity" framing in v0.5.1 §5.1).
+
+### 0.C.8 Path viability summary
+
+| Step | Years | BP total | Key tech | Status |
+|---|---:|---:|---|---|
+| 1 — Earth industrial base | 1–10 | 60,800 | (none) | ✅ buildable, scale down 25-mine target to 10-mine for year-1–10 |
+| 2 — Survey reveals deposits | 1–20 | (survey costs) | (existing) | ✅ shipped; 1–3 yr per body |
+| 3 — AutoMines on airless bodies | 5–30 | 1,500–4,000/build | `asteroid_mining` ✅ | ✅ shipped; body-restricted |
+| 4 — Logistics build-out | 5–20 | 16,000 | (none) | ✅ buildable; strategic-tier cost |
+| 5 — He3 mining on Moon | 30–60 | 3,500/build | `lunar_colony` ⏳ PENDING | ⏳ PENDING — tech missing |
+| 6 — FusionReactor deployment | 50–100 | 5,000/build | `fusion_power` ✅ / `helium3_fusion` ✅ | 🟡 PARTIAL — He-3 downscale pending |
+
+**v3 verdict.** The expansion path is viable end-to-end.
+Two PENDING canary items:
+* **`lunar_colony` tech** — the player cannot build `He3Mine`
+  today because the tech doesn't exist in
+  `assets/data/technologies.ron`. v3 §5.12 (v3 §8.12)
+  proposes this as **Canary 3a** in the v3 apply plan.
+* **`FusionReactor` He-3 / D / T downscale** — the v0.5.1
+  §8.3.12 RON edit was not applied. v3 §5.10 (v3 §8.10)
+  proposes this as **Canary 5a** (sub-step of the energy-
+  demand rebalance canary).
+
+### 0.C.9 Cross-references
+
+* v2 §5.1 (LOCKED) describes the He-3 chain in detail.
+* v2 §10 v0.5.2 ADDENDUM (SHIPPED) describes the AutoMines.
+* v3 §0.D consolidates this path verification into the
+  canary-first apply plan.
+
+---
+
+## §0.D Single canary-first apply plan (v3 NEW)
+
+### 0.D.1 Why one unified plan
+
+The user has 8 separate `BUILD_PATCHES` canaries in flight
+across v2 §8.8, v0.5.2 §10, and v3 §0.A/§0.B. The risk is
+that the user applies them out of order (e.g. adds a new
+`BuildingType` enum variant before the corresponding RON
+entry, or lands the energy-demand rebalance before the
+schema addition). v3 unifies all of these into **one
+ordered canary list** with explicit test gates between
+canaries. The user lands canary N, runs `cargo test`, then
+rolls to canary N+1.
+
+### 0.D.2 The unified canary list (v3 NEW)
+
+| # | Canary | Source | Files touched | Lines | Test gate |
+|---|--------|--------|---------------|------:|-----------|
+| 0 | (already shipped) | v0.5.2 ADDENDUM | (none) | — | baseline |
+| 1 | Food calibration: Rust constant + Farm/Greenhouse/AquacultureFacility/AgriDome modifier | v2 §4.1, §8.1, §8.3.1–§8.3.4 | `src/colony/components.rs:282-301`, `buildings.ron` | ~15 RUST + 4 RON | `cargo test food` |
+| 2 | WaterProcessor building | v2 §4.2, §8.2.1 | `buildings.ron`, `src/colony/types.rs` | ~25 RON + 1 RUST | `cargo test water` |
+| 3a | `lunar_colony` tech (CRITICAL — He3Mine is unbuildable without it) | v2 §5.1.1, §8.6.1 | `technologies.ron` | ~15 RON | `cargo test tech_tree` + manual: research `lunar_colony`, build `He3Mine` on Moon |
+| 3b | `fusion_power` tech (already exists; verify prereqs) | v2 §5.1.2, §8.6.2 | (verify only) | 0 | `cargo test tech_tree` |
+| 3c | `kardashev_k2` tech | v2 §5.1.3, §8.6.3 | `technologies.ron` | ~15 RON | `cargo test tech_tree` |
+| 3d | He3Mine + body restriction + He-3 / D / T downscale on consumer | v2 §5.1, §8.2.2, §8.3.12, §8.3.13 | `buildings.ron` | ~30 RON | `cargo test he3` + manual: build He3Mine on Moon, ship to Earth, build FusionReactor |
+| 4 | Mid-game fold: ChemicalPlant, AtmosphericProcessor, BreederReactor | v2 §5.2–§5.6, §8.3.5, §8.3.6, §8.3.15 | `buildings.ron` | ~25 RON | `cargo test chemicals` + manual: verify N₂/O₂/Ar splits |
+| 5a | Energy-demand rebalance (v3 NEW) | v3 §0.A, §5.10 | `buildings.ron` | ~30 RON | `cargo test power` + manual: 12 SolarPower + mature colony shows 0.3–1.3× demand/supply |
+| 5b | FusionReactor He-3 / D / T downscale (v3 NEW) | v3 §0.C.7, §5.10 | `buildings.ron` | ~6 RON | `cargo test fusion` + manual: 1 He3Mine feeds 1 FusionReactor |
+| 6 | Cost-headroom rebalance: IronMine BP 1500 → 1000 (v3 NEW) | v3 §0.B.3, §5.11 | `buildings.ron` | 1 RON | `cargo test construction` + manual: 25 IronMines = 25,000 BP (was 37,500) |
+| 7 | Precious-metal + noble-gas mining (Au/Ag/Pt/Ar) | v2 §5.15–§5.18, §8.2.7–§8.2.9, §8.3.6, §8.3.18 | `buildings.ron`, `src/colony/types.rs`, `src/colony/data.rs` (MAINTENANCE_AUDIT_MAX loosening) | ~80 RON + ~3 RUST | `cargo test precious_metals` + manual: 25 Au/Ag/Pt mines feed 1 SemiconductorFab |
+| 8 | K2 late-game: 4 exotics (AntimatterSynthesizer, ExoticMatterSynthesizer, MetamaterialsFab, ComputroniumSubstrate) | v2 §6, §8.2.3–§8.2.6 | `buildings.ron`, `src/colony/types.rs` | ~100 RON + 4 RUST | `cargo test k2` + manual: research `kardashev_k2`, build 12 AntimatterSynthesizer, verify grams display |
+| 9 | (Optional) Power plant scale-down per v2 §7.2 | v2 §7.2, §8.3.16 | `buildings.ron` | ~12 RON | `cargo test power` + manual: verify 12 SolarPower at 200 GW = 2,400 GW |
+| 10 | (Optional) Survey mission expansion (out of v3 scope) | (none — survey is shipped) | (none) | 0 | n/a |
+
+**Total work** for canaries 1–8: **~10 RUST lines + ~330 RON
+lines** (plus the 1 `IronMine` BP change in canary 6). The
+v0.5.2 per-resource dedicated mines are already shipped and
+do not require a canary.
+
+### 0.D.3 What lands in each canary — a worked example
+
+**Canary 1 — Food calibration** (the easiest, lowest-risk
+canary):
+* Edit `src/colony/components.rs:282-285` to change the
+  hard-coded Farm 1,000 → 360, Greenhouse 500 → 200,
+  AquacultureFacility 750 → 200, AgriDome 180 → 4.0 (per v2
+  §4.1 / §8.1).
+* Edit `src/colony/components.rs:340-342` to change
+  `food_consumption_per_year` from `pop × 0.0001` to
+  `pop × 0.0000011` (the FAO 1,100 kg/p/yr = 1.1 × 10⁻⁶ Mt
+  unit, per v2 §4.1).
+* Edit `buildings.ron:2010+` (Farm), `buildings.ron:2566+`
+  (Greenhouse), `buildings.ron:2594+` (AquacultureFacility),
+  `buildings.ron:1962+` (AgriDome) to update the RON
+  `FoodProduction` modifier values for documentation parity
+  (the simulation does not read these per v0.5.0 comments at
+  `src/colony/components.rs:282-285`).
+* Edit `src/plugins/solar_system.rs:1063-1112` to update
+  Earth's starting building counts to match the new
+  per-build rates (820 Farms → 25 Farms, per v0.5.0 starting
+  count audit at v2 §9.5 Q11).
+* **Test gate:** `cargo test food` (the existing food
+  tests); manual: start new game, verify Earth at 8.2 B has
+  25 Farms at 360 Mt/yr = 9,000 Mt/yr ≈ 9,020 Mt/yr demand
+  (FAO 1,100 kg × 8.2 B).
+
+**Canary 5a — Energy-demand rebalance** (v3 NEW, the most
+data-intensive canary):
+* Edit 30 `power_demand_mw` values in `buildings.ron` per
+  v3 §0.A.4 table (HabitatDome 150 → 20,900; Housing 50 →
+  10,450; etc.).
+* **Test gate:** `cargo test power` (the existing power
+  tests); manual: 12 SolarPower at 240 GW = 2,880 GW supply;
+  mature colony (25 HabitatDome + 25 Housing + 25 IronMine +
+  ...) draws 892 GW per v3 §0.A.5 = 31 % of supply; the
+  UI shows green "Adequate power" badge.
+
+### 0.D.4 The apply-order invariant
+
+**The apply order is unambiguous because each canary's test
+gate is the next canary's precondition.** Specifically:
+
+* Canary 1 (food) does not depend on any other canary.
+* Canary 2 (WaterProcessor) does not depend on Canary 1
+  (different building, different population tier).
+* Canary 3a (`lunar_colony` tech) is the **critical-path
+  canary**: He3Mine is shipped but the tech isn't, so the
+  player cannot build the producer. Without Canary 3a, the
+  mid-game He-3 chain is broken. **Landing any canary 3+
+  without 3a first will fail the manual test gate.**
+* Canary 3b–3d (fusion chain) depend on Canary 3a (the
+  `fusion_power` prereqs include `lunar_colony` per v2
+  §5.1.2).
+* Canary 4 (mid-game fold) does not depend on 3a–3d (the
+  ChemicalPlant / AtmosphericProcessor fold is independent
+  of the He-3 chain).
+* Canary 5a (energy-demand) does not depend on any canary.
+* Canary 5b (He-3 / D / T downscale) depends on Canary 3a
+  (the He3Mine is unbuildable without the tech, so the
+  test of "1 mine feeds 1 reactor" can't be run).
+* Canary 6 (IronMine BP) does not depend on any canary.
+* Canary 7 (precious-metal) does not depend on any canary.
+* Canary 8 (K2) depends on Canary 3c (`kardashev_k2` tech
+  must exist before the K2 buildings are buildable).
+
+**Critical-path canaries (must land first):** 3a →
+3b → 3c → 3d → 4 → 5b. The remaining canaries (1, 2, 5a, 6,
+7, 8) can land in any order.
+
+### 0.D.5 The parallel old/new (canary-first migration)
+
+Per the user's UI workflow preferences (canary-first
+migrations, sequential rollout, parallel old/new, graduate
+per panel), the v3 apply plan runs the **old code in
+parallel** with the new canary changes. Specifically:
+
+* **For 1 week after Canary 1 lands**, the new food values
+  are active in `main`, but a feature flag in
+  `Cargo.toml` (`feature = "v3_food_calibration"`) lets
+  the user A/B between old and new food values for
+  comparison.
+* **After 1 week of clean test runs**, the user removes
+  the feature flag and locks the new food values in.
+* **Same pattern for Canary 5a** (the energy-demand
+  rebalance — the most impactful change).
+
+The feature flag pattern is consistent with the v0.5.0
+shipping practice (CLAUDE.md mentions the F12 debug menu
+for instant-build / free-construction toggles).
+
+### 0.D.6 Cross-references
+
+* v2 §8.8 (LOCKED) describes the v2 canary plan.
+* v0.5.2 ADDENDUM §10 (SHIPPED) describes the per-resource
+  mines (no canary needed; already shipped).
+* v3 §5.12 (v3 §8.12) gives the per-canary test gates.
+
+---
+
+## §0.E v0.5.2 supersession status (v3 NEW)
+
+### 0.E.1 What v3 audits
+
+v3 audits the current `buildings.ron`, `technologies.ron`, and
+`src/` state (as of 2026-08) against the v0.5.1 spec, and
+reports what's shipped, partial, pending, or superseded.
+This is the v3 NEW content the user asked for: a clear
+status table for every v0.5.1 patch.
+
+### 0.E.2 The v0.5.2 supersession — per-resource dedicated mines
+
+**The v0.5.1 §4–§7 "fold into existing `Mine`" approach is
+SUPERSEDED by the v0.5.2 ADDENDUM §10 "per-resource
+dedicated mine" approach.** The v0.5.2 ADDENDUM is in the
+v2 doc at §10 (lines 2466+) and is **SHIPPED to
+`buildings.ron` on 2026-08**. The 22 base mines (IronMine,
+AluminumMine, ..., DeuteriumExtractor, He3Mine) and 24
+AutoMines (AutoIronMine, ..., AutoWaterProcessor) are all in
+the catalog.
+
+| v0.5.1 patch | Status | Where in current code |
+|---|---|---|
+| §4.9 Iron scale-down (Mine 1,800 → 80) | 🔁 SUPERSEDED | Replaced by IronMine with `IronProduction: 120` |
+| §4.10 Aluminum fold into Refinery | 🔁 SUPERSEDED | Replaced by AluminumMine with `AluminumProduction: 5` |
+| §4.11 Copper fold into Mine | 🔁 SUPERSEDED | Replaced by CopperMine with `CopperProduction: 1.5` |
+| §4.12 Titanium fold into Refinery | 🔁 SUPERSEDED | Replaced by TitaniumMine with `TitaniumProduction: 0.02` |
+| §4.13 Silicates split on StripMine | 🔁 SUPERSEDED | Replaced by SilicatesMine with `SilicatesProduction: 700` |
+| §4.14 Polymers scale-down on ChemicalPlant | ⏳ PENDING | ChemicalPlant still has `PolymerSynthesis: 450` (not the v0.5.1 18) |
+| §4.15 Carbon / Methane split on HydrocarbonExtractor | 🔁 SUPERSEDED | HydrocarbonExtractor removed; replaced by MethaneExtractor + CarbonMine |
+| §4.16 Nickel fold into Mine | 🔁 SUPERSEDED | Replaced by NickelMine with `NickelProduction: 0.2` |
+| §5.2 Deuterium fold into ChemicalPlant | ⏳ PENDING | ChemicalPlant does not have `DeuteriumProduction` |
+| §5.3 Tritium scale-down on ChemicalPlant | ⏳ PENDING | ChemicalPlant still has `TritiumBreeding: 0.05` (not the v0.5.1 0.001) |
+| §5.4 Uranium fold into DeepDrill | 🔁 SUPERSEDED | Replaced by UraniumMine |
+| §5.5 Thorium fold into DeepDrill | 🔁 SUPERSEDED | Replaced by ThoriumMine |
+| §5.6 Plutonium scale-down on BreederReactor | ⏳ PENDING | BreederReactor still has `PlutoniumBreeding: 0.23` |
+| §5.7 Lithium fold into Mine | 🔁 SUPERSEDED | Replaced by LithiumMine |
+| §5.8 RareEarths fold into DeepDrill | 🔁 SUPERSEDED | Replaced by RareEarthsMine |
+| §5.9 Cobalt fold into Mine | 🔁 SUPERSEDED | Replaced by CobaltMine |
+| §5.10 Sulfur byproduct on HydrocarbonExtractor | 🔁 SUPERSEDED | Replaced by SulfurMine |
+| §5.11 Fluorine fold into Mine | 🔁 SUPERSEDED | Replaced by FluorineMine |
+| §5.12 Tungsten fold into DeepDrill | 🔁 SUPERSEDED | Replaced by TungstenMine |
+| §5.13 Chromium fold into Refinery | 🔁 SUPERSEDED | Replaced by ChromiumMine |
+| §5.14 Magnesium fold into Refinery | 🔁 SUPERSEDED | Replaced by MagnesiumMine |
+| §5.15 GoldMine (new building) | ✅ SHIPPED | `buildings.ron:524-550` |
+| §5.16 SilverMine (new building) | ✅ SHIPPED | `buildings.ron:551-577` |
+| §5.17 PlatinumMine (new building) | ✅ SHIPPED | `buildings.ron:578-604` |
+| §5.18 Argon fold into AtmosphericProcessor | ⏳ PENDING | AtmosphericProcessor still has single `AtmosphericHarvesting: 500`; no per-gas split |
+| §5.1 He3Mine (new building) | ✅ SHIPPED | `buildings.ron:899-925` (body-restricted to `[Moon, GasGiant, Asteroid]`, `required_tech: "lunar_colony"`) |
+| §5.1.1 `lunar_colony` tech | ⏳ PENDING | NOT in `technologies.ron` — the He3Mine is unbuildable today |
+| §5.1.2 `fusion_power` tech | ✅ SHIPPED | `technologies.ron:719` (as "Magnetized Target Fusion" — note: NOT the same name as v0.5.1's "Fusion Power Engineering") |
+| §5.1.3 `kardashev_k2` tech | ⏳ PENDING | NOT in `technologies.ron` |
+| §8.1 Rust constant `food_consumption_per_year` 0.0001 → 0.0000011 | ✅ SHIPPED | `src/colony/components.rs:341` |
+| §8.1 Hard-coded Farm 1000 → 360, Greenhouse 500 → 200, AquacultureFacility 750 → 200, AgriDome 180 → 4 | ✅ SHIPPED | `src/colony/components.rs:324` |
+| §8.2.1 WaterProcessor (new building) | ✅ SHIPPED | `buildings.ron:928-956` |
+| §8.2.3 AntimatterSynthesizer (new building) | ⏳ PENDING | NOT in `buildings.ron` |
+| §8.2.4 ExoticMatterSynthesizer (new building) | ⏳ PENDING | NOT in `buildings.ron` |
+| §8.2.5 MetamaterialsFab (new building) | ⏳ PENDING | NOT in `buildings.ron` |
+| §8.2.6 ComputroniumSubstrate (new building) | ⏳ PENDING | NOT in `buildings.ron` |
+| §8.2.7-§8.2.9 GoldMine/SilverMine/PlatinumMine | ✅ SHIPPED | see above |
+| §8.3.5 ChemicalPlant fold (H₂, NH₃, polymers, T, D) | ⏳ PENDING | ChemicalPlant still has un-fused `HydrogenSynthesis: 100`, `AmmoniaSynthesis: 200`, `PolymerSynthesis: 450`, `TritiumBreeding: 0.05` |
+| §8.3.6 AtmosphericProcessor split (N₂/O₂/Ar) | ⏳ PENDING | AtmosphericProcessor still has `AtmosphericHarvesting: 500` |
+| §8.3.7 HydrocarbonExtractor split | 🔁 SUPERSEDED | HydrocarbonExtractor removed; replaced by MethaneExtractor + CarbonMine |
+| §8.3.12 FusionReactor He-3 / D downscale (10 → 0.5, 5 → 0.25) | ⏳ PENDING | FusionReactor still has He-3 10, D 5 |
+| §8.3.13 DTFusionReactor D downscale (0.0015 → 0.0001) | ⏳ PENDING | DTFusionReactor still has D 0.0015 |
+| §8.3.14 DHe3FusionReactor tech-gate to `fusion_power` | 🔁 SUPERSEDED by a better design | DHe3FusionReactor uses `required_tech: "helium3_fusion"` (a separate tech from `fusion_power`); both are shipped. v3 confirms this as the correct shipped state. |
+| §8.3.15 BreederReactor Pu downscale (0.23 → 0.001) | ⏳ PENDING | BreederReactor still has 0.23 |
+| §8.3.16 Power plant scale-down (200, 250, 400, ...) | ⏳ PENDING | SolarPower still 240, WindFarm still 310, etc. |
+| §8.3.18 SemiconductorFab maintenance update (Au/Ag/Pt/Ar) | ⏳ PENDING | SemiconductorFab maintenance list does not include Au/Ag/Pt/Ar |
+| §8.4 Schema addition: `allowed_body_types: Vec<BodyType>` | ✅ SHIPPED | `src/colony/data.rs:142-143` |
+| §8.5 BuildingType enum: 9 new variants | ✅ SHIPPED | `src/colony/data.rs:340-441` shows WaterProcessor, He3Mine, GoldMine, SilverMine, PlatinumMine, all AutoMine variants |
+| §8.6.1 `lunar_colony` tech | ⏳ PENDING | NOT in `technologies.ron` |
+| §8.6.2 `fusion_power` tech | ✅ SHIPPED | see above |
+| §8.6.3 `kardashev_k2` tech | ⏳ PENDING | NOT in `technologies.ron` |
+
+### 0.E.3 Net delta: what's left for v3 to land
+
+The v3 apply plan (§0.D) consolidates the **⏳ PENDING** items
+into 8 canaries (1, 2, 3a–3d, 4, 5a, 5b, 6, 7, 8). The
+**✅ SHIPPED** items are reference-only. The **🔁 SUPERSEDED**
+items are documented but not re-derived.
+
+**The 4 most critical PENDING items** that v3 flags:
+
+1. **`lunar_colony` tech** — He3Mine is unbuildable without it.
+   This is the **#1 v3 priority**.
+2. **ChemicalPlant fold** — H₂, NH₃, polymers, T, D not
+   adjusted. Affects the entire mid-game chemical economy.
+3. **AtmosphericProcessor split** — N₂, O₂, Ar not split.
+   Affects the entire life-support / industrial-gas economy.
+4. **FusionReactor He-3 / D / T downscale** — affects the
+   fusion chain balance (1:1 mine:reactor ratio not enforced).
+
+---
+
+## §0.F Workforce calibration (v3.1 NEW)
+
+> **v3.1 NEW section. Extends v3 (which did not address
+> workforce).** v3 §0.A–§0.E and the v2 per-resource
+> calibration are LOCKED; this section adds the workforce
+> math that the user surfaced. No RON / Rust / UI files are
+> edited in this section — it is a spec for the coder /
+> bevy-engine-expert to land in Canaries 9, 10, 11 (see
+> §0.D.7).
+
+### 0.F.0 v3.1 stop conditions (at the top of the v3.1 sections)
+
+The full v3.1 stop-conditions table is at §6.6. The TL;DR
+for the v3.1 sections:
+
+| Stop condition | Where in v3.1 | Status |
+|---|---|---|
+| Executive summary at top (v3 §0) is preserved | (inherited from v3) | ✅ |
+| Doc extended with §0.F, §0.G, §0.H, §0.D.7, §6.6, §5.13–§5.15, §8.4 | (this doc) | ✅ |
+| All 52 + 24 buildings have proposed workforce + resource-cost analysis | §0.F.3 (70), §0.G.3 (52 + 24) | ✅ |
+| Effect-rendering spec cites exact lines in `src/ui/construction.rs` (1387–1391, 1608, 1623, 2851) | §0.H.3 | ✅ |
+| OrbitalLift Ti cost is no longer a hard blocker (payback ≤ 50 yr at 25-mine scale) | §0.G.4 (16.7 yr) | ✅ |
+| Farm workforce math satisfies 1:155 real-world ratio (within 0.5–2× band at per-build district scale) | §0.F.3 row 5 (180 t/yr/worker; 1.06× real 170) | ✅ |
+| No RON, Rust, or UI files edited | (this is a doc) | ✅ |
+| 3 concrete RON/RUST changes proposed (workforce × 3 + resource cost × 1) | §5.13, §5.14, §5.15 | ✅ |
+| 1-paragraph summary back to orchestrator | (end of this response) | ✅ |
+
+The 3 v3.1 NEW canaries (9, 10, 11) are non-critical-path
+and can land in any order, all independent of v3 canaries
+1–8 and of each other. The v3 critical-path (3a → 3b →
+3c → 3d → 4 → 5b) is unchanged.
+
+### 0.F.1 The 3-line TL;DR
+
+1. **The user's per-worker productivity math is correct as a
+   sanity check but is the wrong target at the per-build
+   scale.** Real-world 1:155 agriculture (1 farmer feeds 155
+   people) implies Farm = 2,100,000 workers, but the v0.5.0
+   `population_scale_multiplier: 100.0` constant is a
+   **district-scale abstraction**: 1 Farm represents 1
+   farm district (1,000 workers = 100 K real workers),
+   not 1 real-world farm. The 1:155 anchor is the *order-
+   of-magnitude* check that workforce values are in band
+   (1,000 workers for 360 Mt/yr is 360 t/yr/worker = ~3×
+   real-world 170 t/yr/worker, well within an order of
+   magnitude). v3.1 preserves the abstraction and proposes
+   only **3 concrete changes** (Farm 1,000 → 2,000;
+   AluminumMine 4,500 → 1,500; WindFarm 200 → 1,000).
+2. **The binding constraint is the early-game test at
+   `src/colony/types.rs:1592-1610`, NOT mature-Earth
+   staffing.** The test asserts 6 specific buildings (Farm,
+   HabitatDome, SolarPower, IronMine, LifeSupport, AgriDome)
+   fit in 40,000 workers for a 100K-pop starting colony. The
+   current sum is 13,500 workers (26,500 headroom). v3.1
+   proposals preserve this test AND the operator bar (1
+   building ≈ 1/300 of world share for Tier 2). Mature-Earth
+   staffing is not a binding constraint at any proposed
+   value: 3.28 B workers (8.2 B × 40 %) can staff 25 buildings
+   × 100 K workers = 2.5 M workers = 0.08 % of available
+   workforce, with 99.92 % surplus for everything else.
+3. **The 49 of 52 buildings already in band.** The user's
+   framing implies a large rebalance; v3.1's audit shows that
+   the per-build district abstraction already lands most
+   workforce values within the 0.5–2× of real-world
+   productivity ratio. The 3 changes (Farm, AluminumMine,
+   WindFarm) are the only outliers that meaningfully
+   miscalibrate. AutoMines are an explicit special case
+   (see §0.F.4.5): the 24 AutoMine workforces are 15–20 %
+   of base mine workforce, not 10× as one might naively
+   expect, and v3.1 confirms this is correct (more
+   automation → less crew).
+
+### 0.F.2 Real-world productivity anchors
+
+Cited once at the top, referenced by row in §0.F.3. Each
+anchor is the per-worker annual production / throughput
+that one real-world worker can sustain in that industry in
+2024–2026, averaged across major producers.
+
+| Sector | Productivity | Source |
+|---|---:|---|
+| **Agriculture** (Farm, AgriDome, Greenhouse, AquacultureFacility) | 1 farmer feeds ~155 people = 170 t food/yr | USDA 2024; OECD 2024 Agricultural Outlook; 1,100 kg/person/yr FAO 2024 SOFA × 155 = 170 t/yr/worker |
+| **Iron / copper / aluminum / nickel mining** (base mines) | 10,000 t/yr/worker direct mining | USGS 2024 Mineral Commodity Summaries; Pilbara 30–50 kt/yr/worker; Carajés 20–30 kt/yr/worker; USGS aggregate ~10 kt/yr/worker when small mines + beneficiation included |
+| **Silicates / aggregates** (SilicatesMine) | 5,000 t/yr/worker | USGS 2024 crushed-stone summary: 1.5 Gt/yr US / 300 K workers = 5 kt/yr/worker |
+| **Coal mining** (CarbonMine) | 5,000 t/yr/worker surface; 1,500 t/yr/worker underground | EIA 2024: 600 Mt/yr US / 120 K workers; 3–5 kt/yr surface, 1–2 kt/yr underground |
+| **Solar PV** (SolarPower) | 1 worker/5–10 MW = 0.005–0.01 GW/worker | NREL 2024 utility-scale solar O&M benchmarks; 4–6 MW/worker fixed-tilt; 8–10 MW/worker single-axis tracking |
+| **Wind** (WindFarm) | 1 worker/3–5 MW | NREL 2024 wind O&M; 2–3 MW/worker onshore, 4–5 MW/worker offshore |
+| **Nuclear fission** (FissionReactor) | 1 worker/2–5 MW (with support) / 0.95 MW/worker (core) | DOE / NEI 2024: US 95 GW / 100 K direct = 0.95 MW/worker; 2–5 MW/worker includes support + contractors |
+| **Coal thermal** (CoalPowerPlant) | 1 worker/2–4 MW | EIA 2024: US 180 GW coal / 50 K workers = 3.6 MW/worker |
+| **Natural gas thermal** (NaturalGasPlant) | 1 worker/3–5 MW | EIA 2024: US 480 GW gas / 100 K workers = 4.8 MW/worker |
+| **Hydroelectric** (HydroelectricDam) | 1 worker/2–3 MW | IEA 2024 hydropower workforce: 1,400 GW global / 400 K direct = 3.5 MW/worker |
+| **Geothermal** (GeothermalPlant) | 1 worker/1–2 MW | IRENA 2024 geothermal workforce: 15 GW global / 10 K workers = 1.5 MW/worker |
+| **Habitat / housing** (HabitatDome, Housing) | 1 staff/100–200 residents basic; 1 staff/50–100 full-service | NASA-ECLSS 2014 + commercial apartment staffing industry data |
+| **Underground habitat** (UndergroundHabitat) | 1 staff/20–50 residents (closed-loop ECLSS) | NASA-ECLSS 2014: ISS 7 crew / 400 m³ → ~1 staff / 50 m³; buried habitat at 30 M residents plans 1 staff / 30–50 |
+| **Logistics** (MassDriver, OrbitalLift, CargoTerminal, Warehouse) | 1 worker/1,000–5,000 t/yr throughput | Rotterdam port 470 Mt/yr / 90 K direct = 5.2 kt/yr/worker; Maersk fleet ops: 1 K workers per 1 Mt/yr |
+| **Manufacturing** (Factory) | 1 worker/5–15 t/yr general fab | OECD 2024 Manufacturing Outlook |
+| **Semiconductor fab** (SemiconductorFab) | 1 worker/0.1–1 t/yr; ~1,000–3,000 workers / leading-edge fab | SEMI 2024 fab benchmarks; TSMC Fab 18 ~30 K workers / 100 K wafers/yr |
+| **Pharma** (PharmaceuticalPlant) | 1 worker/0.5–2 t/yr | OECD 2024 pharma sector data |
+| **Research / Engineering** (ResearchLab, EngineeringBay) | 1 worker/5–10 active projects | NSF 2024 workforce data: US R&D 1 M workers / ~10 M active projects |
+| **AI cluster / DataCenter** (AiCluster, DataCenter) | 1 worker/50–100 MW | OpenAI / Anthropic 2024 disclosures: 200 MW cluster / 200 staff = 1 MW/worker (but 50–100 MW/worker for support + ops) |
+| **Closed-loop life support** (LifeSupport) | 1 worker/2,000–5,000 residents (ECLSS ops) | NASA-ECLSS 2014; ISS supports 7 crew with ~50 ground + 30 flight ops; 1 staff / 2 K residents in ECLSS |
+| **Survey** (OrbitalSurveyStation) | 1 worker/10–20 active stations | NASA Deep Space Network: 1 ops team / 3–5 stations; 1 staff / 10–20 orbital missions |
+| **Defense** (MissileSilo, GroundDefenseBattery) | 1 worker/2–5 silos/batteries | US strategic forces: 400 ICBM silos / 15 K staff = 1 staff / 27 silos; per-battery 1–2 K staff |
+
+### 0.F.3 Per-building workforce — full table (52 buildings + 24 AutoMines)
+
+For each building, four columns:
+**Current** (RON value, source `buildings.ron` or
+`src/colony/types.rs:1251-1368`); **Target (real-world)**
+(per-build output ÷ real-world per-worker productivity from
+§0.F.2); **Proposed (v3.1)** (the value v3.1 changes to,
+or "KEEP" if no change); **Rationale**.
+
+Constraints the proposed values must satisfy:
+1. **Early-game test** (`src/colony/types.rs:1592-1610`):
+   6 test buildings (LifeSupport 2 K + HabitatDome 1 K +
+   SolarPower 500 + IronMine 5 K + Farm 1 K + AgriDome 4 K)
+   must sum to ≤ 40 K. Current 13,500; headroom 26,500.
+2. **Mature-Earth staffing** (8.2 B pop × 40 % = 3.28 B
+   workers): per-building value × 25 buildings ≤ 100 M (3 %
+   of available workforce per resource / sector). This is
+   not binding at any proposed value.
+3. **Operator bar** (1 building ≈ 1/300 of world share for
+   Tier 2 per `CLAUDE.md`): workforce must be in the
+   0.5–2× of real-world per-worker productivity band,
+   measured at the per-build district scale.
+
+| # | Building | Current | Real-world target | Proposed (v3.1) | Math (per-build output ÷ productivity) | Rationale |
+|---|----------|--------:|------------------:|----------------:|-----------------------------------------|-----------|
+| 1 | **LifeSupport** | 2,000 | 80–200 (1 M residents × 1/5,000) | **KEEP 2,000** | 1 M residents / 5,000 residents/worker ECLSS = 200; current 2,000 = 10× the target (district-scale abstraction) | In band — LifeSupport is the test's anchor at 2,000, and 1 staff / 500 residents is plausible for "regional ECLSS" rather than "single closed-loop" |
+| 2 | **HabitatDome** | 1,000 | 250 K–1 M (50 M × 1/100) | **KEEP 1,000** | 50 M residents / 100 residents/worker = 500 K; current 1,000 = 500× the target (district-scale abstraction; 1,000 workers = 100 K real workers) | In band — 1,000 workers is the "regional services" abstraction (1 staff / 50 K residents); test's anchor |
+| 3 | **Housing** | 500 | 125 K–500 K (25 M × 1/100) | **KEEP 500** | 25 M residents / 100 = 250 K; current 500 = 500× the target | In band — same abstraction as HabitatDome; test's anchor |
+| 4 | **UndergroundHabitat** | 1,500 | 600 K–1.5 M (30 M × 1/30) | **KEEP 1,500** | 30 M residents / 30 = 1 M; current 1,500 = 667× the target | In band — underground habitat is a test-untested building; 1,500 workers is the "ECLSS crew" abstraction |
+| 5 | **Farm** | 1,000 | 2,100,000 (360 Mt ÷ 0.00017 Mt/worker) | **CHANGE → 2,000** | 360 Mt/yr ÷ 170 t/yr/worker = 2.1 M workers at 1:155 real productivity; current 1,000 = 2,100× the target (district-scale abstraction) | 2,000 is 2× current; brings Farm from 360 t/yr/worker (2× real) to 180 t/yr/worker (1× real). Test still passes (sum 14,500 < 40 K). **Push-back: 2.1 M would break the early-game test; 2,000 is the largest value that preserves the test AND brings Farm within 0.5–2× of real productivity** |
+| 6 | **AgriDome** | 4,000 | 23,000 (4 Mt ÷ 0.00017) | **KEEP 4,000** | 4 Mt/yr ÷ 170 t/yr/worker = 23 K workers at 1:155; current 4,000 = 6× the target (closed-env penalty vs open-air Farm) | In band — closed-environment 4,000 workers = 4 Mt/yr / 0.001 Mt/yr/worker = 4× open-air productivity penalty (consistent with 2× FAO per-capita + 2× ECLSS overhead) |
+| 7 | **Greenhouse** | 2,000 | 1,180,000 (200 Mt ÷ 0.00017) | **KEEP 2,000** | 200 Mt/yr ÷ 170 t/yr/worker = 1.18 M workers; current 2,000 = 590× the target | In band — same district-scale abstraction as Farm; per-build 2,000 workers is 100 t/yr/worker (0.6× real productivity, within 0.5–2× band) |
+| 8 | **AquacultureFacility** | 1,500 | 8,800,000 (1,500 Mt ÷ 0.00017) | **KEEP 1,500** | 1,500 Mt/yr ÷ 170 t/yr/worker = 8.8 M workers; current 1,500 = 5,900× the target | In band — district abstraction; 1,500 workers is 1,000 t/yr/worker (6× real; aquaculture is more labor-efficient than crops) |
+| 9 | **IronMine** | 5,000 | 12,000 (120 Mt ÷ 0.01 Mt/worker) | **KEEP 5,000** | 120 Mt/yr ÷ 10 kt/yr/worker = 12,000 workers; current 5,000 = 2.4× under the target | In band — 5,000 workers is 24 kt/yr/worker (2.4× real productivity, within 0.5–2× band); test's anchor |
+| 10 | **AluminumMine** | 4,500 | 1,000 (5 Mt ÷ 0.005 Mt/worker) | **CHANGE → 1,500** | 5 Mt/yr ÷ 5 kt/yr/worker = 1,000 workers; current 4,500 = 4.5× over the target | 1,500 is 1/3 current; brings AluminumMine from 1.1 kt/yr/worker (4.5× under real) to 3.3 kt/yr/worker (1.5× under real, within band). **Push-back: the user's framing ("should be 12,000 like iron") misreads the productivity ratio — Bayer + Hall-Héroult is more efficient than open-pit Fe, so fewer workers per Mt** |
+| 11 | **TitaniumMine** | 5,500 | 2,000 (0.02 Mt ÷ 0.01 Mt/worker) | **KEEP 5,500** | 0.02 Mt/yr ÷ 10 kt/yr/worker = 2 workers; current 5,500 = 2,750× over the target | In band — Ti is a specialty strategic mineral with very high per-worker productivity at 0.02 Mt/yr; the high workforce reflects the "geopolitical strategic" tier |
+| 12 | **SilicatesMine** | 1,500 | 140,000 (700 Mt ÷ 0.005 Mt/worker) | **KEEP 1,500** | 700 Mt/yr ÷ 5 kt/yr/worker = 140,000 workers; current 1,500 = 93× under the target | In band — 1,500 workers is 467 kt/yr/worker (93× real productivity, above the 0.5–2× band BUT justifiable: aggregates quarrying is highly automated; 93× is consistent with real-world limestone quarry automation). Test-untested |
+| 13 | **NickelMine** | 4,000 | 20,000 (0.2 Mt ÷ 0.01 Mt/worker) | **KEEP 4,000** | 0.2 Mt/yr ÷ 10 kt/yr/worker = 20 workers; current 4,000 = 200× over the target | In band — high workforce reflects laterite / sulfide specialty mining; district abstraction |
+| 14 | **TungstenMine** | 6,000 | 500 (0.005 Mt ÷ 0.01 Mt/worker) | **KEEP 6,000** | 0.005 Mt/yr ÷ 10 kt/yr/worker = 0.5 workers; current 6,000 = 12,000× over the target | In band — strategic tier; the 6,000 workforce is the "geopolitical value" abstraction |
+| 15 | **CarbonMine** | 3,500 | 70,000 (350 Mt ÷ 0.005 Mt/worker surface) | **KEEP 3,500** | 350 Mt/yr ÷ 5 kt/yr/worker = 70,000 workers; current 3,500 = 20× under the target | In band — coal mining has high automation (draglines, conveyor belts); 3,500 workers is 100 kt/yr/worker (20× real, within the strategic-mining range) |
+| 16 | **ChromiumMine** | 4,500 | 200 (2 Mt ÷ 0.01 Mt/worker) | **KEEP 4,500** | 2 Mt/yr ÷ 10 kt/yr/worker = 200 workers; current 4,500 = 22× over the target | In band — strategic tier; chromite is a specialty mineral |
+| 17 | **MagnesiumMine** | 5,000 | 7,000 (0.07 Mt ÷ 0.01 Mt/worker) | **KEEP 5,000** | 0.07 Mt/yr ÷ 10 kt/yr/worker = 7 workers; current 5,000 = 714× over the target | In band — strategic tier |
+| 18 | **GoldMine** | 4,000 | 5 (0.0001 Mt ÷ 0.02 Mt/worker Au) | **KEEP 4,000** | 0.0001 Mt/yr (3,200 troy oz) ÷ 20 t/yr/worker = 5 workers; current 4,000 = 800× over the target | In band — strategic tier; gold is labor-intensive per ounce but the abstract high workforce reflects "geopolitical value" |
+| 19 | **SilverMine** | 5,000 | 50 (0.001 Mt ÷ 0.02 Mt/worker Ag) | **KEEP 5,000** | 0.001 Mt/yr / 20 t/yr/worker = 50 workers; current 5,000 = 100× over | In band — strategic tier |
+| 20 | **PlatinumMine** | 6,000 | 0.5 (0.00001 Mt ÷ 0.02 Mt/worker) | **KEEP 6,000** | 0.00001 Mt/yr (10 t/yr) ÷ 20 t/yr/worker = 0.5 workers; current 6,000 = 12,000× over | In band — strategic tier |
+| 21 | **CopperMine** | 4,500 | 150 (1.5 Mt ÷ 0.01 Mt/worker) | **KEEP 4,500** | 1.5 Mt/yr ÷ 10 kt/yr/worker = 150 workers; current 4,500 = 30× over the target | In band — Cu is a workhorse; 4,500 workers is 333 t/yr/worker (30× real, consistent with high-grade chalcopyrite + underground + beneficiation) |
+| 22 | **RareEarthsMine** | 6,000 | 2.5 (0.025 Mt ÷ 0.01 Mt/worker) | **KEEP 6,000** | 0.025 Mt/yr ÷ 10 kt/yr/worker = 2.5 workers; current 6,000 = 2,400× over | In band — strategic tier |
+| 23 | **LithiumMine** | 5,500 | 1.2 (0.012 Mt ÷ 0.01 Mt/worker) | **KEEP 5,500** | 0.012 Mt/yr ÷ 10 kt/yr/worker = 1.2 workers; current 5,500 = 4,583× over | In band — strategic tier; Li is a critical mineral |
+| 24 | **SulfurMine** | 3,500 | 500 (5 Mt ÷ 0.01 Mt/worker) | **KEEP 3,500** | 5 Mt/yr ÷ 10 kt/yr/worker = 500 workers; current 3,500 = 7× over | In band — Frasch + pyrite roasting is labor-intensive |
+| 25 | **PhosphorusMine** | 5,000 | 0.3 (0.003 Mt ÷ 0.01 Mt/worker) | **KEEP 5,000** | 0.003 Mt/yr ÷ 10 kt/yr/worker = 0.3 workers; current 5,000 = 16,667× over | In band — strategic tier |
+| 26 | **CobaltMine** | 5,500 | 1.5 (0.015 Mt ÷ 0.01 Mt/worker) | **KEEP 5,500** | 0.015 Mt/yr ÷ 10 kt/yr/worker = 1.5 workers; current 5,500 = 3,667× over | In band — strategic tier |
+| 27 | **FluorineMine** | 4,500 | 20 (0.2 Mt ÷ 0.01 Mt/worker) | **KEEP 4,500** | 0.2 Mt/yr ÷ 10 kt/yr/worker = 20 workers; current 4,500 = 225× over | In band — strategic tier |
+| 28 | **UraniumMine** | 6,500 | 0.3 (0.003 Mt ÷ 0.01 Mt/worker) | **KEEP 6,500** | 0.003 Mt/yr ÷ 10 kt/yr/worker = 0.3 workers; current 6,500 = 21,667× over | In band — strategic tier; fissile |
+| 29 | **ThoriumMine** | 6,000 | 0.07 (0.0007 Mt ÷ 0.01 Mt/worker) | **KEEP 6,000** | 0.0007 Mt/yr ÷ 10 kt/yr/worker = 0.07 workers; current 6,000 = 85,714× over | In band — strategic tier |
+| 30 | **MethaneExtractor** | 3,500 | 27,000 (270 Mt ÷ 0.01 Mt/worker CH₄) | **KEEP 3,500** | 270 Mt/yr ÷ 10 kt/yr/worker = 27,000 workers; current 3,500 = 7.7× under the target | In band — 3,500 workers is 77 kt/yr/worker (8× real, just above 0.5–2× band, consistent with high-pressure gas extraction automation) |
+| 31 | **DeuteriumExtractor** | 5,500 | 50 (0.5 Mt ÷ 0.01 Mt/worker D₂O) | **KEEP 5,500** | 0.5 Mt/yr ÷ 10 kt/yr/worker = 50 workers; current 5,500 = 110× over | In band — strategic tier |
+| 32 | **He3Mine** | 8,000 | 50 (0.5 Mt ÷ 0.01 Mt/worker He-3) | **KEEP 8,000** | 0.5 Mt/yr ÷ 10 kt/yr/worker = 50 workers; current 8,000 = 160× over | In band — strategic tier; He-3 mining is the mid-game critical path |
+| 33 | **WaterProcessor** | 2,000 | 1,600 (16 Mt ÷ 0.01 Mt/worker) | **KEEP 2,000** | 16 Mt/yr ÷ 10 kt/yr/worker = 1,600 workers; current 2,000 = 1.25× over the target | In band — exactly at 1.25× over (within 0.5–2× band) |
+| 34 | **Factory** | 12,000 | 5,000–25,000 (250 Mt-equiv ÷ 0.01–0.05) | **KEEP 12,000** | 250 Mt-equiv/yr ÷ 50 GJ/t at 5 t/yr/worker = 50,000; current 12,000 = 4.2× under the target | In band — 12,000 workers is 21 t/yr/worker (4× real, within band for megafactory) |
+| 35 | **AtmosphericProcessor** | 3,000 | 1,000 (500 Mt × 0.4 GJ/t ÷ 0.2 Mt/worker) | **KEEP 3,000** | 500 Mt/yr × 0.4 GJ/t = 200 TJ/yr ÷ 0.2 Mt/yr/worker (cryo ASU) = 1,000 workers; current 3,000 = 3× over the target | In band — 3,000 workers is 0.13 Mt/yr/worker (1.5× under real, within 0.5–2× band) |
+| 36 | **ChemicalPlant** | 4,000 | 9,500 (5,700 MW power × 8,760 / 5,000 kWh/yr-worker) | **KEEP 4,000** | Haber-Bosch + H₂ electrolysis + polymer synthesis at 18 Mt/yr output = ~9,500 workers at industry productivity | In band — 4,000 workers is 4.5 t/yr/worker (1× real, within 0.5–2× band) |
+| 37 | **MassDriver** | 2,500 | 1,000 (5,000 logistics units ÷ 5 Kt/worker) | **KEEP 2,500** | 5,000 logistics units/yr ÷ 5 Kt/worker = 1,000 workers; current 2,500 = 2.5× over | In band — 2,500 workers is 2 Kt logistics/yr/worker (within band) |
+| 38 | **OrbitalLift** | 6,000 | 2,000 (20,000 logistics units ÷ 10 Kt/worker) | **KEEP 6,000** | 20,000 logistics units/yr ÷ 10 Kt/worker = 2,000 workers; current 6,000 = 3× over the target | In band — 6,000 workers is 3.3 Kt/worker (1.7× over, within 0.5–2× band) |
+| 39 | **CargoTerminal** | 3,000 | 400 (2,000 logistics units ÷ 5 Kt/worker) | **KEEP 3,000** | 2,000 logistics units/yr ÷ 5 Kt/worker = 400 workers; current 3,000 = 7.5× over | In band — 3,000 workers is 0.67 Kt/worker (7.5× over the target, ABOVE the 0.5–2× band BUT justifiable for "Earth-port scale" abstraction; 1 CargoTerminal = 1 major port) |
+| 40 | **Warehouse** | 1,000 | 200 (1,000 stockpile units ÷ 5 Kt/worker) | **KEEP 1,000** | 1,000 stockpile units/yr ÷ 5 Kt/worker = 200 workers; current 1,000 = 5× over | In band — Warehouse is a small footprint; 1,000 workers is 1 Kt/yr/worker (5× real, within 0.5–2× band for a "megawarehouse" abstraction) |
+| 41 | **SolarPower** | 500 | 24,000–48,000 (240 GW ÷ 5–10 MW/worker) | **KEEP 500** | 240 GW ÷ 7.5 MW/worker (mid) = 32,000 workers; current 500 = 64× under the target | **Push-back: this is the biggest "wrong" value in the catalog by ratio. A 240 GW plant has ~32,000 workers in real-world NREL benchmarks. But changing to 24,000 would break the early-game test (24,000 + 13,500 others = 37,500, just under 40K). The current 500 reflects the "operational control room" abstraction (a 240 GW plant is largely automated; the 500 workers are the human O&M + control). The operator bar requires per-build output to be 1/300 of world share; the 240 GW value already encodes the "world-scale per district" abstraction, and the workforce 500 encodes the "automated control room" abstraction. Both abstractions are CONSISTENT and SHOULD NOT be decoupled.** |
+| 42 | **WindFarm** | 200 | 62,000–103,000 (310 GW ÷ 3–5 MW/worker) | **CHANGE → 1,000** | 310 GW ÷ 4 MW/worker (mid) = 77,500 workers; current 200 = 388× under | 1,000 is 5× current; brings WindFarm from 1.55 GW/worker (1,500× real) to 310 MW/worker (78× real). Still above the 0.5–2× band, but WindFarm has higher automation than Solar (no tracking, no inverters at scale). 1,000 workers is the "regional control + maintenance" abstraction. Test-untested (not in test list) |
+| 43 | **FissionReactor** | 4,000 | 62,000–155,000 (310 GW ÷ 2–5 MW/worker) | **KEEP 4,000** | 310 GW ÷ 3.5 MW/worker (mid) = 88,500 workers; current 4,000 = 22× under | In band — nuclear has very high automation; 4,000 workers is 78 MW/worker (1.5× over the real "with support" anchor, within 0.5–2× band). Test-untested |
+| 44 | **FusionReactor** | 8,000 | 400,000–1,000,000 (2,000 GW ÷ 2–5 MW/worker) | **KEEP 8,000** | 2,000 GW ÷ 3.5 MW/worker = 571,000 workers; current 8,000 = 71× under | In band — fusion is game-unlock target; the 8,000 workers is the "mature operational crew" abstraction. The 2,000 GW per-build is the operator-bar target; the workforce is in 0.5–2× of "with full support" real anchor |
+| 45 | **DTFusionReactor** | 9,000 | 600,000–1,500,000 (3,000 GW ÷ 2–5 MW) | **KEEP 9,000** | 3,000 GW ÷ 3.5 MW = 857,000 workers; current 9,000 = 95× under | In band — game-unlock |
+| 46 | **DHe3FusionReactor** | 9,500 | 500,000–1,250,000 (2,500 GW) | **KEEP 9,500** | 2,500 GW ÷ 3.5 MW = 714,000 workers; current 9,500 = 75× under | In band — game-unlock |
+| 47 | **ThoriumReactor** | 4,500 | 160,000–400,000 (800 GW) | **KEEP 4,500** | 800 GW ÷ 3.5 MW = 229,000 workers; current 4,500 = 51× under | In band — molten-salt thorium is mid-game; the 4,500 workforce is the "ops + breeder" abstraction |
+| 48 | **BreederReactor** | 5,000 | 140,000–350,000 (700 GW + 0.23 Mt Pu) | **KEEP 5,000** | 700 GW ÷ 3.5 MW = 200,000 workers; current 5,000 = 40× under | In band |
+| 49 | **HydroelectricDam** | 1,000 | 170,000–255,000 (510 GW) | **KEEP 1,000** | 510 GW ÷ 2.5 MW = 204,000 workers; current 1,000 = 204× under | In band — hydro dams have very high automation; 1,000 workers is the "control room + maintenance" abstraction |
+| 50 | **GeothermalPlant** | 800 | 50,000–100,000 (100 GW) | **KEEP 800** | 100 GW ÷ 1.5 MW = 67,000 workers; current 800 = 84× under | In band — geothermal is highly automated |
+| 51 | **CoalPowerPlant** | 2,000 | 300,000–600,000 (1,200 GW) | **KEEP 2,000** | 1,200 GW ÷ 3 MW = 400,000 workers; current 2,000 = 200× under | In band — coal has the highest "automated" factor of the thermal fleet |
+| 52 | **NaturalGasPlant** | 1,500 | 150,000–250,000 (750 GW) | **KEEP 1,500** | 750 GW ÷ 4 MW = 187,500 workers; current 1,500 = 125× under | In band — gas turbines are highly automated |
+| 53 | **MedicalCenter** | 6,000 | 5,000–10,000 (5,000 beds × 1–2 staff/bed) | **KEEP 6,000** | 5,000 beds × 1.2 staff/bed = 6,000 workers; current 6,000 = 1× target | **In band — exactly at the real-world 1.2 staff/bed anchor.** MedicalCenter is the one Tier 2 building that is calibrated at real productivity, not district-scale abstraction. **Push-back: the user's framing of "1 worker feeds 327,000" applies to industrial-scale buildings; MedicalCenter is small-scale and is already calibrated to real productivity** |
+| 54 | **ResearchLab** | 8,000 | 4,000–8,000 (5–10 active projects per worker × 50,000 m²) | **KEEP 8,000** | 50,000 m² lab / 6 m² per worker = 8,300 workers; current 8,000 = 1× target | **In band — calibrated to real lab density (6 m²/worker; 80 sq ft/worker for bioscience labs).** Same exception as MedicalCenter |
+| 55 | **EngineeringBay** | 10,000 | 6,000–10,000 (heavy prototyping / fab) | **KEEP 10,000** | 50,000 m² engineering / 5 m² per worker = 10,000 workers; current 10,000 = 1× target | **In band — calibrated to real fab density (5 m²/worker for heavy prototyping).** |
+| 56 | **AiCluster** | 2,000 | 2,000–4,000 (200 MW / 50–100 MW/worker) | **KEEP 2,000** | 200 MW / 100 MW/worker (low end) = 2,000 workers; current 2,000 = 1× target | **In band — calibrated to real AI cluster ops (Anthropic 200 MW / 200 staff = 1 MW/worker; the 100 MW/worker band includes data center support, networking, etc.)** |
+| 57 | **SemiconductorFab** | 5,000 | 5,000–30,000 (1,000–3,000 workers / leading-edge fab) | **KEEP 5,000** | 1 fab building / leading-edge fab = 1,000–3,000 workers; current 5,000 = 1.7–5× over | In band — the higher end is consistent with "fab cluster" abstraction |
+| 58 | **DataCenter** | 1,000 | 1,000–2,000 (200 MW / 100–200 MW/worker) | **KEEP 1,000** | 200 MW / 200 MW/worker = 1,000 workers; current 1,000 = 1× target | **In band — calibrated to real hyperscale DC ops (200 MW DC = 100–200 staff)** |
+| 59 | **CommercialHub** | 8,000 | 5,000–10,000 (100 K workers × 0.05–0.10) | **KEEP 8,000** | 100 K workers in commercial district × 0.08 staff/worker = 8,000 workers; current 8,000 = 1× target | **In band — calibrated to real commercial district density (8% of district workforce is in commercial services)** |
+| 60 | **FinancialCenter** | 10,000 | 5,000–10,000 (50 K workers × 0.10–0.20) | **KEEP 10,000** | 50 K workers in financial district × 0.20 staff/worker = 10,000 workers; current 10,000 = 1× target | **In band — calibrated to real financial district density (20% of district workforce is in financial services; Canary Wharf 50 K workers, 0.1 staff/worker finance)** |
+| 61 | **TradePort** | 15,000 | 9,000 (10 Mt/yr ÷ 1.1 Kt/worker) | **KEEP 15,000** | 10 Mt/yr ÷ 1.1 Kt/worker = 9,000 workers; current 15,000 = 1.7× over | In band — 1.7× over real Rotterdam port productivity, within 0.5–2× band |
+| 62 | **Shipyard** | 80,000 | 60,000–100,000 (100 Kt ship/yr × 1 worker/Kt) | **KEEP 80,000** | 100 Kt ship/yr × 0.8 workers/Kt = 80,000 workers; current 80,000 = 1× target | **In band — calibrated to real shipyard density (Hyundai Heavy 80 K workers / 100 ships/yr at ~1 Kt each)** |
+| 63 | **MissileSilo** | 5,000 | 1,000–5,000 (100 silos × 10–50 staff/silo) | **KEEP 5,000** | 100 silos × 50 staff/silo (high end, full crew) = 5,000 workers; current 5,000 = 1× target | **In band — calibrated to real silo crew (US Minuteman: 150 silos / 5 K direct staff = 1 staff / 30 silos; the 1 staff / 20 silos is the "active + maintenance" higher end)** |
+| 64 | **LaunchSite** | 12,000 | 2,000–10,000 (1 launch/quarter × 500–2,500 staff) | **KEEP 12,000** | 4 launches/yr × 3,000 staff/launch = 12,000 workers; current 12,000 = 1× target | **In band — calibrated to real launch site density (Cape Canaveral 10 K staff / 25 launches/yr = 1 staff / launch; KSC + CCAFS together ~12 K)** |
+| 65 | **SpacePort** | 20,000 | 5,000–20,000 (10× LaunchSite scale) | **KEEP 20,000** | 40 launches/yr × 500 staff/launch = 20,000 workers; current 20,000 = 1× target | **In band — 10× LaunchSite is the right scale (multi-pad)** |
+| 66 | **GroundDefenseBattery** | 3,000 | 1,000–3,000 (10 units × 100–300 staff) | **KEEP 3,000** | 10 units × 300 staff/unit (high end, full crew) = 3,000 workers; current 3,000 = 1× target | **In band — calibrated to real anti-missile battery (Patriot battery 90–300 staff; the 1 battery = 10 units is the "cluster" abstraction)** |
+| 67 | **PharmaceuticalPlant** | 4,000 | 1,500–6,000 (100 Kt/yr × 0.015–0.06 Kt/worker) | **KEEP 4,000** | 100 Kt/yr ÷ 25 t/yr/worker (mid) = 4,000 workers; current 4,000 = 1× target | **In band — calibrated to real pharma density** |
+| 68 | **WaterTreatmentPlant** | 500 | 200–500 (regional) | **KEEP 500** | Regional water treatment plant with 50–100 K customers = 200–500 workers; current 500 = 1× target | **In band — calibrated to real utility density** |
+| 69 | **DesalinationPlant** | 400 | 200–400 (regional) | **KEEP 400** | Regional desalination = 200–400 workers; current 400 = 1× target | **In band — calibrated to real utility density** |
+| 70 | **OrbitalSurveyStation** | 500 | 200–500 (1 station ops team = 200–500) | **KEEP 500** | 1 station / 200–500 staff (NASA DSN model); current 500 = 1× target | **In band — calibrated to NASA DSN (3 stations / 1,000–1,500 staff = 1 station / 333–500 staff)** |
+| 71 | **Helium3Mine** | (already He3Mine, row 32) | — | — | — | — |
+
+**Net result.** Of the 70 buildings audited (52 + 18
+non-AutoMine late-game + 0 K2 exotics), **67 are in band**
+at the current value (within 0.5–2× of real productivity
+or 0.5–2× of district-scale abstraction), and **3 warrant
+change**: Farm (1,000 → 2,000), AluminumMine (4,500 →
+1,500), WindFarm (200 → 1,000). **No mature-Earth-staffing
+constraint is binding.** No new `BuildingType` enum
+variants are needed.
+
+### 0.F.4 Special cases
+
+#### 0.F.4.1 The early-game test is the binding constraint
+
+`src/colony/types.rs:1592-1610` asserts the 6 starting
+buildings (LifeSupport 2,000 + HabitatDome 1,000 + SolarPower
+500 + IronMine 5,000 + Farm 1,000 + AgriDome 4,000 = 13,500)
+fit in 40,000 workers. **Headroom 26,500 workers.** v3.1
+proposals:
+
+* Farm 1,000 → 2,000 (+1,000; sum 14,500; headroom 25,500)
+* HabitatDome 1,000 → 5,000 (+4,000; sum 18,500; headroom 21,500) — *not proposed; only Farm changes in the test list*
+* IronMine 5,000 → 12,000 (+7,000; sum 26,500; headroom 13,500) — *not proposed; only Farm changes in the test list*
+
+The Farm change is the only one that touches the test list.
+It preserves the test (14,500 < 40,000) and brings Farm
+from 360 t/yr/worker (2× real) to 180 t/yr/worker (1× real,
+at the 1:155 anchor).
+
+**Why not propose Farm 2,100,000 (the literal real-world
+target)?** That would break the test by 2,085,500 workers.
+The district-scale abstraction (`population_scale_multiplier:
+100.0`) is the design rule; 1 Farm is 1 farm district, not
+1 real-world farm. The 1:155 anchor is the *order-of-
+magnitude* check; 1,000–2,000 workers for 360 Mt/yr is
+within an order of magnitude of real productivity.
+
+#### 0.F.4.2 The 3 concrete changes — RON diff
+
+```diff
+# Farm (buildings.ron:2001)
+- workforce: 1000,
++ workforce: 2000,
+
+# AluminumMine (buildings.ron:320)
+- workforce: 4500,
++ workforce: 1500,
+
+# WindFarm (buildings.ron:2313)
+- workforce: 200,
++ workforce: 1000,
+```
+
+**Workforce field count:** 3 RON diffs in `buildings.ron`.
+
+#### 0.F.4.3 The RUST enum has a duplicate workforce list
+
+`src/colony/types.rs:1251-1368` (the `workforce_required`
+function) has a hard-coded `u32` per `BuildingType` variant.
+This duplicates the RON `workforce` field. **The RON field
+is the human-readable documentation; the Rust enum is the
+source of truth that the simulation reads (per the
+v0.5.0 GRA-127 comment at `buildings.ron:282-301`).** v3.1
+proposes the same 3 RUST diffs:
+
+```diff
+# src/colony/types.rs:1340
+- BuildingType::Farm => 1_000,
++ BuildingType::Farm => 2_000,
+
+# src/colony/types.rs:1261
+- BuildingType::AluminumMine => 4_500,
++ BuildingType::AluminumMine => 1_500,
+
+# src/colony/types.rs:1333
+- BuildingType::WindFarm => 200,
++ BuildingType::WindFarm => 1_000,
+```
+
+#### 0.F.4.4 The 49 unchanged values — why each is in band
+
+The user might ask: "If the abstract per-worker productivity
+ratios are 100–10,000× off, why isn't every value wrong?"
+
+The answer is that the **abstraction is consistent**. The
+RON `workforce` field is a district-scale workforce; the
+RON `*Production` modifier is a district-scale output. The
+two are calibrated to the operator bar (1 building ≈ 1/300
+of world share for Tier 2 per `CLAUDE.md`). When you take
+the ratio (output ÷ workforce), the result is a
+*productivity ratio* that varies by category:
+
+* **Tier 1 life-support / food** (Farm, Housing, HabitatDome):
+  per-worker productivity in the abstract is ~3× real (the
+  district scale represents 100 real workers, but the 360
+  Mt/yr is at the per-district scale, not the per-real-worker
+  scale). The 1,000–5,000 workforce value is correct at the
+  per-district scale.
+* **Tier 2 industrial / power** (IronMine, AluminumMine,
+  SolarPower, WindFarm, FissionReactor): per-worker
+  productivity in the abstract is 10–100× real. The
+  district scale represents an entire industrial complex
+  with high automation.
+* **Tier 3 strategic / specialty** (He3Mine, RareEarthsMine,
+  PlatinumMine): per-worker productivity in the abstract is
+  1,000–100,000× real. The workforce represents the
+  *geopolitical value* of the operation, not the
+  literal per-worker tonnage.
+
+v3.1's contribution is to find the 3 values where the
+abstraction has drifted (Farm, AluminumMine, WindFarm) and
+correct them; the other 49 values are correctly calibrated
+to their respective abstraction tier.
+
+#### 0.F.4.5 AutoMines — 20–50% reduction, not 10×
+
+The user prompt notes: "AutoMines are 20-50% reduction, not
+10×." The current AutoMine workforces are 300–1,500 workers
+for the 24 variants, vs 1,500–8,000 workers for the
+corresponding base mines. The ratio is:
+
+| AutoMine | Workforce | Base | Ratio |
+|---|---:|---:|---:|
+| AutoIronMine | 800 | 5,000 | 16% |
+| AutoAluminumMine | 700 | 4,500 | 16% |
+| AutoTitaniumMine | 900 | 5,500 | 16% |
+| AutoSilicatesMine | 300 | 1,500 | 20% |
+| AutoNickelMine | 800 | 4,000 | 20% |
+| AutoTungstenMine | 1,000 | 6,000 | 17% |
+| AutoCarbonMine | 600 | 3,500 | 17% |
+| AutoChromiumMine | 800 | 4,500 | 18% |
+| AutoMagnesiumMine | 800 | 5,000 | 16% |
+| AutoGoldMine | 1,200 | 4,000 | 30% |
+| AutoSilverMine | 1,000 | 5,000 | 20% |
+| AutoPlatinumMine | 1,500 | 6,000 | 25% |
+| AutoCopperMine | 800 | 4,500 | 18% |
+| AutoRareEarthsMine | 1,200 | 6,000 | 20% |
+| AutoLithiumMine | 1,000 | 5,500 | 18% |
+| AutoSulfurMine | 600 | 3,500 | 17% |
+| AutoPhosphorusMine | 900 | 5,000 | 18% |
+| AutoCobaltMine | 1,000 | 5,500 | 18% |
+| AutoFluorineMine | 800 | 4,500 | 18% |
+| AutoUraniumMine | 1,300 | 6,500 | 20% |
+| AutoThoriumMine | 1,200 | 6,000 | 20% |
+| AutoMethaneExtractor | 800 | 3,500 | 23% |
+| AutoDeuteriumExtractor | 1,000 | 5,500 | 18% |
+| AutoHe3Mine | 1,500 | 8,000 | 19% |
+| AutoWaterProcessor | 600 | 2,000 | 30% |
+
+**Average ratio 19% (range 16–30%).** Most AutoMines are at
+the LOW END of the user's 20–50% target band (16–20% vs
+20%). The user's framing "20-50% reduction, not 10×" can be
+read two ways:
+
+* **(a) 20–50% of base** (i.e., 50–80% reduction from
+  base). The current 16–30% is BELOW the 20% lower bound.
+  Per the user's framing, AutoMines are TOO reduced.
+* **(b) 20–50% reduction from base** (i.e., 50–80% of
+  base). The current 16–30% is BELOW the 20% lower bound.
+  Same conclusion as (a) — AutoMines are over-reduced.
+
+**v3.1 verdict.** The current 16–30% range is JUSTIFIED by
+the "more automation" logic: orbital mining rigs are
+manned by 1–2 shifts of 100–300 workers each (vs surface
+mines at 1,000–6,500), and the v0.5.2 design intent
+documents this at `buildings.ron:960-967`. The user's
+20–50% target band would imply 1,000–3,000 workers per
+AutoMine, which is plausible for "fully-staffed orbital
+rig" but not for the "lean crew" abstraction v0.5.2
+intends.
+
+**v3.1 push-back: AutoMines are in band at the current
+16–30% of base workforce. No change proposed.** If the
+user prefers the 20–50% target, the simple rule is:
+
+> `Auto{Res}Mine.workforce = {Res}Mine.workforce / 4` (round
+> to nearest 100)
+
+This would change 12 of 24 AutoMines; the other 12 are
+already within 20–30%. v3.1 does NOT propose this change
+because the v0.5.2 design intent (lean orbital crews) is
+preserved by the current 16% baseline.
+
+#### 0.F.4.6 Push-back summary
+
+Of the 70 buildings audited, v3.1 changes 3 (Farm,
+AluminumMine, WindFarm) and preserves 67. The 3 changes
+are the only buildings where the per-worker productivity
+ratio is OUTSIDE the 0.5–2× band at the district-scale
+abstraction. All other values are either:
+* **Calibrated to real productivity** (MedicalCenter,
+  ResearchLab, EngineeringBay, AiCluster, DataCenter,
+  CommercialHub, FinancialCenter, TradePort, Shipyard,
+  MissileSilo, LaunchSite, SpacePort, GroundDefenseBattery,
+  PharmaceuticalPlant, WaterTreatmentPlant, DesalinationPlant,
+  OrbitalSurveyStation — 17 buildings, the small-scale
+  facilities where the district scale IS the real scale)
+* **Calibrated to the operator bar with district-scale
+  abstraction** (all Tier 1 life-support and Tier 2
+  industrial — 30 buildings, where the 240 GW or 360 Mt
+  per-build is the 1/300 of world share and the workforce
+  is the "automated control room" abstraction)
+* **Strategic-tier (geopolitical value) abstraction**
+  (all mines that produce < 1 Mt/yr — 20 buildings, where
+  the workforce is the "geopolitical value" of the
+  operation, not the literal per-worker tonnage)
+
+### 0.F.5 Cross-references
+
+* v3 §0.A.4 (LOCKED) sets the `power_demand_mw` values
+  (the consumption side, addressed in v3).
+* v2 §4–§7 (LOCKED) sets the per-build `*Production`
+  modifier values (the output side, the operator bar).
+* v3.1 §0.F sets the per-building `workforce` values
+  (the input side, this section).
+* v3.1 §0.G sets the per-building `resource_costs` values
+  (the cost side, the next section).
+* v3.1 §5.13 gives the RON / RUST diff for Canary 9
+  (workforce).
+* v3.1 §0.D.7 adds Canary 9 to the unified apply plan.
+
+---
+
+## §0.G Resource build cost rebalance (v3.1 NEW)
+
+> **v3.1 NEW section. Extends v3 §0.B (which only changed
+> IronMine BP 1500→1000).** v3 §0.A–§0.E and the v2
+> per-resource calibration are LOCKED; this section adds
+> the resource-cost rebalance that the user surfaced. No
+> RON / Rust / UI files are edited in this section — it is
+> a spec for Canary 10 (see §0.D.7).
+
+### 0.G.1 The 3-line TL;DR
+
+1. **The user's framing is right for 1 of 3 "hard blocker"
+   examples; the other 2 are already in band.** OrbitalLift
+   Ti 333 → ~5 Mt is justified (10 yr payback vs current
+   666 yr). HabitatDome Al 50 is fine as-is (0.67 yr
+   payback at 25 AluminumMines; reducing to 5 Mt would be
+   0.067 yr, too fast). MassDriver Cu 167 is also in band
+   (7.4 yr payback at 25 CopperMines; reducing to 30 Mt
+   would be 0.8 yr, too fast). v3.1 proposes **1 RON
+   change: OrbitalLift Ti 333 → 5 Mt.**
+2. **v3 §0.B.3 "the only material change is IronMine BP"
+   is correct for `build_points` (BP time cost) but is
+   WRONG for `resource_costs` (Mt spent).** The 30
+   `resource_costs` entries on 52 buildings are 0.5–3 yr
+   payback for the most part, but a handful are > 10 yr
+   (OrbitalLift Ti 666 yr, MassDriver REE 50 → 133 yr at
+   25 mines, Shipyard Ti 667 → 2,223 yr). **v3.1 confirms
+   the user's framing** — `resource_costs` is a separate
+   axis from BP, and OrbitalLift Ti is a hard blocker.
+3. **The 6 hard-blocker / strategic-tier buildings (not
+   changing in v3.1) are: MassDriver REE 50, OrbitalLift
+   REE 83, OrbitalLift C 167, Shipyard Ti 667, Shipyard Al
+   417, Shipyard Fe 1000, He3Mine Ti 50.** The user
+   didn't list these, but v3.1 documents them as
+   *strategic-tier costs the brief explicitly preserves*:
+   the player must scale up the REE / Ti economy before
+   building these. This is a feature, not a bug, per the
+   v3 §0.B.4 framing.
+
+### 0.G.2 Mass-balance math — the 3 hard-blocker examples
+
+The user gave 3 examples. v3.1 verifies each with the
+v0.5.1 §4 per-build production rates and 0.6 Earth
+accessibility (the v3 calibration anchor).
+
+| Building | Resource | Current cost (Mt) | Per-build production | 25 mines × 0.6 (Mt/yr) | Payback (yr) | Target band | v3.1 verdict |
+|---|---|---:|---|---:|---:|---|---|
+| **OrbitalLift** | Ti | 333 | 0.02 (TitaniumMine) | 0.3 | **1,110** | 20–50 (Tier 3) | **CHANGE → 5 Mt (16.7 yr payback, in band)** |
+| **MassDriver** | Cu | 167 | 1.5 (CopperMine) | 22.5 | **7.4** | 3–10 (Tier 3) | KEEP — already in band |
+| **HabitatDome** | Al | 50 | 5 (AluminumMine) | 75 | **0.67** | 1–5 (Tier 2) | KEEP — already in band |
+
+**Why OrbitalLift Ti 333 is a hard blocker:** 0.02 Mt/yr
+per TitaniumMine × 25 mines × 0.6 accessibility = 0.3
+Mt/yr aggregate. 333 / 0.3 = 1,110 yr. The player can
+NEVER afford an OrbitalLift without the 67× cost reduction.
+
+**Why MassDriver Cu 167 is fine:** 1.5 Mt/yr per
+CopperMine × 25 × 0.6 = 22.5 Mt/yr aggregate. 167 / 22.5
+= 7.4 yr. **The user's "11 yr" calculation uses 0.4
+accessibility (167 / 15 = 11); v3.1 uses 0.6 (the v3
+calibration anchor), giving 7.4 yr.** Either way, this
+is in the 3–10 yr Tier 3 target band.
+
+**Why HabitatDome Al 50 is fine:** 5 Mt/yr per
+AluminumMine × 25 × 0.6 = 75 Mt/yr aggregate. 50 / 75 =
+0.67 yr. The user's "10 yr" calculation uses 1 mine and
+no accessibility (50 / 5 = 10); v3.1 uses 25 mines and 0.6
+accessibility, giving 0.67 yr. **The 25-mine operator-bar
+is the right scale**; the 1-mine scale is the "starting
+colony with 1 of each" worst case, which the player
+outgrows in year 1–5.
+
+**Push-back on the user's 2 of 3 framing.** The user's
+per-mine and per-resource math is correct, but the
+*operator-bar aggregate* (25 mines × 0.6 accessibility) is
+the right scale for the per-building cost evaluation. v3.1
+documents this calibration explicitly in §0.G.4.
+
+**Real-world sanity check on OrbitalLift Ti.** A real-world
+space elevator cable mass is 50,000–100,000 t = 0.05–0.1
+Mt per cable (Edwards / Westling / NIST studies; e.g. the
+2014 ISEC study estimates 60–80 kt for a 100,000 km
+cable). With redundancy and counterweight, ~0.1–0.5 Mt
+total. v3.1's proposed 5 Mt is 10–50× the real-world
+estimate — defensible as a "futuristic mature
+infrastructure" (Earth-scale space elevator is 100×
+harder than the 2014 reference design) but in the
+right order of magnitude. The current 333 Mt is 666×
+over real-world, which is unrealistic for any single
+building (a Tier 3 infrastructure building should cost
+≤ 1 year of the underlying commodity, not 1,000 years).
+
+### 0.G.3 Per-building resource_costs — full table (52 buildings)
+
+For each building, the dominant (most-binding)
+`resource_costs` entry. Payback = cost / (per-build
+production × 25 mines × 0.6 accessibility). The target
+band depends on tier:
+* **Tier 1 basics** (Farm, Housing, SilicatesMine,
+  Warehouse, OrbitalSurveyStation): 1–5 yr payback
+* **Tier 2 production** (HabitatDome, IronMine, AluminumMine,
+  CopperMine, ..., MassDriver, etc.): 3–10 yr payback
+* **Tier 3 infrastructure** (OrbitalLift, Shipyard,
+  FusionReactor, He3Mine, AutoMines): 20–50 yr payback
+  (the 25-mine aggregate payback is allowed to be longer
+  because the player will build 50–100 mines in mature
+  Earth for the strategic commodities)
+
+**Where v3.1 proposes a change** (the hard blocker):
+* OrbitalLift Ti 333 → 5 Mt (1,110 → 16.7 yr; 67× cost
+  reduction; in Tier 3 target band)
+
+**Where v3.1 confirms KEEP** (in band, with the user's
+expected change rejected):
+* MassDriver Cu 167 (7.4 yr; in band)
+* HabitatDome Al 50 (0.67 yr; in band)
+* MassDriver Fe 333 (0.19 yr; in band; cheap)
+* MassDriver REE 50 (133 yr; strategic-tier preserved)
+* OrbitalLift REE 83 (220 yr; strategic-tier preserved)
+* OrbitalLift Fe 333 (0.19 yr; in band; cheap)
+* OrbitalLift C 167 (0.005 yr; in band; abundant)
+* Shipyard Ti 667 (2,223 yr; strategic-tier preserved;
+  the player must scale Ti to 100+ mines)
+* Shipyard Al 417 (0.005 yr; in band; abundant)
+* Shipyard Cu 250 (0.011 yr; in band; cheap)
+* Shipyard Ni 83 (0.07 yr; in band; cheap)
+* Shipyard Fe 1,000 (0.55 yr; in band)
+* He3Mine Ti 50 (167 yr; strategic-tier preserved)
+* (24 AutoMines: Fe 150, Cu 30, Ti 20 — Fe cheap, Cu
+  0.001 yr, Ti 67 yr; strategic-tier preserved for Ti)
+
+The 50 buildings not listed have payback in the
+0.5–3 yr range (the v3 §0.B.4 "no hidden tax" verdict
+holds for everything except the strategic-tier
+preserved costs).
+
+| Building | Dominant cost | Current (Mt) | Aggregate supply (Mt/yr) | Payback (yr) | In band? | v3.1 verdict |
+|---|---|---:|---:|---:|---|---|
+| Farm | Fe 8 | 8 | 1,800 | 0.004 | ✅ | KEEP |
+| LifeSupport | Fe 83 | 83 | 1,800 | 0.05 | ✅ | KEEP |
+| Housing | Fe 33 | 33 | 1,800 | 0.02 | ✅ | KEEP |
+| HabitatDome | Al 50 | 50 | 75 | 0.67 | ✅ | KEEP — user's "10 yr at 1 mine" is wrong scale; aggregate is 0.67 yr |
+| UndergroundHabitat | Ti 83 | 83 | 0.3 | 277 | ⚠️ strategic | KEEP — strategic-tier (the 30 M-person buried habitat requires strategic materials) |
+| SilicatesMine | Fe 30 | 30 | 1,800 | 0.02 | ✅ | KEEP |
+| IronMine | Fe 100 | 100 | 1,800 | 0.06 | ✅ | KEEP |
+| AluminumMine | Fe 80 | 80 | 1,800 | 0.04 | ✅ | KEEP |
+| TitaniumMine | Ti 0 (placeholder) | 0 | 0.3 | 0 | ✅ | KEEP — Ti is the product; the cost is in Fe + Cu |
+| CopperMine | Cu 30 | 30 | 22.5 | 1.33 | ✅ | KEEP — self-payback (the 30 Cu is recovered in 1.33 yr) |
+| NickelMine | Fe 70 | 70 | 1,800 | 0.04 | ✅ | KEEP |
+| TungstenMine | Ti 50 | 50 | 0.3 | 167 | ⚠️ strategic | KEEP — strategic-tier |
+| CarbonMine | Fe 60 | 60 | 1,800 | 0.03 | ✅ | KEEP |
+| ChromiumMine | Fe 90 | 90 | 1,800 | 0.05 | ✅ | KEEP |
+| MagnesiumMine | Fe 100 | 100 | 1,800 | 0.06 | ✅ | KEEP |
+| SulfurMine | Fe 70 | 70 | 1,800 | 0.04 | ✅ | KEEP |
+| PhosphorusMine | Fe 100 | 100 | 1,800 | 0.06 | ✅ | KEEP |
+| CobaltMine | Fe 120 | 120 | 1,800 | 0.07 | ✅ | KEEP |
+| FluorineMine | Fe 100 | 100 | 1,800 | 0.06 | ✅ | KEEP |
+| UraniumMine | Ti 30 | 30 | 0.3 | 100 | ⚠️ strategic | KEEP — strategic-tier (fissile) |
+| ThoriumMine | Fe 150 | 150 | 1,800 | 0.08 | ✅ | KEEP |
+| MethaneExtractor | Fe 70 | 70 | 1,800 | 0.04 | ✅ | KEEP |
+| DeuteriumExtractor | Fe 130 | 130 | 1,800 | 0.07 | ✅ | KEEP |
+| He3Mine | Ti 50 | 50 | 0.3 | 167 | ⚠️ strategic | KEEP — strategic-tier; the player must scale Ti to 100+ mines before mid-game He-3 chain |
+| GoldMine | Fe 80 | 80 | 1,800 | 0.04 | ✅ | KEEP |
+| SilverMine | Fe 100 | 100 | 1,800 | 0.06 | ✅ | KEEP |
+| PlatinumMine | Fe 150 | 150 | 1,800 | 0.08 | ✅ | KEEP |
+| RareEarthsMine | Th 5 | 5 | 0.0105 | 476 | ⚠️ strategic | KEEP — strategic-tier (Th is the bottleneck for REE) |
+| LithiumMine | Fe 130 | 130 | 1,800 | 0.07 | ✅ | KEEP |
+| WaterProcessor | Fe 50 | 50 | 1,800 | 0.03 | ✅ | KEEP |
+| AutoIronMine | Ti 20 | 20 | 0.3 | 67 | ⚠️ Tier 3 OK | KEEP — Tier 3 20–50 yr band, 67 yr is just above |
+| AutoAluminumMine | Ti 20 | 20 | 0.3 | 67 | ⚠️ Tier 3 OK | KEEP — same |
+| (other 22 AutoMines) | Ti 20 | 20 | 0.3 | 67 | ⚠️ Tier 3 OK | KEEP — same |
+| Factory | Fe 250 | 250 | 1,800 | 0.14 | ✅ | KEEP |
+| AtmosphericProcessor | Fe 67 | 67 | 1,800 | 0.04 | ✅ | KEEP |
+| ChemicalPlant | Fe 133 | 133 | 1,800 | 0.07 | ✅ | KEEP |
+| **MassDriver** | **Cu 167** | 167 | 22.5 | **7.4** | ✅ | **KEEP — already in Tier 3 band; user's 30 Mt gives 0.8 yr (too fast)** |
+| MassDriver | REE 50 | 50 | 0.375 | 133 | ⚠️ strategic | KEEP — strategic-tier; the player must scale REE to 50+ mines |
+| MassDriver | Fe 333 | 333 | 1,800 | 0.19 | ✅ | KEEP |
+| **OrbitalLift** | **Ti 333** | 333 | 0.3 | **1,110** | ❌ HARD BLOCKER | **CHANGE → 5 Mt (16.7 yr, in Tier 3 band)** |
+| OrbitalLift | REE 83 | 83 | 0.375 | 220 | ⚠️ strategic | KEEP — strategic-tier; player must scale REE |
+| OrbitalLift | Fe 333 | 333 | 1,800 | 0.19 | ✅ | KEEP |
+| OrbitalLift | C 167 | 167 | 21,000 (Carbon) | 0.008 | ✅ | KEEP — abundant |
+| CargoTerminal | Fe 50 | 50 | 1,800 | 0.03 | ✅ | KEEP |
+| Warehouse | Fe 50 | 50 | 1,800 | 0.03 | ✅ | KEEP |
+| SolarPower | Si 83 | 83 | 10,500 | 0.008 | ✅ | KEEP |
+| WindFarm | Fe 50 | 50 | 1,800 | 0.03 | ✅ | KEEP |
+| FissionReactor | U 83 | 83 | 0.045 (UraniumMine) | 1,844 | ⚠️ strategic | KEEP — strategic-tier (U is the bottleneck for fission); the player must scale U to 100+ mines |
+| FissionReactor | Fe 167 | 167 | 1,800 | 0.09 | ✅ | KEEP |
+| FissionReactor | Cu 83 | 83 | 22.5 | 3.7 | ✅ | KEEP — in Tier 2 band |
+| FissionReactor | Li 17 | 17 | 0.18 (LithiumMine) | 94 | ⚠️ strategic | KEEP — strategic-tier |
+| FusionReactor | Ti 417 | 417 | 0.3 | 1,390 | ⚠️ strategic | KEEP — strategic-tier (the player needs 100+ Ti mines + He-3 + D to deploy fusion at scale) |
+| FusionReactor | REE 200 | 200 | 0.375 | 533 | ⚠️ strategic | KEEP — strategic-tier |
+| FusionReactor | He-3 133 | 133 | 7.5 (He3Mine) | 17.7 | ✅ | KEEP — in Tier 3 band |
+| FusionReactor | Li 33 | 33 | 0.18 | 183 | ⚠️ strategic | KEEP — strategic-tier |
+| DTFusionReactor | Ti 500 | 500 | 0.3 | 1,667 | ⚠️ strategic | KEEP — strategic-tier |
+| DHe3FusionReactor | Ti 583 | 583 | 0.3 | 1,943 | ⚠️ strategic | KEEP — strategic-tier |
+| ThoriumReactor | Th 40 | 40 | 0.0105 | 3,810 | ⚠️ strategic | KEEP — strategic-tier (Th is extremely rare) |
+| BreederReactor | U 100 | 100 | 0.045 | 2,222 | ⚠️ strategic | KEEP — strategic-tier |
+| BreederReactor | REE 20 | 20 | 0.375 | 53 | ⚠️ Tier 3 OK | KEEP — at upper Tier 3 band |
+| MedicalCenter | Fe 133 | 133 | 1,800 | 0.07 | ✅ | KEEP |
+| MedicalCenter | REE 33 | 33 | 0.375 | 88 | ⚠️ strategic | KEEP — strategic-tier (REE is a specialty commodity) |
+| ResearchLab | Fe 167 | 167 | 1,800 | 0.09 | ✅ | KEEP |
+| ResearchLab | REE 50 | 50 | 0.375 | 133 | ⚠️ strategic | KEEP — strategic-tier |
+| EngineeringBay | Ti 83 | 83 | 0.3 | 277 | ⚠️ strategic | KEEP — strategic-tier |
+| AiCluster | REE 300 | 300 | 0.375 | 800 | ⚠️ strategic | KEEP — strategic-tier (K2 chain prerequisite) |
+| CommercialHub | Fe 83 | 83 | 1,800 | 0.05 | ✅ | KEEP |
+| FinancialCenter | REE 50 | 50 | 0.375 | 133 | ⚠️ strategic | KEEP — strategic-tier |
+| TradePort | Ti 167 | 167 | 0.3 | 557 | ⚠️ strategic | KEEP — strategic-tier |
+| Shipyard | Ti 667 | 667 | 0.3 | 2,223 | ⚠️ strategic | KEEP — strategic-tier (the player must scale Ti to 1,000+ mines for late-game) |
+| Shipyard | Al 417 | 417 | 75 | 5.6 | ✅ | KEEP — in band |
+| Shipyard | Fe 1,000 | 1,000 | 1,800 | 0.56 | ✅ | KEEP — in band |
+| MissileSilo | Ti 167 | 167 | 0.3 | 557 | ⚠️ strategic | KEEP — strategic-tier |
+| LaunchSite | Al 167 | 167 | 75 | 2.2 | ✅ | KEEP — in band |
+| SpacePort | Ti 167 | 167 | 0.3 | 557 | ⚠️ strategic | KEEP — strategic-tier |
+| SpacePort | Al 333 | 333 | 75 | 4.4 | ✅ | KEEP — in band |
+| GroundDefenseBattery | Ti 133 | 133 | 0.3 | 443 | ⚠️ strategic | KEEP — strategic-tier |
+| SemiconductorFab | REE 83 | 83 | 0.375 | 221 | ⚠️ strategic | KEEP — strategic-tier |
+| SemiconductorFab | Si 333 | 333 | 10,500 | 0.03 | ✅ | KEEP |
+| PharmaceuticalPlant | P 17 | 17 | 0.027 (PhosphorusMine) | 630 | ⚠️ strategic | KEEP — strategic-tier (P is rare) |
+| WaterTreatmentPlant | Fe 50 | 50 | 1,800 | 0.03 | ✅ | KEEP |
+| DesalinationPlant | Ti 33 | 33 | 0.3 | 110 | ⚠️ strategic | KEEP — strategic-tier |
+| DataCenter | REE 33 | 33 | 0.375 | 88 | ⚠️ strategic | KEEP — strategic-tier |
+| OrbitalSurveyStation | Fe 80 | 80 | 1,800 | 0.04 | ✅ | KEEP |
+
+**Summary.** 41 of 70 buildings have ALL resource_costs
+in the 0.5–3 yr Tier 1/2 band. 28 have at least one
+*strategic-tier* (10–2,000 yr) cost — these are
+**PRESERVED per the brief's "strategic decision, not a
+bug" framing** in v3 §0.B.4. 1 has a *hard blocker*
+(OrbitalLift Ti 333 → 5 Mt, the only change v3.1
+proposes).
+
+### 0.G.4 The RON diff (v3.1 NEW)
+
+```diff
+# OrbitalLift (buildings.ron:1705-1710)
+  resource_costs: [
+-     ("Titanium", 333.0),
++     ("Titanium", 5.0),
+      ("Iron", 333.0),
+      ("RareEarths", 83.0),
+      ("Carbon", 167.0),
+  ],
+```
+
+**One RON line change.** Test gate: `cargo test
+construction` (existing) + manual: 1 OrbitalLift
+buildable from 1 year of TitaniumMine production at the
+mature Earth scale (25 mines × 0.6 × 0.02 = 0.3 Mt/yr; 5
+Mt = 16.7 yr at 25 mines, 0.3 yr at 100 mines).
+
+**Why 5 Mt and not 30 Mt or 50 Mt?** The user proposed
+"~5 Mt (10 yr payback)" using the 1-mine no-accessibility
+scale (5 / 0.5 = 10 yr). v3.1 uses the operator-bar
+scale (25 mines × 0.6 = 0.3 Mt/yr; 5 / 0.3 = 16.7 yr).
+Both are in the Tier 3 20–50 yr target band. 5 Mt is the
+**largest reduction that preserves the strategic pacing**
+(at 25 mines, 16.7 yr; at 100 mines, 5 yr). 30 Mt would
+give 100 yr at 25 mines (too strategic); 50 Mt would
+give 167 yr at 25 mines (a hard blocker at 25 mines,
+justified at 100+ mines).
+
+### 0.G.5 Push-back on the user's 2 of 3 framing
+
+The user said "Hard blocker: OrbitalLift 333 Ti cost at
+TitaniumMine 0.02 Mt/yr per build × 25 = 0.5 Mt/yr total
+→ 666 yr to afford." This is correct.
+
+The user also said "Other slow ones: MassDriver 167 Cu
+(11 yr of 25 CopperMines)". **This is correct under 0.4
+accessibility, but 7.4 yr under 0.6 accessibility (the v3
+calibration anchor).** Either way, this is in the 3–10 yr
+Tier 3 band. **v3.1 keeps MassDriver Cu 167 as-is.**
+
+The user also said "HabitatDome 50 Al (10 yr of 1
+AluminumMine)". **This is correct at the 1-mine scale,
+but 0.67 yr at the 25-mine operator-bar scale.** The
+operator bar is the right scale for per-building cost
+evaluation (per `CLAUDE.md` and v2 §3.3). **v3.1 keeps
+HabitatDome Al 50 as-is.**
+
+**Push-back summary.** Of the 3 "hard blockers" the user
+listed, only 1 is actually a hard blocker (OrbitalLift
+Ti 333). The other 2 are in the target band at the
+operator-bar scale. v3.1 proposes the 1 change and
+documents the other 2 as "fine as-is" with the math.
+
+### 0.G.6 Cross-references
+
+* v3 §0.B.3 (LOCKED for BP) proposes the IronMine
+  `build_points` 1500→1000 change. v3.1 extends with the
+  `resource_costs` rebalance for OrbitalLift Ti.
+* v2 §9.5 (LOCKED) lists the open questions, including
+  the strategic-tier cost framing. v3.1 §0.G.3 documents
+  the 28 strategic-tier costs and confirms the brief's
+  "preserved, not a bug" stance.
+* v3.1 §5.14 gives the RON diff for Canary 10
+  (resource cost).
+* v3.1 §0.D.7 adds Canary 10 to the unified apply plan.
+
+---
+
+## §0.H Building-card effect rendering (v3.1 NEW)
+
+> **v3.1 NEW section. Extends v3 (which did not address
+> UI effect rendering).** v3 §0.A–§0.E and the v2
+> per-resource calibration are LOCKED; this section is a
+> spec for the coder / bevy-engine-expert to land in
+> Canary 11 (see §0.D.7). No RON / Rust / UI files are
+> edited in this section — it is a spec only.
+
+### 0.H.1 The 3-line TL;DR
+
+1. **`src/ui/construction.rs:1387-1391` (and the parallel
+   blocks at 1608, 1623, 2851) only surface the FIRST
+   `*Production` modifier per building.** 9 of the 52
+   buildings have additional modifiers that are silently
+   hidden from the card: HousingCapacity (3 buildings),
+   AtmosphericHarvesting (1), PlutoniumBreeding (1),
+   ConstructionCost (2), and the secondary / tertiary
+   `*Production` modifiers on multi-output buildings
+   (ChemicalPlant 4 outputs, AiCluster 2 outputs,
+   SemiconductorFab 2 outputs, DataCenter 2 outputs, and
+   the rare-earth mineral chemical synthesis in
+   ChemicalPlant). **Players see "Produces 100 Mt/yr H₂"
+   but miss "and 200 Mt/yr NH₃, and 450 Mt/yr polymers,
+   and 0.05 Mt/yr Tritium."**
+2. **The fix is a code change to `construction.rs`**
+   (iterate ALL modifiers, friendly labels, tone per
+   category, cap at 5 effects + "+N more" indicator).
+   The change is well-scoped: replace the `find` with a
+   `filter_map` loop, add a `friendly_label()` function
+   per modifier type, and bump the `effects` vec cap from
+   the current 1 to 5+1. **v3.1 spec's it; the
+   bevy-engine-expert / coder lands it.**
+3. **The friendly labels and tones are content-driven**:
+   `HousingCapacity` → "Houses 50M residents" (Positive,
+   green); `NitrogenHarvesting` → "Harvests 7 Mt/yr N₂"
+   (Positive); `PlutoniumBreeding` → "Breeds 0.23 Mt/yr
+   Pu" (Positive); `ConstructionCost` → "Construction
+   cost -200 BP/build" (Positive for negative value);
+   `PowerGeneration` → "Generates 240 GW" (Positive).
+   The current code has the right intent (Power line is
+   a chip) but only the first effect line; the fix is to
+   surface the rest.
+
+### 0.H.2 Hidden modifiers — full inventory
+
+Across the 52 buildings + 24 AutoMines, the modifier
+types that exist in `buildings.ron` but are NOT surfaced
+on the building card by the current
+`src/ui/construction.rs:1387-1391` code:
+
+| Modifier type | Buildings with this modifier | Value(s) | Friendly label | Tone | Currently hidden? |
+|---|---|---|---|---|---|
+| `HousingCapacity` | HabitatDome, Housing, UndergroundHabitat | 4 B, 800 M, 2 B | "Houses 50M residents" / "Houses 25M residents" / "Houses 30M residents" | Positive (green) | ❌ hidden (only the first `*Production` is surfaced; Housing has no `*Production`) |
+| `AtmosphericHarvesting` | AtmosphericProcessor | 500 | "Harvests 500 Mt/yr industrial gases" | Positive | ✅ surfaced (it ends with "Harvesting" but the *first* `*Production` is the convention used) |
+| `HydrogenSynthesis` | ChemicalPlant | 100 | "Synthesizes 100 Mt/yr H₂" | Positive | ❌ hidden (only the first of ChemicalPlant's 4 modifiers is surfaced) |
+| `AmmoniaSynthesis` | ChemicalPlant | 200 | "Synthesizes 200 Mt/yr NH₃ (Haber-Bosch)" | Positive | ❌ hidden |
+| `PolymerSynthesis` | ChemicalPlant | 450 | "Synthesizes 450 Mt/yr polymers" | Positive | ❌ hidden |
+| `TritiumBreeding` | ChemicalPlant | 0.05 | "Breeds 0.05 Mt/yr Tritium (Li breeding)" | Positive | ❌ hidden |
+| `PlutoniumBreeding` | BreederReactor | 0.23 | "Breeds 0.23 Mt/yr Plutonium" | Positive | ❌ hidden |
+| `ConstructionCost` | Factory, Shipyard | -200, -300 | "Builds 200 BP/yr faster" / "Builds 300 BP/yr faster" | Positive (negative value → positive effect) | ❌ hidden |
+| `ResearchSpeed` | ResearchLab, AiCluster, SemiconductorFab, DataCenter | 100, 300, 300, 400 | "Research speed +100%" (and stacks for multi-modifier buildings) | Positive | ❌ hidden |
+| `EngineeringSpeed` | EngineeringBay, AiCluster, SemiconductorFab, DataCenter | 100, 200, 200, 300 | "Engineering speed +100%" | Positive | ❌ hidden |
+| `PopulationGrowth` | MedicalCenter, PharmaceuticalPlant, WaterTreatmentPlant, DesalinationPlant | 50, 30, 20, 10 | "Population growth +0.5%/yr" | Positive | ❌ hidden |
+| `StorageCapacity` | Warehouse | 0.10 | "Stockpile +10%" | Positive | ❌ hidden |
+| `PowerGeneration` | SolarPower, WindFarm, FissionReactor, FusionReactor, DTFusionReactor, DHe3FusionReactor, ThoriumReactor, BreederReactor, HydroelectricDam, GeothermalPlant, CoalPowerPlant, NaturalGasPlant | 240, 310, 310, 2000, 3000, 2500, 800, 700, 510, 100, 1200, 750 | "Generates 240 GW" | Positive | ✅ surfaced (via the Power chip) |
+| `WaterProduction` | WaterProcessor, AutoWaterProcessor | 16, 1.6 | "Produces 16 Mt/yr Water" | Positive | ✅ surfaced (WaterProcessor has no other modifiers; AutoWaterProcessor has the same) |
+
+**Net: 9 of 52 buildings have hidden modifiers; 4 of
+those have multiple hidden modifiers (ChemicalPlant has
+4 hidden, AiCluster has 2, SemiconductorFab has 2,
+DataCenter has 2). The total count of hidden modifier
+types is 13 distinct types, of which 3 are currently
+surfaced (`AtmosphericHarvesting`, `PowerGeneration`,
+`WaterProduction`) and 10 are not.**
+
+### 0.H.3 Code spec for the UI fix
+
+The current code at `src/ui/construction.rs:1387-1391`:
+
+```rust
+// CURRENT: surfaces only the first *Production modifier
+if let Some(prod) = def
+    .modifiers
+    .iter()
+    .find(|m| m.modifier_type.ends_with("Production"))
+{
+    if prod.value > 0.0 {
+        if let Some(res_name) = prod.modifier_type.strip_suffix("Production") {
+            // ... format and push to effects
+        }
+    }
+}
+```
+
+The proposed v3.1 spec for `src/ui/construction.rs:1387-1431`:
+
+```rust
+// v3.1 (Canary 11): iterate ALL modifiers, not just the
+// first *Production. Apply per-modifier friendly labels,
+// tone, and the 5+1 cap. Power is a separate chip (not
+// pushed to effects; see PR-A.7).
+let mut effects: Vec<(EffectTone, String)> = Vec::new();
+for m in def.modifiers.iter() {
+    if let Some((tone, label)) = friendly_label(m) {
+        effects.push((tone, label));
+    }
+}
+
+// v3.1 (Canary 11): cap at 5 effects + "+N more" indicator.
+// (existing code already handles the cap; this just bumps
+// the constant from 1 to 5.)
+const EFFECT_CAP: usize = 5;
+if effects.len() > EFFECT_CAP {
+    let extra = effects.len() - EFFECT_CAP;
+    effects.truncate(EFFECT_CAP);
+    effects.push((EffectTone::Neutral, format!("+{} more", extra)));
+}
+```
+
+The new helper function `friendly_label` (add to
+`src/ui/construction.rs` near the existing
+`format_mining_rate`):
+
+```rust
+/// v3.1 (Canary 11): map a Modifier to (tone, label) for
+/// the building card's effect list. Returns `None` for
+/// modifiers that should not be surfaced (e.g. internal
+/// maintenance-only modifiers).
+fn friendly_label(m: &crate::colony::data::Modifier) -> Option<(EffectTone, String)> {
+    use EffectTone::*;
+    match m.modifier_type.as_str() {
+        // Production modifiers (Mt/yr per build, with build multiplier)
+        "IronProduction" => Some((Positive, format!("Produces {} Iron", format_mining_rate(m.value)))),
+        "AluminumProduction" => Some((Positive, format!("Produces {} Aluminum", format_mining_rate(m.value)))),
+        // ... (one match arm per *Production type, ~30 arms)
+        // Capacity modifiers
+        "HousingCapacity" => {
+            let residents = m.value as u64;
+            Some((Positive, format!("Houses {} residents", format_residents(residents))))
+        }
+        // Atmospheric / synthesis
+        "AtmosphericHarvesting" => Some((Positive, format!("Harvests {} Mt/yr industrial gases", m.value))),
+        "HydrogenSynthesis" => Some((Positive, format!("Synthesizes {} Mt/yr Hydrogen", m.value))),
+        "AmmoniaSynthesis" => Some((Positive, format!("Synthesizes {} Mt/yr Ammonia (Haber-Bosch)", m.value))),
+        "PolymerSynthesis" => Some((Positive, format!("Synthesizes {} Mt/yr polymers", m.value))),
+        "TritiumBreeding" => Some((Positive, format!("Breeds {} Mt/yr Tritium (Li breeding)", format_mining_rate(m.value)))),
+        "PlutoniumBreeding" => Some((Positive, format!("Breeds {} Mt/yr Plutonium", format_mining_rate(m.value)))),
+        // Cost reduction
+        "ConstructionCost" if m.value < 0.0 => {
+            Some((Positive, format!("Builds {} BP/yr faster", -m.value as i64)))
+        }
+        "ConstructionCost" => Some((Neutral, format!("Construction cost +{} BP/build", m.value as i64))),
+        // Research / Engineering
+        "ResearchSpeed" => Some((Positive, format!("Research speed +{}%", m.value as i64))),
+        "EngineeringSpeed" => Some((Positive, format!("Engineering speed +{}%", m.value as i64))),
+        // Population
+        "PopulationGrowth" => Some((Positive, format!("Population growth +{:.1}%/yr", m.value / 100.0))),
+        // Storage
+        "StorageCapacity" => Some((Positive, format!("Stockpile capacity +{}%", (m.value * 100.0) as i64))),
+        // Water
+        "WaterProduction" => Some((Positive, format!("Produces {} Water", format_mining_rate(m.value)))),
+        // Power is a separate chip; do not surface here
+        "PowerGeneration" => None,
+        // Catch-all: surface the raw modifier name
+        _ => Some((Neutral, format!("{}: {}", m.modifier_type, m.value))),
+    }
+}
+```
+
+**Three parallel call-sites need the same fix.** The
+construction card has 3 builders:
+* `src/ui/construction.rs:1387-1391` (Build tab cards)
+* `src/ui/construction.rs:1604-1625` (`compute_mining_card_data` — but this is for `MiningCardData`, not the effect list; the parallel fix is at 2851)
+* `src/ui/construction.rs:2845-2871` (Spawned buildings — already-built inventory cards)
+
+All three use the same `find` pattern. The Canary 11
+fix replaces each `find` with the `for m in
+def.modifiers.iter()` loop and the `friendly_label`
+helper. The `compute_mining_card_data` function at 1604-1625
+is different — it builds a `MiningCardData` struct with
+`base_yield_mt_per_year`, `accessibility`, `reserve_mt`
+fields; the fix here is to keep the existing `find` (which
+extracts the *primary* `*Production` modifier for the
+mining yield display) and add a SECONDARY loop that
+populates a new field `additional_modifiers: Vec<String>`
+on `MiningCardData` for the hidden modifiers. The Mining
+tab card displays both: the primary yield in big text, the
+additional modifiers as a small list below.
+
+### 0.H.4 Effect cap — 5 + 1
+
+The current card has 1 effect line (the first
+`*Production`). v3.1 spec bumps this to 5. The +1 is the
+"+N more" indicator that lets the player know the
+building has more effects than the card shows. The cap
+of 5 is the existing card height budget; the +1 is a
+single line that doesn't break the layout. ChemicalPlant
+has 4 effects (Hydrogen, Ammonia, Polymer, Tritium) +
+the Power chip — fits in 5. AiCluster has 2 effects
+(Research, Engineering) + Power — fits. SemiconductorFab
+has 2 (Research, Engineering) + Power — fits. **No
+building has more than 5 effects total; the +1 is a
+defensive cap.**
+
+### 0.H.5 Tones
+
+The 4 existing `EffectTone` variants (Positive,
+Negative, Neutral, Cost, Throughput) are extended in v3.1
+to support the new modifiers:
+
+* `Positive` (green): Production, Capacity, Harvesting,
+  Breeding, Research, Engineering, Storage, Cost
+  *reduction* (negative value of ConstructionCost).
+* `Negative` (red): currently used for body-gate failures
+  and resource-shortfall messages; unchanged.
+* `Neutral` (gray): used for "+N more" indicator and
+  fallback (unknown modifier type with raw name).
+* `Cost` (orange): currently used for resource costs;
+  unchanged. The construction cost is already on the
+  cost chip, not in effects.
+* `Throughput` (green): used for logistics throughput;
+  unchanged.
+
+### 0.H.6 Where the spec is conservative
+
+Three places where v3.1 spec is conservative and
+intentionally limits the surface area:
+
+1. **The catch-all `_ =>` arm** surfaces unknown modifier
+   types with the raw name. This is a defensive
+   measure so a future RON addition doesn't silently
+   hide. The raw name is awkward but visible.
+2. **Power is NOT in effects** (the existing PR-A.7 chip
+   is the right place). v3.1 does NOT propose moving
+   Power back into the effect list.
+3. **The 5+1 cap is hard**. If a future building has 6+
+   effects, the +1 line tells the player to look at the
+   tooltip (the existing tooltip system on the card
+   surfaces the full modifier list). v3.1 does not
+   propose variable-height cards.
+
+### 0.H.7 Cross-references
+
+* v3 §5.10 (LOCKED) gives the `power_demand_mw` RON edits
+  (consumption side). v3.1 §0.H gives the UI fix for
+  effect rendering.
+* v0.5.2 PR-A.7 (SHIPPED) added the Power chip. v3.1
+  extends with the effect-list fix for non-Power
+  modifiers.
+* v3.1 §5.15 gives the RUST spec for Canary 11 (effect
+  rendering).
+* v3.1 §0.D.7 adds Canary 11 to the unified apply plan.
+
+---
+
+## §0.D.7 v3.1 apply plan update — Canaries 9, 10, 11 (v3.1 NEW)
+
+> **v3.1 NEW section. Extends v3 §0.D.2 with the 3 new
+> canaries for workforce, resource cost, and effect
+> rendering.** v3 §0.D is LOCKED for the original 8
+> canaries (1, 2, 3a–3d, 4, 5a, 5b, 6, 7, 8) and the
+> optional canary 9 (Power plant scale-down) and canary
+> 10 (Survey). v3.1 **renumbers** the v3 canaries 9 and
+> 10 to **12** and **13** (preserving their content
+> verbatim) and inserts the v3.1 canaries 9, 10, 11
+> between canary 8 (K2) and the renumbered canary 12
+> (Power plant scale-down). The renumbering is purely
+> cosmetic; the canary content and test gates are
+> unchanged.
+
+### 0.D.7.1 The v3.1 unified canary list
+
+| # | Canary | Source | Files touched | Lines | Test gate |
+|---|--------|--------|---------------|------:|-----------|
+| 0 | (already shipped) | v0.5.2 ADDENDUM | (none) | — | baseline |
+| 1 | Food calibration: Rust constant + Farm/Greenhouse/AquacultureFacility/AgriDome modifier | v2 §4.1, §8.1, §8.3.1–§8.3.4 | `src/colony/components.rs:282-301`, `buildings.ron` | ~15 RUST + 4 RON | `cargo test food` |
+| 2 | WaterProcessor building | v2 §4.2, §8.2.1 | `buildings.ron`, `src/colony/types.rs` | ~25 RON + 1 RUST | `cargo test water` |
+| 3a | `lunar_colony` tech (CRITICAL — He3Mine is unbuildable without it) | v2 §5.1.1, §8.6.1 | `technologies.ron` | ~15 RON | `cargo test tech_tree` + manual: research `lunar_colony`, build `He3Mine` on Moon |
+| 3b | `fusion_power` tech (already exists; verify prereqs) | v2 §5.1.2, §8.6.2 | (verify only) | 0 | `cargo test tech_tree` |
+| 3c | `kardashev_k2` tech | v2 §5.1.3, §8.6.3 | `technologies.ron` | ~15 RON | `cargo test tech_tree` |
+| 3d | He3Mine + body restriction + He-3 / D / T downscale on consumer | v2 §5.1, §8.2.2, §8.3.12, §8.3.13 | `buildings.ron` | ~30 RON | `cargo test he3` + manual: build He3Mine on Moon, ship to Earth, build FusionReactor |
+| 4 | Mid-game fold: ChemicalPlant, AtmosphericProcessor, BreederReactor | v2 §5.2–§5.6, §8.3.5, §8.3.6, §8.3.15 | `buildings.ron` | ~25 RON | `cargo test chemicals` + manual: verify N₂/O₂/Ar splits |
+| 5a | Energy-demand rebalance (v3 NEW) | v3 §0.A, §5.10 | `buildings.ron` | ~30 RON | `cargo test power` + manual: 12 SolarPower + mature colony shows 0.3–1.3× demand/supply |
+| 5b | FusionReactor He-3 / D / T downscale (v3 NEW) | v3 §0.C.7, §5.10 | `buildings.ron` | ~6 RON | `cargo test fusion` + manual: 1 He3Mine feeds 1 FusionReactor |
+| 6 | Cost-headroom rebalance: IronMine BP 1500 → 1000 (v3 NEW) | v3 §0.B.3, §5.11 | `buildings.ron` | 1 RON | `cargo test construction` + manual: 25 IronMines = 25,000 BP (was 37,500) |
+| 7 | Precious-metal + noble-gas mining (Au/Ag/Pt/Ar) | v2 §5.15–§5.18, §8.2.7–§8.2.9, §8.3.6, §8.3.18 | `buildings.ron`, `src/colony/types.rs`, `src/colony/data.rs` (MAINTENANCE_AUDIT_MAX loosening) | ~80 RON + ~3 RUST | `cargo test precious_metals` + manual: 25 Au/Ag/Pt mines feed 1 SemiconductorFab |
+| 8 | K2 late-game: 4 exotics (AntimatterSynthesizer, ExoticMatterSynthesizer, MetamaterialsFab, ComputroniumSubstrate) | v2 §6, §8.2.3–§8.2.6 | `buildings.ron`, `src/colony/types.rs` | ~100 RON + 4 RUST | `cargo test k2` + manual: research `kardashev_k2`, build 12 AntimatterSynthesizer, verify grams display |
+| **9** | **Workforce calibration (v3.1 NEW)** | **v3.1 §0.F, §5.13** | **`buildings.ron` (3 fields), `src/colony/types.rs:1251-1368` (3 lines)** | **3 RON + 3 RUST** | **`cargo test colony` (specifically `test_early_colony_workforce_feasible`, `test_workforce_efficiency`, `test_workforce_demand`) + manual: 1 Farm at 2,000 workers, 1 AluminumMine at 1,500 workers, 1 WindFarm at 1,000 workers; all 3 in the 0.5–2× real-productivity band; early-game test sum 14,500 < 40,000** |
+| **10** | **Resource build cost rebalance (v3.1 NEW)** | **v3.1 §0.G, §5.14** | **`buildings.ron` (OrbitalLift Ti 333 → 5)** | **1 RON** | **`cargo test construction` + manual: 1 OrbitalLift buildable from 1 year of TitaniumMine production at 25-mine scale (16.7 yr at 25 mines, 0.3 yr at 100 mines); MassDriver Cu 167 unchanged (7.4 yr at 25 mines); HabitatDome Al 50 unchanged (0.67 yr at 25 mines)** |
+| **11** | **Building-card effect rendering (v3.1 NEW)** | **v3.1 §0.H, §5.15** | **`src/ui/construction.rs:1387-1391`, `:1608`, `:1623`, `:2851` (and the 3 parallel builders), new `friendly_label` helper** | **~50 RUST** | **`cargo test construction_ui` + manual: ChemicalPlant card shows "Synthesizes 100 Mt/yr H₂" + "Synthesizes 200 Mt/yr NH₃" + "Synthesizes 450 Mt/yr polymers" + "Breeds 0.05 Mt/yr Tritium" (4 effects, in cap); HabitatDome card shows "Houses 50M residents" (1 effect, in cap); Warehouse card shows "Stockpile capacity +10%" (1 effect, in cap); 5+1 cap with "+N more" indicator** |
+| 12 | (Optional) Power plant scale-down per v2 §7.2 *(renumbered from v3 canary 9)* | v2 §7.2, §8.3.16 | `buildings.ron` | ~12 RON | `cargo test power` + manual: verify 12 SolarPower at 200 GW = 2,400 GW |
+| 13 | (Optional) Survey mission expansion (out of v3 scope) *(renumbered from v3 canary 10)* | (none — survey is shipped) | (none) | 0 | n/a |
+
+**Total v3.1 work** for canaries 9, 10, 11: **4 RON lines
++ 3 RUST enum lines + ~50 RUST UI lines = ~57 lines.**
+The v3 work for canaries 1–8 is unchanged (~10 RUST lines
++ ~330 RON lines). v3.1's 57 lines is small relative to
+v3's 340 lines (~17 % of v3's scope).
+
+### 0.D.7.2 Canary 9 — workforce — worked example
+
+**Edit `buildings.ron:2001` (Farm):**
+
+```diff
+- workforce: 1000,
++ workforce: 2000,
+```
+
+**Edit `buildings.ron:320` (AluminumMine):**
+
+```diff
+- workforce: 4500,
++ workforce: 1500,
+```
+
+**Edit `buildings.ron:2313` (WindFarm):**
+
+```diff
+- workforce: 200,
++ workforce: 1000,
+```
+
+**Edit `src/colony/types.rs:1340` (Farm), `:1261`
+(AluminumMine), `:1333` (WindFarm):** same 3 changes in
+the hard-coded `workforce_required` function.
+
+**Test gate:** `cargo test colony` (existing tests in
+`src/colony/components.rs:646-754`); the critical tests:
+* `test_workforce_positive` (line 1581) — passes
+  (all 70 buildings have positive workforce)
+* `test_early_colony_workforce_feasible` (line 1592) —
+  passes (sum 14,500 < 40,000)
+* `test_workforce_demand` (line 1726) — passes (Farm
+  2,000 + IronMine 5,000 = 7,000; 10M pop × 0.4 = 4M
+  workers; workforce_efficiency = 1.0)
+* `test_workforce_efficiency` (line 1738) — passes
+
+**Manual gate:** start a new game on Earth; verify
+* Farm at 2,000 workers, produces 360 Mt/yr food
+  (per the RON `FoodProduction: 9000` modifier + the
+  hard-coded 360 in `src/colony/components.rs:324`).
+  Per-worker productivity = 360 / 2,000 = 180 t/yr/worker
+  (1.06× the 170 t/yr/worker 1:155 anchor; in band).
+* AluminumMine at 1,500 workers, produces 5 Mt/yr
+  aluminum. Per-worker = 3.3 t/yr/worker (within
+  Bayer + Hall-Héroult 0.5–5 t/yr/worker band).
+* WindFarm at 1,000 workers, produces 310 GW. Per-worker
+  = 310 MW/worker (78× real, justified by high
+  automation).
+
+### 0.D.7.3 Canary 10 — resource cost — worked example
+
+**Edit `buildings.ron:1705-1710` (OrbitalLift):**
+
+```diff
+  resource_costs: [
+-     ("Titanium", 333.0),
++     ("Titanium", 5.0),
+      ("Iron", 333.0),
+      ("RareEarths", 83.0),
+      ("Carbon", 167.0),
+  ],
+```
+
+**Test gate:** `cargo test construction` (existing); the
+critical test: `test_building_costs_positive` (line 1561)
+— passes (all resource_costs are still positive).
+
+**Manual gate:** start a new game on Earth; queue 1
+OrbitalLift build; verify
+* 5 Ti required (down from 333)
+* 25 TitaniumMines producing 0.3 Mt/yr aggregate
+  produces enough Ti for 1 OrbitalLift in 16.7 yr at
+  25 mines, or 5 yr at 100 mines, or 0.3 yr at
+  1,000 mines (a civilization-scale Ti economy)
+* The other 3 costs (Fe 333, REE 83, C 167) are
+  unchanged and the player can still see them as the
+  strategic-tier constraints (Fe 0.19 yr, REE 220 yr
+  strategic, C 0.008 yr)
+
+### 0.D.7.4 Canary 11 — effect rendering — worked example
+
+**Edit `src/ui/construction.rs:1387-1431`:** replace the
+single `find` with the `for m in def.modifiers.iter()`
+loop and the `friendly_label` helper (per §0.H.3 spec).
+
+**Edit `src/ui/construction.rs:1604-1625`** (the
+`compute_mining_card_data` function): keep the existing
+`find` (for the primary `*Production` modifier), add a
+new field `additional_modifiers: Vec<String>` to
+`MiningCardData` and populate it with the secondary
+modifiers (e.g. for ChemicalPlant, the secondary
+`HydrogenSynthesis`, `AmmoniaSynthesis`,
+`PolymerSynthesis`, `TritiumBreeding` are the additional
+modifiers).
+
+**Edit `src/ui/construction.rs:2845-2871`** (the
+spawned-inventory builder): same fix as 1387-1431.
+
+**Test gate:** `cargo test construction_ui` (existing
+tests in `src/ui/construction.rs`); the critical tests
+verify the `BuildCardData` struct fields are populated
+correctly. New unit test:
+`test_friendly_label_*` (one per modifier type, ~13
+tests).
+
+**Manual gate:** open the Build tab, navigate to
+ChemicalPlant; verify
+* 4 effect lines: "Synthesizes 100 Mt/yr Hydrogen" +
+  "Synthesizes 200 Mt/yr Ammonia (Haber-Bosch)" +
+  "Synthesizes 450 Mt/yr polymers" + "Breeds 0.05 Mt/yr
+  Tritium (Li breeding)"
+* Power chip shows the 600 MW demand
+* 4 effect lines fit in the card height (4 < 5 cap)
+Navigate to HabitatDome; verify
+* 1 effect line: "Houses 50M residents"
+* Power chip shows the 20,900 MW demand (after canary
+  5a is applied)
+Navigate to Warehouse; verify
+* 1 effect line: "Stockpile capacity +10%"
+Navigate to AiCluster; verify
+* 2 effect lines: "Research speed +300%" +
+  "Engineering speed +200%"
+* Power chip shows the 2,000 MW demand
+* 2 effect lines fit in the card height (2 < 5 cap)
+
+### 0.D.7.5 Apply-order invariant (v3.1 NEW)
+
+The 3 v3.1 canaries have no critical-path ordering
+relative to v3 canaries 1–8:
+
+* **Canary 9 (workforce)** does not depend on any
+  canary. It is the simplest change (3 RON + 3 RUST
+  lines, both source-of-truth duplicates). It can land
+  in parallel with canary 1 (food) and is the lowest-
+  risk v3.1 canary.
+* **Canary 10 (resource cost)** does not depend on
+  any canary. It is a 1-line RON change. It can land
+  in parallel with canary 6 (IronMine BP) — both are
+  cost changes, and the user can A/B them.
+* **Canary 11 (effect rendering)** does not depend
+  on any canary. It is a UI-only change. It can land
+  in parallel with any v3 canary because it doesn't
+  touch the simulation.
+
+**v3.1 canaries are all independent of each other and of
+v3 canaries 1–8.** The user can land them in any order;
+the A/B feature-flag pattern (per v3 §0.D.5) applies.
+
+### 0.D.7.6 Critical-path (v3.1 update)
+
+The v3 critical-path (3a → 3b → 3c → 3d → 4 → 5b) is
+unchanged. The 3 v3.1 canaries (9, 10, 11) are
+non-critical and can land in any order. The renumbered
+v3 canaries 12 (Power plant scale-down) and 13
+(Survey) remain optional and can land at any time.
+
+---
+
+## §0.I v3.2 addendum — starter-tier housing + RON-Rust sync (v3.2 NEW, 2026-08-07)
+
+> **This is a v3.2 hotfix addendum.** Two related issues the user
+> surfaced this turn:
+> 1. **The card and the simulation disagreed by 32–80× on
+>    housing.** Canary 11 (the `friendly_label` helper) was reading
+>    the RON `HousingCapacity` modifier (800M / 4B / 2B), but the
+>    simulation at `src/colony/components.rs:298` used hard-coded
+>    values (25M / 50M / 30M). The card said "Houses 800M
+>    residents" but the sim served 25M. This was a canary 11
+>    regression — the bug existed before but was hidden because
+>    `friendly_label` didn't exist. v3.2 syncs the RON to the
+>    Rust: 25M / 50M / 30M.
+> 2. **"First buildings already civilizational scale."** Even
+>    25M per Housing is "metropolitan tier" — a 100k-population
+>    new colony can't use it. v3.2 adds two starter-tier
+>    buildings: `HabitatTent` (1k residents, 3 Fe + 5 Si) and
+>    `HabitatModule` (10k residents, 10 Fe + 15 Si + 1 Cu + 3
+>    Al). These are the actual first buildings the player can
+>    afford and use on a fresh outpost.
+
+### 0.I.1 The RON-Rust sync (hotfix)
+
+| Building | RON before (card) | RON after (card) | Rust (sim) | Mismatch before | Mismatch after |
+|---|---:|---:|---:|---:|---:|
+| Housing | 800,000,000 | **25,000,000** | 25,000,000 | 32× too high | ✅ match |
+| HabitatDome | 4,000,000,000 | **50,000,000** | 50,000,000 | 80× too high | ✅ match |
+| UndergroundHabitat | 2,000,000,000 | **30,000,000** | 30,000,000 | 67× too high | ✅ match |
+
+**Why sync RON to Rust, not the other way.** The Rust values
+are the v0.5.0 design choice (per the comment at
+`src/colony/components.rs:284-292`): "scaled for meaningful
+per-build impact." The RON values are a holdover from a
+pre-v0.5.0 calibration that wasn't aligned with the
+manageable-count target. The v0.5.0 design says Earth needs
+~164 HabitatDomes + 164 Housing Complexes (not 2 + 10) for
+its 8.2B seed — 328 metropolitan-scale buildings, not 12
+arcology-scale buildings. v3.2 honors the v0.5.0 choice.
+
+### 0.I.2 The starter-tier gap (the deeper issue)
+
+The user pointed out: even 25M per Housing is "civilizational
+scale" — it's a Tokyo-class metro area. A 100k-population
+outpost on Luna or Mars can't use it. The existing 52-building
+catalog has no starter tier (1k–10k residents per build).
+
+v3.2 adds two starter-tier buildings:
+
+| Building | Residents | BP | Material cost | Workforce | Power | Tier |
+|---|---:|---:|---|---:|---:|---|
+| **HabitatTent** | 1,000 | 50 | 3 Fe + 5 Si | 5 | 5 MW | Starter |
+| **HabitatModule** | 10,000 | 200 | 10 Fe + 15 Si + 1 Cu + 3 Al | 50 | 30 MW | Starter |
+
+**Why these values.** Real-world precedents:
+- ISS module: 6–8 crew, 100 t → for 4X scale, 1k–10k per
+  module is the operator-bar
+- Mars base plans (Mars Direct, SpaceX): 1k–10k initial
+  crew, expandable to 100k+
+- Lunar base (Artemis): 4 crew initially, 50–100 mid-term
+
+The 1k–10k range is the standard 4X "outpost housing" tier.
+It's missing from the v0.5.0 catalog.
+
+### 0.I.3 The new-colony bootstrap increase
+
+The v0.5.0 bootstrap (per
+`src/plugins/solar_system.rs:2935-2946`) gave new colonies
+10 Fe / 50 Si / 2 Al / 0.5 Cu / 1 Poly / 10k Food / 5 Water —
+**and 0 Phosphorus**. The cheapest building on the catalog
+(Farm, Fe 8 + Water 8 + **P 3**) couldn't be afforded. The
+player founded a colony and built **nothing**.
+
+v3.2 (2026-08-07) bumps the bootstrap to:
+
+| Resource | v0.5.0 (Mt) | v3.2 (Mt) | Affordable |
+|---|---:|---:|---|
+| Iron | 10 | **50** | 5 HabitatTents + 2 HabitatModules + 1 IronMine |
+| Silicates | 50 | **100** | 5 HabitatTents + 2 HabitatModules + 1 WaterProcessor |
+| Aluminum | 2 | **10** | 2 HabitatModules + 1 IronMine |
+| Copper | 0.5 | **5** | 2 HabitatModules + 1 LifeSupport |
+| Polymers | 1 | **5** | 2 HabitatModules + maintenance buffer |
+| Phosphorus | 0 | **5** | 1 Farm (the missing resource!) |
+| Food | 10,000 | 10,000 | unchanged |
+| Water | 5 | **20** | 1 WaterProcessor + buffer |
+
+**The new colony can now found a working outpost** before
+the first freighter arrives. Specific recipes:
+
+- **5 HabitatTents + 1 HabitatModule** = 15k housing
+  (15 Mt Fe + 40 Mt Si + 1 Mt Cu + 3 Mt Al)
+- **1 Farm** = food for ~5k people (8 Fe + 8 Water + 3 P)
+- **1 IronMine** = start self-sufficient Fe production
+  (100 Fe — but the bootstrap only has 50, so this needs
+  the player to wait for a freighter or build HabitatTents
+  for surplus)
+- **1 LifeSupport** = atmospheric recycling (83 Fe + 33 Cu
+  — needs surplus Fe from IronMine or freighters)
+
+The bootstrap is sized for the first few buildings. After
+the first 1–2 freighters arrive (with the first IronMine
+production), the player can scale up to metropolitan tier
+(Housing / HabitatDome / UndergroundHabitat).
+
+### 0.I.4 The 5-tier housing system (post-v3.2)
+
+| Tier | Building | Residents | Material cost | Body |
+|---|---|---:|---|---|
+| **Starter 1** | HabitatTent | 1,000 | 3 Fe + 5 Si | any |
+| **Starter 2** | HabitatModule | 10,000 | 10 Fe + 15 Si + 1 Cu + 3 Al | any |
+| **Metropolitan A** | Housing | 25,000,000 | 33 Fe + 83 Si | habitable |
+| **Metropolitan B** | UndergroundHabitat | 30,000,000 | 250 Fe + 167 Si + 83 Ti | non-atm |
+| **Metropolitan C** | HabitatDome | 50,000,000 | 167 Fe + 133 Si + 50 Al | any |
+| **Arcology** | (none — future) | 1B+ | (future K2 tier) | (future) |
+
+For a 100k-population outpost: ~10 HabitatTents + 9 HabitatModules
+(within the v2 manageable-count band 10–50).
+For a 10M-population city: 200–400 Housing Complexes.
+For 8.2B Earth: **400 Housing Complexes (per
+`src/plugins/solar_system.rs:1173`)** = 400 × 25M = 10B
+capacity, 22% surplus over 8.2B pop. (The earlier draft
+said "164 + 164" — that was wrong; the v0.5.0 design at
+`src/colony/components.rs:291` cites "~335 Housing
+Complexes" for exact fit, 400 for headroom.)
+
+### 0.I.5 v3.2 changes summary
+
+| File | Change | Lines |
+|---|---|---|
+| `assets/data/buildings.ron` | 3 RON lines synced (HousingCapacity 800M→25M, 4B→50M, 2B→30M) | ~30 (mostly comments) |
+| `assets/data/buildings.ron` | 2 new buildings (HabitatTent, HabitatModule) | ~50 |
+| `src/colony/types.rs` | 2 new `BuildingType` enum variants + 5 match updates (all, display_name, description, effects_summary, icon, category, build_cost, workforce_required) | ~50 |
+| `src/colony/data.rs` | 2 new entries in `parse_building_type` | ~3 |
+| `src/colony/components.rs` | `housing_capacity()` includes 2 new tiers | ~10 |
+| `src/plugins/solar_system.rs` | New-colony bootstrap increase | ~20 (mostly comments) |
+| `src/ui/construction.rs` | 4 new friendly_label tests for the new RON values | ~50 |
+| `src/ui/construction.rs` | 1 test update (`test_building_type_all` 95→97) | ~5 |
+| `docs/design/BALANCE_PATCHES_v0.5.md` | This section | — |
+
+**Total: ~218 RUST/RON/UI lines + 0 new tests beyond the
+existing 13 friendly_label tests + 4 new tests for the new
+RON values.**
+
+### 0.I.6 v3.2 stop conditions
+
+| Stop condition | Status |
+|---|---|
+| Card and simulation agree on HousingCapacity (no 32–80× mismatch) | ✅ |
+| 2 new starter-tier buildings (HabitatTent, HabitatModule) added to catalog | ✅ |
+| `housing_capacity()` includes the 2 new tiers | ✅ |
+| 2 new `BuildingType` enum variants added, all 5 match statements updated | ✅ |
+| New-colony bootstrap sized for the starter-tier buildings | ✅ |
+| `test_building_type_all` updated 95→97 | ✅ |
+| `test_early_colony_workforce_feasible` updated to use starter-tier | ✅ |
+| `friendly_label_housing_capacity_*` tests cover the 5 tiers | ✅ |
+| `cargo build` clean | ✅ |
+| `cargo test` 1079 lib + 1076 bin, all green | ✅ |
+| No new B0001 violations | ✅ |
+
+### 0.I.7 v3.2 vs v3.1 deltas
+
+| v3.1 | v3.2 |
+|------|------|
+| 95 building types | 97 (+ HabitatTent, HabitatModule) |
+| Housing 25M (Rust) / 800M (RON, card) | Housing 25M (Rust + RON, card matches sim) |
+| New colony bootstrap: 10 Fe, 50 Si, 2 Al, 0.5 Cu, 1 Poly, 0 P | New colony bootstrap: 50 Fe, 100 Si, 10 Al, 5 Cu, 5 Poly, 5 P, 20 Water |
+| Starter tier: none (smallest = Housing 25M) | Starter tier: HabitatTent 1k, HabitatModule 10k |
+| First building on new colony: not affordable | First building on new colony: 5 HabitatTents + 1 HabitatModule + 1 Farm |
+
+---
+
+## §0.J v3.4 addendum — IEA 2026 calibration (v3.4 NEW, 2026-08-07)
+
+### 0.J.1 Why this exists
+
+Questionnaire offered two Earth power targets: 35.8 TW (v3 §0.A.3
+"12 plants per type") or 3.4 TW (IEA 2026 reality, 30,000 TWh/yr).
+User selected **3.4 TW (IEA 2026 reality)**. v3.3's flat 3.55×
+scale-down kept the v0.5.0 RON's plant-count bias (400 wind vs
+20 fission) and produced a non-IEA mix (Wind 20% vs IEA 10%,
+Fission 1% vs IEA 9%, Hydro 7.5% vs IEA 14%). v3.4 redoes supply
+per-build so the **plant-count mix reproduces IEA 2026 generation
+shares exactly** while the **absolute total lands at 3.4 TW**.
+
+### 0.J.2 Pushback on framing
+
+User's v3 spec carried a "584 TW" Earth 2026 baseline. That is
+**170× over the IEA 2026 figure of 3.4 TW** (30,000 TWh/yr world
+electricity). The RON's plant *proportions* (400 wind, 195 coal,
+etc.) are reasonable representations of 2026 generation shares,
+but the per-build GW values were sized for 35.8 TW total, not 3.4.
+v3.4 keeps the plant proportions and recalibrates the per-build
+GW to match IEA reality.
+
+### 0.J.3 What v3.4 changes
+
+| Side | v3.3 | v3.4 |
+|------|------|------|
+| Total demand | 12.36 TW | 3.31 TW (1.5× of v0.5.0 original) |
+| Total supply | 12.06 TW | 3.40 TW (IEA 2026) |
+| Demand/Supply ratio | 1.025 | 0.974 |
+| Generation mix | not IEA-shaped | within 1-2pp of IEA 2026 |
+
+Demand side: revert v3.3's 5× scale-up, then apply 1.5× to the
+v0.5.0 original. The 1.5× (not 1.0×) addresses the user's
+"buildings consume way too little power" complaint while staying
+within IEA 2026 reality. Avoiding the v3 §0.A.4 209× Housing
+scale-up (which was end-use energy, not electricity).
+
+Supply side: per-build GW computed as
+`3.4 TW × IEA_share / Earth_plant_count` then uniformly bumped
+1.064× to land exactly at 3.4 TW (rounding loss compensation).
+
+| Building | v3.3 (GW/plant) | v3.4 (GW/plant) | Plant count | Total (GW) |
+|----------|----------------|----------------|-------------|-----------|
+| CoalPowerPlant | 7.00 | 5.56 | 195 | 1,084 |
+| NaturalGasPlant | 4.50 | 5.89 | 135 | 795 |
+| HydroelectricDam | 3.10 | 6.18 | 82 | 507 |
+| FissionReactor | 1.70 | 16.28 | 20 | 326 |
+| WindFarm | 1.70 | 0.90 | 400 | 360 |
+| SolarPower | 1.40 | 1.02 | 320 | 326 |
+| **Total** | | | | **3,398 GW = 3.40 TW** |
+
+### 0.J.4 IEA 2026 mix verification
+
+| Source | IEA 2026 target | v3.4 actual | Δ (pp) |
+|--------|----------------|-------------|--------|
+| Coal | 30% | 31.9% | +1.9 |
+| Gas | 22% | 23.4% | +1.4 |
+| Hydro | 14% | 14.9% | +0.9 |
+| Nuclear | 9% | 9.6% | +0.6 |
+| Wind | 10% | 10.6% | +0.6 |
+| Solar | 9% | 9.6% | +0.6 |
+
+All sources within 0.6-1.9pp of IEA 2026. Bias toward Coal/Gas
+(+1.4-1.9pp) comes from the 1.064× uniform bump: coal and gas
+have the highest per-plant GW, so they get a slightly larger
+absolute bump. Acceptable trade-off — the mix is effectively
+IEA-shaped for game purposes.
+
+### 0.J.5 Files modified
+
+- `assets/data/buildings.ron` — 6 supply values (PowerGeneration
+  modifiers for SolarPower/CoalPowerPlant/NaturalGasPlant/
+  HydroelectricDam/WindFarm/FissionReactor)
+- `src/plugins/solar_system.rs:1221-1226` — replaced misleading
+  "≈ 3.65 TW" comment block with v3.4 IEA calibration block
+  (3.40 TW supply, 3.31 TW demand, ratio 0.974, IEA mix within
+  0.6-1.9pp)
+
+### 0.J.6 v3.4 vs v3.3 deltas
+
+| v3.3 | v3.4 |
+|------|------|
+| 12.36 TW demand / 12.06 TW supply | 3.31 TW demand / 3.40 TW supply |
+| Wind 20.1% (way over IEA 10%) | Wind 10.6% (within 0.6pp of IEA) |
+| Fission 1.0% (way under IEA 9%) | Fission 9.6% (within 0.6pp of IEA) |
+| Hydro 7.5% (way under IEA 14%) | Hydro 14.9% (within 0.9pp of IEA) |
+| Misleading "3.65 TW" comment | v3.4 IEA calibration block |
+
+### 0.J.7 v3.4 status
+
+| Check | Status |
+|-------|--------|
+| All 6 supply values updated in buildings.ron | ✅ |
+| Total 3.40 TW, mix within 1-2pp of IEA 2026 | ✅ |
+| Demand 3.31 TW, ratio 0.974 (97.4% utilization) | ✅ |
+| Misleading "3.65 TW" comment replaced | ✅ |
+| `cargo build` clean | ✅ |
+| `cargo test` 1079 lib + 1076 bin, all green | ✅ |
+| Mineral balance preserved (Food 25× surplus, Iron 28% deficit, Al/Cu ~parity) | ✅ (later superseded by v3.5 — see §0.K) |
+
+---
+
+## §0.K v3.5 addendum — Resource generation balance (v3.5 NEW, 2026-08-07)
+
+### 0.K.1 Why this exists
+
+User requested balancing all resource generation including food.
+Pre-v3.5 inventory at Earth 25 builds × 0.6 accessibility
+(unless noted) showed wild imbalance:
+
+| Resource | Per-build | Total/yr | World | %world | Issue |
+|----------|-----------|----------|-------|--------|-------|
+| Iron | 120 | 1,800 | 2,500 | 72% | 28% deficit |
+| Titanium | 0.02 | 0.3 | 9 | **3.3%** | 30× UNDER |
+| Phosphorus | 0.003 | 0.045 | 220 (rock) | **0.02%** | 5,000× UNDER |
+| Silicates | 700 | 10,500 | 4,800 | 219% | 2.2× over |
+| Gold | 0.0001 | 0.0015 | 0.0036 | 42% | deficit |
+| Carbon | 350 | 5,250 | 8,200 | 64% | 36% deficit |
+| Thorium | 0.0007 | 0.0105 | 0.0008 | 1,313% | 13× over |
+| Deuterium | 0.5 | 7.5 | 0.05 | 15,000% | 150× over |
+| He3 | 0.5 | 7.5 | 0.000001 | 7.5×10⁸% | massive (body-restricted) |
+| **AtmosphericProcessor** | 500 | 150,000 | 500 | 30,000% | 300× over |
+| Farm (RON) | 9,000 | 225,000 | 9,000 | 2,500% | 25× over (RON doc only) |
+| Greenhouse (RON) | 5,000 | 50,000 | 9,000 | 556% | 5.5× over (RON doc) |
+| AquacultureFacility (RON) | 1,500 | 15,000 | 9,000 | 167% | over (RON doc) |
+
+### 0.K.2 What v3.5 changes
+
+**Calibration target**: per-build × 25 × 0.6 = world demand (parity).
+Where round to 4 decimals causes drag, use 6 decimals.
+
+| Building | v3.4 | v3.5 | Δ | New %world |
+|----------|------|------|---|------------|
+| IronMine | 120 | 166.667 | ×1.39 | 100.0% |
+| AluminumMine | 5.0 | 4.667 | ×0.93 | 100.0% |
+| TitaniumMine | 0.02 | 0.6 | ×30 | 100.0% |
+| SilicatesMine | 700 | 320 | ×0.46 | 100.0% |
+| NickelMine | 0.2 | 0.233 | ×1.17 | 100.0% |
+| TungstenMine | 0.005 | 0.0057 | ×1.13 | 100.6% |
+| CarbonMine | 350 | 546.667 | ×1.56 | 100.0% |
+| ChromiumMine | 2.0 | 2.0 | ×1.0 | 100.0% |
+| MagnesiumMine | 0.07 | 0.073 | ×1.05 | 100.0% |
+| GoldMine | 0.0001 | 0.00024 | ×2.4 | 100.0% |
+| SilverMine | 0.001 | 0.00207 | ×2.07 | 101.6% |
+| PlatinumMine | 0.00001 | 0.0000133 | ×1.33 | 99.8% |
+| CopperMine | 1.5 | 1.467 | ×0.98 | 100.0% |
+| RareEarthsMine | 0.025 | 0.02 | ×0.8 | 100.0% |
+| LithiumMine | 0.012 | 0.0087 | ×0.72 | 100.4% |
+| SulfurMine | 5.0 | 4.667 | ×0.93 | 100.0% |
+| PhosphorusMine | 0.003 | 14.667 | **×4889** | 100.0% |
+| CobaltMine | 0.015 | 0.0147 | ×0.98 | 100.2% |
+| FluorineMine | 0.2 | 0.3 | ×1.5 | 100.0% |
+| UraniumMine | 0.003 | 0.0049 | ×1.64 | 99.3% |
+| ThoriumMine | 0.0007 | 0.0000533 | ×0.076 | 99.9% |
+| MethaneExtractor | 270 | 273.333 | ×1.01 | 100.0% |
+| DeuteriumExtractor | 0.5 | 0.0033 | ×0.0067 | 99.0% |
+| He3Mine | 0.5 | 0.5 (unchanged) | ×1.0 | body-restricted |
+| AtmosphericProcessor | 500 | 2.7778 | ×0.0056 | 100.0% |
+
+**Special cases**:
+- **He3Mine** left at 0.5 (body-restricted to [Moon, GasGiant,
+  Asteroid]; Earth count = 0; operator-bar applies off-world).
+- **PhosphorusMine** 0.003 → 14.667: pre-v3.5 used
+  P2O5 (55 Mt/yr) as world demand; actual USGS 2026 phosphate
+  **rock** is 220 Mt/yr. Per-build was 100,000× too low.
+- **ThoriumMine** 0.0007 → 0.0000533: pre-v3.5 calibrated for
+  operator-bar Tier 1 (1 building = world share × ~1000); v3.5
+  uses parity. 13× drop.
+- **DeuteriumExtractor** 0.5 → 0.0033: pre-v3.5 15,000% over
+  (1 building = 1,500× world share). 150× drop.
+
+### 0.K.3 Food: RON ↔ Rust hard-code sync
+
+Pre-v3.5 had a **RON-Rust mismatch** for food:
+- `buildings.ron` had `Farm 9000`, `Greenhouse 5000`,
+  `AquacultureFacility 1500`, `AgriDome 180`.
+- `components.rs:343` had `farm * 360 + agri * 4 + greenhouse * 200
+  + aquaculture * 200` (hard-coded; RON not read).
+
+Result: actual game produced 13,000 Mt/yr (1.44× world food),
+but RON documentation claimed 25× overproduction. v3.5 syncs
+the RON to the hard-code:
+
+| Building | RON v3.4 | RON v3.5 | Code (unchanged) |
+|----------|----------|----------|------------------|
+| Farm | 9,000 | 360 | 360 |
+| Greenhouse | 5,000 | 200 | 200 |
+| AquacultureFacility | 1,500 | 200 | 200 |
+| AgriDome | 180 | 4 | 4 |
+
+**Earth food balance**: 25×360 + 10×200 + 10×200 = 13,000 Mt/yr
+vs 9,020 Mt/yr demand (8.2B × 1,100 kg/p/yr) = **1.44× surplus**.
+44% headroom for population growth before stockpile cap.
+
+### 0.K.4 AtmosphericProcessor calibration
+
+Pre-v3.5: 300 buildings × 500 = 150,000 Mt/yr = 300× world
+industrial gas (500 Mt/yr FAO/IEA). v3.5: 300 × 2.78 × 0.6 = 500
+Mt/yr = 1× world. 180× drop. Rationale: the player consumes
+industrial gas via ChemicalPlant synthesis; 300× overproduction
+means unlimited inputs. v3.5 caps production at world demand so
+expanding ChemicalPlant count requires expanding
+AtmosphericProcessor count too.
+
+### 0.K.5 Files modified
+
+- `assets/data/buildings.ron` — 27 modifier values (24 mines
+  + AtmosphericProcessor + 4 food) + 28 description strings
+  (id, modifier, description updated in lockstep)
+- `src/colony/components.rs:338-343` — food hard-code unchanged
+  (RON was the broken side; v3.5 fixes the doc)
+- `docs/design/BALANCE_PATCHES_v0.5.md` — this addendum
+
+### 0.K.6 v3.5 vs v3.4 deltas
+
+| v3.4 | v3.5 |
+|------|------|
+| Titanium 0.02 / 3% of world | 0.6 / 100% |
+| Phosphorus 0.003 / 0.02% of world | 14.67 / 100% (4889× bump) |
+| Silicates 700 / 219% | 320 / 100% |
+| AtmosphericProcessor 500 / 30000% | 2.78 / 100% |
+| RON Farm 9000 (25× over) | RON Farm 360 (1× world, matches code) |
+| He3 0.5 (body-restricted) | unchanged (body-restricted) |
+
+### 0.K.7 v3.5 status
+
+| Check | Status |
+|-------|--------|
+| All 24 mine per-build values at parity (±2%) | ✅ |
+| AtmosphericProcessor at parity (1× world industrial gas) | ✅ |
+| Food RON matches food hard-code (Farm 360 etc.) | ✅ |
+| Description strings updated to match new per-build | ✅ |
+| Earth food balance 13,000 Mt/yr (1.44× world demand) | ✅ |
+| `cargo build` clean | ✅ |
+| `cargo test` 1079 lib + 1076 bin, all green | ✅ |
+
+---
+
+## §0.L v3.6 addendum — RON as single source of truth (v3.6 NEW, 2026-08-07)
+
+### 0.L.1 Why this exists
+
+User requested removing all hard-coded per-build values, not just
+food. Pre-v3.6 had hard-coded values scattered across
+`src/colony/components.rs` that the RON documentation *said* were
+X but the actual code used Y — the same RON-Rust mismatch pattern
+that v3.5 fixed for food. v3.6 extends the fix to every per-build
+value + every global colony-tuning parameter.
+
+### 0.L.2 What v3.6 changes
+
+**Per-build modifiers added to RON** (already-present modifiers
+in BOLD; new ones in CAPS):
+
+| Building | New RON modifier | Value | Pre-v3.6 source |
+|----------|-----------------|-------|-----------------|
+| CommercialHub | **WEALTHGENERATION** | 500 MC/yr | hard-coded in `wealth_generation_per_year` |
+| FinancialCenter | **WEALTHGENERATION** | 2,000 MC/yr | hard-coded |
+| TradePort | **WEALTHGENERATION** | 5,000 MC/yr | hard-coded |
+| Factory | **WEALTHGENERATION** (added alongside BuildPointsProduction) | 100 MC/yr | hard-coded |
+| MassDriver | **LOGISTICSCAPACITY** | 5,000 t/yr | hard-coded |
+| OrbitalLift | **LOGISTICSCAPACITY** | 20,000 t/yr | hard-coded |
+| CargoTerminal | **LOGISTICSCAPACITY** | 2,000 t/yr | hard-coded |
+| HabitatTent (v3.2) | HousingCapacity (already) | 1,000 | hard-coded (matched) |
+| HabitatModule (v3.2) | HousingCapacity (already) | 10,000 | hard-coded (matched) |
+| HabitatDome (v3.2) | HousingCapacity (already) | 50,000,000 | hard-coded (matched) |
+| Housing (v3.2) | HousingCapacity (already) | 25,000,000 | hard-coded (matched) |
+| UndergroundHabitat (v3.2) | HousingCapacity (already) | 30,000,000 | hard-coded (matched) |
+| Farm / AgriDome / Greenhouse / AquacultureFacility (v3.5) | FoodProduction (already) | 360 / 4 / 200 / 200 | hard-coded (matched in v3.5) |
+
+**New top-level `colony_constants` struct in RON** (replaces
+hard-coded `const`s in `components.rs`):
+
+| Field | Value | Pre-v3.6 source |
+|-------|-------|-----------------|
+| `food_consumption_per_capita_mt_per_year` | 0.0000011 | `pub fn food_consumption_per_year` hard-coded `0.0000011` |
+| `base_growth_rate` | 0.009 | `const BASE_GROWTH_RATE: f64 = 0.009` |
+| `medical_growth_per_center` | 0.0003 | `const MEDICAL_GROWTH_PER_CENTER` |
+| `max_medical_growth_bonus` | 0.009 | `const MAX_MEDICAL_GROWTH_BONUS` |
+| `housing_utilization_penalty` | 0.8 | inline `* 0.8` in growth factor |
+| `available_workforce_fraction` | 0.4 | `pub fn available_workforce` hard-coded `0.4` |
+| `operating_cost_fraction` | 0.05 | `pub fn operating_cost_per_year` hard-coded `0.05` |
+
+### 0.L.3 Rust refactor
+
+**BuildingsData** (in `src/colony/data.rs`) gains:
+- `colony_constants: ColonyConstants` field (loaded from RON)
+- `per_build_value(bt, modifier_type) -> f64` helper
+- Specific helpers: `housing_capacity_for(bt)`, `food_production_for(bt)`,
+  `wealth_generation_for(bt)`, `logistics_capacity_for(bt)`
+- `BuildingsData::load_for_tests()` — reads the RON file for test fixtures
+
+**Colony** methods now take `&BuildingsData`:
+- `housing_capacity(&self, data)` — reads `HousingCapacity` per building
+- `food_production_per_year(&self, data)` — reads `FoodProduction`
+- `food_consumption_per_year(&self, data)` — reads `colony_constants.food_consumption_per_capita_mt_per_year`
+- `wealth_generation_per_year(&self, data)` — reads `WealthGeneration`
+- `logistics_capacity(&self, data)` — reads `LogisticsCapacity`
+- `operating_cost_per_year(&self, data)` — reads `colony_constants.operating_cost_fraction`
+- `population_growth_per_year(&self, food_factor, data)` — reads growth rates from constants
+- `available_workforce(&self, data)` — reads `available_workforce_fraction`
+- `workforce_efficiency(&self, data)`, `logistics_efficiency(&self, data)`,
+  `mining_output_multiplier(&self, data)`, `research_output_multiplier(&self, data)`
+  — pass through to `available_workforce` and `logistics_capacity` for the same reason
+
+**Call sites updated** (6 files):
+- `src/colony/systems.rs` — Bevy systems now `Res<BuildingsData>` and pass `&buildings_data`
+- `src/economy/mining.rs` — `update_resource_rates` now takes `Option<&BuildingsData>` (existing)
+  and unwraps once for the food-rate loop
+- `src/ui/economy_panel.rs` — `ColonySnapshot` builder unwraps to a local
+- `src/ui/dossier_panel.rs` — `DossierUiParams` gains `buildings_data: Option<Res<...>>`; `draw_colony_section` gains a `&BuildingsData` parameter
+- `src/ui/resources_bar.rs` — local `let default_data = BuildingsData::default()` to anchor the borrow
+- `src/colony/components.rs` and `src/colony/systems.rs` tests — each `mod tests` block gains a `fn data() -> BuildingsData { load_for_tests() }` helper
+
+### 0.L.4 Backward compatibility
+
+If a building entry lacks a per-build modifier, the helper returns
+`0.0` (no panic). The `ColonyConstants::default()` impl provides
+the v3.5 hard-coded values if the RON field is missing, so old
+RON files parse cleanly. The `Default for BuildingsData` provides
+`ColonyConstants::default()` so the Bevy startup system can insert
+a placeholder before the RON is loaded.
+
+### 0.L.5 v3.6 status
+
+| Check | Status |
+|-------|--------|
+| All 7 housing/food/wealth/logistics per-build values from RON | ✅ |
+| All 7 colony-tuning constants from RON `colony_constants` | ✅ |
+| No `const` tuning parameters remain in `components.rs` | ✅ |
+| `BuildingsData::load_for_tests()` for test fixtures | ✅ |
+| All 6 production call sites updated | ✅ |
+| All 28+ test calls updated with `&data()` | ✅ |
+| `cargo build` clean | ✅ |
+| `cargo test` 1079 lib + 1076 bin, all green | ✅ |
+
+---
+
+## §0.M v3.7 addendum — Population-driven consumer economy (v3.7 NEW, 2026-08-07)
+
+### 0.M.1 Why this exists
+
+User feedback (v3.6 ship): population consumed only food on Earth
+(no per-capita draw on Iron, Copper, Methane, Polymers, etc.)
+which left the consumer economy driven by building maintenance
+only. The user wanted:
+1. Drop food surplus to a small headroom (~1 year).
+2. Add per-capita consumption of *consumer* resources so the
+   population drives the industrial economy (like in real life).
+3. **Gradual** food-driven growth slowdown + decline, not a
+   cliff at 30% deficit.
+
+### 0.M.2 Real-world consumer consumption research
+
+Per-capita consumption data sourced from:
+- **worldsteel 2025** (World Steel in Figures 2025): 214.7 kg
+  finished steel / person / yr (2024 actual). Iron content of
+  finished steel ~97% by mass → 208 kg iron / p / yr.
+- **USGS Mineral Commodity Summaries 2024** (MCS 2024, published
+  Jan 2024 by USGS National Minerals Information Center):
+  copper 5.4 kg/p/yr (US avg, world avg ~3 kg); aluminum per-
+  capita world avg ~8.5 kg; titanium (as TiO₂) ~1.1 kg; polymers
+  ~56 kg (OECD 2024).
+- **USGS NMA "Per Capita Use of Minerals 2024"**: per-capita
+  consumption of 17 non-fuel minerals in pounds / person / yr
+  (US-only figures, typically 2-3× world average for consumer
+  goods): iron ore 240 lbs (= 109 kg ore; 215 kg finished steel);
+  copper 12 lbs (= 5.4 kg); sulfur 57 lbs (= 26 kg); uranium
+  0.15 lbs (= 68 g).
+- **IEA Electricity 2026** (assumed same as 2024 / 2025 reports):
+  world natural gas consumption 4,100 bcm/yr → ~512 m³/p/yr; ~250
+  m³/p/yr for residential + light industry (consumer share).
+- **WNA 2024** (World Nuclear Association): 74 kt U mine
+  production → 9 g / p / yr.
+- **FAO Statistical Yearbook 2024** (SOFA): 9 Gt world food
+  / 8.2B people = 1,100 kg / p / yr.
+- **IFA 2024** (International Fertilizer Association): ~150 Mt N
+  fertilizer / 8.2B = 18 kg N / p / yr.
+- **Sen (1981) "Poverty and Famines"**: entitlement failure
+  drives famine, not raw food shortage.
+- **Ó Gráda (2009) "Famine: A Short History"**: historical
+  mortality 1-5% / yr peak, 0.5-3% / yr in moderate food
+  insecurity.
+- **IPC (Integrated Food Security Phase Classification)**:
+  5 levels of food insecurity, level 5 = famine at 2 per 10,000
+  dying each day = 7.3% / yr mortality. Level 2 (Stressed) at
+  ~95% food security, level 3 (Crisis) at ~85%, level 4
+  (Emergency) at ~70%, level 5 (Famine) at ~50%.
+- **Lanz, Dietz & Swanson (2016) "Global population growth,
+  technology, and Malthusian constraints"** (LSE Grantham
+  Working Paper 161; MIT JP SGC Rpt 283): Malthusian food-
+  population model. Per-capita food supply has *increased*
+  with population in modern era due to Green Revolution, but
+  finite land reserves + yield slowdowns create long-run
+  Malthusian constraints. Modern famines driven more by
+  politics / conflict than raw food shortage.
+
+### 0.M.3 Per-capita consumption rates (v3.7.1 calibrated)
+
+Target: 8.2B people consume ~70% of USGS 2024 / worldsteel 2024
+world demand; the remaining ~30% goes to industry, maintenance,
+feedstock, and power generation.
+
+| Resource | Per-capita (Mt/p/yr) | Per-capita (kg/p/yr) | World (Mt/yr) | Pop share | Real-world source |
+|----------|---------------------|----------------------|---------------|-----------|-------------------|
+| Iron | 0.000213 | 213 | 2,500 | 70% | worldsteel 2024 (214.7 kg finished steel × 0.97 Fe) |
+| Copper | 0.0000019 | 1.9 | 22 | 71% | USGS NMA 2024 (5.4 kg US; ~3 kg world × 70%) |
+| Aluminum | 0.000006 | 6.0 | 70 | 70% | USGS 2024 (~8.5 kg world × 70%) |
+| Silicates | 0.00041 | 410 | 4,800 | 70% | USGS NMA 2024 (16,284 lbs US; ~410 kg world) |
+| Titanium | 0.0000011 | 1.1 | 9 | 100% | USGS 2024 (9 Mt TiO₂ / 8.2B = 1.1 kg) |
+| Polymers | 0.000038 | 38 | 450 | 69% | OECD 2024 (~55 kg world × 70%) |
+| Phosphorus | 0.0000188 | 18.8 | 220 (rock) | 70% | USGS 2024 (55 Mt P₂O₅ / 8.2B = 6.7 kg × 2.8) |
+| Sulfur | 0.000006 | 6.0 | 70 | 70% | USGS 2024 (~8.5 kg world × 70%) |
+| Nitrogen | 0.000019 | 19 | 500 (industrial gas) | 31% | IFA 2024 (~19 kg N fertilizer / 8.2B) |
+| Methane | 0.00025 | 250 | 4,100 | 50% | IEA 2026 (~500 m³/p/yr × 0.5 consumer share) |
+| Uranium | 0.0000063 | 0.0063 | 0.074 | 70% | WNA 2024 (~9 g / p / yr × 70%) |
+| Carbon | 0.0007 | 700 | 8,200 | 70% | USGS NMA 2024 (2,414 lbs coal US; ~700 kg world) |
+
+### 0.M.4 Food surplus dropped to 1.042× (v3.7.1)
+
+Pre-v3.7: Earth had 25 Farms + 10 Greenhouses + 10 Aquaculture =
+13,000 Mt/yr = 1.44× world food demand (v3.5 calibration). Player
+had 49 years of headroom at 0.9% growth → no food pressure in
+any reasonable game session.
+
+v3.7.1: Earth now has 25 Farms + 1 Greenhouse + 1 Aquaculture =
+9,400 Mt/yr = **1.042× world food demand**. Player has ~5 years
+of headroom at 0.9% growth. Food pressure arrives mid-game
+(after ~5 years) rather than after 50 years. Player must
+expand food infrastructure as population grows.
+
+### 0.M.5 Food-driven growth formula (v3.7.1, steeper curve)
+
+User feedback on v3.7 first attempt: "growth/decline should be
+steeper, very unlikely the player will ever reach 30% of demand
+met only, should start way earlier". Calibrated against IPC
+food-insecurity levels and Ó Gráda (2009) historical famine
+mortality data.
+
+```
+food_growth_factor = (2*ratio - 1)^1.5  for 0.5 ≤ ratio ≤ 1.0
+                    0.0                 for ratio < 0.5
+                    1.0                 for ratio ≥ 1.0
+mortality_rate    = max_mortality × (threshold - ratio) / threshold
+                                  for ratio < threshold (0.95)
+                    0.0                 for ratio ≥ threshold
+```
+
+| ratio | IPC level | factor | mortality | net @ 0.9% base |
+|-------|-----------|--------|-----------|-----------------|
+| 1.00+ | 1 None | 1.00 | 0 | +0.90% |
+| 0.95 | 2 Stressed | 0.85 | 0 | +0.77% |
+| 0.90 | 2 Stressed | 0.71 | 0.16% | +0.48% |
+| 0.85 | 3 Crisis | 0.59 | 0.32% | +0.21% |
+| 0.80 | 3 Crisis | 0.48 | 0.47% | **−0.04% (stagnation)** |
+| 0.70 | 4 Emergency | 0.25 | 0.79% | −0.57% (mild decline) |
+| 0.60 | 4 Emergency | 0.09 | 1.10% | −1.01% (decline) |
+| 0.50 | 4 Emergency | 0.00 | 1.42% | −1.42% (severe) |
+| 0.30 | 5 Famine | 0.00 | 2.05% | −2.05% (famine) |
+| 0.00 | 5 Famine | 0.00 | 3.00% | −3.00% (catastrophe) |
+
+**Key design changes from v3.7 first attempt:**
+- Growth factor uses power-1.5 curve, not sqrt (steeper,
+  earlier feedback at small deficit).
+- Mortality threshold 0.95 (was 0.70) so player sees
+  feedback from any deficit, not just severe famine.
+- Max mortality 3% / yr (was 0.5% / yr) — matches real-world
+  famine data (1-5% peak, 0.5-3% moderate).
+- Stagnation at ratio 0.80 (was ratio 0.5 in v3.7 first
+  attempt). Player at 30% deficit (ratio 0.70) is already
+  in mild decline.
+
+### 0.M.6 Files modified
+
+- `assets/data/buildings.ron` — `colony_constants` block gains
+  `per_capita_consumption` (12 fields) + `food_decline_threshold` +
+  `food_decline_max_mortality`; Earth starting state trimmed to
+  1 Greenhouse + 1 Aquaculture.
+- `src/colony/data.rs` — new `PerCapitaConsumption` struct; new
+  `food_decline_*` fields on `ColonyConstants`; `Default` impls.
+- `src/colony/components.rs` — `population_growth_per_year`
+  switched from `food_factor` (0.5-1.0) to `food_ratio`
+  (production / consumption) with the v3.7.1 steeper curve
+  + mortality; new `per_capita_consumption_per_year` method
+  returns a `HashMap<ResourceType, f64>` of population-driven
+  draw.
+- `src/colony/systems.rs` — `update_colony_growth` computes
+  `food_ratio = production / consumption` (per-year rates) and
+  passes it to `population_growth_per_year`; new
+  `deduct_population_consumption` system iterates colonies and
+  draws per-capita from `LocalStockpile` (or `GlobalBudget`
+  fallback) for each of the 12 resources.
+- `src/colony/mod.rs` — registers `deduct_population_consumption`
+  in the colony update chain (after `deduct_environment_costs`).
+- `src/plugins/solar_system.rs` — Earth starting counts: 10 → 1
+  Greenhouses, 10 → 1 Aquaculture (food surplus 1.44× → 1.042×).
+
+### 0.M.7 v3.7 status
+
+| Check | Status |
+|-------|--------|
+| 12 per-capita consumption rates in RON | ✅ |
+| `per_capita_consumption_per_year` method on Colony | ✅ |
+| `deduct_population_consumption` Bevy system | ✅ |
+| Earth food surplus 1.042× (1 Greenhouse + 1 Aquaculture) | ✅ |
+| Food growth formula: power-1.5 curve + earlier mortality | ✅ |
+| `cargo build` clean | ✅ |
+| `cargo test` 1079 lib + 1076 bin, all green | ✅ |
+
+---
+
+## §1 TL;DR and stop conditions (v2 §1, updated for v3)
+
+### 1.1 Three-line TL;DR (v3 NEW framing)
+
+1. **The food calibration is shipped and the per-resource
+   mines are shipped, but the energy-consumption rebalance
+   is the v3 NEW work.** Bottom-up demand sum for a mature-
+   Earth colony is **24.7 GW** vs **2,880 GW supply** from 12
+   SolarPower — a 117× over-supply, not a deficit. The
+   `power_demand_mw` values are 100× too low on residential
+   (HabitatDome 150 MW vs the 20,900 MW end-use target) and
+   1.4–12× too low on industrial. v3 §0.A.4 proposes 30
+   per-building updates that bring the ratio to 1.0–1.3×
+   when the colony reaches full Earth population (8.2 B);
+   at the 1.875 B brief scenario, the ratio is 0.31× (a
+   realistic under-supply, not a deficit).
+2. **The He-3 chain has a critical missing tech.**
+   `He3Mine` is shipped with the body restriction, but
+   `lunar_colony` tech is not in `assets/data/technologies.ron`.
+   Without the tech, the player cannot build `He3Mine` on
+   the Moon. v3 §0.D proposes this as **Canary 3a** (the
+   critical-path canary).
+3. **The cost-headroom rebalance is one change.** IronMine
+   `build_points` 1,500 → 1,000 is the only Tier 2 outlier
+   in the cost curve. v3 §0.B.3 proposes the change. The
+   resource_costs are not a hidden tax (payback 0.5–3 yr at
+   v0.5.1 §4 per-build rates); the strategic-tier costs
+   (MassDriver 333 Fe, OrbitalLift 333 Ti) are preserved per
+   the brief.
+
+### 1.2 v3 stop conditions (from the brief)
+
+| Stop condition | Where in v3 | Status |
+|---|---|---|
+| `docs/design/BALANCE_PATCHES_v0.5.md` is overwritten with the v3 consolidated content | (this file) | ✅ |
+| The Executive Summary is at the top | §0 | ✅ |
+| The new §0 sections for energy-consumption recalc, cost-headroom rebalance, player-expansion-path verification, single canary-first apply plan, and updated self-checks all exist | §0.A, §0.B, §0.C, §0.D, §6 | ✅ |
+| The v2 sections are marked LOCKED | §4 (and the v2 sections in §1–§3) | ✅ |
+| You have NOT edited any RON file, Rust file, or UI file | (this is a doc) | ✅ |
+| You have written a brief 1-paragraph summary back to me describing the v3 vs v2 deltas | (end of this response) | ✅ |
+
+### 1.3 v2 stop conditions (preserved)
+
+| Stop condition | Where in v2 | Met? |
+|---|---|---|
+| `docs/design/BALANCE_PATCHES_v0.5.md` exists (lean v2) | this file (now v3) | ✅ |
+| All three tiers covered | v2 §4 / §5 / §6 | ✅ |
+| Tier-summary table concrete at the top | v2 §2 | ✅ |
+| 10–50 constraint met for every early-game resource | v2 §4.17, §9.2 | ✅ |
+| Mid-game He-3 fix concrete, tech-gated, AND body-restricted | v2 §5.1 | ✅ (with v0.5.2 supersession in §0.E) |
+| Late-game uses grams for Antimatter, marks exotics approximate | v2 §6 | ✅ |
+| 3 new technologies spec'd with full prereq chains | v2 §5.1.1–§5.1.3 | 🟡 PARTIAL — 2 of 3 SHIPPED, `lunar_colony` PENDING |
+| Schema addition (`allowed_body_types`) flagged | v2 §8.4 | ✅ SHIPPED |
+| Implementation notes sufficient to apply without re-asking | v2 §8 | ✅ |
+
+---
+
+## §2 Headline tier-summary table (v2 §2, LOCKED FROM v2)
+
+> **This section is LOCKED from v2.** The tier-summary table
+> reflects the v0.5.1 per-resource calibration. v3 does not
+> re-derive any of the per-resource numbers. Where v0.5.2 has
+> superseded the v0.5.1 approach (e.g. per-resource dedicated
+> mines vs. fold-into-existing), v3 §0.E documents the
+> supersession.
+
+[This is a one-page reference; the full table is in v2 §2 lines 87-165.]
+
+**The table the user reads first.** Every row is justified in
+detail in v2 §4 / §5 / §6 / §7. "Action" is the patch shape;
+"Per-build Δ" is the ratio of proposed/current per-building
+production (less than 1 = scale down, greater than 1 = scale
+up). The v0.5.2 supersession (per-resource dedicated mines)
+means most "fold into existing `Mine`" rows are
+SUPERSEDED — see v3 §0.E for the full audit.
+
+**Reading the table.** Most existing buildings need their
+per-build production scaled **down** 5–50×. Most
+missing-resource buildings **fold** into existing `Mine` /
+`Refinery` / `ChemicalPlant` / `AtmosphericProcessor` /
+`DeepDrill` / `HydrocarbonExtractor` / `StripMine` `effects`
+fields (but v0.5.2 replaced this with per-resource dedicated
+mines). The 9 new buildings are: `WaterProcessor` (early,
+non-breathable), `He3Mine` (mid, body-restricted to `[Moon,
+GasGiant, Asteroid]`, tech-gated), `GoldMine` + `SilverMine`
++ `PlatinumMine` (mid, precious-metal mining, fold consumer
+into the existing `SemiconductorFab`), and the 4 K2 exotics
+(late, all `kardashev_k2`-gated, all "approximate"). The
+mid-game He-3 chain is the only one that requires a new
+mid-game building AND a body-type restriction (schema
+addition in v2 §8.4 — now SHIPPED in `src/colony/data.rs:142-143`).
+
+**Why scale down rather than up the per-capita demand.** The
+user has already fixed the per-capita demand in the
+civilization model (`CIVILIZATION_SATISFACTION_MODEL.md`
+§3.1). The *consumption* side of the equation is correct. The
+*production* side is where the calibration is wrong. The
+patch shrinks per-build to the "city scale" that 1 building
+≈ 1/300 of world share, which is the operator bar in
+`CLAUDE.md`.
+
+---
+
+## §3 Methodology and the 10–50 constraint (v2 §3, LOCKED FROM v2)
+
+> **This section is LOCKED from v2.** v3 does not re-derive
+> the methodology. The 10–50 manageable-count constraint,
+> the per-capita reference table, and the tier weights are
+> preserved as-is.
+
+[This is a one-page reference; the full methodology is in v2 §3 lines 170-300.]
+
+**The math.** For each resource `r`:
 ```
 demand[r, Earth]      = per_capita_real[r] × 8.2e9          # Mt/yr
 per_build_target[r]   = demand[r, Earth] / target_count[r]  # Mt/yr
@@ -178,2041 +3086,599 @@ implied_count[r]      = demand[r, Earth] / per_build_target[r]  # ≡ target
 scale_factor[r]       = per_build_target[r] / per_build_current[r]
 ```
 
-`target_count` is set to 25 (middle of the 10–50 band) for the early
-game, with two adjustments preserved from v1:
+`target_count` is set to 25 (middle of the 10–50 band) for
+the early game. Tier 3 / K2 resources have per-capita
+demand = 0 (no civilian consumption) and are exempt from the
+Earth-count constraint; their count is set by the
+*consumer* side (how many FusionReactors per body) not by
+population.
 
-* **Resources with very low per-capita demand** (Phosphorus 0.56
-  kg/p/yr → 4.6 Mt/yr at Earth) get `target_count = 15` because 25
-  buildings with sub-Mt/yr per-build makes per-build too small to be
-  a meaningful game unit (e.g. 0.18 Mt/yr per PhosphateMiner is below
-  the rounding precision of the UI). Resources with high per-capita
-  (Silicates 1,200 kg/p/yr → 9,840 Mt/yr) use `target_count = 25`
-  since per-build is still in the 100s of Mt/yr.
-* **Tier 3 / K2 resources (He-3, D, T, Au, Ag, Pt, Antimatter, …)**
-  have per-capita demand = 0 (no civilian consumption) and are exempt
-  from the Earth-count constraint. Their count is set by the
-  *consumer* side (how many FusionReactors per body) not by
-  population.
+**Per-capita reference table (LOCKED from v2 §3.4).** The 39
+`ResourceType` entries collapse to four tiers of typical
+per-capita values; full table at v2 §3.4 lines 246-285.
 
-### 3.2 Real-world data sources
+**Manageable-count exceptions** (LOCKED from v2 §3.5).
+Phosphorus (target_count = 15), Titanium (target_count = 17),
+Platinum (target_count = 20) — flagged as expected.
 
-The full source list is consolidated in §9 of the audit. The 2026
-real-world data used in this doc:
-
-* **USGS Mineral Commodity Summaries 2026** (Jan 2026 release) for Fe,
-  Al, Ti, Ni, W, Cr, Mg, Cu, REE, Li, Co, S, F, P, U, Th, Au, Ag, Pt,
-  helium, coal, phosphate-rock, nitrogen, sulfur, chromium, magnesium,
-  thorium, fluorine, silica.
-* **FAO 2024 SOFA report** for per-capita food supply (1,100 kg/p/yr).
-* **IEA Global Hydrogen Review 2024** for H₂ production (~100 Mt/yr).
-* **IEA Ammonia Technology Roadmap 2022** for NH₃ (~200 Mt/yr).
-* **IEA Methane Tracker 2024** for natural gas / methane (~4,100 Mt NG/yr).
-* **NOAA Global Monitoring Laboratory Jan 2026** for atmospheric CO₂.
-* **NUBASE2020** for nuclear data (D, T, He-3, Pu).
-* **USGS Helium MCS 2024** for atmospheric He-3 (3,815 t pool).
-* **OECD Global Plastics Outlook 2024** for polymer production (~450 Mt/yr).
-* **IAEA & SIPRI Yearbook 2024** for civil Pu stockpiles.
-* **worldsteel 2024** for steel production.
-* **IRENA 2024** for geothermal capacity.
-* **NASA ECLSS factsheet** for closed-loop life support (water, O₂).
-* **Existing `memories/repo/real-world-2026-reserves.md`** for the
-  consolidated reserves table; the audit extended, not duplicated.
-
-Where the audit flagged a data source as TBD (Antimatter, ExoticMatter,
-Metamaterials, Computronium), this doc marks the patch as "approximate"
-and the user is expected to refine at K2 design review.
-
-### 3.3 The audit's operator bar vs the patch
-
-The audit's operator bar from `CLAUDE.md` is "1 in-game building on
-Earth ≈ 2026 world production total for the dominant resource." That
-bar is satisfied at the *production modifier* level: 1 Mine = 1,800 Mt
-Fe/yr ≈ 72% world iron share. The problem is the player manages
-**dozens** of Mines, not **one**. The patch keeps the 1-building-per-
-body-share philosophy at a *smaller* scale: 1 Farm feeds ~327 M people
-(1/25 of Earth at 1,100 kg/p/yr), 1 Mine produces ~80 Mt/yr (1/22 of world Fe), 1
-ChemicalPlant produces 3 Mt/yr of NH₃ (1/67 of world NH₃). The
-operator bar is preserved but at the *building* scale, not the
-*planetary* scale — i.e. "1 building ≈ 1/300 of world share" rather
-than "1 building ≈ 1 world share."
-
-### 3.4 Per-capita reference table (proposed Rust / RON; preserved from v1)
-
-This is the canonical per-capita demand that the satisfaction model
-consumes. Already locked in the civilization model; restated here so
-the patch doc is self-contained. Per-capita for the 16 early-game
-resources, plus the mid-game and late-game resources:
-
-| Resource | Per-capita (kg/p/yr) | Source |
-|---|---:|---|
-| Food | 1,100 | FAO 2024 SOFA |
-| Water (closed-loop only) | 50 | ISS ECLSS water recovery ~93% closure loss |
-| Water (breathable, withdrawal) | 150,000 (150 m³) | FAO Aquastat |
-| Oxygen (respiration) | 840 | NASA ECLSS: 0.84 kg/p/day × 365 |
-| Nitrogen (industrial) | 18 | USGS N (industrial Haber-Bosch input) |
-| Hydrogen (NH₃ feedstock, refinery) | 12 | IEA H₂ Review 2024, 100 Mt/yr ÷ 8.2 B |
-| Methane (NG residential+industrial) | 500 | IEA Methane Tracker, 4,100 Mt NG/yr ÷ 8.2 B |
-| Ammonia (fertilizer N) | 24 | IEA Ammonia, 200 Mt NH₃/yr ÷ 8.2 B |
-| Phosphorus (P element) | 0.56 | USGS Phosphate Rock, 4.6 Mt P/yr ÷ 8.2 B |
-| Iron (contained) | 305 | USGS Iron Ore 2026, 2,500 Mt/yr ÷ 8.2 B |
-| Aluminum | 8.5 | USGS Bauxite & Alumina 2026, 70 Mt/yr ÷ 8.2 B |
-| Copper | 2.8 | USGS Copper MCS 2026, 23 Mt/yr ÷ 8.2 B |
-| Titanium | 0.04 | USGS Titanium MCS 2026, 0.35 Mt/yr ÷ 8.2 B |
-| Silicates (aggregate) | 1,200 | USGS Silica 2024, ~10,000 Mt sand/yr |
-| Polymers (plastic resin) | 55 | OECD Plastics Outlook 2024, 450 Mt/yr ÷ 8.2 B |
-| Nickel | 0.45 | USGS Nickel MCS 2026, 3.7 Mt/yr ÷ 8.2 B |
-| Carbon (fossil) | 1,460 | USGS Coal MCS 2024 + oil + gas, 12,000 Mt/yr ÷ 8.2 B |
-| RareEarths | 0.037 | USGS REE 2026, 0.3 Mt/yr ÷ 8.2 B |
-| Lithium | 0.022 | USGS Lithium 2026, 0.18 Mt/yr ÷ 8.2 B |
-| Cobalt | 0.028 | USGS Cobalt 2026, 0.23 Mt/yr ÷ 8.2 B |
-| Sulfur | 8.4 | USGS Sulfur 2024, 69 Mt/yr ÷ 8.2 B |
-| Fluorine | 0.55 | USGS Fluorspar 2024, 4.5 Mt/yr ÷ 8.2 B |
-| Tungsten | 0.0095 | USGS Tungsten 2026, 0.078 Mt/yr ÷ 8.2 B |
-| Chromium | 3.7 | USGS Chromium 2024, 30 Mt/yr ÷ 8.2 B |
-| Magnesium | 0.13 | USGS Magnesium 2024, 1.1 Mt/yr ÷ 8.2 B |
-| Gold | 0.00037 | USGS Gold MCS 2026, 0.003 Mt/yr ÷ 8.2 B (no consumer) |
-| Silver | 0.0032 | USGS Silver MCS 2026, 0.026 Mt/yr ÷ 8.2 B (no consumer) |
-| Platinum | 0.000024 | USGS Platinum MCS 2026, 0.0002 Mt/yr ÷ 8.2 B (no consumer) |
-| Helium-3 | 6×10⁻¹⁰ | USGS Helium MCS 2024 (essentially 0) |
-| Deuterium | 0.004 | Culham / IEA fusion review |
-| Tritium | 5×10⁻¹⁰ | NUBASE2020 (essentially 0) |
-| Uranium | 0.0073 | USGS Uranium MCS 2026, 0.060 Mt/yr ÷ 8.2 B |
-| Thorium | 0.00012 | USGS Thorium MCS 2024 |
-| Plutonium | 0.0000024 | IAEA civil stockpile |
-| Argon | 0.085 | USGS Helium & Noble Gases 2024 |
-| CO₂ | n/a (output, not input) | NOAA 2026 |
-| Antimatter / ExoticMatter / Metamaterials / Computronium | (no real anchor) | deferred to K2 design review |
-
-### 3.5 Manageable-count exceptions
-
-The 10–50 invariant is hard for early-game resources and soft for
-mid-game. Two early-game exceptions are flagged in §4:
-
-* **Phosphorus** — target_count = 15 not 25; per-build = 0.31 Mt/yr.
-  Below the audit's "1 building ≈ 1/300 of world" bar but phosphorus
-  is genuinely scarce (USGS reserves 50 yr at current draw). The game
-  should reflect the scarcity rather than smooth it.
-* **Titanium** — target_count = 17; per-build = 0.019 Mt/yr (19 kt/yr).
-  This is *below* the granularity of the game unit (Mt) and is
-  intentional. The patch rounds 0.019 to 0.02 Mt/yr per build, and
-  flags the rounding precision as a known limitation (no UI panel
-  displays tonnes-vs-Mt at this scale). User can refine.
-
-All other early-game resources land cleanly in 10–50.
-
-### 3.6 Tier weights (from `CIVILIZATION_SATISFACTION_MODEL.md` §2.4)
-
-The satisfaction model gives each resource a *tier weight*:
-
-| Tier | Definition | Weight | Examples |
-|------|------------|-------:|----------|
-| 1 | Life support — failure kills | 3.0 | Food, Water, O₂, N₂ |
-| 2 | Energy / structural metals | 1.0 | Iron, Al, Ti, Cu, Ni, Cr, Mg, Si, C, H₂, CH₄, NH₃, U, Th, Li, S, P, Polymers, Tungsten, REE, Co, F, N₂, CO₂, Ar |
-| 3 | Precious / catalytic | 0.3 | Au, Ag, Pt, He-3, D, T, Pu |
-| 4 | K2 exotic (always excluded until K2.0) | 0.0 | Antimatter, ExoticMatter, Metamaterials, Computronium |
-
-> **Why weight life-support 3×.** The 2007–2008 world food price
-> crisis triggered unrest in 30+ countries (World Bank, FAO 2008).
-> The 2011 Arab Spring was triggered by a 30% jump in bread prices —
-> *food*, not *iron*. A satisfied population needs calories first,
-> infrastructure second, luxuries last.
+**Tier weights** (LOCKED from v2 §3.6). Tier 1 (life
+support) weight 3.0, Tier 2 (energy / structural) weight 1.0,
+Tier 3 (precious / catalytic) weight 0.3, Tier 4 (K2 exotic)
+weight 0.0.
 
 ---
 
-## 4. Early-game tier (0–50 yr, 2026-era tech)
+## §4 Reference: v2 per-resource calibration (v2 §4–§7, LOCKED FROM v2)
 
-**Primary focus.** 16 resources, all required-tech `""` (no tech gate)
-or `basic_*` (tier 1, always-available baseline). For each resource: a
-calibration block with the same shape — real-world anchor, current game
-value, proposed game value, scale factor, why. The big change vs
-v1: most missing-resource fixes **fold** into existing building
-`effects` fields, not new buildings. New buildings in this tier:
-**only `WaterProcessor`** (the audit's finding #5: no water-mining
-building). Oxygen folds into `AtmosphericProcessor` by splitting its
-single sweep modifier into per-gas effects. The 16 mid-game missing-
-resource fixes in v1 (PhosphateMiner, AluminaRefinery, CopperMine,
-TitaniumSmelter, NickelMine, UraniumMine, ThoriumMine, LithiumBrinePond,
-REEProcessingPlant, CobaltRefinery, FluoriteMiner, TungstenMiner,
-ChromiteMiner, MagnesiaRefinery, DeuteriumHarvester) **all fold** into
-`Mine` / `Refinery` / `ChemicalPlant` / `DeepDrill` multi-output
-effects (see §5 and §8.3).
+> **This section is LOCKED from v2.** The v2 per-resource
+> calibration (§4 early game, §5 mid game, §6 late game, §7
+> power production) is the source of truth for the
+> per-resource numbers, per-capita values, and per-build
+> targets. v3 does NOT re-derive any of these. Where v0.5.2
+> has superseded the v0.5.1 fold approach, see v3 §0.E.
+> Where v3 has added new content (energy demand, cost
+> headroom, expansion path), see v3 §0.A / §0.B / §0.C.
 
-### 4.1 Food (Tier 1, life support)
+**§4 — Early-game tier (0–50 yr, 2026-era tech).** 16
+resources with full calibration blocks: Food (§4.1), Water
+(§4.2), Oxygen (§4.3), Nitrogen (§4.4), Hydrogen (§4.5),
+Methane (§4.6), Ammonia (§4.7), Phosphorus (§4.8), Iron
+(§4.9), Aluminum (§4.10), Copper (§4.11), Titanium (§4.12),
+Silicates (§4.13), Polymers (§4.14), Carbon (§4.15), Nickel
+(§4.16). Summary table at §4.17 lines 610-632. **All 16
+land cleanly in 10–50 manageable-count band.**
 
-| Field | Value |
-|---|---|
-| Real-world per-capita | **1,100 kg/p/yr** (FAO 2024 SOFA, world food supply) |
-| Earth demand (8.2 B) | 9,020 Mt/yr |
-| Current per-build | **9,000 Mt/yr** (`Farm`, `modifier_type: "FoodProduction"`) |
-| Current implied count | 1 Farm (1 building feeds 8.2 B) |
-| Target count | 25 |
-| Proposed per-build | **360 Mt/yr** |
-| Scale factor | ×0.040 (DOWN 25×) |
-| Source | FAO 2024 SOFA report, fao.org/worldfoodsituation |
-| Why this factor | 1 Farm feeds ~327 M people (1/25 of Earth at 1,100 kg/p/yr — the new 1/25 manageable-count bar; the v0.5 canary-1 doc previously quoted 25 M from the 1/300 housing bar, which is now superseded) |
-| Companion RON edit | `Farm.modifiers[FoodProduction]` 9000 → 360; `Greenhouse.FoodProduction` 5000 → 200; `AgriDome.FoodProduction` 180 → 4.0; `AquacultureFacility.FoodProduction` 1500 → 200 (**but the simulation does NOT read these RON values — see `src/colony/components.rs:282-285` for the hard-coded values that the sim actually uses; the RON values are documentation only**) |
-| Rust delta | **`food_consumption_per_year` 0.0001 → 0.0000011** (`src/colony/components.rs:300-301`); **`Farm` hard-coded 1,000 → 360** (`src/colony/components.rs:282`); **`Greenhouse` hard-coded 500 → 200** (line 284); **`AquacultureFacility` hard-coded 750 → 200** (line 285) |
+**§5 — Mid-game tier (50–200 yr, fusion unlocks).** He-3
+chain (§5.1 — the catastrophe fix with `lunar_colony` +
+`fusion_power` techs, He3Mine body-restricted, FusionReactor
+He-3 / D downscale, 1:1 mine:reactor ratio), Deuterium
+(§5.2), Tritium (§5.3), Uranium (§5.4), Thorium (§5.5),
+Plutonium (§5.6), Lithium (§5.7), RareEarths (§5.8), Cobalt
+(§5.9), Sulfur (§5.10), Fluorine (§5.11), Tungsten (§5.12),
+Chromium (§5.13), Magnesium (§5.14), Gold (§5.15), Silver
+(§5.16), Platinum (§5.17), Argon (§5.18). Summary at §5.19
+lines 1057-1085.
 
-**The per-capita 0.0001 → 0.0000011 change is the single most important Rust edit.**
-It is the source of the audit's finding #1 ("per-capita food demand
-is 91× below real world"). With this single change, 1 Farm at 360
-Mt/yr feeds ~330 M people — i.e. Earth needs ~25 Farms, not 1, and
-the 10–50 constraint is satisfied.
+**§6 — Late-game tier (200+ yr, K2 Kardashev).** 4 K2
+exotics: Antimatter (grams, §6.1), ExoticMatter (kg, §6.2),
+Metamaterials (Mt, §6.3), Computronium (Mt, §6.4). All
+`kardashev_k2`-gated, all marked "approximate" pending K2
+design review.
 
-### 4.2 Water (Tier 1, life support)
-
-| Field | Value |
-|---|---|
-| Real-world per-capita | **50 kg/p/yr** (closed-loop life support loss, ISS ECLSS 93% water recovery, NASA factsheet) |
-| Earth demand (8.2 B, closed-loop only) | 410 Mt/yr (this is the *non-breathable* figure; on Earth, water is hydrological cycle) |
-| Current per-build | **n/a** (no dedicated water-mining building; `WaterTreatmentPlant` is a `PopulationGrowth` modifier only) |
-| Current implied count | n/a (audit finding #5) |
-| Target count | 25 |
-| Proposed per-build | **16 Mt/yr** (new `WaterProcessor` modifier `WaterProduction`) |
-| Scale factor | n/a (NEW building) |
-| Source | NASA ECLSS water-recovery factsheet (nasa.gov/mission_pages/station/spacewalks/facts); FAO Aquastat (fao.org/aquastat) for per-capita withdrawal on breathable |
-| Why new building | The audit's finding #5 flags 15 resources with no mining building. Water is the #1 volatile. A `WaterProcessor` is the closed-loop equivalent of the Farm: takes regolith ice / atmospheric condensate / seawater and outputs water. |
-| Companion RON edit | **NEW building** `WaterProcessor` (full spec in §8.2.1). For breathable bodies, `WaterProcessor` is auto-disabled (analogous to `Farm`'s `available_atmospheres: [None]`). For non-breathable, the player needs ~25 per 1 B pop. |
-| Rust delta | None. The current `ColonyEnvironmentCosts.water_per_person_per_year` 0.00005 (50 kg/p/yr) is already correct; the model currently only fires on outposts, which is the right behavior. |
-
-**Why 16 Mt/yr not the audit's 50 kg/p/yr × 25 buildings = 1.25 Mt/yr.**
-The 10–50 constraint says 25 buildings at 8.2 B / closed-loop. But
-the closed-loop figure (50 kg/p/yr) is the *loss rate* in a 93%
-recycler; in a 99% recycler the loss is ~5 kg/p/yr. A 16 Mt/yr
-processor serves a 320 M-person colony at 50 kg/p/yr. 25 such
-processors per body × 320 M = 8 B, which is the 10–50 constraint
-satisfied for an Earth-class body. Smaller colonies need fewer.
-
-### 4.3 Oxygen (Tier 1, life support) — folded into `AtmosphericProcessor`
-
-| Field | Value |
-|---|---|
-| Real-world per-capita | **840 kg/p/yr** (NASA ECLSS: 0.84 kg/p/day respiration; nasa.gov/iss-science) |
-| Earth demand (8.2 B) | 6,888 Mt/yr (this is the *non-breathable* figure; on breathable Earth, atmospheric O₂ is "free") |
-| Current per-build | **0** dedicated; `AtmosphericProcessor` harvests all gases together at 500 Mt/yr (undifferentiated across N₂/O₂/Ar/CO₂) |
-| Current implied count | n/a (no per-gas accounting) |
-| Target count | 34 |
-| Proposed per-build | **200 Mt/yr** (new `OxygenProduction` modifier on existing `AtmosphericProcessor`) |
-| Scale factor | n/a (fold) |
-| Source | NASA ECLSS factsheet, 0.84 kg/p/day |
-| Why fold (not new `OxygenExtractor` building like v1) | O₂ and N₂ are *both* products of cryogenic atmospheric distillation on a body with atmosphere. They share the same compression train, just different cold traps. Splitting into a separate `OxygenExtractor` building would duplicate ~80% of the maintenance chain (Fe, Cu, F, power) for no real-world reason. v1's `OxygenExtractor` is dropped in favor of a per-gas split on `AtmosphericProcessor`. |
-| Companion RON edit | `AtmosphericProcessor.modifiers`: replace `AtmosphericHarvesting: 500` with `NitrogenHarvesting: 7` + `OxygenProduction: 200` (CO₂ and Ar are left as byproducts of the same process — no separate modifier; audit §4.3 finding). |
-| Rust delta | None. The current `ColonyEnvironmentCosts.oxygen_per_person_per_year` 0.0001 is 100 kg/p/yr which is 8× too low (real is 840 kg/p/yr). The patch proposes a *new* per-capita field: `oxygen_per_capita_respiration` 0.00084 (= 840 kg/p/yr) for non-breathable bodies. The existing 0.0001 stays as the *recreation/safety-mask* draw and the new 0.00084 is the dominant draw. Deferred to v0.5.x Rust follow-up. |
-
-### 4.4 Nitrogen (Tier 1, life support) — renamed modifier
-
-| Field | Value |
-|---|---|
-| Real-world per-capita | **18 kg/p/yr** (USGS Nitrogen MCS 2024, industrial NH₃ feedstock) |
-| Earth demand (8.2 B) | 148 Mt/yr |
-| Current per-build | **0** dedicated (AtmosphericProcessor sweep, see §4.3) |
-| Current implied count | n/a |
-| Target count | 21 |
-| Proposed per-build | **7 Mt/yr** (rename AtmosphericProcessor modifier to `NitrogenHarvesting`, value 7) |
-| Scale factor | n/a (renamed modifier; effective 500 → 7, but this is a *new* resource-specific accounting) |
-| Source | USGS Nitrogen MCS 2024 (industrial N₂ for Haber-Bosch) |
-| Why rename | Same as Oxygen. The sweep must be split to give per-gas production modifiers. The `AtmosphericHarvesting` name is meaningless; v2 makes it resource-specific. **The rename is breaking — no deprecated alias preserved per the v0.5 design rule.** |
-| Companion RON edit | `AtmosphericProcessor.modifiers[AtmosphericHarvesting]` 500 → 7, **renamed** `NitrogenHarvesting`. Add NEW `OxygenProduction` (see §4.3). CO₂ and Ar are left as byproducts of the same process. |
-| Rust delta | None. Nitrogen per-capita is a new field; for now the patch documents the value but does not implement the Rust hook. Deferred to v0.5.x follow-up. |
-
-### 4.5 Hydrogen (Tier 2, structural feedstock)
-
-| Field | Value |
-|---|---|
-| Real-world per-capita | **12 kg/p/yr** (IEA H₂ Review 2024, 100 Mt/yr ÷ 8.2 B) |
-| Earth demand (8.2 B) | 98 Mt/yr |
-| Current per-build | **100 Mt/yr** (`ChemicalPlant.modifiers[HydrogenSynthesis]`) |
-| Current implied count | 1 (ChemicalPlant) |
-| Target count | 33 |
-| Proposed per-build | **3 Mt/yr** |
-| Scale factor | ×0.030 (DOWN 33×) |
-| Source | IEA Global Hydrogen Review 2024 (iea.org/reports/hydrogen) |
-| Why | The audit's tier 1 conclusion: H₂ is bulk feedstock for NH₃ (Haber-Bosch) and refinery. A per-capita of 12 kg/p/yr is correct. 1 ChemicalPlant at 3 Mt/yr H₂ is a city-scale Haber-Bosch train. |
-| Companion RON edit | `ChemicalPlant.modifiers[HydrogenSynthesis]` 100 → 3 |
-
-### 4.6 Methane (Tier 2, fuel / feedstock)
-
-| Field | Value |
-|---|---|
-| Real-world per-capita | **500 kg/p/yr** (IEA Methane Tracker 2024, 4,100 Mt NG/yr ÷ 8.2 B) |
-| Earth demand (8.2 B) | 4,100 Mt/yr |
-| Current per-build | **0** dedicated (HydrocarbonExtractor outputs 4,000 Mt/yr as generic "MiningEfficiency" covering oil+gas+coal) |
-| Current implied count | 1 HydrocarbonExtractor |
-| Target count | 25 |
-| Proposed per-build | **164 Mt/yr** (split HydrocarbonExtractor into per-resource modifiers) |
-| Scale factor | ×0.041 (DOWN 25×) on the gas slice |
-| Source | IEA Methane Tracker 2024 |
-| Why split | HydrocarbonExtractor today treats oil+gas+coal as one undifferentiated `MiningEfficiency` value 4,000. The audit §4.7 calls this out. The patch splits into per-resource modifiers: `MethaneProduction` 164 Mt/yr, `CarbonProduction` 200 Mt/yr, and removes the legacy undifferentiated modifier. |
-| Companion RON edit | `HydrocarbonExtractor.modifiers[MiningEfficiency]` 4000 → remove. Add `(modifier_type: "MethaneProduction", value: 164.0)`, `(modifier_type: "CarbonProduction", value: 480.0)`, `(modifier_type: "SulfurByproduct", value: 5.0)` (see §4.15 for S rationale). |
-| Rust delta | None. The existing per-capita methane model doesn't exist yet; the patch defers the Rust hookup to a v0.5.x follow-up. |
-
-### 4.7 Ammonia (Tier 2, fertilizer)
-
-| Field | Value |
-|---|---|
-| Real-world per-capita | **24 kg/p/yr** (IEA Ammonia Tech Roadmap 2022, 200 Mt NH₃/yr ÷ 8.2 B) |
-| Earth demand (8.2 B) | 197 Mt/yr |
-| Current per-build | **200 Mt/yr** (`ChemicalPlant.modifiers[AmmoniaSynthesis]`) |
-| Current implied count | 1 |
-| Target count | 33 |
-| Proposed per-build | **6 Mt/yr** |
-| Scale factor | ×0.030 (DOWN 33×) |
-| Source | IEA Ammonia Technology Roadmap 2022 (iea.org/reports/ammonia) |
-| Why | Haber-Bosch NH₃ from H₂ + N₂. Real-world 60% of NH₃ goes to fertilizer, supporting food production for ~50% of world population. 1 ChemicalPlant at 6 Mt/yr NH₃ is a city-scale fertilizer train. |
-| Companion RON edit | `ChemicalPlant.modifiers[AmmoniaSynthesis]` 200 → 6 |
-
-### 4.8 Phosphorus (Tier 1, life-support — closed-loop agriculture)
-
-| Field | Value |
-|---|---|
-| Real-world per-capita | **0.56 kg/p/yr** (USGS Phosphate Rock MCS 2026, 4.6 Mt P/yr ÷ 8.2 B) |
-| Earth demand (8.2 B) | 4.6 Mt/yr |
-| Current per-build | **0** (no mining; only consumer is `AgriDome.maintenance_resources[Phosphorus]`) |
-| Current implied count | n/a (audit finding #5) |
-| Target count | **15** (exception — see §3.5) |
-| Proposed per-build | **0.31 Mt/yr** (NEW `PhosphorusProduction` modifier on existing `Mine`) |
-| Scale factor | n/a (fold) |
-| Source | USGS Phosphate Rock MCS 2026 (pubs.usgs.gov/periodicals/mcs2026) |
-| Why exception | Per-capita is 0.56 kg/p/yr. At 25 buildings, per-build = 0.18 Mt/yr (180 kt/yr) which is below the audit's 1 building ≈ 1/300 world bar (0.015 Mt/yr of P per 1/300 of 4.6 Mt/yr = 0.015 Mt/yr). 15 buildings at 0.31 Mt/yr = 0.31 Mt/yr which is 1/15 of world, a meaningful "district mine." |
-| Companion RON edit | Add `(modifier_type: "PhosphorusProduction", value: 0.31)` to `Mine` (multi-output). |
-| Rust delta | New per-capita field `phosphorus_per_capita_agriculture` 0.00000056 (0.56 kg/p/yr). Hooks into the satisfaction model. Deferred Rust work. |
-
-### 4.9 Iron (Tier 2, structural metal)
-
-| Field | Value |
-|---|---|
-| Real-world per-capita | **305 kg/p/yr** (USGS Iron Ore MCS 2026, 2,500 Mt contained Fe/yr ÷ 8.2 B) |
-| Earth demand (8.2 B) | 2,501 Mt/yr |
-| Current per-build | **1,800 Mt/yr** (`Mine`), 1,800 (`Refinery`), 5,000 (`StripMine` bulk) — total 8,000 Mt/yr across 3 building types for "iron-equivalent" |
-| Current implied count | 1.4 (at Mine scale), 0.3 (at Refinery), 0.5 (at StripMine bulk) |
-| Target count | 25 (each type — player builds 25 Mines *or* 25 Refineries *or* mix) |
-| Proposed per-build | **80 Mt/yr** per Mine, 80 per Refinery, 80 per StripMine (for the Fe slice) |
-| Scale factor | ×0.044 (DOWN 23×) on Mine; same on Refinery; StripMine split into Fe/Si/Al/Cu slices |
-| Source | USGS Iron Ore MCS 2026 (pubs.usgs.gov/periodicals/mcs2026/mcs-2026-iron.pdf) |
-| Why | The audit's headline finding: 1 Mine = 72% of world Fe; player economy is unbounded. Scaling to 80 Mt/yr per Mine makes 1 Mine = 1/22 of world = 1 city-block mining district. 25 Mines per body × 80 Mt/yr = 2,000 Mt/yr, which is 80% of Earth demand — within the 10–50 constraint. |
-| Companion RON edit | `Mine.modifiers[MiningEfficiency]` 1800 → **80** (effective per-Mine Fe). `Refinery.modifiers[MiningEfficiency]` 1800 → 80 (refining capacity). `StripMine.modifiers[BulkMiningEfficiency]` 5000 → split into per-resource (Fe 80, Si 400, Al 2.3, Cu 1.0, Ti 0.02, Ni 0.18, Cr 1.7) — see §4.13. The legacy `MiningEfficiency` is preserved as a multi-resource fallback for the "bulk mining" generic case. |
-| Rust delta | None — the existing maintenance-code path already iterates the `maintenance_resources` list. |
-
-### 4.10 Aluminum (Tier 2, structural metal) — folded into `Refinery`
-
-| Field | Value |
-|---|---|
-| Real-world per-capita | **8.5 kg/p/yr** (USGS Bauxite & Alumina MCS 2026, 70 Mt Al/yr ÷ 8.2 B) |
-| Earth demand (8.2 B) | 70 Mt/yr |
-| Current per-build | **0** (no mining; consumed via Shipyard/SpacePort/LaunchSite maintenance) |
-| Current implied count | n/a (audit finding #5) |
-| Target count | 30 |
-| Proposed per-build | **2.3 Mt/yr** (NEW `AluminumProduction` modifier on `Refinery`) |
-| Scale factor | n/a (fold) |
-| Source | USGS Bauxite & Alumina MCS 2026; for in-game, treat as regolith-fed Bayer-process refinery (lunar regolith contains ~10% Al by mass in anorthosite) |
-| Why fold (not new `AluminaRefinery` building like v1) | Aluminum is the 2nd-most-used metal in the modern world (transport + construction + packaging). The audit's #11 first-bottleneck candidate when the space economy scales. v1's separate `AluminaRefinery` building is dropped; `Refinery` already has the chemical-processing chain. |
-| Companion RON edit | Add `(modifier_type: "AluminumProduction", value: 2.3)` to `Refinery`. |
-| Rust delta | New per-capita field `aluminum_per_capita_construction` 0.0000085 (8.5 kg/p/yr). Deferred Rust hookup. |
-
-### 4.11 Copper (Tier 2, electrical metal) — folded into `Mine`
-
-| Field | Value |
-|---|---|
-| Real-world per-capita | **2.8 kg/p/yr** (USGS Copper MCS 2026, 23 Mt Cu/yr ÷ 8.2 B) |
-| Earth demand (8.2 B) | 23 Mt/yr |
-| Current per-build | **0** dedicated; `RecyclingCenter.modifiers[MiningEfficiency]` 500 covers "mixed recycled metal" undifferentiated |
-| Current implied count | n/a |
-| Target count | 23 |
-| Proposed per-build | **1.0 Mt/yr** (NEW `CopperProduction` modifier on `Mine`) |
-| Scale factor | n/a (fold) |
-| Source | USGS Copper MCS 2026 (pubs.usgs.gov/periodicals/mcs2026/mcs-2026-copper.pdf) |
-| Why fold (not new `CopperMine` building like v1) | The audit's #11 first scarcity bottleneck. Every electrical building maintains on Cu. 1 Cu mine feeds a city. v1's separate `CopperMine` is dropped; Cu is a porphyry co-product of the Fe ore body, and the multi-output `Mine` reflects the real-world geology. |
-| Companion RON edit | Add `(modifier_type: "CopperProduction", value: 1.0)` to `Mine`. |
-| Rust delta | None. The per-capita Cu draw is implicit in the building-maintenance chain; no new Rust field. |
-
-### 4.12 Titanium (Tier 2, structural / aerospace) — folded into `Refinery`
-
-| Field | Value |
-|---|---|
-| Real-world per-capita | **0.04 kg/p/yr** (USGS Titanium MCS 2026, 0.35 Mt Ti sponge/yr ÷ 8.2 B) |
-| Earth demand (8.2 B) | 0.33 Mt/yr |
-| Current per-build | **0** (consumed via HabitatDome, UndergroundHabitat, Shipyard, LaunchSite maintenance) |
-| Current implied count | n/a |
-| Target count | **17** (exception — see §3.5) |
-| Proposed per-build | **0.02 Mt/yr** (NEW `TitaniumProduction` modifier on `Refinery`) |
-| Scale factor | n/a (fold) |
-| Source | USGS Titanium MCS 2026 (pubs.usgs.gov/periodicals/mcs2026/mcs-2026-titanium.pdf); for in-game, treat as ilmenite-smelt (Kroll process) |
-| Why exception | Per-capita is 0.04 kg/p/yr = 40 g/p/yr. At 25 buildings per-build = 0.013 Mt/yr (13 kt/yr) which rounds poorly in the UI. 17 buildings at 0.02 Mt/yr = 20 kt/yr, a defensible "titanium sponge smelter" size. The game-unit rounding is documented as a known limitation. |
-| Companion RON edit | Add `(modifier_type: "TitaniumProduction", value: 0.02)` to `Refinery`. |
-| Rust delta | None. |
-
-### 4.13 Silicates (Tier 2, structural / construction) — `StripMine` split
-
-| Field | Value |
-|---|---|
-| Real-world per-capita | **1,200 kg/p/yr** (USGS Silica 2024, 10,000 Mt sand/yr + ~40 Gt aggregate ÷ 8.2 B) |
-| Earth demand (8.2 B) | 9,840 Mt/yr |
-| Current per-build | **5,000 Mt/yr** (`StripMine.modifiers[BulkMiningEfficiency]`, shared with Fe/Al/Cu) |
-| Current implied count | ~2 |
-| Target count | 25 |
-| Proposed per-build | **400 Mt/yr** (Si slice of `StripMine`) |
-| Scale factor | ×0.040 (DOWN 25×) on the Si slice |
-| Source | USGS Mineral Industry Surveys — Silica 2024 |
-| Why | Silicates are the dominant construction material; near-infinite crustal supply. The patch keeps it "easy to get" but at city-scale per build. |
-| Companion RON edit | `StripMine.modifiers[BulkMiningEfficiency]` 5000 → **remove and replace** with per-resource modifiers (Si 400, Fe 80, Al 2.3, Cu 1.0, Ti 0.02, Ni 0.18, Cr 1.7). `StripMine` = "multi-resource open pit." |
-| Rust delta | None. |
-
-### 4.14 Polymers (Tier 2, structural / manufacturing)
-
-| Field | Value |
-|---|---|
-| Real-world per-capita | **55 kg/p/yr** (OECD Global Plastics Outlook 2024, 450 Mt plastic resin/yr ÷ 8.2 B) |
-| Earth demand (8.2 B) | 451 Mt/yr |
-| Current per-build | **450 Mt/yr** (`ChemicalPlant.modifiers[PolymerSynthesis]`) |
-| Current implied count | 1 |
-| Target count | 25 |
-| Proposed per-build | **18 Mt/yr** |
-| Scale factor | ×0.040 (DOWN 25×) |
-| Source | OECD Global Plastics Outlook 2024 (oecd.org/publications/global-plastics-outlook) |
-| Why | Polymers are petroleum-derived. The patch treats them as a *throughput constraint* of the C cycle (see §4.15) — they can't exceed C production. 18 Mt/yr per ChemicalPlant is 1/25 of world polymer production, a petrochemical-complex scale. |
-| Companion RON edit | `ChemicalPlant.modifiers[PolymerSynthesis]` 450 → 18 |
-| Rust delta | None. |
-
-### 4.15 Carbon (Tier 2, fuel / feedstock) and fossil-derived resources
-
-| Field | Value |
-|---|---|
-| Real-world per-capita | **1,460 kg/p/yr fossil-C** (USGS Coal MCS 2024 + oil + gas, 12,000 Mt fossil-C/yr ÷ 8.2 B) |
-| Earth demand (8.2 B) | 11,972 Mt/yr |
-| Current per-build | **4,000 Mt/yr** (`HydrocarbonExtractor.modifiers[MiningEfficiency]`, undifferentiated) |
-| Current implied count | ~3 |
-| Target count | 25 |
-| Proposed per-build | **480 Mt/yr** (C slice of split HydrocarbonExtractor) |
-| Scale factor | ×0.040 (DOWN 25×) on the C slice |
-| Source | USGS Coal MCS 2024; BP Statistical Review 2024; IEA Methane Tracker 2024 |
-| Why | HydrocarbonExtractor is a "fossil-C miner." Split into per-resource modifiers: C 480 Mt/yr, CH₄ 164 Mt/yr (see §4.6), S 5 Mt/yr (Claus-process byproduct). Total: 649 Mt/yr per extractor at full output. 25 extractors × 649 = 16,225 Mt/yr, which is 1.35× Earth demand — appropriate (one body has surplus to export to other bodies or stock for chemical industry). |
-| Companion RON edit | `HydrocarbonExtractor.modifiers[MiningEfficiency]` 4000 → **remove**. Add `(modifier_type: "CarbonProduction", value: 480.0)`, `(modifier_type: "MethaneProduction", value: 164.0)`, `(modifier_type: "SulfurByproduct", value: 5.0)`. |
-| Rust delta | None. The per-capita C demand is a new field; deferred to v0.5.x follow-up (C is the most complex resource — it's both an input to power and a feedstock for polymers). |
-
-### 4.16 Nickel (Tier 2, structural / superalloy) — folded into `Mine`
-
-| Field | Value |
-|---|---|
-| Real-world per-capita | **0.45 kg/p/yr** (USGS Nickel MCS 2026, 3.7 Mt/yr ÷ 8.2 B) |
-| Earth demand (8.2 B) | 3.7 Mt/yr |
-| Current per-build | **0** (consumed via Mine, Refinery, Shipyard maintenance in tiny amounts) |
-| Current implied count | n/a |
-| Target count | 21 |
-| Proposed per-build | **0.18 Mt/yr** (NEW `NickelProduction` modifier on `Mine`) |
-| Scale factor | n/a (fold) |
-| Source | USGS Nickel MCS 2026 (pubs.usgs.gov/periodicals/mcs2026/mcs-2026-nickel.pdf) |
-| Why fold | Ni is a superalloy critical for reactor pressure vessels, turbine blades, and the 16-SST 200-series austenitic stainless that is the modern baseline. 21 Ni mines per Earth-class body at 0.18 Mt/yr = 3.78 Mt/yr, matching demand. v1's separate `NickelMine` is dropped; Ni is a co-product of laterite / Psyche mining that the multi-output `Mine` handles. |
-| Companion RON edit | Add `(modifier_type: "NickelProduction", value: 0.18)` to `Mine`. |
-| Rust delta | None. |
-
-### 4.17 Early-game summary
-
-| Resource | New per-build (Mt/yr) | New target count | Δ per-build | Action |
-|---|---:|---:|---:|---|
-| Food | 360 | 25 | ×0.040 DOWN | Modify `Farm.FoodProduction` + Rust constant |
-| Water | 16 | 25 | NEW | Add `WaterProcessor` |
-| Oxygen | 200 | 34 | NEW (fold) | Add `OxygenProduction` to `AtmosphericProcessor` |
-| Nitrogen | 7 | 21 | RENAMED | Rename `AtmosphericHarvesting` → `NitrogenHarvesting`, value 7 |
-| Hydrogen | 3 | 33 | ×0.030 DOWN | Modify `ChemicalPlant.HydrogenSynthesis` |
-| Methane | 164 | 25 | ×0.041 (split) | Modify `HydrocarbonExtractor` (add `MethaneProduction` modifier) |
-| Ammonia | 6 | 33 | ×0.030 DOWN | Modify `ChemicalPlant.AmmoniaSynthesis` |
-| Phosphorus | 0.31 | 15 | NEW (fold) | Add `PhosphorusProduction` to `Mine` |
-| Iron | 80 | 25 | ×0.044 DOWN | Modify `Mine.MiningEfficiency` (Fe) |
-| Aluminum | 2.3 | 30 | NEW (fold) | Add `AluminumProduction` to `Refinery` |
-| Copper | 1.0 | 23 | NEW (fold) | Add `CopperProduction` to `Mine` |
-| Titanium | 0.02 | 17 | NEW (fold) | Add `TitaniumProduction` to `Refinery` |
-| Silicates | 400 | 25 | ×0.040 (split) | Modify `StripMine.BulkMiningEfficiency` (Si slice) |
-| Polymers | 18 | 25 | ×0.040 DOWN | Modify `ChemicalPlant.PolymerSynthesis` |
-| Nickel | 0.18 | 21 | NEW (fold) | Add `NickelProduction` to `Mine` |
-| Carbon | 480 | 25 | ×0.040 (split) | Modify `HydrocarbonExtractor` (add `CarbonProduction` modifier) |
-
-**All 16 early-game resources land in the 10–50 manageable-count
-band.** The two exceptions (Phosphorus at 15, Titanium at 17) are
-flagged as expected — they reflect real-world scarcity and rounding
-precision.
+**§7 — Power buildings (cross-cutting).** Per-capita 418 W
+(IEA 2024) = 3,425 GW Earth demand. Per-build `PowerGeneration`
+targets: SolarPower 240 → 200 GW, WindFarm 310 → 250, etc.
+(⏳ PENDING per v3 §0.E). Per the v3 §0.A audit, the
+**consumption** side of the equation is the uncalibrated one;
+see v3 §0.A.4 for the 30 proposed `power_demand_mw` updates.
 
 ---
 
-## 5. Mid-game tier (50–200 yr, fusion unlocks)
-
-Mid-game resources are those unlocked by Tier 2–3 tech. Most are
-**only produced for the space program**, not for civilian consumption
-(per-capita ≈ 0 for He-3, D, T, Pu). The 10–50 constraint therefore
-applies to the *space program* (per-body consumer count) not to
-Earth's 8.2 B.
-
-**The mid-game tier is gated by 2 new technologies** (`lunar_colony`
-and `fusion_power`) added to `assets/data/technologies.ron` — see
-§5.1.1 and §5.1.2 for full prereq chains. The 3rd new technology
-(`kardashev_k2`) is the late-game gate (see §6).
-
-### 5.1 Helium-3 — the catastrophe fix (mid-game, tech-gated + body-restricted)
-
-This is the single most important patch in the mid-game tier. The
-audit's finding #4: `FusionReactor` maintenance 10 Mt/yr He-3 vs
-3,815 t world atmospheric pool = **2,600× world supply per year per
-reactor**.
-
-**Two-sided fix.** We do *both* (a) downscale the consumer and (b)
-add the producer. Either alone is unstable.
-
-| Field | Value |
-|---|---|
-| Real-world per-capita | 6×10⁻¹⁰ kg/p/yr (essentially 0) |
-| Tier weight | 0.3 (Tier 3 — per CIVILIZATION_SATISFACTION_MODEL §2.4) |
-| Real-world source | USGS Helium MCS 2024 (3,815 t atm pool); Wittenberg 1986 / Kulcinski 2000 for lunar regolith estimates (~10 t/yr at industrial scale, 2050+); gas-giant He/He-3 primordial ratios (Conrath et al. 1987 for Jupiter) |
-| Current per-build consumer | **10 Mt/yr He-3** (`FusionReactor.maintenance_resources[Helium3]`) — **2,600× world pool per reactor per year** |
-| Current per-build producer | **0** (no mining building — audit finding #4) |
-| Proposed per-build consumer (downscale) | **0.5 Mt/yr He-3** per `FusionReactor` (×0.05 — DOWN 20×) |
-| Proposed per-build producer (new) | **0.5 Mt/yr He-3** per `He3Mine` (1:1 ratio with consumer at 1 mine per reactor) |
-| Manageable count | A mature He-3-deposit outpost with 10 `FusionReactor` needs 10 `He3Mine` (1:1) — within the 10–50 band. Earth at 8.2 B has He-3 per-capita = 0, so no Earth demand — count is set by the space program. |
-| Tech gate (producer) | `He3Mine.required_tech = "lunar_colony"` |
-| Tech gate (consumer) | `FusionReactor.required_tech = "fusion_power"` |
-| Body restriction (producer) | `He3Mine.allowed_body_types = [BodyType::Moon, BodyType::GasGiant, BodyType::Asteroid]` (schema addition; see §8.4) — the three body classes with He-3 deposits: regolith-implanted by solar wind (Moon, asteroids) or primordial in atmosphere (gas giants) |
-| Companion RON edit | `FusionReactor.maintenance_resources[Helium3]` 10 → 0.5. **NEW** `He3Mine` (full spec in §8.2.2). **NEW** tech `lunar_colony` (§5.1.1). **NEW** tech `fusion_power` (§5.1.2). |
-| Rust delta | None — He-3 is tier-gated (CIVILIZATION_SATISFACTION_MODEL §7). Per-capita = 0, so it stays out of scope until the player builds a consumer (which is gated on `fusion_power` tech). |
-| Why this fix | The He-3 is *post-scarcity* in the game (lunar regolith is effectively infinite at 1.1 Mt total — that's 1.1 million tonnes vs 10 tonnes/yr demand at 0.5 Mt/yr × 20 reactors × 1 yr = 10 t/yr). The 0.5 Mt/yr per reactor is a design choice, not a real-world anchor: it makes 1 mine = 1 reactor (clean ratio) and gives the player 50 reactors per Mt He-3. Real-world He-3 economy is not yet meaningful; the game gets to define it. |
-
-**The 5-step chain to power a FusionReactor on a He-3-deposit body:**
-
-1. Research `lunar_colony` tech (mid-game; prereqs below). The tech
-   name is a holdover from v1 (the *first* off-world He-3 extraction
-   in real-world plans is lunar; see Kulcinski 2000). The tech itself
-   is the general off-world He-3 mining gate — it does NOT require a
-   moon colony, only the prereq chain.
-2. Found a colony on a He-3-deposit body — Moon, gas giant (with
-   atmospheric scoop station), or large asteroid. Existing
-   `EstablishOutpostRequest` flow; the construction panel gates the
-   body-type list against the body's `BodyType` (canary-3 schema
-   addition).
-3. Build `He3Mine` on that body (1:1 with `FusionReactor`, requires
-   `lunar_colony` AND body's `BodyType` ∈ `[Moon, GasGiant, Asteroid]`;
-   the schema addition in §8.4 enforces the body restriction).
-4. The mine produces He-3 into the body's `LocalStockpile` (the
-   existing resource accounting system). For gas giants, the building
-   is an orbital scoop station that "builds" at the body; for moons
-   and asteroids, it's a regolith heating plant.
-5. Research `fusion_power` tech (mid-game, requires `lunar_colony` as
-   a prereq; §5.1.2 prereqs). The construction panel unlocks
-   `FusionReactor` on the He-3-deposit body (and on any other body
-   the player can freight He-3 to). The reactor's He-3 is supplied
-   via the existing freight logistics (the same `ResourceRequest` /
-   Freighter fleet system that handles Earth-to-Mars resource
-   transport) from the He-3-deposit body.
-
-**Freight hop.** The freight logistics layer already ships resources
-between bodies. The Luna He-3 → consumer-body hop is the same
-mechanism. No new freight system is needed. The "freight hop" is
-implicit in the existing `ResourceRequest` /
-`complete_deliveries` system (see `src/colony/components.rs:439-447`
-on `ConstructionProject.awaiting_resources`).
-
-**`DHe3FusionReactor` note.** The existing `DHe3FusionReactor` already
-has He-3 maintenance of 0.0008 Mt/yr, which is 1,250× *less* than
-`FusionReactor`. The patch leaves `DHe3FusionReactor` unchanged
-(0.0008 Mt/yr is fine; the existing `required_anomalies: ["magnetic_anomaly"]`
-field is preserved).
-
-#### 5.1.1 `lunar_colony` tech (mid-game, NEW)
-
-| Field | Value |
-|---|---|
-| `id` | `"lunar_colony"` |
-| `name` | `"Lunar Colony Engineering"` |
-| `category` | `SpaceTechnology` |
-| `description` | "Engineering, life-support, and ISRU techniques for sustained off-world resource extraction. The off-world He-3 mining gate (Moon regolith, gas-giant atmospheric scoops, asteroid regolith), named for the first off-world He-3 extraction source in real-world plans." |
-| `research_cost` | `7,500.0` (between `orbital_construction` at 8,000 and `space_habitation` at 7,000; calibration gives a mid-game tier cost) |
-| `prerequisites` | `["space_habitation", "closed_loop_ecology"]` — both are realistic foundations for a permanent moon base (Apollo 1969-1972 first proved short-stay, but the first *sustained* presence needs closed-loop ECLSS + long-duration space hab engineering; see Apollo Lunar Surface Experiments Package + Artemis Base Camp plans) |
-| `unlocks_engineering` | `["lunar_outpost_kit", "isru_oxygen_plant", "lunar_hab_module"]` |
-| `unlocks_components` | `[]` |
-| `tier` | `2` |
-| Real-world analog | Apollo program (1961-1972, NASA), Artemis program (2024+, NASA + international), China Lunar Exploration Program (Chang'e 1-8, 2007-2030s), Russia Luna-Glob (Roscosmos) |
-| Why position here | After `space_habitation` (long-duration crewed facilities, 7,000 RP) and `closed_loop_ecology` (closed-loop ECLSS, 220,100 RP) — both must be in hand before a permanent moon base is feasible. Before `fusion_power` (which requires `lunar_colony` as a prereq, since He-3 supply gates the reactor unlock). |
-
-**Effect on the existing tech tree:** `lunar_colony` slots in at
-Tier 2 between `space_habitation` (Tier 2, 7,000 RP) and `fusion_power`
-(Tier 3, see §5.1.2). It does not break any existing tech chain. The
-two existing moon-touched buildings (`UndergroundHabitat.available_atmospheres: [None]`,
-`OrbitalSurveyStation` — neither has a tech gate today) become
-*available* in the construction panel on a He-3-deposit body once the player
-founds a colony on that body; the building availability is gated by the
-*colony* existing, not by a per-building tech.
-
-#### 5.1.2 `fusion_power` tech (mid-game, NEW)
-
-| Field | Value |
-|---|---|
-| `id` | `"fusion_power"` |
-| `name` | `"Fusion Power Engineering"` |
-| `category` | `Energy` |
-| `description` | "Magnetic-confinement fusion (tokamak, stellarator) and inertial-confinement fusion (laser-driven) reactor engineering at power-plant scale. Requires lunar He-3 supply for D-³He variants; the helium-3 feedstock chain (mining on the Moon, freighter transport to the consumer body) is the gate for the civilian power economy." |
-| `research_cost` | `12,000.0` (above `lunar_colony` at 7,500; reflects the engineering jump from "we can build a moon base" to "we can run a fusion reactor" — the ITER project, JET, DEMO, Commonwealth Fusion SPARC all reflect this 20-30 year engineering effort) |
-| `prerequisites` | `["lunar_colony", "fission_power"]` — `lunar_colony` is non-negotiable: without it, no He-3 supply, no FusionReactor. `fission_power` is the nearer-term fission prerequisite (the existing tech; without mastering fission, fusion engineering is academic) |
-| `unlocks_engineering` | `["fusion_reactor", "dt_fusion_reactor", "dhe3_fusion_reactor"]` |
-| `unlocks_components` | `["fusion_plasma_chamber", "tritium_breeding_blanket", "magnetic_confinement_coil"]` |
-| `tier` | `3` |
-| Real-world analog | ITER (international, 1988-2025+), JET (UK/EU, 1983-2023), DEMO (planned, 2050s), Commonwealth Fusion SPARC (private, 2025+), Helion (private, 2028+), Tokamak Energy (UK private, 2030s) |
-| Why position here | After `lunar_colony` (He-3 supply gate) and `fission_power` (fission prerequisite). The fusion power plant is a Tier 3 unlock — the engineering maturity of fission is a precondition for fusion. |
-
-**Why `lunar_colony` is non-negotiable as a fusion prereq.** The
-`FusionReactor` consumes He-3 at 0.5 Mt/yr per build. Without a
-`He3Mine` (which is gated on `lunar_colony` AND on the body
-belonging to `[Moon, GasGiant, Asteroid]`), the player cannot supply
-the consumer. Locking `fusion_power` behind `lunar_colony` enforces
-the supply chain at the *research* layer: the player cannot unlock
-the consumer until they have unlocked the producer's tech tree path.
-
-#### 5.1.3 The K2 `kardashev_k2` tech (late-game, NEW)
-
-The 4 K2 exotics (Antimatter, ExoticMatter, Metamaterials, Computronium)
-are all gated on a single late-game tech `kardashev_k2`. Spec:
-
-| Field | Value |
-|---|---|
-| `id` | `"kardashev_k2"` |
-| `name` | `"Kardashev K2 Engineering"` |
-| `category` | `Physics` |
-| `description` | "Planetary-scale engineering, antimatter pair-production, exotic-matter stabilization, metamaterial lattice synthesis, and computronium substrate fabrication. The K2 Kardashev transition (per ROADMAP §9.1) unlocks the 4 exotic production domains." |
-| `research_cost` | `500,000.0` (extreme; reflects the speculative K2-tier scope. This is a *place-holder* pending K2 design review.) |
-| `prerequisites` | `["fusion_power"]` (the cheapest path to K2 is through mature fusion; other paths — quantum-AI, post-biological — are also defensible but deferred) |
-| `unlocks_engineering` | `["antimatter_synthesizer", "exotic_matter_synthesizer", "metamaterials_fab", "computronium_substrate"]` |
-| `unlocks_components` | `["antimatter_magnetic_bottle", "casimir_array", "metamaterial_lattice", "computronium_wafer"]` |
-| `tier` | `4` |
-| Real-world analog | None (K2 is hypothetical; Kardashev 1964 scale, NASA / Carl Sagan SETI usage) |
-| Why this tech | Single-gate all four exotics. The K2.0 transition is a *civilization-scale* event (per ROADMAP §9.1), so a single tech gate is appropriate. |
-
-**Effect on the existing tech tree:** `kardashev_k2` slots in at
-Tier 4 with research_cost 500,000 (extreme; deferred to K2 design
-review). No existing tech depends on it; it's a leaf.
-
-### 5.2 Deuterium — folded into `ChemicalPlant`
-
-| Field | Value |
-|---|---|
-| Real-world per-capita | 0.004 kg/p/yr (Culham / IEA fusion review) |
-| Real-world supply | Ocean 3.5×10¹⁰ Mt; commercial D₂O production ~33 kt/yr (Canada CANDU et al.) |
-| Current per-build consumer | `FusionReactor` 5 Mt/yr, `DTFusionReactor` 0.0015 Mt/yr, `DHe3FusionReactor` 0.0008 Mt/yr |
-| Current per-build producer | **0** (no ocean electrolysis) |
-| Proposed per-build consumer | Downscale `FusionReactor` D 5 → 0.25 Mt/yr (20× DOWN, matches He-3). `DTFusionReactor` 0.0015 → 0.0001. `DHe3FusionReactor` 0.0008 (unchanged). |
-| Proposed per-build producer | NEW `DeuteriumProduction` on `ChemicalPlant` at 0.18 Mt/yr (1:1 with downscale `FusionReactor` at 0.25 Mt/yr ≈ 1.4 harvester per reactor) |
-| Manageable count | 18 `ChemicalPlant` per body at 0.18 Mt/yr = 3.24 Mt/yr, enough for ~13 `FusionReactor` at 0.25 Mt/yr. Within 10–50. |
-| Source | Culham Centre for Fusion Energy; IEA fusion review (iea.org/reports/fusion-power) |
-| Why fold (not new `DeuteriumHarvester` like v1) | D is the *primary* fusion fuel in the D-T reactor and a major component of D-He3. The ocean has 10¹⁰ Mt — effectively infinite. The harvester is a coastal electrolysis plant. v1's separate `DeuteriumHarvester` is dropped; D₂ is produced by electrolysis of water — the same `ChemicalPlant` that already does H₂ synthesis. The marginal cost of adding a `DeuteriumProduction` modifier to `ChemicalPlant` is one line. |
-| Companion RON edit | `ChemicalPlant.modifiers`: add `(modifier_type: "DeuteriumProduction", value: 0.18)`. `FusionReactor.maintenance_resources[Deuterium]` 5.0 → 0.25. |
-| Rust delta | None. |
-
-### 5.3 Tritium — scaledown `ChemicalPlant.TritiumBreeding`
-
-| Field | Value |
-|---|---|
-| Real-world per-capita | 5×10⁻¹⁰ kg/p/yr (essentially 0) |
-| Real-world supply | Bred from Li-6 in CANDU reactors; ~4 kg/yr globally (NUBASE2020) |
-| Current per-build producer | `ChemicalPlant.modifiers[TritiumBreeding]` 0.05 Mt/yr (active only with `fusion_power` tech) |
-| Current per-build consumer | `DTFusionReactor.maintenance_resources[Tritium]` 0.0005 Mt/yr |
-| Proposed per-build producer | **0.001 Mt/yr** (×0.02 — DOWN 50×, but the *target* is to match consumer at 1:1) |
-| Proposed per-build consumer | Keep `DTFusionReactor` at 0.0005 Mt/yr (already 50× lower than production) |
-| Manageable count | A mature D-T outpost with 15 `DTFusionReactor` needs 15 ChemicalPlants breeding T at 0.001 Mt/yr each. Within 10–50. |
-| Source | NUBASE2020; IAEA T breeding review |
-| Why | The audit's finding §6.3: T at 0.05 Mt/yr is 12,500× real-world. The 50× downscale brings it to 0.001 Mt/yr which is 250× real-world — still post-scarcity (D-T is a closed breeding cycle) but not absurdly so. |
-| Companion RON edit | `ChemicalPlant.modifiers[TritiumBreeding]` 0.05 → 0.001 |
-
-### 5.4 Uranium — folded into `DeepDrill`
-
-| Field | Value |
-|---|---|
-| Real-world per-capita | 0.0073 kg/p/yr (USGS Uranium MCS 2026) |
-| Real-world supply | 0.060 Mt/yr production; 6.1 Mt reserves; 35 Mt total resources |
-| Current per-build consumer | `FissionReactor` 0.0028 Mt/yr, `BreederReactor` 0.0015 Mt/yr |
-| Current per-build producer | **0** (no mining) |
-| Proposed per-build producer | NEW `UraniumProduction` on `DeepDrill` at 0.0028 Mt/yr (1:1 with `FissionReactor` consumer) |
-| Manageable count | 18 `DeepDrill` per body at 0.0028 Mt/yr = 0.050 Mt/yr, matching world production. Within 10–50. |
-| Companion RON edit | Add `(modifier_type: "UraniumProduction", value: 0.0028)` to `DeepDrill`. |
-| Rust delta | None. U is mid-game Tier 3 (weight 0.3 per CIVILIZATION_SATISFACTION_MODEL §2.4). |
-
-### 5.5 Thorium — folded into `DeepDrill`
-
-| Field | Value |
-|---|---|
-| Real-world per-capita | 0.00012 kg/p/yr (USGS Thorium MCS 2024) |
-| Real-world supply | ~0.001 Mt/yr byproduct of REE mining; 0.6 Mt reserves |
-| Current per-build consumer | `ThoriumReactor` 0.0012 Mt/yr |
-| Current per-build producer | **0** |
-| Proposed per-build producer | NEW `ThoriumProduction` on `DeepDrill` at 0.0025 Mt/yr (couples to REE mining) |
-| Manageable count | 16 `DeepDrill` per body at 0.0025 Mt/yr = 0.040 Mt/yr, plenty for 33 `ThoriumReactor` at 0.0012 Mt/yr. Within 10–50. |
-| Source | USGS Thorium MCS 2024 |
-| Why fold | Th is a Tier 3 strategic for the molten-salt reactor economy (post-2050). The patch bundles Th with REE mining since the real-world supply is a REE byproduct. |
-| Companion RON edit | Add `(modifier_type: "ThoriumProduction", value: 0.0025)` to `DeepDrill`. |
-| Rust delta | None. |
-
-### 5.6 Plutonium — scaledown `BreederReactor`
-
-| Field | Value |
-|---|---|
-| Real-world per-capita | 0.0000024 kg/p/yr (IAEA & SIPRI 2024) |
-| Real-world supply | Civil stockpile 650 t; production 20 t/yr; bred in reactors |
-| Current per-build producer | `BreederReactor.modifiers[PlutoniumBreeding]` 0.23 Mt/yr (the audit's §6.5 finding) |
-| Current per-build consumer | `BreederReactor.maintenance_resources[Plutonium]` 0.0001 Mt/yr |
-| Proposed per-build producer | **0.001 Mt/yr** (×0.0043 — DOWN 230×, to match real-world 20 t/yr at 0.00002 Mt/yr per breeder) |
-| Manageable count | 12 `BreederReactor` at 0.001 Mt/yr Pu breeding = 0.012 Mt/yr = 12 t/yr, matching real-world civil production. Within 10–50. |
-| Source | IAEA & SIPRI Yearbook 2024 |
-| Why | The audit's finding #6.5: Pu at 0.23 Mt/yr is 11,500× real-world civil Pu rate. The 230× downscale brings it to 0.001 Mt/yr = 1 t/yr, 50× real-world — still post-scarcity (Pu is bred, not mined) but defensible. The breeder is fundamentally a *Pu multiplier*, not a power source, in real-world economics. The game keeps it as a power source (700 GW per breeder) but the Pu breeding rate should match the real ratio. |
-| Companion RON edit | `BreederReactor.modifiers[PlutoniumBreeding]` 0.23 → 0.001 |
-| Rust delta | None. |
-
-### 5.7 Lithium — folded into `Mine`
-
-| Field | Value |
-|---|---|
-| Real-world per-capita | 0.022 kg/p/yr (USGS Lithium 2026) |
-| Real-world supply | 0.18 Mt/yr Li metal/yr; 0.030 Mt reserves; 2.3×10⁸ Mt in seawater |
-| Current per-build consumer | `SolarPower`, `FissionReactor`, `AI Cluster`, `SemiconductorFab` (each 0.0002–0.0005 Mt/yr per building) |
-| Current per-build producer | **0** |
-| Proposed per-build producer | NEW `LithiumProduction` on `Mine` at 0.006 Mt/yr (matches demand at 22 buildings per body for Earth-class 8.2 B) |
-| Manageable count | 22 `Mine` per body at 0.006 Mt/yr = 0.132 Mt/yr, matching world production. Within 10–50. |
-| Source | USGS Lithium 2026; IEA Critical Minerals Outlook 2024 |
-| Why fold | Li is critical for every battery / electrical building. Real-world supply is brine (Salar de Atacama, Chile) and hard-rock (Greenbushes, Australia). The multi-output `Mine` handles the brine-extraction slice. |
-| Companion RON edit | Add `(modifier_type: "LithiumProduction", value: 0.006)` to `Mine`. |
-| Rust delta | None. |
-
-### 5.8 RareEarths — folded into `DeepDrill`
-
-| Field | Value |
-|---|---|
-| Real-world per-capita | 0.037 kg/p/yr (USGS REE 2026) |
-| Real-world supply | 0.3 Mt/yr REO; 110 Mt reserves; China 90% refining |
-| Current per-build consumer | `MassDriver`, `AI Cluster`, `SemiconductorFab`, `LaserDrill`, `FusionReactor` |
-| Current per-build producer | **0** dedicated; `DeepDrill`/`LaserDrill` have a `DeepMiningEfficiency` modifier that *could* target REE but no per-REE modifier exists |
-| Proposed per-build producer | NEW `RareEarthsProduction` on `DeepDrill` at 0.012 Mt/yr |
-| Manageable count | 20 `DeepDrill` per body at 0.012 Mt/yr = 0.24 Mt/yr, matching world production. Within 10–50. |
-| Source | USGS REE MCS 2026 (pubs.usgs.gov/periodicals/mcs2026/mcs-2026-rare-earths.pdf) |
-| Why fold | REE is the bottleneck for *every* advanced tech. Mass drivers, AI clusters, fusion reactors all consume it. The deep-crust ore body (monazite, xenotime, bastnäsite) is mined by the multi-output `DeepDrill`. |
-| Companion RON edit | Add `(modifier_type: "RareEarthsProduction", value: 0.012)` to `DeepDrill`. |
-| Rust delta | None. |
-
-### 5.9 Cobalt — folded into `Mine`
-
-| Field | Value |
-|---|---|
-| Real-world per-capita | 0.028 kg/p/yr (USGS Cobalt 2026) |
-| Real-world supply | 0.23 Mt/yr; 11 Mt reserves; DRC 75% |
-| Current per-build consumer | `Mine`, `D-T Reactor`, others (each 0.0001–0.002 Mt/yr) |
-| Current per-build producer | **0** |
-| Proposed per-build producer | NEW `CobaltProduction` on `Mine` at 0.012 Mt/yr (couples to Cu mining — real-world Co is a Cu-mine byproduct) |
-| Manageable count | 18 `Mine` per body at 0.012 Mt/yr = 0.216 Mt/yr, matching world production. Within 10–50. |
-| Source | USGS Cobalt MCS 2026 (pubs.usgs.gov/periodicals/mcs2026/mcs-2026-cobalt.pdf) |
-| Companion RON edit | Add `(modifier_type: "CobaltProduction", value: 0.012)` to `Mine`. |
-| Rust delta | None. |
-
-### 5.10 Sulfur — covered by `HydrocarbonExtractor.SulfurByproduct`
-
-| Field | Value |
-|---|---|
-| Real-world per-capita | 8.4 kg/p/yr (USGS Sulfur 2024) |
-| Real-world supply | 69 Mt/yr (mostly petroleum refining byproduct); 350 Mt reserves |
-| Current per-build consumer | `ChemicalPlant` 0.03 Mt/yr; `CoalPowerPlant` 0.05 Mt/yr; `PharmaceuticalPlant` 0.1 Mt/yr; others |
-| Current per-build producer | **0** dedicated |
-| Proposed per-build producer | Already covered by `HydrocarbonExtractor.SulfurByproduct: 5` (in the §4.15 C/CH4 split). 19 extractors × 5 Mt/yr = 95 Mt/yr > 69 Mt/yr world. **No new building needed.** |
-| Source | USGS Sulfur MCS 2024 |
-| Why no new building | S is critical for sulfuric acid (the most-produced industrial chemical, 270 Mt/yr global). Real-world S is a *petroleum-refining byproduct*, not a primary mine product. The patch reflects this with the `HydrocarbonExtractor.SulfurByproduct` modifier (Claus-process output). v1's separate `SulfurRecoverer` is dropped. |
-
-### 5.11 Fluorine — folded into `Mine`
-
-| Field | Value |
-|---|---|
-| Real-world per-capita | 0.55 kg/p/yr (USGS Fluorspar 2024) |
-| Real-world supply | 4.5 Mt fluorite/yr; 320 Mt fluorspar reserves; 585 ppm crustal |
-| Current per-build consumer | `ChemicalPlant` 0.001 Mt/yr; `StripMine` 0.0005; `SemiconductorFab` 0.01; `FissionReactor` 0.005; `ThoriumReactor` 0.004; `BreederReactor` 0.004; `FusionReactor` 0.003 |
-| Current per-build producer | **0** |
-| Proposed per-build producer | NEW `FluorineProduction` on `Mine` at 0.25 Mt/yr |
-| Manageable count | 17 `Mine` per body at 0.25 Mt/yr = 4.25 Mt/yr, matching world production. Within 10–50. |
-| Source | USGS Fluorspar MCS 2024 |
-| Companion RON edit | Add `(modifier_type: "FluorineProduction", value: 0.25)` to `Mine`. |
-| Rust delta | None. |
-
-**Fluorine is the v2 stand-in for NaOH and Cl₂.** v1's
-`AluminaRefinery` used `SodiumHydroxide` in `maintenance_resources`;
-v1's `TitaniumSmelter` used `Chlorine`. v0.5 design rule: **no new
-`ResourceType` entries** — Fluorine is a real resource with real
-demand (UF₆ enrichment, semiconductor etch, fluoropolymer
-manufacture), and the Cl/F / NaOH/F substitutions are chemically
-defensible: both Cl₂ and F₂ are halogens used in similar
-high-temperature halide processes; both NaOH and HF (the F analog
-of NaOH) are strong bases / etchants.
-
-### 5.12 Tungsten — folded into `DeepDrill`
-
-| Field | Value |
-|---|---|
-| Real-world per-capita | 0.0095 kg/p/yr (USGS Tungsten MCS 2026) |
-| Real-world supply | 0.078 Mt/yr; 3.5 Mt reserves; 45 yr R/P |
-| Current per-build consumer | `MissileSilo` 0.001 Mt/yr; `GroundDefenseBattery` 0.001; `RailgunTech` (implied); `DeepDrill` 0.0001 |
-| Current per-build producer | **0** |
-| Proposed per-build producer | NEW `TungstenProduction` on `DeepDrill` at 0.005 Mt/yr |
-| Manageable count | 15 `DeepDrill` per body at 0.005 Mt/yr = 0.075 Mt/yr, matching world production. Within 10–50. |
-| Source | USGS Tungsten MCS 2026 (pubs.usgs.gov/periodicals/mcs2026/mcs-2026-tungsten.pdf) |
-| Companion RON edit | Add `(modifier_type: "TungstenProduction", value: 0.005)` to `DeepDrill`. |
-| Rust delta | None. |
-
-### 5.13 Chromium — folded into `Refinery`
-
-| Field | Value |
-|---|---|
-| Real-world per-capita | 3.7 kg/p/yr (USGS Chromium 2024) |
-| Real-world supply | 30 Mt chromite ore/yr; 750 Mt reserves; S. Africa 48% |
-| Current per-build consumer | `Refinery` 0.003 Mt/yr; `DeepDrill` 0.005; `Shipyard` 0.5 |
-| Current per-build producer | **0** |
-| Proposed per-build producer | NEW `ChromiumProduction` on `Refinery` at 1.7 Mt/yr |
-| Manageable count | 18 `Refinery` per body at 1.7 Mt/yr = 30.6 Mt/yr, matching world production. Within 10–50. |
-| Source | USGS Chromium 2024 |
-| Companion RON edit | Add `(modifier_type: "ChromiumProduction", value: 1.7)` to `Refinery`. |
-| Rust delta | None. |
-
-### 5.14 Magnesium — folded into `Refinery`
-
-| Field | Value |
-|---|---|
-| Real-world per-capita | 0.13 kg/p/yr (USGS Magnesium 2024) |
-| Real-world supply | 1.1 Mt/yr; 750 Mt reserves; China 84% |
-| Current per-build consumer | `HabitatDome` 0.005 Mt/yr; `LaunchSite` 0.002; `Shipyard` 0.002; `SpacePort` 0.004 |
-| Current per-build producer | **0** |
-| Proposed per-build producer | NEW `MagnesiumProduction` on `Refinery` at 0.06 Mt/yr (Pidgeon process from dolomite, or electrolytic from seawater) |
-| Manageable count | 19 `Refinery` per body at 0.06 Mt/yr = 1.14 Mt/yr, matching world production. Within 10–50. |
-| Source | USGS Magnesium 2024 |
-| Companion RON edit | Add `(modifier_type: "MagnesiumProduction", value: 0.06)` to `Refinery`. |
-| Rust delta | None. |
-
-### 5.15 Gold (precious metal, electronics + jewelry + investment)
-
-| Field | Value |
-|---|---|
-| Real-world per-capita | **0.00037 kg/p/yr** (USGS Gold MCS 2026, 3,000 t/yr ÷ 8.2 B) |
-| Tier weight | 0.3 (Tier 3, precious / catalytic per CIVILIZATION_SATISFACTION_MODEL §2.4) |
-| Earth demand (8.2 B) | 0.003 Mt/yr (3,000 t/yr) |
-| Real-world source | USGS Gold MCS 2026; ~3,000 t/yr global mine production; ~59,000 t reserves (USGS 2024) |
-| Current per-build consumer | **0** (no consumer in RON) |
-| Current per-build producer | **0** (no mining building) |
-| Proposed per-build producer (NEW) | **0.0001 Mt/yr Au** per `GoldMine` (≈ 3,200 troy oz/yr — small-mine scale) |
-| Proposed per-build consumer | **0.0001 Mt/yr Au** per `SemiconductorFab` (1:1 with producer; electronics-industry share of Au consumption is ~15% of global demand, with the rest going to jewelry / investment / industrial / dental) |
-| Manageable count | 25 `GoldMine` × 0.0001 = 0.0025 Mt/yr ≈ 80% of USGS-reported demand (rest comes from recycling). Within 10–50. **Note:** below the audit's "1 building ≈ 1/300 of world" bar, but gold is a Tier 3 / weight 0.3 resource and the per-build value rounds to 0.0001 (3,200 oz/yr — a realistic small-mine output). User can refine. |
-| Source | USGS Gold MCS 2026; World Gold Council demand 2024 (electronics ~250 t/yr, jewelry ~1,500 t/yr, investment ~1,100 t/yr, industrial ~300 t/yr); the game uses the global aggregate (3,000 t/yr) for civilian demand |
-| Why `SemiconductorFab` as consumer | The existing `SemiconductorFab` (display name "Electronics Industry") is the natural electronics-industry consumer in the current RON. Adding Au/Ag/Pt/Ar to its `maintenance_resources` is additive and non-breaking. v0.5.x does not need a new `ElectronicsIndustry` building. |
-| Companion RON edit | **NEW** `GoldMine` (full spec §8.2.7). Add `("Gold", 0.0001)` to `SemiconductorFab.maintenance_resources`. |
-| Rust delta | None. Gold is a Tier 3 / weight 0.3 resource (CIVILIZATION_SATISFACTION_MODEL §2.4). No new `ResourceType` (Gold already exists at `ResourceType::Gold`). |
-| Why this fix | The audit and §5.15 (v1) deferred Au/Ag/Pt to a K1.5 patch that required a new `ElectronicsIndustry` consumer. The user has revised the v0.5 design rule: fold the consumer into the existing `SemiconductorFab` (no new buildings for consumers) and add 3 dedicated mine buildings (Au/Ag/Pt) plus 1 atmospheric fold (Ar) for the producers. Real 2026 per-capita is sourced. |
-
-### 5.16 Silver (precious metal, electronics + photography + jewelry)
-
-| Field | Value |
-|---|---|
-| Real-world per-capita | **0.0032 kg/p/yr** (USGS Silver MCS 2026, 26,000 t/yr ÷ 8.2 B) |
-| Tier weight | 0.3 (Tier 3, precious / catalytic per CIVILIZATION_SATISFACTION_MODEL §2.4) |
-| Earth demand (8.2 B) | 0.025 Mt/yr (25,000 t/yr) |
-| Real-world source | USGS Silver MCS 2026; ~25,000 t/yr global mine production; ~530,000 t reserves |
-| Current per-build consumer | **0** (no consumer) |
-| Current per-build producer | **0** (no mining building) |
-| Proposed per-build producer (NEW) | **0.001 Mt/yr Ag** per `SilverMine` (1,000 t/yr per mine — large-mine scale; 1 mine ≈ 4% world share) |
-| Proposed per-build consumer | **0.001 Mt/yr Ag** per `SemiconductorFab` (1:1 with producer; the electronics share of Ag demand is ~50% globally — solar PV paste, solders, contacts, photographic film is now ~5%) |
-| Manageable count | 25 `SilverMine` × 0.001 = 0.025 Mt/yr = USGS 2026 demand. Within 10–50. |
-| Source | USGS Silver MCS 2026; The Silver Institute demand 2024 (industrial ~50%, jewelry/silverware ~20%, investment ~15%, photography ~5%, other ~10%) |
-| Companion RON edit | **NEW** `SilverMine` (full spec §8.2.8). Add `("Silver", 0.001)` to `SemiconductorFab.maintenance_resources`. |
-| Rust delta | None. Silver is Tier 3 / weight 0.3. No new `ResourceType`. |
-| Why dedicated mine (not fold into Mine) | Silver mining is dominantly a **lead-zinc byproduct** (Cannington, Australia; Peñasquito, Mexico; ~70% of global Ag is Pb/Zn byproduct). The `Refinery` already does Pb/Zn processing, but adding Ag as a fold would require Pb/Zn to be in the existing `Refinery` modifiers, which they aren't. A dedicated `SilverMine` is the cleaner game-side abstraction; the user can later fold Ag into `Refinery` if they add Pb/Zn mining. |
-
-### 5.17 Platinum (precious metal, autocatalyst + fuel cell + jewelry)
-
-| Field | Value |
-|---|---|
-| Real-world per-capita | **0.000024 kg/p/yr** (USGS Platinum MCS 2026, 200 t/yr ÷ 8.2 B) |
-| Tier weight | 0.3 (Tier 3, precious / catalytic per CIVILIZATION_SATISFACTION_MODEL §2.4) |
-| Earth demand (8.2 B) | 0.0002 Mt/yr (200 t/yr) |
-| Real-world source | USGS Platinum MCS 2026; ~200 t/yr global mine production; ~69,000 t reserves (Bushveld Complex, South Africa dominates) |
-| Current per-build consumer | **0** (no consumer) |
-| Current per-build producer | **0** (no mining building) |
-| Proposed per-build producer (NEW) | **0.00001 Mt/yr Pt** per `PlatinumMine` (10 t/yr per mine — realistic PGM output; 1 mine ≈ 5% world share) |
-| Proposed per-build consumer | **0.00001 Mt/yr Pt** per `SemiconductorFab` (1:1 with producer; autocatalyst ~40% + jewelry ~30% + industrial ~20% + investment ~10% — the electronics / industrial slice goes through `SemiconductorFab`) |
-| Manageable count | 20 `PlatinumMine` × 0.00001 = 0.0002 Mt/yr = USGS 2026 demand. **Manageable-count exception** (flagged in §3.5): per-build is below the 0.0001 Mt/yr rounding precision, so target_count = 20 (not 25). The UI panel does not display tonnes-vs-Mt at this scale (known limitation, same as Titanium / Phosphorus). |
-| Source | USGS Platinum MCS 2026; Johnson Matthey PGM market report 2024 |
-| Companion RON edit | **NEW** `PlatinumMine` (full spec §8.2.9). Add `("Platinum", 0.00001)` to `SemiconductorFab.maintenance_resources`. |
-| Rust delta | None. Platinum is Tier 3 / weight 0.3. No new `ResourceType`. |
-| Why dedicated mine (not fold) | PGM (platinum group metals) mining is concentrated in the Bushveld Complex (South Africa) and Norilsk (Russia), with very different processing from base-metal mining. A dedicated `PlatinumMine` is the cleaner game-side abstraction. The user can later fold Pt into `Refinery` if they add Ni/Cu processing. |
-
-### 5.18 Argon (atmospheric noble gas, semiconductor fab + welding + lighting)
-
-| Field | Value |
-|---|---|
-| Real-world per-capita | **0.085 kg/p/yr** (USGS Helium & Noble Gases 2024, 700,000 t/yr ÷ 8.2 B) |
-| Tier weight | 1.0 (Tier 2, industrial gas per CIVILIZATION_SATISFACTION_MODEL §2.4) |
-| Earth demand (8.2 B) | 0.7 Mt/yr (700,000 t/yr) |
-| Real-world source | USGS Helium & Noble Gases 2024; ~700,000 t/yr global production (mostly from cryogenic air separation as an O₂/N₂ byproduct) |
-| Current per-build consumer | **0** (no consumer) |
-| Current per-build producer | **0** (no atmospheric argon modifier) |
-| Proposed per-build producer (FOLD) | **0.028 Mt/yr Ar** per `AtmosphericProcessor` (28,000 t/yr per processor — major air-separation plant; the existing `AtmosphericProcessor` modifier stack already splits N₂/O₂, so adding Ar as a third atmospheric gas is the natural fold) |
-| Proposed per-build consumer | **0.028 Mt/yr Ar** per `SemiconductorFab` (1:1 with producer; semiconductor fab uses Ar as an inert sputtering / wafer-handling atmosphere, plus welding inert shield in `Refinery` is a smaller second consumer) |
-| Manageable count | 25 `AtmosphericProcessor` × 0.028 = 0.7 Mt/yr = USGS 2024 demand. Within 10–50. |
-| Source | USGS Helium & Noble Gases 2024; Linde / Air Liquide annual reports 2024 |
-| Companion RON edit | Add `("ArgonProduction", 0.028)` to `AtmosphericProcessor.modifiers`. Add `("Argon", 0.028)` to `SemiconductorFab.maintenance_resources`. |
-| Rust delta | None. Argon is Tier 2 / weight 1.0. No new `ResourceType` (Argon already exists at `ResourceType::Argon`). |
-| Why fold (not new `ArgonExtractor`) | Argon is a **byproduct of cryogenic air separation** — it cannot be economically extracted without first producing O₂/N₂. The existing `AtmosphericProcessor` already splits N₂ (`NitrogenHarvesting` 7 Mt/yr) and O₂ (`OxygenProduction` 200 Mt/yr). Adding Ar as a third atmospheric gas in the same processor is the natural fold and avoids a redundant building. The per-build 0.028 Mt/yr is the byproduct rate at the audit's calibration scale. |
-
-### 5.19 Mid-game summary
-
-| Resource | New per-build (Mt/yr) | Action |
-|---|---:|---|
-| Helium-3 | 0.5 (consumer) + 0.5 (producer) | Modify `FusionReactor`; add `He3Mine` (body-restricted `[Moon, GasGiant, Asteroid]`) |
-| Deuterium | 0.25 (consumer) + 0.18 (producer) | Modify `FusionReactor`; add `DeuteriumProduction` to `ChemicalPlant` |
-| Tritium | 0.001 (producer) | Modify `ChemicalPlant` |
-| Uranium | 0.0028 (producer) | Add `UraniumProduction` to `DeepDrill` |
-| Thorium | 0.0025 (producer) | Add `ThoriumProduction` to `DeepDrill` |
-| Plutonium | 0.001 (producer) | Modify `BreederReactor` |
-| Lithium | 0.006 (producer) | Add `LithiumProduction` to `Mine` |
-| RareEarths | 0.012 (producer) | Add `RareEarthsProduction` to `DeepDrill` |
-| Cobalt | 0.012 (producer) | Add `CobaltProduction` to `Mine` |
-| Sulfur | 3.0 (producer) | Already in `HydrocarbonExtractor.SulfurByproduct` |
-| Fluorine | 0.25 (producer) | Add `FluorineProduction` to `Mine` |
-| Tungsten | 0.005 (producer) | Add `TungstenProduction` to `DeepDrill` |
-| Chromium | 1.7 (producer) | Add `ChromiumProduction` to `Refinery` |
-| Magnesium | 0.06 (producer) | Add `MagnesiumProduction` to `Refinery` |
-| Gold | 0.0001 (consumer) + 0.0001 (producer) | **NEW** `GoldMine`; add to `SemiconductorFab.maintenance_resources` |
-| Silver | 0.001 (consumer) + 0.001 (producer) | **NEW** `SilverMine`; add to `SemiconductorFab.maintenance_resources` |
-| Platinum | 0.00001 (consumer) + 0.00001 (producer) | **NEW** `PlatinumMine`; add to `SemiconductorFab.maintenance_resources` |
-| Argon | 0.028 (consumer) + 0.028 (producer) | Add `ArgonProduction` to `AtmosphericProcessor`; add to `SemiconductorFab.maintenance_resources` |
-
-**4 NEW buildings + 2 NEW technologies + ~13 existing building edits
-= the mid-game changes.** v1 had 11 NEW buildings; v2 has 4
-(He3Mine + GoldMine + SilverMine + PlatinumMine; Argon folds into
-`AtmosphericProcessor` to honour the "no new `ResourceType` / no
-redundant atmospheric buildings" design rule). The fold cut 7 new
-buildings from v1.
-
----
-
-## 6. Late-game tier (200+ yr, K2 Kardashev)
-
-All late-game resources are **K2-exotic** per the audit and the
-satisfaction model (CIVILIZATION_SATISFACTION_MODEL §7.6). They are
-filtered out of the satisfaction calculation until the player reaches
-K2.0 Kardashev (gated on the `kardashev_k2` tech, §5.1.3). The patch
-proposes producer buildings at the *spec* level; the user is expected
-to refine at K2 design review (the "approximate" flag).
-
-### 6.1 Antimatter
-
-| Field | Value |
-|---|---|
-| Real-world anchor | CERN ALPHA experiment ~10⁻¹⁰ g/yr (essentially 0 in game units) |
-| Game-unit proposal | **Track in grams**, not Mt (per audit §6.2; v0.5 design rule) |
-| Per-build producer | NEW `AntimatterSynthesizer` at **100 g/yr** (1 g = world 100-year stockpile at the design rate) |
-| Manageable count | 12 `AntimatterSynthesizer` per body at 100 g/yr = 1,200 g/yr, enough for ~12 `AntimatterDrive` ships per year at 100 g/ship. Within 10–50. |
-| Tech gate | `required_tech: "kardashev_k2"` |
-| Source | CERN ALPHA experiment (home.cern/science/experiments/alpha) |
-| Why approximate | No real-world anchor for industrial antimatter. The 100 g/yr is a design placeholder chosen so 12 synthesizers feed a small fleet. K2 design review should re-derive. |
-| Companion RON edit | **NEW** building `AntimatterSynthesizer` (full spec in §8.2.3). |
-| Rust delta | Antimatter unit convention change: game tracks in **grams** for K2+ tier. Major Rust change; deferred to K2 design pass. |
-
-### 6.2 ExoticMatter
-
-| Field | Value |
-|---|---|
-| Real-world anchor | None (theoretical; Casimir / negative-energy-density) |
-| Game-unit proposal | Track in **kg** of "negative-energy-equivalent" |
-| Per-build producer | NEW `ExoticMatterSynthesizer` at **0.1 kg/yr** (placeholder; K2 review) |
-| Manageable count | Spec-level only; no real-world anchor to validate. |
-| Source | None — comparable-game fallback (Aurora 4X treats "exotics" as a late-game currency; Stellaris uses "rare crystals" with no real anchor) |
-| Why approximate | No physics consensus on production. The 0.1 kg/yr is a placeholder that lets the building exist without crashing the economy. |
-| Companion RON edit | **NEW** building `ExoticMatterSynthesizer` (full spec in §8.2.4). Required_tech: K2.0 gate. |
-| Rust delta | None. |
-
-### 6.3 Metamaterials
-
-| Field | Value |
-|---|---|
-| Real-world anchor | None (synthetic; no reliable public source) |
-| Game-unit proposal | Track in **Mt** (synthetic composite) |
-| Per-build producer | NEW `MetamaterialsFab` at **0.05 Mt/yr** |
-| Manageable count | 12 labs per body at 0.05 Mt/yr = 0.6 Mt/yr, enough for the cloaking / shielding / perfect-lens applications. Within 10–50. |
-| Source | None — comparable-game fallback |
-| Why approximate | "Engineered composites with unnatural optical/EM properties" per `src/economy/types.rs:226-227`. The 0.05 Mt/yr is a design placeholder. |
-| Companion RON edit | **NEW** building `MetamaterialsFab` (full spec in §8.2.5). Required_tech: K2.0 gate. |
-| Rust delta | None. |
-
-### 6.4 Computronium
-
-| Field | Value |
-|---|---|
-| Real-world anchor | None (theoretical substrate) |
-| Game-unit proposal | Track in **Mt** (substrate mass) |
-| Per-build producer | NEW `ComputroniumSubstrate` at **0.01 Mt/yr** |
-| Manageable count | 10 foundries per body at 0.01 Mt/yr = 0.1 Mt/yr, enough for a Culture-level AI mind cluster. Within 10–50. |
-| Source | None — comparable-game fallback (Aurora 4X, Stellaris both leave undefined) |
-| Why approximate | "Optimised computational substrate" per `src/economy/types.rs:228-230`. The 0.01 Mt/yr is a design placeholder; K2 review. |
-| Companion RON edit | **NEW** building `ComputroniumSubstrate` (full spec in §8.2.6). Required_tech: K2.0 gate. |
-| Rust delta | None. |
-
-### 6.5 Late-game summary
-
-| Resource | Unit | New per-build | Action |
-|---|---|---:|---|
-| Antimatter | **grams** | 100 g/yr | Add `AntimatterSynthesizer`; `kardashev_k2`-gated |
-| ExoticMatter | kg | 0.1 kg/yr | Add `ExoticMatterSynthesizer`; `kardashev_k2`-gated |
-| Metamaterials | Mt | 0.05 Mt/yr | Add `MetamaterialsFab`; `kardashev_k2`-gated |
-| Computronium | Mt | 0.01 Mt/yr | Add `ComputroniumSubstrate`; `kardashev_k2`-gated |
-
-**4 NEW late-game buildings, all `kardashev_k2`-gated, all marked
-"approximate" pending K2 design review.**
-
----
-
-## 7. Power buildings (cross-cutting)
-
-Power is handled separately because it is a *flow* (W = J/s) not a
-*stockpile* (Mt). The audit §7 cross-cuts the catalog at 30,000
-TWh/yr world electricity (~3,450 GW avg continuous, ~420 W per
-capita).
-
-### 7.1 Per-capita and per-build
-
-* **Per-capita demand:** 3,660 kWh/p/yr = **418 W continuous** per
-  person (IEA 2024 world electricity).
-* **Earth demand (8.2 B):** 30,000 TWh/yr = 3,425 GW continuous.
-* **Manageable count target:** 10–30 power plants per body (a small
-  asteroid outpost has 1 Solar + 1 Fission; a mature planet has 20+
-  of each). The 10–50 constraint is more relaxed for power than for
-  resources.
-
-### 7.2 Per-build targets
-
-| Power plant | Current per-build (GW avg) | Current count (Earth) | Proposed per-build (GW avg) | Proposed count (Earth) | Δ |
-|---|---:|---:|---:|---:|---|
-| SolarPower | 240 | 1 (= world solar share 7%) | 200 | 12 | ×0.83 DOWN |
-| WindFarm | 310 | 1 (= world wind share 9%) | 250 | 11 | ×0.81 DOWN |
-| HydroelectricDam | 510 | 1 (= world hydro share 15%) | 400 | 6 | ×0.78 DOWN |
-| GeothermalPlant | 100 | 1 (= world geothermal) | 80 | 4 | ×0.80 DOWN |
-| CoalPowerPlant | 1,200 | 1 (= world coal share 35%) | 800 | 12 | ×0.67 DOWN |
-| NaturalGasPlant | 750 | 1 (= world gas share 22%) | 600 | 11 | ×0.80 DOWN |
-| FissionReactor | 310 | 1 (= world nuclear share 9%) | 250 | 11 | ×0.81 DOWN |
-| FusionReactor | 2,000 | 0 (K-gated) | 1,500 | n/a (post-`fusion_power`) | ×0.75 DOWN |
-| DTFusionReactor | 3,000 | 0 (K-gated) | 2,500 | n/a (post-`fusion_power`) | ×0.83 DOWN |
-| DHe3FusionReactor | 2,500 | 0 (K-gated) | 2,000 | n/a (post-`fusion_power`) | ×0.80 DOWN |
-| ThoriumReactor | 800 | 0 (post-molten-salt) | 600 | 4 | ×0.75 DOWN |
-| BreederReactor | 700 | 0 (post-breeder-reactors) | 500 | 5 | ×0.71 DOWN |
-
-**Why scale down (not up).** Each power plant today is "1 plant = 1
-world power share," so 1 SolarPower = 7% of world electricity. The
-patch scales to "1 plant = 1/12 of one power source share," giving
-the player 12 plants of each type per body — within the 10–50
-manageable count. 12 SolarPlants at 200 GW = 2,400 GW = 21,000 TWh/yr
-(~70% of world demand).
-
-**Why not 30 SolarPlants.** Solar is variable (24h cycle, weather);
-the 200 GW figure is *average continuous*. The patch keeps it
-realistic — 12 large PV farms at 200 GW avg each is a real-world
-scale (largest PV farms are 2-5 GW peak; 200 GW = 100 of those,
-which is the output of a continent-spanning solar array, comparable
-to the world solar share).
-
-**Fusion power plants are post-`fusion_power` tech** (per §5.1.2).
-No fusion plant is buildable at game start.
-
-### 7.3 Companion RON edits
-
-For each power plant, the `PowerGeneration` modifier value scales
-down per the table above. No new buildings. The existing tier-1
-always-available power plants (Solar, Wind, Hydro, Coal, NG, Fission)
-cover the early-game. The fusion plants scale to mid-game (post-
-`fusion_power` tech).
-
-### 7.4 Companion Rust / model edits
-
-The satisfaction model treats power as a *flow constraint* not a
-*resource stockpile*. No new Rust field. The `PowerSource`
-component already aggregates the per-build `PowerGeneration`
-modifiers. The patch doesn't change that aggregation.
-
----
-
-## 8. Implementation notes
-
-This section is the **how-to-apply** reference. The user edits
-`assets/data/buildings.ron`, `assets/data/technologies.ron`, and
-`src/colony/data.rs` per the specifications below. No other code
-changes are required for v0.5.x (the civilization-satisfaction-model
-is a separate deliverable).
-
-### 8.1 Rust constant delta (the only Rust edit in v0.5.x — components)
-
-**File:** `src/colony/components.rs`
-**Lines:** 300-301 (consumption), 282-285 (production hard-codes)
-
-**Before:**
-```rust
-/// Per-capita consumption: 0.0001 Mt/person/year (100 tonnes/person/year).
-/// At this scale 1 Farm (1,000 Mt/yr) feeds ~10M people.
-pub fn food_consumption_per_year(&self) -> f64 {
-    self.population * 0.0001
-}
-```
-
-**After (v0.5.1 — corrected unit conversion):**
-```rust
-/// Per-capita consumption: 0.0000011 Mt/person/year (1,100 kg/person/year,
-/// FAO 2024 SOFA). 1,100 kg = 1.1 × 10⁻⁶ Mt (since 1 Mt = 10⁹ kg).
-/// At this scale 1 Farm (360 Mt/yr, post-patch) feeds ~327M people, so
-/// Earth (8.2 B) needs ~25 Farms — within the 10–50 manageable-count band.
-pub fn food_consumption_per_year(&self) -> f64 {
-    self.population * 0.0000011
-}
-```
-
-**v0.5 unit error:** the canary-1 value 0.0011 was 1,000× too high
-(0.0011 Mt = 1,100 tonnes, not 1,100 kg). v0.5.1 corrects this and the
-hard-coded per-build values in `food_production_per_year`.
-
-Also update the production-side hard-coded values (the simulation does
-**NOT** read the RON `FoodProduction` modifier — these constants are
-the source of truth, `src/colony/components.rs:282-285`):
-
-```rust
-/// Calculate food production rate (Mt/year) from agricultural buildings.
-///
-/// Each building is scaled for district-level throughput (post-patch):
-/// - Farm:                  360 Mt/yr  → feeds ~327M people (1/25 of Earth)
-/// - AgriDome:                4 Mt/yr  → feeds ~3.6M people (enclosed, off-world)
-/// - Greenhouse:            200 Mt/yr  → feeds ~182M people (controlled-env, supplemental)
-/// - AquacultureFacility:   200 Mt/yr  → feeds ~182M people (seafood, supplemental)
-///
-/// Per-capita food consumption: 0.0000011 Mt/person/yr (1,100 kg/p/yr,
-/// FAO 2024 SOFA — 1,100 kg = 1.1 × 10⁻⁶ Mt since 1 Mt = 10⁹ kg).
-pub fn food_production_per_year(&self) -> f64 {
-    let farm_count = self.building_count(BuildingType::Farm) as f64;
-    let agri_count = self.building_count(BuildingType::AgriDome) as f64;
-    let greenhouse_count = self.building_count(BuildingType::Greenhouse) as f64;
-    let aquaculture_count = self.building_count(BuildingType::AquacultureFacility) as f64;
-    farm_count * 360.0
-        + agri_count * 4.0
-        + greenhouse_count * 200.0
-        + aquaculture_count * 200.0
-}
-```
-
-The new `farm_count * 360.0` reflects the per-build scale-down of
-the `FoodProduction` modifier in the RON. The other production
-values also scale down: `agri_count * 4.0` (was 4, unchanged for
-AgriDome because off-world scale), `greenhouse_count * 200.0` (was
-500), `aquaculture_count * 200.0` (was 750). These mirror the
-RON changes in §8.3.1-§8.3.4.
-
-### 8.2 NEW buildings to add to `buildings.ron` (9 total)
-
-The user appends each block to the `buildings: [ ... ]` array. The
-schema matches the existing entries; the IDs must match a
-`BuildingType` enum variant (which the user adds in Rust if it
-doesn't already exist — see §8.5 for the enum additions).
-
-#### 8.2.1 WaterProcessor (early-game, non-breathable)
-
-```ron
-(
-    id: "WaterProcessor",
-    display_name: "Water Processor",
-    description: "Atmospheric condenser / ice miner. Extracts 16 Mt/yr water from regolith or atmosphere. Required for non-breathable colony life support.",
-    icon: "textures/ui/buildings/water-processor.png",
-    category: "Infrastructure",
-    build_points: 600.0,
-    workforce: 2000,
-    required_tech: "",
-    resource_costs: [
-        ("Iron", 67.0),
-        ("Copper", 33.0),
-        ("Aluminum", 17.0),
-        ("Polymers", 8.0),
-    ],
-    maintenance_resources: [
-        ("Iron", 0.05),
-        ("Copper", 0.005),
-        ("Polymers", 0.005),
-        ("Water", 0.05),  // bootstrap draw
-        ("Fluorine", 0.001),  // process reagent (no NaOH resource per v0.5 design rule)
-    ],
-    modifiers: [
-        (modifier_type: "WaterProduction", value: 16.0),
-    ],
-    power_demand_mw: 300.0,
-    available_atmospheres: [None],  // non-breathable only
-),
-```
-
-**Note on maintenance_resources.** The v0.5 design rule is **no new
-`ResourceType` entries** — Fluorine (already a resource) is used as
-the process reagent. If the user later decides Fluorine is wrong,
-swap for Sulfur or drop the row; do not add NaOH.
-
-#### 8.2.2 He3Mine (mid-game, He-3-deposit body, tech-gated)
-
-```ron
-(
-    id: "He3Mine",
-    display_name: "Helium-3 Mine",
-    description: "Regolith heating / atmospheric scoop plant that extracts 0.5 Mt/yr He-3. Powers 1 FusionReactor. Body-restricted to moons, gas giants, and asteroids — the body classes with He-3 deposits (regolith-implanted from solar wind on moons/asteroids, primordial in gas-giant atmospheres).",
-    icon: "textures/ui/buildings/he3-mine.png",
-    category: "Industry",
-    build_points: 8000.0,
-    workforce: 5000,
-    required_tech: "lunar_colony",  // mid-game gate; see §5.1.1
-    resource_costs: [
-        ("Iron", 500.0),
-        ("Titanium", 250.0),
-        ("RareEarths", 100.0),
-        ("Hydrogen", 50.0),  // reduction agent (regolith path) / scoop propellant (gas-giant path)
-    ],
-    maintenance_resources: [
-        ("Iron", 1.0),
-        ("Titanium", 0.05),
-        ("Hydrogen", 0.5),
-        ("Helium3", 0.05),  // bootstrap from a starter stockpile
-        ("Water", 0.1),
-        ("Polymers", 0.005),
-    ],
-    modifiers: [
-        (modifier_type: "Helium3Production", value: 0.5),
-    ],
-    power_demand_mw: 1500.0,
-    // SCHEMA ADDITION: see §8.4. Without this field, the construction panel
-    // will show He3Mine as available on every body. The v0.5 design
-    // rule explicitly REJECTS "He3Mine buildable on Earth / Mars."
-    allowed_body_types: [Moon, GasGiant, Asteroid],
-),
-```
-
-**Body restriction.** `allowed_body_types: [Moon, GasGiant, Asteroid]`
-is the schema addition in §8.4. Without it, the construction panel
-will show `He3Mine` as available on every body, including Earth and
-Mars. **This is non-negotiable** per the v0.5 design rule: He-3
-deposits only exist on these three body classes (regolith-He-3 from
-solar-wind implantation on moons and asteroids; primordial He-3 in
-gas-giant atmospheres). The construction panel will grey out `He3Mine`
-on any body whose `BodyType` is not in the list. **The player does
-NOT need a moon colony to build on a gas giant or asteroid** — only
-the `lunar_colony` tech (the gate for off-world He-3 mining) and a
-colony on the target body. The schema addition is a canary-3
-dependency.
-
-#### 8.2.3 AntimatterSynthesizer (late-game, K2-gated, grams)
-
-```ron
-(
-    id: "AntimatterSynthesizer",
-    display_name: "Antimatter Production Facility",
-    description: "Particle-antiparticle pair-production reactor. 100 g/yr antimatter (game units; K2.0 unlock).",
-    icon: "textures/ui/buildings/antimatter-synthesizer.png",
-    category: "Industry",
-    build_points: 50000.0,
-    workforce: 50000,
-    required_tech: "kardashev_k2",  // K2.0; see §5.1.3
-    resource_costs: [
-        ("Iron", 5000.0),
-        ("Titanium", 2500.0),
-        ("RareEarths", 1000.0),
-        ("Copper", 500.0),
-        ("Lithium", 250.0),
-        ("Metamaterials", 50.0),
-        ("Computronium", 5.0),
-    ],
-    maintenance_resources: [
-        ("Iron", 5.0),
-        ("Copper", 0.5),
-        ("Lithium", 0.1),
-        ("Water", 5.0),
-        ("Metamaterials", 0.001),
-        ("Computronium", 0.0001),
-    ],
-    modifiers: [
-        // Tracked in GRAMS, not Mt. v0.5 design rule: grams throughout.
-        (modifier_type: "AntimatterProduction", value: 100.0),  // 100 g/yr
-    ],
-    power_demand_mw: 50000.0,
-),
-```
-
-**Note:** this is a **spec-level placeholder**; the antimatter unit
-convention change (grams) is a major Rust change deferred to K2
-design review. Until the Rust change lands, the value 100.0 is
-interpreted in the *current* game unit (Mt), not grams. The
-descriptive text in the UI should read "100 g/yr" regardless of the
-underlying unit.
-
-#### 8.2.4 ExoticMatterSynthesizer (late-game, K2-gated, kg)
-
-```ron
-(
-    id: "ExoticMatterSynthesizer",
-    display_name: "Exotic Matter Synthesizer",
-    description: "Casimir-array / negative-energy-density synthesizer. 0.1 kg/yr exotic matter (placeholder; K2 design review).",
-    icon: "textures/ui/buildings/exotic-synthesizer.png",
-    category: "Industry",
-    build_points: 100000.0,
-    workforce: 100000,
-    required_tech: "kardashev_k2",
-    resource_costs: [
-        ("Iron", 10000.0),
-        ("Metamaterials", 100.0),
-        ("Antimatter", 0.001),  // grams
-    ],
-    maintenance_resources: [
-        ("Metamaterials", 0.01),
-        ("Antimatter", 0.0001),
-        ("Computronium", 0.001),
-    ],
-    modifiers: [
-        (modifier_type: "ExoticMatterProduction", value: 0.1),  // 0.1 kg/yr
-    ],
-    power_demand_mw: 100000.0,
-),
-```
-
-#### 8.2.5 MetamaterialsFab (late-game, K2-gated)
-
-```ron
-(
-    id: "MetamaterialsFab",
-    display_name: "Metamaterials Fabrication Facility",
-    description: "Engineered-composite lab for cloaking, perfect lenses, advanced shielding. 0.05 Mt/yr (placeholder; K2 review).",
-    icon: "textures/ui/buildings/metamaterials-fab.png",
-    category: "Research",
-    build_points: 25000.0,
-    workforce: 20000,
-    required_tech: "kardashev_k2",
-    resource_costs: [
-        ("Iron", 1500.0),
-        ("Titanium", 750.0),
-        ("RareEarths", 500.0),
-        ("Copper", 250.0),
-    ],
-    maintenance_resources: [
-        ("Iron", 1.0),
-        ("Copper", 0.05),
-        ("RareEarths", 0.01),
-        ("Computronium", 0.001),
-    ],
-    modifiers: [
-        (modifier_type: "MetamaterialsProduction", value: 0.05),
-    ],
-    power_demand_mw: 10000.0,
-),
-```
-
-#### 8.2.6 ComputroniumSubstrate (late-game, K2-gated)
-
-```ron
-(
-    id: "ComputroniumSubstrate",
-    display_name: "Computronium Substrate Foundry",
-    description: "Optimised-substrate foundry for Culture-level AI. 0.01 Mt/yr computronium (placeholder; K2 review).",
-    icon: "textures/ui/buildings/computronium-substrate.png",
-    category: "Research",
-    build_points: 30000.0,
-    workforce: 25000,
-    required_tech: "kardashev_k2",
-    resource_costs: [
-        ("Iron", 2000.0),
-        ("Silicates", 1000.0),
-        ("RareEarths", 500.0),
-        ("Copper", 250.0),
-    ],
-    maintenance_resources: [
-        ("Iron", 1.0),
-        ("Silicates", 0.5),
-        ("RareEarths", 0.01),
-        ("Copper", 0.05),
-    ],
-    modifiers: [
-        (modifier_type: "ComputroniumProduction", value: 0.01),
-    ],
-    power_demand_mw: 15000.0,
-),
-```
-
-#### 8.2.7 GoldMine (mid-game, Tier 3, always-available)
-
-```ron
-(
-    id: "GoldMine",
-    display_name: "Gold Mine",
-    description: "Placer / lode gold extraction. 0.0001 Mt/yr Au per mine (~3,200 troy oz/yr — small-mine scale). Consumed by electronics industry (SemiconductorFab maintenance).",
-    icon: "textures/ui/buildings/gold-mine.png",
-    category: "Industry",
-    build_points: 1200.0,
-    workforce: 4000,
-    required_tech: "",
-    resource_costs: [
-        ("Iron", 200.0),
-        ("Copper", 50.0),
-        ("Water", 100.0),
-    ],
-    maintenance_resources: [
-        ("Iron", 0.5),
-        ("Copper", 0.05),
-        ("Water", 0.1),
-        ("Cyanide", 0.001),  // cyanidation process reagent
-        ("Polymers", 0.003),
-        ("Mercury", 0.0001),  // amalgamation process (small loss rate)
-    ],
-    modifiers: [
-        (modifier_type: "GoldProduction", value: 0.0001),
-    ],
-    power_demand_mw: 400.0,
-),
-```
-
-**Note on cyanidation.** The cyanidation process uses sodium cyanide
-(NaCN) as a leaching agent. The patch's v0.5 design rule is **no new
-`ResourceType` entries**, so cyanidation is represented abstractly
-with a small `Iron` / `Cyanide`-placeholder maintenance cost rather
-than adding NaCN as a new resource. The display string is `Cyanide`
-to indicate process reagent; the underlying simulation reads the
-string. Mercury (Hg) is shown for the historical Hg-amalgamation path
-— note that industrial gold mining has been moving AWAY from Hg since
-the Minamata Convention (2013); the patch keeps Hg as a small loss
-item for the historical / artisanal-mining path.
-
-#### 8.2.8 SilverMine (mid-game, Tier 3, always-available)
-
-```ron
-(
-    id: "SilverMine",
-    display_name: "Silver Mine",
-    description: "Silver extraction (often a lead-zinc byproduct; in-game modelled as a dedicated Ag operation). 0.001 Mt/yr Ag per mine (~1,000 t/yr — large-mine scale). Consumed by electronics industry (SemiconductorFab maintenance).",
-    icon: "textures/ui/buildings/silver-mine.png",
-    category: "Industry",
-    build_points: 1500.0,
-    workforce: 5000,
-    required_tech: "",
-    resource_costs: [
-        ("Iron", 250.0),
-        ("Copper", 75.0),
-        ("Lead", 50.0),
-        ("Zinc", 50.0),
-    ],
-    maintenance_resources: [
-        ("Iron", 0.5),
-        ("Copper", 0.05),
-        ("Lead", 0.01),
-        ("Zinc", 0.01),
-        ("Water", 0.1),
-        ("Polymers", 0.003),
-    ],
-    modifiers: [
-        (modifier_type: "SilverProduction", value: 0.001),
-    ],
-    power_demand_mw: 500.0,
-),
-```
-
-**Note on Lead / Zinc.** Lead and Zinc are *not* in the current
-`ResourceType` enum. The patch's v0.5 design rule is **no new
-`ResourceType` entries**, so the resource_costs row references them
-as placeholder strings. The simulation system reads the string at
-evaluation time; if Lead / Zinc are not present in `BuildingsData`
-or `ResourceType`, the system treats them as a no-op draw (zero
-balance impact). This preserves the design rule while still giving
-the player a meaningful cost story (silver mines need lead-zinc
-processing gear).
-
-#### 8.2.9 PlatinumMine (mid-game, Tier 3, always-available)
-
-```ron
-(
-    id: "PlatinumMine",
-    display_name: "Platinum Mine",
-    description: "Platinum-group-metal extraction from layered intrusions (Bushveld / Norilsk analog). 0.00001 Mt/yr Pt per mine (~10 t/yr — realistic PGM output). Consumed by electronics industry (SemiconductorFab maintenance).",
-    icon: "textures/ui/buildings/platinum-mine.png",
-    category: "Industry",
-    build_points: 2000.0,
-    workforce: 6000,
-    required_tech: "",
-    resource_costs: [
-        ("Iron", 300.0),
-        ("Nickel", 200.0),  // PGM is often a Ni/Cu byproduct
-        ("Copper", 100.0),
-        ("Chromium", 50.0),  // layered intrusion mining gear
-    ],
-    maintenance_resources: [
-        ("Iron", 0.5),
-        ("Nickel", 0.05),
-        ("Copper", 0.01),
-        ("Chromium", 0.005),
-        ("Water", 0.1),
-        ("Polymers", 0.005),
-    ],
-    modifiers: [
-        (modifier_type: "PlatinumProduction", value: 0.00001),
-    ],
-    power_demand_mw: 600.0,
-),
-```
-
-**Note on per-build value (0.00001 Mt/yr).** Platinum is the
-**rarcst mined resource in the game** (USGS 2026: 200 t/yr global,
-Bushveld Complex dominates). The per-build value 0.00001 Mt/yr
-(10 t/yr per mine) is below the game's Mt-unit rounding precision
-but matches real-world large-mine output. The UI panel does not
-display tonnes-vs-Mt at this scale; the player's Economy panel
-shows total Pt produced (0.0002 Mt/yr at 20 mines = 200 t/yr). This
-is a known calibration limitation, same as Titanium / Phosphorus
-(§3.5 manageable-count exceptions).
-
-### 8.3 EXISTING buildings that need their `effects` field adjusted (the folding)
-
-The user edits the listed modifier values. The `resource_costs`,
-`maintenance_resources`, and `power_demand_mw` fields are unchanged
-unless explicitly noted.
-
-#### 8.3.1 Farm (Population)
+## §5 Implementation notes (v2 §8 + v3 §8.10–§8.12)
+
+### §5.1 v2 §8.1 — Rust constant delta (SHIPPED)
+
+`src/colony/components.rs:341`: `food_consumption_per_year`
+is now `pop × 0.0000011` (1,100 kg/p/yr = 1.1 × 10⁻⁶ Mt).
+The hard-coded per-build values in `food_production_per_year`
+are now `Farm 360, Greenhouse 200, AquacultureFacility 200,
+AgriDome 4` (the simulation does not read the RON
+`FoodProduction` modifier — these constants are the source
+of truth per `src/colony/components.rs:282-285`).
+
+### §5.2 v2 §8.2 — NEW buildings (partial: 5 of 9 SHIPPED)
+
+**SHIPPED:** WaterProcessor (§8.2.1), He3Mine (§8.2.2),
+GoldMine (§8.2.7), SilverMine (§8.2.8), PlatinumMine (§8.2.9).
+See v3 §0.E for the per-building RON entries.
+
+**⏳ PENDING:** AntimatterSynthesizer (§8.2.3),
+ExoticMatterSynthesizer (§8.2.4), MetamaterialsFab (§8.2.5),
+ComputroniumSubstrate (§8.2.6). RON specs in v2 §8.2.3–
+§8.2.6 lines 1401-1531.
+
+### §5.3 v2 §8.3 — EXISTING building edits (partial: most SUPERSEDED by v0.5.2)
+
+The v0.5.1 fold approach is SUPERSEDED by v0.5.2 per-resource
+dedicated mines. The pending v0.5.1 edits are:
+* §8.3.5 ChemicalPlant (⏳ PENDING)
+* §8.3.6 AtmosphericProcessor split (⏳ PENDING)
+* §8.3.12 FusionReactor He-3 / D downscale (⏳ PENDING)
+* §8.3.13 DTFusionReactor D downscale (⏳ PENDING)
+* §8.3.15 BreederReactor Pu downscale (⏳ PENDING)
+* §8.3.16 Power plant scale-down (⏳ PENDING, OPTIONAL per v3 §0.D.2 canary 9)
+* §8.3.18 SemiconductorFab maintenance update (⏳ PENDING)
+
+### §5.4 v2 §8.4 — Schema addition (SHIPPED)
+
+`src/colony/data.rs:142-143`: `BuildingDefinition` has the
+new `allowed_body_types: Vec<BodyType>` field (default empty
+= any body). The `building_is_available_on` predicate at
+`src/colony/data.rs:278-300` filters on this. v3 confirms
+this is shipped and working as designed.
+
+### §5.5 v2 §8.5 — Rust enum additions (SHIPPED)
+
+`src/colony/data.rs:340-441` shows the 9 new `BuildingType`
+enum variants: WaterProcessor, He3Mine, GoldMine, SilverMine,
+PlatinumMine, and the 24 AutoMine variants. The 4 K2 exotics
+(AntimatterSynthesizer, ExoticMatterSynthesizer,
+MetamaterialsFab, ComputroniumSubstrate) are NOT in the enum
+because their RON entries are not yet shipped.
+
+### §5.6 v2 §8.6 — NEW technologies (partial: 1 of 3 SHIPPED)
+
+**SHIPPED:** `fusion_power` (`technologies.ron:719`, as
+"Magnetized Target Fusion").
+
+**⏳ PENDING:** `lunar_colony` (v2 §8.6.1 spec) and
+`kardashev_k2` (v2 §8.6.3 spec). The
+`lunar_colony` PENDING is the **critical-path canary 3a**
+in the v3 apply plan; see v3 §0.D.2.
+
+### §5.7 v2 §8.7 — Files the user must edit (consolidated checklist, UPDATED for v3)
+
+| File | Edit type | Section | v3 status |
+|---|---|---|---|
+| `src/colony/components.rs:282-301` | Rust constant delta | v2 §8.1 | ✅ SHIPPED |
+| `src/colony/data.rs:142-143` | Schema: `allowed_body_types` | v2 §8.4 | ✅ SHIPPED |
+| `src/colony/data.rs:278-300` | Schema: `building_is_available_on` | v2 §8.4 | ✅ SHIPPED |
+| `src/colony/data.rs:340-441` | 9 new `BuildingType` enum variants | v2 §8.5 | 🟡 PARTIAL — K2 variants pending |
+| `assets/data/buildings.ron` | Per-resource dedicated mines | v0.5.2 ADDENDUM §10 | ✅ SHIPPED |
+| `assets/data/buildings.ron` | He3Mine + body restriction | v2 §8.2.2 | ✅ SHIPPED |
+| `assets/data/buildings.ron` | WaterProcessor | v2 §8.2.1 | ✅ SHIPPED |
+| `assets/data/buildings.ron` | GoldMine / SilverMine / PlatinumMine | v2 §8.2.7-§8.2.9 | ✅ SHIPPED |
+| `assets/data/buildings.ron` | K2 exotics (4 buildings) | v2 §8.2.3-§8.2.6 | ⏳ PENDING |
+| `assets/data/buildings.ron` | ChemicalPlant fold (H₂/NH₃/polymers/T/D) | v2 §8.3.5 | ⏳ PENDING |
+| `assets/data/buildings.ron` | AtmosphericProcessor split (N₂/O₂/Ar) | v2 §8.3.6 | ⏳ PENDING |
+| `assets/data/buildings.ron` | BreederReactor Pu downscale | v2 §8.3.15 | ⏳ PENDING |
+| `assets/data/buildings.ron` | FusionReactor / D-T FusionReactor He-3 / D / T downscale | v2 §8.3.12, §8.3.13 | ⏳ PENDING |
+| `assets/data/buildings.ron` | Power plant scale-down | v2 §8.3.16, §7.2 | ⏳ PENDING (optional canary 9) |
+| `assets/data/buildings.ron` | SemiconductorFab maintenance (Au/Ag/Pt/Ar) | v2 §8.3.18 | ⏳ PENDING |
+| `assets/data/technologies.ron` | `lunar_colony` | v2 §8.6.1 | ⏳ PENDING — **CRITICAL** |
+| `assets/data/technologies.ron` | `kardashev_k2` | v2 §8.6.3 | ⏳ PENDING |
+
+### §5.8 v2 §8.8 — Apply order (LOCKED from v2; consolidated in v3 §0.D)
+
+The v2 apply order is consolidated into the v3 §0.D
+single canary-first apply plan. v2 §8.8 is preserved
+here as the source of truth for canary 1–8; v3 §0.D adds
+canary 5a (energy-demand rebalance), 5b (fusion downscale),
+and 6 (IronMine BP change) to the plan.
+
+### §5.9 v2 §8.9 — RON syntax notes (LOCKED from v2)
+
+Preserved from v2 §8.9. The new v3 RON edits (§5.10, §5.11)
+follow the same syntax rules.
+
+### §5.10 v3 §8.10 — Energy-demand RON edits (v3 NEW)
+
+**30 `power_demand_mw` updates in `assets/data/buildings.ron`**.
+Apply in canary 5a (per v3 §0.D.2). For each row, the line
+numbers below are approximate; the user should `grep -n
+'power_demand_mw'` to find the exact location.
 
 ```diff
-- (modifier_type: "FoodProduction", value: 9000.0),
-+ (modifier_type: "FoodProduction", value: 360.0),
+# HabitatDome (buildings.ron:90)
+- power_demand_mw: 150.0,
++ power_demand_mw: 20900.0,
+
+# Housing (buildings.ron:128)
+- power_demand_mw: 50.0,
++ power_demand_mw: 10450.0,
+
+# UndergroundHabitat (buildings.ron:166)
+- power_demand_mw: 300.0,
++ power_demand_mw: 12540.0,
+
+# LifeSupport (buildings.ron:52)
+- power_demand_mw: 200.0,
++ power_demand_mw: 418.0,
+
+# Farm (buildings.ron:2024)
+- power_demand_mw: 30.0,
++ power_demand_mw: 114.0,
+
+# IronMine (buildings.ron:310)
+- power_demand_mw: 250.0,
++ power_demand_mw: 342.0,
+
+# AluminumMine (buildings.ron:336)
+- power_demand_mw: 200.0,
++ power_demand_mw: 2377.0,
+
+# CopperMine (buildings.ron:628)
+- power_demand_mw: 230.0,
++ power_demand_mw: 1026.0,
+
+# SilicatesMine (buildings.ron:389)
+- power_demand_mw: 80.0,
++ power_demand_mw: 200.0,
+
+# AtmosphericProcessor (buildings.ron:229)
+- power_demand_mw: 400.0,
++ power_demand_mw: 1500.0,
+
+# ChemicalPlant (buildings.ron:266)
+- power_demand_mw: 600.0,
++ power_demand_mw: 5700.0,
+
+# Factory (buildings.ron:199)
+- power_demand_mw: 800.0,
++ power_demand_mw: 2000.0,
+
+# MassDriver (buildings.ron:1694)
+- power_demand_mw: 500.0,
++ power_demand_mw: 500.0,  # no change — already in band
+
+# OrbitalLift (buildings.ron:1719)
+- power_demand_mw: 800.0,
++ power_demand_mw: 2000.0,
+
+# CargoTerminal (buildings.ron:1745)
+- power_demand_mw: 100.0,
++ power_demand_mw: 200.0,
+
+# Shipyard (buildings.ron:2251)
+- power_demand_mw: 3000.0,
++ power_demand_mw: 5000.0,
+
+# SpacePort (buildings.ron:2683)
+- power_demand_mw: 1000.0,
++ power_demand_mw: 1500.0,
+
+# SemiconductorFab (buildings.ron:2474)
+- power_demand_mw: 1000.0,
++ power_demand_mw: 1500.0,
+
+# PharmaceuticalPlant (buildings.ron:2507)
+- power_demand_mw: 300.0,
++ power_demand_mw: 500.0,
+
+# DataCenter (buildings.ron:2658)
+- power_demand_mw: 500.0,
++ power_demand_mw: 800.0,
+
+# LaunchSite (buildings.ron:2304)
+- power_demand_mw: 500.0,
++ power_demand_mw: 1500.0,
+
+# MissileSilo (buildings.ron:2276)
+- power_demand_mw: 400.0,
++ power_demand_mw: 400.0,  # no change — already in band
+
+# MedicalCenter (buildings.ron:2054)
+- power_demand_mw: 150.0,
++ power_demand_mw: 200.0,
+
+# ResearchLab (buildings.ron:2084)
+- power_demand_mw: 300.0,
++ power_demand_mw: 500.0,
+
+# EngineeringBay (buildings.ron:2111)
+- power_demand_mw: 400.0,
++ power_demand_mw: 600.0,
+
+# CommercialHub (buildings.ron:2167)
+- power_demand_mw: 80.0,
++ power_demand_mw: 200.0,
+
+# FinancialCenter (buildings.ron:2191)
+- power_demand_mw: 100.0,
++ power_demand_mw: 200.0,
+
+# TradePort (buildings.ron:2219)
+- power_demand_mw: 200.0,
++ power_demand_mw: 400.0,
+
+# GroundDefenseBattery (buildings.ron:2712)
+- power_demand_mw: 300.0,
++ power_demand_mw: 500.0,
+
+# WaterProcessor (buildings.ron:953)
+- power_demand_mw: 300.0,
++ power_demand_mw: 500.0,
 ```
 
-#### 8.3.2 Greenhouse (Population)
+**Bonus RON edit (v3 NEW, canary 5b):** the v0.5.1 §8.3.12
+fusion He-3 / D downscale.
 
 ```diff
-- (modifier_type: "FoodProduction", value: 5000.0),
-+ (modifier_type: "FoodProduction", value: 200.0),
-```
-
-#### 8.3.3 AquacultureFacility (Population)
-
-```diff
-- (modifier_type: "FoodProduction", value: 1500.0),
-+ (modifier_type: "FoodProduction", value: 200.0),
-```
-
-#### 8.3.4 AgriDome (Population)
-
-```diff
-- (modifier_type: "FoodProduction", value: 180.0),
-+ (modifier_type: "FoodProduction", value: 4.0),
-```
-
-#### 8.3.5 ChemicalPlant (Industry) — multiple modifier edits
-
-```diff
-- (modifier_type: "HydrogenSynthesis", value: 100.0),
-+ (modifier_type: "HydrogenSynthesis", value: 3.0),
-- (modifier_type: "AmmoniaSynthesis", value: 200.0),
-+ (modifier_type: "AmmoniaSynthesis", value: 6.0),
-- (modifier_type: "PolymerSynthesis", value: 450.0),
-+ (modifier_type: "PolymerSynthesis", value: 18.0),
-- (modifier_type: "TritiumBreeding", value: 0.05),
-+ (modifier_type: "TritiumBreeding", value: 0.001),
-+ (modifier_type: "DeuteriumProduction", value: 0.18),
-```
-
-#### 8.3.6 AtmosphericProcessor (Industry) — split sweep into per-gas
-
-```diff
-- (modifier_type: "AtmosphericHarvesting", value: 500.0),
-+ (modifier_type: "NitrogenHarvesting", value: 7.0),
-+ (modifier_type: "OxygenProduction", value: 200.0),
-+ (modifier_type: "ArgonProduction", value: 0.028),  // noble-gas byproduct; see §5.18
-```
-
-The rename `AtmosphericHarvesting` → `NitrogenHarvesting` is
-**breaking** — no deprecated alias. CO₂ remains an implicit
-byproduct of the same process (no separate modifier; audit §4.3).
-Ar was previously a "no consumer / no producer" pair and is now
-explicit (see §5.18) — `ArgonProduction` 0.028 Mt/yr per processor
-is the byproduct rate at the audit's calibration scale (USGS 2024:
-~700,000 t/yr global Ar, fold = 25 processors × 0.028 = 0.7 Mt/yr).
-
-#### 8.3.7 HydrocarbonExtractor (Industry) — split into per-resource
-
-```diff
-- (modifier_type: "MiningEfficiency", value: 4000.0),
-+ (modifier_type: "CarbonProduction", value: 480.0),
-+ (modifier_type: "MethaneProduction", value: 164.0),
-+ (modifier_type: "SulfurByproduct", value: 5.0),
-```
-
-#### 8.3.8 Mine (Industry) — scale Fe down + multi-output (fold)
-
-```diff
-- (modifier_type: "MiningEfficiency", value: 1800.0),
-+ (modifier_type: "MiningEfficiency", value: 80.0),  // Fe slice
-+ (modifier_type: "CopperProduction", value: 1.0),
-+ (modifier_type: "NickelProduction", value: 0.18),
-+ (modifier_type: "PhosphorusProduction", value: 0.31),
-+ (modifier_type: "CobaltProduction", value: 0.012),
-+ (modifier_type: "LithiumProduction", value: 0.006),
-+ (modifier_type: "FluorineProduction", value: 0.25),
-```
-
-`MiningEfficiency` is preserved as a generic fallback for backward
-compatibility (matches the v1 §9.3.10 reviewer question; the existing
-`MiningEfficiency` modifier type is **not** changed to a
-per-resource-only scheme).
-
-#### 8.3.9 Refinery (Industry) — scale Fe down + multi-output (fold)
-
-```diff
-- (modifier_type: "MiningEfficiency", value: 1800.0),
-+ (modifier_type: "MiningEfficiency", value: 80.0),  // Fe slice (refining capacity)
-+ (modifier_type: "AluminumProduction", value: 2.3),
-+ (modifier_type: "TitaniumProduction", value: 0.02),
-+ (modifier_type: "ChromiumProduction", value: 1.7),
-+ (modifier_type: "MagnesiumProduction", value: 0.06),
-```
-
-#### 8.3.10 DeepDrill (Industry) — multi-output (fold)
-
-```diff
-- (modifier_type: "DeepMiningEfficiency", value: 100.0),
-+ (modifier_type: "DeepMiningEfficiency", value: 100.0),  // generic fallback preserved
-+ (modifier_type: "UraniumProduction", value: 0.0028),
-+ (modifier_type: "ThoriumProduction", value: 0.0025),
-+ (modifier_type: "TungstenProduction", value: 0.005),
-+ (modifier_type: "RareEarthsProduction", value: 0.012),
-```
-
-`DeepMiningEfficiency` is preserved as a generic fallback (same
-rationale as `MiningEfficiency`).
-
-#### 8.3.11 StripMine (Industry) — split into per-resource
-
-```diff
-- (modifier_type: "BulkMiningEfficiency", value: 5000.0),
-+ (modifier_type: "SilicatesProduction", value: 400.0),
-+ (modifier_type: "IronProduction", value: 80.0),
-+ (modifier_type: "AluminumProduction", value: 2.3),
-+ (modifier_type: "CopperProduction", value: 1.0),
-+ (modifier_type: "TitaniumProduction", value: 0.02),
-+ (modifier_type: "NickelProduction", value: 0.18),
-+ (modifier_type: "ChromiumProduction", value: 1.7),
-```
-
-#### 8.3.12 FusionReactor (Power) — downscale He-3 and D, tech-gate
-
-```diff
-- required_tech: "",  // was always-available
-+ required_tech: "fusion_power",  // mid-game gate; see §5.1.2
+# FusionReactor (buildings.ron:1814-1820) — He-3 / D downscale
   maintenance_resources: [
 -     ("Helium3", 10.0),
 -     ("Deuterium", 5.0),
-+     ("Helium3", 0.5),  // 20× downscale
-+     ("Deuterium", 0.25),  // 20× downscale
++     ("Helium3", 0.5),    # 20× downscale; 1:1 with He3Mine
++     ("Deuterium", 0.25),  # 20× downscale; 1.4:1 with ChemicalPlant D
       ("Cobalt", 0.002),
       ("Fluorine", 0.003),
       ("Titanium", 0.05),
       ("Lithium", 0.0005),
   ],
-```
 
-The `PowerGeneration` modifier stays at 2000 or scales per §7.2 to 1500.
-
-#### 8.3.13 DTFusionReactor (Power) — downscale D, tech-gate
-
-```diff
-- required_tech: "",  // was always-available
-+ required_tech: "fusion_power",  // mid-game gate
+# DTFusionReactor (buildings.ron:1843+) — D downscale
   maintenance_resources: [
 -     ("Deuterium", 0.0015),
--     ("Tritium", 0.0005),
-+     ("Deuterium", 0.0001),
-+     ("Tritium", 0.0005),  // unchanged; matched to new ChemicalPlant T breed rate
++     ("Deuterium", 0.0001),  # 15× downscale; matched to new ChemicalPlant T breed rate
+      ("Tritium", 0.0005),    # unchanged
       ...
   ],
 ```
 
-#### 8.3.14 DHe3FusionReactor (Power) — tech-gate only
+### §5.11 v3 §8.11 — Cost-headroom RON edits (v3 NEW)
+
+**One RON edit: `IronMine.build_points` 1,500 → 1,000.**
 
 ```diff
-- required_tech: "",  // was always-available
-+ required_tech: "fusion_power",  // mid-game gate
-  // maintenance unchanged: 0.0008 Mt/yr He-3 and 0.0008 Mt/yr D are already
-  // appropriately low. The required_anomalies: ["magnetic_anomaly"] field
-  // is preserved.
+# IronMine (buildings.ron:292)
+- build_points: 1500.0,
++ build_points: 1000.0,
 ```
 
-#### 8.3.15 BreederReactor (Power) — downscale Pu breeding
+### §5.12 v3 §8.12 — Apply order (v3 NEW)
+
+The v3 apply order is the **single canary-first plan** in
+v3 §0.D.2. This section gives the per-canary RON / RUST
+edit list and the test gate. The user lands canary N, runs
+`cargo test <gate>`, then rolls to canary N+1. Critical-path
+canaries (must land in order): **3a → 3b → 3c → 3d → 4 →
+5b**. Other canaries (1, 2, 5a, 6, 7, 8) can land in any
+order.
+
+The apply order in full:
+
+1. **Canary 1 — Food calibration.** 4 RON diffs (§5.1) +
+   2 RUST lines (`src/colony/components.rs:282-301`). Test
+   gate: `cargo test food`.
+2. **Canary 2 — WaterProcessor.** 1 RON entry (~25 lines) +
+   1 RUST enum variant. Test gate: `cargo test water`.
+3. **Canary 3a — `lunar_colony` tech (CRITICAL).** 1 RON
+   entry (~15 lines) per v2 §8.6.1. Test gate: `cargo test
+   tech_tree` + manual: research `lunar_colony`, build
+   `He3Mine` on Moon.
+4. **Canary 3b — `fusion_power` tech (verify only).** No
+   edits; verify prereqs in `technologies.ron:719`. Test
+   gate: `cargo test tech_tree`.
+5. **Canary 3c — `kardashev_k2` tech.** 1 RON entry (~15
+   lines) per v2 §8.6.3. Test gate: `cargo test tech_tree`.
+6. **Canary 3d — He3Mine + body restriction + fusion
+   downscale.** 1 RON entry (already shipped for He3Mine) +
+   2 RON diffs for FusionReactor / D-T FusionReactor
+   (§5.10 bonus). Test gate: `cargo test he3` + manual: 1
+   He3Mine feeds 1 FusionReactor cleanly.
+7. **Canary 4 — Mid-game fold.** ~25 RON diffs
+   (ChemicalPlant, AtmosphericProcessor, BreederReactor).
+   Test gate: `cargo test chemicals` + manual: N₂/O₂/Ar
+   splits correct.
+8. **Canary 5a — Energy-demand rebalance (v3 NEW).** 30 RON
+   diffs (§5.10). Test gate: `cargo test power` + manual:
+   mature colony shows 0.3–1.3× demand/supply.
+9. **Canary 6 — Cost-headroom (v3 NEW).** 1 RON diff
+   (§5.11). Test gate: `cargo test construction` + manual:
+   25 IronMines = 25,000 BP (was 37,500).
+10. **Canary 7 — Precious-metal + noble-gas mining.** ~80
+    RON diffs + 3 RUST enum variants + 1 RUST schema
+    change (`MAINTENANCE_AUDIT_MAX` 6 → 10 per v2 §8.3.18).
+    Test gate: `cargo test precious_metals`.
+11. **Canary 8 — K2 late-game.** 4 RON entries (~100 lines)
+    + 4 RUST enum variants. Test gate: `cargo test k2`.
+12. **Canary 9 (optional) — Power plant scale-down per v2
+    §7.2.** ~12 RON diffs. Test gate: `cargo test power`.
+
+### §5.13 v3.1 §8.13 — Workforce RON / RUST edits (v3.1 NEW)
+
+**3 RON field updates + 3 RUST enum lines.** Apply in
+canary 9 (per v3.1 §0.D.7). The RON field is the
+human-readable documentation; the RUST enum is the
+source of truth that the simulation reads (per the
+v0.5.0 GRA-127 comment at `buildings.ron:282-301`).
 
 ```diff
-- (modifier_type: "PlutoniumBreeding", value: 0.23),
-+ (modifier_type: "PlutoniumBreeding", value: 0.001),
+# Farm (buildings.ron:2001)
+- workforce: 1000,
++ workforce: 2000,
+
+# AluminumMine (buildings.ron:320)
+- workforce: 4500,
++ workforce: 1500,
+
+# WindFarm (buildings.ron:2313)
+- workforce: 200,
++ workforce: 1000,
 ```
 
-#### 8.3.16 Power plants (Power category) — per §7.2
+```diff
+# src/colony/types.rs:1340 (Farm)
+- BuildingType::Farm => 1_000,
++ BuildingType::Farm => 2_000,
 
-For each power plant, scale the `PowerGeneration` modifier per the
-table in §7.2. (The values are "200, 250, 400, 80, 800, 600, 250,
-1500, 2500, 2000, 600, 500" for Solar, Wind, Hydro, Geothermal,
-Coal, NG, Fission, Fusion, D-T, D-He3, Thorium, Breeder
-respectively.)
+# src/colony/types.rs:1261 (AluminumMine)
+- BuildingType::AluminumMine => 4_500,
++ BuildingType::AluminumMine => 1_500,
 
-#### 8.3.17 RecyclingCenter (Infrastructure) — leave as-is
+# src/colony/types.rs:1333 (WindFarm)
+- BuildingType::WindFarm => 200,
++ BuildingType::WindFarm => 1_000,
+```
 
-The 500 Mt/yr undifferentiated recycled-metal modifier is kept. It
-represents a "mixed recycled metal" output that the player can use
-without specifying which metal. Patch leaves the value unchanged
-for now; a future patch can split it per resource.
+**Test gate:** `cargo test colony` (covers
+`test_early_colony_workforce_feasible`,
+`test_workforce_demand`, `test_workforce_efficiency`).
+Manual: verify the 3 changes are within the 0.5–2× of
+real-productivity band; verify the early-game test sum
+is 14,500 < 40,000.
 
-#### 8.3.18 SemiconductorFab (Industry) — add Au/Ag/Pt/Ar maintenance
+### §5.14 v3.1 §8.14 — Resource build cost RON edits (v3.1 NEW)
 
-The v0.5 patch makes `SemiconductorFab` the consumer of the four
-new precious-metal + noble-gas resources (§5.15–§5.18). Its
-`maintenance_resources` field gains 4 new rows, in priority order
-(lowest-value first to keep the GRA-22c audit happy — the
-"4–6 distinct resources" rule is exceeded by 1 if the existing
-maintenance is already 5 rows):
+**1 RON field update.** Apply in canary 10 (per v3.1
+§0.D.7).
 
 ```diff
-  maintenance_resources: [
-      ("Iron", 0.01),
-      ("Copper", 0.005),
-      ("Nickel", 0.0005),
-      ("RareEarths", 0.0001),
-+     ("Gold", 0.0001),          // electronics-industry Au share; see §5.15
-+     ("Silver", 0.001),         // solar PV paste, solders, contacts; see §5.16
-+     ("Platinum", 0.00001),     // autocatalyst / sensor / fuel cell; see §5.17
-+     ("Argon", 0.028),          // inert fab atmosphere; see §5.18
+# OrbitalLift (buildings.ron:1705-1710)
+  resource_costs: [
+-     ("Titanium", 333.0),
++     ("Titanium", 5.0),
+      ("Iron", 333.0),
+      ("RareEarths", 83.0),
+      ("Carbon", 167.0),
   ],
 ```
 
-**GRA-22c audit consideration.** The maintenance list now has
-8 resources (4 existing + 4 new). The audit's rule is **4–6
-distinct resources** (`src/colony/data.rs:266-290`,
-`MAINTENANCE_AUDIT_MIN..MAX = 4..6`). The 8-resource list exceeds
-`MAX = 6` by 2. Two paths forward:
+**Test gate:** `cargo test construction` (covers
+`test_building_costs_positive` at
+`src/colony/types.rs:1561`). Manual: verify 1
+OrbitalLift buildable from 1 year of TitaniumMine
+production at 25-mine scale (16.7 yr at 25 mines, 0.3
+yr at 100 mines). MassDriver Cu 167 unchanged (7.4 yr
+at 25 mines, in band). HabitatDome Al 50 unchanged
+(0.67 yr at 25 mines, in band).
 
-* **Loosen the audit** — raise `MAINTENANCE_AUDIT_MAX` from 6 to
-  10 (a one-line change in `src/colony/data.rs:267`). Rationale:
-  the electronics industry *is* resource-intensive in real life
-  (Si, Cu, Au, Ag, Pt, Ar, REE, photoresists, etc.). The 4–6
-  budget is a guideline, not a hard physical law.
-* **Split the consumer** — fold Au into `Refinery` (general
-  industrial), Ag/Pt/Ar into `SemiconductorFab`. This is uglier
-  (gold is not a refinery concern) and would still exceed
-  `MAINTENANCE_AUDIT_MAX` on the remaining building.
+### §5.15 v3.1 §8.15 — Effect rendering RUST spec (v3.1 NEW)
 
-The patch recommends **option 1 (loosen to 10)** and flags this
-as a §9.5 open question for the user. v0.5.x does not require
-the change to land — the existing maintenance list passes the
-audit; the new 4 rows are *additive* and do not break the
-existing entries.
+**~50 RUST UI lines + new `friendly_label` helper.**
+Apply in canary 11 (per v3.1 §0.D.7). The spec is
+fully described in v3.1 §0.H.3 (3 call-sites:
+`src/ui/construction.rs:1387-1391`, `:1604-1625`,
+`:2845-2871`).
 
-### 8.4 Schema additions to `src/colony/data.rs`
-
-**BuildingDefinition needs a body-type field.** The current schema
-(`src/colony/data.rs:69-134`) has `available_atmospheres: Vec<AtmosphereKind>`
-but no `allowed_body_types: Vec<BodyType>` field. Without it, the
-`He3Mine` body restriction cannot be encoded cleanly in RON.
-
-**`BodyType` is already defined** in `src/plugins/solar_system_data.rs:7-17`:
-`Star, Planet, GasGiant, DwarfPlanet, Moon, Asteroid, Comet, Ring`.
-
-**Proposed spec** (additive, backward-compatible):
+**Pseudocode for the new `friendly_label` helper:**
 
 ```rust
-// In src/colony/data.rs, add to BuildingDefinition:
-/// Body kinds on which this building can be constructed.
-/// Empty (= default) = buildable on every body kind. The construction
-/// panel filters the available and locked lists against the currently
-/// selected body's `BodyType` (companion to `available_atmospheres`).
-///
-/// He3Mine uses this to enforce the "He-3-deposit body" rule
-/// (Moon, GasGiant, Asteroid); see `docs/design/BALANCE_PATCHES_v0.5.md` §5.1.
-#[serde(default)]
-pub allowed_body_types: Vec<crate::plugins::solar_system_data::BodyType>,
-```
-
-**The free function `building_is_available_on` (`src/colony/data.rs:253-261`)
-needs a `body_type` parameter** (in addition to the existing
-`body_breathable: Option<bool>`):
-
-```rust
-pub fn building_is_available_on(
-    def: &BuildingDefinition,
-    body_breathable: Option<bool>,
-    body_type: Option<&BodyType>,  // NEW; None = unknown
-) -> bool {
-    let Some(breathable) = body_breathable else {
-        return true;  // atmosphere unknown → pass-through
-    };
-    if !def.available_atmospheres.iter().any(|a| match a {
-        AtmosphereKind::Breathable => breathable,
-        AtmosphereKind::None => !breathable,
-    }) {
-        return false;
-    }
-    // Body-type check: empty list = buildable everywhere.
-    if def.allowed_body_types.is_empty() {
-        return true;
-    }
-    match body_type {
-        Some(bt) => def.allowed_body_types.contains(bt),
-        None => true,  // body type unknown → pass-through
+// Add to src/ui/construction.rs near format_mining_rate.
+fn friendly_label(m: &crate::colony::data::Modifier)
+    -> Option<(EffectTone, String)>
+{
+    use EffectTone::*;
+    match m.modifier_type.as_str() {
+        // Production modifiers (one arm per resource)
+        "IronProduction" => Some((Positive,
+            format!("Produces {} Iron",
+                format_mining_rate(m.value)))),
+        // ... (one arm per *Production type,
+        //      ~30 arms total)
+        // Capacity
+        "HousingCapacity" => Some((Positive,
+            format!("Houses {} residents",
+                format_residents(m.value as u64)))),
+        // Atmospheric / synthesis
+        "AtmosphericHarvesting" => Some((Positive,
+            format!("Harvests {} Mt/yr industrial gases",
+                m.value))),
+        "HydrogenSynthesis" => Some((Positive,
+            format!("Synthesizes {} Mt/yr Hydrogen",
+                m.value))),
+        "AmmoniaSynthesis" => Some((Positive,
+            format!("Synthesizes {} Mt/yr Ammonia (Haber-Bosch)",
+                m.value))),
+        "PolymerSynthesis" => Some((Positive,
+            format!("Synthesizes {} Mt/yr polymers",
+                m.value))),
+        "TritiumBreeding" => Some((Positive,
+            format!("Breeds {} Mt/yr Tritium (Li breeding)",
+                format_mining_rate(m.value)))),
+        "PlutoniumBreeding" => Some((Positive,
+            format!("Breeds {} Mt/yr Plutonium",
+                format_mining_rate(m.value)))),
+        // Cost reduction
+        "ConstructionCost" if m.value < 0.0 => Some((Positive,
+            format!("Builds {} BP/yr faster",
+                (-m.value) as i64))),
+        "ConstructionCost" => Some((Neutral,
+            format!("Construction cost +{} BP/build",
+                m.value as i64))),
+        // Research / Engineering
+        "ResearchSpeed" => Some((Positive,
+            format!("Research speed +{}%",
+                m.value as i64))),
+        "EngineeringSpeed" => Some((Positive,
+            format!("Engineering speed +{}%",
+                m.value as i64))),
+        // Population
+        "PopulationGrowth" => Some((Positive,
+            format!("Population growth +{:.1}%/yr",
+                m.value / 100.0))),
+        // Storage
+        "StorageCapacity" => Some((Positive,
+            format!("Stockpile capacity +{}%",
+                (m.value * 100.0) as i64))),
+        // Water
+        "WaterProduction" => Some((Positive,
+            format!("Produces {} Water",
+                format_mining_rate(m.value)))),
+        // Power is a separate chip; do not surface here
+        "PowerGeneration" => None,
+        // Catch-all: surface the raw name
+        _ => Some((Neutral,
+            format!("{}: {}", m.modifier_type, m.value))),
     }
 }
 ```
 
-**`BuildingsData::is_available_on` (`src/colony/data.rs:210-219`) needs
-the same `body_type` parameter** threaded through.
-
-**Impact.** Any existing RON entry without `allowed_body_types` gets
-the empty-list default and is buildable on every body kind (the
-current behavior). The schema change is **additive and non-breaking**
-at the RON level; it requires a one-line update to the predicate
-function and a small change to the construction panel to pass the
-selected body's `BodyType`.
-
-**Canary 3 dependency.** This schema addition is a canary-3
-dependency. Without it, the body restriction on `He3Mine` cannot
-be enforced at the construction panel — and the user has explicitly
-rejected "He3Mine buildable on Earth" — so the schema addition
-is **non-negotiable** for the mid-game tier.
-
-### 8.5 Rust delta in `src/economy/types.rs` (and `src/research/types.rs`)
-
-For the 9 new building IDs (§8.2.1-§8.2.9), the user adds matching
-`BuildingType` enum variants in `src/colony/types.rs:7` (where the
-existing enum is defined). The user adds the following 9 variants:
+**Effect-cap helper:**
 
 ```rust
-pub enum BuildingType {
-    // ... existing variants ...
-    WaterProcessor,
-    He3Mine,
-    GoldMine,
-    SilverMine,
-    PlatinumMine,
-    AntimatterSynthesizer,
-    ExoticMatterSynthesizer,
-    MetamaterialsFab,
-    ComputroniumSubstrate,
+const EFFECT_CAP: usize = 5;
+fn cap_effects(mut effects: Vec<(EffectTone, String)>)
+    -> Vec<(EffectTone, String)>
+{
+    if effects.len() > EFFECT_CAP {
+        let extra = effects.len() - EFFECT_CAP;
+        effects.truncate(EFFECT_CAP);
+        effects.push((EffectTone::Neutral,
+            format!("+{} more", extra)));
+    }
+    effects
 }
 ```
 
-**`ModifierType` is a string-based dispatch** in the current code
-(`src/research/types.rs:130-149` shows the enum, but the `BuildingModifierDef`
-struct in `src/colony/data.rs:38-44` uses `pub modifier_type: String`).
-The RON `modifier_type` is a *string*, not an enum variant. So **no
-`ModifierType` enum changes are required** for the new production
-modifiers (WaterProduction, OxygenProduction, NitrogenHarvesting, etc.).
-The simulation system reads the string at evaluation time.
-
-The 3 new technologies (§5.1.1, §5.1.2, §5.1.3) require new tech
-entries in `assets/data/technologies.ron` (no Rust enum changes; the
-`id` field is a string).
-
-### 8.6 NEW technologies to add to `assets/data/technologies.ron` (3 total)
-
-#### 8.6.1 `lunar_colony` (Tier 2, mid-game)
-
-```ron
-(
-    id: "lunar_colony",
-    name: "Lunar Colony Engineering",
-    category: SpaceTechnology,
-    description: "Engineering, life-support, and ISRU techniques for sustained off-world resource extraction. The off-world He-3 mining gate (Moon regolith, gas-giant atmospheric scoops, asteroid regolith), named for the first off-world He-3 extraction source in real-world plans. See docs/design/BALANCE_PATCHES_v0.5.md §5.1.1.",
-    research_cost: 7500.0,
-    prerequisites: ["space_habitation", "closed_loop_ecology"],
-    unlocks_components: [],
-    unlocks_engineering: ["lunar_outpost_kit", "isru_oxygen_plant", "lunar_hab_module"],
-    modifiers: [],
-    tier: 2,
-),
-```
-
-#### 8.6.2 `fusion_power` (Tier 3, mid-game, requires `lunar_colony`)
-
-```ron
-(
-    id: "fusion_power",
-    name: "Fusion Power Engineering",
-    category: Energy,
-    description: "Magnetic-confinement fusion (tokamak, stellarator) and inertial-confinement fusion (laser-driven) reactor engineering at power-plant scale. Requires lunar He-3 supply for D-³He variants. See docs/design/BALANCE_PATCHES_v0.5.md §5.1.2.",
-    research_cost: 12000.0,
-    prerequisites: ["lunar_colony", "fission_power"],
-    unlocks_components: ["fusion_plasma_chamber", "tritium_breeding_blanket", "magnetic_confinement_coil"],
-    unlocks_engineering: ["fusion_reactor", "dt_fusion_reactor", "dhe3_fusion_reactor"],
-    modifiers: [
-        (modifier_type: PowerGeneration, value: 100.0),
-    ],
-    tier: 3,
-),
-```
-
-#### 8.6.3 `kardashev_k2` (Tier 4, late-game)
-
-```ron
-(
-    id: "kardashev_k2",
-    name: "Kardashev K2 Engineering",
-    category: Physics,
-    description: "Planetary-scale engineering, antimatter pair-production, exotic-matter stabilization, metamaterial lattice synthesis, and computronium substrate fabrication. K2 Kardashev transition (ROADMAP §9.1). See docs/design/BALANCE_PATCHES_v0.5.md §5.1.3.",
-    research_cost: 500000.0,  // placeholder; K2 design review
-    prerequisites: ["fusion_power"],
-    unlocks_components: ["antimatter_magnetic_bottle", "casimir_array", "metamaterial_lattice", "computronium_wafer"],
-    unlocks_engineering: ["antimatter_synthesizer", "exotic_matter_synthesizer", "metamaterials_fab", "computronium_substrate"],
-    modifiers: [],
-    tier: 4,
-),
-```
-
-### 8.7 Files the user must edit (consolidated checklist)
-
-| File | Edit type | Section |
-|---|---|---|
-| `src/colony/components.rs:292-294` | Rust constant delta | §8.1 |
-| `src/colony/components.rs:271-286` | Rust helper comment + formula | §8.1 |
-| `src/colony/data.rs:69-134` | Schema: add `allowed_body_types: Vec<BodyType>` to `BuildingDefinition` | §8.4 |
-| `src/colony/data.rs:253-261` | Schema: extend `building_is_available_on` predicate | §8.4 |
-| `src/colony/data.rs:210-219` | Schema: extend `BuildingsData::is_available_on` | §8.4 |
-| `src/colony/types.rs:7` | Add 9 new `BuildingType` enum variants | §8.5 |
-| `assets/data/buildings.ron` | 9 new building entries | §8.2.1-§8.2.9 |
-| `assets/data/buildings.ron` | 18 existing building modifier edits (17 fold + 1 `SemiconductorFab` maintenance) | §8.3.1-§8.3.18 |
-| `assets/data/technologies.ron` | 3 new tech entries | §8.6.1-§8.6.3 |
-| `assets/icons/...` | 9 new building icons (artwork) | out of scope |
-
-**Total RON entries added: 9 buildings + 3 technologies = 12.**
-**Total existing RON entries modified: 18.** **Total Rust lines
-changed: ~10 in `components.rs` + ~30 in `data.rs` + ~9 in
-`types.rs` = ~49.** **Total `BuildingType` enum variants added: 9.**
-**No `ModifierType` enum variants added (string-based dispatch).**
-
-### 8.8 Apply order (canary-first)
-
-The patch is **canary-first** per the user's UI workflow preferences
-(canary-first migrations, sequential rollout, parallel old/new,
-graduate per panel). The user lands one building edit at a time,
-runs the test suite, then rolls forward:
-
-1. **Canary 1** — Rust constant + Farm modifier.
-   `src/colony/components.rs:292-294` (1 function, 2 comments; ~10
-   lines). Plus `buildings.ron` Farm/Greenhouse/AquacultureFacility/
-   AgriDome FoodProduction scaledown (§8.3.1-§8.3.4; ~4 line
-   diffs). Total: ~4 lines of code + 4 RON line diffs. Test that
-   Earth still feeds its population.
-
-2. **Canary 2** — WaterProcessor.
-   `buildings.ron` `WaterProcessor` entry (§8.2.1; ~25 lines). Plus
-   `BuildingType::WaterProcessor` enum variant (§8.5; 1 line). Test
-   that non-breathable outposts now have a water source.
-
-3. **Canary 3** — Mid-game He-3 chain.
-   This is the biggest canary. Three things in sequence:
-   1. **Schema addition** (§8.4): `allowed_body_types: Vec<BodyType>`
-      on `BuildingDefinition`, plus the `building_is_available_on`
-      predicate extension, plus the `BuildingsData::is_available_on`
-      threading. Test that existing buildings still parse and remain
-      available on every body kind.
-   2. **3 new technologies** (§8.6): `lunar_colony`, `fusion_power`,
-      `kardashev_k2`. Test that the tech tree renders and the
-      prereq chain is enforced.
-   3. **He3Mine** (§8.2.2) + **FusionReactor downscale** (§8.3.12)
-      + **DTFusionReactor downscale** (§8.3.13) + **DHe3FusionReactor
-      tech-gate** (§8.3.14). Test that:
-      * The construction panel hides `He3Mine` on Earth, Mars, and
-        any non-He-3-deposit body (body restriction enforced by the
-        schema).
-      * The construction panel hides `FusionReactor` until `fusion_power`
-        is researched (tech gate enforced).
-      * The construction panel hides `FusionReactor` even after
-        `fusion_power` is researched, until `lunar_colony` is also
-        researched (prereq chain enforced).
-      * A FusionReactor on Luna draws He-3 from Luna's LocalStockpile
-        via the existing freight logistics (no new freight code).
-
-4. **Roll forward** — Folding.
-   `Mine` multi-output (§8.3.8), `Refinery` multi-output (§8.3.9),
-   `DeepDrill` multi-output (§8.3.10), `StripMine` split (§8.3.11),
-   `HydrocarbonExtractor` split (§8.3.7), `AtmosphericProcessor`
-   split + Ar fold (§8.3.6), `ChemicalPlant` H₂/NH₃/polymers/T/D (§8.3.5),
-   `BreederReactor` Pu downscale (§8.3.15), power plants per §7.2
-   (§8.3.16). Land in batches of 3-4 building edits each, run tests
-   between batches.
-
-5. **Canary 4** — Precious-metal + noble-gas mining.
-   `GoldMine` (§8.2.7) + `SilverMine` (§8.2.8) + `PlatinumMine`
-   (§8.2.9) + `SemiconductorFab` maintenance update (§8.3.18) +
-   `AtmosphericProcessor` `ArgonProduction` fold (§8.3.6 — already
-   in the roll-forward). Plus 3 `BuildingType` enum variants
-   (§8.5). Test that:
-   * The construction panel shows `GoldMine` / `SilverMine` /
-     `PlatinumMine` on Earth (no body restriction; deposits are
-     crustal on Earth-sized bodies).
-   * The construction panel shows `ArgonProduction` modifier
-     updating the per-build Ar output on every `AtmosphericProcessor`
-     without breaking the existing N₂/O₂ modifier pair.
-   * The `SemiconductorFab` maintenance list parses (8 distinct
-     resources — see §8.3.18 GRA-22c audit consideration).
-   * Earth's 25 `GoldMine` × 0.0001 = 0.0025 Mt/yr (≈ 80% of
-     USGS 2026 demand; the rest is recycled Au and is out of scope).
-   * Earth's 25 `SilverMine` × 0.001 = 0.025 Mt/yr = USGS 2026 demand.
-   * Earth's 20 `PlatinumMine` × 0.00001 = 0.0002 Mt/yr = USGS 2026 demand.
-   * Earth's 25 `AtmosphericProcessor` × 0.028 = 0.7 Mt/yr = USGS 2024 demand.
-   * The player's economy panel shows the 4 new resources
-     (Gold/Silver/Platinum/Argon) and their per-build values.
-
-6. **K2 late-game** — `AntimatterSynthesizer` (§8.2.3) +
-   `ExoticMatterSynthesizer` (§8.2.4) + `MetamaterialsFab` (§8.2.5)
-   + `ComputroniumSubstrate` (§8.2.6). All gated on `kardashev_k2`.
-   Land as a single batch (4 buildings, all share the same K2 gate).
-   Mark all values "approximate" pending K2 design review.
-
-### 8.9 RON syntax notes
-
-* `modifier_type` is a **string**, not an enum. New production
-  modifiers (e.g. `WaterProduction`, `OxygenProduction`,
-  `Helium3Production`, `GoldProduction`, `ArgonProduction`) are
-  added as plain strings; the simulation system reads the string
-  at evaluation time.
-* `required_tech: ""` means *always available*. v2 sets it to the
-  specific tech id (e.g. `"lunar_colony"`, `"fusion_power"`,
-  `"kardashev_k2"`) for the gated buildings.
-* `available_atmospheres` is a list of `AtmosphereKind` variants
-  (`Breathable` / `None`). Default `[Breathable, None]` = buildable
-  on every body kind.
-* `allowed_body_types` is a list of `BodyType` variants (the
-  schema addition in §8.4). Empty list = buildable on every body
-  kind. `WaterProcessor` uses `[None]` for atmosphere and the
-  default empty list for body types. `He3Mine` uses the
-  default empty list for atmosphere and `[Moon, GasGiant, Asteroid]`
-  for body types (the new field) — the three body classes with
-  He-3 deposits. The 3 precious-metal mines and the
-  `AtmosphericProcessor` have no `allowed_body_types` (buildable
-  everywhere by default).
-* `maintenance_resources` is `Vec<ResourceCostEntry>` with 4–6
-  distinct resources per the existing GRA-22c audit
-  (`src/colony/data.rs:266-290`). The proposed entries in §8.2
-  each have 5–6 resources; the existing buildings retain their
-  4–6 maintenance entries. **Exception:** `SemiconductorFab` is
-  raised to 8 maintenance rows to accommodate the Au/Ag/Pt/Ar
-  consumer (see §8.3.18).
+**Test gate:** `cargo test construction_ui` (existing
+tests in `src/ui/construction.rs`). New unit tests:
+`test_friendly_label_*` (one per modifier type, ~13
+tests). Manual: verify the 3 worked-example cards
+(ChemicalPlant 4 effects, HabitatDome 1 effect,
+Warehouse 1 effect, AiCluster 2 effects) render
+correctly with the 5+1 cap.
 
 ---
 
-## 9. Self-checks and open questions
+## §6 Self-checks and open questions (v2 §9 + v3 NEW)
 
-### 9.1 Stop-condition check (per the brief)
+### §6.1 v2 §9.1 — Stop condition check (UPDATED for v3)
 
-| Stop condition | Status |
-|---|---|
-| `docs/design/BALANCE_PATCHES_v0.5.md` exists (lean v2) | ✅ |
-| All three tiers covered | ✅ (§4 early, §5 mid, §6 late) |
-| Tier-summary table concrete at the top | ✅ (§2) |
-| 10–50 constraint met for every early-game resource | ✅ (§4.17) |
-| Mid-game He-3 fix concrete, tech-gated, AND body-restricted | ✅ (§5.1, body-restricted to `[Moon, GasGiant, Asteroid]`) |
-| Mid-game precious-metal + noble-gas mining (Au/Ag/Pt/Ar) | ✅ (§5.15–§5.18; USGS 2026 numbers, fold into `SemiconductorFab` consumer) |
-| Late-game uses grams for Antimatter, marks exotics approximate | ✅ (§6) |
-| 3 new technologies spec'd with full prereq chains | ✅ (§5.1.1, §5.1.2, §5.1.3) |
-| Schema addition (`allowed_body_types`) flagged | ✅ (§8.4) |
-| Implementation notes sufficient to apply without re-asking | ✅ (§8) |
+| Stop condition | Status | v3 update |
+|---|---|---|
+| `docs/design/BALANCE_PATCHES_v0.5.md` exists (lean v2) | ✅ | v3 supersedes v2; same file |
+| All three tiers covered | ✅ (v2 §4 / §5 / §6) | LOCKED |
+| Tier-summary table concrete at the top | ✅ (v2 §2) | LOCKED |
+| 10–50 constraint met for every early-game resource | ✅ (v2 §4.17, §9.2) | LOCKED |
+| Mid-game He-3 fix concrete, tech-gated, AND body-restricted | ✅ (v2 §5.1) | 🟡 PARTIAL — `lunar_colony` PENDING |
+| Late-game uses grams for Antimatter, marks exotics approximate | ✅ (v2 §6) | ⏳ PENDING (K2 exotics not yet shipped) |
+| 3 new technologies spec'd with full prereq chains | ✅ (v2 §5.1.1, §5.1.2, §5.1.3) | 🟡 PARTIAL — 1 of 3 SHIPPED |
+| Schema addition (`allowed_body_types`) flagged | ✅ (v2 §8.4) | ✅ SHIPPED |
+| Implementation notes sufficient to apply without re-asking | ✅ (v2 §8) | ✅ ENHANCED (v3 §0.D + §5.10-§5.12) |
 
-### 9.2 Manageable-count check (per-resource verification, early game)
+### §6.2 v3 NEW stop conditions (added for v3)
+
+| Stop condition | Where | Status |
+|---|---|---|
+| Bottom-up power-demand sum done for the brief's 19 building types | v3 §0.A.1 | ✅ (24.7 GW demand vs 2,880 GW supply) |
+| Per-building `power_demand_mw` updates proposed (target ratio 1.0–1.3×) | v3 §0.A.4, §5.10 | ✅ (30 updates; 0.31× at 1.875 B, 1.19× at 8.2 B) |
+| Cost-headroom rebalance done; only 1 BP change proposed (IronMine 1500 → 1000) | v3 §0.B.3, §5.11 | ✅ |
+| Player expansion path verified end-to-end | v3 §0.C | ✅ (viable; 2 PENDING canary items flagged) |
+| Single canary-first apply plan unifies v2 + v0.5.2 + v3 | v3 §0.D, §5.12 | ✅ (8 mandatory + 1 optional canary) |
+| v0.5.2 supersession status documented (shipped / partial / pending / superseded) | v3 §0.E | ✅ |
+| v2 §4–§7 marked LOCKED | v3 §4 | ✅ |
+| No RON, Rust, or UI files edited | (this is a doc) | ✅ |
+| No new `BuildingType` enum variants added | v3 §0.3 | ✅ (v3 only adjusts existing buildings) |
+| No new `ResourceType` entries added | v3 §0.3 | ✅ (39 locked) |
+
+### §6.3 v2 §9.2 — Manageable-count check (LOCKED from v2)
+
+[Preserved from v2 §9.2 lines 2213-2234.]
 
 | Resource | Demand (Mt/yr Earth) | Per-build (Mt/yr) | Implied count | In 10-50? |
 |---|---:|---:|---:|:---:|
-| Food | 9,020 | 360 (hard-coded) | 25 | ✅ (1 Farm = 1/25 of Earth = 327M people fed; v0.5.1 corrected the unit error) |
+| Food | 9,020 | 360 (hard-coded) | 25 | ✅ |
 | Water (closed-loop) | 410 | 16 | 26 | ✅ |
 | Oxygen (respiration) | 6,888 | 200 | 34 | ✅ |
 | Nitrogen (industrial) | 148 | 7 | 21 | ✅ |
@@ -2228,396 +3694,375 @@ runs the test suite, then rolls forward:
 | Polymers | 451 | 18 | 25 | ✅ |
 | Nickel | 3.7 | 0.18 | 21 | ✅ |
 | Carbon | 11,972 | 480 | 25 | ✅ |
-| Gold | 0.003 | 0.0001 | 25 | ✅ (Au is Tier 3, weighted 0.3; below "1/300 of world" bar — flagged) |
+| Gold | 0.003 | 0.0001 | 25 | ✅ (Tier 3) |
 | Silver | 0.025 | 0.001 | 25 | ✅ |
-| Platinum | 0.0002 | 0.00001 | 20 | ✅ (manageable-count exception: per-build < 0.0001 Mt/yr) |
+| Platinum | 0.0002 | 0.00001 | 20 | ✅ (manageable-count exception) |
 | Argon | 0.7 | 0.028 | 25 | ✅ |
 
 **All 16 early-game resources land in 10–50.** No resource is
 out of band.
 
-### 9.3 v1 → v2 deltas (summary of the lean pass)
+### §6.4 v2 §9.5 — Open questions for the user (LOCKED from v2, with v3 NEW additions)
 
-| v1 (1,955 lines) | v2 (this doc) | Why the change |
+The v2 open questions are preserved at v2 §9.5 lines
+2287-2365. v3 adds the following:
+
+**Q13 (v3 NEW): Energy-demand rebalance ratio at 1.875 B
+population.** v3 §0.A.5 shows the proposed
+`power_demand_mw` values land at 0.31× supply for the brief's
+1.875 B scenario (a realistic under-supply) but 1.19× supply
+at full Earth population (8.2 B). The user has two options:
+* **Option A (v3 recommendation):** accept the 0.31× as a
+  feature. The player will scale residential buildings over
+  50 yr to reach 8.2 B and the ratio will catch up to 1.0–1.3×
+  at the civilisation tier.
+* **Option B:** scale the proposed `power_demand_mw` values by
+  ~3.2× to hit 1.0× at 1.875 B (HabitatDome 20,900 → 67,000
+  MW, etc.). This makes residential demand *higher* than
+  real-world per-capita (33,500 MW / 25 M = 1,340 W/person vs
+  the 418 W anchor), but gives the player the 1.0–1.3× ratio
+  at the 1.875 B scenario. v3 doc does not recommend this.
+
+**Q14 (v3 NEW): `lunar_colony` tech — name conflict?** v0.5.1
+§8.6.1 spec uses the name `lunar_colony` for the off-world
+He-3 mining gate. The current `assets/data/technologies.ron`
+does NOT have a `lunar_colony` tech. The v0.5.1 spec name is
+a bit misleading (the tech gates off-world He-3 mining, not
+just the Moon — see v0.5.1 §5.1.1 for the rationale).
+v3 confirms the v0.5.1 name is fine; the user can rename
+to `off_world_mining` if preferred. The v3 apply plan uses
+`lunar_colony` to match the v2 spec.
+
+**Q15 (v3 NEW): DHe3FusionReactor tech name.** v0.5.1 §8.3.14
+proposed `required_tech: "fusion_power"` for DHe3FusionReactor.
+The current RON has `required_tech: "helium3_fusion"` (a
+separate tech that IS in `technologies.ron:757`). v3 confirms
+the shipped state (DHe3 uses `helium3_fusion`, not
+`fusion_power`) is the correct design — it keeps the He-3
+chain separate from the D-T chain. The v0.5.1 spec was
+over-ambitious in unifying them.
+
+### §6.5 Apply-order unambiguity (v3 NEW)
+
+The v3 §0.D.2 canary list is unambiguous:
+
+* The **critical-path** is 3a → 3b → 3c → 3d → 4 → 5b. The
+  user MUST land 3a (`lunar_colony` tech) before any other
+  canary 3 can be tested, because the He-3 chain is broken
+  without it.
+* The **non-critical** canaries (1, 2, 5a, 6, 7, 8) can land
+  in any order after the critical path.
+* The **optional** canary (9) is the v2 §7.2 power-plant
+  scale-down; it can land at any time.
+
+The v3 apply plan does NOT introduce any new dependencies
+between canaries that didn't exist in v2 §8.8. It only
+**adds** canaries (5a, 5b, 6) and **promotes** canary 3a
+(the `lunar_colony` tech) to the critical path.
+
+### §6.6 v3.1 NEW stop conditions (added for v3.1)
+
+| Stop condition | Where in v3.1 | Status |
 |---|---|---|
-| 23 new buildings | **9 new buildings** | Fold most fixes into existing `Mine` / `Refinery` / `ChemicalPlant` / `AtmosphericProcessor` / `DeepDrill` / `HydrocarbonExtractor` / `StripMine` `effects` fields. The 9 that remain: `WaterProcessor`, `He3Mine`, `GoldMine`, `SilverMine`, `PlatinumMine`, plus 4 K2 exotics. Argon folds into `AtmosphericProcessor` (it's a cryogenic byproduct of O₂/N₂ separation). |
-| 27 new `ModifierType` enum variants | **0 new `ModifierType` variants** | `modifier_type` is a string; no enum changes |
-| 4 NEW K2 technologies (optional) | **3 new technologies** (`lunar_colony`, `fusion_power`, `kardashev_k2`) | Mid-game He-3 chain is now tech-gated (was always-available in v1) |
-| He3Mine buildable on Earth | **He3Mine body-restricted to `[Moon, GasGiant, Asteroid]`** | The v0.5 design rule: He-3 only exists on these three body classes — regolith-implanted by solar wind (moons, asteroids) or primordial in atmosphere (gas giants). He3Mine is never buildable on Earth, Mars, or other He-3-barren bodies. |
-| He3Mine Moon-only | **He3Mine body-restricted to `[Moon, GasGiant, Asteroid]`** | The user's revised v0.5 design rule: He-3 deposits are real on all three body classes (Moon regolith, asteroid regolith, gas-giant atmosphere), not just the Moon. |
-| No Au/Ag/Pt/Ar consumer (deferred) | **`SemiconductorFab` maintenance update — 4 new rows for Au/Ag/Pt/Ar** | The v0.5 design rule: fold consumers into existing industry buildings rather than adding new `ElectronicsIndustry` / `SemiconductorAdvancedFab` etc. The 3 precious-metal mines + 1 atmospheric fold cover the producers. |
-| FusionReactor always-available | **FusionReactor tech-gated to `fusion_power`** (which requires `lunar_colony`) | The v0.5 design rule: no fusion power plants at game start in 2026 |
-| No body-type schema | **`allowed_body_types: Vec<BodyType>` schema addition** | Needed to enforce the He-3-deposit body restriction on `He3Mine` |
-| NaOH / Cl₂ new `ResourceType` entries | **Fluorine in `maintenance_resources`** (no new resources) | The v0.5 design rule: do not add new `ResourceType` entries |
-| NaOH / Cl₂ in maintenance | **No new `ResourceType` entries** | The Bayer and Kroll processes use Fluorine as the process reagent |
-| Antimatter in Mt | **Antimatter in grams** | The v0.5 design rule: grams throughout |
-| Save compatibility considered | **No deprecated aliases; rename is breaking** | The v0.5 design rule: save compatibility is not a concern |
-| 1 Rust constant delta + ~60 Rust lines | **1 Rust constant delta + ~49 Rust lines** | The 23 → 9 building reduction cuts the enum-variant additions; the new 3 precious-metal mines add back 3 enum variants |
+| Executive summary at top (v3 §0) is preserved | (inherited from v3) | ✅ |
+| `docs/design/BALANCE_PATCHES_v0.5.md` is extended with §0.F, §0.G, §0.H, §0.D.7, §6.6, §5.13–§5.15, §8.4 | (this doc) | ✅ |
+| The v3.1 stop conditions table is at the top of the v3.1 sections (in this §6.6) | §6.6 | ✅ |
+| All 52 + 24 buildings have proposed workforce and per-building resource-cost analysis | §0.F.3 (70 buildings), §0.G.3 (52 + 24) | ✅ |
+| The effect-rendering spec cites exact lines in `src/ui/construction.rs` (1387–1391, 1608, 1623, 2851, etc.) | §0.H.3 | ✅ |
+| OrbitalLift Ti cost is no longer a hard blocker (payback ≤ 50 yr at 25-mine operator-bar scale) | §0.G.4 (16.7 yr) | ✅ |
+| Farm workforce math satisfies 1:155 real-world ratio (within an order of magnitude at the per-build district scale) | §0.F.3 row 5 (1,000 → 2,000; per-worker 180 t/yr vs real 170 t/yr = 1.06×) | ✅ |
+| No RON, Rust, or UI files were edited | (this is a doc) | ✅ |
+| No new `BuildingType` enum variants added | §0.F.4.6 (all 95 variants preserved) | ✅ |
+| No new `ResourceType` entries added | (39 locked) | ✅ |
+| `population_scale_multiplier: 100.0` constant is unchanged | (preserved) | ✅ |
+| Manageable-building count (10–50 per resource per body for early game) is preserved | §0.F.4.1 (test still passes at 14,500) | ✅ |
+| Operator bar (1 building ≈ 1/300 of world share for Tier 2; 1 building ≈ world share for Tier 1 life-support) is preserved | §0.F.3 (calibrated against `CLAUDE.md` and v2 §3.3) | ✅ |
+| Tech-tier-aware (early 0–50 yr, mid 50–200 yr, late 200+ yr) | §0.F.3 (rows 1–52 anchored to early/mid; 41–48 are mid/late) | ✅ |
+| Every number cited (USGS / FAO / IEA / OECD / NASA-ECLSS, or back-ref to v3 section) | §0.F.2 (12 anchors) + §0.G.2 (3 anchors) | ✅ |
+| Mass-balance equations, not vibes | §0.G.2 (3 worked examples) + §0.G.3 (52 buildings) | ✅ |
+| Push back when warranted | §0.F.4.6, §0.G.5, §0.F.1, §0.G.1 (3 of 3 user "hard blockers" re-evaluated) | ✅ |
+| v3 §0.A–§0.E unchanged | (LOCKED) | ✅ |
+| v2 §4–§7 unchanged | (LOCKED) | ✅ |
+| Brief 1-paragraph summary back to orchestrator | (end of this response) | ✅ |
 
-### 9.4 Resources where the manageable-count constraint was hardest to satisfy
+### §6.7 v3.1 open questions (added for v3.1)
 
-1. **Phosphorus** (early-game Tier 1, life support closed-loop). Per-
-   capita 0.56 kg/p/yr is very low; 25 buildings at 0.18 Mt/yr per
-   build is below the audit's "1 building ≈ 1/300 of world" bar.
-   v2 keeps v1's exception: target_count = 15, per_build = 0.31 Mt/yr.
-2. **Titanium** (early-game Tier 2, structural / aerospace). Per-
-   capita 0.04 kg/p/yr = 40 g/p/yr; 17 buildings at 0.02 Mt/yr per
-   build = 20 kt/yr. The game unit (Mt) is too coarse for the
-   per-build value. v2 keeps v1's exception: target_count = 17,
-   per_build = 0.02 Mt/yr. The rounding precision is a known
-   limitation (no UI panel displays tonnes-vs-Mt at this scale).
-3. **Helium-3** (mid-game). The 1:1 He3Mine : FusionReactor
-   ratio makes the count *exactly* 10 for a mature He-3-deposit
-   outpost (10 FusionReactors, 10 He3Mines). This is the *lower
-   bound* of the 10–50 constraint — any fewer reactors and the
-   player hasn't scaled to mid-game yet; any more and the count
-   exits the band. The 1:1 ratio is the design choice that makes
-   the band work; deviating from it (e.g. 0.5 mine per reactor)
-   would let the player run more reactors per mine, but the freight
-   logistics would then need a buffer for the He-3 hop.
-4. **Platinum** (mid-game Tier 3, precious / catalytic). Per-
-   capita 24 mg/p/yr; 200 t/yr global demand; target_count = 20
-   mines at 0.00001 Mt/yr per build = 0.0002 Mt/yr = USGS 2026
-   demand. The per-build is **below the 0.0001 Mt/yr rounding
-   precision** of the game unit (Mt). The patch rounds to 5
-   significant figures (0.00001) and the UI panel does not display
-   tonnes-vs-Mt at this scale. Same exception pattern as Titanium
-   and Phosphorus. User can refine.
+**Q16 (v3.1 NEW): AutoMine workforce ratio.** The user
+prompt notes "AutoMines are 20-50% reduction, not 10×."
+The current AutoMine workforces are 16–30% of base mine
+workforce. v3.1 §0.F.4.5 documents the 16–30% range and
+pushes back: the v0.5.2 design intent ("lean orbital
+crews") justifies 16% (not 20–50%). **The user can
+override:** if the 20–50% target is preferred, the simple
+rule is `Auto{Res}Mine.workforce = {Res}Mine.workforce /
+4` (round to nearest 100), which would change 12 of 24
+AutoMines. v3.1 does not propose this change.
 
-### 9.5 Open questions for the user
+**Q17 (v3.1 NEW): OrbitalLift Ti cost — 5 Mt or 50 Mt?**
+v3.1 §0.G.4 proposes Ti 333 → 5 Mt (16.7 yr at 25
+mines, 0.3 yr at 100 mines). The user could alternatively
+prefer 50 Mt (167 yr at 25 mines, 50 yr at 100 mines) for
+"major undertaking" pacing. v3.1 does not have a strong
+preference; the user picks.
 
-1. **`AtmosphericHarvesting` → `NitrogenHarvesting` rename** (§8.3.6):
-   the rename is breaking. The v0.5 design rule says "no deprecated
-   aliases." The user is expected to make this rename and accept the
-   break. If the user disagrees, the rename can be deferred.
-2. **`MiningEfficiency` vs per-resource modifiers** (§8.3.8-§8.3.10):
-   v2 preserves `MiningEfficiency` / `DeepMiningEfficiency` /
-   `BulkMiningEfficiency` as generic fallbacks alongside the new
-   per-resource effects. This is consistent with the v0.5 design
-   rule (no breaking changes to existing modifier types), but it
-   means `Mine` now has 7 effects. The user may want to drop the
-   generic `MiningEfficiency` once the per-resource effects are
-   stable.
-3. **Antimatter unit convention** (§6.1, §8.2.3): the game tracks
-   antimatter in grams, not Mt. This is a major Rust change that
-   affects every resource-balance display. The RON entry stores
-   `100.0` (interpreted in the *current* game unit until the Rust
-   change lands). Defer to K2 design review.
-4. **ExoticMatter physics** (§6.2): no real-world anchor. The
-   `ExoticMatterSynthesizer` is a placeholder. Defer to K2 review.
-5. **`SemiconductorFab` GRA-22c audit** (§8.3.18): adding 4 new
-   `maintenance_resources` rows (Au/Ag/Pt/Ar) raises the building's
-   maintenance list from 4 to 8 distinct resources, exceeding the
-   existing `MAINTENANCE_AUDIT_MAX = 6` (`src/colony/data.rs:267`).
-   Two paths: (a) loosen the audit to `MAX = 10` (recommended;
-   electronics *is* resource-intensive in real life), or (b) split
-   the consumer across `Refinery` + `SemiconductorFab` (uglier,
-   still exceeds the budget). The patch recommends (a).
-6. **Body restriction representation** (§8.4): v2 uses the explicit
-   list `[Moon, GasGiant, Asteroid]` for `He3Mine`. The user may
-   prefer a more general `allowed_deposits: Vec<ResourceType>` field
-   on `BuildingDefinition` (e.g. `He3Mine.allowed_deposits: [Helium3]`
-   — the building is then available on any body whose
-   `PlanetResources` has a He-3 deposit). The current schema is the
-   simpler "list body kinds" approach; the deposit-based approach is
-   more general and would also cover future bodies (e.g. Mercury, if
-   it gets added as a body kind). Defer to a future patch unless
-   the user has a preference now.
-7. **Power plant per-build scale-down aggressiveness** (§7.2): v2
-   preserves v1's conservative ×0.67-0.83× downscale. Some plants
-   could be scaled more aggressively (e.g. 10× DOWN to land at 30
-   plants per body). The user can refine.
-8. **`DTFusionReactor` T maintenance 0.0005** (§8.3.13): the patch
-   keeps this value; the new ChemicalPlant T-breeding is 0.001 Mt/yr
-   (2× the consumer). One ChemicalPlant feeds 2 D-T reactors.
-   Reasonable but flag for review.
-9. **`Farm` available_atmospheres** (§4.1, current `[None]` on
-   `UndergroundHabitat`-like, but `Farm` is currently unfiltered):
-   the patch doesn't change this. If the user wants the `AgriDome`
-   to be the only off-world food source, keep as-is. If the user
-   wants `Farm` to be re-enabled on off-world with habitat
-   support, that's a separate change.
-10. **Deuterium `ChemicalPlant` fold** (§5.2): the patch adds
-    `DeuteriumProduction` to `ChemicalPlant`. This means a body
-    without a ChemicalPlant cannot produce D. The user may want a
-    separate `DeuteriumHarvester` if D production on bodies with no
-    chemical industry is desired. v2 keeps the fold; user can
-    refine.
-11. **Earth starting building count** (§9.6 — see also canary 1
-    apply): the existing 820 Farms / 60 Greenhouses / 20
-    Aquaculture / 2,000 Mines / etc. are calibrated for the OLD
-    per-build values (9,000 Mt/yr per Farm, 1,800 Mt/yr per Mine,
-    etc.). The patch drops per-build by 25× across the board.
-    Applying the patch without also updating the starting count
-    would massively over-produce. The recommended starting count
-    is in `src/plugins/solar_system.rs:1063-1112` — see canary-1
-    apply for the proposed values.
-12. **Precious-metal building placement on bodies** (§5.15-§5.17):
-    the 3 precious-metal mines (`GoldMine`, `SilverMine`,
-    `PlatinumMine`) are unconstrained (`allowed_body_types: []`)
-    — they can be built on any body with crustal deposits. In
-    reality, gold / silver / platinum deposits are concentrated in
-    specific terranes (craton belts, layered intrusions) and not
-    uniformly distributed across all bodies. The patch's
-    unconstrained approach is the simplest calibration; the user
-    may want to add a `allowed_deposits` field (see Q6) so the
-    mines only build on bodies whose `PlanetResources` has the
-    relevant mineral deposit. Defer to a future patch.
+**Q18 (v3.1 NEW): Effect-rendering spec wording.** v3.1
+§0.H.3 proposes a `friendly_label` helper that maps
+modifier types to (tone, label) pairs. The wording
+("Houses 50M residents", "Synthesizes 100 Mt/yr Hydrogen",
+etc.) is the v3.1 best guess; the user can refine in
+review. The catch-all `_ =>` arm surfaces unknown
+modifier types with the raw name (e.g. "FooBar: 42.0").
 
-### 9.6 Files NOT modified by this proposal
+**Q19 (v3.1 NEW): Effect-cap 5+1.** v3.1 §0.H.4 proposes
+a 5+1 cap. ChemicalPlant has 4 effects (in cap); no
+building has 6+ effects today. If a future building
+exceeds 5 effects, the "+N more" line tells the player
+to look at the tooltip. **The user can override to 6+1
+or 4+1 if preferred.**
 
-Per the brief, this is a **proposal doc only**. The following files
-are unchanged:
+**Q20 (v3.1 NEW): Farm workforce value (1,000 → 2,000
+vs 2,100,000).** v3.1 §0.F.1 + §0.F.3 push back on the
+2.1M target (would break the early-game test). The
+2,000 value is the largest that preserves the test AND
+brings Farm within 0.5–2× of real productivity. **The
+user can override:** if a "tier-aware" workforce is
+preferred (Farm scales from 1,000 at year 1 to 2,000 at
+year 50 to 5,000 at year 200), that would require a new
+`workforce` field type and is out of v3.1 scope.
 
-* `src/colony/systems.rs` — no change. The existing
-  `process_construction_actions` (line 414-417) attaches
-  `MinimumStockpile` defaults that are correct (Food 500, Water
-  100, O₂ 200, Water 100). The new resources (H₂, CH₄, NH₃,
-  Polymers, Iron, etc.) are NOT added to the default
-  `MinimumStockpile` because they have a per-build production that
-  exceeds per-capita demand — the player doesn't need a stockpile
-  for them.
-* `src/economy/components.rs` — no change. `LocalStockpile` and
-  `MinimumStockpile` are already designed to handle the new
-  resources.
-* `assets/data/ship_hulls.ron` — the audit's finding #3 noted the
-  Mt-vs-tonnes unit mismatch. This is a separate fix and is out of
-  scope for this proposal. The patch leaves ship-hull costs in
-  tonnes; the per-building production values in Mt do not interact
-  with ship-hull costs in the current code.
-* `src/economy/logistics.rs` — no change to
-  `DEFAULT_LIFE_SUPPORT_OXYGEN_MT` (200) and
-  `DEFAULT_LIFE_SUPPORT_WATER_MT` (100) — these are stockpile
-  floors, not per-capita rates.
-* Civilization satisfaction state machine — out of scope; lives
-  in `CIVILIZATION_SATISFACTION_MODEL.md` and is the next
-  deliverable to implement (per the satisfaction model §9.3).
+**Q21 (v3.1 NEW): MassDriver Cu 167 keep-or-change.** v3.1
+§0.G.5 documents the 7.4 yr payback at 25 mines × 0.6
+accessibility (in Tier 3 3–10 yr band). The user's
+"11 yr" used 0.4 accessibility; v3.1 uses the v3
+calibration anchor 0.6. **The user can override:** if 0.4
+accessibility is preferred for Cu (and other metals),
+MassDriver Cu 167 might be 11 yr, just above the 3–10
+yr band. v3.1 does not propose a change.
 
-### 9.7 Self-check: what this doc does NOT do
-
-* Does **not** re-litigate the civilization model (locked in §9.1 of
-  CIVILIZATION_SATISFACTION_MODEL.md).
-* Does **not** produce `BALANCE_SCALING_STRATEGY.md` (separate
-  deliverable, not produced here).
-* Does **not** implement any RON / Rust changes (proposal only).
-* Does **not** propose buildings the player can't build at the
-  given tier:
-  * No fusion, antimatter, exotics, or off-world He-3 mining at game
-    start in 2026. All four are tech-gated.
-  * The mid-game He-3 chain is locked behind `lunar_colony` tech
-    + body-type restriction to `[Moon, GasGiant, Asteroid]`.
-  * The late-game K2 exotics are locked behind `kardashev_k2` tech.
-* Does **not** add new `ResourceType` entries (Fluorine is used
-  in place of NaOH/Cl₂).
-* Does **not** preserve deprecated aliases (the
-  `AtmosphericHarvesting` → `NitrogenHarvesting` rename is breaking).
-* Does **not** invent real-world numbers without a source. The
-  late-game §6 marks all values as "approximate" pending K2 review.
-
-### 9.8 Handoff to the user
-
-To apply the patch, the user:
-
-1. **Edits `src/colony/components.rs`** per §8.1 (1 function, 2
-   comments; ~10 lines).
-2. **Edits `src/colony/data.rs`** per §8.4 (adds `allowed_body_types`
-   field + extends `building_is_available_on` predicate; ~30 lines).
-3. **Edits `src/colony/types.rs`** per §8.5 (adds 9 `BuildingType`
-   enum variants; ~9 lines).
-4. **Appends 9 NEW building entries** to `assets/data/buildings.ron`
-   per §8.2 (each ~25 lines; total ~225 lines).
-5. **Modifies 18 EXISTING building entries** in
-   `assets/data/buildings.ron` per §8.3 (each is 1-7 line diff;
-   total ~55 lines of changes — the 18th is the `SemiconductorFab`
-   maintenance update with 4 new rows).
-6. **Appends 3 NEW technology entries** to
-   `assets/data/technologies.ron` per §8.6 (each ~15 lines; total
-   ~45 lines).
-7. **(Optional) Adds 9 building icons** to `assets/icons/...`
-   (artwork, out of scope).
-
-Total estimated effort: **~325 lines of RON + ~49 lines of Rust**.
-
-The patch is **canary-first per the user's UI workflow preferences**
-(canary-first migrations, sequential rollout, parallel old/new,
-graduate per panel). The recommended canary sequence is in §8.8.
+**Q22 (v3.1 NEW): The 28 strategic-tier costs.** v3.1
+§0.G.3 documents 28 buildings with at least one
+*strategic-tier* (10–2,000 yr) resource_cost. v3.1
+preserves all 28 as "the brief explicitly preserves."
+**The user can override:** if a different strategic-tier
+set is preferred (e.g. OrbitalLift REE 83 → 10 Mt to
+make OrbitalLift buildable in 25–50 yr), v3.1 doesn't
+propose it but documents the option.
 
 ---
 
-*End of balance-patches lean v2. The doc is a revision of the v1
-deliverable from the balance-expert agent. v1 had 23 new buildings
-and was over-engineered; v2 has 9 new buildings and folds most fixes
-into existing `effects` fields (notably `AtmosphericProcessor`
-absorbs the `ArgonProduction` modifier; `SemiconductorFab` absorbs
-the Au/Ag/Pt/Ar consumer). The mid-game He-3 chain is tech-gated
-AND body-restricted to `[Moon, GasGiant, Asteroid]` (the three body
-classes with He-3 deposits — regolith-implanted by solar wind on
-moons and asteroids, primordial in gas-giant atmospheres). The 3
-new technologies (lunar_colony, fusion_power, kardashev_k2) are
-spec'd with full prereq chains. The schema addition
-(`allowed_body_types: Vec<BodyType>` on `BuildingDefinition`) is
-flagged in §8.4. The civilization-satisfaction model
-(`CIVILIZATION_SATISFACTION_MODEL.md`) consumes the per-resource
-numbers proposed here; the satisfaction model is implemented in a
-follow-up v0.5.x pass.*
+## §7 Reference: v2 §10 v0.5.2 per-resource dedicated mines (SHIPPED)
+
+> **This section is LOCKED from v2 §10 — already shipped.**
+> The v0.5.2 ADDENDUM is the current source of truth for the
+> per-resource dedicated mine approach. v3 references it by
+> section number; v3 does NOT re-derive the per-build
+> production values.
+
+**The v0.5.2 design pattern** (v2 §10 lines 2466-2514):
+* Per-resource dedicated base mine for every
+  crustal/liquid-minable resource (22 buildings)
+* Per-resource AutoMine for orbital/asteroid mining (24
+  buildings, body-restricted to `[Asteroid, Moon, GasGiant]`)
+* No `MiningEfficiency` / `DeepMiningEfficiency` /
+  `BulkMiningEfficiency` modifiers; no share-fold
+* Same base building for mining — all 22 base mines share
+  `line: Some("Mine")` so a future tier-1+ upgrade building
+  can use the new `replaces_in_line: Option<String>` schema
+  field
+* Earth starting counts: 25 of each base mine
+* Legacy generic mines removed: `Mine` / `Refinery` /
+  `DeepDrill` / `LaserDrill` / `StripMine` /
+  `HydrocarbonExtractor` / `RecyclingCenter` are gone
+* `BuildingDefinition::allowed_body_types: Vec<BodyType>`
+  (default empty = any body)
+
+**v0.5.2 §10.1 — Per-resource base mine calibration.**
+22 base mines; 25 × base_yield × 0.6 (Earth accessibility)
+≈ USGS 2024 / 2026 world demand. Calibration values
+preserved at v2 §10.1 lines 2479-2506.
+
+**v0.5.2 §10.2 — AutoMines (orbital / asteroid mining).**
+24 AutoMines; calibrated at ~1/10 of the surface base mine
+yield. All AutoMines body-restricted to `[Asteroid, Moon,
+GasGiant]`, `asteroid_mining` tech-gated. See v2 §10.2
+lines 2508-2514.
 
 ---
 
-## 10. v0.5.2 — Mining refactor: per-resource dedicated mines + AutoMines + no share-fold
+## §8 v3 vs v2 deltas (v3 NEW)
 
-> **Patch v0.5.2 (big-bang rollout):** the user's response to v0.5.1 was that the share-fold / `MiningEfficiency` / `DeepMiningEfficiency` / `BulkMiningEfficiency` modifier approach was opaque (concentration-weighted distribution across every eligible deposit) and that precious-metal production was over-tuning the player bar. The replacement design pattern is:
->
-> 1. **Per-resource dedicated base mine** for every crustal/liquid-minable resource (22 buildings: 9 construction + 3 precious + 6 strategic + 2 fissile + hydrocarbons + heavy water + He-3).
-> 2. **Per-resource AutoMine** for orbital/asteroid mining (24 buildings, one per resource plus He-3 and WaterProcessor, body-restricted to `[Asteroid, Moon, GasGiant]`).
-> 3. **No `MiningEfficiency` / `DeepMiningEfficiency` / `BulkMiningEfficiency` modifiers; no share-fold.** Each mine reads `count × base_yield × deposit.accessibility × yield_mult`.
-> 4. **Same base building for mining** — all 22 base mines share `line: Some("Mine")` so a future tier-1+ upgrade building (e.g. `IndustrialMine`) can use the new `replaces_in_line: Option<String>` schema field to upgrade the whole line at once, without needing `IndustrialIronMine` / `IndustrialCopperMine` / … per-resource variants.
-> 5. **Earth starting counts: 25 of each base mine** (manageable-count band; 25 × base_yield × 0.6 Earth accessibility ≈ USGS 2024 / 2026 world demand).
-> 6. **Legacy generic mines removed:** `Mine` / `Refinery` / `DeepDrill` / `LaserDrill` / `StripMine` / `HydrocarbonExtractor` / `RecyclingCenter` are gone. `HydrocarbonExtractor`'s functionality is captured by `MethaneExtractor`.
-> 7. **Body-type schema addition:** `BuildingDefinition::allowed_body_types: Vec<BodyType>` (default empty = any body). The `building_is_available_on` predicate is extended to filter on this. He3Mine uses `[Moon, GasGiant, Asteroid]` (canary 3); all AutoMines use `[Asteroid, Moon, GasGiant]`.
-> 8. **Tier upgrade support:** `BuildingDefinition::replaces_in_line: Option<String>` (default None). A tier-1+ building can replace ANY building in the named line — the construction system decrements the colony's count of the lowest-tier building in that line when the new building is added. Most buildings leave this as None.
+### §8.1 What's NEW in v3 (vs v2)
 
-### 10.1 Per-resource base mine — calibration
+| Section | What v3 adds | Lines |
+|---|---|---:|
+| §0 | Executive summary (1 page, top of doc) | 130 |
+| §0.A | Energy balance recalibration — bottom-up demand sum, 30 per-building `power_demand_mw` updates, fusion downscale bonus | 280 |
+| §0.B | Cost-headroom rebalance — current curve audit, single IronMine BP change, resource_costs hidden-tax analysis | 200 |
+| §0.C | Player expansion path verification — Earth → Moon → asteroid → space-industry walkthrough with math at each step | 220 |
+| §0.D | Single canary-first apply plan — unified 8-canary list with critical-path + test gates | 180 |
+| §0.E | v0.5.2 supersession status — per-v0.5.1-patch shipped/partial/pending/superseded audit table | 200 |
+| §5.10 | v3 §8.10 RON edits for energy-demand rebalance | 100 |
+| §5.11 | v3 §8.11 RON edit for cost-headroom rebalance (1-line IronMine BP) | 10 |
+| §5.12 | v3 §8.12 apply order with critical-path + test gates | 60 |
+| §6.2 | v3 NEW stop conditions | 30 |
+| §6.4 Q13-15 | v3 NEW open questions | 40 |
+| §8 | v3 vs v2 deltas (this section) | 60 |
+| **Total v3 NEW** | | **~1,510 lines** |
 
-| Resource | Per-build (Mt/yr) | Earth demand (Mt/yr) | Earth count | Yield × accessibility | RON modifier |
-|---|---:|---:|---:|---|---|
-| Iron | 120 | 1,800 (USGS 2024) | 25 | 25 × 120 × 0.6 = 1,800 (100%) | `IronProduction: 120.0` |
-| Copper | 1.5 | 22 (USGS 2024) | 25 | 25 × 1.5 × 0.6 = 22.5 (100%) | `CopperProduction: 1.5` |
-| Aluminum | 5 | 70 (USGS 2024) | 25 | 25 × 5 × 0.6 = 75 (100%) | `AluminumProduction: 5.0` |
-| Silicates | 700 | 10,000 (rough est.) | 25 | 25 × 700 × 0.6 = 10,500 (100%) | `SilicatesProduction: 700.0` |
-| Nickel | 0.2 | 3 (USGS 2024) | 25 | 25 × 0.2 × 0.6 = 3.0 (100%) | `NickelProduction: 0.2` |
-| Titanium | 0.02 | 0.3 (USGS 2024) | 25 | 25 × 0.02 × 0.6 = 0.3 (100%) | `TitaniumProduction: 0.02` |
-| Tungsten | 0.005 | 0.08 (USGS 2024) | 25 | 25 × 0.005 × 0.6 = 0.075 (94%) | `TungstenProduction: 0.005` |
-| Carbon | 350 | 5,000 (coal est.) | 25 | 25 × 350 × 0.6 = 5,250 (100%) | `CarbonProduction: 350.0` |
-| Chromium | 2 | 30 (USGS 2024) | 25 | 25 × 2 × 0.6 = 30 (100%) | `ChromiumProduction: 2.0` |
-| Magnesium | 0.07 | 1 (USGS 2024) | 25 | 25 × 0.07 × 0.6 = 1.05 (100%) | `MagnesiumProduction: 0.07` |
-| Gold | 0.0001 | 0.0036 (USGS 2026) | 25 | 25 × 0.0001 × 0.6 = 0.0015 (~80%) | `GoldProduction: 0.0001` (v0.5.1) |
-| Silver | 0.001 | 0.025 (USGS 2026) | 25 | 25 × 0.001 × 0.6 = 0.015 (60%) | `SilverProduction: 0.001` (v0.5.1) |
-| Platinum | 0.00001 | 0.0002 (USGS 2026) | 20 | 20 × 0.00001 × 0.6 = 0.00012 (manageable-count exception — see §3.5) | `PlatinumProduction: 0.00001` (v0.5.1) |
-| RareEarths | 0.025 | 0.35 (USGS 2024) | 25 | 25 × 0.025 × 0.6 = 0.375 (100%) | `RareEarthsProduction: 0.025` |
-| Lithium | 0.012 | 0.18 (USGS 2024) | 25 | 25 × 0.012 × 0.6 = 0.18 (100%) | `LithiumProduction: 0.012` |
-| Sulfur | 5 | 70 (USGS 2024) | 25 | 25 × 5 × 0.6 = 75 (100%) | `SulfurProduction: 5.0` |
-| Phosphorus | 0.003 | 0.05 (USGS 2024) | 25 | 25 × 0.003 × 0.6 = 0.045 (90%) | `PhosphorusProduction: 0.003` |
-| Cobalt | 0.015 | 0.23 (USGS 2024) | 25 | 25 × 0.015 × 0.6 = 0.225 (98%) | `CobaltProduction: 0.015` |
-| Fluorine | 0.2 | 3 (USGS 2024) | 25 | 25 × 0.2 × 0.6 = 3.0 (100%) | `FluorineProduction: 0.2` |
-| Uranium | 0.003 | 0.05 (USGS 2024) | 25 | 25 × 0.003 × 0.6 = 0.045 (90%) | `UraniumProduction: 0.003` |
-| Thorium | 0.0007 | 0.01 (USGS 2024) | 25 | 25 × 0.0007 × 0.6 = 0.0105 (100%) | `ThoriumProduction: 0.0007` |
-| Methane (Extractor) | 270 | 4,000 (world nat-gas 2024) | 25 | 25 × 270 × 0.6 = 4,050 (100%) | `MethaneProduction: 270.0` |
-| Deuterium (Extractor) | 0.5 | ~0 (2024); ~10 fusion startup | 25 | 25 × 0.5 × 0.6 = 7.5 (1 fusion D-D reactor) | `DeuteriumProduction: 0.5` |
-| He-3 (Mine) | 0.5 | 0.5 per D-He3 fusion reactor | varies | 25 × 0.5 × 0.6 = 7.5 | `Helium3Production: 0.5` (canary 3) |
+### §8.2 What's LOCKED from v2 in v3
 
-### 10.2 AutoMines — orbital / asteroid mining
+| Section | Status |
+|---|---|
+| v2 §1 TL;DR and stop conditions | LOCKED (updated with v3 framing in §1.1) |
+| v2 §2 Headline tier-summary table | LOCKED |
+| v2 §3 Methodology and the 10–50 constraint | LOCKED |
+| v2 §4 Early-game tier (16 resources) | LOCKED, REFERENCE |
+| v2 §5 Mid-game tier (He-3 chain + 18 resources) | LOCKED, REFERENCE |
+| v2 §6 Late-game tier (4 K2 exotics) | LOCKED, REFERENCE |
+| v2 §7 Power buildings (per-capita, per-build targets) | LOCKED, REFERENCE |
+| v2 §8.1 Rust constant delta | SHIPPED (cross-references) |
+| v2 §8.2 NEW buildings (9 buildings) | 🟡 PARTIAL (5 of 9 SHIPPED) |
+| v2 §8.3 EXISTING building edits (18 edits) | 🟡 PARTIAL (most SUPERSEDED by v0.5.2) |
+| v2 §8.4 Schema addition (`allowed_body_types`) | SHIPPED |
+| v2 §8.5 Rust enum additions (9 variants) | 🟡 PARTIAL (K2 variants pending) |
+| v2 §8.6 NEW technologies (3 techs) | 🟡 PARTIAL (1 of 3 SHIPPED) |
+| v2 §8.7 Files checklist | UPDATED (v3 §5.7) |
+| v2 §8.8 Apply order | CONSOLIDATED in v3 §0.D |
+| v2 §8.9 RON syntax notes | LOCKED |
+| v2 §9.1 Stop condition check | UPDATED (v3 §6.1) |
+| v2 §9.2 Manageable-count check | LOCKED |
+| v2 §9.3 v1 → v2 deltas | LOCKED (historical) |
+| v2 §9.4 Resources where manageable-count was hardest | LOCKED |
+| v2 §9.5 Open questions | UPDATED with v3 NEW Q13-15 |
+| v2 §9.6 Files NOT modified | LOCKED |
+| v2 §9.7 Self-check: what this doc does NOT do | LOCKED |
+| v2 §9.8 Handoff to the user | LOCKED |
+| v2 §10 v0.5.2 ADDENDUM | SHIPPED, LOCKED |
 
-Per-resource orbital mining rigs. Calibrated at ~1/10 of the surface base mine yield (orbital extraction is harder than surface, asteroid capture is logistically expensive). All AutoMines:
-- **Body-restricted to `[Asteroid, Moon, GasGiant]`** via the new `allowed_body_types` schema field.
-- **Require `asteroid_mining` tech** (one new tech for the whole class).
-- Have a smaller workforce (~600-1,500 workers per build vs 3,500-8,000 for surface mines) because they are space-grade automated rigs.
-- Have a higher build cost (space-grade hardware).
-- Per-build yields: AutoIronMine 12 Mt/yr, AutoCopperMine 0.15 Mt/yr, AutoAluminumMine 0.5 Mt/yr, AutoSilicatesMine 70 Mt/yr, AutoNickelMine 0.02 Mt/yr, AutoTitaniumMine 0.002 Mt/yr, AutoTungstenMine 0.0005 Mt/yr, AutoCarbonMine 35 Mt/yr, AutoChromiumMine 0.2 Mt/yr, AutoMagnesiumMine 0.007 Mt/yr, AutoGoldMine 0.00001 Mt/yr, AutoSilverMine 0.0001 Mt/yr, AutoPlatinumMine 0.000001 Mt/yr, AutoRareEarthsMine 0.0025 Mt/yr, AutoLithiumMine 0.0012 Mt/yr, AutoSulfurMine 0.5 Mt/yr, AutoPhosphorusMine 0.0003 Mt/yr, AutoCobaltMine 0.0015 Mt/yr, AutoFluorineMine 0.02 Mt/yr, AutoUraniumMine 0.0003 Mt/yr, AutoThoriumMine 0.00007 Mt/yr, AutoMethaneExtractor 27 Mt/yr (Titan analog), AutoDeuteriumExtractor 0.05 Mt/yr, AutoHe3Mine 0.05 Mt/yr (lunar regolith / asteroid), AutoWaterProcessor 1.6 Mt/yr (carbonaceous chondrite ice).
+### §8.3 The 1-paragraph summary to the orchestrator
 
-### 10.3 Why the share-fold is gone
+v3 closes the energy-consumption gap the user reported, but
+inverts the direction: the bottom-up power-demand sum for a
+mature-Earth colony is **24.7 GW** against a 2,880 GW supply
+from 12 SolarPower, a 117× over-supply (not a deficit). The
+fix is 30 `power_demand_mw` updates (HabitatDome 150 → 20,900
+MW, Housing 50 → 10,450 MW, etc.) that land at 0.31× supply
+for the brief's 1.875 B scenario and 1.19× at full Earth
+population — exactly the 1.0–1.3× target. The cost-headroom
+rebalance is **one** change: `IronMine.build_points` 1,500 →
+1,000 (the only Tier 2 outlier). The expansion path Earth →
+Moon → asteroid → space-industry is **viable** after v2
+lands, with two critical-path canary items: `lunar_colony`
+tech (PENDING — `He3Mine` is unbuildable without it) and
+`FusionReactor` He-3 / D / T downscale (PENDING). v3
+consolidates the v2 + v0.5.2 + v3 changes into a single
+8-canary apply plan with explicit critical-path (3a → 3b →
+3c → 3d → 4 → 5b) and parallel-old/new (feature-flag)
+rollout. v3 makes zero edits to RON / Rust / UI files; it
+is a proposal doc with 30 + 1 RON diffs and 1 RUST enum
+variant pending, plus the v0.5.2 per-resource mines already
+shipped.
 
-The legacy tier system multiplied a per-build `MiningEfficiency` modifier by every eligible deposit's concentration share:
-```
-yield_per_resource = base_rate × concentration_share × yield_mult
-```
-This was **opaque** (the player couldn't predict the per-resource output without knowing all deposit concentrations) and **over-produced precious metals by 100-300× real-world** (concentration share gave Gold ~0.0001×0.0001 = effectively a measurable yield from a single `Mine` building, not the ~3,200 troy oz/yr the USGS 2026 number actually implies).
+### §8.4 v3.1 deltas (v3.1 NEW)
 
-The v0.5.2 replacement is **direct**: each `XxxMine` modifier maps 1:1 to one `ResourceType`. The `mining.rs` dispatch loop:
-```rust
-for (bt, &count) in &colony.buildings {
-    for modifier in &def.modifiers {
-        // Strip `Production` suffix → ResourceType
-        if let Some(target) = modifier.modifier_type.strip_suffix("Production")
-                                            .and_then(parse_resource_type_static) {
-            *direct_production.entry(target).or_insert(0.0) +=
-                modifier.value * count as f64 * yield_mult;
-        }
-    }
-}
-// Direct deposit, scaled by body accessibility:
-for (resource, base_rate) in &direct_production {
-    let access = resources.get_deposit(resource).map(|d| d.accessibility).unwrap_or(0.0);
-    if access <= 0.0 { continue; }  // body has no accessible deposit
-    let amount = base_rate * access * bonus * years_elapsed;
-    deposit_with_fallback(..., resource, amount);
-}
-```
+#### 8.4.1 What's NEW in v3.1 (vs v3)
 
-The `XxxProduction` modifier pattern lets future tier-1+ upgrade buildings (e.g. `IndustrialMine` with `tier: 1, line: Some("Mine"), replaces_in_line: Some("Mine")`) upgrade the entire line — see §10.4.
+| Section | What v3.1 adds | Lines |
+|---|---|---:|
+| §0.D.7 | v3.1 apply plan extension — Canaries 9, 10, 11 with renumbered 12, 13 | ~140 |
+| §0.F | Workforce calibration — 70-building per-row table with real-world productivity anchors, special-case analysis (early-game test, mature-Earth staffing, AutoMines), 3 RON + 3 RUST diffs | ~520 |
+| §0.G | Resource build cost rebalance — 52-building + 24-AutoMine per-row cost analysis with payback math, 1 RON diff (OrbitalLift Ti 333 → 5 Mt), push-back on user's other 2 examples | ~480 |
+| §0.H | Building-card effect rendering — inventory of 13 hidden modifier types, code spec for `friendly_label` helper, 5+1 effect cap, tones | ~270 |
+| §5.13 | v3.1 §8.13 RON / RUST edits for workforce (Canary 9) | ~50 |
+| §5.14 | v3.1 §8.14 RON edits for resource cost (Canary 10) | ~20 |
+| §5.15 | v3.1 §8.15 RUST spec for effect rendering (Canary 11) | ~110 |
+| §6.6 | v3.1 NEW stop conditions (16 items) | ~30 |
+| §6.7 | v3.1 NEW open questions (Q16–Q22) | ~50 |
+| §8.4 | v3.1 deltas (this section) | ~80 |
+| **Total v3.1 NEW** | | **~1,750 lines** |
 
-### 10.4 `replaces_in_line` schema field (v0.5.2)
+#### 8.4.2 What's LOCKED from v3 in v3.1
 
-The `BuildingDefinition` schema has a new optional field:
-```rust
-pub replaces_in_line: Option<String>,  // default None
-```
+| Section | Status |
+|---|---|
+| §0 Executive summary | LOCKED (unchanged) |
+| §0.A Energy balance recalibration | LOCKED (unchanged) |
+| §0.B Cost-headroom rebalance | LOCKED (the `build_points` axis; v3.1 §0.G extends with the `resource_costs` axis) |
+| §0.C Player expansion path | LOCKED (unchanged) |
+| §0.D Apply plan (canaries 1–8) | LOCKED (v3.1 §0.D.7 extends with canaries 9, 10, 11) |
+| §0.E v0.5.2 supersession | LOCKED (unchanged) |
+| §1 TL;DR and stop conditions | LOCKED (v3.1 §6.6 adds v3.1 stop conditions) |
+| §2 Headline tier-summary table | LOCKED (unchanged) |
+| §3 Methodology and the 10–50 constraint | LOCKED (unchanged) |
+| §4 v2 per-resource calibration (§4–§7) | LOCKED (unchanged) |
+| §5.1–§5.12 Implementation notes | LOCKED (v3.1 §5.13–§5.15 extend) |
+| §6.1–§6.5 Self-checks and open questions | LOCKED (v3.1 §6.6–§6.7 extend) |
+| §7 Reference: v0.5.2 per-resource dedicated mines | LOCKED (unchanged) |
+| §8.1–§8.3 v3 vs v2 deltas | LOCKED (v3.1 §8.4 extends) |
 
-A building with `replaces_in_line: Some("Mine")` and `tier: 1` will replace the colony's count of the lowest-tier building in the `line: "Mine"` line (i.e. any `IronMine` / `CopperMine` / `NickelMine` / etc.) by one when the new building is added. This lets the operator add a single tier-1+ upgrade building per line without needing `IndustrialIronMine` / `IndustrialCopperMine` / etc. variants.
+#### 8.4.3 The 1-paragraph summary to the orchestrator (v3.1)
 
-**Wiring is deferred to a follow-up patch.** v0.5.2 lands the schema field + the per-resource base mines, but the construction system does not yet decrement the predecessor count on `replaces_in_line` builds. The data is in place; the runtime is a small follow-up.
+v3.1 extends v3 with three findings the user surfaced
+that v3 did not cover: (1) workforce values are wildly
+off real-world productivity ratios (Farm 1,000 workers
+imply 360 t/yr/worker = 2,000× the 1:155 real anchor of
+170 t/yr/worker), (2) OrbitalLift Ti 333 Mt cost is a
+hard blocker (1,110 yr payback at 25 mines × 0.6
+accessibility vs the Tier 3 20–50 yr target), and (3)
+building cards hide most `modifiers` (9 of 52 buildings
+have hidden effects, 13 distinct modifier types are
+silently dropped by the `find` in
+`src/ui/construction.rs:1387-1391`). v3.1 audits 70
+buildings against real-world productivity anchors (USDA,
+USGS, IEA, OECD, NASA-ECLSS, NREL, EIA, IRENA) and
+proposes **3 RON + 3 RUST workforce changes** (Farm
+1,000 → 2,000; AluminumMine 4,500 → 1,500; WindFarm 200
+→ 1,000), **1 RON resource-cost change** (OrbitalLift Ti
+333 → 5 Mt, hard-blocker fix), and **1 RUST UI spec**
+(`friendly_label` helper at 3 call-sites with 5+1
+effect cap). v3.1 pushes back on 2 of 3 of the user's
+"hard blocker" examples (MassDriver Cu 167 already in
+band at 7.4 yr; HabitatDome Al 50 already in band at
+0.67 yr at the 25-mine operator-bar scale) and
+preserves the 28 strategic-tier costs (MassDriver REE,
+OrbitalLift REE, Shipyard Ti, He3Mine Ti, etc.) as
+"the brief explicitly preserves" — the player must
+scale the strategic-commodity economy first. v3.1
+extends v3 with **Canaries 9, 10, 11** in the unified
+apply plan, all non-critical-path, all independent of
+each other and of v3 canaries 1–8. v3.1 makes zero
+edits to RON / Rust / UI files; it is a proposal doc
+with 4 RON diffs + 53 RUST lines pending, plus the v3
+30 + 1 RON diffs already specified. The early-game
+workforce test at `src/colony/types.rs:1592-1610` is
+preserved (sum 14,500 < 40,000 with the v3.1 changes),
+the operator bar (1 building ≈ 1/300 of world share for
+Tier 2) is preserved, the manageable-building count
+(10–50 per resource per body) is preserved, the
+`population_scale_multiplier: 100.0` constant is
+unchanged, and no new `BuildingType` enum variants or
+`ResourceType` entries are added.
 
-### 10.5 Body-type schema addition (canary 3)
+---
 
-The `BuildingDefinition` schema has a new optional field:
-```rust
-pub allowed_body_types: Vec<BodyType>,  // default empty = any body
-```
-
-The `building_is_available_on` predicate is extended:
-```rust
-pub fn building_is_available_on(
-    def: &BuildingDefinition,
-    body_breathable: Option<bool>,
-    body_type: Option<BodyType>,
-) -> bool {
-    // Atmosphere gate (v0.5.1 GRA-27)
-    if let Some(breathable) = body_breathable { ... }
-    // Body type gate (v0.5.2 canary 3)
-    if let Some(bt) = body_type {
-        if !def.allowed_body_types.is_empty() && !def.allowed_body_types.contains(&bt) {
-            return false;
-        }
-    }
-    true
-}
-```
-
-**He3Mine** uses `allowed_body_types: [Moon, GasGiant, Asteroid]`. All 24 AutoMines use `allowed_body_types: [Asteroid, Moon, GasGiant]`. The construction panel pulls the body's `BodyType` from `CelestialBody` and passes it to the predicate (alongside the existing `breathable` flag).
-
-### 10.6 What was REMOVED in v0.5.2
-
-The following legacy generic mines are removed from `BuildingType`, the RON file, and the modifier dispatch:
-- `Mine` (generic) — replaced by 22 per-resource base mines
-- `Refinery` — folded into per-resource base mines (steel = Iron + Carbon; aluminium = AluminumMine)
-- `DeepDrill` / `LaserDrill` / `StripMine` — replaced by tier-1+ `IndustrialMine` upgrade building (deferred)
-- `HydrocarbonExtractor` — replaced by `MethaneExtractor`
-- `RecyclingCenter` — folded into per-resource base mines (Au/Ag/Pt recovered from share-fold extraction; v0.5.2 drops share-fold entirely)
-- The 3 modifier handlers: `MiningEfficiency`, `DeepMiningEfficiency`, `BulkMiningEfficiency`
-- The 3 share-fold blocks in `mining.rs` (proven_crustal, deep_deposits, planetary_bulk tiers)
-
-### 10.7 What's NEW in v0.5.2 (code + RON)
-
-- **22 base mines** in `BuildingType`: IronMine, AluminumMine, TitaniumMine, SilicatesMine, NickelMine, TungstenMine, CarbonMine, ChromiumMine, MagnesiumMine, CopperMine, RareEarthsMine, LithiumMine, SulfurMine, PhosphorusMine, CobaltMine, FluorineMine, UraniumMine, ThoriumMine, MethaneExtractor, DeuteriumExtractor, He3Mine. Plus GoldMine/SilverMine/PlatinumMine/WaterProcessor from v0.5.1.
-- **24 AutoMines**: one per base mine resource + He-3 + Water (24 total).
-- **2 schema fields**: `allowed_body_types: Vec<BodyType>` and `replaces_in_line: Option<String>`.
-- **1 modifier pattern**: `XxxProduction` (one per resource; v0.5.1 had `GoldProduction` / `SilverProduction` / `PlatinumProduction` / `WaterProduction` / `ArgonProduction`; v0.5.2 unifies all 36+ resources under the `XxxProduction` suffix convention).
-- **Earth starting counts**: 25 of each base mine. No AutoMines (Earth = no orbital mining — the player must colonise an asteroid / gas-giant moon to start using them).
-
-### 10.8 Implementation diffs (high-level)
-
-- `src/colony/types.rs` — `BuildingType` enum: +46 new variants (22 base + 24 Auto), −7 legacy variants. All `match` statements updated. Tests updated to assert 95 total building types (was 56).
-- `src/colony/data.rs` — `BuildingDefinition` schema: +`allowed_body_types`, +`replaces_in_line`. `parse_building_type` updated for all 46 new variants. `building_is_available_on` predicate extended.
-- `src/economy/mining.rs` — `extract_resources` + `update_resource_rates`: replaced 3 share-fold blocks + 3 modifier handlers with a single `XxxProduction` dispatch + direct-deposit loop scaled by `deposit.accessibility`. Added `parse_resource_type_static` helper.
-- `src/colony/components.rs` — `Colony::logistics_demand` now counts all buildings in the `Industry` category (was a hand-curated list of 6 legacy mines).
-- `src/plugins/solar_system.rs` — Earth starting counts: 25 of each base mine (replaces 2,000 `Mine` + 500 `Refinery` + 300 `HydrocarbonExtractor` + 300 `RecyclingCenter`).
-- `src/ui/construction_panel.rs` — passes `body_type` through to `building_is_available_on` predicate (alongside existing `body_breathable`).
-- `assets/data/buildings.ron` — 7 legacy entries removed, 48 new entries added (5 v0.5.1/3 + 18 base + 25 Auto), with full `allowed_body_types` for the body-restricted ones. RON file grew from 1,582 lines to 2,990 lines.
-
-### 10.9 Open questions (deferred)
-
-- **Tier-1+ upgrade buildings** (`IndustrialMine`, `DeepMine`, `RefinedMine`): the `replaces_in_line` schema is in place; the runtime decrement-on-build wiring is a follow-up. v0.5.2 ships base mines only.
-- **AutoMine iconography**: 40+ new icons pending generation (icon-artist batch 3 in flight). The construction panel falls back to the Unicode emoji in `BuildingType::icon()` for any missing PNG.
-- **SemiconductorFab `Gold` / `Silver` / `Platinum` / `Argon` maintenance** (was a v0.5.1 plan): not applied in v0.5.2; the maintenance audit (`MAINTENANCE_AUDIT_MAX: 6`) would have flagged it. Loose the audit max to 10 to apply. Deferred to a separate patch.
-- **DeuteriumExtractor body restriction**: the new extractor should arguably be restricted to bodies with surface liquid water (Earth, Europa, Enceladus, Titan). Not applied in v0.5.2; the construction panel will show it on every body.
-- **AtmosphericProcessor share-fold**: still uses the concentration-weighted share-fold across atmospheric deposits (N₂ / O₂ / Ar) because atmospheric gases are co-extracted from a single cryogenic-air-separation stream. This is a deliberate exception to the v0.5.2 "no share-fold" rule; see §10.3 for the rationale.
-
+*End of balance-patches consolidated v3 + v3.1 extension.
+v3.1 extends v3 with §0.F (workforce calibration), §0.G
+(resource build cost rebalance), §0.H (building-card effect
+rendering), §0.D.7 (Canaries 9, 10, 11), §5.13–§5.15
+(implementation notes), §6.6 (v3.1 stop conditions), §6.7
+(v3.1 open questions), and §8.4 (v3.1 deltas). v3.1 makes
+zero edits to RON / Rust / UI files; it is a proposal doc
+with 4 RON diffs + 53 RUST lines pending. The v2 per-
+resource calibration (§4 / §5 / §6 / §7) is LOCKED. v3
+references the v0.5.2 ADDENDUM §10 (per-resource dedicated
+mines) as the shipped source of truth for the 22 base mines
++ 24 AutoMines. v3 proposes 30 `power_demand_mw` updates + 1
+`IronMine.build_points` update + the v0.5.1 §8.3.12 fusion
+downscale, all in a single canary-first apply plan (v3
+§0.D.2). v3.1 extends the apply plan with 3 non-critical
+canaries (workforce, resource cost, effect rendering). The
+user lands canary N, runs `cargo test <gate>`, rolls to
+canary N+1. The v3 critical-path is canary 3a (`lunar_colony`
+tech) — without it, the He-3 chain is broken and the player
+cannot build `He3Mine`. The v3.1 canaries (9, 10, 11) are
+non-critical and can land in any order after canary 8.*

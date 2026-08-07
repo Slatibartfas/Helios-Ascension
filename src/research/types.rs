@@ -134,6 +134,13 @@ pub enum ModifierType {
     EngineeringSpeed,
     /// Reduce construction cost (%)
     ConstructionCost,
+    /// Increase build-point generation (BP/yr per Factory unit, in
+    /// `BuildingDefinition` modifiers; mirrors the hard-coded
+    /// `+10 BP/yr per Factory` in `src/colony/systems.rs::advance_construction`).
+    /// The RON modifier is documentation + the UI card display — the
+    /// construction system reads the colony's `Factory` count directly
+    /// (see v3.1 §0.H.6 + §0.D.7 canary 11).
+    BuildPointsProduction,
     /// Reduce research cost for specific category (%)
     CategoryResearchBonus(TechCategory),
     /// Increase mining output (%)
@@ -155,6 +162,7 @@ impl ModifierType {
             ModifierType::ResearchSpeed => "Research Speed".to_string(),
             ModifierType::EngineeringSpeed => "Engineering Speed".to_string(),
             ModifierType::ConstructionCost => "Construction Cost".to_string(),
+            ModifierType::BuildPointsProduction => "Build Points Production".to_string(),
             ModifierType::CategoryResearchBonus(cat) => {
                 format!("{} Research Bonus", cat.display_name())
             }
@@ -173,6 +181,7 @@ impl ModifierType {
             ModifierType::ResearchSpeed,
             ModifierType::EngineeringSpeed,
             ModifierType::ConstructionCost,
+            ModifierType::BuildPointsProduction,
             ModifierType::MiningEfficiency,
             ModifierType::PowerGeneration,
             ModifierType::ShipMaintenance,

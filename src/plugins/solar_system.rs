@@ -1152,16 +1152,30 @@ pub fn setup_solar_system(
             // hard-coded values in `Colony::food_production_per_year`, the
             // simulation does NOT read the RON `FoodProduction` modifier)
             // and per-capita demand corrected (0.0001 → 0.0000011, the
+            // 1,000× off — Mt-vs-kg unit confusion). v0.5.1 hit 9,000 Mt/yr
+            // supply ≈ 9,020 Mt/yr demand.
+            //
+            // v3.5: this calibration now reads the RON `FoodProduction`
+            // modifier (see `Colony::food_production_per_year`).
+            //
+            // v3.7: dropped supplemental Greenhouses (10→1) and
+            // Aquaculture (10→1). Earth now starts at 25×360 + 1×200
+            // + 1×200 = 9,400 Mt/yr = 1.042× world demand (vs v3.5's
+            // 1.44× surplus). 1.042× gives ~5 years of headroom at the
+            // v3.7 base growth rate (0.9%/yr, FAO 2024), so the
+            // player feels food pressure mid-game rather than in 50
+            // years. Player must build more food infrastructure as
+            // population grows.
             // 1,100 kg/p/yr = 1.1 × 10⁻⁶ Mt/p/yr unit conversion that v0.5
             // canary-1 had wrong by 1,000×).
             //
-            // v0.5 canary-1: starting counts calibrated for the new
-            // per-build values. 25 Farms × 360 = 9,000 Mt/yr ≈ 8.2B ×
-            // 0.0000011 = 9,020 Mt/yr (FAO 2024 SOFA). 25 lands in the
-            // middle of the 10–50 manageable-count band. Greenhouses and
-            // Aquaculture are supplemental buffers (10 each — bumped from
-            // 3 in v0.5.1 because 3 was below the 10–50 band and looked
-            // too coarse at the per-colony level).
+            // v3.7: starting counts calibrated for 1.042× world food demand.
+            // 25 Farms × 360 = 9,000 Mt/yr (parity). 1 Greenhouse +
+            // 1 Aquaculture = 400 Mt/yr (4.2% surplus). Total 9,400 Mt/yr.
+            // 25 lands in the middle of the 10–50 manageable-count band.
+            // (v3.5 had 10 Greenhouses + 10 Aquaculture = 4,000 Mt/yr
+            //  supplemental buffer = 1.44× surplus; dropped to 1.042× in
+            // v3.7 so food pressure arrives mid-game, not after 50 years.)
             //
             // Other building counts (Mine, Refinery, etc.) are unchanged
             // in canary 1; they will be revised in canary 2 / roll-forward
@@ -1171,15 +1185,15 @@ pub fn setup_solar_system(
             let base_buildings = [
                 // Housing: scaled for population capacity
                 (BuildingType::Housing, 400),
-                // Food (v0.5.1 canary-1 calibrated): 25 Farms × 360 Mt/yr
-                // = 9,000 Mt/yr ≈ 8.2B × 1,100 kg/p/yr = 9,020 Mt/yr.
+                // Food (v3.7 calibrated for 1.042× world demand):
+                // 25 Farms × 360 Mt/yr = 9,000 Mt/yr ≈ 8.2B × 1,100 kg/p/yr.
                 (BuildingType::Farm, 25),
-                // Greenhouses: supplemental buffer (10 × 200 = 2,000 Mt/yr
-                // = 22% of demand — modest surplus on top of Farms).
-                (BuildingType::Greenhouse, 10),
-                // Aquaculture: supplemental buffer (10 × 200 = 2,000 Mt/yr
-                // = 22% of demand — seafood specialty).
-                (BuildingType::AquacultureFacility, 10),
+                // Greenhouses: 1 of 10 (v3.7 trimmed from 10 to 1) — small
+                // specialty-crop buffer (200 Mt/yr = 2.2% of demand).
+                (BuildingType::Greenhouse, 1),
+                // Aquaculture: 1 of 10 (v3.7 trimmed from 10 to 1) — seafood
+                // specialty (200 Mt/yr = 2.2% of demand).
+                (BuildingType::AquacultureFacility, 1),
                 // v0.5.2: per-resource dedicated mines — 25 of each
                 // (manageable-count band, calibrated so 25 × base_yield ×
                 // 0.6 Earth accessibility ≈ world demand). See
@@ -1218,18 +1232,18 @@ pub fn setup_solar_system(
                 // Generic industry
                 (BuildingType::ChemicalPlant, 700),
                 (BuildingType::AtmosphericProcessor, 300),
-                // Power: effective-output 2026 baseline tuned for the coal/renewables flip
-                // visible in 2025-2026 generation data.
-                // Effective mix: Coal ~32.0%, Gas ~22.2%, Hydro ~15.2%, Nuclear ~9.9%,
-                // Wind ~9.9%, Solar ~11.0%.
-                // Wind + Solar combined ≈ 20.8% of delivered output, with total effective
-                // generation ≈ 3.65 TW and ~14.5% reserve over the 3.19 TW starting load.
-                (BuildingType::SolarPower, 320), // 320 × 1.25 = 400 GW
-                (BuildingType::CoalPowerPlant, 195), // 195 × 6.0 = 1,170 GW
-                (BuildingType::NaturalGasPlant, 135), // 135 × 6.0 = 810 GW
-                (BuildingType::HydroelectricDam, 82), // 82 × 6.75 = 553.5 GW
-                (BuildingType::WindFarm, 400),   // 400 × 0.9 = 360 GW
-                (BuildingType::FissionReactor, 20), // 20 × 18 = 360 GW
+                // Power: v3.4 IEA 2026 calibration. Total 3.40 TW supply, 3.31 TW demand,
+                // ratio 0.974 (97.4% utilization, 2.7% reserve). Per-build values
+                // (buildings.ron) sized so 320 solar / 195 coal / 135 gas / 82 hydro /
+                // 400 wind / 20 fission reproduce IEA 2026 generation mix within 1-2pp.
+                // Effective mix: Coal 31.9%, Gas 23.4%, Hydro 14.9%, Nuclear 9.6%,
+                // Wind 10.6%, Solar 9.6% (IEA 2026 targets: 30/22/14/9/10/9).
+                (BuildingType::SolarPower, 320), // 320 × 1.02 = 326 GW
+                (BuildingType::CoalPowerPlant, 195), // 195 × 5.56 = 1,084 GW
+                (BuildingType::NaturalGasPlant, 135), // 135 × 5.89 = 795 GW
+                (BuildingType::HydroelectricDam, 82), // 82 × 6.18 = 507 GW
+                (BuildingType::WindFarm, 400),   // 400 × 0.90 = 360 GW
+                (BuildingType::FissionReactor, 20), // 20 × 16.28 = 326 GW
                 // Water
                 (BuildingType::WaterTreatmentPlant, 500),
                 // Research & Tech (high power consumers)
@@ -2932,17 +2946,31 @@ pub fn initialize_colony_stockpiles(
             // Earth starts with the full realistic 2026 stockpile
             LocalStockpile::with_stockpiles(defaults.stockpiles.iter().map(|(k, v)| (*k, *v)))
         } else {
-            // Other colonies start with a small bootstrap supply to allow
-            // initial construction without requiring freighter transport.
-            // (All values in Mt — enough for a few basic buildings.)
+            // Other colonies start with a bootstrap supply sized for
+            // the v3.2 starter-tier buildings (HabitatTent 3 Fe + 5
+            // Si, HabitatModule 10 Fe + 15 Si + 1 Cu + 3 Al) plus a
+            // handful of metropolitan buildings (LifeSupport, Farm,
+            // WaterProcessor). 50 Mt Fe lets the player build ~5
+            // HabitatTents + 2 HabitatModules + 1 IronMine; 100 Mt
+            // Si covers the HabitatModule cost + a WaterProcessor.
+            //
+            // v3.2 (2026-08-07): bumped from the v0.5.0
+            // 10 Fe / 50 Si / 2 Al / 0.5 Cu / 1 Poly / 0 P / 5 Water
+            // (couldn't even afford a single Farm — needed P 3 and
+            // bootstrap had 0). New values cover the starter-tier
+            // building set so the player can found a working outpost
+            // before the first freighter arrives.
+            //
+            // (All values in Mt.)
             LocalStockpile::with_stockpiles([
-                (ResourceType::Iron, 10.0),
-                (ResourceType::Silicates, 50.0),
-                (ResourceType::Aluminum, 2.0),
-                (ResourceType::Copper, 0.5),
-                (ResourceType::Polymers, 1.0),
+                (ResourceType::Iron, 50.0),
+                (ResourceType::Silicates, 100.0),
+                (ResourceType::Aluminum, 10.0),
+                (ResourceType::Copper, 5.0),
+                (ResourceType::Polymers, 5.0),
+                (ResourceType::Phosphorus, 5.0),
                 (ResourceType::Food, 10_000.0),
-                (ResourceType::Water, 5.0),
+                (ResourceType::Water, 20.0),
             ])
         };
 

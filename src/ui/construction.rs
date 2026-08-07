@@ -32,7 +32,7 @@ use bevy::window::PrimaryWindow;
 
 use super::bevy_theme::*;
 use crate::colony::components::PendingConstructionActions;
-use crate::colony::data::{parse_resource_type, BuildingDefinition, BuildingsData};
+use crate::colony::data::{parse_resource_type, BuildingDefinition, BuildingModifierDef, BuildingsData};
 use crate::colony::types::{BuildingCategory, BuildingType};
 use crate::economy::budget::calculate_colony_power_totals;
 use crate::economy::ResourceType;
@@ -1384,33 +1384,40 @@ pub fn card_data_with_multiplier(
     // caused a `Vec::insert(1)` panic on an empty vec at startup
     // for any building that has both a non-zero `power_demand_mw`
     // and a `*Production` modifier.
-    if let Some(prod) = def
-        .modifiers
-        .iter()
-        .find(|m| m.modifier_type.ends_with("Production"))
-    {
-        if prod.value > 0.0 {
-            if let Some(res_name) = prod.modifier_type.strip_suffix("Production") {
-                // v0.5.2 fix (2026-08-02): per user feedback, the
-                // "Produces" line did not scale with the build
-                // multiplier — every other value on the card (BP,
-                // workforce, resource costs, Power demand ×N) folds
-                // the batch size into the displayed number, but
-                // Produces showed the raw per-unit RON value, so a
-                // ×6 build read as 1× (e.g. "9.00 Gt/yr Food/yr"
-                // instead of "54.00 Gt/yr Food/yr"). Mirror the
-                // Power-generation pattern immediately above:
-                // show the per-unit rate, the multiplier, and the
-                // batch total so the player sees the full impact of
-                // the batch on the colony's food/feedstock output.
-                let per_unit = prod.value;
+    //
+    // v3.1 canary 11 (BALANCE_PATCHES_v0.5.md §0.H): replaced the
+    // single-modifier `find` with an iterate-all loop. The 13 hidden
+    // modifier types (HousingCapacity, NitrogenHarvesting,
+    // PlutoniumBreeding, BuildPointsProduction, ConstructionCost,
+    // ...) are now surfaced via `friendly_label()`. The
+    // `*Production` line still scales with `mult` (per the
+    // 2026-08-02 fix); other effects show per-unit values. The
+    // 5+1 effect-line cap (per the v0.5.2 PR-A.4 comment at line
+    // 1300) is enforced by `apply_effect_cap` after the loop.
+    //
+    // `BuildPointsProduction` is checked BEFORE the generic
+    // `*Production` strip_suffix because it also ends in
+    // "Production" — without the special case it would render as
+    // "Produces 10 Mt/yr BuildPoints" (wrong). The friendly_label
+    // helper knows about it and returns "Builds +10 BP/yr"
+    // (per-unit, no batch scaling — the +10 BP/yr is already the
+    // single-build rate, and ×N scaling would double-count since
+    // the construction system sums across Factories independently;
+    // see `src/colony/systems.rs:96`).
+    for m in def.modifiers.iter() {
+        if m.modifier_type == "BuildPointsProduction" {
+            if let Some((tone, label)) = friendly_label(m) {
+                effects.push((tone, label));
+            }
+            continue;
+        }
+        if let Some(res_name) = m.modifier_type.strip_suffix("Production") {
+            if m.value > 0.0 {
+                // Production line scales with `mult` (preserves the
+                // 2026-08-02 fix: a ×6 build reads as per-unit × N =
+                // total, not just per-unit).
+                let per_unit = m.value;
                 let total = per_unit * mult;
-                // v0.5.2 (2026-08-03): `format_mining_rate` already
-                // trails its band in `/yr` (e.g. `120 kt/yr`), so we
-                // do NOT append another `/yr` after the resource
-                // name — that would produce `120 kt/yr Iron/yr`. The
-                // formatter owns the suffix; the resource name is
-                // the bare noun (`Iron`).
                 let line = if mult > 1.0 {
                     format!(
                         "Produces {} \u{00d7} {} = {} {}",
@@ -1422,13 +1429,13 @@ pub fn card_data_with_multiplier(
                 } else {
                     format!("Produces {} {}", format_mining_rate(per_unit), res_name)
                 };
-                // PR-A.7 fix: insert at the head of the effects
-                // vec. Power is now a separate chip, so there is
-                // no "after Power" slot to target.
-                effects.insert(0, (EffectTone::Positive, line));
+                effects.push((EffectTone::Positive, line));
             }
+        } else if let Some((tone, label)) = friendly_label(m) {
+            effects.push((tone, label));
         }
     }
+    apply_effect_cap(&mut effects);
 
     BuildCardData {
         name: def.display_name.clone(),
@@ -1553,6 +1560,149 @@ fn format_mining_rate(mt_per_year: f64) -> String {
     } else {
         // yottatonnes — stellar-mass scale, theoretical
         format!("{:.2} Yt/yr", mt_per_year / 1e18)
+    }
+}
+
+// v3.1 canary 11 (BALANCE_PATCHES_v0.5.md §0.H.3): convert a
+// building modifier to a (tone, display) pair for the build card.
+// Replaces the v0.5.2 single-modifier filter that surfaced only
+// the first `*Production` modifier. Now every recognized
+// modifier type produces a friendly effect line, and the 5+1
+// effect-line cap (per the v0.5.2 PR-A.4 comment at line 1300)
+// limits how many appear on the card.
+//
+// Returns None for unrecognized modifier types — those are
+// silently hidden (they exist in the RON but are not surfaced
+// on the card; add a case here to surface a new type).
+//
+// Inventory of 13 modifier types covered (v3.1 §0.H.2):
+//   * IronProduction, AluminumProduction, CopperMine, ..., WaterProduction, FoodProduction
+//   * HousingCapacity
+//   * NitrogenHarvesting
+//   * PlutoniumBreeding, TritiumBreeding
+//   * ConstructionCost (negative = "builds faster", positive = "more expensive")
+//   * BuildPointsProduction (the Factory's actual effect: +10 BP/yr per build)
+//
+// See `friendly_label_tests` in the test module below for one
+// test per recognized type plus the "+N more" cap test.
+fn friendly_label(m: &BuildingModifierDef) -> Option<(EffectTone, String)> {
+    let ty = m.modifier_type.as_str();
+    let v = m.value;
+
+    // Build points. The Factory's actual primary effect: +10 BP/yr per
+    // build (the v0.5.0 RON had `ConstructionCost: -200.0` as a legacy
+    // fallback from the GRA-22b transition; the Rust at
+    // `src/colony/systems.rs:96` reads `factories * 10.0` directly. The
+    // RON was renamed to `BuildPointsProduction: 10.0` in canary 11 so
+    // the card matches what the code actually does). Checked BEFORE the
+    // generic `*Production` strip_suffix because BuildPointsProduction
+    // also ends in "Production".
+    if ty == "BuildPointsProduction" && v > 0.0 {
+        return Some((
+            EffectTone::Positive,
+            format!("Builds +{} BP/yr", v as i64),
+        ));
+    }
+
+    // Production modifiers: "IronProduction" → "Iron" + the value as a rate.
+    // Multi-output buildings (e.g. ChemicalPlant with H₂ + NH₃ + Polymers
+    // + Tritium) produce one line per modifier.
+    if let Some(res_name) = ty.strip_suffix("Production") {
+        if v > 0.0 {
+            return Some((
+                EffectTone::Positive,
+                format!("Produces {} {}", format_mining_rate(v), res_name),
+            ));
+        }
+        return None;
+    }
+
+    // Breeding: "PlutoniumBreeding" → "Plutonium" + the value as a rate.
+    if let Some(elem) = ty.strip_suffix("Breeding") {
+        if v > 0.0 {
+            return Some((
+                EffectTone::Positive,
+                format!("Breeds {} Mt/yr {}", format_mining_rate(v), elem),
+            ));
+        }
+        return None;
+    }
+
+    // Atmospheric / harvest modifiers. "NitrogenHarvesting" doesn't end in
+    // "Production" so it was hidden by the v0.5.2 filter.
+    if ty == "NitrogenHarvesting" && v > 0.0 {
+        return Some((
+            EffectTone::Positive,
+            format!("Harvests {} Mt/yr N\u{2082}", format_mining_rate(v)),
+        ));
+    }
+
+    // Capacity modifiers.
+    if ty == "HousingCapacity" && v > 0.0 {
+        return Some((
+            EffectTone::Positive,
+            format!("Houses {} residents", format_residents(v)),
+        ));
+    }
+
+    // Legacy ConstructionCost (research-panel modifier, also used as a
+    // building modifier pre-v3.1). Negative value = builds faster
+    // (positive effect); positive value = more expensive (neutral).
+    if ty == "ConstructionCost" {
+        if v < 0.0 {
+            return Some((
+                EffectTone::Positive,
+                format!("Builds {} BP/yr faster", (-v) as i64),
+            ));
+        } else if v > 0.0 {
+            return Some((
+                EffectTone::Neutral,
+                format!("Construction cost +{} BP/build", v as i64),
+            ));
+        }
+    }
+
+    None
+}
+
+// v3.1 canary 11 helper: human-readable headcount formatting for
+// `HousingCapacity` (e.g. 4,000,000,000 → "4.00B"). Mirrors the
+// SI ladder of `format_mining_rate` but for people.
+fn format_residents(people: f64) -> String {
+    let v = people.abs();
+    if v < 1.0 {
+        return format!("{:.0}", people);
+    }
+    if v < 1e3 {
+        return format!("{:.0}", people);
+    }
+    if v < 1e6 {
+        return format!("{:.1}k", people / 1e3);
+    }
+    if v < 1e9 {
+        return format!("{:.2}M", people / 1e6);
+    }
+    if v < 1e12 {
+        return format!("{:.2}B", people / 1e9);
+    }
+    format!("{:.2}T", people / 1e12)
+}
+
+// v3.1 canary 11 helper: apply the 5+1 effect-line cap. If the
+// modifier list produces more than 5 effects, truncate to 5 and
+// append a "+N more" indicator. The cap is per the v0.5.2 PR-A.4
+// comment at the top of `build_build_card_data` (line 1300-1309).
+fn apply_effect_cap(
+    effects: &mut Vec<(EffectTone, String)>,
+) {
+    const EFFECT_CAP: usize = 5;
+    if effects.len() > EFFECT_CAP {
+        let hidden = effects.len() - EFFECT_CAP;
+        effects.truncate(EFFECT_CAP);
+        effects.push((
+            EffectTone::Neutral,
+            format!("+{} more", hidden),
+        ));
     }
 }
 
@@ -2842,17 +2992,29 @@ pub fn build_constructed_card_data(
     // Effects: production (if any), summed across the built count.
     // v0.5.2 (2026-08-06): the Power line is NOT pushed to effects —
     // the power chip below carries the aggregated demand/production.
+    //
+    // v3.1 canary 11 (BALANCE_PATCHES_v0.5.md §0.H): same
+    // iterate-all approach as `build_build_card_data` (the other
+    // call site). The 13 hidden modifier types are now surfaced
+    // via `friendly_label()`. The `*Production` line scales with
+    // `count` (the actual built inventory, not the build
+    // multiplier — see comment in the build tab path). The 5+1
+    // effect-line cap is enforced by `apply_effect_cap`.
+    //
+    // `BuildPointsProduction` is checked BEFORE the generic
+    // `*Production` strip_suffix (same reason as the Build tab
+    // path — see comment there).
     let mut effects: Vec<(EffectTone, String)> = Vec::new();
-    // Production: "X Mt/yr Iron" — total = per-unit × count (the
-    // actual built inventory, NOT the build-multiplier).
-    if let Some(prod) = def
-        .modifiers
-        .iter()
-        .find(|m| m.modifier_type.ends_with("Production"))
-    {
-        if prod.value > 0.0 {
-            if let Some(res_name) = prod.modifier_type.strip_suffix("Production") {
-                let per_unit = prod.value;
+    for m in def.modifiers.iter() {
+        if m.modifier_type == "BuildPointsProduction" {
+            if let Some((tone, label)) = friendly_label(m) {
+                effects.push((tone, label));
+            }
+            continue;
+        }
+        if let Some(res_name) = m.modifier_type.strip_suffix("Production") {
+            if m.value > 0.0 {
+                let per_unit = m.value;
                 let total = per_unit * count as f64;
                 let line = if count > 1 {
                     format!(
@@ -2867,8 +3029,11 @@ pub fn build_constructed_card_data(
                 };
                 effects.push((EffectTone::Positive, line));
             }
+        } else if let Some((tone, label)) = friendly_label(m) {
+            effects.push((tone, label));
         }
     }
+    apply_effect_cap(&mut effects);
 
     // Power chip: the AGGREGATED power across the built count.
     //
@@ -10043,6 +10208,40 @@ pub fn build_mine_card_data(
         "no deposit".to_string()
     };
     effects.push((EffectTone::Neutral, reserve_label));
+    // v3.1 canary 11 (BALANCE_PATCHES_v0.5.md §0.H): surface the
+    // 13 hidden modifier types (HousingCapacity, ConstructionCost,
+    // BuildPointsProduction, …) on the mining card too. Mines
+    // typically only carry a single `*Production` modifier (which
+    // is already shown in the stat row above), so the friendly
+    // loop is mostly a no-op for the current RON data — but
+    // future mines (e.g. a mine-with-on-site-powerplant that has
+    // both `IronProduction` and `PowerGeneration`) will be
+    // surfaced without further UI work. The 5+1 effect-line cap
+    // (per the v0.5.2 PR-A.4 comment at line 1300) is enforced
+    // after this loop. Note: `BuildPointsProduction` is checked
+    // BEFORE the generic `*Production` strip_suffix for the same
+    // reason as the Build / Constructed card paths — see those
+    // comments.
+    for m in def.modifiers.iter() {
+        if m.modifier_type == "BuildPointsProduction" {
+            if let Some((tone, label)) = friendly_label(m) {
+                effects.push((tone, label));
+            }
+            continue;
+        }
+        // Mining cards already show the *Production yield in the
+        // stat_a row (`×N │ 2700 kt/yr`); pushing a duplicate
+        // "Produces X × N = Y Mt/yr" line on top would re-create
+        // the v0.5.2 "duplicate green production line" bug. Skip
+        // *Production modifiers here; they live in the stat row.
+        if m.modifier_type.ends_with("Production") {
+            continue;
+        }
+        if let Some((tone, label)) = friendly_label(m) {
+            effects.push((tone, label));
+        }
+    }
+    apply_effect_cap(&mut effects);
     // Cost lines (top 6). v0.5.2 PR-A.4 follow-up: typed
     // `resource_costs` rows rendered with PNG icon + category
     // tint by the canary, not emoji text in `effects`. The
@@ -11133,5 +11332,268 @@ mod body_blocked_tests {
         );
         // 4 × 2 GW = 8 GW.
         assert_eq!(gen.power_chip.amount, "8 GW");
+    }
+}
+
+// v3.1 canary 11 tests (BALANCE_PATCHES_v0.5.md §0.H.4): one
+// test per recognized modifier type, plus the 5+1 effect-line
+// cap test. Each test feeds a `BuildingModifierDef` to
+// `friendly_label` and asserts the returned (tone, label) pair.
+#[cfg(test)]
+mod friendly_label_tests {
+    use super::*;
+
+    fn modf(ty: &str, v: f64) -> BuildingModifierDef {
+        BuildingModifierDef {
+            modifier_type: ty.to_string(),
+            value: v,
+        }
+    }
+
+    // Production modifiers (Iron, Water, Gold) — Positive tone,
+    // "Produces X Mt/yr [Resource]" label.
+    #[test]
+    fn friendly_label_iron_production() {
+        let m = modf("IronProduction", 120.0);
+        let (tone, label) = friendly_label(&m).expect("IronProduction should produce a label");
+        assert_eq!(tone, EffectTone::Positive);
+        assert!(label.contains("Iron"), "label should contain resource name: {label}");
+        assert!(label.contains("120"), "label should contain value: {label}");
+    }
+
+    #[test]
+    fn friendly_label_water_production() {
+        let m = modf("WaterProduction", 16.0);
+        let (tone, label) = friendly_label(&m).expect("WaterProduction should produce a label");
+        assert_eq!(tone, EffectTone::Positive);
+        assert!(label.contains("Water"), "{label}");
+    }
+
+    #[test]
+    fn friendly_label_gold_production() {
+        // Gold per-build is small (0.0001 Mt/yr); the format_mining_rate
+        // ladder should land it in g/yr or kg/yr.
+        let m = modf("GoldProduction", 0.0001);
+        let (tone, label) = friendly_label(&m).expect("GoldProduction should produce a label");
+        assert_eq!(tone, EffectTone::Positive);
+        assert!(label.contains("Gold"), "{label}");
+    }
+
+    // Housing capacity (HabitatDome, Housing, UndergroundHabitat, plus
+    // v3.2 starter-tier HabitatTent/Module). The friendly_label reads
+    // the RON `HousingCapacity` value, so these tests cover the full
+    // range: 1k (starter) → 10k (starter) → 25M (metropolitan) → 30M
+    // (metropolitan) → 50M (metropolitan) → 4B (arcology reference).
+    #[test]
+    fn friendly_label_housing_capacity_arcology_4b() {
+        let m = modf("HousingCapacity", 4_000_000_000.0);
+        let (tone, label) = friendly_label(&m).expect("HousingCapacity should produce a label");
+        assert_eq!(tone, EffectTone::Positive);
+        assert!(label.contains("residents"), "{label}");
+        // 4B residents → "4.00B"
+        assert!(label.contains("4.00B"), "expected 4B formatting, got: {label}");
+    }
+
+    #[test]
+    fn friendly_label_housing_capacity_metropolitan_50m() {
+        // HabitatDome — actual RON value post-v3.2 sync.
+        let m = modf("HousingCapacity", 50_000_000.0);
+        let (tone, label) = friendly_label(&m).expect("HousingCapacity should produce a label");
+        assert_eq!(tone, EffectTone::Positive);
+        assert!(label.contains("residents"), "{label}");
+        assert!(label.contains("50.00M"), "expected 50M formatting, got: {label}");
+    }
+
+    #[test]
+    fn friendly_label_housing_capacity_metropolitan_25m() {
+        // Housing Complex — actual RON value post-v3.2 sync.
+        let m = modf("HousingCapacity", 25_000_000.0);
+        let (tone, label) = friendly_label(&m).expect("HousingCapacity should produce a label");
+        assert_eq!(tone, EffectTone::Positive);
+        assert!(label.contains("25.00M"), "expected 25M formatting, got: {label}");
+    }
+
+    #[test]
+    fn friendly_label_housing_capacity_metropolitan_30m() {
+        // Underground Habitat — actual RON value post-v3.2 sync.
+        let m = modf("HousingCapacity", 30_000_000.0);
+        let (tone, label) = friendly_label(&m).expect("HousingCapacity should produce a label");
+        assert_eq!(tone, EffectTone::Positive);
+        assert!(label.contains("30.00M"), "expected 30M formatting, got: {label}");
+    }
+
+    #[test]
+    fn friendly_label_housing_capacity_starter_10k() {
+        // v3.2 starter-tier HabitatModule.
+        let m = modf("HousingCapacity", 10_000.0);
+        let (tone, label) = friendly_label(&m).expect("HousingCapacity should produce a label");
+        assert_eq!(tone, EffectTone::Positive);
+        assert!(label.contains("10.0k"), "expected 10k formatting, got: {label}");
+    }
+
+    #[test]
+    fn friendly_label_housing_capacity_starter_1k() {
+        // v3.2 starter-tier HabitatTent.
+        let m = modf("HousingCapacity", 1_000.0);
+        let (tone, label) = friendly_label(&m).expect("HousingCapacity should produce a label");
+        assert_eq!(tone, EffectTone::Positive);
+        // 1,000 → 1.0k (format_residents uses 1 decimal for k)
+        assert!(label.contains("1.0k"), "expected 1k formatting, got: {label}");
+    }
+
+    // Atmospheric harvesting (AtmosphericProcessor.NitrogenHarvesting).
+    #[test]
+    fn friendly_label_nitrogen_harvesting() {
+        let m = modf("NitrogenHarvesting", 7.0);
+        let (tone, label) = friendly_label(&m).expect("NitrogenHarvesting should produce a label");
+        assert_eq!(tone, EffectTone::Positive);
+        assert!(label.contains("N\u{2082}"), "label should contain N\u{2082}: {label}");
+    }
+
+    // Breeding (BreederReactor.PlutoniumBreeding, DTFusionReactor.TritiumBreeding).
+    #[test]
+    fn friendly_label_plutonium_breeding() {
+        let m = modf("PlutoniumBreeding", 0.23);
+        let (tone, label) = friendly_label(&m).expect("PlutoniumBreeding should produce a label");
+        assert_eq!(tone, EffectTone::Positive);
+        assert!(label.contains("Plutonium"), "{label}");
+    }
+
+    // Build points (Factory's actual effect, post-canary-11).
+    #[test]
+    fn friendly_label_build_points_production() {
+        let m = modf("BuildPointsProduction", 10.0);
+        let (tone, label) = friendly_label(&m).expect("BuildPointsProduction should produce a label");
+        assert_eq!(tone, EffectTone::Positive);
+        assert_eq!(label, "Builds +10 BP/yr");
+    }
+
+    // Legacy ConstructionCost — negative = "builds faster" (Positive),
+    // positive = "more expensive" (Neutral).
+    #[test]
+    fn friendly_label_construction_cost_negative() {
+        let m = modf("ConstructionCost", -200.0);
+        let (tone, label) = friendly_label(&m).expect("ConstructionCost<0 should produce a label");
+        assert_eq!(tone, EffectTone::Positive);
+        assert_eq!(label, "Builds 200 BP/yr faster");
+    }
+
+    #[test]
+    fn friendly_label_construction_cost_positive() {
+        let m = modf("ConstructionCost", 300.0);
+        let (tone, label) = friendly_label(&m).expect("ConstructionCost>0 should produce a label");
+        assert_eq!(tone, EffectTone::Neutral);
+        assert_eq!(label, "Construction cost +300 BP/build");
+    }
+
+    // Unknown / unrecognized modifier — None (silently hidden).
+    #[test]
+    fn friendly_label_unknown_returns_none() {
+        let m = modf("QuantumFlux", 42.0);
+        assert!(friendly_label(&m).is_none());
+    }
+
+    // Zero-value production — None (suppressed, matches v0.5.2 behavior).
+    #[test]
+    fn friendly_label_zero_production_returns_none() {
+        let m = modf("IronProduction", 0.0);
+        assert!(friendly_label(&m).is_none());
+    }
+
+    // 5+1 cap: a vec of 7 effects is truncated to 5 + a "+2 more"
+    // indicator. The cap is per the v0.5.2 PR-A.4 comment at line
+    // 1300-1309.
+    #[test]
+    fn apply_effect_cap_truncates_to_5_plus_more() {
+        let mut effects: Vec<(EffectTone, String)> = (0..7)
+            .map(|i| (EffectTone::Positive, format!("e{}", i)))
+            .collect();
+        apply_effect_cap(&mut effects);
+        assert_eq!(effects.len(), 6, "expected 5 effects + 1 indicator");
+        assert_eq!(effects[5].1, "+2 more");
+    }
+
+    // 5+1 cap: a vec of 5 effects is left alone (no indicator).
+    #[test]
+    fn apply_effect_cap_at_5_no_indicator() {
+        let mut effects: Vec<(EffectTone, String)> = (0..5)
+            .map(|i| (EffectTone::Positive, format!("e{}", i)))
+            .collect();
+        apply_effect_cap(&mut effects);
+        assert_eq!(effects.len(), 5);
+        assert!(!effects.iter().any(|(_, l)| l.starts_with('+')));
+    }
+
+    // DeuteriumProduction (DTFusionReactor — 0.05 Mt/yr, then ×10 at higher tier).
+    // Falls through the generic *Production branch.
+    #[test]
+    fn friendly_label_deuterium_production() {
+        let m = modf("DeuteriumProduction", 0.5);
+        let (tone, label) = friendly_label(&m).expect("DeuteriumProduction should produce a label");
+        assert_eq!(tone, EffectTone::Positive);
+        assert!(label.contains("Deuterium"), "label should contain resource name: {label}");
+        assert!(label.contains("Produces"), "label should be a Produces line: {label}");
+    }
+
+    // TritiumBreeding (ChemicalPlant — 0.05 Mt/yr). Falls through the
+    // *Breeding branch.
+    #[test]
+    fn friendly_label_tritium_breeding() {
+        let m = modf("TritiumBreeding", 0.05);
+        let (tone, label) = friendly_label(&m).expect("TritiumBreeding should produce a label");
+        assert_eq!(tone, EffectTone::Positive);
+        assert!(label.contains("Tritium"), "{label}");
+        assert!(label.contains("Breeds"), "{label}");
+    }
+
+    // Helium3Production (He3Mine on Moon, etc. — 0.5 Mt/yr at tier 2).
+    // Falls through the generic *Production branch.
+    #[test]
+    fn friendly_label_helium3_production() {
+        let m = modf("Helium3Production", 0.5);
+        let (tone, label) = friendly_label(&m).expect("Helium3Production should produce a label");
+        assert_eq!(tone, EffectTone::Positive);
+        assert!(label.contains("Helium3"), "{label}");
+    }
+
+    // ArgonProduction (rare — fallback path is exercised; Argon isn't
+    // actually in the v0.5 RON but the spec lists it as a covered
+    // modifier type for forward-compat).
+    #[test]
+    fn friendly_label_argon_production() {
+        let m = modf("ArgonProduction", 0.028);
+        let (tone, label) = friendly_label(&m).expect("ArgonProduction should produce a label");
+        assert_eq!(tone, EffectTone::Positive);
+        assert!(label.contains("Argon"), "{label}");
+    }
+
+    // Integration: a multi-output building's effects vec, when capped,
+    // shows the first 5 friendly labels plus a "+2 more" indicator.
+    // This mirrors a ChemicalPlant (4 effects) and an AiCluster (2
+    // effects) being rendered without exceeding the card height.
+    #[test]
+    fn friendly_label_multi_output_iterates_all() {
+        // 7 modifiers, all recognizable: 5 should be displayed, 2
+        // summarised in the "+N more" indicator.
+        let def_mods = vec![
+            modf("IronProduction", 120.0),
+            modf("HousingCapacity", 50_000_000.0),
+            modf("PlutoniumBreeding", 0.23),
+            modf("NitrogenHarvesting", 7.0),
+            modf("DeuteriumProduction", 0.5),
+            modf("BuildPointsProduction", 10.0),
+            modf("ConstructionCost", -200.0),
+        ];
+        let mut effects: Vec<(EffectTone, String)> = Vec::new();
+        for m in def_mods.iter() {
+            if let Some((tone, label)) = friendly_label(m) {
+                effects.push((tone, label));
+            }
+        }
+        assert_eq!(effects.len(), 7, "expected 7 friendly labels before cap");
+        apply_effect_cap(&mut effects);
+        assert_eq!(effects.len(), 6, "expected 5 effects + 1 indicator");
+        assert_eq!(effects[5].0, EffectTone::Neutral);
+        assert_eq!(effects[5].1, "+2 more");
     }
 }

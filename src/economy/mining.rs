@@ -899,6 +899,10 @@ pub fn update_resource_rates(
     }
 
     // 3. Add net colony food rate (production - population consumption)
+    // v3.6: food per-build values and consumption per-capita are read from
+    // `BuildingsData` (RON-driven). If the resource isn't loaded yet, fall
+    // back to 0 — the depletion-timeline system will pick it up next tick.
+    let food_data = buildings_data.as_deref();
     for (entity, colony, _, _, _) in colony_query.iter() {
         // Per GRA-22 §4.5: agricultural production scales with the colony's
         // `ColonyDevelopment` yield multiplier, matching the rest of the
@@ -906,11 +910,14 @@ pub fn update_resource_rates(
         // the sim extracts/consumes.  Consumption is per-capita (biological)
         // and stays unmultiplied.
         let food_yield_mult = colony.effective_yield_multiplier();
-        let food_production_per_month = colony.food_production_per_year()
-            * food_yield_mult
+        let food_production_per_month = food_data
+            .map(|d| colony.food_production_per_year(d) * food_yield_mult)
+            .unwrap_or(0.0)
             * (SECONDS_PER_MONTH / SECONDS_PER_YEAR);
-        let food_consumption_per_month =
-            colony.food_consumption_per_year() * (SECONDS_PER_MONTH / SECONDS_PER_YEAR);
+        let food_consumption_per_month = food_data
+            .map(|d| colony.food_consumption_per_year(d))
+            .unwrap_or(0.0)
+            * (SECONDS_PER_MONTH / SECONDS_PER_YEAR);
         if food_production_per_month > f64::EPSILON {
             add_production(
                 &mut rates,

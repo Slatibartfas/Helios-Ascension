@@ -30,8 +30,9 @@ pub use events::ConstructionEvent;
 pub use systems::DepletionTimeline;
 pub use systems::{
     advance_construction, compute_depletion_timeline, deduct_environment_costs,
-    process_construction_actions, recompute_synergies, sync_population_from_colony,
-    update_colony_growth, update_treasury, ColonySynergies, SynergyState,
+    deduct_population_consumption, process_construction_actions, recompute_synergies,
+    sync_population_from_colony, update_colony_growth, update_treasury, ColonySynergies,
+    SynergyState,
 };
 pub use types::{BuildingCategory, BuildingType};
 
@@ -194,6 +195,7 @@ impl Plugin for ColonyPlugin {
                     update_treasury,
                     systems::deduct_maintenance_resources,
                     systems::deduct_environment_costs,
+                    systems::deduct_population_consumption,
                     systems::compute_depletion_timeline,
                 )
                     .chain()

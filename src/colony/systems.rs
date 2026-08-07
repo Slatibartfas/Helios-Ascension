@@ -519,6 +519,7 @@ pub fn update_colony_growth(
     sim_time: Res<SimulationTime>,
     mut last_elapsed: Local<f64>,
     mut dirty: ResMut<crate::economy::DirtyBodies>,
+    buildings_data: Res<crate::colony::data::BuildingsData>,
 ) {
     let current_elapsed = sim_time.elapsed_seconds();
     let dt = current_elapsed - *last_elapsed;
@@ -542,10 +543,22 @@ pub fn update_colony_growth(
         // per-capita and not yield-scaled — a population of N eats the same
         // amount of food regardless of how industrialised their colony is.
         let yield_mult = colony.effective_yield_multiplier();
-        let food_prod = colony.food_production_per_year() * yield_mult * years_elapsed;
-        let food_cons = colony.food_consumption_per_year() * years_elapsed;
+        // v3.7: use yearly *rates* (Mt/yr) for the food ratio so
+        // growth is driven by supply/demand balance, not by
+        // stockpile reserves alone.
+        let food_prod_per_year = colony.food_production_per_year(&buildings_data) * yield_mult;
+        let food_cons_per_year = colony.food_consumption_per_year(&buildings_data);
+        let food_ratio = if food_cons_per_year > 0.0 {
+            food_prod_per_year / food_cons_per_year
+        } else {
+            1.0
+        };
 
-        let food_factor = if let Some(mut ls) = local_opt {
+        // Convert to per-tick values for the stockpile/budget update.
+        let food_prod = food_prod_per_year * years_elapsed;
+        let food_cons = food_cons_per_year * years_elapsed;
+
+        if let Some(mut ls) = local_opt {
             // --- Local stockpile path ---
             let cap = budget.effective_stockpile_cap(ResourceType::Food);
             if food_prod > 0.0 {
@@ -561,14 +574,6 @@ pub fn update_colony_growth(
             // populates every applicable divergence
             // field.
             dirty.mark(entity, crate::economy::DirtyReason::Multiple);
-            let reserve = ls.get(&ResourceType::Food);
-            let annual_cons = colony.food_consumption_per_year();
-            if annual_cons > 0.0 {
-                let years_reserve = reserve / annual_cons;
-                (0.5 + 0.5 * years_reserve.min(1.0)).min(1.0)
-            } else {
-                1.0
-            }
         } else {
             // --- Global budget fallback ---
             if food_prod > 0.0 {
@@ -581,18 +586,10 @@ pub fn update_colony_growth(
                     budget.consume_resource(ResourceType::Food, consumed);
                 }
             }
-            let reserve = budget.get_stockpile(&ResourceType::Food);
-            let annual_cons = colony.food_consumption_per_year();
-            if annual_cons > 0.0 {
-                let years_reserve = reserve / annual_cons;
-                (0.5 + 0.5 * years_reserve.min(1.0)).min(1.0)
-            } else {
-                1.0
-            }
-        };
+        }
 
         let base_growth =
-            colony.population_growth_per_year(food_factor) * yield_mult * years_elapsed;
+            colony.population_growth_per_year(food_ratio, &buildings_data) * years_elapsed;
         let ocean_modifier = ocean_query
             .get(entity)
             .map(|o| o.habitability_modifier())
@@ -602,7 +599,7 @@ pub fn update_colony_growth(
         // Hard cap: population cannot exceed available housing capacity.
         // Colonies without any housing buildings (housing == 0) are uncapped
         // to allow the player time to build infrastructure for brand-new outposts.
-        let housing = colony.housing_capacity();
+        let housing = colony.housing_capacity(&buildings_data);
         if housing > 0.0 {
             colony.population = colony.population.min(housing);
         }
@@ -618,6 +615,7 @@ pub fn update_treasury(
     colonies: Query<&Colony>,
     sim_time: Res<SimulationTime>,
     mut last_elapsed: Local<f64>,
+    buildings_data: Res<crate::colony::data::BuildingsData>,
 ) {
     let current_elapsed = sim_time.elapsed_seconds();
     let dt = current_elapsed - *last_elapsed;
@@ -641,8 +639,8 @@ pub fn update_treasury(
         // produces one-tenth of a civilisation's wealth *and* costs
         // one-tenth to maintain.
         let yield_mult = colony.effective_yield_multiplier();
-        total_income += colony.wealth_generation_per_year() * yield_mult;
-        total_expenses += colony.operating_cost_per_year() * yield_mult;
+        total_income += colony.wealth_generation_per_year(&buildings_data) * yield_mult;
+        total_expenses += colony.operating_cost_per_year(&buildings_data) * yield_mult;
     }
 
     budget.income_per_year = total_income;
@@ -798,6 +796,68 @@ pub fn deduct_environment_costs(
     }
 }
 
+/// v3.7: System that deducts per-capita consumer consumption
+/// (Iron, Copper, Aluminum, Polymers, Methane, etc.) from each
+/// colony's `LocalStockpile` (or `GlobalBudget` fallback).
+///
+/// The per-capita rates come from the RON `colony_constants.
+/// per_capita_consumption` block, calibrated so 8.2B people
+/// consume ~70% of USGS 2024 / worldsteel 2024 / OECD 2024 / WNA
+/// 2024 world demand; the remaining ~30% goes to industry,
+/// maintenance, feedstock, and power generation.
+///
+/// This is what makes population *drive* the consumer economy
+/// rather than just consume food: as the player expands, the
+/// stockpile draw scales linearly with population.
+pub fn deduct_population_consumption(
+    mut colonies: Query<(Entity, &Colony, Option<&mut LocalStockpile>)>,
+    mut budget: ResMut<crate::economy::GlobalBudget>,
+    sim_time: Res<SimulationTime>,
+    mut last_elapsed: Local<f64>,
+    mut dirty: ResMut<crate::economy::DirtyBodies>,
+    buildings_data: Res<crate::colony::data::BuildingsData>,
+) {
+    let current_elapsed = sim_time.elapsed_seconds();
+    let dt = current_elapsed - *last_elapsed;
+    *last_elapsed = current_elapsed;
+
+    if dt <= 0.0 {
+        return;
+    }
+
+    let years_elapsed = dt / SECONDS_PER_YEAR;
+    if years_elapsed <= 0.0 {
+        return;
+    }
+
+    for (entity, colony, mut local_opt) in colonies.iter_mut() {
+        let pop = colony.population;
+        if pop <= 0.0 {
+            continue;
+        }
+
+        // Per-capita consumer draw for this tick.
+        let per_capita = colony.per_capita_consumption_per_year(&buildings_data);
+
+        for (resource, per_year) in per_capita {
+            let needed = per_year * years_elapsed;
+            if needed <= 0.0 {
+                continue;
+            }
+            if let Some(ref mut ls) = local_opt {
+                ls.consume(resource, needed);
+            } else {
+                let avail = budget.get_stockpile(&resource);
+                budget.consume_resource(resource, needed.min(avail));
+            }
+        }
+
+        // Mark dirty so the regen chain doesn't revert
+        // the consumption on the next load.
+        dirty.mark_stockpile(entity);
+    }
+}
+
 /// System that derives "years remaining at the current draw" for every
 /// consumed resource on every colony and writes the snapshot to
 /// [`DepletionTimeline`].
@@ -864,7 +924,7 @@ pub fn compute_depletion_timeline(
         }
 
         // 3. Food consumption — per-capita, not scaled.
-        let food_cons = colony.food_consumption_per_year();
+        let food_cons = colony.food_consumption_per_year(buildings_data.as_ref().unwrap());
         if food_cons > 0.0 {
             *annual_draw.entry(ResourceType::Food).or_insert(0.0) += food_cons;
         }
@@ -943,6 +1003,13 @@ pub fn recompute_synergies(
 mod tests {
     use super::*;
     use crate::colony::components::Colony;
+    use crate::colony::data::BuildingsData;
+
+    /// v3.6: Colony methods now take `&BuildingsData`; load the real
+    /// RON data so per-build values match the production calibration.
+    fn data() -> BuildingsData {
+        BuildingsData::load_for_tests()
+    }
 
     #[test]
     fn test_colony_growth_calculation() {
@@ -950,7 +1017,7 @@ mod tests {
         colony.add_building(BuildingType::HabitatDome); // 50k capacity
         colony.add_building(BuildingType::AgriDome); // food
 
-        let growth = colony.population_growth_per_year(1.0);
+        let growth = colony.population_growth_per_year(1.0, &data());
         assert!(
             growth > 0.0,
             "Colony with housing and food should grow: {}",
@@ -966,13 +1033,13 @@ mod tests {
     fn test_logistics_penalty_on_mining() {
         let mut colony = Colony::new("Test".to_string(), 1000.0);
         // No mines, no logistics → no demand → 1.0
-        assert_eq!(colony.mining_output_multiplier(), 1.0);
+        assert_eq!(colony.mining_output_multiplier(&data()), 1.0);
 
         // Add mines without logistics
         for _ in 0..5 {
             colony.add_building(BuildingType::IronMine);
         }
-        let without_logistics = colony.mining_output_multiplier();
+        let without_logistics = colony.mining_output_multiplier(&data());
         assert!(
             without_logistics < 1.0,
             "Should be penalised without logistics"
@@ -980,7 +1047,7 @@ mod tests {
 
         // Add mass driver
         colony.add_building(BuildingType::MassDriver);
-        let with_logistics = colony.mining_output_multiplier();
+        let with_logistics = colony.mining_output_multiplier(&data());
         assert!(
             with_logistics > without_logistics,
             "Should improve with logistics"
@@ -1069,7 +1136,10 @@ mod tests {
                 replaces_in_line: None,
             },
         );
-        BuildingsData { definitions: defs }
+        BuildingsData {
+            definitions: defs,
+            ..Default::default()
+        }
     }
 
     #[test]
@@ -1241,7 +1311,10 @@ mod tests {
                 replaces_in_line: None,
             },
         );
-        BuildingsData { definitions: defs }
+        BuildingsData {
+            definitions: defs,
+            ..Default::default()
+        }
     }
 
     /// Build a `BuildingsData` with Mine (with synergy rules),
@@ -1359,7 +1432,10 @@ mod tests {
                 replaces_in_line: None,
             },
         );
-        BuildingsData { definitions: defs }
+        BuildingsData {
+            definitions: defs,
+            ..Default::default()
+        }
     }
 
     /// End-to-end test: queue a HydroponicsFarm while a Farm exists in
@@ -1619,7 +1695,10 @@ mod tests {
                 replaces_in_line: None,
             },
         );
-        BuildingsData { definitions: defs }
+        BuildingsData {
+            definitions: defs,
+            ..Default::default()
+        }
     }
 
     /// Regression test for GRA-31 PR-A: when a colony's local stockpile is

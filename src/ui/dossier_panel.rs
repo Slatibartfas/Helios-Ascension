@@ -186,6 +186,9 @@ pub(super) struct DossierUiParams<'w, 's> {
     pub rate_tracker: Res<'w, ResourceRateTracker>,
     pub mission_templates: Res<'w, SurveyMissionTemplates>,
     pub pending_actions: ResMut<'w, PendingConstructionActions>,
+    /// v3.6: RON-driven building definitions + colony constants. Used by
+    /// the housing-capacity and population-growth displays.
+    pub buildings_data: Option<Res<'w, crate::colony::data::BuildingsData>>,
     /// PR-F (GRA-117): needed by the legacy-to-state fallback so the
     /// dossier can render a `SurveyState` view for bodies that still
     /// only carry the old `SurveyLevel` component (Phase 1 migration
@@ -448,6 +451,7 @@ pub(super) fn ui_planet_dossier(mut params: DossierUiParams) {
                             surface_temp,
                             ocean_props,
                             &mut params.pending_actions,
+                            params.buildings_data.as_deref().unwrap_or(&crate::colony::data::BuildingsData::default()),
                         );
                     }
 
@@ -3366,6 +3370,7 @@ fn draw_colony_section(
     surface_temp: Option<&SurfaceTemperature>,
     ocean: Option<&OceanProperties>,
     pending_actions: &mut PendingConstructionActions,
+    buildings_data: &crate::colony::data::BuildingsData,
 ) {
     if let Some(colony) = existing_colony {
         // ── Already colonised ──────────────────────────────────────
@@ -3390,7 +3395,7 @@ fn draw_colony_section(
         });
 
         let pop = colony.population;
-        let housing = colony.housing_capacity();
+        let housing = colony.housing_capacity(buildings_data);
         let util_pct = if housing > 0.0 {
             (pop / housing * 100.0).min(100.0)
         } else {

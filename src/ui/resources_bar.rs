@@ -2705,9 +2705,16 @@ pub(super) fn ui_resources_bar(
                             } else {
                                 "Unknown".to_string()
                             };
-                            let housing = colony_opt.map(|c| c.housing_capacity()).unwrap_or(0.0);
+                            let default_data = BuildingsData::default();
+                            let data = power_popup_queries
+                                .buildings_data
+                                .as_deref()
+                                .unwrap_or(&default_data);
+                            let housing = colony_opt
+                                .map(|c| c.housing_capacity(data))
+                                .unwrap_or(0.0);
                             let growth_yr = colony_opt
-                                .map(|c| c.population_growth_per_year(1.0))
+                                .map(|c| c.population_growth_per_year(1.0, data))
                                 .unwrap_or(0.0);
                             (name, p.count, housing, growth_yr)
                         })
@@ -2847,12 +2854,17 @@ pub(super) fn ui_resources_bar(
 
                     ui.separator();
                     // Total + aggregate growth rate
+                    let default_data = BuildingsData::default();
+                    let data = power_popup_queries
+                        .buildings_data
+                        .as_deref()
+                        .unwrap_or(&default_data);
                     let total_growth_yr: f64 = population_query
                         .iter()
                         .filter_map(|(p, _, c)| {
                             if p.count > 0.0 {
                                 Some(
-                                    c.map(|col| col.population_growth_per_year(1.0))
+                                    c.map(|col| col.population_growth_per_year(1.0, data))
                                         .unwrap_or(0.0),
                                 )
                             } else {

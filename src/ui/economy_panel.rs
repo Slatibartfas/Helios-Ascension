@@ -1190,16 +1190,21 @@ pub(super) fn build_economy_hierarchy(
 
         let colony_snap = colony_opt.map(|c| {
             let power_totals = crate::economy::calculate_colony_power_totals(c, buildings_data);
+            // v3.6: Colony methods need &BuildingsData. If the data
+            // hasn't loaded yet (early frame), use a default. The
+            // power totals are unaffected (they read the same data).
+            let default_data = BuildingsData::default();
+            let data = buildings_data.unwrap_or(&default_data);
             ColonySnapshot {
                 name: c.name.clone(),
                 population: c.population,
-                growth_per_year: c.population_growth_per_year(1.0),
-                housing_capacity: c.housing_capacity(),
+                growth_per_year: c.population_growth_per_year(1.0, data),
+                housing_capacity: c.housing_capacity(data),
                 total_buildings: c.total_buildings(),
-                workforce_efficiency: c.workforce_efficiency(),
-                logistics_efficiency: c.logistics_efficiency(),
-                income_per_year: c.wealth_generation_per_year(),
-                operating_cost_per_year: c.operating_cost_per_year(),
+                workforce_efficiency: c.workforce_efficiency(data),
+                logistics_efficiency: c.logistics_efficiency(data),
+                income_per_year: c.wealth_generation_per_year(data),
+                operating_cost_per_year: c.operating_cost_per_year(data),
                 power_generation_watts: power_totals.produced_watts,
                 power_load_watts: power_totals.consumed_watts,
                 buildings: c
