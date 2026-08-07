@@ -3686,6 +3686,98 @@ mines to stabilise.  Li and Th are positive.
 
 `cargo test` 1095 lib + 1092 bin, all green.
 
+---
+
+### 0.N.19 v3.8.9 — close the Cu/Li/U stockpile burn: real 2026 = real 2026 (2026-08-07)
+
+User feedback (v3.8.8 ship): "Currently all mines
+exist 25 times each as a placeholder, but you can
+vary the amount as well, not a hard design constraint.
+The only hard constraint is end rates should be
+realistic. So, is 2026 earth really bruning through
+its uranium and copper (or other) stockpiles? Cant
+believe that."
+
+v3.8.8 had accepted −5.6 Cu, −5 U kt/yr as "slight
+deficit, intentional" — the user correctly pushed
+back: 2026 Earth is *not* burning through stockpiles,
+so neither should the game.  Real 2026 world has
+balanced production = consumption for Cu/Li/U/Th
+(USGS, WNA, OECD 2024-2026).  v3.8.9 makes the
+math actually balance.
+
+**Three independent problems in v3.8.8, not one:**
+
+1. **Cu per-build was wrong by 4 Mt/yr.**  v3.5 set
+   per-build to 1.467 Mt/yr/build with description
+   "= USGS 2026" — but 25 × 1.467 × 0.6 = 22 Mt/yr,
+   not 26.  v3.5 calibration off by 4 Mt.  v3.8.9
+   bumps per-build 1.467 → 1.733 so 25 mines × 0.6
+   = 26 Mt/yr = real USGS 2026.
+2. **Per-capita U was nonsensical.**  v3.7.1 set
+   2.5e-12 Mt/p/yr × 8.2B = 20.5 t/yr per-capita
+   "consumer" U — but real per-capita U is essentially
+   zero (U is 100% nuclear-power industrial, not a
+   consumer good).  v3.8.9 sets per-cap U to 0.
+3. **Li maintenance was 1.9× over-sized** (v3.8.8's
+   "× 0.75 from 148 to 111 kt/yr" was based on a
+   partial building subset, not all Li-consuming
+   buildings).  Actual Li maintenance at Earth start
+   was 247.5 kt/yr, leaving Li −117 kt/yr deficit.
+   v3.8.9 scales to 130 kt/yr = real 2026.
+
+**Calibration applied (target: prod = cons = real 2026):**
+
+| Resource | Per-build | Per-cap | Maint total | Net |
+|----------|-----------|---------|-------------|-----|
+| Cu | 1.467 → **1.733** Mt/yr/build | 1.9e-9 (unchanged) | 13.42 → **10.42** Mt/yr (scale 0.7766) | 0 |
+| Li | 0.00867 (unchanged) | 0 (unchanged) | 247.53 → **130.00** kt/yr (scale 0.5252) | 0 |
+| U  | 0.00493 (unchanged) | 2.5e-12 → **0** | 58.50 → **74.00** kt/yr (scale 1.265) | 0 |
+| Th | 5.33e-5 (unchanged) | 0 (unchanged) | 0 (unchanged) | +800 t/yr (over-prod, no consumers) |
+
+Per-build × 25 × 0.6 = real 2026 world for all four
+resources.  Per-cap + maintenance = real 2026 demand.
+Net = 0 (or +0.05/+0.05 kt/yr rounding noise).  Th
+keeps its +800 t/yr surplus because the game has no
+Th-consuming buildings (real Th demand is non-obvious
+in 2026; can be added later if the user wants).
+
+**Earth starting state v3.8.9 — focus resources:**
+
+```
+  Copper     prod=    26.00 Mt/yr percap=    15.58 maint=    10.42 cons=    26.00 net=    -0.00 (world=26.00 Mt/yr)
+  Lithium    prod=   130.05 kt/yr percap=     0.00 maint=   130.00 cons=   130.00 net=    +0.05 (world=130.00 kt/yr)
+  Uranium    prod=    73.95 kt/yr percap=     0.00 maint=    74.00 cons=    74.00 net=    -0.05 (world=74.00 kt/yr)
+  Thorium    prod=   799.50 t/yr  percap=     0.00 maint=     0.00 cons=     0.00 net=  +799.50 (world=800.00 t/yr)
+```
+
+**Other resources flagged for v3.8.10+ (NOT v3.8.9 scope):**
+
+| Resource | Prod | Cons | Net | Why it's not v3.8.9 |
+|----------|------|------|-----|---------------------|
+| Carbon | 8,205 | 9,640 | −1,435 Mt/yr | C maint likely includes industrial + energy; needs C-energy-system review |
+| Methane | 0 | 2,725 | −2,725 Mt/yr | MethaneExtractor modifier not parsed in v3.8.9 script; needs direct fix |
+| Nitrogen | 0 | 272 | −272 Mt/yr | AtmosphericProcessor modifier not parsed; likely OK if added |
+| Polymers | 0 | 324 | −324 Mt/yr | ChemicalPlant PolymerSynthesis already at world-share, but Earth has 700 plants × 0.6 = 420 expected; needs trace |
+| Phosphorus | 0 | 155 | −155 Mt/yr | PhosphorusMine modifier not parsed |
+| Sulfur | 0 | 94 | −94 Mt/yr | SulfurMine modifier not parsed |
+| Titanium | 9 | 9.4 | −0.4 Mt/yr | Tiny rounding-level deficit; Ti maint 0.39 Mt/yr too high by 0.4 |
+
+These are out of scope for the user's Cu/Li/U pushback
+but should be addressed in a v3.8.10 follow-up.  The
+script at `C:\Users\Alexander\AppData\Local\Temp\v389_verify.py`
+will detect them automatically.
+
+**Files modified:**
+* `assets/data/buildings.ron` — Cu per-build 1.467 →
+  1.733; Cu desc updated; Cu maintenance × 0.7766
+  across 35 buildings; Li maintenance × 0.5252
+  across 14 buildings; U maintenance × 1.265 across
+  4 buildings (script: `calibrate_v389.py`)
+* `src/colony/data.rs` — per-cap U 2.5e-12 → 0
+
+`cargo test` 1095 lib + 1092 bin, all green.
+
 `cargo test` 1095 lib + 1092 bin, all green.
 
 ---
