@@ -3439,6 +3439,121 @@ Behaviour:
 
 `cargo test` 1095 lib + 1092 bin, all green.
 
+### 0.N.16 v3.8.6 — missing minus sign, Survey reserves clarity, Plutonium production (2026-08-07)
+
+User feedback (v3.8.5 ship):
+
+1. **"Some resources still have negative rates"** — the
+   "Net rate (annual)" tile for Copper, Lithium, Thorium,
+   and Uranium displayed "8.4 Mt/yr" / "248.7 kt/yr" with
+   *no minus sign* (only the colour differed from the
+   green "+" entries).  The user couldn't tell from the
+   text alone whether the rate was positive or negative.
+   Root cause: `rate_text` in
+   `src/ui/economy_panel.rs:1287` had
+   `let sign = if rate > 0.0 { "+" } else { "" };` — the
+   `else` branch returned `""` instead of `"−"`.  The
+   embedded minus from `format_mass(-8.4)` was apparently
+   being dropped during egui's rich-text rendering.
+   Fix: explicit `"−"` sign + `format_mass(rate.abs())`.
+   The same fix is applied to `format_rate_monthly` in
+   `src/ui/dashboard.rs` for consistency.  Now negative
+   rates display as red `−8.4 Mt/yr`.
+
+2. **"Survey reserves and runs out section seem now to
+   also consider the storage cap"** — the "Survey-known
+   reserves (cap)" tile showed "Iron 1.2 Tt (cap in
+   0.1y)".  The "(cap in 0.1y)" suffix referred to the
+   time the *forecast curve* hits the *effective cap*
+   (which is usually the storage cap, not the survey
+   reserve) — confusing because the tile is labelled
+   "Survey reserves".  The user wants the section to
+   show "the resources left on the body" (i.e. the
+   survey reserve), not the time-to-fill-the-storage-cap.
+   Fix: drop the "(cap in Xy)" suffix; rename the tile
+   to "Survey-known reserves on body"; the storage cap
+   is already shown in the top-bar resource breakdown.
+
+3. **"Plutonium production is also missing, some should
+   be produced like in real life"** — Pu is currently
+   produced only via `PlutoniumBreeding` (a
+   `breeder_reactors`-gated chemical process that
+   consumes Uranium).  At game start the tech is
+   locked, so Pu production = 0.  Real 2026 produces
+   ~70 t/yr globally via spent-fuel reprocessing of
+   commercial fission reactors.  Fix: added
+   `(modifier_type: "PlutoniumProduction", value:
+   0.001)` to `FissionReactor` in `buildings.ron` —
+   20 reactors × 0.001 × 0.6 access = 12 t/yr Pu from
+   Earth.  This bypasses the tech gate (direct
+   `XxxProduction` modifier dispatch) so Pu is
+   producible from day 1.
+
+**Negative-rate analysis (the underlying calibration):**
+
+After the sign fix, the negative rates for Cu/Li/U/Th are
+real.  The cause: the "style A" mine calibration (25 mines
+= 100% world demand) doesn't account for the
+*consumption* side, which has TWO sources:
+
+* **Per-capita** (population, 70% of world) — applied to
+  Iron, Copper, Aluminum, Silicates, Titanium, Polymers,
+  Phosphorus, Sulfur, Nitrogen, Methane, Uranium, Carbon
+* **Building maintenance** (scales with building count) —
+  applied to dozens of resources across 1,200+ buildings
+
+For Copper: production 22 Mt/yr (100% of 2026 world),
+per-capita 15.6 Mt/yr (60% world), building maintenance
+~13 Mt/yr (50% world).  Total consumption 28.6 Mt/yr
+(110% of world) → **net −6.6 Mt/yr (1.3× over)**.
+
+For Lithium: production 130 kt/yr, per-capita 0, building
+maintenance ~500 kt/yr.  Total 500 kt/yr (3.8× over) →
+**net −370 kt/yr**.
+
+For Uranium: production 74 kt/yr, per-capita 52 kt/yr,
+maintenance 56 kt/yr (mostly FissionReactor).  Total 108
+kt/yr (1.5× over) → **net −34 kt/yr**.
+
+For Thorium: production 800 kg/yr, per-capita 0,
+maintenance ~5 kt/yr.  Total 5 kt/yr (6.3× over) →
+**net −4.2 kt/yr**.
+
+This is by design — 25 mines is well below the operator
+bar (1/300 for AtmosphericProcessor / ChemicalPlant means
+you need 300+ plants to cover 100% world consumption).
+The "Runs out" tile makes the depletion timeline visible
+(Cu 1.7 yr, Li 5 mo, Th 1.2 yr, U 1.1 yr).  Three options
+to address:
+
+* (a) **Bump per-build values** so 25 mines × 0.6 = total
+  consumption.  Cu: 1.467 → 1.87 Mt/yr/build; Li: 0.0087
+  → 0.024 Mt/yr/build; U: 0.00493 → 0.0063; Th: 0.0000533
+  → 0.0001.  Loses the "1 plant = 1/300" operator-bar
+  intent for these resources.
+* (b) **Reduce building maintenance** for Cu/Li/U/Th by
+  ~30-50% across the 1,200+ buildings that consume
+  them.  Sweeping change.
+* (c) **Accept depletion as design intent** — the player
+  must build more mines or trade from off-world to
+  stabilise.  The negative rates are an early signal of
+  the 25-mine floor.
+
+**Open question for user**: which option to take?
+
+**Files modified:**
+* `src/ui/economy_panel.rs` — `rate_text` returns `"−"`
+  for negative, removed "(cap in Xy)" suffix from
+  Survey reserves tile, renamed tile to "Survey-known
+  reserves on body"
+* `src/ui/dashboard.rs` — `format_rate_monthly` uses
+  `format_mass(-value)` for consistent sign display
+* `assets/data/buildings.ron` — FissionReactor gains
+  `PlutoniumProduction = 0.001 Mt/yr/build` (12 t/yr
+  Pu at Earth starting state)
+
+`cargo test` 1095 lib + 1092 bin, all green.
+
 `cargo test` 1095 lib + 1092 bin, all green.
 
 ---

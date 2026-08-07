@@ -1284,8 +1284,12 @@ fn rate_text(rate: f64, suffix: &str) -> (String, egui::Color32) {
     if rate.abs() < 1e-9 {
         return (format!("0{}", suffix), theme::TEXT_DIM);
     }
-    let sign = if rate > 0.0 { "+" } else { "" };
-    let text = format!("{}{}{}", sign, format_mass(rate), suffix);
+    // v3.8.6 (2026-08-07): fix missing minus sign on negative
+    // rates.  Previous version returned "" for the else branch,
+    // so the rate display read "8.4 Mt/yr" for both +8.4 and -8.4
+    // (only the colour differed).  Now negative rates show "-8.4".
+    let sign = if rate > 0.0 { "+" } else { "−" };
+    let text = format!("{}{}{}", sign, format_mass(rate.abs()), suffix);
     let color = if rate > 0.0 { theme::GREEN } else { theme::RED };
     (text, color)
 }
@@ -3401,7 +3405,7 @@ fn render_econ_forecast(
     if any_capped {
         theme::elevated_frame().show(ui, |ui| {
             ui.label(
-                egui::RichText::new("⛏  Survey-known reserves (cap)")
+                egui::RichText::new("⛏  Survey-known reserves on body")
                     .strong()
                     .color(theme::AMBER),
             );
@@ -3433,12 +3437,19 @@ fn render_econ_forecast(
                 ui.horizontal(|ui| {
                     for s in chunk {
                         let cap = s.reserve_upper_bound_mt.unwrap_or(0.0);
-                        let cap_label = if let Some(cap_at) = s.hits_reserve_cap_at_s {
-                            let cap_years = cap_at / crate::economy::SECONDS_PER_YEAR;
-                            format!("{}  (cap in {cap_years:.1}y)", format_mass(cap))
-                        } else {
-                            format_mass(cap)
-                        };
+                        // v3.8.6 (2026-08-07): the section now shows
+                        // the survey reserve value (the "resources
+                        // left on the body") without a "(cap in Xy)"
+                        // suffix.  The previous suffix referred to
+                        // the time the forecast curve hits the
+                        // *effective* cap (which is usually the
+                        // storage cap, not the survey reserve) —
+                        // confusing because the section is labeled
+                        // "survey reserves".  The storage cap is
+                        // already shown in the top-bar resource
+                        // breakdown; this section is just "how much
+                        // is in the ground".
+                        let cap_label = format_mass(cap);
                         let name_text = format!(
                             "{} {}",
                             get_resource_icon(&s.resource),

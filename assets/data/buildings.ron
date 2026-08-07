@@ -2004,7 +2004,7 @@
         (
             id: "FissionReactor",
             display_name: "Fission Reactor",
-            description: "Nuclear fission reactor park at world scale (310 GW avg, 2026 nuclear share)",
+            description: "Nuclear fission reactor park at world scale (310 GW avg, 2026 nuclear share). Spent-fuel reprocessing yields Pu as a byproduct (real-life 2026: ~70 t/yr global).",
             icon: "textures/ui/buildings/fission-reactor.png",
             category: "Power",
             build_points: 1500.0,
@@ -2027,6 +2027,17 @@
                 // 2026 reference: world nuclear share ≈ 9% of 30,000 TWh/yr = 310 GW avg.
                 // Operator bar: 1 reactor ≈ world nuclear share.
                 (modifier_type: "PowerGeneration", value: 16.28),
+                // v3.8.6 (2026-08-07): Plutonium production as a
+                // byproduct of fission (Pu-239 bred from U-238 by
+                // neutron capture in the reactor blanket, then
+                // separated during spent-fuel reprocessing).  Real
+                // 2026: ~70 t/yr global, growing to ~1,000 t/yr
+                // if all spent fuel is reprocessed.  Calibrated
+                // so 20 reactors × value × 0.6 = 12 t/yr
+                // (1× commercial reprocessing rate, conservative
+                // for the 2026 baseline; Pu is mostly in
+                // stockpiles, not actively reprocessed yet).
+                (modifier_type: "PlutoniumProduction", value: 0.001),
             ],
             power_demand_mw: 100.0,
         ),

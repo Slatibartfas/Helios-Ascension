@@ -897,10 +897,13 @@ pub(super) fn format_rate_monthly(value: f64) -> (String, egui::Color32) {
     if value.abs() < 1e-9 {
         return ("+0/mo".to_string(), theme::TEXT_DIM);
     }
+    // v3.8.6: use Unicode minus for negative rates (the ASCII
+    // '-' was being clobbered in the format_mass path; this
+    // makes the sign consistent with the annual rate display).
     if value > 0.0 {
         (format!("+{}/mo", format_mass(value)), theme::GREEN)
     } else {
-        (format!("{}/mo", format_mass(value)), theme::RED)
+        (format!("−{}/mo", format_mass(-value)), theme::RED)
     }
 }
 
