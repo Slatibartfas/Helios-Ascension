@@ -3392,6 +3392,53 @@ Earth's 1,700 Mt/yr Methane production (no starvation).
 
 `cargo test` 1095 lib + 1092 bin, all green.
 
+### 0.N.15 v3.8.5 — reserve runway indicator on forecast chart (2026-08-07)
+
+User feedback (v3.8.4 ship): "It would be nice to
+extend from the stockpile cap towards reserve cap with a
+dashed line, which does not scale up the y axis just to
+indicate reserve runway as well so players know what
+they need to mine off world and where they can just mine
+from Earth forever."
+
+After v3.8.3 the forecast plateaued at the per-body
+storage cap (Iron 33.75 Gt, Silicates 675 Gt, etc.) —
+the survey reserve was hidden.  Players couldn't see
+that Silicates has 617 Gt of survey reserve but their
+warehouse only holds 675 Gt (≈ 1.1× runway), while
+Iron has 802 Gt of survey reserve against a 33.75 Gt
+cap (≈ 24× runway — they can mine from Earth forever).
+
+The forecast now draws a **vertical dashed line at year
+20 from the curve plateau up to the chart's top edge**
+for any series where the survey reserve is ≥ 1.5× the
+storage cap.  A small `▲ Resource Reserve Value` label
+stacks at the top-right of the chart.
+
+The y-axis is *not* scaled up — the 99th-percentile
+cutoff in `compute_forecast_y_bounds` keeps the y-scale
+calibrated for the curve plateaus.  A 600 Gt reserve
+sits "above" a 30 Gt plateau without dominating the
+chart; the label tells the player the actual reserve
+value.
+
+Behaviour:
+* Iron: plateau 33.75 Gt, reserve 802 Gt → dashed line
+  + `▲ Fe 802.5 Gt` (24× runway — "mine from Earth")
+* Silicates: plateau 675 Gt, reserve 617 Gt → no
+  runway marker (ratio < 1.5, just barely over)
+* Carbon: plateau 58 Gt, reserve 11.2 Tt → dashed line
+  + `▲ C 11.2 Tt` (193× runway — "mine from Earth")
+* N₂: plateau 33.75 Gt × 0.78 = 26 Mt (atmospheric
+  share), reserve 4 Tt × 0.78 = 3.1 Tt → 119× runway
+  indicator visible at the top
+
+**Files modified:**
+* `src/ui/economy_panel.rs::render_forecast_chart` —
+  new reserve-runway block after the series lines
+
+`cargo test` 1095 lib + 1092 bin, all green.
+
 `cargo test` 1095 lib + 1092 bin, all green.
 
 ---

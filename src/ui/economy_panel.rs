@@ -3800,6 +3800,73 @@ pub(super) fn render_forecast_chart(
         painter.circle_filled(anchor_pos, 3.0, stroke_color);
     }
 
+    // v3.8.5 (2026-08-07): "Reserve runway" — for any series whose
+    // survey reserve is *larger* than the per-body cap the curve
+    // plateaus at, draw a vertical dashed extension from the curve
+    // plateau at year 20 up to the chart's top edge.  This visually
+    // communicates "your stockpile caps the line here, but the
+    // survey reserve is much larger — build more Warehouses to fill
+    // it".  Per-series labels stack at the top with a small ▲ arrow
+    // so the player can see the reserve cap value without the chart
+    // re-scaling the y-axis.
+    //
+    // The y-axis is left untouched (still based on the 99th-percentile
+    // of the sample plateau values), so a 600 Gt survey reserve can
+    // sit "above" a 30 Gt storage-cap plateau without dominating the
+    // chart.
+    let reserve_color = theme::TEXT_HINT;
+    let reserve_dash = theme::FORECAST_RUNS_OUT_DASH_LEN;
+    let reserve_stroke_w = theme::FORECAST_RUNS_OUT_STROKE_WIDTH;
+    let mut reserve_labels: Vec<(egui::Color32, String)> = Vec::new();
+    for s in series {
+        if s.samples.len() < 2 {
+            continue;
+        }
+        let Some(reserve) = s.reserve_upper_bound_mt else {
+            continue;
+        };
+        let effective = s
+            .effective_upper_bound_mt
+            .unwrap_or(s.samples.last().map(|p| p.value_mt).unwrap_or(0.0));
+        // Only show the runway when the reserve is *meaningfully*
+        // larger than the effective plateau (>= 1.5× ratio filters
+        // out near-ties where the survey cap is just a hair above
+        // the storage cap).
+        if reserve < effective * 1.5 {
+            continue;
+        }
+        // Vertical dashed line at year 20 from the plateau
+        // (effective cap) up to the chart's top edge.
+        let plateau_pos = to_screen(horizon_s, effective);
+        let x = plateau_pos.x;
+        let mut y = plateau_pos.y;
+        while y > plot_rect.top() {
+            let next_y = (y - reserve_dash).max(plot_rect.top());
+            painter.line_segment(
+                [egui::pos2(x, y), egui::pos2(x, next_y)],
+                egui::Stroke::new(reserve_stroke_w, reserve_color),
+            );
+            y = next_y - reserve_dash;
+        }
+        // Small ▲ marker at the top of the dashed line, then
+        // off-chart label with the reserve value.
+        let label = format!("▲ {} {}", s.resource.symbol(), format_mass(reserve));
+        reserve_labels.push((reserve_color, label));
+    }
+    // Stack labels from the top of the plot downward, offsetting by
+    // line height so multiple series with reserves don't overlap.
+    let mut y_cursor = plot_rect.top() + 2.0;
+    for (color, text) in &reserve_labels {
+        painter.text(
+            egui::pos2(plot_rect.right() - 4.0, y_cursor),
+            egui::Align2::RIGHT_TOP,
+            text.clone(),
+            theme::mono(9.0),
+            *color,
+        );
+        y_cursor += 12.0;
+    }
+
     // Interactive crosshair cursor.
     if interactive {
         if let Some(pointer_pos) = response.hover_pos().filter(|pos| plot_rect.contains(*pos)) {
