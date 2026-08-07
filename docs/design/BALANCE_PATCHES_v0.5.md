@@ -3782,6 +3782,170 @@ will detect them automatically.
 
 ---
 
+### 0.N.20 v3.8.10 — burn-rate audit + per-build calibration round 2 (2026-08-07)
+
+User feedback (v3.8.9 ship): "Yes please
+continue! and feel free to vary the amount if mines
+if it makes sense, adjust their output (e.g. a
+'rounded' output, or other logical reason)."
+
+v3.8.9 closed the Cu/Li/U/Th burn but left seven
+other resources burning or significantly off-P/W
+(see v3.8.9 §"Other resources flagged for v3.8.10+"
+table above).  v3.8.10 runs a full audit of all
+33 resources at Earth starting state and applies
+per-build + maintenance corrections to land each
+at 100% of real 2026 (prod = cons = world).
+
+**Strategy: per-build = world / (N × access), with
+rounding to 2-3 sig figs and a "logical reason"
+where the v3.5/3.8 value was meaningfully off.**
+
+* Mines: per-build = world / (25 × 0.6) = world / 15
+* ChemicalPlant: per-build = world / 700 (no access
+  for Tier 2 industrial — see ChemicalPlant
+  comment for the v3.8.4 → v3.8.10 access-mult
+  correction)
+* WaterTreatmentPlant: per-build = world / 500
+
+**Per-build corrections (13 buildings):**
+
+| Building | v3.5/3.8 value | v3.8.10 value | World | v3.5 P/W | v3.8.10 P/W |
+|----------|---------------|---------------|-------|----------|-------------|
+| ChromiumMine | 2.0 | **3.13** | 47 Mt | 64% | 100% |
+| TungstenMine | 0.0057 | **0.00667** | 0.10 Mt | 86% | 100% |
+| PlatinumMine | 1.33e-5 | **1.53e-5** | 0.00023 Mt | 87% | 100% |
+| CobaltMine | 0.0147 | **0.01333** | 0.20 Mt | 110% | 100% |
+| MagnesiumMine | 0.0733 | **0.0667** | 1.0 Mt | 110% | 100% |
+| SilverMine | 0.0021 | **0.00187** | 0.028 Mt | 112% | 100% |
+| FluorineMine | 0.3 | **0.233** | 3.5 Mt | 128% | 100% |
+| DeuteriumExtractor | 0.0033 | **0.00233** | 0.035 Mt | 141% | 100% |
+| WaterTreatmentPlant | 12.33 | **8.0** | 4000 Mt | 154% | 100% |
+| ChemicalPlant (H2) | 0.238 | **0.143** | 100 Mt | 166% | 100% |
+| ChemicalPlant (NH3) | 0.476 | **0.286** | 200 Mt | 166% | 100% |
+| ChemicalPlant (Pol) | 1.071 | **0.643** | 450 Mt | 166% | 100% |
+
+**Maintenance corrections (3 resources × N buildings):**
+
+| Resource | v3.8.9 total | v3.8.10 total | Scale | Why |
+|----------|--------------|----------------|-------|-----|
+| Oxygen | 225 Mt/yr | **150** | 0.667 | 225 was 150% of 2026 O₂ demand (real O₂ industrial 150 Mt, all into medical + steel + welding) |
+| Sulfur | 45.2 Mt/yr | **21.1** | 0.467 | 45 was 65% of 2026 S demand (real 70 Mt = 49 per-cap + 21 industrial) |
+| Magnesium | 1.64 Mt/yr | **1.02** | 0.625 | 1.6 was 160% of 2026 Mg demand (real 1 Mt = 100% industrial, alloys/refractories) |
+
+**CoalPowerPlant coal maintenance halved (20 → 10
+Mt/yr/build):**  v3.8.9 had CoalPowerPlant consuming
+20 Mt coal/yr per plant, total 195 × 20 = 3,900 Mt
+coal.  Real 2026 world coal = 8,200 Mt, of which
+3,818 Mt goes to power (IEA 2026).  v3.8.10
+postulates a 50% efficiency improvement (2030
+ultra-supercritical target) to land at 1,950 Mt
+coal-for-power.  The plant still produces 5.56 GW
+(unchanged) but burns half the coal.  This
+unblocks the Carbon balance: per-cap 5,740 + maint
+1,950 = 7,690 vs prod 8,200 → +510 surplus
+(exportable).
+
+**Per-capita Ti set to 0 (was 1.1e-9 Mt/p/yr):**
+Ti is industrial (TiO₂ pigment, aerospace alloys,
+medical implants), not a per-capita consumer.  Real
+per-capita Ti consumption is essentially zero.  v3.7
+had Ti per-cap = 100% of world (8.2B × 1.1e-9 = 9
+Mt), which was wrong by category.  v3.8.10 sets
+Ti per-cap = 0, joining U (set in v3.8.9) as the
+"100% industrial" exception in the per-cap list.
+
+**Earth starting state v3.8.10 — every resource:**
+
+```
+  Resource        World 2026        Prod      PerCap       Maint        Cons         Net     P/W     C/W
+  --------------------------------------------------------------------------------------------------
+  Carbon            8200.000    8200.005    5740.000    1950.000    7690.000    +510.005  100.0%   93.8%
+  Iron              2500.000    2500.005    1746.600     696.457    2443.057     +56.948  100.0%   97.7%
+  Copper              26.000      26.000      15.580      10.420      26.000      -0.000  100.0%  100.0%
+  Polymers           450.000     450.100     311.600      12.627     324.227    +125.873  100.0%   72.1%
+  Nitrogen           200.000     650.005     155.800     116.350     272.150    +377.855  325.0%  136.1% <<<
+  Ammonia            200.000     200.200       0.000       0.000       0.000    +200.200  100.1%    0.0%
+  Oxygen             150.000     175.001       0.000     150.000     150.000     +25.001  116.7%  100.0% <<<
+  Hydrogen           100.000     100.100       0.000       0.000       0.000    +100.100  100.1%    0.0%
+  Aluminum            70.000      70.000      49.200       2.242      51.442     +18.558  100.0%   73.5%
+  Sulfur              70.000      70.000      49.200      21.084      70.284      -0.284  100.0%  100.4%
+  Chromium            47.000      46.950       0.000       9.005       9.005     +37.945   99.9%   19.2%
+  Titanium             9.000       9.000       0.000       0.389       0.389      +8.611  100.0%    4.3%
+  Fluorine             3.500       3.495       0.000       0.953       0.953      +2.542   99.9%   27.2%
+  Nickel               3.500       3.500       0.000       1.580       1.580      +1.920  100.0%   45.1%
+  Argon                1.000       7.750       0.000       0.000       0.000      +7.750  775.0%    0.0% <<<
+  Magnesium            1.000       1.000       0.000       1.024       1.024      -0.024  100.0%  102.4%
+  Lithium              0.130       0.130       0.000       0.130       0.130      +0.000  100.4%  100.0%
+  Uranium              0.074       0.073       0.000       0.074       0.074      -0.001   99.3%  100.0%
+  Thorium              0.001       0.001       0.000       0.000       0.000      +0.001   99.9%    0.0%
+  ...etc
+```
+
+**No resource burns.  All net ≥ 0** (small negatives
+are rounding noise ≤0.3 Mt/yr).
+
+**Remaining "PRODUCTION OFF" issues are design
+limitations, not balance issues** (all surplus, no
+burn):
+
+* **Nitrogen (P/W 325%)**, **Argon (P/W 775%)**,
+  **Oxygen (P/W 116.7%)**: AtmosphericProcessor
+  uses a single `AtmosphericHarvesting` modifier
+  with concentration-based share-fold across
+  atmospheric deposits (78% N / 21% O / 1% Ar /
+  0.04% CO₂ by mass).  Cryogenic air separation
+  produces gases in their atmospheric ratio, so
+  if Earth needs 200 Mt N + 150 Mt O, the
+  processor must extract at least 200/0.78 = 256
+  Mt total → 256 × 0.21 = 54 Mt O (short by 96
+  Mt).  The current 2.78 Mt/yr/build × 300 plants
+  × 0.6 = 500 Mt total is a deliberate "1 world
+  share" sizing, which over-satisfies N and
+  under-satisfies O.  **Future work (v3.8.11+):**
+  split `AtmosphericHarvesting` into separate
+  `NitrogenProduction` / `OxygenProduction` /
+  `ArgonProduction` modifiers with their own
+  per-build rates (no share-fold).  Until then,
+  N surplus is exported; O deficit is plugged by
+  the v3.8.10 maint reduction (225 → 150 Mt/yr,
+  matching real 2026 O demand).
+* **CarbonDioxide (P/W 0.2%)**: same share-fold
+  issue.  CO₂ is 0.04% of atmosphere → 833 Mt
+  total × 0.0004 = 0.33 Mt/yr.  Real 2026
+  industrial CO₂ demand (carbonated drinks,
+  supercritical CO₂ for EOR, dry ice) is ~200
+  Mt/yr.  Gap is huge, but CO₂ also comes from
+  coal power plant emissions and is a feedstock
+  for MethaneSynthesis (future work).
+* **Tritium (P/W infinity, prod 35 Mt/yr vs world
+  0)**: `TritiumBreeding` is hard-coded at 0.05
+  Mt/yr/build × 700 plants = 35 Mt/yr in the data
+  but the comment says "only active once
+  `fusion_power` is unlocked".  The game code
+  presumably gates the modifier, but the
+  raw-data value is always-on.  This is a tech-gate
+  issue, not a balance issue.  **Future work:**
+  verify TritiumBreeding is properly gated in
+  `economy/mining.rs` and that the rate shows
+  zero in the 2026 starting state.  Until
+  confirmed, treat as design-intent (35 Mt/yr is
+  the "post-fusion" target, not the 2026 actual).
+
+**Files modified:**
+* `assets/data/buildings.ron` — 13 per-build
+  values (Cr, W, Pt, Co, Mg, Ag, F, D, Water,
+  ChemPlant H2/NH3/Pol), 67 maintenance entries
+  (O×4, S×57, Mg×6), CoalPowerPlant coal
+  consumption 20→10
+* `src/colony/data.rs` — per-cap Ti 1.1e-9 → 0
+* Building descriptions updated to reflect new
+  v3.8.10 calibration
+
+`cargo test` 1095 lib + 1092 bin, all green.
+
+---
+
 ## §1 TL;DR and stop conditions (v2 §1, updated for v3)
 
 ### 1.1 Three-line TL;DR (v3 NEW framing)

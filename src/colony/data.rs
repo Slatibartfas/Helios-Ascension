@@ -248,7 +248,7 @@ impl Default for PerCapitaConsumption {
             copper_mt_per_year: 0.0000000019,
             aluminum_mt_per_year: 0.000000006,
             silicates_mt_per_year: 0.00000041,
-            titanium_mt_per_year: 0.0000000011,
+            titanium_mt_per_year: 0.0,
             polymers_mt_per_year: 0.000000038,
             phosphorus_mt_per_year: 0.0000000188,
             sulfur_mt_per_year: 0.000000006,

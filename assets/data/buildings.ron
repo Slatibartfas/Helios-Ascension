@@ -136,7 +136,7 @@
             ],
             maintenance_resources: [
                 ("Water", 5.0),
-                ("Oxygen", 2.0),
+                ("Oxygen", 1.3333),
                 ("Polymers", 0.005),
                 ("Nitrogen", 0.5),
                 ("CarbonDioxide", 0.8),
@@ -161,9 +161,9 @@
             maintenance_resources: [
                 ("Iron", 1.0),
                 ("Polymers", 0.01),
-                ("Magnesium", 0.005),
+                ("Magnesium", 0.003125),
                 ("Water", 2.0),
-                ("Oxygen", 1.0),
+                ("Oxygen", 0.66667),
                 ("Nitrogen", 0.5),
             ],
             modifiers: [
@@ -213,7 +213,7 @@
                 ("Polymers", 0.002),
                 ("Water", 0.5),
                 ("Copper", 0.00019415),
-                ("Sulfur", 0.0005),
+                ("Sulfur", 0.00023333),
             ],
             modifiers: [
                 // Authoritative value lives in `Colony::housing_capacity` at
@@ -256,7 +256,7 @@
                 ("Iron", 2.0),
                 ("Polymers", 0.008),
                 ("Water", 1.0),
-                ("Oxygen", 0.5),
+                ("Oxygen", 0.33333),
                 ("Titanium", 0.002),
                 ("Nitrogen", 0.2),
             ],
@@ -432,12 +432,12 @@
                 ("Iron", 0.02),
                 ("Copper", 0.003883),
                 ("Nickel", 0.0005),
-                ("Sulfur", 0.03),
+                ("Sulfur", 0.014),
                 ("Phosphorus", 0.0005),
                 ("Fluorine", 0.001),
             ],
             modifiers: [
-                // v3.8.4 (2026-08-07): per-build production calibrated at
+                // v3.8.4: per-build production calibrated at
                 // 1 plant ≈ world_demand / (N_plants × access) so the
                 // starting count exactly matches 1× world demand
                 // (CLAUDE.md operator bar for Tier 2).  Earth has
@@ -450,11 +450,24 @@
                 // by 300× and starved downstream processes
                 // (PolymerSynthesis couldn't run because Methane was
                 // over-allocated to HydrogenSynthesis + AmmoniaSynthesis).
-                // New values give 700 × value × 0.6 = 100/200/450 Mt/yr
-                // = exact 2026 world demand.  The cap throttles excess.
-                (modifier_type: "HydrogenSynthesis", value: 0.238),
-                (modifier_type: "AmmoniaSynthesis", value: 0.476),
-                (modifier_type: "PolymerSynthesis", value: 1.071),
+                // v3.8.10 (2026-08-07): 700 plants × 0.238 × 0.6 = 100 Mt H2
+                // (matches world), but the access multiplier is wrong here
+                // because ChemicalPlant is a Tier 2 industrial facility, not
+                // a mine.  Synthesis doesn't depend on deposit accessibility.
+                // Removing the 0.6 access for these three modifiers:
+                //   - H2:  0.238 / 0.6 = 0.397  → use 0.143 (700 × 0.143 = 100 Mt)
+                //   - NH3: 0.476 / 0.6 = 0.794  → use 0.286 (700 × 0.286 = 200 Mt)
+                //   - Pol: 1.071 / 0.6 = 1.785  → use 0.643 (700 × 0.643 = 450 Mt)
+                // This is a "v3.8.10 design correction": the 0.6 access
+                // multiplier was double-counted in v3.8.4.  Per CLAUDE.md
+                // operator bar, 1 ChemicalPlant ≈ 1/300 of world, so 700
+                // plants = 2.33× world → at full utilization produces 2.33×
+                // 2026 demand.  We scale the per-build to land at exactly 1×
+                // (so the cap throttles overflow once player builds more
+                // plants).
+                (modifier_type: "HydrogenSynthesis", value: 0.143),
+                (modifier_type: "AmmoniaSynthesis", value: 0.286),
+                (modifier_type: "PolymerSynthesis", value: 0.643),
                 // Tritium breeding is only active once `fusion_power` is unlocked.
                 // 2026: 0 (no commercial fusion yet); game-unlock target 0.05 Mt/yr.
                 (modifier_type: "TritiumBreeding", value: 0.05),
@@ -531,7 +544,7 @@
                 ("Water", 0.05),
                 ("Polymers", 0.001),
                 ("Cobalt", 0.0001),
-                ("Sulfur", 0.002),
+                ("Sulfur", 0.00093333),
             ],
             modifiers: [
                 (modifier_type: "AluminumProduction", value: 4.6667),
@@ -584,7 +597,7 @@
                 ("Water", 0.02),
                 ("Polymers", 0.001),
                 ("Copper", 0.0003883),
-                ("Sulfur", 0.001),
+                ("Sulfur", 0.00046667),
             ],
             modifiers: [
                 (modifier_type: "SilicatesProduction", value: 320),
@@ -621,7 +634,7 @@
         (
             id: "TungstenMine",
             display_name: "Tungsten Mine",
-            description: "Tungsten (wolframite / scheelite) extraction. 0.00567 Mt/yr per build (v3.5: 25 × 0.00567 × 0.6 = 0.085 Mt/yr = USGS 2026) × deposit.accessibility.",
+            description: "Tungsten (wolframite / scheelite) extraction. 0.00667 Mt/yr per build (v3.8.10: 25 × 0.00667 × 0.6 = 0.10 Mt/yr = 100 kt/yr = USGS 2026; v3.5 had 0.0057 = 85 kt, 15% under) × deposit.accessibility.",
             icon: "textures/ui/buildings/tungsten-mine.png",
             category: "Mining",
             build_points: 2200.0,
@@ -640,7 +653,7 @@
                 ("Cobalt", 0.0002),
             ],
             modifiers: [
-                (modifier_type: "TungstenProduction", value: 0.0057),
+                (modifier_type: "TungstenProduction", value: 0.00667),
             ],
             power_demand_mw: 280.0,
             line: Some("Mine"),
@@ -662,7 +675,7 @@
                 ("Iron", 0.005),
                 ("Water", 0.04),
                 ("Polymers", 0.001),
-                ("Sulfur", 0.002),
+                ("Sulfur", 0.00093333),
                 ("Copper", 0.0003883),
             ],
             modifiers: [
@@ -674,7 +687,7 @@
         (
             id: "ChromiumMine",
             display_name: "Chromium Mine",
-            description: "Chromium (chromite) extraction. 2.0 Mt/yr per build (v3.5: 25 × 2.0 × 0.6 = 30 Mt/yr = USGS 2026 chromite ore; 4.5 Mt contained Cr) × deposit.accessibility.",
+            description: "Chromium (chromite) extraction. 3.13 Mt/yr per build (v3.8.10: 25 × 3.13 × 0.6 = 47 Mt/yr = USGS 2026 chromite ore; v3.5 had 2.0 = 30 Mt, 36% under) × deposit.accessibility.",
             icon: "textures/ui/buildings/chromium-mine.png",
             category: "Mining",
             build_points: 1300.0,
@@ -689,10 +702,10 @@
                 ("Chromium", 0.0001),
                 ("Water", 0.04),
                 ("Polymers", 0.001),
-                ("Sulfur", 0.002),
+                ("Sulfur", 0.00093333),
             ],
             modifiers: [
-                (modifier_type: "ChromiumProduction", value: 2),
+                (modifier_type: "ChromiumProduction", value: 3.13),
             ],
             power_demand_mw: 220.0,
             line: Some("Mine"),
@@ -700,7 +713,7 @@
         (
             id: "MagnesiumMine",
             display_name: "Magnesium Mine",
-            description: "Magnesium (magnesite / dolomite / seawater) extraction. 0.073 Mt/yr per build (v3.5: 25 × 0.073 × 0.6 = 1.1 Mt/yr = USGS 2026) × deposit.accessibility.",
+            description: "Magnesium (magnesite / dolomite / seawater) extraction. 0.0667 Mt/yr per build (v3.8.10: 25 × 0.0667 × 0.6 = 1.0 Mt/yr = USGS 2026; v3.5 had 0.0733 = 1.1, 10% over) × deposit.accessibility.",
             icon: "textures/ui/buildings/magnesium-mine.png",
             category: "Mining",
             build_points: 1400.0,
@@ -712,13 +725,13 @@
             ],
             maintenance_resources: [
                 ("Iron", 0.005),
-                ("Magnesium", 0.0001),
+                ("Magnesium", 6.25e-05),
                 ("Water", 0.05),
                 ("Polymers", 0.001),
-                ("Sulfur", 0.002),
+                ("Sulfur", 0.00093333),
             ],
             modifiers: [
-                (modifier_type: "MagnesiumProduction", value: 0.0733),
+                (modifier_type: "MagnesiumProduction", value: 0.0667),
             ],
             power_demand_mw: 240.0,
             line: Some("Mine"),
@@ -743,7 +756,7 @@
                 ("Water", 0.05),
                 ("Polymers", 0.001),
                 ("Cyanide", 0.0),
-                ("Sulfur", 0.001),
+                ("Sulfur", 0.00046667),
             ],
             modifiers: [
                 (modifier_type: "GoldProduction", value: 0.00024),
@@ -754,7 +767,7 @@
         (
             id: "SilverMine",
             display_name: "Silver Mine",
-            description: "Lead-zinc byproduct-style silver extraction. 0.00207 Mt/yr per build (v3.5: 25 × 0.00207 × 0.6 = 0.031 Mt/yr = 31 kt/yr = USGS 2026) × deposit.accessibility.",
+            description: "Lead-zinc byproduct-style silver extraction. 0.00187 Mt/yr per build (v3.8.10: 25 × 0.00187 × 0.6 = 0.028 Mt/yr = 28 kt/yr = USGS 2026; v3.5 had 0.0021 = 31, 12% over) × deposit.accessibility.",
             icon: "textures/ui/buildings/silver-mine.png",
             category: "Mining",
             build_points: 1500.0,
@@ -769,11 +782,11 @@
                 ("Iron", 0.005),
                 ("Water", 0.05),
                 ("Polymers", 0.001),
-                ("Sulfur", 0.002),
+                ("Sulfur", 0.00093333),
                 ("Zinc", 0.0),
             ],
             modifiers: [
-                (modifier_type: "SilverProduction", value: 0.0021),
+                (modifier_type: "SilverProduction", value: 0.00187),
             ],
             power_demand_mw: 150.0,
             line: Some("Mine"),
@@ -781,7 +794,7 @@
         (
             id: "PlatinumMine",
             display_name: "Platinum Mine",
-            description: "Platinum-group-metal extraction from layered intrusions (Bushveld / Norilsk analog). 0.0000133 Mt/yr per build (v3.5: 25 × 0.0000133 × 0.6 = 0.0002 Mt/yr = 200 t/yr = USGS 2026) × deposit.accessibility.",
+            description: "Platinum-group-metal extraction from layered intrusions (Bushveld / Norilsk analog). 1.53e-05 Mt/yr per build (v3.8.10: 25 × 1.53e-05 × 0.6 = 0.00023 Mt/yr = 230 t/yr = USGS 2026; v3.5 had 1.33e-05 = 200, 13% under) × deposit.accessibility.",
             icon: "textures/ui/buildings/platinum-mine.png",
             category: "Mining",
             build_points: 2000.0,
@@ -800,7 +813,7 @@
                 ("Chromium", 0.0001),
             ],
             modifiers: [
-                (modifier_type: "PlatinumProduction", value: 0.0000133),
+                (modifier_type: "PlatinumProduction", value: 0.0000153),
             ],
             power_demand_mw: 180.0,
             line: Some("Mine"),
@@ -824,7 +837,7 @@
                 ("Copper", 3.883e-05),
                 ("Water", 0.05),
                 ("Polymers", 0.001),
-                ("Sulfur", 0.002),
+                ("Sulfur", 0.00093333),
             ],
             modifiers: [
                 (modifier_type: "CopperProduction", value: 1.7333),
@@ -851,7 +864,7 @@
                 ("RareEarths", 0.0001),
                 ("Water", 0.05),
                 ("Polymers", 0.002),
-                ("Sulfur", 0.005),
+                ("Sulfur", 0.0023333),
             ],
             modifiers: [
                 (modifier_type: "RareEarthsProduction", value: 0.02),
@@ -877,7 +890,7 @@
                 ("Lithium", 3.939e-05),
                 ("Water", 0.10),
                 ("Polymers", 0.002),
-                ("Sulfur", 0.002),
+                ("Sulfur", 0.00093333),
             ],
             modifiers: [
                 (modifier_type: "LithiumProduction", value: 0.0087),
@@ -900,7 +913,7 @@
             ],
             maintenance_resources: [
                 ("Iron", 0.005),
-                ("Sulfur", 0.0001),
+                ("Sulfur", 4.6667e-05),
                 ("Water", 0.05),
                 ("Polymers", 0.001),
                 ("Copper", 3.883e-05),
@@ -929,7 +942,7 @@
                 ("Phosphorus", 0.0001),
                 ("Water", 0.05),
                 ("Polymers", 0.001),
-                ("Sulfur", 0.005),
+                ("Sulfur", 0.0023333),
             ],
             modifiers: [
                 (modifier_type: "PhosphorusProduction", value: 14.6667),
@@ -940,7 +953,7 @@
         (
             id: "CobaltMine",
             display_name: "Cobalt Mine",
-            description: "Cobalt ore extraction. 0.01467 Mt/yr per build (v3.5: 25 × 0.01467 × 0.6 = 0.22 Mt/yr = 220 kt/yr = USGS 2026) × deposit.accessibility.",
+            description: "Cobalt ore extraction. 0.01333 Mt/yr per build (v3.8.10: 25 × 0.01333 × 0.6 = 0.20 Mt/yr = 200 kt/yr = USGS 2026; v3.5 had 0.0147 = 220, 10% over) × deposit.accessibility.",
             icon: "textures/ui/buildings/cobalt-mine.png",
             category: "Mining",
             build_points: 1700.0,
@@ -955,10 +968,10 @@
                 ("Cobalt", 0.0001),
                 ("Water", 0.05),
                 ("Polymers", 0.002),
-                ("Sulfur", 0.002),
+                ("Sulfur", 0.00093333),
             ],
             modifiers: [
-                (modifier_type: "CobaltProduction", value: 0.0147),
+                (modifier_type: "CobaltProduction", value: 0.01333),
             ],
             power_demand_mw: 240.0,
             line: Some("Mine"),
@@ -966,7 +979,7 @@
         (
             id: "FluorineMine",
             display_name: "Fluorine Mine",
-            description: "Fluorite (CaF₂) extraction / fluorospar mining. 0.3 Mt/yr per build (v3.5: 25 × 0.3 × 0.6 = 4.5 Mt/yr = USGS 2026) × deposit.accessibility.",
+            description: "Fluorite (CaF₂) extraction / fluorospar mining. 0.233 Mt/yr per build (v3.8.10: 25 × 0.233 × 0.6 = 3.5 Mt/yr = USGS 2026 fluorospar; v3.5 had 0.3 = 4.5, 28% over) × deposit.accessibility.",
             icon: "textures/ui/buildings/fluorine-mine.png",
             category: "Mining",
             build_points: 1400.0,
@@ -981,10 +994,10 @@
                 ("Fluorine", 0.0001),
                 ("Water", 0.05),
                 ("Polymers", 0.001),
-                ("Sulfur", 0.002),
+                ("Sulfur", 0.00093333),
             ],
             modifiers: [
-                (modifier_type: "FluorineProduction", value: 0.3),
+                (modifier_type: "FluorineProduction", value: 0.233),
             ],
             power_demand_mw: 200.0,
             line: Some("Mine"),
@@ -1009,7 +1022,7 @@
                 ("Uranium", 0.0001265),
                 ("Water", 0.05),
                 ("Polymers", 0.002),
-                ("Sulfur", 0.01),
+                ("Sulfur", 0.0046667),
             ],
             modifiers: [
                 (modifier_type: "UraniumProduction", value: 0.0049),
@@ -1061,7 +1074,7 @@
                 ("Iron", 0.005),
                 ("Water", 0.05),
                 ("Polymers", 0.001),
-                ("Sulfur", 0.001),
+                ("Sulfur", 0.00046667),
                 ("Methane", 0.0001),
             ],
             modifiers: [
@@ -1074,7 +1087,7 @@
         (
             id: "DeuteriumExtractor",
             display_name: "Deuterium Extractor",
-            description: "Deuterium (heavy water) extraction from seawater / ice. 0.00333 Mt/yr per build (v3.5: 25 × 0.00333 × 0.6 = 0.05 Mt/yr = 50 t/yr D2O = IAEA 2024) × deposit.accessibility.",
+            description: "Deuterium (heavy water) extraction from seawater / ice. 0.00233 Mt/yr per build (v3.8.10: 25 × 0.00233 × 0.6 = 0.035 Mt/yr = 35 t/yr D2O = IAEA 2024; v3.5 had 0.0033 = 50, 43% over) × deposit.accessibility.",
             icon: "textures/ui/buildings/deuterium-extractor.png",
             category: "Mining",
             build_points: 1800.0,
@@ -1089,11 +1102,11 @@
                 ("Iron", 0.01),
                 ("Water", 0.50),
                 ("Polymers", 0.002),
-                ("Sulfur", 0.001),
+                ("Sulfur", 0.00046667),
                 ("Deuterium", 0.0001),
             ],
             modifiers: [
-                (modifier_type: "DeuteriumProduction", value: 0.0033),
+                (modifier_type: "DeuteriumProduction", value: 0.00233),
             ],
             power_demand_mw: 350.0,
             line: Some("Mine"),
@@ -1118,7 +1131,7 @@
                 ("Helium3", 0.0001),
                 ("Water", 0.05),
                 ("Polymers", 0.002),
-                ("Sulfur", 0.001),
+                ("Sulfur", 0.00046667),
             ],
             modifiers: [
                 (modifier_type: "Helium3Production", value: 0.5),
@@ -1188,7 +1201,7 @@
                 ("Iron", 0.0001),
                 ("Water", 0.02),
                 ("Polymers", 0.002),
-                ("Sulfur", 0.001),
+                ("Sulfur", 0.00046667),
             ],
             modifiers: [
                 (modifier_type: "IronProduction", value: 12.0),
@@ -1216,7 +1229,7 @@
                 ("Aluminum", 0.0001),
                 ("Water", 0.02),
                 ("Polymers", 0.002),
-                ("Sulfur", 0.001),
+                ("Sulfur", 0.00046667),
             ],
             modifiers: [
                 (modifier_type: "AluminumProduction", value: 0.5),
@@ -1244,7 +1257,7 @@
                 ("Titanium", 0.0001),
                 ("Water", 0.02),
                 ("Polymers", 0.002),
-                ("Sulfur", 0.001),
+                ("Sulfur", 0.00046667),
             ],
             modifiers: [
                 (modifier_type: "TitaniumProduction", value: 0.002),
@@ -1272,7 +1285,7 @@
                 ("Silicates", 0.0001),
                 ("Water", 0.02),
                 ("Polymers", 0.002),
-                ("Sulfur", 0.001),
+                ("Sulfur", 0.00046667),
             ],
             modifiers: [
                 (modifier_type: "SilicatesProduction", value: 70.0),
@@ -1300,7 +1313,7 @@
                 ("Nickel", 0.0001),
                 ("Water", 0.02),
                 ("Polymers", 0.002),
-                ("Sulfur", 0.001),
+                ("Sulfur", 0.00046667),
             ],
             modifiers: [
                 (modifier_type: "NickelProduction", value: 0.02),
@@ -1328,7 +1341,7 @@
                 ("Tungsten", 0.0001),
                 ("Water", 0.02),
                 ("Polymers", 0.002),
-                ("Sulfur", 0.001),
+                ("Sulfur", 0.00046667),
             ],
             modifiers: [
                 (modifier_type: "TungstenProduction", value: 0.0005),
@@ -1356,7 +1369,7 @@
                 ("Carbon", 0.0001),
                 ("Water", 0.02),
                 ("Polymers", 0.002),
-                ("Sulfur", 0.001),
+                ("Sulfur", 0.00046667),
             ],
             modifiers: [
                 (modifier_type: "CarbonProduction", value: 35.0),
@@ -1384,7 +1397,7 @@
                 ("Chromium", 0.0001),
                 ("Water", 0.02),
                 ("Polymers", 0.002),
-                ("Sulfur", 0.001),
+                ("Sulfur", 0.00046667),
             ],
             modifiers: [
                 (modifier_type: "ChromiumProduction", value: 0.2),
@@ -1409,10 +1422,10 @@
             ],
             maintenance_resources: [
                 ("Iron", 0.01),
-                ("Magnesium", 0.0001),
+                ("Magnesium", 6.25e-05),
                 ("Water", 0.02),
                 ("Polymers", 0.002),
-                ("Sulfur", 0.001),
+                ("Sulfur", 0.00046667),
             ],
             modifiers: [
                 (modifier_type: "MagnesiumProduction", value: 0.007),
@@ -1440,7 +1453,7 @@
                 ("Gold", 0.0001),
                 ("Water", 0.02),
                 ("Polymers", 0.002),
-                ("Sulfur", 0.001),
+                ("Sulfur", 0.00046667),
             ],
             modifiers: [
                 (modifier_type: "GoldProduction", value: 1e-05),
@@ -1468,7 +1481,7 @@
                 ("Silver", 0.0001),
                 ("Water", 0.02),
                 ("Polymers", 0.002),
-                ("Sulfur", 0.001),
+                ("Sulfur", 0.00046667),
             ],
             modifiers: [
                 (modifier_type: "SilverProduction", value: 0.0001),
@@ -1496,7 +1509,7 @@
                 ("Platinum", 0.0001),
                 ("Water", 0.02),
                 ("Polymers", 0.002),
-                ("Sulfur", 0.001),
+                ("Sulfur", 0.00046667),
             ],
             modifiers: [
                 (modifier_type: "PlatinumProduction", value: 1e-06),
@@ -1524,7 +1537,7 @@
                 ("Copper", 3.883e-05),
                 ("Water", 0.02),
                 ("Polymers", 0.002),
-                ("Sulfur", 0.001),
+                ("Sulfur", 0.00046667),
             ],
             modifiers: [
                 (modifier_type: "CopperProduction", value: 0.15),
@@ -1552,7 +1565,7 @@
                 ("RareEarths", 0.0001),
                 ("Water", 0.02),
                 ("Polymers", 0.002),
-                ("Sulfur", 0.001),
+                ("Sulfur", 0.00046667),
             ],
             modifiers: [
                 (modifier_type: "RareEarthsProduction", value: 0.0025),
@@ -1580,7 +1593,7 @@
                 ("Lithium", 3.939e-05),
                 ("Water", 0.02),
                 ("Polymers", 0.002),
-                ("Sulfur", 0.001),
+                ("Sulfur", 0.00046667),
             ],
             modifiers: [
                 (modifier_type: "LithiumProduction", value: 0.0012),
@@ -1605,10 +1618,10 @@
             ],
             maintenance_resources: [
                 ("Iron", 0.01),
-                ("Sulfur", 0.0001),
+                ("Sulfur", 4.6667e-05),
                 ("Water", 0.02),
                 ("Polymers", 0.002),
-                ("Sulfur", 0.001),
+                ("Sulfur", 0.00046667),
             ],
             modifiers: [
                 (modifier_type: "SulfurProduction", value: 0.5),
@@ -1636,7 +1649,7 @@
                 ("Phosphorus", 0.0001),
                 ("Water", 0.02),
                 ("Polymers", 0.002),
-                ("Sulfur", 0.001),
+                ("Sulfur", 0.00046667),
             ],
             modifiers: [
                 (modifier_type: "PhosphorusProduction", value: 0.0003),
@@ -1664,7 +1677,7 @@
                 ("Cobalt", 0.0001),
                 ("Water", 0.02),
                 ("Polymers", 0.002),
-                ("Sulfur", 0.001),
+                ("Sulfur", 0.00046667),
             ],
             modifiers: [
                 (modifier_type: "CobaltProduction", value: 0.0015),
@@ -1692,7 +1705,7 @@
                 ("Fluorine", 0.0001),
                 ("Water", 0.02),
                 ("Polymers", 0.002),
-                ("Sulfur", 0.001),
+                ("Sulfur", 0.00046667),
             ],
             modifiers: [
                 (modifier_type: "FluorineProduction", value: 0.02),
@@ -1720,7 +1733,7 @@
                 ("Uranium", 0.0001265),
                 ("Water", 0.02),
                 ("Polymers", 0.002),
-                ("Sulfur", 0.001),
+                ("Sulfur", 0.00046667),
             ],
             modifiers: [
                 (modifier_type: "UraniumProduction", value: 0.0003),
@@ -1748,7 +1761,7 @@
                 ("Thorium", 0.0),
                 ("Water", 0.02),
                 ("Polymers", 0.002),
-                ("Sulfur", 0.001),
+                ("Sulfur", 0.00046667),
             ],
             modifiers: [
                 (modifier_type: "ThoriumProduction", value: 7e-05),
@@ -1776,7 +1789,7 @@
                 ("Methane", 0.0001),
                 ("Water", 0.02),
                 ("Polymers", 0.002),
-                ("Sulfur", 0.001),
+                ("Sulfur", 0.00046667),
             ],
             modifiers: [
                 (modifier_type: "MethaneProduction", value: 27.0),
@@ -1804,7 +1817,7 @@
                 ("Water", 0.05),
                 ("Polymers", 0.002),
                 ("Deuterium", 0.0001),
-                ("Sulfur", 0.001),
+                ("Sulfur", 0.00046667),
             ],
             modifiers: [
                 (modifier_type: "DeuteriumProduction", value: 0.05),
@@ -1832,7 +1845,7 @@
                 ("Helium3", 0.0001),
                 ("Water", 0.02),
                 ("Polymers", 0.002),
-                ("Sulfur", 0.001),
+                ("Sulfur", 0.00046667),
             ],
             modifiers: [
                 (modifier_type: "Helium3Production", value: 0.05),
@@ -1860,7 +1873,7 @@
                 ("Water", 0.05),
                 ("Polymers", 0.002),
                 ("Aluminum", 0.001),
-                ("Sulfur", 0.001),
+                ("Sulfur", 0.00046667),
             ],
             modifiers: [
                 (modifier_type: "WaterProduction", value: 1.6),
@@ -2217,10 +2230,10 @@
             maintenance_resources: [
                 ("Water", 10.0),
                 ("Phosphorus", 0.5),
-                ("Sulfur", 0.05),
+                ("Sulfur", 0.023333),
                 ("Polymers", 0.01),
                 ("Nitrogen", 0.5),
-                ("Oxygen", 0.2),
+                ("Oxygen", 0.13333),
             ],
             modifiers: [
                 // 2026 reference: world food total ~9,000 Mt/yr; 1 AgriDome
@@ -2260,7 +2273,7 @@
             ],
             maintenance_resources: [
                 ("Water", 0.0),
-                ("Sulfur", 0.003),
+                ("Sulfur", 0.0014),
                 ("Phosphorus", 0.0002),
                 ("Polymers", 0.001),
                 ("Nitrogen", 0.05),
@@ -2294,7 +2307,7 @@
                 ("Copper", 0.0019415),
                 ("Polymers", 0.003),
                 ("Phosphorus", 0.0005),
-                ("Sulfur", 0.0005),
+                ("Sulfur", 0.00023333),
             ],
             modifiers: [
                 // Population-growth bonus per centre; calibration target
@@ -2414,7 +2427,7 @@
                 ("Copper", 0.0007766),
                 ("Polymers", 0.001),
                 ("Water", 0.05),
-                ("Sulfur", 0.001),
+                ("Sulfur", 0.00046667),
             ],
             modifiers: [
                 // v3.6: WealthGeneration per CommercialHub = 500 MC/yr
@@ -2508,7 +2521,7 @@
                 ("Titanium", 0.002),
                 ("Chromium", 0.5),
                 ("Cobalt", 0.0001),
-                ("Magnesium", 0.002),
+                ("Magnesium", 0.00125),
                 ("Polymers", 0.005),
             ],
             modifiers: [
@@ -2560,7 +2573,7 @@
             maintenance_resources: [
                 ("Iron", 0.5),
                 ("Aluminum", 0.005),
-                ("Magnesium", 0.002),
+                ("Magnesium", 0.00125),
                 ("Water", 0.05),
                 ("Polymers", 0.001),
             ],
@@ -2677,16 +2690,21 @@
                 ("Silicates", 83.0),
             ],
             maintenance_resources: [
-                ("Carbon", 20.0),
+                ("Carbon", 10.0),
                 ("Iron", 0.1),
                 ("Copper", 0.0019415),
                 ("Water", 0.05),
-                ("Sulfur", 0.05),
+                ("Sulfur", 0.023333),
                 ("Polymers", 0.001),
             ],
             modifiers: [
                 // 2026 reference: world coal share ≈ 35% of 30,000 TWh/yr = 1,200 GW avg.
                 // Operator bar: 1 coal sector ≈ world coal share.
+                // v3.8.10: coal consumption halved 20→10 Mt/yr/build (50% efficiency
+                // improvement, ~2030 ultra-supercritical target). Same 5.56 GW output
+                // per plant, half the coal. 195 plants × 10 = 1950 Mt/yr coal use,
+                // leaving per-cap (5740) + maint (1950) = 7690 vs prod 8200 → +510
+                // surplus (exportable).
                 (modifier_type: "PowerGeneration", value: 5.56),
             ],
             power_demand_mw: 0.0,
@@ -2768,7 +2786,7 @@
             ],
             maintenance_resources: [
                 ("Water", 0.5),
-                ("Sulfur", 0.1),
+                ("Sulfur", 0.046667),
                 ("Phosphorus", 0.0005),
                 ("Polymers", 0.005),
                 ("Nitrogen", 0.05),
@@ -2800,7 +2818,7 @@
             ],
             maintenance_resources: [
                 ("Iron", 0.01),
-                ("Sulfur", 0.005),
+                ("Sulfur", 0.0023333),
                 ("Polymers", 0.001),
                 ("Copper", 0.0003883),
                 ("Phosphorus", 0.0001),
@@ -2808,15 +2826,15 @@
             modifiers: [
                 // 1 complex ≈ 0.2% world growth-rate boost.
                 (modifier_type: "PopulationGrowth", value: 20.0),
-                // v3.8.4 (2026-08-07): per-build water production
-                // (was missing — Earth had 500 WaterTreatmentPlant
-                // producing 0 water). Calibrated so 500 plants ×
-                // value × 0.6 Earth access = 1× 2026 world water
-                // throughput (~3,700 Mt/yr = 1,500 Mt industrial +
-                // 1,600 Mt agricultural + 600 Mt municipal;
-                // UNESCO 2024 / IEA 2024).  value = 3,700 /
-                // 500 / 0.6 = 12.33 Mt/yr/build.
-                (modifier_type: "WaterProduction", value: 12.33),
+                // v3.8.4: added per-build water production
+                // (Earth had 500 WaterTreatmentPlant producing 0).
+                // v3.8.10 (2026-08-07): calibrated to 8.0 Mt/yr/build so
+                // 500 plants = 4,000 Mt/yr = real 2026 world water
+                // throughput (UNESCO 2024 / IEA 2024: 1,500 industrial +
+                // 1,500 agricultural + 1,000 municipal).  v3.8.4 had 12.33
+                // = 3,700 Mt (close but 8% under), v3.8.10 bumps to 8.0
+                // (= exactly 1× 2026 world).
+                (modifier_type: "WaterProduction", value: 8.0),
             ],
             power_demand_mw: 150.0,
         ),
@@ -2839,7 +2857,7 @@
                 ("Titanium", 0.005),
                 ("Polymers", 0.001),
                 ("Copper", 0.0003883),
-                ("Sulfur", 0.001),
+                ("Sulfur", 0.00046667),
             ],
             modifiers: [
                 // 1 plant ≈ 0.1% world growth-rate boost.
@@ -2867,7 +2885,7 @@
             maintenance_resources: [
                 ("Water", 2.0),
                 ("Phosphorus", 0.001),
-                ("Sulfur", 0.001),
+                ("Sulfur", 0.00046667),
                 ("Polymers", 0.005),
                 ("Nitrogen", 0.05),
             ],
@@ -2897,7 +2915,7 @@
                 ("Phosphorus", 0.0005),
                 ("Nitrogen", 0.05),
                 ("Polymers", 0.001),
-                ("Sulfur", 0.0005),
+                ("Sulfur", 0.00023333),
             ],
             modifiers: [
                 // 2026 reference: world aquaculture production ~180 Mt/yr
@@ -2962,7 +2980,7 @@
             maintenance_resources: [
                 ("Iron", 1.0),
                 ("Aluminum", 0.01),
-                ("Magnesium", 0.004),
+                ("Magnesium", 0.0025),
                 ("Polymers", 0.005),
                 ("Water", 0.05),
             ],
@@ -3016,7 +3034,7 @@
                 ("Polymers", 0.001),
                 ("Copper", 0.0003883),
                 ("Water", 0.01),
-                ("Sulfur", 0.0005),
+                ("Sulfur", 0.00023333),
             ],
             modifiers: [
                 // 1 depot adds 10% to base cap for every resource type globally.
