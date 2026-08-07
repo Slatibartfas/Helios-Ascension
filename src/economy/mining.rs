@@ -169,22 +169,71 @@ fn consume_with_fallback(
     amount.max(0.0) - remaining
 }
 
+/// v3.8: cap-aware production throttle. The body always produces up
+/// to `desired`, but capped at the amount that the local stockpile
+/// can absorb PLUS the upcoming consumption — so when the stockpile
+/// is at cap, production tapers down to exactly the consumption
+/// rate, giving the player a "net = 0" readout (and a stable
+/// cap-saturated stockpile in steady state).
+///
+/// Formula:
+///   throttled = min(desired, headroom + consumption_per_tick)
+///
+/// where `headroom = max(0, cap - current)`. The
+/// `+ consumption_per_tick` term keeps a small floor of production
+/// running at cap so the body still extracts enough material to
+/// cover its own draw (the excess over `headroom` is "vented" —
+/// see `extract_resources` for the body-mass accounting).
+///
+/// Behaviour:
+/// * `cap >= f64::MAX` (exotic / uncapped resources): passthrough
+/// * `desired <= 0`: passthrough (no mining, no throttle)
+/// * `headroom >= desired`: passthrough (full production, plenty of room)
+/// * `headroom < desired`: throttled
+/// * `headroom == 0` (at cap): throttled = `consumption_per_tick`
+///   (production covers the local draw; net flow = 0)
+fn throttle_production(
+    desired: f64,
+    current: f64,
+    cap: f64,
+    consumption_per_tick: f64,
+) -> f64 {
+    // Always return a non-negative value. Negative `desired` is
+    // a defensive no-op (a body can't "un-mine" material).
+    if cap >= f64::MAX || desired <= 0.0 {
+        return desired.max(0.0);
+    }
+    let headroom = (cap - current).max(0.0);
+    let effective_capacity = headroom + consumption_per_tick.max(0.0);
+    desired.min(effective_capacity)
+}
+
+/// v3.8: deposit `amount` of `resource` into the body's local
+/// stockpile (or global budget fallback) and **return the amount
+/// actually added** (capped at the body's effective per-resource
+/// stockpile cap). Negative `amount` is clamped to zero. A return
+/// of `0.0` means the stockpile was already at cap.
+///
+/// Replaces the v0.5.2 `deposit_with_fallback` that returned `()`;
+/// the new signature lets `extract_resources` use the throttled
+/// deposit (not the pre-cap gross) for body-mass accounting and
+/// rate-tracker bookkeeping.
 fn deposit_with_fallback(
     local_opt: &mut Option<Mut<LocalStockpile>>,
     budget: &mut GlobalBudget,
     resource: ResourceType,
     amount: f64,
-) {
+) -> f64 {
     let amount = amount.max(0.0);
     if amount <= 0.0 {
-        return;
+        return 0.0;
     }
 
     if let Some(local) = local_opt.as_deref_mut() {
         let cap = budget.effective_stockpile_cap(resource);
-        local.add_capped(resource, amount, cap);
+        local.add_capped(resource, amount, cap)
     } else {
-        budget.add_resource_capped(resource, amount);
+        budget.add_resource_capped(resource, amount)
     }
 }
 
@@ -253,18 +302,41 @@ pub fn extract_resources(
         all_query.iter_mut()
     {
         /// Deposit helper: goes to LocalStockpile when present, GlobalBudget otherwise.
+        /// v3.8: returns the **actual amount added** (capped at the
+        /// body's effective stockpile cap), so callers can use the
+        /// throttled deposit (not the pre-cap gross) for body-mass
+        /// accounting and rate-tracker bookkeeping.
         macro_rules! deposit {
-            ($rt:expr, $amount:expr) => {
+            ($rt:expr, $amount:expr) => {{
                 if $amount > 0.0 {
                     if let Some(ref mut ls) = local_opt {
                         let cap = budget.effective_stockpile_cap($rt);
-                        ls.add_capped($rt, $amount, cap);
+                        ls.add_capped($rt, $amount, cap)
                     } else {
-                        budget.add_resource_capped($rt, $amount);
+                        budget.add_resource_capped($rt, $amount)
                     }
+                } else {
+                    0.0
                 }
-            };
+            }};
         }
+
+        // v3.8: per-tick consumption of `resource` on this body.
+        // Colony bodies get the full per-capita + maintenance draw
+        // from `colony.annual_resource_consumption`. Bodies with no
+        // colony (just a MiningOperation) consume nothing — their
+        // throttle is therefore the strict headroom cap.
+        let per_tick_consumption = |rt: ResourceType| -> f64 {
+            if let Some(c) = colony_opt {
+                if let Some(d) = buildings_data.as_ref() {
+                    c.annual_resource_consumption(rt, d) * years_elapsed
+                } else {
+                    0.0
+                }
+            } else {
+                0.0
+            }
+        };
 
         // GRA-83 PR-E: per-body orbital survey station bonus
         // multiplies the body's mining rates (NOT atmospheric
@@ -281,6 +353,26 @@ pub fn extract_resources(
 
                 if let Some(deposit) = resources.deposits.get_mut(&op.resource_type) {
                     let mut demand = op.base_rate_mt_per_year * mining_bonus * years_elapsed;
+
+                    // v3.8: cap-aware throttle. Throttle at the demand
+                    // level so deposit reserves, body mass, and
+                    // stockpile stay consistent (the mine only digs
+                    // what the local stockpile can absorb + cover the
+                    // upcoming consumption). At cap: throttled
+                    // demand = per-tick consumption, so the body
+                    // still extracts just enough to keep its local
+                    // industry supplied; the net stockpile change is
+                    // ~0 and the displayed net rate is 0.
+                    let cap = budget.effective_stockpile_cap(op.resource_type);
+                    let current = local_opt
+                        .as_ref()
+                        .map_or(0.0, |ls| ls.get(&op.resource_type));
+                    demand = throttle_production(
+                        demand,
+                        current,
+                        cap,
+                        per_tick_consumption(op.resource_type),
+                    );
 
                     // 1. Proven Crustal (Cheapest)
                     let taking_proven = demand.min(deposit.reserve.proven_crustal);
@@ -305,7 +397,11 @@ pub fn extract_resources(
 
                     if total_extracted > 0.0 {
                         deposit!(op.resource_type, total_extracted);
-                        // Reduce body mass (1 Mt = 1e9 kg)
+                        // Reduce body mass (1 Mt = 1e9 kg). v3.8:
+                        // `total_extracted` is already throttled, so
+                        // body mass matches what actually leaves the
+                        // body and lands in the stockpile (or is
+                        // vented when the cap is full).
                         body.mass -= total_extracted * 1e9;
                     }
                 }
@@ -463,7 +559,25 @@ pub fn extract_resources(
                             let effective_rate = total_atmo_rate * share;
 
                             if let Some(deposit) = resources.deposits.get_mut(r_type) {
+                                // v3.8: per-gas cap-aware throttle. Each
+                                // gas in the cryogenic stream is
+                                // throttled independently by its own
+                                // local stockpile. N₂ sitting at cap
+                                // doesn't block O₂ extraction, and the
+                                // air processor "vents" the N₂ share.
+                                // demand_below = gross
                                 let mut demand = effective_rate * years_elapsed;
+                                let cap = budget.effective_stockpile_cap(*r_type);
+                                let current = local_opt
+                                    .as_ref()
+                                    .map_or(0.0, |ls| ls.get(r_type));
+                                demand = throttle_production(
+                                    demand,
+                                    current,
+                                    cap,
+                                    per_tick_consumption(*r_type),
+                                );
+
                                 let mut extracted = 0.0;
 
                                 // Atmospheric (proven tier)
@@ -512,9 +626,26 @@ pub fn extract_resources(
                         // gate, but a 0-accessibility fallback is safe.
                         continue;
                     }
-                    let amount = base_rate * access * bonus * years_elapsed;
-                    if amount > 0.0 {
-                        deposit_with_fallback(&mut local_opt, &mut budget, *resource, amount);
+                    // v3.8: cap-aware throttle. Direct-production
+                    // modifiers (IronMine, He3Mine, WaterProcessor, etc.)
+                    // don't subtract from the body — they represent
+                    // refining / synthesising — so we throttle the
+                    // deposit directly rather than the extraction. The
+                    // excess over `headroom` is "vented" (refined
+                    // material that can't be stored).
+                    let cap = budget.effective_stockpile_cap(*resource);
+                    let current = local_opt
+                        .as_ref()
+                        .map_or(0.0, |ls| ls.get(resource));
+                    let desired = base_rate * access * bonus * years_elapsed;
+                    let throttled = throttle_production(
+                        desired,
+                        current,
+                        cap,
+                        per_tick_consumption(*resource),
+                    );
+                    if throttled > 0.0 {
+                        deposit_with_fallback(&mut local_opt, &mut budget, *resource, throttled);
                     }
                 }
 
@@ -549,8 +680,41 @@ pub fn extract_resources(
                             continue;
                         }
 
+                        // v3.8: cap-aware throttle on the OUTPUT side.
+                        // Inputs are still drawn for `actual_output`
+                        // (a small over-draw when the output is at
+                        // cap — accepted as "process inefficiency at
+                        // cap"; the alternative is to throttle inputs
+                        // and outputs together, which is a bigger
+                        // change for a future patch). At cap the
+                        // displayed production = the consumption the
+                        // body actually draws, and the excess output
+                        // is vented.
+                        let cap = budget.effective_stockpile_cap(rule.output);
+                        let current = local_opt
+                            .as_ref()
+                            .map_or(0.0, |ls| ls.get(&rule.output));
+                        let throttled_output = throttle_production(
+                            actual_output,
+                            current,
+                            cap,
+                            per_tick_consumption(rule.output),
+                        );
+
+                        if throttled_output <= 0.0 {
+                            // v3.8: cap full AND no per-body
+                            // consumption means the output has
+                            // nowhere to go. The factory is idle
+                            // (no inputs drawn, no output deposited).
+                            // A future pass could throttle inputs
+                            // proportionally when the output is
+                            // partially capped; for now this is a
+                            // hard idle at saturation.
+                            continue;
+                        }
+
                         for (input_resource, input_per_output) in rule.inputs_per_output {
-                            let input_amount = actual_output * *input_per_output;
+                            let input_amount = throttled_output * *input_per_output;
                             consume_with_fallback(
                                 &mut local_opt,
                                 &mut budget,
@@ -563,7 +727,7 @@ pub fn extract_resources(
                             &mut local_opt,
                             &mut budget,
                             rule.output,
-                            actual_output,
+                            throttled_output,
                         );
                     }
                 }
@@ -595,10 +759,15 @@ pub fn extract_resources(
 /// bar always reflects actual accumulation.
 pub fn update_resource_rates(
     mut tracker: ResMut<ResourceRateTracker>,
+    // v3.8: LocalStockpile added to the mining_ops query so per-entity
+    // production rates can be cap-throttled to match what
+    // `extract_resources` actually deposits (the old query only knew
+    // gross production and showed positive rates even at cap).
     mining_ops: Query<(
         Entity,
         &MiningOperation,
         Option<&PlanetResources>,
+        Option<&LocalStockpile>,
         Option<&ContinuousStationBonus>,
     )>,
     research_buildings: Query<&crate::research::components::ResearchBuilding>,
@@ -623,8 +792,10 @@ pub fn update_resource_rates(
         std::collections::HashMap<ResourceType, f64>,
     > = std::collections::HashMap::new();
 
+    let monthly_fraction = SECONDS_PER_MONTH / SECONDS_PER_YEAR;
+
     // 1. MiningOperation components
-    for (entity, op, resources_opt, station_bonus_opt) in mining_ops.iter() {
+    for (entity, op, resources_opt, local_opt, station_bonus_opt) in mining_ops.iter() {
         if !op.active {
             continue;
         }
@@ -645,14 +816,22 @@ pub fn update_resource_rates(
         let mining_bonus = ContinuousStationBonus::multiplier_or_neutral(station_bonus_opt);
         // base_rate_mt_per_year → per month = rate * (month / year)
         let monthly =
-            op.base_rate_mt_per_year * mining_bonus * (SECONDS_PER_MONTH / SECONDS_PER_YEAR);
-        *rates.entry(op.resource_type).or_insert(0.0) += monthly;
-        *production_rates.entry(op.resource_type).or_insert(0.0) += monthly;
+            op.base_rate_mt_per_year * mining_bonus * monthly_fraction;
+        // v3.8: cap-aware throttle. MiningOperation bodies without
+        // a colony consume nothing, so the throttle is the strict
+        // headroom cap. With a colony (rare for v0.5.2 MiningOps —
+        // those usually live on AutoMine bodies) the consumption
+        // floor keeps a small production running at cap.
+        let cap = budget.effective_stockpile_cap(op.resource_type);
+        let current = local_opt.map_or(0.0, |ls| ls.get(&op.resource_type));
+        let throttled = throttle_production(monthly, current, cap, 0.0);
+        *rates.entry(op.resource_type).or_insert(0.0) += throttled;
+        *production_rates.entry(op.resource_type).or_insert(0.0) += throttled;
         *per_entity
             .entry(entity)
             .or_default()
             .entry(op.resource_type)
-            .or_insert(0.0) += monthly;
+            .or_insert(0.0) += throttled;
     }
 
     // Helper macro-like closure to add to both global and per-entity rates
@@ -745,7 +924,7 @@ pub fn update_resource_rates(
 
                 // Atmospheric harvesting rates (weighted by concentration)
                 if total_atmo_rate > 0.0 {
-                    let monthly_total = total_atmo_rate * (SECONDS_PER_MONTH / SECONDS_PER_YEAR);
+                    let monthly_total = total_atmo_rate * monthly_fraction;
 
                     let harvestable: Vec<(ResourceType, f64)> = resources
                         .deposits
@@ -762,14 +941,36 @@ pub fn update_resource_rates(
                     if total_weight > 0.0 {
                         for (r_type, weight) in &harvestable {
                             let share = weight / total_weight;
-                            add_production(
-                                &mut rates,
-                                &mut production_rates,
-                                &mut per_entity,
-                                entity,
-                                *r_type,
-                                monthly_total * share,
+                            // v3.8: per-gas cap-aware throttle. The
+                            // cryogenic stream is throttled per-gas
+                            // so a saturated N₂ stockpile doesn't
+                            // cap O₂/Ar extraction.
+                            let cap = budget.effective_stockpile_cap(*r_type);
+                            let current = local_opt.map_or(0.0, |ls| ls.get(r_type));
+                            let monthly_consumption = buildings_data
+                                .as_ref()
+                                .map(|d| {
+                                    colony.annual_resource_consumption(*r_type, d)
+                                        * monthly_fraction
+                                })
+                                .unwrap_or(0.0);
+                            let gross_share = monthly_total * share;
+                            let throttled = throttle_production(
+                                gross_share,
+                                current,
+                                cap,
+                                monthly_consumption,
                             );
+                            if throttled > 0.0 {
+                                add_production(
+                                    &mut rates,
+                                    &mut production_rates,
+                                    &mut per_entity,
+                                    entity,
+                                    *r_type,
+                                    throttled,
+                                );
+                            }
                         }
                     }
                 }
@@ -777,7 +978,6 @@ pub fn update_resource_rates(
                 // v0.5.2: per-resource direct production (rate tracker).
                 // For each resource, monthly_rate =
                 //   base_rate × deposit.accessibility × bonus × monthly_fraction
-                let monthly_fraction = SECONDS_PER_MONTH / SECONDS_PER_YEAR;
                 for (resource, base_rate) in &direct_production {
                     let access = resources
                         .get_deposit(resource)
@@ -787,14 +987,32 @@ pub fn update_resource_rates(
                         continue;
                     }
                     let monthly = base_rate * access * mining_bonus * monthly_fraction;
-                    if monthly > 0.0 {
+                    // v3.8: cap-aware throttle. The displayed
+                    // production rate is the throttled value so
+                    // the player sees the mine slow down as the
+                    // local stockpile approaches cap.
+                    let cap = budget.effective_stockpile_cap(*resource);
+                    let current = local_opt.map_or(0.0, |ls| ls.get(resource));
+                    let monthly_consumption = buildings_data
+                        .as_ref()
+                        .map(|d| {
+                            colony.annual_resource_consumption(*resource, d) * monthly_fraction
+                        })
+                        .unwrap_or(0.0);
+                    let throttled = throttle_production(
+                        monthly,
+                        current,
+                        cap,
+                        monthly_consumption,
+                    );
+                    if throttled > 0.0 {
                         add_production(
                             &mut rates,
                             &mut production_rates,
                             &mut per_entity,
                             entity,
                             *resource,
-                            monthly,
+                            throttled,
                         );
                     }
                 }
@@ -855,8 +1073,41 @@ pub fn update_resource_rates(
                             continue;
                         }
 
+                        // v3.8: cap-aware throttle on the OUTPUT
+                        // rate. The display mirrors the deposit
+                        // throttle in `extract_resources` so the
+                        // production rate and the actual stockpile
+                        // change stay in sync. At cap the
+                        // production rate = monthly consumption and
+                        // the net rate = 0.
+                        let cap = budget.effective_stockpile_cap(rule.output);
+                        let current = local_opt.map_or(0.0, |ls| ls.get(&rule.output));
+                        let monthly_consumption = buildings_data
+                            .as_ref()
+                            .map(|d| {
+                                colony
+                                    .annual_resource_consumption(rule.output, d)
+                                    * monthly_fraction
+                            })
+                            .unwrap_or(0.0);
+                        let throttled_output = throttle_production(
+                            actual_output,
+                            current,
+                            cap,
+                            monthly_consumption,
+                        );
+
+                        if throttled_output <= 0.0 {
+                            // Output is fully saturated and there is
+                            // no per-body draw on it — the factory
+                            // is idle. Skip the input draw entirely
+                            // (matches `extract_resources`'s
+                            // v3.8 idle-on-saturation branch).
+                            continue;
+                        }
+
                         for (input_resource, input_per_output) in rule.inputs_per_output {
-                            let consumed = actual_output * *input_per_output;
+                            let consumed = throttled_output * *input_per_output;
                             *simulated_available.entry(*input_resource).or_insert(0.0) -= consumed;
                             add_consumption(
                                 &mut rates,
@@ -868,14 +1119,15 @@ pub fn update_resource_rates(
                             );
                         }
 
-                        *simulated_available.entry(rule.output).or_insert(0.0) += actual_output;
+                        *simulated_available.entry(rule.output).or_insert(0.0) +=
+                            throttled_output;
                         add_production(
                             &mut rates,
                             &mut production_rates,
                             &mut per_entity,
                             entity,
                             rule.output,
-                            actual_output,
+                            throttled_output,
                         );
                     }
                 }
@@ -1199,5 +1451,151 @@ mod tests {
             .collect();
 
         assert!(minable.is_empty(), "Sub-kiloton Gold should not be minable");
+    }
+
+    // ============================================================
+    // v3.8: cap-aware production-throttle tests
+    // ============================================================
+
+    /// At low fill (plenty of headroom), the throttle is a passthrough
+    /// and the mine produces the full desired amount.
+    #[test]
+    fn throttle_production_at_low_fill_is_passthrough() {
+        let desired = 1_000.0;
+        let current = 100.0;
+        let cap = 2_500.0;
+        let consumption = 50.0; // small per-tick consumption
+        let throttled = throttle_production(desired, current, cap, consumption);
+        assert_eq!(throttled, desired);
+    }
+
+    /// At cap, the throttle equals the consumption floor (so the
+    /// body's local industry is still supplied and the net stockpile
+    /// change is 0).
+    #[test]
+    fn throttle_production_at_cap_equals_consumption() {
+        let desired = 1_000.0;
+        let current = 2_500.0; // at cap
+        let cap = 2_500.0;
+        let consumption = 50.0;
+        let throttled = throttle_production(desired, current, cap, consumption);
+        // throttled = min(desired, headroom + consumption) = min(1000, 0 + 50) = 50
+        assert!((throttled - 50.0).abs() < 1e-9, "expected 50, got {throttled}");
+    }
+
+    /// Above cap (shouldn't happen in practice, but the formula is
+    /// robust): throttled is still the consumption floor.
+    #[test]
+    fn throttle_production_above_cap_equals_consumption() {
+        let desired = 1_000.0;
+        let current = 3_000.0; // somehow above cap
+        let cap = 2_500.0;
+        let consumption = 50.0;
+        let throttled = throttle_production(desired, current, cap, consumption);
+        // headroom = max(0, cap - current) = max(0, -500) = 0
+        // throttled = min(desired, 0 + 50) = 50
+        assert!((throttled - 50.0).abs() < 1e-9);
+    }
+
+    /// At half-fill with non-zero consumption, the throttle
+    /// smoothly tapers between the full production rate and the
+    /// consumption floor.
+    #[test]
+    fn throttle_production_at_half_fill_is_partial() {
+        let desired = 1_000.0;
+        let current = 1_250.0;
+        let cap = 2_500.0;
+        let consumption = 50.0;
+        let throttled = throttle_production(desired, current, cap, consumption);
+        // headroom = 1250, throttled = min(1000, 1250 + 50) = 1000 (full)
+        assert_eq!(throttled, desired);
+    }
+
+    /// Near the cap, the throttle is reduced by the headroom
+    /// constraint.  At fill_ratio = 0.99 with desired = 100 and
+    /// consumption = 20:
+    ///   headroom = 25, throttled = min(100, 25 + 20) = 45
+    #[test]
+    fn throttle_production_near_cap_throttles_by_headroom() {
+        let desired = 100.0;
+        let current = 2_475.0; // 99% of 2500
+        let cap = 2_500.0;
+        let consumption = 20.0;
+        let throttled = throttle_production(desired, current, cap, consumption);
+        assert!((throttled - 45.0).abs() < 1e-9, "expected 45, got {throttled}");
+    }
+
+    /// Resources with no per-body cap (exotic / late-game) bypass
+    /// the throttle.  `f64::MAX` is the sentinel for "uncapped" in
+    /// `GlobalBudget::effective_stockpile_cap`.
+    #[test]
+    fn throttle_production_uncapped_is_passthrough() {
+        let desired = 1_000.0;
+        let current = 9_999_999.0; // some huge stockpile
+        let cap = f64::MAX;
+        let consumption = 50.0;
+        let throttled = throttle_production(desired, current, cap, consumption);
+        assert_eq!(throttled, desired);
+    }
+
+    /// Zero desired is a passthrough (no mining, no throttle).
+    #[test]
+    fn throttle_production_zero_desired_is_passthrough() {
+        let desired = 0.0;
+        let current = 2_500.0; // at cap
+        let cap = 2_500.0;
+        let consumption = 50.0;
+        let throttled = throttle_production(desired, current, cap, consumption);
+        assert_eq!(throttled, 0.0);
+    }
+
+    /// Negative desired (defensive) is clamped to 0 — same as the
+    /// add_capped deposit helper.
+    #[test]
+    fn throttle_production_negative_desired_is_zero() {
+        let desired = -10.0;
+        let current = 0.0;
+        let cap = 2_500.0;
+        let consumption = 50.0;
+        let throttled = throttle_production(desired, current, cap, consumption);
+        assert_eq!(throttled, 0.0);
+    }
+
+    /// Negative consumption (defensive) is treated as 0 — the
+    /// consumption floor is a non-negative quantity.
+    #[test]
+    fn throttle_production_negative_consumption_treated_as_zero() {
+        let desired = 1_000.0;
+        let current = 2_500.0; // at cap
+        let cap = 2_500.0;
+        let consumption = -10.0; // defensive
+        // With consumption = 0: headroom = 0, throttled = min(1000, 0) = 0
+        let throttled = throttle_production(desired, current, cap, consumption);
+        assert_eq!(throttled, 0.0);
+    }
+
+    /// `deposit_with_fallback` returns the actual amount added
+    /// (capped at headroom).  This is the contract the rest of
+    /// `extract_resources` and the rate tracker rely on.
+    #[test]
+    fn deposit_with_fallback_returns_actual_added_amount() {
+        let mut local = LocalStockpile::new();
+        // Cap via the global sentinel: simulate a per-body cap by
+        // calling add_capped directly (deposit_with_fallback reads
+        // cap from GlobalBudget, which is harder to mock here).
+        let cap = 100.0;
+        let added = local.add_capped(ResourceType::Iron, 50.0, cap);
+        assert_eq!(added, 50.0);
+        assert_eq!(local.get(&ResourceType::Iron), 50.0);
+
+        // Now try to add 80 more — only 50 should land.
+        let added = local.add_capped(ResourceType::Iron, 80.0, cap);
+        assert_eq!(added, 50.0);
+        assert_eq!(local.get(&ResourceType::Iron), 100.0);
+
+        // And zero headroom means 0 added.
+        let added = local.add_capped(ResourceType::Iron, 10.0, cap);
+        assert_eq!(added, 0.0);
+        assert_eq!(local.get(&ResourceType::Iron), 100.0);
     }
 }

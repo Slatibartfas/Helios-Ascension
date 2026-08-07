@@ -376,6 +376,68 @@ impl Colony {
         out
     }
 
+    /// v3.8: per-body annual consumption of a single resource, summing
+    /// the per-capita biological draw and the yield-scaled building
+    /// maintenance draw. Used by `economy::mining::throttle_production`
+    /// to compute the "consumption floor" that a body always produces
+    /// to keep itself supplied, even when the local stockpile is at cap.
+    ///
+    /// Industrial process *inputs* (e.g. Iron consumed by SteelMill)
+    /// are intentionally excluded: those are downstream of the
+    /// `feasible_output_amount` input-availability throttle and would
+    /// create a circular reference (the input draw depends on the
+    /// output rate, which is itself throttled by the output cap).
+    ///
+    /// Returns Mt/yr.
+    pub fn annual_resource_consumption(
+        &self,
+        resource: crate::economy::ResourceType,
+        data: &super::data::BuildingsData,
+    ) -> f64 {
+        let pcc = &data.colony_constants.per_capita_consumption;
+        let pop = self.population;
+        let yield_mult = self.effective_yield_multiplier();
+
+        // Per-capita (biological) draw — same per-resource map the
+        // per-capita HashMap uses, just looked up by enum so we don't
+        // have to allocate per call.
+        let per_capita = match resource {
+            crate::economy::ResourceType::Iron => pcc.iron_mt_per_year,
+            crate::economy::ResourceType::Copper => pcc.copper_mt_per_year,
+            crate::economy::ResourceType::Aluminum => pcc.aluminum_mt_per_year,
+            crate::economy::ResourceType::Silicates => pcc.silicates_mt_per_year,
+            crate::economy::ResourceType::Titanium => pcc.titanium_mt_per_year,
+            crate::economy::ResourceType::Polymers => pcc.polymers_mt_per_year,
+            crate::economy::ResourceType::Phosphorus => pcc.phosphorus_mt_per_year,
+            crate::economy::ResourceType::Sulfur => pcc.sulfur_mt_per_year,
+            crate::economy::ResourceType::Nitrogen => pcc.nitrogen_mt_per_year,
+            crate::economy::ResourceType::Methane => pcc.methane_mt_per_year,
+            crate::economy::ResourceType::Uranium => pcc.uranium_mt_per_year,
+            crate::economy::ResourceType::Carbon => pcc.carbon_mt_per_year,
+            _ => 0.0,
+        };
+        let population_draw = pop * per_capita;
+
+        // Maintenance draw (yield-scaled per GRA-22 §4.7 — matches the
+        // loop in `deduct_maintenance_resources`).
+        let mut maintenance_draw = 0.0;
+        for (bt, count) in &self.buildings {
+            if *count == 0 {
+                continue;
+            }
+            let maintenance = data.maintenance_resources(bt);
+            for (res_name, amt) in maintenance {
+                if let Some(rt) = super::data::parse_resource_type(res_name) {
+                    if rt == resource {
+                        maintenance_draw += amt * (*count as f64) * yield_mult;
+                    }
+                }
+            }
+        }
+
+        population_draw + maintenance_draw
+    }
+
     /// Calculate base population growth rate per year.
     ///
     /// Base growth: 0.9% per year (Earth 2026 demographic baseline).
@@ -1010,5 +1072,53 @@ mod tests {
             (earth.effective_yield_multiplier() - 1.0).abs() < 1e-9,
             "Earth's effective yield must be 1.00",
         );
+    }
+
+    // ============================================================
+    // v3.8: per-resource annual-consumption helper (used by
+    // economy::mining::throttle_production as the "consumption
+    // floor" at cap).
+    // ============================================================
+
+    #[test]
+    fn test_annual_resource_consumption_zero_for_empty_colony() {
+        // No population, no buildings → no draw.
+        let colony = Colony::new("Luna".to_string(), 0.0);
+        let draw = colony.annual_resource_consumption(
+            crate::economy::ResourceType::Iron,
+            &data(),
+        );
+        assert_eq!(draw, 0.0);
+    }
+
+    #[test]
+    fn test_annual_resource_consumption_per_capita_scales_with_pop() {
+        // 8.2B people × iron_mt_per_year (default 0.000000213 Mt/p/yr
+        // = 213 kg/p/yr per worldsteel 2024 finished-steel demand) =
+        // 1,747 Mt/yr. Sanity check: ~70% of USGS 2024 world iron-ore
+        // demand (~2,500 Mt/yr finished-steel equivalent).
+        let colony = Colony::new_civilisation("Earth".to_string(), 8.2e9);
+        let draw = colony.annual_resource_consumption(
+            crate::economy::ResourceType::Iron,
+            &data(),
+        );
+        // 0.000000213 Mt/p/yr × 8.2e9 = 1,746.6 Mt/yr
+        assert!(
+            (draw - 1_746.6).abs() < 5.0,
+            "8.2B × 213 kg/p/yr should be ~1,747 Mt/yr, got {draw}",
+        );
+    }
+
+    #[test]
+    fn test_annual_resource_consumption_zero_for_unmet_resource() {
+        // Tungsten is NOT in the per-capita block, so population
+        // contributes 0. (Industrial maintenance is the only path
+        // for non-per-capita resources.)
+        let colony = Colony::new_civilisation("Earth".to_string(), 8.2e9);
+        let draw = colony.annual_resource_consumption(
+            crate::economy::ResourceType::Tungsten,
+            &data(),
+        );
+        assert_eq!(draw, 0.0);
     }
 }

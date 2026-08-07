@@ -2966,6 +2966,190 @@ mortality_rate    = max_mortality × (threshold - ratio) / threshold
 
 ---
 
+## §0.N v3.8 addendum - Cap-aware production throttling (v3.8 NEW, 2026-08-07)
+
+### 0.N.1 Why this exists
+
+User feedback (v3.7 ship): the displayed "Net Rate" for many
+resources stayed strongly positive (e.g. Iron +275.4 Mt/mo,
+Silicates +656.8 Mt/mo, Carbon +577.7 Mt/mo) even when the
+aggregate stockpile was already at 1 Gt+ — the user expected
+"once stockpiles are full, production reduces to cover only the
+consumption, currently mines keep extracting and stockpiles are
+not capped somehow."
+
+Root cause: the per-body stockpile cap is enforced (the deposit
+side already calls `LocalStockpile::add_capped` and
+`GlobalBudget::add_resource_capped`, both of which clamp to the
+effective cap), but the *rate display* in
+`update_resource_rates` was reading the gross production
+(`base_rate × yield × bonus × monthly_fraction`) and reporting
+it as the production rate. The deposit was being correctly
+capped; the player just couldn't see it.
+
+Secondary cause: `extract_resources` was reducing body mass by
+the *gross* extraction (`total_extracted * 1e9 kg`) even when
+the deposit was capped, so on a fully-capped body the body
+silently lost mass for material that went straight to "vent"
+without ever entering the stockpile. v3.8 throttles the
+extraction so the body mass matches what actually leaves the
+body and lands in (or is vented from) the stockpile.
+
+### 0.N.2 Throttle formula
+
+```
+throttled = min(desired, headroom + consumption_per_tick)
+```
+
+where:
+* `headroom = max(0, cap - current)` — the per-body
+  `LocalStockpile` cap minus the current deposit
+  (`GlobalBudget::effective_stockpile_cap` already includes
+  the storage-multiplier bonus from Warehouse / Resource Depot)
+* `consumption_per_tick` — the upcoming tick's per-body draw
+  for the same resource: `colony.annual_resource_consumption(rt)`
+  for colony bodies, `0.0` for bodies with no colony
+  (e.g. raw `MiningOperation` AutoMines)
+
+Behaviour:
+* `cap >= f64::MAX` (exotic / late-game): passthrough, no throttle
+* `desired <= 0`: passthrough (no mining to do)
+* `headroom >= desired`: passthrough (plenty of room)
+* `headroom < desired`: throttled
+* `headroom == 0` (at cap): throttled = `consumption_per_tick`
+  → **net rate = 0** (the displayed "production = consumption"
+  behaviour the user asked for)
+
+### 0.N.3 Why a consumption floor at cap (not zero)
+
+At cap with `throttled = 0`, the body would still need to source
+its local industry draw (`consumption`) from the stockpile. The
+stockpile would drain each tick by `consumption` (with no
+production to refill it), and the player would see "production
+= 0, consumption = X, net = -X" — even though nothing in the
+sim was actually extracting that material. The body still needs
+to keep its local industry supplied, so the throttle is a
+*floor of `consumption` at cap*, not zero. The visible result
+is "net = 0" at saturation, which is the correct mass-balance
+read.
+
+The "vented" excess (`throttled - deposit`) is real but small:
+at cap on Earth, the body is extracting ~145 Mt/mo of Iron
+(= the per-capita draw on 8.2B people) and storing 0 of it
+(cap is full). That's a real-world mining-waste analogue —
+refined metal that has nowhere to go.
+
+### 0.N.4 The "high rates" diagnosis
+
+The user's reported gross rates are *not bugs* — they're
+correct aggregate production numbers from many bodies with
+orbital-station bonuses. The Iron 1.3 Gt aggregate stockpile
+the user observed is the sum of ~470 body-cap hits at 2,750 Mt
+each (Earth's per-body cap of 2,500 Mt × 1.10 default storage
+multiplier). What was wrong is that the displayed net rate
+didn't show the per-body cap throttle. v3.8 fixes the display;
+the cap was always being enforced on the deposit side.
+
+| Resource | Pre-v3.8 (gross) | Post-v3.8 (throttled at cap) | Why |
+|----------|------------------|------------------------------|-----|
+| Iron (Earth)   | +275.4 Mt/mo | +0 Mt/mo at cap, +145 Mt/mo at near-cap (consumption floor) | Cap: 2,500 × 1.10 = 2,750 Mt × 470+ bodies |
+| Silicates      | +656.8 Mt/mo | per-body throttled; aggregate drops as bodies saturate | Cap: 50,000 × storage_mult |
+| Carbon         | +577.7 Mt/mo | per-body throttled | Cap: 4,300 × storage_mult |
+| Nitrogen       | +32.5 Mt/mo  | per-body throttled (AtmosphericProcessor N₂ was the share-fold hit) | Cap: 130 × storage_mult |
+
+### 0.N.5 What v3.8 changes
+
+**`src/economy/mining.rs`** — new helper + signature change:
+* `throttle_production(desired, current, cap, consumption_per_tick) -> f64`
+  pure function (pure f64 in, f64 out). 9 unit tests cover
+  low-fill, at-cap, above-cap, half-fill, near-cap, uncapped,
+  zero-desired, negative-desired, negative-consumption.
+* `deposit_with_fallback` returns `f64` (the actual amount
+  added, capped at headroom) instead of `()`.  Callers use the
+  return value for body-mass accounting.
+* `extract_resources` applies the throttle to all four deposit
+  paths: `MiningOperation` (op_opt), atmospheric share-fold
+  (per-gas), per-resource direct production, and industrial
+  process outputs.
+* `update_resource_rates` adds `Option<&LocalStockpile>` to
+  the `mining_ops` query and applies the throttle to all four
+  per-entity rate paths so the displayed rate matches what
+  actually deposits.
+
+**`src/colony/components.rs`** — new method:
+* `Colony::annual_resource_consumption(resource, &BuildingsData) -> f64`
+  sums per-capita + yield-scaled maintenance draw for one
+  resource. Used as the `consumption_per_tick` input to
+  `throttle_production`. 3 unit tests cover empty colony,
+  per-capita scaling (8.2B × 213 kg/p/yr = 1,747 Mt/yr
+  Iron), and resources not in the per-capita block (Tungsten
+  → 0).
+
+### 0.N.6 Industrial process idle-on-saturation
+
+Industrial processes (HydrogenSynthesis, AmmoniaSynthesis,
+PolymerSynthesis, TritiumBreeding, PlutoniumBreeding) now
+behave as follows when the output cap is full:
+
+* `throttled_output = min(actual_output, headroom + consumption)`
+* If `throttled_output <= 0` (cap full AND zero per-body
+  draw on the output): the factory is **idle** — no inputs are
+  drawn, no output is deposited. This matches the
+  mass-balance: an idle factory can't waste inputs on output
+  that has nowhere to go.
+* If `throttled_output > 0` (some headroom or some
+  consumption): inputs are drawn at the throttled rate (not the
+  gross `actual_output` rate), output is deposited at the
+  throttled rate. Net = 0 at full saturation with consumption.
+
+### 0.N.7 Backward compatibility
+
+* The throttle is **always on**. No RON toggle, no debug
+  override. The behaviour the user asked for is the only
+  behaviour.
+* The displayed production rate and the actual deposit are
+  now in sync. The UI's "Net Rate" reflects the real
+  stockpile change; players who relied on the gross display
+  (e.g. "Iron always 275 Mt/mo regardless of stockpile")
+  will see a much more dynamic readout.
+* Bodies with no colony and no maintenance (pure AutoMine /
+  MiningOperation) have `consumption = 0`, so the throttle is
+  the strict headroom cap. At cap: 0 production. This is
+  correct for bodies that have no local draw on the resource.
+* The body-mass accounting in `extract_resources` is now
+  internally consistent: `body.mass -= throttled * 1e9 kg`
+  for the `op_opt` and atmospheric share-fold paths, where
+  `throttled` already accounts for the cap. Direct production
+  and industrial processes don't touch body mass (they refine
+  or synthesise, not extract).
+
+### 0.N.8 Files modified
+
+* `src/economy/mining.rs` — new `throttle_production` helper,
+  `deposit_with_fallback` returns `f64`, throttle applied in
+  `extract_resources` (4 deposit sites) and
+  `update_resource_rates` (4 per-entity rate sites), 10 new
+  unit tests for the throttle + 1 for `deposit_with_fallback`.
+* `src/colony/components.rs` — new
+  `Colony::annual_resource_consumption` method, 3 new unit
+  tests.
+
+### 0.N.9 v3.8 status
+
+| Check | Status |
+|-------|--------|
+| `throttle_production` helper in `mining.rs` | ✅ |
+| `deposit_with_fallback` returns added amount | ✅ |
+| Throttle applied in `extract_resources` (4 sites) | ✅ |
+| Throttle applied in `update_resource_rates` (4 sites) | ✅ |
+| `LocalStockpile` added to `mining_ops` query | ✅ |
+| `Colony::annual_resource_consumption` helper | ✅ |
+| Industrial process idle-on-saturation | ✅ |
+| `cargo build` clean (no new warnings) | ✅ |
+| `cargo test` 1092 lib + 1089 bin, all green | ✅ |
+
+---
+
 ## §1 TL;DR and stop conditions (v2 §1, updated for v3)
 
 ### 1.1 Three-line TL;DR (v3 NEW framing)
