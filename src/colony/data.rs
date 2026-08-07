@@ -254,7 +254,7 @@ impl Default for PerCapitaConsumption {
             sulfur_mt_per_year: 0.000000006,
             nitrogen_mt_per_year: 0.000000019,
             methane_mt_per_year: 0.00000025,
-            uranium_mt_per_year: 0.0000000000063,
+            uranium_mt_per_year: 0.0000000000025,
             carbon_mt_per_year: 0.0000007,
         }
     }

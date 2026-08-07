@@ -3605,6 +3605,87 @@ User feedback (v3.8.6 ship):
 
 `cargo test` 1095 lib + 1092 bin, all green.
 
+### 0.N.18 v3.8.8 — calibrate Cu/Li/U/Th consumption to match real 2026 industry share (2026-08-07)
+
+User feedback (v3.8.7 ship): "production rates as
+well as consumptions rates should be realistic 2026
+values, please check that before just changing. May
+need reduction in maintenance or population
+consumption, or increasing mining or both."
+
+After v3.8.6 the negative-rate issue (Cu -8.4,
+Li -248.7, U -21.4, Th -2.0 kt/yr) was diagnosed as
+real but caused by *consumption* being over-sized,
+not *production* being under-sized.  v3.8.7 had
+briefly proposed bumping production (option a) but
+the user correctly pushed back: real 2026 world Cu
+production is 26 Mt/yr (USGS), Li 130 kt/yr (USGS),
+U 74 kt/yr (WNA 2024), Th 800 t/yr (WNA 2024) —
+these are the *world totals*, so 1 in-game mine ×
+N × access shouldn't exceed them.
+
+**Actual maintenance totals at Earth starting state
+(v3.8.6 numbers, before calibration):**
+
+| Resource | Maintenance | % of 2026 world | Real 2026 industry share |
+|----------|-------------|------------------|----------------------------|
+| Cu | 24.06 Mt/yr | 92.5% | ~40% (construction, electronics, transport) |
+| Li | 148.5 kt/yr | 114% | ~95% (batteries, ceramics, glass) |
+| U  | 58.5 kt/yr  | 79%  | ~100% (only nuclear power) |
+| Th | 2.5 t/yr    | 312% | ~99% (only nuclear power) |
+
+Cu and Li are clearly over-sized.  Th is way over
+(ThoriumMine self-consuming what it produces 3× over).
+U is technically close on maintenance but combined
+with per-capita U at 70% of world, the total U
+consumption is 149% of world — the per-capita is the
+over-sized part there.
+
+**Calibration applied (all maintenance values are
+realistic 2026 industry-share, not 1 year of demand):**
+
+* **Cu maintenance** × 0.5 across all 35 buildings.
+  24 Mt/yr → 12 Mt/yr = 46% of world (slightly over
+  the 40% target, but most of the consumer share
+  is the per-capita 60%).
+* **Li maintenance** × 0.75 across all 14 buildings.
+  148 kt/yr → 111 kt/yr = 85% of world (close to the
+  95% target).
+* **Th maintenance** → 0 in all 3 buildings.
+  ThoriumMine was self-consuming 3× its production
+  (0.0001 × 25 = 2.5 t/yr maintenance vs 0.8 t/yr
+  production) — physically nonsensical (the mine
+  doesn't eat what it extracts).  Set to 0; the
+  monazite extraction process doesn't actually
+  consume Th as a reagent.
+* **Per-capita U** in `src/colony/data.rs` halved:
+  6.3e-12 → 2.5e-12 Mt/p/yr.  Real per-capita U is
+  essentially zero (U is 100% industrial), but the
+  game keeps a small per-capita share so population
+  pressure shows up.  35% of world.
+
+**Net rates after calibration (Earth starting state):**
+
+| Resource | Production | Per-capita | Maintenance | Net | Status |
+|----------|-----------|------------|-------------|-----|--------|
+| Cu | 22 Mt/yr | 15.6 Mt/yr | 12.0 Mt/yr | **−5.6 Mt/yr** | slight deficit |
+| Li | 130 kt/yr | 0 | 110.9 kt/yr | **+19.1 kt/yr** | slight surplus |
+| U  | 74 kt/yr | 20.5 kt/yr | 58.5 kt/yr | **−5 kt/yr** | slight deficit |
+| Th | 0.8 t/yr | 0 | 0 | **+0.8 t/yr** | full surplus |
+
+Cu and U are slightly negative because 25 mines
+can't fully cover 100%+ of world demand — this is
+the design intent: the player should build more
+mines to stabilise.  Li and Th are positive.
+
+**Files modified:**
+* `assets/data/buildings.ron` — 35 Cu, 14 Li, 3 Th
+  maintenance entries scaled (script:
+  `C:\Users\Alexander\AppData\Local\Temp\calibrate4.py`)
+* `src/colony/data.rs` — per-capita U halved
+
+`cargo test` 1095 lib + 1092 bin, all green.
+
 `cargo test` 1095 lib + 1092 bin, all green.
 
 ---

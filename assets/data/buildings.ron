@@ -212,7 +212,7 @@
                 ("Iron", 0.001),
                 ("Polymers", 0.002),
                 ("Water", 0.5),
-                ("Copper", 0.0005),
+                ("Copper", 0.00025),
                 ("Sulfur", 0.0005),
             ],
             modifiers: [
@@ -330,7 +330,7 @@
                 ("Water", 0.5),
                 ("Polymers", 0.005),
                 ("Iron", 0.001),
-                ("Copper", 0.0001),
+                ("Copper", 0.00005),
                 ("Nitrogen", 0.005),
             ],
             modifiers: [
@@ -356,10 +356,10 @@
             ],
             maintenance_resources: [
                 ("Iron", 0.05),
-                ("Copper", 0.005),
+                ("Copper", 0.0025),
                 ("Nickel", 0.001),
                 ("Tungsten", 0.00003),
-                ("Lithium", 0.00006),
+                ("Lithium", 0.000045),
                 ("Polymers", 0.003),
             ],
             modifiers: [
@@ -399,7 +399,7 @@
             ],
             maintenance_resources: [
                 ("Iron", 0.01),
-                ("Copper", 0.005),
+                ("Copper", 0.0025),
                 ("Aluminum", 0.001),
                 ("Water", 0.05),
                 ("Polymers", 0.001),
@@ -430,7 +430,7 @@
             ],
             maintenance_resources: [
                 ("Iron", 0.02),
-                ("Copper", 0.01),
+                ("Copper", 0.005),
                 ("Nickel", 0.0005),
                 ("Sulfur", 0.03),
                 ("Phosphorus", 0.0005),
@@ -583,7 +583,7 @@
                 ("Iron", 0.005),
                 ("Water", 0.02),
                 ("Polymers", 0.001),
-                ("Copper", 0.001),
+                ("Copper", 0.0005),
                 ("Sulfur", 0.001),
             ],
             modifiers: [
@@ -663,7 +663,7 @@
                 ("Water", 0.04),
                 ("Polymers", 0.001),
                 ("Sulfur", 0.002),
-                ("Copper", 0.001),
+                ("Copper", 0.0005),
             ],
             modifiers: [
                 (modifier_type: "CarbonProduction", value: 546.667),
@@ -821,7 +821,7 @@
             ],
             maintenance_resources: [
                 ("Iron", 0.005),
-                ("Copper", 0.0001),
+                ("Copper", 0.00005),
                 ("Water", 0.05),
                 ("Polymers", 0.001),
                 ("Sulfur", 0.002),
@@ -874,7 +874,7 @@
             ],
             maintenance_resources: [
                 ("Iron", 0.01),
-                ("Lithium", 0.0001),
+                ("Lithium", 0.000075),
                 ("Water", 0.10),
                 ("Polymers", 0.002),
                 ("Sulfur", 0.002),
@@ -903,7 +903,7 @@
                 ("Sulfur", 0.0001),
                 ("Water", 0.05),
                 ("Polymers", 0.001),
-                ("Copper", 0.0001),
+                ("Copper", 0.00005),
             ],
             modifiers: [
                 (modifier_type: "SulfurProduction", value: 4.6667),
@@ -1032,7 +1032,7 @@
             ],
             maintenance_resources: [
                 ("Iron", 0.01),
-                ("Thorium", 0.0001),
+                ("Thorium", 0.0),
                 ("Water", 0.05),
                 ("Polymers", 0.002),
                 ("RareEarths", 0.0001),
@@ -1145,7 +1145,7 @@
             ],
             maintenance_resources: [
                 ("Iron", 0.005),
-                ("Copper", 0.001),
+                ("Copper", 0.0005),
                 ("Aluminum", 0.001),
                 ("Water", 0.05),
                 ("Polymers", 0.001),
@@ -1521,7 +1521,7 @@
             ],
             maintenance_resources: [
                 ("Iron", 0.01),
-                ("Copper", 0.0001),
+                ("Copper", 0.00005),
                 ("Water", 0.02),
                 ("Polymers", 0.002),
                 ("Sulfur", 0.001),
@@ -1577,7 +1577,7 @@
             ],
             maintenance_resources: [
                 ("Iron", 0.01),
-                ("Lithium", 0.0001),
+                ("Lithium", 0.000075),
                 ("Water", 0.02),
                 ("Polymers", 0.002),
                 ("Sulfur", 0.001),
@@ -1745,7 +1745,7 @@
             ],
             maintenance_resources: [
                 ("Iron", 0.01),
-                ("Thorium", 0.0001),
+                ("Thorium", 0.0),
                 ("Water", 0.02),
                 ("Polymers", 0.002),
                 ("Sulfur", 0.001),
@@ -1887,7 +1887,7 @@
                 ("RareEarths", 50.0),
             ],
             maintenance_resources: [
-                ("Copper", 0.5),
+                ("Copper", 0.25),
                 ("Iron", 0.05),
                 ("RareEarths", 0.0005),
                 ("Water", 0.05),
@@ -1931,7 +1931,7 @@
                 ("Iron", 0.5),
                 ("Carbon", 0.05),
                 ("RareEarths", 0.001),
-                ("Copper", 0.01),
+                ("Copper", 0.005),
             ],
             modifiers: [
                 // v3.6: LogisticsCapacity per OrbitalLift = 20,000 t/yr
@@ -1957,7 +1957,7 @@
             ],
             maintenance_resources: [
                 ("Iron", 0.05),
-                ("Copper", 0.002),
+                ("Copper", 0.001),
                 ("Polymers", 0.001),
                 ("Water", 0.01),
             ],
@@ -1989,8 +1989,8 @@
             ],
             maintenance_resources: [
                 ("Silicates", 0.01),
-                ("Copper", 0.001),
-                ("Lithium", 0.0005),
+                ("Copper", 0.0005),
+                ("Lithium", 0.00038),
                 ("Aluminum", 0.0005),
                 ("Polymers", 0.0005),
             ],
@@ -2021,7 +2021,7 @@
                 ("Fluorine", 0.005),
                 ("Water", 0.05),
                 ("Iron", 0.01),
-                ("Lithium", 0.0002),
+                ("Lithium", 0.00015),
             ],
             modifiers: [
                 // 2026 reference: world nuclear share ≈ 9% of 30,000 TWh/yr = 310 GW avg.
@@ -2062,7 +2062,7 @@
                 ("Cobalt", 0.002),
                 ("Fluorine", 0.003),
                 ("Titanium", 0.05),
-                ("Lithium", 0.0005),
+                ("Lithium", 0.00038),
             ],
             modifiers: [
                 // 2026: commercial fusion is 0 GW. Game-unlock target: dominant
@@ -2089,7 +2089,7 @@
             maintenance_resources: [
                 ("Deuterium", 0.0015),
                 ("Tritium", 0.0005),
-                ("Lithium", 0.0002),
+                ("Lithium", 0.00015),
                 ("Cobalt", 0.002),
                 ("Fluorine", 0.003),
                 ("Titanium", 0.05),
@@ -2121,7 +2121,7 @@
                 ("Cobalt", 0.002),
                 ("Fluorine", 0.003),
                 ("Titanium", 0.05),
-                ("Lithium", 0.0005),
+                ("Lithium", 0.00038),
             ],
             modifiers: [
                 // 2026: 0. Game-unlock: 2,500 GW premium baseload.
@@ -2151,11 +2151,11 @@
                 ("Lithium", 17.0),
             ],
             maintenance_resources: [
-                ("Thorium", 0.0012),
+                ("Thorium", 0.0),
                 ("Fluorine", 0.004),
                 ("Water", 0.05),
                 ("Iron", 0.01),
-                ("Lithium", 0.0002),
+                ("Lithium", 0.00015),
             ],
             modifiers: [
                 // 2026: 0 (molten-salt thorium is research-stage).
@@ -2291,7 +2291,7 @@
             ],
             maintenance_resources: [
                 ("Water", 0.1),
-                ("Copper", 0.005),
+                ("Copper", 0.0025),
                 ("Polymers", 0.003),
                 ("Phosphorus", 0.0005),
                 ("Sulfur", 0.0005),
@@ -2322,9 +2322,9 @@
                 ("RareEarths", 50.0),
             ],
             maintenance_resources: [
-                ("Copper", 0.005),
+                ("Copper", 0.0025),
                 ("RareEarths", 0.0001),
-                ("Lithium", 0.00005),
+                ("Lithium", 0.0000375),
                 ("Polymers", 0.002),
                 ("Cobalt", 0.0001),
                 ("Water", 0.05),
@@ -2352,7 +2352,7 @@
             ],
             maintenance_resources: [
                 ("Iron", 0.1),
-                ("Copper", 0.01),
+                ("Copper", 0.005),
                 ("Titanium", 0.001),
                 ("Polymers", 0.001),
                 ("RareEarths", 0.0002),
@@ -2379,9 +2379,9 @@
             ],
             maintenance_resources: [
                 ("RareEarths", 0.001),
-                ("Copper", 0.01),
+                ("Copper", 0.005),
                 ("Cobalt", 0.0002),
-                ("Lithium", 0.0005),
+                ("Lithium", 0.00038),
                 ("Polymers", 0.0005),
                 ("Water", 0.05),
             ],
@@ -2411,7 +2411,7 @@
             ],
             maintenance_resources: [
                 ("Iron", 0.01),
-                ("Copper", 0.002),
+                ("Copper", 0.001),
                 ("Polymers", 0.001),
                 ("Water", 0.05),
                 ("Sulfur", 0.001),
@@ -2440,11 +2440,11 @@
                 ("RareEarths", 50.0),
             ],
             maintenance_resources: [
-                ("Copper", 0.01),
+                ("Copper", 0.005),
                 ("RareEarths", 0.0005),
                 ("Iron", 0.01),
                 ("Polymers", 0.001),
-                ("Lithium", 0.0001),
+                ("Lithium", 0.000075),
             ],
             modifiers: [
                 // v3.6: WealthGeneration per FinancialCenter = 2,000 MC/yr
@@ -2469,7 +2469,7 @@
             ],
             maintenance_resources: [
                 ("Iron", 0.5),
-                ("Copper", 0.02),
+                ("Copper", 0.01),
                 ("Titanium", 0.005),
                 ("Polymers", 0.001),
                 ("Water", 0.05),
@@ -2535,7 +2535,7 @@
             ],
             maintenance_resources: [
                 ("Iron", 0.5),
-                ("Copper", 0.01),
+                ("Copper", 0.005),
                 ("Titanium", 0.005),
                 ("Tungsten", 0.001),
                 ("Polymers", 0.001),
@@ -2597,10 +2597,10 @@
             ],
             maintenance_resources: [
                 ("Iron", 0.01),
-                ("Copper", 0.002),
+                ("Copper", 0.001),
                 ("Aluminum", 0.0005),
                 ("Polymers", 0.0005),
-                ("Lithium", 0.00005),
+                ("Lithium", 0.0000375),
             ],
             modifiers: [
                 // 2026 reference: world wind share ≈ 9% of 30,000 TWh/yr = 310 GW avg.
@@ -2624,7 +2624,7 @@
             ],
             maintenance_resources: [
                 ("Iron", 0.1),
-                ("Copper", 0.005),
+                ("Copper", 0.0025),
                 ("Aluminum", 0.001),
                 ("Polymers", 0.001),
                 ("Water", 0.05),
@@ -2679,7 +2679,7 @@
             maintenance_resources: [
                 ("Carbon", 20.0),
                 ("Iron", 0.1),
-                ("Copper", 0.005),
+                ("Copper", 0.0025),
                 ("Water", 0.05),
                 ("Sulfur", 0.05),
                 ("Polymers", 0.001),
@@ -2708,7 +2708,7 @@
             maintenance_resources: [
                 ("Methane", 5.0),
                 ("Iron", 0.05),
-                ("Copper", 0.002),
+                ("Copper", 0.001),
                 ("Water", 0.05),
                 ("Polymers", 0.001),
             ],
@@ -2740,7 +2740,7 @@
             maintenance_resources: [
                 ("Silicates", 0.5),
                 ("RareEarths", 0.01),
-                ("Copper", 0.02),
+                ("Copper", 0.01),
                 ("Fluorine", 0.01),
                 ("Polymers", 0.005),
                 ("Water", 0.1),
@@ -2772,7 +2772,7 @@
                 ("Phosphorus", 0.0005),
                 ("Polymers", 0.005),
                 ("Nitrogen", 0.05),
-                ("Copper", 0.002),
+                ("Copper", 0.001),
             ],
             modifiers: [
                 // 1 plant ≈ 0.3% world growth-rate boost (per plant basis).
@@ -2802,7 +2802,7 @@
                 ("Iron", 0.01),
                 ("Sulfur", 0.005),
                 ("Polymers", 0.001),
-                ("Copper", 0.001),
+                ("Copper", 0.0005),
                 ("Phosphorus", 0.0001),
             ],
             modifiers: [
@@ -2838,7 +2838,7 @@
                 ("Iron", 0.02),
                 ("Titanium", 0.005),
                 ("Polymers", 0.001),
-                ("Copper", 0.001),
+                ("Copper", 0.0005),
                 ("Sulfur", 0.001),
             ],
             modifiers: [
@@ -2926,9 +2926,9 @@
                 ("RareEarths", 33.0),
             ],
             maintenance_resources: [
-                ("Copper", 0.02),
+                ("Copper", 0.01),
                 ("RareEarths", 0.0005),
-                ("Lithium", 0.0003),
+                ("Lithium", 0.00022),
                 ("Polymers", 0.001),
                 ("Water", 0.1),
                 ("Cobalt", 0.0001),
@@ -2986,7 +2986,7 @@
             ],
             maintenance_resources: [
                 ("Iron", 0.3),
-                ("Copper", 0.01),
+                ("Copper", 0.005),
                 ("Titanium", 0.005),
                 ("Tungsten", 0.001),
                 ("Polymers", 0.001),
@@ -3014,7 +3014,7 @@
             maintenance_resources: [
                 ("Iron", 0.005),
                 ("Polymers", 0.001),
-                ("Copper", 0.001),
+                ("Copper", 0.0005),
                 ("Water", 0.01),
                 ("Sulfur", 0.0005),
             ],
@@ -3055,7 +3055,7 @@
             maintenance_resources: [
                 ("Iron", 0.002),
                 ("Polymers", 0.001),
-                ("Copper", 0.0005),
+                ("Copper", 0.00025),
                 ("Water", 0.005),
             ],
             modifiers: [],
