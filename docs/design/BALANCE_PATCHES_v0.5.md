@@ -3167,7 +3167,7 @@ throttled.
    breakdown popup has a new **Fill** column with a
    per-body bar (40×6 px) + percentage.
 
-### 0.N.9 Open question — atmospheric deposit depletion
+### 0.N.9 Open question — atmospheric deposit depletion (FIXED in v3.8.2)
 
 The atmo_rate share-fold rate display in
 `update_resource_rates` uses `total_atmo_rate × share ×
@@ -3186,11 +3186,16 @@ N2 share). The deposit would be depleted in ~1.5 years
 of full production. Once depleted, the rate display
 continues to show +32.5 Mt/mo but the deposit is zero.
 
-**Fix (planned, v3.8.2):** the rate display in
-`update_resource_rates` should also cap the rate by the
-deposit's remaining reserves. Same throttle pattern
-applies — the rate display is the *expected* extraction,
-not the *intended* one. Tracked separately from v3.8.1.
+**v3.8.2 fix (2026-08-07):** the rate display in
+`update_resource_rates` now also caps the rate by the
+deposit's remaining reserves (`proven_crustal + deep
+deposits` for atmospheric, `+ planetary_bulk` for the
+solid MiningOperation path). The rate is the amount we'd
+extract in one month, so it can be at most the remaining
+reserve. Applied to both `MiningOperation` and the
+atmospheric share-fold. The actual extraction in
+`extract_resources` was already correct; the rate display
+now matches reality.
 
 ### 0.N.10 Files modified (v3.8.1)
 
@@ -3221,6 +3226,31 @@ not the *intended* one. Tracked separately from v3.8.1.
 | Cap-throttle 🔒 icon when any body in category is throttled | ✅ |
 | `cargo build` clean (no new warnings) | ✅ |
 | `cargo test` 1095 lib + 1092 bin, all green | ✅ |
+
+### 0.N.12 v3.8.2 — reserve-cap on rate display (2026-08-07)
+
+The rate display now caps by the deposit's remaining
+extractable reserve, so a depleted deposit shows a
+phantom rate of 0 (not the "intended" rate from
+total_atmo_rate × share).
+
+Changes:
+* `update_resource_rates` MiningOperation loop: cap
+  `throttled` by `proven + deep + bulk` of the body's
+  deposit for `op.resource_type`.
+* `update_resource_rates` atmospheric share-fold loop:
+  cap per-gas `throttled` by `proven + deep` of the
+  gas's atmospheric deposit.
+
+The actual extraction in `extract_resources` was already
+capped by the same reserves, so the rate display now
+matches the actual deposit. No new tests (the existing
+`throttle_production` tests already cover the cap
+contract; the reserve cap is a simple `.min()` with a
+non-negative value that can't break the mass-balance
+guarantee).
+
+`cargo test` 1095 lib + 1092 bin, all green.
 
 ---
 

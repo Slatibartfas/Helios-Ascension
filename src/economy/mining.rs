@@ -859,7 +859,22 @@ pub fn update_resource_rates(
         // floor keeps a small production running at cap.
         let cap = budget.effective_stockpile_cap(op.resource_type);
         let current = local_opt.map_or(0.0, |ls| ls.get(&op.resource_type));
-        let throttled = throttle_production(monthly, current, cap, 0.0);
+        let mut throttled = throttle_production(monthly, current, cap, 0.0);
+        // v3.8.2: cap the rate by the deposit's remaining
+        // extractable reserve. Without this, the rate display
+        // shows the "intended" production even when the deposit
+        // is depleted (e.g. Earth's atmospheric N₂ is finite;
+        // once the deposit runs out the displayed rate is a
+        // phantom). The rate is the amount we'd extract in one
+        // month, so it can be at most the remaining reserve.
+        if let Some(resources) = resources_opt {
+            if let Some(deposit) = resources.deposits.get(&op.resource_type) {
+                let reserve = deposit.reserve.proven_crustal
+                    + deposit.reserve.deep_deposits
+                    + deposit.reserve.planetary_bulk;
+                throttled = throttled.min(reserve.max(0.0));
+            }
+        }
         *rates.entry(op.resource_type).or_insert(0.0) += throttled;
         *production_rates.entry(op.resource_type).or_insert(0.0) += throttled;
         *per_entity
@@ -990,12 +1005,29 @@ pub fn update_resource_rates(
                                 })
                                 .unwrap_or(0.0);
                             let gross_share = monthly_total * share;
-                            let throttled = throttle_production(
+                            let mut throttled = throttle_production(
                                 gross_share,
                                 current,
                                 cap,
                                 monthly_consumption,
                             );
+                            // v3.8.2: cap by the per-gas
+                            // atmospheric deposit's remaining
+                            // reserve. Once the deposit is
+                            // depleted (Earth's atmospheric
+                            // N₂ is finite — ~1,000 Mt at
+                            // 2026 concentrations, drained by
+                            // 300 AtmosphericProcessors in
+                            // ~1.5 yr), the rate display
+                            // shouldn't show a phantom rate.
+                            if let Some(deposit) =
+                                resources.deposits.get(r_type)
+                            {
+                                let reserve = deposit.reserve.proven_crustal
+                                    + deposit.reserve.deep_deposits;
+                                throttled =
+                                    throttled.min(reserve.max(0.0));
+                            }
                             if throttled > 0.0 {
                                 add_production(
                                     &mut rates,
