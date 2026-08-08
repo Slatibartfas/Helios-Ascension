@@ -907,6 +907,92 @@ pub(super) fn format_rate_monthly(value: f64) -> (String, egui::Color32) {
     }
 }
 
+/// v3.8.11 (2026-08-07): build a hover tooltip that shows the rate
+/// calculation in the form "Production (X) − per-cap (Y) − maintenance (Z)
+/// − synthesis input (W) = net" so the player can see why a rate is what
+/// it is, especially for resources that are also consumed as inputs to
+/// industrial processes (e.g. Methane → PolymerSynthesis, which was
+/// silently adding to the displayed rate due to a v3.8.0-v3.8.10 sign
+/// bug — see `economy::mining::update_resource_rates` for the fix).
+///
+/// The body fills are passed in so the tooltip can flag when the rate
+/// is being throttled by the storage cap or by the survey reserve. The
+/// cap note is sized to the most-binding body in the category — same
+/// semantics as the existing cap-lock icon.
+pub fn rate_tooltip(
+    resource: &crate::economy::ResourceType,
+    rate_tracker: &crate::economy::ResourceRateTracker,
+    cap: f64,
+    body_fills: &[(String, f64)],
+) -> String {
+    let prod = rate_tracker.gross_production_rates.get(resource).copied().unwrap_or(0.0);
+    let pop = rate_tracker.population_consumption.get(resource).copied().unwrap_or(0.0);
+    let synth = rate_tracker.synthesis_input.get(resource).copied().unwrap_or(0.0);
+    let total_cons = rate_tracker.gross_consumption_rates.get(resource).copied().unwrap_or(0.0);
+    // Maintenance = total consumption - per-cap - synthesis input.
+    // (Could be slightly off by floating point; clamp to >=0.)
+    let maint = (total_cons - pop - synth).max(0.0);
+    let net = rate_tracker.resource_rates.get(resource).copied().unwrap_or(0.0);
+
+    // The same `format_mass` used by the rate label, so the tooltip
+    // numbers line up visually with what the player is reading.
+    let f = format_mass;
+
+    let mut s = format!(
+        "{} per month:\n\
+         \n\
+         ┌─ production         {:>8}\n\
+         ├─ per-capita         {:>8}  (8.2B × rate)\n\
+         ├─ maintenance        {:>8}  (yield-scaled)\n\
+         ├─ synthesis input    {:>8}  (industrial processes)\n\
+         │\n\
+         └─ net rate           {:>+8}\n",
+        resource.display_name(),
+        f(prod),
+        f(-pop),
+        f(-maint),
+        f(-synth),
+        f(net),
+    );
+
+    // v3.8.11: cap / reserve notes. Reuse the same body-fill band
+    // logic as the cap-lock icon: any body with fill ≥ 1.0 is "at
+    // the cap" (production is throttled to the consumption floor).
+    if cap > 0.0 && cap < f64::MAX {
+        if let Some((body_name, fill)) = body_fills
+            .iter()
+            .find(|(_, f)| *f >= 1.0 - 1e-9)
+            .map(|(n, f)| (n.clone(), *f))
+        {
+            s.push_str(&format!(
+                "\n\
+                 ⚠ Capped on {body_name} ({:.0}% full): production is\n\
+                 throttled to the consumption floor. Net will not\n\
+                 improve until you build Warehouses or send the\n\
+                 surplus off-world.",
+                fill * 100.0
+            ));
+        }
+    }
+
+    // Industrial-process special note: if the resource is consumed
+    // as a synthesis input, flag it so the player doesn't think
+    // "I have plenty of Methane, why is it decreasing?" — the
+    // answer is "PolymerSynthesis is eating ~860 Mt/yr of it".
+    if synth > 0.01 {
+        s.push_str(&format!(
+            "\n\
+             \n\
+             Note: this resource is consumed as an input by industrial\n\
+             processes. {}/mo flows into factories even if you have\n\
+             no per-capita draw on it.",
+            f(synth)
+        ));
+    }
+
+    s
+}
+
 /// Main UI dashboard system
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn ui_dashboard(

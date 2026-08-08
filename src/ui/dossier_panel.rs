@@ -15,7 +15,7 @@
 //! remaining bespoke `RichText::new(...).font(heading_font()).color(...)`
 //! calls are left for downstream PRs to sweep.
 
-use super::dashboard::{format_mass, format_mass_compact, format_rate_monthly};
+use super::dashboard::{format_mass, format_mass_compact, format_rate_monthly, rate_tooltip};
 use super::resources_bar::format_population;
 use super::tab::Tab;
 use super::theme::{
@@ -2780,11 +2780,28 @@ fn draw_resource_compact(
                         .font(mono_font(10.0))
                         .color(TEXT_VALUE),
                 );
+                // v3.8.11 (2026-08-07): attach a hover tooltip that
+                // breaks the rate into production / per-cap / maint /
+                // synthesis input. Without this, the +X.X Mt/mo number
+                // is opaque — the user has no way to know whether the
+                // rate is being eaten by a per-cap draw, by building
+                // maintenance, or (the v3.8.0-v3.8.10 bug for Methane)
+                // by a synthesis-input draw that was being added
+                // instead of subtracted.
+                //
+                // The tooltip also flags when this resource is
+                // consumed as an industrial-process input (e.g. Methane
+                // → PolymerSynthesis). Cap / reserve throttling notes
+                // are skipped here (the resources bar already shows
+                // the per-category cap lock icon) — this surface
+                // focuses on the *composition* of the rate.
+                let tooltip_text = rate_tooltip(&resource, rate_tracker, f64::MAX, &[]);
                 ui.label(
                     egui::RichText::new(rate_text)
                         .font(mono_font(9.0))
                         .color(TEXT_DIM),
-                );
+                )
+                .on_hover_text(tooltip_text);
                 ui.end_row();
             }
         });

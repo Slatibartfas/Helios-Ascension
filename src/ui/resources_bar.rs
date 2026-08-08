@@ -1602,7 +1602,26 @@ pub(super) fn ui_resources_bar(
                                     });
                                     let (rate_text, rate_color) =
                                         format_rate_monthly(category_rate);
-                                    ui.add(
+                                    // v3.8.11 (2026-08-07): hover tooltip
+                                    // on the category rate. Breaks the
+                                    // aggregate category rate into its
+                                    // per-resource components, then
+                                    // shows the production / per-cap /
+                                    // maint / synthesis-input split for
+                                    // each. Without this, the +X Mt/mo
+                                    // number on the bar was opaque
+                                    // (especially for "Volatiles" which
+                                    // contains Methane — a resource
+                                    // whose displayed rate was
+                                    // double-counted by the v3.8.0-v3.8.10
+                                    // synthesis-input sign bug).
+                                    let category_tooltip = build_category_rate_tooltip(
+                                        &resources,
+                                        &rate_tracker,
+                                        &breakdown_queries,
+                                        &budget,
+                                    );
+                                    let rate_label = ui.add(
                                         egui::Label::new(
                                             egui::RichText::new(rate_text)
                                                 .size(10.0)
@@ -1610,6 +1629,9 @@ pub(super) fn ui_resources_bar(
                                         )
                                         .selectable(false),
                                     );
+                                    if !category_tooltip.is_empty() {
+                                        rate_label.on_hover_text(category_tooltip);
+                                    }
                                     // v3.8.1: tiny fill-ratio bar
                                     // (4px tall) so the player can see
                                     // how full the aggregate stockpile
@@ -3475,6 +3497,125 @@ pub(super) fn ui_resources_bar(
 }
 
 // ── Resource forecast preview (hover mini-chart + click popup) ──────
+
+/// v3.8.11 (2026-08-07): build a hover tooltip for the category rate
+/// on the resources bar. Shows the total production / consumption /
+/// net for the category, then a per-resource line. The per-resource
+/// line is intentionally compact (just the rate and a one-line note
+/// if the resource is consumed as a synthesis input) so the tooltip
+/// stays scannable — the dossier's compact deposit list is the
+/// place for the full per-resource breakdown.
+fn build_category_rate_tooltip(
+    resources: &[crate::economy::ResourceType],
+    rate_tracker: &ResourceRateTracker,
+    breakdown_queries: &ResourceBarBreakdownQueries,
+    budget: &GlobalBudget,
+) -> String {
+    use crate::economy::ResourceType;
+
+    // Aggregate category totals.
+    let total_prod: f64 = resources
+        .iter()
+        .map(|r| rate_tracker.gross_production_rates.get(r).copied().unwrap_or(0.0))
+        .sum();
+    let total_pop: f64 = resources
+        .iter()
+        .map(|r| rate_tracker.population_consumption.get(r).copied().unwrap_or(0.0))
+        .sum();
+    let total_synth: f64 = resources
+        .iter()
+        .map(|r| rate_tracker.synthesis_input.get(r).copied().unwrap_or(0.0))
+        .sum();
+    let total_cons: f64 = resources
+        .iter()
+        .map(|r| rate_tracker.gross_consumption_rates.get(r).copied().unwrap_or(0.0))
+        .sum();
+    let total_maint = (total_cons - total_pop - total_synth).max(0.0);
+    let total_net = total_prod - total_cons;
+
+    let f = format_mass;
+    let mut s = format!(
+        "Aggregate per month:\n\
+         \n\
+         ┌─ production         {:>8}\n\
+         ├─ per-capita         {:>8}\n\
+         ├─ maintenance        {:>8}\n\
+         ├─ synthesis input    {:>8}\n\
+         │\n\
+         └─ net rate           {:>+8}\n\
+         \n\
+         Per-resource:",
+        f(total_prod),
+        f(-total_pop),
+        f(-total_maint),
+        f(-total_synth),
+        f(total_net),
+    );
+
+    // Compact per-resource line. Only include resources with
+    // non-trivial rate (≥0.01 Mt/mo) so the tooltip doesn't drown
+    // the player in zeros.
+    for r in resources {
+        let prod = rate_tracker.gross_production_rates.get(r).copied().unwrap_or(0.0);
+        let pop = rate_tracker.population_consumption.get(r).copied().unwrap_or(0.0);
+        let synth = rate_tracker.synthesis_input.get(r).copied().unwrap_or(0.0);
+        let cons = rate_tracker.gross_consumption_rates.get(r).copied().unwrap_or(0.0);
+        let net = rate_tracker.resource_rates.get(r).copied().unwrap_or(0.0);
+
+        if prod.abs() < 0.01 && cons.abs() < 0.01 && net.abs() < 0.01 {
+            continue;
+        }
+
+        let note = if synth > 0.01 {
+            format!("  (synthesis input: {})", f(synth))
+        } else if pop > 0.01 {
+            format!("  (per-cap: {})", f(pop))
+        } else {
+            String::new()
+        };
+
+        s.push_str(&format!(
+            "\n  {:<14} prod {:>6}  cons {:>6}  net {:>+6}{}",
+            r.display_name(),
+            f(prod),
+            f(cons),
+            f(net),
+            note
+        ));
+    }
+
+    // Cap-throttle note. The category rate is being throttled if
+    // any resource in the category has at least one body at fill ≥
+    // 1.0. We surface the worst case (highest fill across bodies
+    // and resources) so the player knows the limit they're hitting.
+    let mut worst_fill = 0.0_f64;
+    let mut worst_resource: Option<ResourceType> = None;
+    for (entity, _, stockpile) in breakdown_queries.per_body_breakdown.iter() {
+        for r in resources {
+            let cap = budget.effective_stockpile_cap(*r);
+            if cap <= 0.0 || cap >= f64::MAX {
+                continue;
+            }
+            let current = stockpile.get(r);
+            let fill = current / cap;
+            if fill >= 1.0 - 1e-9 && fill > worst_fill {
+                worst_fill = fill;
+                worst_resource = Some(*r);
+            }
+        }
+        let _ = entity;
+    }
+    if let Some(r) = worst_resource {
+        s.push_str(&format!(
+            "\n\n⚠ {} at the storage cap on a body in this category —\n\
+             production is throttled to the consumption floor.\n\
+             Build Warehouses or send the surplus off-world.",
+            r.display_name()
+        ));
+    }
+
+    s
+}
 
 /// Build a single-resource forecast series for the resource popup /
 /// hover tooltip.  Lightweight wrapper that reads from the contextual

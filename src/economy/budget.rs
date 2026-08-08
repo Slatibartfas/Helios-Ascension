@@ -23,6 +23,16 @@ pub struct ResourceRateTracker {
     pub gross_consumption_rates: HashMap<ResourceType, f64>,
     /// Per-entity (body) monthly rates for resource tooltip breakdown
     pub per_entity_rates: HashMap<Entity, HashMap<ResourceType, f64>>,
+    /// v3.8.11 (2026-08-07): per-resource per-capita draw
+    /// (population × per-capita rate, in Mt/month). Used by the rate
+    /// tooltip to break down "consumption" into population vs maintenance
+    /// vs synthesis input. Prior to v3.8.11 this draw was only computed
+    /// inside `deduct_population_consumption`, so the rate display missed
+    /// the largest single component of consumer-resource draw.
+    pub population_consumption: HashMap<ResourceType, f64>,
+    /// v3.8.11: per-resource industrial-process input draw
+    /// (e.g. Methane consumed by PolymerSynthesis, in Mt/month).
+    pub synthesis_input: HashMap<ResourceType, f64>,
     /// Monthly research point generation
     pub research_rate_per_month: f64,
     /// Monthly engineering point generation
@@ -123,6 +133,24 @@ impl ResourceRateTracker {
     /// Get the total monthly rate for a category of resources
     pub fn get_category_rate(&self, resources: &[ResourceType]) -> f64 {
         resources.iter().map(|r| self.get_resource_rate(r)).sum()
+    }
+
+    /// v3.8.11: per-capita (population) draw for a resource, in Mt/month.
+    /// Returns 0.0 if not tracked.
+    pub fn get_population_consumption(&self, resource: &ResourceType) -> f64 {
+        self.population_consumption
+            .get(resource)
+            .copied()
+            .unwrap_or(0.0)
+    }
+
+    /// v3.8.11: industrial-process input draw for a resource, in Mt/month.
+    /// Returns 0.0 if not tracked.
+    pub fn get_synthesis_input(&self, resource: &ResourceType) -> f64 {
+        self.synthesis_input
+            .get(resource)
+            .copied()
+            .unwrap_or(0.0)
     }
 }
 

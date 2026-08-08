@@ -822,6 +822,16 @@ pub fn update_resource_rates(
     let mut rates = std::collections::HashMap::new();
     let mut production_rates = std::collections::HashMap::new();
     let mut consumption_rates = std::collections::HashMap::new();
+    // v3.8.11: per-component consumption breakdown (for tooltip).
+    // `population_consumption` is the per-capita × pop draw that
+    // previously lived only in the separate
+    // `deduct_population_consumption` system.  `synthesis_input` is the
+    // industrial-process input draw (Methane → PolymerSynthesis, etc.).
+    // The remainder of consumption_rates is maintenance.
+    let mut population_consumption: std::collections::HashMap<ResourceType, f64> =
+        std::collections::HashMap::new();
+    let mut synthesis_input: std::collections::HashMap<ResourceType, f64> =
+        std::collections::HashMap::new();
     let mut per_entity: std::collections::HashMap<
         Entity,
         std::collections::HashMap<ResourceType, f64>,
@@ -1186,14 +1196,28 @@ pub fn update_resource_rates(
                         for (input_resource, input_per_output) in rule.inputs_per_output {
                             let consumed = throttled_output * *input_per_output;
                             *simulated_available.entry(*input_resource).or_insert(0.0) -= consumed;
+                            // v3.8.11 (2026-08-07): sign-bug fix. The
+                            // previous call passed `-consumed`, which
+                            // `add_consumption` then SUBTRACTED from
+                            // `rates` — flipping the sign twice, so the
+                            // rate display ADDed the input cost instead
+                            // of subtracting it.  Net effect: methane
+                            // showed +142.4 Mt/mo (positive) while
+                            // stockpile dropped because PolymerSynthesis
+                            // was consuming ~860 Mt/yr.  Pass positive
+                            // `consumed` (the helper already does
+                            // `*rates -= amount`).
                             add_consumption(
                                 &mut rates,
                                 &mut consumption_rates,
                                 &mut per_entity,
                                 entity,
                                 *input_resource,
-                                -consumed,
+                                consumed,
                             );
+                            // v3.8.11: track industrial-process input
+                            // draw separately for the UI tooltip.
+                            *synthesis_input.entry(*input_resource).or_insert(0.0) += consumed;
                         }
 
                         *simulated_available.entry(rule.output).or_insert(0.0) +=
@@ -1299,12 +1323,50 @@ pub fn update_resource_rates(
                     }
                 }
             }
+
+            // v3.8.11 (2026-08-07): include per-capita (population) draw
+            // in the rate calculation. Previously the per-capita
+            // consumption only ran inside the separate
+            // `deduct_population_consumption` system, so the rate display
+            // was missing a major component of the net balance. For a
+            // mature colony with 8.2B people, the per-cap draw alone is
+            // ~30-60% of the world demand for each consumer resource —
+            // the largest single draw on Iron, Cu, Al, polymers, etc.
+            // Without this, the rate display would show production −
+            // maintenance (which is positive for almost every consumer
+            // resource) even though the colony is burning stockpile.
+            //
+            // The per-capita draw is NOT yield-scaled (it's a biological
+            // need, not building-driven) — see GRA-22 §4.5 / GRA-22 §4.7.
+            let per_cap = colony.per_capita_consumption_per_year(data);
+            for (resource, annual_amount) in per_cap {
+                if annual_amount <= 0.0 {
+                    continue;
+                }
+                let monthly_cost =
+                    annual_amount * (SECONDS_PER_MONTH / SECONDS_PER_YEAR);
+                add_consumption(
+                    &mut rates,
+                    &mut consumption_rates,
+                    &mut per_entity,
+                    entity,
+                    resource,
+                    monthly_cost,
+                );
+                // v3.8.11: track per-capita draw separately so the UI
+                // tooltip can break down the rate into its components.
+                *population_consumption
+                    .entry(resource)
+                    .or_insert(0.0) += monthly_cost;
+            }
         }
     }
 
     tracker.resource_rates = rates;
     tracker.gross_production_rates = production_rates;
     tracker.gross_consumption_rates = consumption_rates;
+    tracker.population_consumption = population_consumption;
+    tracker.synthesis_input = synthesis_input;
     tracker.per_entity_rates = per_entity;
 
     // --- Research point rate (include base rate) ---
