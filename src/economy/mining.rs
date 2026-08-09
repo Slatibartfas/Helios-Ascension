@@ -1934,14 +1934,17 @@ mod tests {
 
     /// The gate: two invariants that pin the Earth-start balance.
     ///
-    /// 1. **Production capacity = 2026 world** (±15%): with an uncapped
-    ///    stockpile (storage_multiplier huge → throttle passthrough), the
-    ///    gross production of each mine/processor must equal the 2026
-    ///    world anchor. The v3.8.x audits assumed a flat 0.6 Earth
-    ///    accessibility for every mine, but the real `profiles.rs`
-    ///    deposits vary (Iron 0.9, Cu 0.5, U 0.3, Methane 0.3, Li 0.35
-    ///    …), so the audited per-build values produced gross ≠ world.
-    ///    This gate pins the accessibility-aware per-build re-derivation.
+    /// 1. **Game-start net ≈ +2%** (the number the player sees in the
+    ///    "Net rate (annual)" display): with an uncapped stockpile the
+    ///    gross production of each mine/processor must be within
+    ///    [0.98, 1.10] × the equilibrium consumption (per-cap +
+    ///    maintenance + synthesis input). The v3.8.12 round anchored
+    ///    per-build to the 2026 *world* (gross = world), but the
+    ///    player's consumption is below world for most resources, so
+    ///    the t=0 display showed Silicates +46 Gt/yr, Water +3.5 Gt/yr,
+    ///    and a negative Copper/Sulfur. v3.8.14 re-derives per-build =
+    ///    consumption/(count×access)×1.02 so the display shows a small
+    ///    balanced +2% for every resource.
     ///
     /// 2. **No stockpile burn at steady state**: after 36 simulated
     ///    months, no resource's net rate may be below −1% of world.
@@ -1950,31 +1953,19 @@ mod tests {
     ///    the mines can supply even at full production.
     #[test]
     fn earth_start_balance_no_stockpile_burn() {
-        // --- Invariant 1: gross production capacity = world ---
-        // With storage_multiplier = 1e18, every stockpile cap is
-        // effectively infinite → `throttle_production` passthrough →
-        // `update_resource_rates` reports gross production.
-        let (_, mut gross_app) = earth_start_app();
-        gross_app
-            .world_mut()
-            .resource_mut::<GlobalBudget>()
-            .storage_multiplier = 1e18;
-        gross_app.world_mut().run_system_once(update_resource_rates);
-        let gross_tracker = gross_app.world().resource::<ResourceRateTracker>();
+        // --- Invariant 1: game-start net ≈ +2% ---
+        // Gross production (uncapped one-shot) vs equilibrium
+        // consumption (36-month steady state).
+        let gross = earth_start_gross_production();
+        let cons = earth_start_steady_consumption();
         let mut gross_failures = Vec::new();
         for rt in ResourceType::all() {
-            let Some(world) = world_2026_mt_per_year(*rt) else {
-                continue;
-            };
             // Synthesis products (Hydrogen, Ammonia, Polymers) are
             // demand-driven: their gross in the one-shot measurement is
             // input-scaling-limited (the seed budget holds only ~25 Mt
             // methane / ~15 Mt N₂, and the synthesis pass runs before
             // direct production so it can't see fresh mine output). The
-            // steady-state invariant (below) proves they self-supply:
-            // after 36 months the 36-month table shows polymers =
-            // percap+maint exactly and net = 0. Asserting "gross =
-            // world" here would be wrong — they are not mined.
+            // steady-state invariant (below) proves they self-supply.
             let synthesis_product = matches!(
                 *rt,
                 ResourceType::Hydrogen | ResourceType::Ammonia | ResourceType::Polymers
@@ -1982,43 +1973,18 @@ mod tests {
             if synthesis_product {
                 continue;
             }
-            // Only mines/processors have a gross rate; food is added by
-            // `update_resource_rates` separately and is checked below.
-            let gross = gross_tracker
-                .gross_production_rates
-                .get(rt)
-                .copied()
-                .unwrap_or(0.0)
-                * (SECONDS_PER_YEAR / SECONDS_PER_MONTH);
-            // Skip resources whose production is a different magnitude
-            // than world (e.g. Silicates 50,000 Mt/yr aggregate — the
-            // game models consumer share, not the whole quarry output).
-            if world > 1e4 {
+            let c = cons.get(rt).copied().unwrap_or(0.0);
+            if c <= 1e-6 {
+                // No consumption (and no production building) — e.g.
+                // Helium3, Plutonium, Tritium, exotics, Thorium.
                 continue;
             }
-            if (gross - world).abs() > world * 0.15 {
+            let g = gross.get(rt).copied().unwrap_or(0.0);
+            let ratio = g / c;
+            if !(0.98..=1.10).contains(&ratio) {
                 gross_failures.push(format!(
-                    "{:?}: gross prod {:.3} Mt/yr vs world {:.3} (tol ±{:.3})",
-                    rt,
-                    gross,
-                    world,
-                    world * 0.15
-                ));
-            }
-        }
-        // Food is produced by Farm/Greenhouse/Aquaculture (no deposit
-        // access multiplier) — assert it separately.
-        {
-            let food_gross = gross_tracker
-                .gross_production_rates
-                .get(&ResourceType::Food)
-                .copied()
-                .unwrap_or(0.0)
-                * (SECONDS_PER_YEAR / SECONDS_PER_MONTH);
-            if (food_gross - 9_400.0).abs() > 9_400.0 * 0.05 {
-                gross_failures.push(format!(
-                    "Food: gross prod {:.3} Mt/yr vs 9,400 (tol ±470)",
-                    food_gross
+                    "{:?}: gross {:.3} / cons {:.3} = {:.3} (want 0.98–1.10)",
+                    rt, g, c, ratio
                 ));
             }
         }
@@ -2047,6 +2013,48 @@ mod tests {
             failures.len(),
             failures.join("\n")
         );
+    }
+
+    /// Gross (uncapped) production per resource at Earth start (Mt/yr).
+    /// `storage_multiplier = 1e18` makes every stockpile cap effectively
+    /// infinite → `throttle_production` passthrough → the one-shot
+    /// `update_resource_rates` reports the full per-build × count ×
+    /// access rate. This is the number the "Net rate (annual)" display
+    /// shows at t=0 (before the cap-throttle engages).
+    fn earth_start_gross_production() -> std::collections::HashMap<ResourceType, f64> {
+        let (_, mut app) = earth_start_app();
+        app.world_mut()
+            .resource_mut::<GlobalBudget>()
+            .storage_multiplier = 1e18;
+        app.world_mut().run_system_once(update_resource_rates);
+        let tracker = app.world().resource::<ResourceRateTracker>();
+        tracker
+            .gross_production_rates
+            .iter()
+            .map(|(rt, m)| (*rt, m * (SECONDS_PER_YEAR / SECONDS_PER_MONTH)))
+            .collect()
+    }
+
+    /// Equilibrium consumption per resource at Earth start (Mt/yr) =
+    /// per-cap + maintenance + synthesis input, measured at 36-month
+    /// steady state (where production = consumption via the throttle).
+    fn earth_start_steady_consumption() -> std::collections::HashMap<ResourceType, f64> {
+        use crate::ui::time::SimulationTime;
+        let (schedule, mut app) = earth_start_app();
+        let mut schedule = schedule;
+        for _ in 0..36 {
+            app.world_mut()
+                .resource_mut::<SimulationTime>()
+                .elapsed += SECONDS_PER_MONTH;
+            schedule.run(app.world_mut());
+        }
+        app.world_mut().run_system_once(update_resource_rates);
+        let tracker = app.world().resource::<ResourceRateTracker>();
+        tracker
+            .gross_consumption_rates
+            .iter()
+            .map(|(rt, m)| (*rt, m * (SECONDS_PER_YEAR / SECONDS_PER_MONTH)))
+            .collect()
     }
 
     /// Print a full Earth-start steady-state rate table (prod / per-cap /

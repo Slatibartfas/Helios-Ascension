@@ -4213,6 +4213,97 @@ No resource burns. `cargo test` 1108 lib + all integration, green.
 
 ---
 
+## §0.Q v3.8.14 addendum — game-start net ≈ +2% (kill the Gt/yr display surplus) (2026-08-09)
+
+> **v3.8.14 SHIPPED on `rework-ui-design`.** The v3.8.12 per-build
+> re-derivation anchored every mine to the **2026 world** (gross =
+> world). But the player's Earth-start consumption is below world for
+> most resources (per-cap + maintenance + synthesis), so the t=0
+> "Net rate (annual)" display showed huge surpluses — Silicates
+> **+46 Gt/yr**, Water **+3.5 Gt/yr**, Carbon +502 Mt/yr — and small
+> negatives on Copper/Sulfur. The audits measured 36-month steady state
+> (where the cap-throttle forces prod = cons); the player reads the
+> **first-frame gross**.
+
+### 0.Q.1 The fix — per-build = Earth-start consumption / (count × access) × 1.02
+
+Re-derives every mine/processor per-build so the **game-start gross**
+is 1.02× the Earth-start consumption (per-cap + maintenance + synthesis
+input). The displayed net becomes ≈ +2% for every resource — balanced,
+no negative burns, no Gt/yr surplus. The 2026 world anchor stays in the
+**deposit reserves** (depletion timescales unchanged).
+
+| Building | v3.8.12 | v3.8.14 | Consumption basis |
+|---|---|---|---|
+| IronMine | 111.111 | **97.15** | 2,143 (percap 1,747 + maint 396) |
+| AluminumMine | 3.5 | **2.62** | 51.4 |
+| TitaniumMine | 0.6 | **0.0196** | 0.288 |
+| SilicatesMine | 2,000 | **137.3** | 3,365 (percap 3,362 + maint 3.2) |
+| NickelMine | 0.2 | **0.0717** | 1.23 (Factory alloy steel) |
+| TungstenMine | 0.01 | **0.004** | 0.039 (Factory carbide) |
+| CarbonMine | 410 | **392.2** | 7,690 (percap 5,740 + coal 1,950) |
+| ChromiumMine | 3.76 | **0.735** | 9.005 |
+| MagnesiumMine | 0.0571 | **0.0233** | 0.377 (SpacePort hulls) |
+| GoldMine | 0.00048 | **0.000204** | 0.0015 (electronics) |
+| SilverMine | 0.00373 | **0.00204** | 0.015 |
+| PlatinumMine | 4.6e-05 | **3.06e-05** | 0.00015 |
+| CopperMine | 2.08 | **2.12** | 26.0 (the +2% buffer fixes the t=0 −0.4 kt) |
+| RareEarthsMine | 0.035 | **0.0168** | 0.165 |
+| LithiumMine | 0.01486 | **0.0119** | 0.102 |
+| SulfurMine | 4.667 | **4.78** | 70.28 (the +2% buffer fixes the −0.28) |
+| PhosphorusMine | 19.2 | **12.63** | 154.7 |
+| CobaltMine | 0.02286 | **0.00758** | 0.065 |
+| FluorineMine | 0.28 | **0.0778** | 0.953 |
+| UraniumMine | 0.00987 | **0.0101** | 0.074 |
+| MethaneExtractor | 546.667 | **438.8** | 3,226 (percap 2,050 + NG 675 + synth 501) |
+| DeuteriumExtractor | 0.00233 | **0.00088** | 0.013 (FissionReactor D₂O) |
+| WaterTreatmentPlant | 8.0 | **0.875** | 418 (maint) |
+| AtmosphericProcessor N₂ | 0.667 | **0.398** | 117.05 (maint 6.35 + NH₃ 110.7) |
+| AtmosphericProcessor O₂ | 0.5 | **0.442** | 130 (BOF steel + medical) |
+| AtmosphericProcessor Ar | 0.00333 | **0.0032** | 0.94 (welding) |
+| AtmosphericProcessor CO₂ | 0.667 | **0.51** | 150 (greenhouse + urea) |
+
+### 0.Q.2 Consumers restored (v3.8.13 consolidation regression)
+
+The v3.8.13 maintenance consolidation (4–6 invariant) accidentally
+dropped the *only* consumers for a few resources:
+
+* **Nickel / Tungsten** — Factory lost its alloy-steel nickel (0.001)
+  and carbide-tooling tungsten (3e-5). v3.8.14 restores both and drops
+  the Factory's tiny lithium (2.36e-5; lithium still has DataCenter /
+  AiCluster / ResearchLab / FissionReactor consumers).
+* **Magnesium** — SpacePort lost its alloy-hull magnesium (0.0025).
+  v3.8.14 restores it and drops SpacePort's aluminum (0.01; aluminum
+  still has per-cap 49.2).
+
+The gate test caught these: Nickel gross/cons 53.7×, Tungsten 12.3×,
+Magnesium 1.62×, Gold 0.68×, Cobalt 1.24× → all now in [0.98, 1.10].
+
+### 0.Q.3 Gate test upgraded
+
+`earth_start_balance_no_stockpile_burn` now asserts **gross ≈ 1.02×
+consumption** (0.98–1.10) for every resource with a consumer, instead
+of "gross = world". Helpers `earth_start_gross_production()` (uncapped
+one-shot = the t=0 display) and `earth_start_steady_consumption()`
+(36-month equilibrium) added. Invariant 2 (no burn at steady state)
+unchanged. This is the test that would have caught the Gt/yr display
+surplus.
+
+### 0.Q.4 Files modified (v3.8.14)
+
+* `assets/data/buildings.ron` — 26 mine/processor per-builds re-derived
+  to consumption; Factory nickel+tungsten restored, Factory lithium
+  dropped, SpacePort magnesium restored/aluminum dropped; mine-section
+  calibration comment updated.
+* `src/economy/mining.rs` — gate test now asserts gross ≈ consumption;
+  `earth_start_gross_production()` + `earth_start_steady_consumption()`
+  helpers added.
+* `docs/design/BALANCE_PATCHES_v0.5.md` — this addendum.
+
+`cargo test` 1108 lib + all integration, green.
+
+---
+
 ## §1 TL;DR and stop conditions (v2 §1, updated for v3)
 
 ### 1.1 Three-line TL;DR (v3 NEW framing)
