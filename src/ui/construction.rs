@@ -1575,9 +1575,15 @@ fn format_mining_rate(mt_per_year: f64) -> String {
 // silently hidden (they exist in the RON but are not surfaced
 // on the card; add a case here to surface a new type).
 //
-// Inventory of 13 modifier types covered (v3.1 §0.H.2):
+// Inventory of modifier types covered (v3.1 §0.H.2 + v3.8.12):
 //   * IronProduction, AluminumProduction, CopperMine, ..., WaterProduction, FoodProduction
 //   * HousingCapacity
+//   * HydrogenSynthesis, AmmoniaSynthesis, PolymerSynthesis (ChemicalPlant)
+//   * ResearchSpeed, EngineeringSpeed (ResearchLab, AiCluster, SemiconductorFab, DataCenter)
+//   * PopulationGrowth (MedicalCenter, PharmaceuticalPlant, WaterTreatmentPlant, DesalinationPlant)
+//   * WealthGeneration (Factory, CommercialHub, FinancialCenter, TradePort)
+//   * LogisticsCapacity (MassDriver, OrbitalLift, CargoTerminal)
+//   * StorageCapacity (Warehouse, Resource Depot)
 //   * NitrogenHarvesting
 //   * PlutoniumBreeding, TritiumBreeding
 //   * ConstructionCost (negative = "builds faster", positive = "more expensive")
@@ -1622,10 +1628,88 @@ fn friendly_label(m: &BuildingModifierDef) -> Option<(EffectTone, String)> {
         if v > 0.0 {
             return Some((
                 EffectTone::Positive,
-                format!("Breeds {} Mt/yr {}", format_mining_rate(v), elem),
+                // v3.8.12: `format_mining_rate` already appends
+                // "/yr", so this used to render "Breeds 0.05 Mt/yr
+                // Mt/yr Tritium" (double unit). Keep the unit on
+                // the rate only.
+                format!("Breeds {} {}", format_mining_rate(v), elem),
             ));
         }
         return None;
+    }
+
+    // Industrial synthesis: ChemicalPlant's H₂ / NH₃ / polymers
+    // ("HydrogenSynthesis" etc.). End in "Synthesis", not
+    // "Production", so the generic branch above never saw them —
+    // the ChemicalPlant card showed only "Breeds 0.05 Mt/yr
+    // Tritium" and hid its three main outputs. The `input_per_output`
+    // ratios live in `economy/mining.rs::industrial_process_rule`;
+    // here we surface the OUTPUT rate (the card's "effect").
+    if let Some(elem) = ty.strip_suffix("Synthesis") {
+        if v > 0.0 {
+            return Some((
+                EffectTone::Positive,
+                format!("Synthesizes {} {}", format_mining_rate(v), elem),
+            ));
+        }
+        return None;
+    }
+
+    // Research / engineering throughput (ResearchLab, AiCluster,
+    // SemiconductorFab, DataCenter). `ResearchSpeed` / `EngineeringSpeed`
+    // are additive percent bonuses (see
+    // `src/research/systems.rs:research_speed_multiplier`).
+    if ty == "ResearchSpeed" && v > 0.0 {
+        return Some((
+            EffectTone::Positive,
+            format!("Research speed +{}%", v as i64),
+        ));
+    }
+    if ty == "EngineeringSpeed" && v > 0.0 {
+        return Some((
+            EffectTone::Positive,
+            format!("Engineering speed +{}%", v as i64),
+        ));
+    }
+
+    // Population growth: MedicalCenter / PharmaceuticalPlant /
+    // WaterTreatmentPlant / DesalinationPlant add a flat bonus
+    // (value 50 = +0.5%/yr — see
+    // `Colony::population_growth_per_year`, which caps the bonus at
+    // `max_medical_growth_bonus`).
+    if ty == "PopulationGrowth" && v > 0.0 {
+        return Some((
+            EffectTone::Positive,
+            format!("Population growth +{:.1}%/yr", v / 100.0),
+        ));
+    }
+
+    // Wealth generation (Factory, CommercialHub, FinancialCenter,
+    // TradePort) — Mega-Credits per year.
+    if ty == "WealthGeneration" && v > 0.0 {
+        return Some((
+            EffectTone::Positive,
+            format!("Generates {:.0} MC/yr", v),
+        ));
+    }
+
+    // Logistics throughput (MassDriver / OrbitalLift / CargoTerminal)
+    // — tonnes per year surface-to-orbit.
+    if ty == "LogisticsCapacity" && v > 0.0 {
+        return Some((
+            EffectTone::Positive,
+            format!("Logistics capacity {:.0} t/yr", v),
+        ));
+    }
+
+    // Storage capacity (Warehouse / Resource Depot) — +2.5% per
+    // building to ALL stockpile caps (see
+    // `economy/budget.rs::update_storage_capacity`).
+    if ty == "StorageCapacity" && v > 0.0 {
+        return Some((
+            EffectTone::Positive,
+            format!("Stockpile capacity +{:.0}%", v * 100.0),
+        ));
     }
 
     // Atmospheric / harvest modifiers. "NitrogenHarvesting" doesn't end in
@@ -11595,5 +11679,129 @@ mod friendly_label_tests {
         assert_eq!(effects.len(), 6, "expected 5 effects + 1 indicator");
         assert_eq!(effects[5].0, EffectTone::Neutral);
         assert_eq!(effects[5].1, "+2 more");
+    }
+
+    // --- v3.8.12: new friendly_label arms (synthesis + stat effects) ---
+
+    // HydrogenSynthesis / AmmoniaSynthesis / PolymerSynthesis (ChemicalPlant).
+    #[test]
+    fn friendly_label_hydrogen_synthesis() {
+        let m = modf("HydrogenSynthesis", 0.143);
+        let (tone, label) = friendly_label(&m).expect("HydrogenSynthesis should produce a label");
+        assert_eq!(tone, EffectTone::Positive);
+        assert!(label.contains("Synthesizes"), "{label}");
+        assert!(label.contains("Hydrogen"), "{label}");
+        assert!(!label.contains("Mt/yr Mt/yr"), "no double unit: {label}");
+    }
+
+    #[test]
+    fn friendly_label_ammonia_synthesis() {
+        let m = modf("AmmoniaSynthesis", 0.286);
+        let (tone, label) = friendly_label(&m).expect("AmmoniaSynthesis should produce a label");
+        assert_eq!(tone, EffectTone::Positive);
+        assert!(label.contains("Synthesizes"), "{label}");
+        assert!(label.contains("Ammonia"), "{label}");
+    }
+
+    #[test]
+    fn friendly_label_polymer_synthesis() {
+        let m = modf("PolymerSynthesis", 0.643);
+        let (tone, label) = friendly_label(&m).expect("PolymerSynthesis should produce a label");
+        assert_eq!(tone, EffectTone::Positive);
+        assert!(label.contains("Synthesizes"), "{label}");
+        assert!(label.contains("Polymer"), "{label}");
+    }
+
+    // Research / Engineering speed (ResearchLab, AiCluster, SemiconductorFab, DataCenter).
+    #[test]
+    fn friendly_label_research_speed() {
+        let m = modf("ResearchSpeed", 100.0);
+        let (tone, label) = friendly_label(&m).expect("ResearchSpeed should produce a label");
+        assert_eq!(tone, EffectTone::Positive);
+        assert_eq!(label, "Research speed +100%");
+    }
+
+    #[test]
+    fn friendly_label_engineering_speed() {
+        let m = modf("EngineeringSpeed", 200.0);
+        let (tone, label) = friendly_label(&m).expect("EngineeringSpeed should produce a label");
+        assert_eq!(tone, EffectTone::Positive);
+        assert_eq!(label, "Engineering speed +200%");
+    }
+
+    // Population growth (MedicalCenter 50 → +0.5%/yr, etc.).
+    #[test]
+    fn friendly_label_population_growth() {
+        let m = modf("PopulationGrowth", 50.0);
+        let (tone, label) = friendly_label(&m).expect("PopulationGrowth should produce a label");
+        assert_eq!(tone, EffectTone::Positive);
+        assert_eq!(label, "Population growth +0.5%/yr");
+    }
+
+    // Wealth generation (Factory 100 MC/yr, CommercialHub 500, etc.).
+    #[test]
+    fn friendly_label_wealth_generation() {
+        let m = modf("WealthGeneration", 500.0);
+        let (tone, label) = friendly_label(&m).expect("WealthGeneration should produce a label");
+        assert_eq!(tone, EffectTone::Positive);
+        assert_eq!(label, "Generates 500 MC/yr");
+    }
+
+    // Logistics capacity (MassDriver 5,000 t/yr, OrbitalLift 20,000 t/yr).
+    #[test]
+    fn friendly_label_logistics_capacity() {
+        let m = modf("LogisticsCapacity", 20_000.0);
+        let (tone, label) = friendly_label(&m).expect("LogisticsCapacity should produce a label");
+        assert_eq!(tone, EffectTone::Positive);
+        assert_eq!(label, "Logistics capacity 20000 t/yr");
+    }
+
+    // Storage capacity (Warehouse 0.10 → +10% to all stockpile caps).
+    #[test]
+    fn friendly_label_storage_capacity() {
+        let m = modf("StorageCapacity", 0.10);
+        let (tone, label) = friendly_label(&m).expect("StorageCapacity should produce a label");
+        assert_eq!(tone, EffectTone::Positive);
+        assert_eq!(label, "Stockpile capacity +10%");
+    }
+
+    // Breeding double-unit regression: TritiumBreeding 0.05 → "Breeds
+    // 50 kt/yr Tritium" (no trailing "Mt/yr" — the double unit was the
+    // bug; 0.05 Mt/yr = 50 kt/yr in the SI ladder).
+    #[test]
+    fn friendly_label_breeding_no_double_unit() {
+        let m = modf("TritiumBreeding", 0.05);
+        let (tone, label) = friendly_label(&m).expect("TritiumBreeding should produce a label");
+        assert_eq!(tone, EffectTone::Positive);
+        assert!(
+            !label.contains("Mt/yr Mt/yr"),
+            "no double unit: {label}"
+        );
+        assert!(label.contains("Tritium"), "{label}");
+        assert_eq!(label, "Breeds 50 kt/yr Tritium");
+    }
+
+    // ChemicalPlant card integration: all four outputs surface
+    // (Hydrogen, Ammonia, Polymer, Tritium) — the pre-v3.8.12 card
+    // showed only the Tritium breeding line.
+    #[test]
+    fn friendly_label_chemical_plant_all_outputs() {
+        let def_mods = vec![
+            modf("HydrogenSynthesis", 0.143),
+            modf("AmmoniaSynthesis", 0.286),
+            modf("PolymerSynthesis", 0.643),
+            modf("TritiumBreeding", 0.05),
+        ];
+        let mut labels = Vec::new();
+        for m in def_mods.iter() {
+            if let Some((_, label)) = friendly_label(m) {
+                labels.push(label);
+            }
+        }
+        assert_eq!(labels.len(), 4, "all 4 ChemicalPlant outputs: {labels:?}");
+        assert!(labels.iter().any(|l| l.contains("Hydrogen")), "{labels:?}");
+        assert!(labels.iter().any(|l| l.contains("Ammonia")), "{labels:?}");
+        assert!(labels.iter().any(|l| l.contains("Polymer")), "{labels:?}");
+        assert!(labels.iter().any(|l| l.contains("Tritium")), "{labels:?}");
     }
 }

@@ -3946,6 +3946,184 @@ burn):
 
 ---
 
+## §0.O v3.8.12 addendum — accessibility-aware per-build re-derivation + balance gate (2026-08-09)
+
+> **v3.8.12 SHIPPED on `rework-ui-design`.** This addendum documents the
+> fix that closes the campaign's core blind spot, which the new gate
+> test caught: **the v3.8.x audits assumed a flat 0.6 Earth
+> accessibility for every mine, but the real `profiles.rs` Earth
+> deposits vary per resource (Iron 0.9, Cu 0.5, U 0.3, Methane 0.3,
+> Li 0.35 …), so the audited per-build values produced gross ≠ 2026
+> world for most resources, and methane/polymers/N₂ burned stockpile
+> at game start.**
+
+### 0.O.1 The bug (what the gate caught)
+
+The v3.8.x per-build calibration formula was:
+
+```
+per_build = world / (25 × 0.6)     // flat 0.6 assumed for Earth
+```
+
+But `extract_resources` / `update_resource_rates` multiply the
+per-build by the **real deposit accessibility**:
+
+```
+yield = per_build × count × deposit.accessibility × yield_mult
+```
+
+The real Earth accessibilities (`src/economy/profiles.rs` "Earth"):
+
+| Resource | Access | Resource | Access |
+|---|---|---|---|
+| Iron | 0.9 | Copper | 0.5 |
+| Aluminum | 0.8 | RareEarths | 0.4 |
+| Titanium | 0.6 | Lithium | 0.35 |
+| Silicates | 1.0 | Sulfur | 0.6 |
+| Nickel | 0.7 | Phosphorus | 0.5 |
+| Tungsten | 0.4 | Cobalt | 0.35 |
+| Carbon | 0.8 | Fluorine | 0.5 |
+| Chromium | 0.5 | Uranium | 0.3 |
+| Magnesium | 0.7 | Thorium | 0.35 |
+| Gold | 0.3 | Methane | 0.3 |
+| Silver | 0.3 | Deuterium | 0.6 |
+| Platinum | 0.2 | Water | 1.0 |
+
+Because the audits used 0.6 for everything, a mine like **Uranium**
+(real access 0.3) produced 0.0049 × 25 × 0.3 = 0.037 Mt/yr — half the
+74 kt/yr world. **Methane** (access 0.3) produced 273.333 × 25 × 0.3 =
+2,050 Mt/yr against 4,100 world — and the polymer chain drew another
+~370 Mt/yr on top, so methane **burned ~1,000 Mt/yr** at game start.
+
+### 0.O.2 The fix — accessibility-aware per-build re-derivation
+
+**Formula: `per_build = world / (25 × real_access)`** so that
+`25 × per_build × real_access = world` exactly. Applied to
+`assets/data/buildings.ron`:
+
+| Building | v3.8.10 value | v3.8.12 value | World (Mt/yr) | Real access |
+|---|---|---|---|---|
+| IronMine | 166.667 | **111.111** | 2,500 | 0.9 |
+| AluminumMine | 4.6667 | **3.5** | 70 | 0.8 |
+| TitaniumMine | 0.6 | 0.6 (unchanged) | 9 | 0.6 |
+| SilicatesMine | 320 | **2,000** | 50,000 | 1.0 |
+| NickelMine | 0.2333 | **0.2** | 3.5 | 0.7 |
+| TungstenMine | 0.00667 | **0.01** | 0.10 | 0.4 |
+| CarbonMine | 546.667 | **410** | 8,200 | 0.8 |
+| ChromiumMine | 3.13 | **3.76** | 47 | 0.5 |
+| MagnesiumMine | 0.0667 | **0.0571** | 1.0 | 0.7 |
+| GoldMine | 0.00024 | **0.00048** | 0.0036 | 0.3 |
+| SilverMine | 0.00187 | **0.00373** | 0.028 | 0.3 |
+| PlatinumMine | 1.53e-05 | **4.6e-05** | 0.00023 | 0.2 |
+| CopperMine | 1.7333 | **2.08** | 26 | 0.5 |
+| RareEarthsMine | 0.02 | **0.035** | 0.35 | 0.4 |
+| LithiumMine | 0.0087 | **0.01486** | 0.13 | 0.35 |
+| SulfurMine | 4.6667 | 4.6667 (unchanged) | 70 | 0.6 |
+| PhosphorusMine | 14.6667 | **19.2** | 240 | 0.5 |
+| CobaltMine | 0.01333 | **0.02286** | 0.20 | 0.35 |
+| FluorineMine | 0.233 | **0.28** | 3.5 | 0.5 |
+| UraniumMine | 0.0049 | **0.00987** | 0.074 | 0.3 |
+| ThoriumMine | 5.33e-05 | **9.14e-05** | 0.0008 | 0.35 |
+| MethaneExtractor | 273.333 | **546.667** | 4,100 | 0.3 |
+| DeuteriumExtractor | 0.00233 | 0.00233 (unchanged) | 0.035 | 0.6 |
+| WaterTreatmentPlant | 8.0 | 8.0 (unchanged) | 4,000 | 1.0 |
+
+Mine descriptions updated to cite the real access and the re-derived
+per-build (replacing the stale "× 0.6" math).
+
+### 0.O.3 Earth atmosphere accessibility → 1.0
+
+The uncommitted v3.8.12 atmospheric per-gas split (`NitrogenProduction`
+0.667 / `OxygenProduction` 0.5 / `ArgonProduction` 0.00333 /
+`CarbonDioxideProduction` 0.667, sized so 300 AtmosphericProcessors =
+world) hit the same accessibility trap: Earth's atmospheric deposits
+carried the **mole fraction as accessibility** (N₂ 0.78, O₂ 0.21,
+Ar 0.009, CO₂ 0.0004), so 300 processors produced 78%/21% of the N₂/O₂
+targets and both gases burned. **Fix:** `profiles.rs` Earth N₂/O₂/CO₂/Ar
+accessibility → 1.0 ("how easy to extract" — air is trivially
+accessible; composition already lives in `concentration`). Now 300 ×
+0.667 = 200 N₂, 300 × 0.5 = 150 O₂, 300 × 0.00333 = 1 Ar, 300 × 0.667
+= 200 CO₂ Mt/yr. Non-Earth bodies keep their realistic accessibility
+(Venus 0.6, gas giants 0.01–0.2).
+
+### 0.O.4 U/Ti per-capita zeroed in RON
+
+v3.8.9/v3.8.10 zeroed the Rust `PerCapitaConsumption` defaults for
+Uranium and Titanium (U is 100% nuclear-power industrial, Ti 100%
+industrial — neither is a per-capita consumer), but the RON
+`colony_constants.per_capita_consumption` still carried
+`uranium_mt_per_year: 6.3e-12` and `titanium_mt_per_year: 1.1e-9`,
+and the RON wins at load. v3.8.12 sets both RON values to 0.0 so the
+v3.8.9/10 intent actually lands (U no longer burns ~52 kt/yr).
+
+### 0.O.5 Synthesis-input throttle floor (methane stabilises)
+
+The v3.8.12 `extract_resources` reorder runs the **industrial-synthesis
+pass BEFORE the direct-production deposit loop**, records the per-body
+synthesis-input draw (`synthesis_drawn`), and adds it to each
+resource's `throttle_production` consumption floor. Previously at
+methane cap the production throttled to per-cap + maintenance while
+PolymerSynthesis kept drawing, so methane equilibrated ~87.5% full and
+the rate display showed a phantom red net. Now production at cap =
+per-cap + maint + synthesis inputs and the net displays 0. The
+`update_resource_rates` mirror gets the same reorder so the displayed
+rate matches the sim.
+
+### 0.O.6 Earth-start balance gate (the canary that would have caught this)
+
+New tests in `src/economy/mining.rs`:
+
+* `earth_start_app` — builds the real Earth deposits
+  (`generate_resources_for_body("Earth", …)`), the real
+  `solar_system.rs` `base_buildings`, an empty `LocalStockpile`, and a
+  seeded `GlobalBudget`; registers `extract_resources` in a `Schedule`
+  so its `Local<f64>` `last_elapsed` persists across ticks.
+* `earth_start_annual_net(36)` — advances 36 monthly ticks to steady
+  state, then runs `update_resource_rates` and returns the annualized
+  per-resource net rate.
+* `earth_start_balance_no_stockpile_burn` — **the gate.** (1) With an
+  uncapped stockpile (`storage_multiplier = 1e18`), each mine's gross
+  production must equal the 2026 world anchor (±15%). (2) At steady
+  state, no resource's net rate may be below −1% of world (no burn).
+* `earth_start_balance_print_table` — diagnostic that prints the full
+  prod / per-cap / maint / synthesis / net vs world table.
+
+The gate **failed with 30 resources off** before the re-derivation and
+**passes now**. It is the pinned contract that the Earth starting state
+is balanced — the campaign can now be declared balanced at game start.
+
+### 0.O.7 Remaining design notes (not balance bugs)
+
+* **Ammonia / Hydrogen** synthesize at 200/100 Mt/yr capacity but have
+  **no consumer at Earth start** (no maintenance, no per-cap draw), so
+  the output cap fills and the process idles — N₂ synth draw is 0.
+  This is by design: the chemical plant is the late-game feedstock
+  chain; the cards now show "Synthesizes …" so the player understands.
+* **CO₂** produces 200 Mt/yr with no consumer — the MethaneSynthesis
+  loop (CO₂ → methane) is future work; the surplus vents.
+* **Silicates** gross capacity (50,000 Mt/yr) is the full quarry output;
+  the game consumes the consumer share (per-cap 3,362) and the rest is
+  stockpiled/throttled. The gate skips the >1e4 world-anchor check.
+
+### 0.O.8 Files modified (v3.8.12)
+
+* `assets/data/buildings.ron` — 22 mine per-build values re-derived by
+  real access; U/Ti per-cap → 0; descriptions updated; AtmosphericProcessor
+  description updated for the per-gas split.
+* `src/economy/profiles.rs` — Earth N₂/O₂/CO₂/Ar accessibility → 1.0.
+* `src/economy/mining.rs` — synthesis-before-production reorder in both
+  `extract_resources` + `update_resource_rates`; `synthesis_drawn`
+  throttle floor; v3.8.12 gate tests.
+* `src/ui/construction.rs` — `friendly_label` arms for Synthesis /
+  ResearchSpeed / EngineeringSpeed / PopulationGrowth / WealthGeneration /
+  LogisticsCapacity / StorageCapacity; Breeding double-unit fix; tests.
+* `src/ui/economy_panel.rs` — food math reads RON (Farm 360 / AgriDome 4
+  / per-cap 1.1e-6); dead 3-tier MiningEfficiency machinery removed.
+
+`cargo test` 1108 lib + all integration, green.
+
+---
+
 ## §1 TL;DR and stop conditions (v2 §1, updated for v3)
 
 ### 1.1 Three-line TL;DR (v3 NEW framing)

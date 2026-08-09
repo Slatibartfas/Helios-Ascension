@@ -470,15 +470,6 @@ pub fn extract_resources(
                 // produced precious metals by 100–300× real-world.
                 //
                 // Special cases (still in modifier dispatch below):
-                //   - `AtmosphericHarvesting` (N/O/CO₂ on gas-giant moons
-                //      and breathable worlds via AtmosphericProcessor)
-                //      uses the old share-fold across atmospheric deposits
-                //      because gases are co-extracted from a single
-                //      cryogenic-air-separation stream.
-                //   - `ArgonProduction` (AtmosphericProcessor argon fold,
-                //      v0.5.1) is a direct deposit because Ar's crustal
-                //      abundance is so low that the share-fold would
-                //      produce 0.000× real-world.
                 //   - `WaterProduction` (WaterProcessor off-world water,
                 //      v0.5.1) is a direct deposit because water is
                 //      condensed/mined, not extracted from a deposit tier.
@@ -489,9 +480,24 @@ pub fn extract_resources(
                 //   - Industrial synthesis (HydrogenSynthesis, etc.) is
                 //      unchanged — those modifiers consume inputs and
                 //      produce outputs via `IndustrialProcessRule`.
+                //
+                // v3.8.12 (2026-08-08): removed the
+                // `AtmosphericHarvesting` share-fold. The fold
+                // distributed a single "harvested gases" rate across
+                // atmospheric deposits by concentration weight, which
+                // produced 325% of N demand, 117% of O, 775% of Ar, and
+                // 0.2% of CO₂ (all in the same extraction stream). The
+                // per-gas reality of cryogenic air separation
+                // (Linde / Air Liquide 2024 industrial gas mix) is
+                // that each gas has its own per-build rate — they're
+                // co-extracted, but not in the proportions of the
+                // source atmosphere.  AtmosphericProcessor now uses
+                // `NitrogenProduction`, `OxygenProduction`,
+                // `ArgonProduction`, and `CarbonDioxideProduction`
+                // directly (the same `<Resource>Production` path as
+                // mining), each tuned so 300 AtmosphericProcessors
+                // produces the 2026 world demand.
                 let yield_mult = colony.effective_yield_multiplier();
-                // Calculate total atmospheric harvesting capacity (Mt/year)
-                let mut total_atmo_rate = 0.0;
                 // v0.5.2: per-resource direct-production rates
                 // (one slot per resource). Filled by the dispatch loop
                 // below; consumed by the direct-deposit block at the
@@ -506,185 +512,56 @@ pub fn extract_resources(
                     }
                     if let Some(def) = data.get(building_type) {
                         for modifier in &def.modifiers {
-                            match modifier.modifier_type.as_str() {
-                                "AtmosphericHarvesting" => {
-                                    total_atmo_rate += modifier.value * count as f64 * yield_mult;
-                                }
-                                "ArgonProduction" => {
-                                    // v0.5.1: AtmosphericProcessor argon
-                                    // fold (see §5.18 / §8.3.6). Argon is
-                                    // a noble-gas byproduct of cryogenic
-                                    // air separation. Direct deposit (the
-                                    // atmospheric share-fold would produce
-                                    // ~0 because Ar concentration in air
-                                    // is ~0.93% by volume, but the
-                                    // per-build rate is calibrated to
-                                    // match USGS 700 kt/yr global
-                                    // production, which is the dominant
-                                    // real-world Ar extraction path).
-                                    *direct_production.entry(ResourceType::Argon).or_insert(0.0) +=
+                            // v3.8.12: per-resource direct-production
+                            // modifier. Modifier names follow the
+                            // pattern `<Resource>Production` (e.g.,
+                            // `IronProduction`, `WaterProduction`,
+                            // `He3Production`, `NitrogenProduction`).
+                            // We dispatch by stripping the `Production`
+                            // suffix and looking up the ResourceType.
+                            // The previous AtmosphericProcessor had a
+                            // special `AtmosphericHarvesting` case
+                            // that distributed a single rate across
+                            // atmospheric deposits by concentration
+                            // weight (see comment above); that path
+                            // is now removed because the share-fold
+                            // gave wildly wrong per-gas splits
+                            // (325% N, 117% O, 775% Ar, 0.2% CO₂).
+                            if let Some(resource_name) =
+                                modifier.modifier_type.strip_suffix("Production")
+                            {
+                                if let Some(target) =
+                                    parse_resource_type_static(resource_name)
+                                {
+                                    *direct_production.entry(target).or_insert(0.0) +=
                                         modifier.value * count as f64 * yield_mult;
                                 }
-                                _ => {
-                                    // v0.5.2: per-resource direct-production
-                                    // modifier. Modifier names follow the
-                                    // pattern `<Resource>Production` (e.g.,
-                                    // `IronProduction`, `WaterProduction`,
-                                    // `He3Production`). We dispatch by
-                                    // stripping the `Production` suffix
-                                    // and looking up the ResourceType.
-                                    if let Some(resource_name) =
-                                        modifier.modifier_type.strip_suffix("Production")
-                                    {
-                                        if let Some(target) =
-                                            parse_resource_type_static(resource_name)
-                                        {
-                                            *direct_production.entry(target).or_insert(0.0) +=
-                                                modifier.value * count as f64 * yield_mult;
-                                        }
-                                    }
-                                }
                             }
                         }
                     }
                 }
 
-                // GRA-83 PR-E: per-body orbital survey station bonus
-                // multiplies mining rates (NOT atmospheric harvesting,
-                // NOT industrial synthesis, NOT direct-production paths
-                // that explicitly read from non-tiered sources like
-                // He-3 regolith or asteroid captures — those use the
-                // body's per-resource accessibility for the location
-                // gate, not the yield multiplier).
-                // We multiply the direct-production rates below; the
-                // legacy code scaled MiningEfficiency/etc. here, but
-                // v0.5.2 unified everything into direct_production so
-                // the multiplication moves to the direct-deposit block.
-                // For now, we apply the bonus uniformly so the
-                // station's effect is still felt.
-                let bonus = mining_bonus;
-
-                // --- Atmospheric gas harvesting (AtmosphericProcessor) ---
-                // This is the only path that still uses the share-fold
-                // (concentration-weighted across atmospheric deposits).
-                // The rationale: AtmosphericProcessor co-extracts N₂, O₂,
-                // CO₂, Ar from a single cryogenic stream. The
-                // share-fold reflects that physical reality.
-                if total_atmo_rate > 0.0 {
-                    let harvestable: Vec<(ResourceType, f32)> = resources
-                        .deposits
-                        .iter()
-                        .filter(|(_, d)| {
-                            d.is_atmospheric
-                                && (d.reserve.proven_crustal > 0.001
-                                    || d.reserve.deep_deposits > 0.001)
-                        })
-                        .map(|(t, d)| (*t, d.reserve.concentration))
-                        .collect();
-
-                    if !harvestable.is_empty() {
-                        let total_weight: f64 = harvestable
-                            .iter()
-                            .map(|(_, c)| (*c as f64).max(1e-10))
-                            .sum();
-
-                        for (r_type, concentration) in &harvestable {
-                            let weight = (*concentration as f64).max(1e-10);
-                            let share = weight / total_weight;
-                            let effective_rate = total_atmo_rate * share;
-
-                            if let Some(deposit) = resources.deposits.get_mut(r_type) {
-                                // v3.8: per-gas cap-aware throttle. Each
-                                // gas in the cryogenic stream is
-                                // throttled independently by its own
-                                // local stockpile. N₂ sitting at cap
-                                // doesn't block O₂ extraction, and the
-                                // air processor "vents" the N₂ share.
-                                // demand_below = gross
-                                let mut demand = effective_rate * years_elapsed;
-                                let cap = budget.effective_stockpile_cap(*r_type);
-                                let current = local_opt
-                                    .as_ref()
-                                    .map_or(0.0, |ls| ls.get(r_type));
-                                demand = throttle_production(
-                                    demand,
-                                    current,
-                                    cap,
-                                    per_tick_consumption(*r_type),
-                                );
-
-                                let mut extracted = 0.0;
-
-                                // Atmospheric (proven tier)
-                                let taking = demand.min(deposit.reserve.proven_crustal);
-                                deposit.reserve.proven_crustal -= taking;
-                                extracted += taking;
-                                demand -= taking;
-
-                                // Trapped/Dissolved (deep tier)
-                                if demand > 0.0 {
-                                    let taking_deep = demand.min(deposit.reserve.deep_deposits);
-                                    deposit.reserve.deep_deposits -= taking_deep;
-                                    extracted += taking_deep;
-                                }
-
-                                if extracted > 0.0 {
-                                    deposit!(*r_type, extracted);
-                                    body.mass -= extracted * 1e9;
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // --- v0.5.2: per-resource direct production (mining,
-                // AutoMines, off-world water, He-3, precious metals, …) ---
-                // For each (resource, base_rate) pair:
-                //   yield_per_tick = base_rate
-                //                  × deposit.accessibility  (0.0–1.0)
-                //                  × bonus                  (orbital station)
-                //                  × years_elapsed
-                // Direct deposit (not via share-fold; no deposit
-                // depletion; the deposit remains intact for future
-                // deep-mining passes if a future patch wants to tap
-                // the actual proven_crustal tier for these resources).
-                for (resource, base_rate) in &direct_production {
-                    let access = resources
-                        .get_deposit(resource)
-                        .map(|d| (d.accessibility as f64).clamp(0.0, 1.0))
-                        .unwrap_or(0.0);
-                    if access <= 0.0 {
-                        // Body has no accessible deposit for this resource
-                        // (e.g. trying to mine Iron on a gas-giant). Skip
-                        // — the AutoMine wouldn't have been built there
-                        // in the first place because of the body-type
-                        // gate, but a 0-accessibility fallback is safe.
-                        continue;
-                    }
-                    // v3.8: cap-aware throttle. Direct-production
-                    // modifiers (IronMine, He3Mine, WaterProcessor, etc.)
-                    // don't subtract from the body — they represent
-                    // refining / synthesising — so we throttle the
-                    // deposit directly rather than the extraction. The
-                    // excess over `headroom` is "vented" (refined
-                    // material that can't be stored).
-                    let cap = budget.effective_stockpile_cap(*resource);
-                    let current = local_opt
-                        .as_ref()
-                        .map_or(0.0, |ls| ls.get(resource));
-                    let desired = base_rate * access * bonus * years_elapsed;
-                    let throttled = throttle_production(
-                        desired,
-                        current,
-                        cap,
-                        per_tick_consumption(*resource),
-                    );
-                    if throttled > 0.0 {
-                        deposit_with_fallback(&mut local_opt, &mut budget, *resource, throttled);
-                    }
-                }
+                // v3.8.12: per-body synthesis-input draw (Mt per tick),
+                // recorded by the industrial-process pass below. The
+                // direct-production throttle floor adds this so a resource
+                // whose only consumers are industrial processes (methane →
+                // PolymerSynthesis) is still produced at cap instead of
+                // draining the stockpile. See the v3.8.12 comment in the
+                // synthesis pass for the full rationale.
+                let mut synthesis_drawn: std::collections::HashMap<ResourceType, f64> =
+                    std::collections::HashMap::new();
 
                 // --- Industrial synthesis / breeding ---
+                // v3.8.12 (2026-08-09): this pass now runs BEFORE the
+                // direct-production deposit loop. Previously it ran after,
+                // so `per_tick_consumption` (the throttle floor) could not
+                // see the process input draw: at methane cap the
+                // direct-production throttle cut methane to per-cap +
+                // maintenance while PolymerSynthesis kept drawing, so the
+                // stockpile equilibrated ~87.5% full and the rate display
+                // showed a phantom red net. Running synthesis first lets
+                // the direct-production floor below include the real
+                // process draw (per_tick_consumption + synthesis_drawn).
                 for (building_type, &count) in &colony.buildings {
                     if count == 0 {
                         continue;
@@ -756,6 +633,12 @@ pub fn extract_resources(
                                 *input_resource,
                                 input_amount,
                             );
+                            // v3.8.12: record the draw so the
+                            // direct-production throttle floor below
+                            // covers it (methane → PolymerSynthesis
+                            // etc.).
+                            *synthesis_drawn.entry(*input_resource).or_insert(0.0) +=
+                                input_amount;
                         }
 
                         deposit_with_fallback(
@@ -764,6 +647,77 @@ pub fn extract_resources(
                             rule.output,
                             throttled_output,
                         );
+                    }
+                }
+
+                // GRA-83 PR-E: per-body orbital survey station bonus
+                // multiplies mining rates (NOT atmospheric harvesting,
+                // NOT industrial synthesis, NOT direct-production paths
+                // that explicitly read from non-tiered sources like
+                // He-3 regolith or asteroid captures — those use the
+                // body's per-resource accessibility for the location
+                // gate, not the yield multiplier).
+                // We multiply the direct-production rates below; the
+                // legacy code scaled MiningEfficiency/etc. here, but
+                // v0.5.2 unified everything into direct_production so
+                // the multiplication moves to the direct-deposit block.
+                // For now, we apply the bonus uniformly so the
+                // station's effect is still felt.
+                let bonus = mining_bonus;
+
+                // --- v0.5.2: per-resource direct production (mining,
+                // AutoMines, off-world water, He-3, precious metals, …) ---
+                // For each (resource, base_rate) pair:
+                //   yield_per_tick = base_rate
+                //                  × deposit.accessibility  (0.0–1.0)
+                //                  × bonus                  (orbital station)
+                //                  × years_elapsed
+                // Direct deposit (not via share-fold; no deposit
+                // depletion; the deposit remains intact for future
+                // deep-mining passes if a future patch wants to tap
+                // the actual proven_crustal tier for these resources).
+                for (resource, base_rate) in &direct_production {
+                    let access = resources
+                        .get_deposit(resource)
+                        .map(|d| (d.accessibility as f64).clamp(0.0, 1.0))
+                        .unwrap_or(0.0);
+                    if access <= 0.0 {
+                        // Body has no accessible deposit for this resource
+                        // (e.g. trying to mine Iron on a gas-giant). Skip
+                        // — the AutoMine wouldn't have been built there
+                        // in the first place because of the body-type
+                        // gate, but a 0-accessibility fallback is safe.
+                        continue;
+                    }
+                    // v3.8: cap-aware throttle. Direct-production
+                    // modifiers (IronMine, He3Mine, WaterProcessor, etc.)
+                    // don't subtract from the body — they represent
+                    // refining / synthesising — so we throttle the
+                    // deposit directly rather than the extraction. The
+                    // excess over `headroom` is "vented" (refined
+                    // material that can't be stored).
+                    let cap = budget.effective_stockpile_cap(*resource);
+                    let current = local_opt
+                        .as_ref()
+                        .map_or(0.0, |ls| ls.get(resource));
+                    let desired = base_rate * access * bonus * years_elapsed;
+                    // v3.8.12: the throttle floor now includes the
+                    // synthesis-input draw (`synthesis_drawn`) recorded by
+                    // the process pass above, not just per-capita +
+                    // maintenance. Without it, methane (whose only
+                    // consumers at Earth start are per-cap + NG plants +
+                    // PolymerSynthesis input) throttled to per-cap + maint
+                    // at cap while the factory kept drawing, so the
+                    // stockpile equilibrated ~87.5% full and the rate
+                    // display showed a phantom red net. With the floor
+                    // including the process draw, production at cap =
+                    // per-cap + maint + synthesis inputs and the net rate
+                    // displays 0.
+                    let floor = per_tick_consumption(*resource)
+                        + synthesis_drawn.get(resource).copied().unwrap_or(0.0);
+                    let throttled = throttle_production(desired, current, cap, floor);
+                    if throttled > 0.0 {
+                        deposit_with_fallback(&mut local_opt, &mut budget, *resource, throttled);
                     }
                 }
             }
@@ -944,11 +898,20 @@ pub fn update_resource_rates(
                 // share-fold (removed in v0.5.2). The legacy tier
                 // (MiningEfficiency/Deep/Bulk) and `surface/deep/bulk_rate`
                 // bookkeeping are gone.
+                //
+                // v3.8.12 (2026-08-08): the previous AtmosphericProcessor
+                // dispatch had a special `AtmosphericHarvesting` case that
+                // summed a single "harvested gases" rate (Mt/yr of total
+                // cryogenic stream) and then distributed it across
+                // atmospheric deposits by concentration weight. The
+                // share-fold over-allocated the rate to whatever gas had
+                // the highest concentration in the deposit (1.0 for N₂)
+                // and starved the rest. AtmosphericProcessor now uses
+                // `NitrogenProduction` / `OxygenProduction` /
+                // `ArgonProduction` / `CarbonDioxideProduction` and falls
+                // through to the generic `*Production` strip_suffix path.
                 let yield_mult = colony.effective_yield_multiplier();
                 let mining_bonus = ContinuousStationBonus::multiplier_or_neutral(station_bonus_opt);
-                // Atmospheric harvesting is the only path that still uses
-                // the share-fold across atmospheric deposits.
-                let mut total_atmo_rate = 0.0_f64;
                 // v0.5.2: per-resource direct-production rates
                 // (rate-tracker mirror of `extract_resources` direct_deposit).
                 let mut direct_production: std::collections::HashMap<ResourceType, f64> =
@@ -960,150 +923,32 @@ pub fn update_resource_rates(
                     }
                     if let Some(def) = data.get(building_type) {
                         for modifier in &def.modifiers {
-                            match modifier.modifier_type.as_str() {
-                                "AtmosphericHarvesting" => {
-                                    total_atmo_rate += modifier.value * count as f64 * yield_mult;
-                                }
-                                "ArgonProduction" => {
-                                    *direct_production.entry(ResourceType::Argon).or_insert(0.0) +=
+                            if let Some(resource_name) =
+                                modifier.modifier_type.strip_suffix("Production")
+                            {
+                                if let Some(target) =
+                                    parse_resource_type_static(resource_name)
+                                {
+                                    *direct_production.entry(target).or_insert(0.0) +=
                                         modifier.value * count as f64 * yield_mult;
                                 }
-                                _ => {
-                                    if let Some(resource_name) =
-                                        modifier.modifier_type.strip_suffix("Production")
-                                    {
-                                        if let Some(target) =
-                                            parse_resource_type_static(resource_name)
-                                        {
-                                            *direct_production.entry(target).or_insert(0.0) +=
-                                                modifier.value * count as f64 * yield_mult;
-                                        }
-                                    }
-                                }
                             }
                         }
                     }
                 }
 
-                // Atmospheric harvesting rates (weighted by concentration)
-                if total_atmo_rate > 0.0 {
-                    let monthly_total = total_atmo_rate * monthly_fraction;
+                // v3.8.12: per-body synthesis-input draw (Mt/month),
+                // recorded by the process pass below and added to the
+                // direct-production throttle floor so the displayed
+                // rates mirror the reordered `extract_resources`.
+                let mut synthesis_drawn: std::collections::HashMap<ResourceType, f64> =
+                    std::collections::HashMap::new();
 
-                    let harvestable: Vec<(ResourceType, f64)> = resources
-                        .deposits
-                        .iter()
-                        .filter(|(_, d)| {
-                            d.is_atmospheric
-                                && (d.reserve.proven_crustal > 0.001
-                                    || d.reserve.deep_deposits > 0.001)
-                        })
-                        .map(|(t, d)| (*t, (d.reserve.concentration as f64).max(1e-10)))
-                        .collect();
-
-                    let total_weight: f64 = harvestable.iter().map(|(_, w)| w).sum();
-                    if total_weight > 0.0 {
-                        for (r_type, weight) in &harvestable {
-                            let share = weight / total_weight;
-                            // v3.8: per-gas cap-aware throttle. The
-                            // cryogenic stream is throttled per-gas
-                            // so a saturated N₂ stockpile doesn't
-                            // cap O₂/Ar extraction.
-                            let cap = budget.effective_stockpile_cap(*r_type);
-                            let current = local_opt.map_or(0.0, |ls| ls.get(r_type));
-                            let monthly_consumption = buildings_data
-                                .as_ref()
-                                .map(|d| {
-                                    colony.annual_resource_consumption(*r_type, d)
-                                        * monthly_fraction
-                                })
-                                .unwrap_or(0.0);
-                            let gross_share = monthly_total * share;
-                            let mut throttled = throttle_production(
-                                gross_share,
-                                current,
-                                cap,
-                                monthly_consumption,
-                            );
-                            // v3.8.2: cap by the per-gas
-                            // atmospheric deposit's remaining
-                            // reserve. The deposit is huge
-                            // (Earth's atmospheric N₂ is ~4 Tt
-                            // = 4×10⁹ Mt — see
-                            // `src/economy/profiles.rs` Earth
-                            // profile), so for atmospheric gases
-                            // this is essentially a hard cap that
-                            // binds only at geological timescales
-                            // (10⁴ years at 300
-                            // AtmosphericProcessors). The cap
-                            // matters most for atmospheric gas
-                            // mines where the deposit has actually
-                            // been depleted (small moons with thin
-                            // atmospheres) — there the rate
-                            // display must not show a phantom.
-                            if let Some(deposit) =
-                                resources.deposits.get(r_type)
-                            {
-                                let reserve = deposit.reserve.proven_crustal
-                                    + deposit.reserve.deep_deposits;
-                                throttled =
-                                    throttled.min(reserve.max(0.0));
-                            }
-                            if throttled > 0.0 {
-                                add_production(
-                                    &mut rates,
-                                    &mut production_rates,
-                                    &mut per_entity,
-                                    entity,
-                                    *r_type,
-                                    throttled,
-                                );
-                            }
-                        }
-                    }
-                }
-
-                // v0.5.2: per-resource direct production (rate tracker).
-                // For each resource, monthly_rate =
-                //   base_rate × deposit.accessibility × bonus × monthly_fraction
-                for (resource, base_rate) in &direct_production {
-                    let access = resources
-                        .get_deposit(resource)
-                        .map(|d| (d.accessibility as f64).clamp(0.0, 1.0))
-                        .unwrap_or(0.0);
-                    if access <= 0.0 {
-                        continue;
-                    }
-                    let monthly = base_rate * access * mining_bonus * monthly_fraction;
-                    // v3.8: cap-aware throttle. The displayed
-                    // production rate is the throttled value so
-                    // the player sees the mine slow down as the
-                    // local stockpile approaches cap.
-                    let cap = budget.effective_stockpile_cap(*resource);
-                    let current = local_opt.map_or(0.0, |ls| ls.get(resource));
-                    let monthly_consumption = buildings_data
-                        .as_ref()
-                        .map(|d| {
-                            colony.annual_resource_consumption(*resource, d) * monthly_fraction
-                        })
-                        .unwrap_or(0.0);
-                    let throttled = throttle_production(
-                        monthly,
-                        current,
-                        cap,
-                        monthly_consumption,
-                    );
-                    if throttled > 0.0 {
-                        add_production(
-                            &mut rates,
-                            &mut production_rates,
-                            &mut per_entity,
-                            entity,
-                            *resource,
-                            throttled,
-                        );
-                    }
-                }
-
+                // Simulated input availability for the synthesis pass
+                // (local stockpile + global budget). Built BEFORE the
+                // process loop so the process draw can decrement it as
+                // it runs (matches `feasible_output_amount`'s
+                // `combined_available` in `extract_resources`).
                 let mut simulated_available: std::collections::HashMap<ResourceType, f64> =
                     ResourceType::all()
                         .iter()
@@ -1117,6 +962,13 @@ pub fn update_resource_rates(
                         })
                         .collect();
 
+                // v3.8.12: the synthesis rate pass runs BEFORE the
+                // direct-production rate pass (mirroring the reordered
+                // `extract_resources`), so `synthesis_drawn` is known
+                // when the direct-production throttle computes its
+                // consumption floor. Without this the methane rate
+                // display showed a phantom red net at cap (see the
+                // v3.8.12 comment in `extract_resources`).
                 for (building_type, &count) in &colony.buildings {
                     if count == 0 {
                         continue;
@@ -1218,6 +1070,10 @@ pub fn update_resource_rates(
                             // v3.8.11: track industrial-process input
                             // draw separately for the UI tooltip.
                             *synthesis_input.entry(*input_resource).or_insert(0.0) += consumed;
+                            // v3.8.12: track the draw per body so the
+                            // direct-production throttle floor below
+                            // can cover it.
+                            *synthesis_drawn.entry(*input_resource).or_insert(0.0) += consumed;
                         }
 
                         *simulated_available.entry(rule.output).or_insert(0.0) +=
@@ -1229,6 +1085,54 @@ pub fn update_resource_rates(
                             entity,
                             rule.output,
                             throttled_output,
+                        );
+                    }
+                }
+
+                // v0.5.2: per-resource direct production (rate tracker).
+                // For each resource, monthly_rate =
+                //   base_rate × deposit.accessibility × bonus × monthly_fraction
+                for (resource, base_rate) in &direct_production {
+                    let access = resources
+                        .get_deposit(resource)
+                        .map(|d| (d.accessibility as f64).clamp(0.0, 1.0))
+                        .unwrap_or(0.0);
+                    if access <= 0.0 {
+                        continue;
+                    }
+                    let monthly = base_rate * access * mining_bonus * monthly_fraction;
+                    // v3.8: cap-aware throttle. The displayed
+                    // production rate is the throttled value so
+                    // the player sees the mine slow down as the
+                    // local stockpile approaches cap.
+                    let cap = budget.effective_stockpile_cap(*resource);
+                    let current = local_opt.map_or(0.0, |ls| ls.get(resource));
+                    // v3.8.12: the throttle floor now includes the
+                    // per-body synthesis-input draw (`synthesis_drawn`),
+                    // matching the reordered `extract_resources`. Without
+                    // it the methane rate display showed a phantom red
+                    // net at cap even though the stockpile was stable.
+                    let monthly_consumption = buildings_data
+                        .as_ref()
+                        .map(|d| {
+                            colony.annual_resource_consumption(*resource, d) * monthly_fraction
+                        })
+                        .unwrap_or(0.0)
+                        + synthesis_drawn.get(resource).copied().unwrap_or(0.0);
+                    let throttled = throttle_production(
+                        monthly,
+                        current,
+                        cap,
+                        monthly_consumption,
+                    );
+                    if throttled > 0.0 {
+                        add_production(
+                            &mut rates,
+                            &mut production_rates,
+                            &mut per_entity,
+                            entity,
+                            *resource,
+                            throttled,
                         );
                     }
                 }
@@ -1436,8 +1340,15 @@ pub fn update_resource_rates(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::economy::components::{MineralDeposit, PlanetResources};
+    use bevy::app::App;
+    use bevy::ecs::system::RunSystemOnce;
+    use crate::colony::Colony;
+    use crate::colony::data::BuildingsData;
+    use crate::economy::budget::{GlobalBudget, ResourceRateTracker};
+    use crate::economy::components::{LocalStockpile, MineralDeposit, PlanetResources};
     use crate::economy::types::ResourceType;
+    use crate::plugins::solar_system_data::BodyType;
+    use crate::research::ResearchState;
 
     /// Helper: create a deposit with specific proven/deep/bulk, concentration, and atmospheric flag
     fn make_deposit(
@@ -1797,5 +1708,385 @@ mod tests {
         let added = local.add_capped(ResourceType::Iron, 10.0, cap);
         assert_eq!(added, 0.0);
         assert_eq!(local.get(&ResourceType::Iron), 100.0);
+    }
+
+    // ------------------------------------------------------------------
+    // v3.8.12 gate: Earth-start resource balance (BALANCE_PATCHES_v0.5.md)
+    // ------------------------------------------------------------------
+    // The campaign's "canary gate" that pins the Earth starting state:
+    // build the real Earth special-profile deposits + the real
+    // `solar_system.rs` `base_buildings` + the real `buildings.ron`
+    // per-build rates, run the actual `update_resource_rates` system,
+    // and assert that every resource's annual net rate ≈ 0 (±5% of the
+    // 2026 world anchor) — i.e. production ≈ per-capita + maintenance
+    // + synthesis inputs, with NO resource burning stockpile.
+    //
+    // This is the test that would have caught the v3.8.12 atmospheric
+    // accessibility bug (deposit accessibility = mole fraction → N₂/O₂
+    // under-produced and burned) and the methane-accessibility mismatch
+    // (deposit 0.3 vs the 0.6 the v3.8.x audits assumed → methane burns
+    // ~1,000 Mt/yr at game start).
+
+    /// The real 2026 world-production anchors (Mt/yr) used by the
+    /// v3.8.x calibration (USGS / IEA / WNA / OECD 2024-2026). Keyed
+    /// per `ResourceType`. Resources with no consumer at Earth start
+    /// (H₂, NH₃, CO₂, Ar, Pu, He-3, Tritium, etc.) are not asserted —
+    /// they idle (no per-cap draw, no maintenance) and simply fill to
+    /// cap; the cards/tooltips show them as surplus.
+    fn world_2026_mt_per_year(rt: ResourceType) -> Option<f64> {
+        use ResourceType::*;
+        Some(match rt {
+            Food => 9_000.0,          // FAO 2024 (v3.7: 25 Farms × 360 = 9,000)
+            Water => 4_000.0,         // v3.8.10: 500 WaterTreatmentPlant × 8.0
+            Iron => 2_500.0,          // worldsteel 2024
+            Aluminum => 70.0,         // USGS 2024
+            Titanium => 9.0,          // USGS 2024
+            Silicates => 50_000.0,    // USGS NMA aggregate
+            Nickel => 3.5,            // USGS 2024 refined
+            Tungsten => 0.10,         // v3.8.10 (94 kt)
+            Carbon => 8_200.0,        // IEA 2026 coal
+            Chromium => 47.0,         // v3.8.10 chromite ore
+            Magnesium => 1.0,         // USGS 2024
+            Copper => 26.0,           // USGS 2024
+            RareEarths => 0.35,       // USGS REO
+            Lithium => 0.13,          // USGS 2024 Li content
+            Sulfur => 70.0,           // USGS 2024 elemental
+            Phosphorus => 240.0,      // phosphate rock equiv
+            Cobalt => 0.20,           // v3.8.10
+            Fluorine => 3.5,          // fluorspar
+            Gold => 0.0036,           // 3,600 t
+            Silver => 0.028,          // 28,000 t
+            Platinum => 0.00023,      // v3.8.10 (230 t)
+            Uranium => 0.074,         // WNA 2024
+            Thorium => 0.0008,        // WNA 2024 (800 t)
+            Methane => 4_100.0,       // IEA 2026 (v3.8.9/10 anchor)
+            Deuterium => 0.035,       // v3.8.10 (35 kt)
+            Nitrogen => 200.0,        // v3.8.12 per-gas split (300 × 0.667)
+            Oxygen => 150.0,          // v3.8.12 (300 × 0.5)
+            Argon => 1.0,             // v3.8.12 (300 × 0.00333)
+            CarbonDioxide => 200.0,   // v3.8.12 (300 × 0.667)
+            Polymers => 450.0,        // OECD 2024
+            Hydrogen => 100.0,        // v3.8.10 (ChemicalPlant × 700)
+            Ammonia => 200.0,         // v3.8.10
+            _ => return None,         // exotics / bred-only (Pu, He-3, Tritium)
+        })
+    }
+
+    /// Mirror of the real Earth starting building counts in
+    /// `src/plugins/solar_system.rs::setup_solar_system` (`base_buildings`).
+    /// Keep in sync when that array changes — the gate test IS the
+    /// contract that pins the starting state.
+    fn earth_base_buildings() -> Vec<(crate::colony::BuildingType, u32)> {
+        use crate::colony::BuildingType::*;
+        vec![
+            (Housing, 400),
+            (Farm, 25),
+            (Greenhouse, 1),
+            (AquacultureFacility, 1),
+            (Factory, 1_200),
+            (IronMine, 25),
+            (AluminumMine, 25),
+            (TitaniumMine, 25),
+            (SilicatesMine, 25),
+            (NickelMine, 25),
+            (TungstenMine, 25),
+            (CarbonMine, 25),
+            (ChromiumMine, 25),
+            (MagnesiumMine, 25),
+            (GoldMine, 25),
+            (SilverMine, 25),
+            (PlatinumMine, 25),
+            (CopperMine, 25),
+            (RareEarthsMine, 25),
+            (LithiumMine, 25),
+            (SulfurMine, 25),
+            (PhosphorusMine, 25),
+            (CobaltMine, 25),
+            (FluorineMine, 25),
+            (UraniumMine, 25),
+            (ThoriumMine, 25),
+            (MethaneExtractor, 25),
+            (DeuteriumExtractor, 25),
+            (ChemicalPlant, 700),
+            (AtmosphericProcessor, 300),
+            (SolarPower, 320),
+            (CoalPowerPlant, 195),
+            (NaturalGasPlant, 135),
+            (HydroelectricDam, 82),
+            (WindFarm, 400),
+            (FissionReactor, 20),
+            (WaterTreatmentPlant, 500),
+            (ResearchLab, 500),
+            (DataCenter, 100),
+            (AiCluster, 10),
+            (LaunchSite, 200),
+            (SpacePort, 50),
+            (Shipyard, 18),
+            (FinancialCenter, 100),
+            (CommercialHub, 500),
+            (TradePort, 50),
+            (MedicalCenter, 200),
+            (PharmaceuticalPlant, 100),
+            (Warehouse, 4),
+        ]
+    }
+
+    /// Build the Earth starting-state world: real Earth deposits via
+    /// `generate_resources_for_body`, the real `base_buildings` from
+    /// `solar_system.rs`, a `CelestialBody` (for body-mass bookkeeping),
+    /// an empty `LocalStockpile`, and the seeded `GlobalBudget`. Returns
+    /// the App plus a `Schedule` that runs `extract_resources` with a
+    /// persistent `Local<f64>` `last_elapsed` (so per-tick dt is correct
+    /// when the schedule is run repeatedly with advancing `SimulationTime`).
+    fn earth_start_app() -> (bevy::ecs::schedule::Schedule, App) {
+        use crate::plugins::solar_system::CelestialBody;
+        let mut rng = rand::rng();
+        let resources = crate::economy::generation::generate_resources_for_body(
+            "Earth",
+            BodyType::Planet,
+            5.972e24,
+            None,
+            1.0,
+            2.5,
+            &mut rng,
+        );
+
+        let mut colony = Colony::new_civilisation("Earth".to_string(), 8.2e9);
+        for (bt, count) in earth_base_buildings() {
+            for _ in 0..count {
+                colony.add_building(bt);
+            }
+        }
+
+        let body = CelestialBody {
+            name: "Earth".to_string(),
+            radius: 6_371.0,
+            mass: 5.972e24,
+            body_type: BodyType::Planet,
+            visual_radius: 1.0,
+            asteroid_class: None,
+            star_approach_au: None,
+            rotation_period_s: None,
+            habitable_outer_au: None,
+        };
+
+        let mut app = App::new();
+        app.insert_resource(BuildingsData::load_for_tests());
+        app.insert_resource(GlobalBudget::default());
+        app.insert_resource(ResearchState::default());
+        app.init_resource::<ResourceRateTracker>();
+        app.init_resource::<crate::economy::DirtyBodies>();
+        app.insert_resource(crate::ui::time::SimulationTime::new());
+        // The Earth colony entity with its resources + an empty local
+        // stockpile (the body-side inventory starts empty; the global
+        // budget holds the pre-seeded 50%-of-cap stockpile).
+        app.world_mut()
+            .spawn((body, colony, resources, LocalStockpile::default()));
+
+        // Register extract_resources in a Schedule so its `Local<f64>`
+        // last_elapsed persists across runs — with run_system_once the
+        // Local resets to 0 every call and dt = full elapsed each tick.
+        let mut schedule = bevy::ecs::schedule::Schedule::default();
+        schedule.add_systems(extract_resources);
+        (schedule, app)
+    }
+
+    /// Advance the simulation by `months` monthly ticks (running the real
+    /// `extract_resources` system each tick so stockpiles fill to cap and
+    /// the throttle engages), then return the annualized per-resource net
+    /// rate (Mt/yr) from `update_resource_rates`.
+    ///
+    /// v3.8.12: the FIRST-tick measurement is distorted by the 25 Mt
+    /// methane seed and the empty local stockpile (synthesis processes
+    /// are input-starved until the stockpile fills). Simulating forward
+    /// gives the steady-state rates the audits actually meant to hit.
+    fn earth_start_annual_net(months: u32) -> std::collections::HashMap<ResourceType, f64> {
+        use crate::ui::time::SimulationTime;
+        let (schedule, mut app) = earth_start_app();
+        let mut schedule = schedule;
+        for _ in 0..months {
+            app.world_mut()
+                .resource_mut::<SimulationTime>()
+                .elapsed += SECONDS_PER_MONTH;
+            schedule.run(app.world_mut());
+        }
+        app.world_mut().run_system_once(update_resource_rates);
+
+        let tracker = app.world().resource::<ResourceRateTracker>();
+        let mut net = std::collections::HashMap::new();
+        for rt in ResourceType::all() {
+            let prod = tracker.gross_production_rates.get(rt).copied().unwrap_or(0.0);
+            let cons = tracker.gross_consumption_rates.get(rt).copied().unwrap_or(0.0);
+            // monthly → annual
+            net.insert(*rt, (prod - cons) * (SECONDS_PER_YEAR / SECONDS_PER_MONTH));
+        }
+        net
+    }
+
+    /// The gate: two invariants that pin the Earth-start balance.
+    ///
+    /// 1. **Production capacity = 2026 world** (±15%): with an uncapped
+    ///    stockpile (storage_multiplier huge → throttle passthrough), the
+    ///    gross production of each mine/processor must equal the 2026
+    ///    world anchor. The v3.8.x audits assumed a flat 0.6 Earth
+    ///    accessibility for every mine, but the real `profiles.rs`
+    ///    deposits vary (Iron 0.9, Cu 0.5, U 0.3, Methane 0.3, Li 0.35
+    ///    …), so the audited per-build values produced gross ≠ world.
+    ///    This gate pins the accessibility-aware per-build re-derivation.
+    ///
+    /// 2. **No stockpile burn at steady state**: after 36 simulated
+    ///    months, no resource's net rate may be below −1% of world.
+    ///    The v3.8 cap-throttle keeps production at consumption, so
+    ///    this guards against a maintenance/per-cap draw exceeding what
+    ///    the mines can supply even at full production.
+    #[test]
+    fn earth_start_balance_no_stockpile_burn() {
+        // --- Invariant 1: gross production capacity = world ---
+        // With storage_multiplier = 1e18, every stockpile cap is
+        // effectively infinite → `throttle_production` passthrough →
+        // `update_resource_rates` reports gross production.
+        let (_, mut gross_app) = earth_start_app();
+        gross_app
+            .world_mut()
+            .resource_mut::<GlobalBudget>()
+            .storage_multiplier = 1e18;
+        gross_app.world_mut().run_system_once(update_resource_rates);
+        let gross_tracker = gross_app.world().resource::<ResourceRateTracker>();
+        let mut gross_failures = Vec::new();
+        for rt in ResourceType::all() {
+            let Some(world) = world_2026_mt_per_year(*rt) else {
+                continue;
+            };
+            // Synthesis products (Hydrogen, Ammonia, Polymers) are
+            // demand-driven: their gross in the one-shot measurement is
+            // input-scaling-limited (the seed budget holds only ~25 Mt
+            // methane / ~15 Mt N₂, and the synthesis pass runs before
+            // direct production so it can't see fresh mine output). The
+            // steady-state invariant (below) proves they self-supply:
+            // after 36 months the 36-month table shows polymers =
+            // percap+maint exactly and net = 0. Asserting "gross =
+            // world" here would be wrong — they are not mined.
+            let synthesis_product = matches!(
+                *rt,
+                ResourceType::Hydrogen | ResourceType::Ammonia | ResourceType::Polymers
+            );
+            if synthesis_product {
+                continue;
+            }
+            // Only mines/processors have a gross rate; food is added by
+            // `update_resource_rates` separately and is checked below.
+            let gross = gross_tracker
+                .gross_production_rates
+                .get(rt)
+                .copied()
+                .unwrap_or(0.0)
+                * (SECONDS_PER_YEAR / SECONDS_PER_MONTH);
+            // Skip resources whose production is a different magnitude
+            // than world (e.g. Silicates 50,000 Mt/yr aggregate — the
+            // game models consumer share, not the whole quarry output).
+            if world > 1e4 {
+                continue;
+            }
+            if (gross - world).abs() > world * 0.15 {
+                gross_failures.push(format!(
+                    "{:?}: gross prod {:.3} Mt/yr vs world {:.3} (tol ±{:.3})",
+                    rt,
+                    gross,
+                    world,
+                    world * 0.15
+                ));
+            }
+        }
+        // Food is produced by Farm/Greenhouse/Aquaculture (no deposit
+        // access multiplier) — assert it separately.
+        {
+            let food_gross = gross_tracker
+                .gross_production_rates
+                .get(&ResourceType::Food)
+                .copied()
+                .unwrap_or(0.0)
+                * (SECONDS_PER_YEAR / SECONDS_PER_MONTH);
+            if (food_gross - 9_400.0).abs() > 9_400.0 * 0.05 {
+                gross_failures.push(format!(
+                    "Food: gross prod {:.3} Mt/yr vs 9,400 (tol ±470)",
+                    food_gross
+                ));
+            }
+        }
+
+        // --- Invariant 2: no burn at steady state ---
+        let net = earth_start_annual_net(36);
+        let mut burn_failures = Vec::new();
+        for rt in ResourceType::all() {
+            let Some(world) = world_2026_mt_per_year(*rt) else {
+                continue;
+            };
+            let net_rate = net.get(rt).copied().unwrap_or(0.0);
+            if net_rate < -world * 0.01 {
+                burn_failures.push(format!(
+                    "{:?}: net {:.3} Mt/yr < −1% of world {:.3} — STOCKPILE BURN",
+                    rt, net_rate, world
+                ));
+            }
+        }
+
+        let mut failures = gross_failures;
+        failures.extend(burn_failures);
+        assert!(
+            failures.is_empty(),
+            "Earth-start balance gate FAILED ({} resource(s) off):\n{}",
+            failures.len(),
+            failures.join("\n")
+        );
+    }
+
+    /// Print a full Earth-start steady-state rate table (prod / per-cap /
+    /// maint / synthesis / net vs world) for the balance-expert review.
+    /// Not an assertion — a diagnostic that mirrors the v3.8.10 audit
+    /// table, run after 36 simulated months.
+    #[test]
+    fn earth_start_balance_print_table() {
+        use crate::ui::time::SimulationTime;
+        let (schedule, mut app) = earth_start_app();
+        let mut schedule = schedule;
+        for _ in 0..36 {
+            app.world_mut()
+                .resource_mut::<SimulationTime>()
+                .elapsed += SECONDS_PER_MONTH;
+            schedule.run(app.world_mut());
+        }
+        app.world_mut().run_system_once(update_resource_rates);
+        let tracker = app.world().resource::<ResourceRateTracker>();
+        let mut rows = Vec::new();
+        for rt in ResourceType::all() {
+            let prod = tracker.gross_production_rates.get(rt).copied().unwrap_or(0.0)
+                * (SECONDS_PER_YEAR / SECONDS_PER_MONTH);
+            let percap = tracker.population_consumption.get(rt).copied().unwrap_or(0.0)
+                * (SECONDS_PER_YEAR / SECONDS_PER_MONTH);
+            let synth = tracker.synthesis_input.get(rt).copied().unwrap_or(0.0)
+                * (SECONDS_PER_YEAR / SECONDS_PER_MONTH);
+            let maint = tracker
+                .gross_consumption_rates
+                .get(rt)
+                .copied()
+                .unwrap_or(0.0)
+                * (SECONDS_PER_YEAR / SECONDS_PER_MONTH)
+                - percap
+                - synth;
+            let net = prod - percap - maint - synth;
+            let world = world_2026_mt_per_year(*rt).map(|w| format!("{w:.3}")).unwrap_or("-".into());
+            rows.push(format!(
+                "  {:12} prod={:>10.3} percap={:>9.3} maint={:>9.3} synth={:>9.3} net={:>+10.3}  world={}",
+                format!("{:?}", rt),
+                prod,
+                percap,
+                maint,
+                synth,
+                net,
+                world
+            ));
+        }
+        rows.sort();
+        println!("Earth-start rates (Mt/yr):\n{}", rows.join("\n"));
     }
 }

@@ -811,13 +811,22 @@ fn body_has_resource_flows(
         data.get(building_type)
             .map(|def| {
                 def.modifiers.iter().any(|modifier| {
-                    matches!(
+                    // v3.8.12 (2026-08-08): the legacy
+                    // `AtmosphericHarvesting` modifier was retired in
+                    // favour of per-gas `NitrogenProduction` /
+                    // `OxygenProduction` / `ArgonProduction` /
+                    // `CarbonDioxideProduction` modifiers. The
+                    // presence of ANY `<Resource>Production` modifier
+                    // now means the body has something to show in the
+                    // production breakdown, so we just check the
+                    // `*Production` suffix here.
+                    (matches!(
                         modifier.modifier_type.as_str(),
                         "MiningEfficiency"
                             | "DeepMiningEfficiency"
                             | "BulkMiningEfficiency"
-                            | "AtmosphericHarvesting"
-                    ) && modifier.value > 0.0
+                    ) || modifier.modifier_type.ends_with("Production"))
+                        && modifier.value > 0.0
                 })
             })
             .unwrap_or(false)
@@ -2012,161 +2021,110 @@ fn render_econ_resources(
 
                                     // Mining production (estimate from colony's deposits)
                                     // Show which resources the colony's mines/atmo processors extract
-                                    let mut ui_surface_rate = 0.0_f64;
-                                    let mut ui_deep_rate = 0.0_f64;
-                                    let mut ui_bulk_rate = 0.0_f64;
-                                    let mut total_atmo_rate = 0.0_f64;
                                     for (bt, count) in &colony.buildings {
                                         if *count == 0 {
                                             continue;
                                         }
                                         if let Some(def) = data.get(bt) {
                                             for modifier in &def.modifiers {
-                                                match modifier.modifier_type.as_str() {
-                                                    "MiningEfficiency" => {
-                                                        ui_surface_rate +=
-                                                            modifier.value * *count as f64
+                                                // v3.8.12
+                                                // (2026-08-08):
+                                                // per-gas /
+                                                // per-resource
+                                                // direct
+                                                // production
+                                                // modifiers
+                                                // (`NitrogenProduction`,
+                                                // `IronProduction`,
+                                                // `WaterProduction`,
+                                                // `ArgonProduction`,
+                                                // `CarbonDioxideProduction`,
+                                                // etc.) are
+                                                // dispatched
+                                                // via the
+                                                // generic
+                                                // `*Production`
+                                                // strip_suffix
+                                                // here. Replaces
+                                                // the legacy
+                                                // `AtmosphericHarvesting`
+                                                // share-fold
+                                                // (which gave
+                                                // wildly wrong
+                                                // per-gas splits
+                                                // — see
+                                                // `economy/mining.rs`
+                                                // v3.8.12
+                                                // history) and
+                                                // the legacy
+                                                // three-tier
+                                                // `MiningEfficiency` /
+                                                // `DeepMiningEfficiency` /
+                                                // `BulkMiningEfficiency`
+                                                // share-fold
+                                                // (removed in
+                                                // v0.5.2; those
+                                                // modifiers no
+                                                // longer exist
+                                                // in the RON).
+                                                if let Some(resource_name) =
+                                                    modifier.modifier_type.strip_suffix("Production")
+                                                {
+                                                    if let Some(target) =
+                                                        crate::colony::data::parse_resource_type(
+                                                            resource_name,
+                                                        )
+                                                    {
+                                                        production_rows.push((
+                                                            bt.display_name().to_string(),
+                                                            target,
+                                                            modifier.value
+                                                                * *count as f64
+                                                                / 12.0,
+                                                        ));
                                                     }
-                                                    "DeepMiningEfficiency" => {
-                                                        ui_deep_rate +=
-                                                            modifier.value * *count as f64
-                                                    }
-                                                    "BulkMiningEfficiency" => {
-                                                        ui_bulk_rate +=
-                                                            modifier.value * *count as f64
-                                                    }
-                                                    "AtmosphericHarvesting" => {
-                                                        total_atmo_rate +=
-                                                            modifier.value * *count as f64
-                                                    }
-                                                    _ => {}
                                                 }
                                             }
                                         }
                                     }
 
-                                    // Solid mining production breakdown — three tiers, no overflow
-                                    if ui_surface_rate > 0.0 {
-                                        let eligible: Vec<(ResourceType, f64)> = body_entry
-                                            .deposits
-                                            .iter()
-                                            .filter(|(_, d)| {
-                                                !d.is_atmospheric
-                                                    && d.reserve.proven_crustal > 0.001
-                                            })
-                                            .map(|(rt, d)| {
-                                                (*rt, (d.reserve.concentration as f64).max(1e-10))
-                                            })
-                                            .collect();
-                                        let total_weight: f64 =
-                                            eligible.iter().map(|(_, w)| w).sum();
-                                        if total_weight > 0.0 {
-                                            let monthly = ui_surface_rate / 12.0;
-                                            for (rt, weight) in &eligible {
-                                                production_rows.push((
-                                                    "Mining".to_string(),
-                                                    *rt,
-                                                    monthly * weight / total_weight,
-                                                ));
-                                            }
-                                        }
-                                    }
-                                    if ui_deep_rate > 0.0 {
-                                        let eligible: Vec<(ResourceType, f64)> = body_entry
-                                            .deposits
-                                            .iter()
-                                            .filter(|(_, d)| {
-                                                !d.is_atmospheric && d.reserve.deep_deposits > 0.001
-                                            })
-                                            .map(|(rt, d)| {
-                                                (*rt, (d.reserve.concentration as f64).max(1e-10))
-                                            })
-                                            .collect();
-                                        let total_weight: f64 =
-                                            eligible.iter().map(|(_, w)| w).sum();
-                                        if total_weight > 0.0 {
-                                            let monthly = ui_deep_rate / 12.0;
-                                            for (rt, weight) in &eligible {
-                                                production_rows.push((
-                                                    "Deep Mining".to_string(),
-                                                    *rt,
-                                                    monthly * weight / total_weight,
-                                                ));
-                                            }
-                                        }
-                                    }
-                                    if ui_bulk_rate > 0.0 {
-                                        let eligible: Vec<(ResourceType, f64)> = body_entry
-                                            .deposits
-                                            .iter()
-                                            .filter(|(_, d)| {
-                                                !d.is_atmospheric
-                                                    && d.reserve.planetary_bulk > 0.001
-                                            })
-                                            .map(|(rt, d)| {
-                                                (*rt, (d.reserve.concentration as f64).max(1e-10))
-                                            })
-                                            .collect();
-                                        let total_weight: f64 =
-                                            eligible.iter().map(|(_, w)| w).sum();
-                                        if total_weight > 0.0 {
-                                            let monthly = ui_bulk_rate / 12.0;
-                                            for (rt, weight) in &eligible {
-                                                production_rows.push((
-                                                    "Bulk Mining".to_string(),
-                                                    *rt,
-                                                    monthly * weight / total_weight,
-                                                ));
-                                            }
-                                        }
-                                    }
-
-                                    // Atmospheric harvesting production breakdown
-                                    if total_atmo_rate > 0.0 {
-                                        let harvestable: Vec<(ResourceType, f64)> = body_entry
-                                            .deposits
-                                            .iter()
-                                            .filter(|(_, d)| {
-                                                d.is_atmospheric
-                                                    && (d.reserve.proven_crustal > 0.001
-                                                        || d.reserve.deep_deposits > 0.001)
-                                            })
-                                            .map(|(rt, d)| {
-                                                (*rt, (d.reserve.concentration as f64).max(1e-10))
-                                            })
-                                            .collect();
-                                        let total_weight: f64 =
-                                            harvestable.iter().map(|(_, w)| w).sum();
-                                        if total_weight > 0.0 {
-                                            let monthly_total = total_atmo_rate / 12.0;
-                                            for (rt, weight) in &harvestable {
-                                                let share = weight / total_weight;
-                                                production_rows.push((
-                                                    "Atmo Harvesting".to_string(),
-                                                    *rt,
-                                                    monthly_total * share,
-                                                ));
-                                            }
-                                        }
-                                    }
+                                    // v3.8.12 (2026-08-08): removed the
+                                    // `AtmosphericHarvesting` share-fold
+                                    // block that distributed a single
+                                    // harvested-gas rate across atmospheric
+                                    // deposits by concentration weight. The
+                                    // per-gas production lines now flow
+                                    // through the generic `*Production`
+                                    // branch in the dispatch loop above
+                                    // (each gas gets its own row labelled
+                                    // with the source building).
 
                                     // Food production from agricultural buildings
-                                    let farm_count: f64 = colony
-                                        .buildings
+                                    // v3.8.12: per-build values are read from
+                                    // the RON `FoodProduction` modifiers via
+                                    // `BuildingsData::food_production_for`,
+                                    // not the v0.5-era hard-codes (Farm 100
+                                    // / AgriDome 0.4 were 3.6×/10× off the
+                                    // v3.5 calibration of 360 / 4 Mt/yr).
+                                    let food_buildings = [
+                                        crate::colony::BuildingType::Farm,
+                                        crate::colony::BuildingType::AgriDome,
+                                        crate::colony::BuildingType::Greenhouse,
+                                        crate::colony::BuildingType::AquacultureFacility,
+                                    ];
+                                    let food_production_monthly = food_buildings
                                         .iter()
-                                        .find(|(bt, _)| *bt == crate::colony::BuildingType::Farm)
-                                        .map(|(_, n)| *n as f64)
-                                        .unwrap_or(0.0);
-                                    let agri_count: f64 = colony
-                                        .buildings
-                                        .iter()
-                                        .find(|(bt, _)| {
-                                            *bt == crate::colony::BuildingType::AgriDome
+                                        .map(|bt| {
+                                            let count = colony
+                                                .buildings
+                                                .iter()
+                                                .find(|(b, _)| b == bt)
+                                                .map(|(_, n)| *n as f64)
+                                                .unwrap_or(0.0);
+                                            count * data.food_production_for(*bt)
                                         })
-                                        .map(|(_, n)| *n as f64)
-                                        .unwrap_or(0.0);
-                                    let food_production_monthly =
-                                        (farm_count * 100.0 + agri_count * 0.4) / 12.0;
+                                        .sum::<f64>()
+                                        / 12.0;
                                     if food_production_monthly > 0.0 {
                                         production_rows.push((
                                             "Agriculture".to_string(),
@@ -2176,8 +2134,16 @@ fn render_econ_resources(
                                     }
 
                                     // Population food consumption
+                                    // v3.8.12: per-capita food is read from
+                                    // the RON `colony_constants`
+                                    // (1.1e-6 Mt/p/yr), not the v0.5-era
+                                    // 0.0001 hard-code (which was ~91× too
+                                    // high — a Mt-vs-kg unit error).
                                     let food_consumption_monthly =
-                                        colony.population * 0.0001 / 12.0;
+                                        colony.population
+                                            * data.colony_constants
+                                                .food_consumption_per_capita_mt_per_year
+                                            / 12.0;
                                     if food_consumption_monthly > 0.0 {
                                         consumption_rows.push((
                                             "Population".to_string(),

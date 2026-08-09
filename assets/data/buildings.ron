@@ -90,8 +90,14 @@
             // Silicates (sand/gravel/aggregate). USGS NMA 2024:
             // 16,284 lbs / p / yr US; world ~410 kg / p / yr.
             silicates_mt_per_year: 0.00000041,
-            // Titanium (TiO₂). USGS 2024: 9 Mt world / 8.2B = 1.1 kg.
-            titanium_mt_per_year: 0.0000000011,
+            // Titanium (TiO₂). v3.8.10 (2026-08-07): Ti is 100%
+            // industrial (TiO₂ pigment, aerospace alloys, medical
+            // implants) — real per-capita Ti consumption is
+            // essentially zero. Set to 0 (matches the Rust
+            // `PerCapitaConsumption` default; previously the RON
+            // overrode it back to 1.1 kg/p/yr and Earth burned
+            // 9 Mt/yr of Ti against an 9 Mt/yr world).
+            titanium_mt_per_year: 0.0,
             // Polymers (plastics). OECD 2024: 450 Mt world / 8.2B = 55 kg.
             // Scaled to 70% = 38 kg / p / yr.
             polymers_mt_per_year: 0.000000038,
@@ -107,9 +113,14 @@
             // Methane (natural gas, IEA 2026: 4,100 bcm world /
             // 8.2B = 500 m³ / p / yr; ~50% consumer share).
             methane_mt_per_year: 0.00000025,
-            // Uranium (WNA 2024: 74 kt world / 8.2B = 9 g).
-            // Scaled to 70% = 6.3 g / p / yr.
-            uranium_mt_per_year: 0.0000000000063,
+            // Uranium (WNA 2024: 74 kt world). v3.8.9
+            // (2026-08-07): per-capita U is nonsensical — U is
+            // 100% nuclear-power industrial, not a consumer good.
+            // Set to 0 (matches the Rust `PerCapitaConsumption`
+            // default; previously the RON overrode it back to 6.3
+            // g/p/yr and Earth burned ~52 kt/yr against 74 kt/yr
+            // production).
+            uranium_mt_per_year: 0.0,
             // Carbon (coal/feedstock). USGS NMA 2024: 2,414 lbs
             // coal / p / yr US ≈ 1,095 kg. World ~700 kg / p / yr
             // (NMA is US only). 70% of 8,200 Mt = 700 kg / p / yr.
@@ -386,7 +397,7 @@
         (
             id: "AtmosphericProcessor",
             display_name: "Atmospheric Processor",
-            description: "Harvests industrial gases (N₂ + O₂ + Ar + CO₂) for the colony. 2.78 Mt/yr per build (v3.5: 300 × 2.78 × 0.6 = 500 Mt/yr = FAO/IEA industrial gas world total; 180× drop from 500 to land at parity).",
+            description: "Harvests industrial gases (N₂ + O₂ + Ar + CO₂) for the colony. v3.8.12: per-gas rates sized so 300 processors (Earth start) produce the 2026 world demand — N₂ 0.667, O₂ 0.5, Ar 0.00333, CO₂ 0.667 Mt/yr per build = 200 / 150 / 1 / 200 Mt/yr.",
             icon: "textures/ui/buildings/atmospheric-processor.png",
             category: "Industry",
             build_points: 500.0,
@@ -406,10 +417,33 @@
                 ("Fluorine", 0.0005),
             ],
             modifiers: [
-                // 2026 reference: world industrial gas production (N₂, O₂, H₂, CO₂, Ar)
-                // aggregates to ~500 Mt/yr (Linde/Air Liquide reports 2024).
-                // Operator bar: 1 processor ≈ world industrial gas share.
-                (modifier_type: "AtmosphericHarvesting", value: 2.7778),
+                // v3.8.12 (2026-08-08): per-gas production modifiers
+                // (N₂ / O₂ / Ar / CO₂). Replaces the old single
+                // `AtmosphericHarvesting` modifier with concentration-
+                // weighted share-fold (see commit `c1c8807` for
+                // context). The share-fold over-produced N (78% of
+                // atmosphere but only 48% share under the deposit-
+                // concentration weights in profiles.rs) and wildly
+                // under-produced CO₂ (0.04% of atmosphere = 0.2% of
+                // demand), and over-produced Ar (775% of demand).
+                //
+                // Per-build rates sized so 300 AtmosphericProcessors
+                // (Earth starting count) produces exactly the world
+                // 2026 demand for each gas (Linde / Air Liquide 2024):
+                //   - N:   200 / 300 = 0.667   Mt/yr/build
+                //   - O:   150 / 300 = 0.500   Mt/yr/build
+                //   - Ar:    1 / 300 = 0.00333 Mt/yr/build
+                //   - CO₂: 200 / 300 = 0.667   Mt/yr/build
+                // The "operator bar" the v3.8.10 comment invoked
+                // (1 processor ≈ world share) is now per-gas: 1/300 of
+                // each gas's world demand, not 1/300 of the mixed
+                // share-folded total.  This is the design §5.18 /
+                // §8.3.6 split that BALANCE_PATCHES_v0.5.md
+                // documented as PENDING.
+                (modifier_type: "NitrogenProduction", value: 0.667),
+                (modifier_type: "OxygenProduction", value: 0.5),
+                (modifier_type: "ArgonProduction", value: 0.00333),
+                (modifier_type: "CarbonDioxideProduction", value: 0.667),
             ],
             power_demand_mw: 600,
         ),
@@ -489,13 +523,16 @@
         //            + gas-giant primordial He-3)
         //   AutoXxx: [Asteroid, Moon, GasGiant] (orbital mining only)
         //
-        // Calibration: 25 × base_yield × 0.6 (Earth accessibility)
-        //   ≈ USGS 2024 / 2026 world demand. See BALANCE_PATCHES_v0.5.md §5.
+        // Calibration: 25 × base_yield × deposit.accessibility
+        //   ≈ USGS 2024 / 2026 world demand. Each per-build value is
+        //   world / (25 × real Earth deposit accessibility from
+        //   `src/economy/profiles.rs` "Earth" profile) — see
+        //   BALANCE_PATCHES_v0.5.md §5 and the v3.8.12 addendum.
         // Construction materials (9)
         (
             id: "IronMine",
             display_name: "Iron Mine",
-            description: "Iron ore extraction (open-pit / underground). 166.67 Mt/yr per build (v3.5: 25 × 166.67 × 0.6 = 2,500 Mt/yr = USGS 2026) × deposit.accessibility.",
+            description: "Iron ore extraction (open-pit / underground). 111.1 Mt/yr per build (v3.8.12: Earth deposit access 0.9 → 25 × 111.1 × 0.9 = 2,500 Mt/yr = worldsteel 2024; v3.8.10 used a flat 0.6 = 166.67) × deposit.accessibility.",
             icon: "textures/ui/buildings/iron-mine.png",
             category: "Mining",
             build_points: 1500.0,
@@ -514,7 +551,8 @@
                 ("Cobalt", 0.0001),
             ],
             modifiers: [
-                (modifier_type: "IronProduction", value: 166.667),
+                // v3.8.12: Earth deposit accessibility 0.9 → 2500/(25×0.9) = 111.111.
+                (modifier_type: "IronProduction", value: 111.111),
             ],
             power_demand_mw: 375,
             line: Some("Mine"),
@@ -522,7 +560,7 @@
         (
             id: "AluminumMine",
             display_name: "Aluminum Mine",
-            description: "Aluminum (bauxite) extraction. 4.67 Mt/yr per build (v3.5: 25 × 4.67 × 0.6 = 70 Mt/yr = USGS 2026) × deposit.accessibility.",
+            description: "Aluminum (bauxite) extraction. 3.5 Mt/yr per build (v3.8.12: Earth deposit access 0.8 → 25 × 3.5 × 0.8 = 70 Mt/yr = USGS 2026; v3.8.10 used a flat 0.6 = 4.667) × deposit.accessibility.",
             icon: "textures/ui/buildings/aluminum-mine.png",
             category: "Mining",
             build_points: 1200.0,
@@ -547,7 +585,8 @@
                 ("Sulfur", 0.00093333),
             ],
             modifiers: [
-                (modifier_type: "AluminumProduction", value: 4.6667),
+                // v3.8.12: Earth deposit accessibility 0.8 → 70/(25×0.8) = 3.5.
+                (modifier_type: "AluminumProduction", value: 3.5),
             ],
             power_demand_mw: 300,
             line: Some("Mine"),
@@ -574,6 +613,7 @@
                 ("Tungsten", 0.00003),
             ],
             modifiers: [
+                // v3.8.12: Earth deposit accessibility 0.6 → 9/(25×0.6) = 0.6 (unchanged).
                 (modifier_type: "TitaniumProduction", value: 0.6),
             ],
             power_demand_mw: 220.0,
@@ -582,7 +622,7 @@
         (
             id: "SilicatesMine",
             display_name: "Silicates Quarry",
-            description: "Silicates (granite / basalt / quartz) aggregate quarry. 320 Mt/yr per build (v3.5: 25 × 320 × 0.6 = 4,800 Mt/yr = USGS 2026) × deposit.accessibility.",
+            description: "Silicates (granite / basalt / quartz) aggregate quarry. 2,000 Mt/yr per build (v3.8.12: Earth deposit access 1.0 → 25 × 2000 × 1.0 = 50,000 Mt/yr = USGS 2026 aggregate; v3.8.10 used a flat 0.6 = 320) × deposit.accessibility.",
             icon: "textures/ui/buildings/silicates-mine.png",
             category: "Mining",
             build_points: 300.0,
@@ -600,7 +640,8 @@
                 ("Sulfur", 0.00046667),
             ],
             modifiers: [
-                (modifier_type: "SilicatesProduction", value: 320),
+                // v3.8.12: Earth deposit accessibility 1.0 → 50,000/(25×1.0) = 2000.
+                (modifier_type: "SilicatesProduction", value: 2000),
             ],
             power_demand_mw: 120,
             line: Some("Mine"),
@@ -608,7 +649,7 @@
         (
             id: "NickelMine",
             display_name: "Nickel Mine",
-            description: "Nickel ore extraction. 0.233 Mt/yr per build (v3.5: 25 × 0.233 × 0.6 = 3.5 Mt/yr = USGS 2026) × deposit.accessibility.",
+            description: "Nickel ore extraction. 0.2 Mt/yr per build (v3.8.12: Earth deposit access 0.7 → 25 × 0.2 × 0.7 = 3.5 Mt/yr = USGS 2026; v3.8.10 used a flat 0.6 = 0.233) × deposit.accessibility.",
             icon: "textures/ui/buildings/nickel-mine.png",
             category: "Mining",
             build_points: 1100.0,
@@ -626,7 +667,8 @@
                 ("Cobalt", 0.0001),
             ],
             modifiers: [
-                (modifier_type: "NickelProduction", value: 0.2333),
+                // v3.8.12: Earth deposit accessibility 0.7 → 3.5/(25×0.7) = 0.2.
+                (modifier_type: "NickelProduction", value: 0.2),
             ],
             power_demand_mw: 180.0,
             line: Some("Mine"),
@@ -634,7 +676,7 @@
         (
             id: "TungstenMine",
             display_name: "Tungsten Mine",
-            description: "Tungsten (wolframite / scheelite) extraction. 0.00667 Mt/yr per build (v3.8.10: 25 × 0.00667 × 0.6 = 0.10 Mt/yr = 100 kt/yr = USGS 2026; v3.5 had 0.0057 = 85 kt, 15% under) × deposit.accessibility.",
+            description: "Tungsten (wolframite / scheelite) extraction. 0.01 Mt/yr per build (v3.8.12: Earth deposit access 0.4 → 25 × 0.01 × 0.4 = 0.10 Mt/yr = 100 kt/yr = USGS 2026; v3.8.10 used a flat 0.6 = 0.00667) × deposit.accessibility.",
             icon: "textures/ui/buildings/tungsten-mine.png",
             category: "Mining",
             build_points: 2200.0,
@@ -653,7 +695,8 @@
                 ("Cobalt", 0.0002),
             ],
             modifiers: [
-                (modifier_type: "TungstenProduction", value: 0.00667),
+                // v3.8.12: Earth deposit accessibility 0.4 → 0.10/(25×0.4) = 0.01.
+                (modifier_type: "TungstenProduction", value: 0.01),
             ],
             power_demand_mw: 280.0,
             line: Some("Mine"),
@@ -661,7 +704,7 @@
         (
             id: "CarbonMine",
             display_name: "Carbon Mine",
-            description: "Carbon (coal / graphite) extraction. 547 Mt/yr per build (v3.5: 25 × 547 × 0.6 = 8,200 Mt/yr = IEA 2026 coal equiv) × deposit.accessibility.",
+            description: "Carbon (coal / graphite) extraction. 410 Mt/yr per build (v3.8.12: Earth deposit access 0.8 → 25 × 410 × 0.8 = 8,200 Mt/yr = IEA 2026 coal equiv; v3.8.10 used a flat 0.6 = 546.667) × deposit.accessibility.",
             icon: "textures/ui/buildings/carbon-mine.png",
             category: "Mining",
             build_points: 900.0,
@@ -679,7 +722,8 @@
                 ("Copper", 0.0003883),
             ],
             modifiers: [
-                (modifier_type: "CarbonProduction", value: 546.667),
+                // v3.8.12: Earth deposit accessibility 0.8 → 8200/(25×0.8) = 410.
+                (modifier_type: "CarbonProduction", value: 410),
             ],
             power_demand_mw: 200.0,
             line: Some("Mine"),
@@ -687,7 +731,7 @@
         (
             id: "ChromiumMine",
             display_name: "Chromium Mine",
-            description: "Chromium (chromite) extraction. 3.13 Mt/yr per build (v3.8.10: 25 × 3.13 × 0.6 = 47 Mt/yr = USGS 2026 chromite ore; v3.5 had 2.0 = 30 Mt, 36% under) × deposit.accessibility.",
+            description: "Chromium (chromite) extraction. 3.76 Mt/yr per build (v3.8.12: Earth deposit access 0.5 → 25 × 3.76 × 0.5 = 47 Mt/yr = USGS 2026; v3.8.10 used a flat 0.6 = 3.13) × deposit.accessibility.",
             icon: "textures/ui/buildings/chromium-mine.png",
             category: "Mining",
             build_points: 1300.0,
@@ -705,7 +749,8 @@
                 ("Sulfur", 0.00093333),
             ],
             modifiers: [
-                (modifier_type: "ChromiumProduction", value: 3.13),
+                // v3.8.12: Earth deposit accessibility 0.5 → 47/(25×0.5) = 3.76.
+                (modifier_type: "ChromiumProduction", value: 3.76),
             ],
             power_demand_mw: 220.0,
             line: Some("Mine"),
@@ -713,7 +758,7 @@
         (
             id: "MagnesiumMine",
             display_name: "Magnesium Mine",
-            description: "Magnesium (magnesite / dolomite / seawater) extraction. 0.0667 Mt/yr per build (v3.8.10: 25 × 0.0667 × 0.6 = 1.0 Mt/yr = USGS 2026; v3.5 had 0.0733 = 1.1, 10% over) × deposit.accessibility.",
+            description: "Magnesium (magnesite / dolomite / seawater) extraction. 0.0571 Mt/yr per build (v3.8.12: Earth deposit access 0.7 → 25 × 0.0571 × 0.7 = 1.0 Mt/yr = USGS 2026; v3.8.10 used a flat 0.6 = 0.0667) × deposit.accessibility.",
             icon: "textures/ui/buildings/magnesium-mine.png",
             category: "Mining",
             build_points: 1400.0,
@@ -731,7 +776,8 @@
                 ("Sulfur", 0.00093333),
             ],
             modifiers: [
-                (modifier_type: "MagnesiumProduction", value: 0.0667),
+                // v3.8.12: Earth deposit accessibility 0.7 → 1.0/(25×0.7) = 0.0571.
+                (modifier_type: "MagnesiumProduction", value: 0.0571),
             ],
             power_demand_mw: 240.0,
             line: Some("Mine"),
@@ -740,7 +786,7 @@
         (
             id: "GoldMine",
             display_name: "Gold Mine",
-            description: "Placer / lode gold extraction with cyanidation. 0.00024 Mt/yr per build (v3.5: 25 × 0.00024 × 0.6 = 0.0036 Mt/yr = 3,600 t/yr = USGS 2026) × deposit.accessibility.",
+            description: "Placer / lode gold extraction with cyanidation. 0.00048 Mt/yr per build (v3.8.12: Earth deposit access 0.3 → 25 × 0.00048 × 0.3 = 0.0036 Mt/yr = 3,600 t/yr = USGS 2026; v3.8.10 used a flat 0.6 = 0.00024) × deposit.accessibility.",
             icon: "textures/ui/buildings/gold-mine.png",
             category: "Mining",
             build_points: 1200.0,
@@ -759,7 +805,8 @@
                 ("Sulfur", 0.00046667),
             ],
             modifiers: [
-                (modifier_type: "GoldProduction", value: 0.00024),
+                // v3.8.12: Earth deposit accessibility 0.3 → 0.0036/(25×0.3) = 0.00048.
+                (modifier_type: "GoldProduction", value: 0.00048),
             ],
             power_demand_mw: 100.0,
             line: Some("Mine"),
@@ -767,7 +814,7 @@
         (
             id: "SilverMine",
             display_name: "Silver Mine",
-            description: "Lead-zinc byproduct-style silver extraction. 0.00187 Mt/yr per build (v3.8.10: 25 × 0.00187 × 0.6 = 0.028 Mt/yr = 28 kt/yr = USGS 2026; v3.5 had 0.0021 = 31, 12% over) × deposit.accessibility.",
+            description: "Lead-zinc byproduct-style silver extraction. 0.00373 Mt/yr per build (v3.8.12: Earth deposit access 0.3 → 25 × 0.00373 × 0.3 = 0.028 Mt/yr = 28 kt/yr = USGS 2026; v3.8.10 used a flat 0.6 = 0.00187) × deposit.accessibility.",
             icon: "textures/ui/buildings/silver-mine.png",
             category: "Mining",
             build_points: 1500.0,
@@ -786,7 +833,8 @@
                 ("Zinc", 0.0),
             ],
             modifiers: [
-                (modifier_type: "SilverProduction", value: 0.00187),
+                // v3.8.12: Earth deposit accessibility 0.3 → 0.028/(25×0.3) = 0.00373.
+                (modifier_type: "SilverProduction", value: 0.00373),
             ],
             power_demand_mw: 150.0,
             line: Some("Mine"),
@@ -794,7 +842,7 @@
         (
             id: "PlatinumMine",
             display_name: "Platinum Mine",
-            description: "Platinum-group-metal extraction from layered intrusions (Bushveld / Norilsk analog). 1.53e-05 Mt/yr per build (v3.8.10: 25 × 1.53e-05 × 0.6 = 0.00023 Mt/yr = 230 t/yr = USGS 2026; v3.5 had 1.33e-05 = 200, 13% under) × deposit.accessibility.",
+            description: "Platinum-group-metal extraction from layered intrusions (Bushveld / Norilsk analog). 4.6e-05 Mt/yr per build (v3.8.12: Earth deposit access 0.2 → 25 × 4.6e-05 × 0.2 = 0.00023 Mt/yr = 230 t/yr = USGS 2026; v3.8.10 used a flat 0.6 = 1.53e-05) × deposit.accessibility.",
             icon: "textures/ui/buildings/platinum-mine.png",
             category: "Mining",
             build_points: 2000.0,
@@ -813,7 +861,8 @@
                 ("Chromium", 0.0001),
             ],
             modifiers: [
-                (modifier_type: "PlatinumProduction", value: 0.0000153),
+                // v3.8.12: Earth deposit accessibility 0.2 → 0.00023/(25×0.2) = 0.000046.
+                (modifier_type: "PlatinumProduction", value: 0.000046),
             ],
             power_demand_mw: 180.0,
             line: Some("Mine"),
@@ -822,7 +871,7 @@
         (
             id: "CopperMine",
             display_name: "Copper Mine",
-            description: "Copper ore extraction (chalcopyrite / porphyry). 1.733 Mt/yr per build (v3.8.9: 25 × 1.733 × 0.6 = 26 Mt/yr = USGS 2026; v3.5 had 1.467 = 22 Mt/yr, off by 4 Mt) × deposit.accessibility.",
+            description: "Copper ore extraction (chalcopyrite / porphyry). 2.08 Mt/yr per build (v3.8.12: Earth deposit access 0.5 → 25 × 2.08 × 0.5 = 26 Mt/yr = USGS 2026; v3.8.9 used a flat 0.6 = 1.733) × deposit.accessibility.",
             icon: "textures/ui/buildings/copper-mine.png",
             category: "Mining",
             build_points: 1300.0,
@@ -840,7 +889,8 @@
                 ("Sulfur", 0.00093333),
             ],
             modifiers: [
-                (modifier_type: "CopperProduction", value: 1.7333),
+                // v3.8.12: Earth deposit accessibility 0.5 → 26/(25×0.5) = 2.08.
+                (modifier_type: "CopperProduction", value: 2.08),
             ],
             power_demand_mw: 345,
             line: Some("Mine"),
@@ -848,7 +898,7 @@
         (
             id: "RareEarthsMine",
             display_name: "Rare Earths Mine",
-            description: "Rare-earth element extraction (bastnäsite / monazite). 0.02 Mt/yr per build (v3.5: 25 × 0.02 × 0.6 = 0.3 Mt/yr = 300 kt/yr = USGS 2026) × deposit.accessibility.",
+            description: "Rare-earth element extraction (bastnäsite / monazite). 0.035 Mt/yr per build (v3.8.12: Earth deposit access 0.4 → 25 × 0.035 × 0.4 = 0.35 Mt/yr = USGS 2026 REO; v3.8.10 used a flat 0.6 = 0.02) × deposit.accessibility.",
             icon: "textures/ui/buildings/rare-earths-mine.png",
             category: "Mining",
             build_points: 2200.0,
@@ -867,7 +917,8 @@
                 ("Sulfur", 0.0023333),
             ],
             modifiers: [
-                (modifier_type: "RareEarthsProduction", value: 0.02),
+                // v3.8.12: Earth deposit accessibility 0.4 → 0.35/(25×0.4) = 0.035.
+                (modifier_type: "RareEarthsProduction", value: 0.035),
             ],
             power_demand_mw: 280.0,
             line: Some("Mine"),
@@ -875,7 +926,7 @@
         (
             id: "LithiumMine",
             display_name: "Lithium Mine",
-            description: "Lithium (spodumene / brine) extraction. 0.00867 Mt/yr per build (v3.5: 25 × 0.00867 × 0.6 = 0.13 Mt/yr = 130 kt/yr = USGS 2026) × deposit.accessibility.",
+            description: "Lithium (spodumene / brine) extraction. 0.01486 Mt/yr per build (v3.8.12: Earth deposit access 0.35 → 25 × 0.01486 × 0.35 = 0.13 Mt/yr = 130 kt/yr = USGS 2026; v3.8.10 used a flat 0.6 = 0.0087) × deposit.accessibility.",
             icon: "textures/ui/buildings/lithium-mine.png",
             category: "Mining",
             build_points: 1900.0,
@@ -893,7 +944,8 @@
                 ("Sulfur", 0.00093333),
             ],
             modifiers: [
-                (modifier_type: "LithiumProduction", value: 0.0087),
+                // v3.8.12: Earth deposit accessibility 0.35 → 0.13/(25×0.35) = 0.01486.
+                (modifier_type: "LithiumProduction", value: 0.01486),
             ],
             power_demand_mw: 240.0,
             line: Some("Mine"),
@@ -927,7 +979,7 @@
         (
             id: "PhosphorusMine",
             display_name: "Phosphorus Mine",
-            description: "Phosphate rock (apatite) extraction. 14.67 Mt/yr per build (v3.5: 25 × 14.67 × 0.6 = 220 Mt/yr = USGS 2026 phosphate rock; 4,889× bump from 0.003 to fix phosphate rock vs P2O5 unit confusion) × deposit.accessibility.",
+            description: "Phosphate rock (apatite) extraction. 19.2 Mt/yr per build (v3.8.12: Earth deposit access 0.5 → 25 × 19.2 × 0.5 = 240 Mt/yr = USGS 2026 phosphate rock; v3.8.10 used a flat 0.6 = 14.667) × deposit.accessibility.",
             icon: "textures/ui/buildings/phosphorus-mine.png",
             category: "Mining",
             build_points: 1500.0,
@@ -945,7 +997,8 @@
                 ("Sulfur", 0.0023333),
             ],
             modifiers: [
-                (modifier_type: "PhosphorusProduction", value: 14.6667),
+                // v3.8.12: Earth deposit accessibility 0.5 → 240/(25×0.5) = 19.2.
+                (modifier_type: "PhosphorusProduction", value: 19.2),
             ],
             power_demand_mw: 220.0,
             line: Some("Mine"),
@@ -953,7 +1006,7 @@
         (
             id: "CobaltMine",
             display_name: "Cobalt Mine",
-            description: "Cobalt ore extraction. 0.01333 Mt/yr per build (v3.8.10: 25 × 0.01333 × 0.6 = 0.20 Mt/yr = 200 kt/yr = USGS 2026; v3.5 had 0.0147 = 220, 10% over) × deposit.accessibility.",
+            description: "Cobalt ore extraction. 0.02286 Mt/yr per build (v3.8.12: Earth deposit access 0.35 → 25 × 0.02286 × 0.35 = 0.20 Mt/yr = 200 kt/yr = USGS 2026; v3.8.10 used a flat 0.6 = 0.01333) × deposit.accessibility.",
             icon: "textures/ui/buildings/cobalt-mine.png",
             category: "Mining",
             build_points: 1700.0,
@@ -971,7 +1024,8 @@
                 ("Sulfur", 0.00093333),
             ],
             modifiers: [
-                (modifier_type: "CobaltProduction", value: 0.01333),
+                // v3.8.12: Earth deposit accessibility 0.35 → 0.20/(25×0.35) = 0.02286.
+                (modifier_type: "CobaltProduction", value: 0.02286),
             ],
             power_demand_mw: 240.0,
             line: Some("Mine"),
@@ -979,7 +1033,7 @@
         (
             id: "FluorineMine",
             display_name: "Fluorine Mine",
-            description: "Fluorite (CaF₂) extraction / fluorospar mining. 0.233 Mt/yr per build (v3.8.10: 25 × 0.233 × 0.6 = 3.5 Mt/yr = USGS 2026 fluorospar; v3.5 had 0.3 = 4.5, 28% over) × deposit.accessibility.",
+            description: "Fluorite (CaF₂) extraction / fluorospar mining. 0.28 Mt/yr per build (v3.8.12: Earth deposit access 0.5 → 25 × 0.28 × 0.5 = 3.5 Mt/yr = USGS 2026 fluorospar; v3.8.10 used a flat 0.6 = 0.233) × deposit.accessibility.",
             icon: "textures/ui/buildings/fluorine-mine.png",
             category: "Mining",
             build_points: 1400.0,
@@ -997,7 +1051,8 @@
                 ("Sulfur", 0.00093333),
             ],
             modifiers: [
-                (modifier_type: "FluorineProduction", value: 0.233),
+                // v3.8.12: Earth deposit accessibility 0.5 → 3.5/(25×0.5) = 0.28.
+                (modifier_type: "FluorineProduction", value: 0.28),
             ],
             power_demand_mw: 200.0,
             line: Some("Mine"),
@@ -1006,7 +1061,7 @@
         (
             id: "UraniumMine",
             display_name: "Uranium Mine",
-            description: "Uranium (U₃O₈) extraction. 0.00493 Mt/yr per build (v3.5: 25 × 0.00493 × 0.6 = 0.074 Mt/yr = 74 kt/yr = WNA 2024) × deposit.accessibility.",
+            description: "Uranium (U₃O₈) extraction. 0.00987 Mt/yr per build (v3.8.12: Earth deposit access 0.3 → 25 × 0.00987 × 0.3 = 0.074 Mt/yr = 74 kt/yr = WNA 2024; v3.8.10 used a flat 0.6 = 0.0049) × deposit.accessibility.",
             icon: "textures/ui/buildings/uranium-mine.png",
             category: "Mining",
             build_points: 2500.0,
@@ -1025,7 +1080,8 @@
                 ("Sulfur", 0.0046667),
             ],
             modifiers: [
-                (modifier_type: "UraniumProduction", value: 0.0049),
+                // v3.8.12: Earth deposit accessibility 0.3 → 0.074/(25×0.3) = 0.00987.
+                (modifier_type: "UraniumProduction", value: 0.00987),
             ],
             power_demand_mw: 320.0,
             line: Some("Mine"),
@@ -1033,7 +1089,7 @@
         (
             id: "ThoriumMine",
             display_name: "Thorium Mine",
-            description: "Thorium (monazite) extraction. 0.0000533 Mt/yr per build (v3.5: 25 × 0.0000533 × 0.6 = 0.0008 Mt/yr = 800 t/yr = WNA 2024) × deposit.accessibility.",
+            description: "Thorium (monazite) extraction. 9.14e-05 Mt/yr per build (v3.8.12: Earth deposit access 0.35 → 25 × 9.14e-05 × 0.35 = 0.0008 Mt/yr = 800 t/yr = WNA 2024; v3.8.10 used a flat 0.6 = 5.33e-05) × deposit.accessibility.",
             icon: "textures/ui/buildings/thorium-mine.png",
             category: "Mining",
             build_points: 2100.0,
@@ -1051,7 +1107,8 @@
                 ("RareEarths", 0.0001),
             ],
             modifiers: [
-                (modifier_type: "ThoriumProduction", value: 0.0000533),
+                // v3.8.12: Earth deposit accessibility 0.35 → 0.0008/(25×0.35) = 0.0000914.
+                (modifier_type: "ThoriumProduction", value: 0.0000914),
             ],
             power_demand_mw: 280.0,
             line: Some("Mine"),
@@ -1078,7 +1135,11 @@
                 ("Methane", 0.0001),
             ],
             modifiers: [
-                (modifier_type: "MethaneProduction", value: 273.333),
+                // v3.8.12: Earth deposit accessibility 0.3 → 4100/(25×0.3) = 546.667.
+                // v3.5 had 273.333 (= 0.6 access assumption); the real
+                // methane deposit accessibility is 0.3, so the per-build
+                // doubles to keep 25 × per_build × 0.3 = 4,100 Mt/yr = IEA 2026.
+                (modifier_type: "MethaneProduction", value: 546.667),
             ],
             power_demand_mw: 250.0,
             line: Some("Mine"),
