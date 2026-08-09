@@ -475,7 +475,7 @@
         (
             id: "ChemicalPlant",
             display_name: "Chemical Plant",
-            description: "Industrial chemistry at world scale. H₂ (SMR from methane) + NH₃ (Haber-Bosch from N₂ + H₂) + polymers (methane cracker) + Tritium breeding. Capacity: H₂ 100, NH₃ 200, polymers 450 Mt/yr; Earth fertilizer chain consumes ~135 Mt/yr NH₃.",
+            description: "Industrial chemistry at world scale. H₂ (SMR from methane) + NH₃ (Haber-Bosch from N₂ + H₂) + polymers (methane cracker) + Tritium breeding. v3.8.15 demand-sized: H₂ 65.6, NH₃ 135, polymers 322 Mt/yr = Earth-start consumption (no overshoot transient).",
             icon: "textures/ui/buildings/chemical-plant.png",
             category: "Industry",
             build_points: 800.0,
@@ -526,9 +526,25 @@
                 // 2026 demand.  We scale the per-build to land at exactly 1×
                 // (so the cap throttles overflow once player builds more
                 // plants).
-                (modifier_type: "HydrogenSynthesis", value: 0.143),
-                (modifier_type: "AmmoniaSynthesis", value: 0.286),
-                (modifier_type: "PolymerSynthesis", value: 0.643),
+                //
+                // v3.8.15 (2026-08-09): DEMAND-SIZED. The 200/100/450 Mt/yr
+                // world-anchored capacity produced a transient overshoot at
+                // game start: ammonia ran at full 200 Mt/yr until its tiny
+                // 30 Mt stockpile cap filled (~3 months), drawing N₂ at
+                // 164 Mt/yr and H₂ at 35.2 — so the forecast panel showed
+                // "Nitrogen runs out in 3 months" (a false alarm; steady
+                // state N₂ nets +2.35). Re-derived each per-build to the
+                // Earth-start DEMAND (per-cap + maintenance + downstream
+                // input) so capacity = demand and no transient exists:
+                //   - H₂:  65.56 Mt/yr (maint 41.8 + NH₃ input 23.76)
+                //          → 65.56/700 = 0.0937
+                //   - NH₃: 135.0 Mt/yr (fertilizer maint)
+                //          → 135.0/700 = 0.1929
+                //   - Pol: 321.8 Mt/yr (per-cap 311.6 + maint 10.2)
+                //          → 321.8/700 = 0.4597
+                (modifier_type: "HydrogenSynthesis", value: 0.0937),
+                (modifier_type: "AmmoniaSynthesis", value: 0.1929),
+                (modifier_type: "PolymerSynthesis", value: 0.4597),
                 // Tritium breeding is only active once `fusion_power` is unlocked.
                 // 2026: 0 (no commercial fusion yet); game-unlock target 0.05 Mt/yr.
                 (modifier_type: "TritiumBreeding", value: 0.05),

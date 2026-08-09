@@ -4304,6 +4304,59 @@ surplus.
 
 ---
 
+## §0.R v3.8.15 addendum — demand-sized synthesis (kill the "runs out in 3 months" false alarm) (2026-08-09)
+
+> **v3.8.15 SHIPPED on `rework-ui-design`.** The v3.8.14 balance left the
+> ChemicalPlant synthesis world-anchored (H₂ 100, NH₃ 200, polymers 450
+> Mt/yr capacity). At game start the ammonia chain ran at **full 200
+> Mt/yr** until its tiny 30 Mt stockpile cap filled (~3 months), drawing
+> N₂ at 164 Mt/yr (vs 110.7 steady) and H₂ at 35.2 — so the forecast
+> panel showed **"Nitrogen runs out in 3 months"** and "Methane runs out
+> in 11 months", a false alarm (steady state nets N₂ +2.35, methane 0).
+
+### 0.R.1 The fix — synthesis per-build = Earth demand / 700
+
+| Modifier | v3.8.14 (world-anchored) | v3.8.15 (demand-sized) | Basis |
+|---|---|---|---|
+| `HydrogenSynthesis` | 0.143 (100 Mt) | **0.0937** | 65.56 Mt (maint 41.8 + NH₃ input 23.76) |
+| `AmmoniaSynthesis` | 0.286 (200 Mt) | **0.1929** | 135 Mt (fertilizer maint) |
+| `PolymerSynthesis` | 0.643 (450 Mt) | **0.4597** | 321.8 Mt (per-cap 311.6 + maint 10.2) |
+
+With capacity = demand, no overshoot transient exists: ammonia produces
+exactly the 135 Mt/yr fertilizer demand from the first tick, so N₂ is
+drawn at 110.7 Mt/yr and methane at the steady 501 Mt/yr synth — never
+the transient 164/860. The forecast's naive linear projection of the
+first-frame rate is now correct because the first-frame rate IS the
+steady rate.
+
+### 0.R.2 Verification
+
+Month-by-month (real game seeding, Earth local stockpile from
+`GlobalBudget::new()`):
+
+```
+month  0: methane net +0.00 Mt/yr stock 50.00 | N₂ net +2.33 Mt/yr stock 15.71
+month  1: methane net +0.00 Mt/yr stock 50.00 | N₂ net +2.35 Mt/yr stock 16.43
+...
+month 11: methane net +0.00 Mt/yr stock 50.00 | N₂ net +2.35 Mt/yr stock 23.57
+```
+
+Methane steady at cap (0 net), N₂ **+2.35 Mt/yr** — no burn, no
+transient, no false "runs out".
+
+### 0.R.3 Files modified (v3.8.15)
+
+* `assets/data/buildings.ron` — ChemicalPlant H₂/NH₃/polymers per-builds
+  demand-sized (0.0937 / 0.1929 / 0.4597); description updated.
+* `src/economy/mining.rs` — gate test includes H₂/NH₃ in the
+  gross≈consumption check (they're now demand-sized); polymers excluded
+  from the one-shot check (input-starved by the 25 Mt methane seed — the
+  steady-state invariant proves self-supply).
+
+`cargo test` 1108 lib + all integration, green.
+
+---
+
 ## §1 TL;DR and stop conditions (v2 §1, updated for v3)
 
 ### 1.1 Three-line TL;DR (v3 NEW framing)

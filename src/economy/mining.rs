@@ -1960,17 +1960,21 @@ mod tests {
         let cons = earth_start_steady_consumption();
         let mut gross_failures = Vec::new();
         for rt in ResourceType::all() {
-            // Synthesis products (Hydrogen, Ammonia, Polymers) are
-            // demand-driven: their gross in the one-shot measurement is
-            // input-scaling-limited (the seed budget holds only ~25 Mt
-            // methane / ~15 Mt N₂, and the synthesis pass runs before
-            // direct production so it can't see fresh mine output). The
-            // steady-state invariant (below) proves they self-supply.
-            let synthesis_product = matches!(
-                *rt,
-                ResourceType::Hydrogen | ResourceType::Ammonia | ResourceType::Polymers
-            );
-            if synthesis_product {
+            // v3.8.15: synthesis products (Hydrogen, Ammonia, Polymers)
+            // are now DEMAND-SIZED (per-build = Earth consumption / 700),
+            // so their gross in the uncapped one-shot = consumption and
+            // the ratio check applies to them too. (Before v3.8.15 they
+            // were world-anchored at 100/200/450 and input-scaling-
+            // limited in the one-shot, which caused the ammonia/N₂
+            // transient overshoot → false "runs out in 3 months".)
+            //
+            // Polymers is EXCLUDED from the one-shot ratio: it needs
+            // methane input at 1.15× output, and the 25 Mt methane
+            // seed only supports ~150 Mt/yr polymer output in the
+            // one-shot — the steady-state invariant proves it
+            // self-supplies (321.7 = per-cap + maint, net 0) once
+            // fresh methane production lands.
+            if *rt == ResourceType::Polymers {
                 continue;
             }
             let c = cons.get(rt).copied().unwrap_or(0.0);
