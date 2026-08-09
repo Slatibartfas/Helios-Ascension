@@ -4124,6 +4124,95 @@ is balanced — the campaign can now be declared balanced at game start.
 
 ---
 
+## §0.P v3.8.13 addendum — consumers for the previously-unused resources (2026-08-09)
+
+> **v3.8.13 SHIPPED on `rework-ui-design`.** Closes the loop the v3.8.12
+> gate table exposed: several resources (Hydrogen, Ammonia, Oxygen,
+> CarbonDioxide, Argon, Deuterium, Gold, Silver, Platinum) had
+> production but **no consumer at Earth start**, so their stockpiles
+> filled to cap and the processes idled. The user asked for consumers —
+> either as building maintenance or via a production chain. This
+> addendum assigns each one a real industrial consumer and rebuilds
+> the methane → hydrogen → ammonia → fertilizer chain.
+
+### 0.P.1 The industrial chain (methane → advanced products)
+
+**Methane → H₂ → NH₃ → fertilizer.** Previously `AmmoniaSynthesis`
+consumed **Methane** directly (0.71 Mt CH₄ per NH₃), which left
+Hydrogen with no consumer. v3.8.13 makes ammonia true **Haber-Bosch**:
+`N₂ + 3H₂ → 2NH₃` (H₂/NH₃ mass ratio 6/34 ≈ 0.176), so Hydrogen now
+flows:
+
+```
+Methane ──(SMR, HydrogenSynthesis)──▶ H₂ ──(Haber-Bosch, AmmoniaSynthesis)──▶ NH₃
+                                                                                │
+                                  N₂ ──────────────────────────────────────────┘
+                                                                                ▼
+                                                fertilizer maintenance on Farm /
+                                                Greenhouse / Aquaculture / AgriDome
+```
+
+| Step | Modifier | Inputs (per output) | Output | Earth-start draw |
+|---|---|---|---|---|
+| HydrogenSynthesis | `HydrogenSynthesis` | Methane 2.0 | H₂ | 65.6 Mt/yr (demand-limited) |
+| AmmoniaSynthesis | `AmmoniaSynthesis` | **N₂ 0.82 + H₂ 0.176** | NH₃ | 135 Mt/yr (fertilizer demand) |
+| PolymerSynthesis | `PolymerSynthesis` | Methane 1.15 | Polymers | 321.8 Mt/yr (per-cap+maint) |
+
+**N₂ per-capita → 0.** Real people do NOT consume N₂ directly — the old
+19 kg/p/yr value was a "fertilizer proxy" hack. Fertilizer-N demand now
+flows through the real chain: AmmoniaSynthesis draws N₂ as the
+Haber-Bosch input, and ammonia is consumed as fertilizer maintenance.
+N₂ is an industrial loop, not a consumer good.
+
+### 0.P.2 New maintenance consumers (v3.8.13)
+
+| Resource | Consumer(s) | Per-build | Earth total | Rationale |
+|---|---|---|---|---|
+| **Ammonia** | Farm 4.0, Greenhouse 20.0, Aquaculture 15.0, AgriDome 0.5 | | 135 Mt/yr | Fertilizer (Haber-Bosch NH₃); the 200 Mt/yr world output is 70% fertilizer |
+| **Hydrogen** | LaunchSite 0.15, SpacePort 0.2, Shipyard 0.1 | | 41.8 Mt/yr | Rocket propellant (H₂/CH₄) + fuel cells; H₂Synthesis supplies 65.6 (incl. 23.8 to ammonia) |
+| **Oxygen** | Factory 0.1, MedicalCenter 0.05 | | 130 Mt/yr | BOF steelmaking (real: ~0.1 t O₂/t steel) + medical-grade O₂ |
+| **CarbonDioxide** | Greenhouse 80.0, ChemicalPlant 0.1 | | 150 Mt/yr | CO₂ enrichment (real greenhouse practice) + chemical feedstock (urea) |
+| **Argon** | Shipyard 0.03, SpacePort 0.008 | | 0.94 Mt/yr | TIG/MIG welding shielding gas |
+| **Deuterium** | FissionReactor 0.0005 | | 0.013 Mt/yr | Heavy-water (D₂O) moderator for the CANDU-style fleet |
+| **Gold** | DataCenter 1e-5, AiCluster 5e-5, SemiconductorFab 5e-5 | | 0.001 Mt/yr | Electronics (contacts, bond wires) |
+| **Silver** | DataCenter 1e-4, AiCluster 5e-4, SemiconductorFab 5e-4 | | 0.015 Mt/yr | Electronics (solder, plating) |
+| **Platinum** | DataCenter 1e-6, AiCluster 5e-6, SemiconductorFab 5e-6 | | 0.001 Mt/yr | Electronics (capacitors, sensors) |
+
+All additions respect the **GRA-22a 4–6 maintenance-resource invariant**
+by consolidating trace/duplicative legacy entries (e.g. a mine consuming
+its own output, trace Nickel/Tungsten/Cobalt on Factory, trace
+Water/Polymers on electronics buildings).
+
+### 0.P.3 Steady-state verification (36-month gate table)
+
+```
+  Ammonia      prod=   135.000 maint=  135.000 net=  +0.000  world=200.000
+  Argon        prod=     0.940 maint=    0.940 net=  +0.000  world=1.000
+  CarbonDioxide prod=  200.100 maint=  150.000 net=  +50.100 world=200.000
+  Deuterium    prod=     0.016 maint=    0.013 net=  +0.003  world=0.035
+  Gold         prod=     0.002 maint=    0.001 net=  +0.000  world=0.004
+  Hydrogen     prod=    65.560 maint=   41.800 synth= 23.760 net= -0.000 world=100.000
+  Nitrogen     prod=   117.050 percap=  0.000 maint= 6.350 synth= 110.700 net= +0.000 world=200.000
+  Oxygen       prod=   130.000 maint=  130.000 net=  -0.000  world=150.000
+  Silver       prod=     0.015 maint=    0.015 net=  +0.000  world=0.028
+```
+
+Every previously-unused resource now has a consumer and nets 0. The
+methane chain draws 501 Mt/yr (H₂Synthesis + NH₃-N₂ + polymer) on top
+of per-cap (2,050) + NG plants (675) — a genuine industrial loop.
+No resource burns. `cargo test` 1108 lib + all integration, green.
+
+### 0.P.4 Files modified (v3.8.13)
+
+* `src/economy/mining.rs` — `AmmoniaSynthesis` rule: Methane 0.71 → H₂
+  0.176 (Haber-Bosch).
+* `assets/data/buildings.ron` — N₂ per-cap → 0; ammonia/gas/precious-
+  metal maintenance consumers added; 4–6 invariant restored by
+  consolidating legacy entries; ChemicalPlant description updated.
+* `docs/design/BALANCE_PATCHES_v0.5.md` — this addendum.
+
+---
+
 ## §1 TL;DR and stop conditions (v2 §1, updated for v3)
 
 ### 1.1 Three-line TL;DR (v3 NEW framing)

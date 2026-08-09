@@ -45,9 +45,18 @@ fn industrial_process_rule(modifier_type: &str) -> Option<IndustrialProcessRule>
         "AmmoniaSynthesis" => Some(IndustrialProcessRule {
             output: ResourceType::Ammonia,
             required_tech: None,
+            // v3.8.13 (2026-08-09): true Haber-Bosch — N₂ + 3H₂ → 2NH₃.
+            // The input is Hydrogen (mass ratio 6/34 ≈ 0.176 per NH₃),
+            // NOT Methane. Previously the rule used methane as the
+            // hydrogen carrier, which (a) made ammonia's carbon/energy
+            // accounting wrong and (b) left Hydrogen with no consumer
+            // at Earth start (H₂Synthesis filled to cap and idled).
+            // Hydrogen now flows: Methane → (SMR, HydrogenSynthesis)
+            // → H₂ → (Haber-Bosch, AmmoniaSynthesis) → NH₃ → fertilizer
+            // maintenance on Farm/Greenhouse/Aquaculture.
             inputs_per_output: &[
                 (ResourceType::Nitrogen, 0.82),
-                (ResourceType::Methane, 0.71),
+                (ResourceType::Hydrogen, 0.176),
             ],
         }),
         "PolymerSynthesis" => Some(IndustrialProcessRule {

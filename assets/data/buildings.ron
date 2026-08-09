@@ -107,9 +107,15 @@
             // Sulfur. USGS 2024: 70 Mt world / 8.2B = 8.5 kg.
             // Scaled to 70% = 6 kg / p / yr.
             sulfur_mt_per_year: 0.000000006,
-            // Nitrogen (fertilizer, IFA 2024: ~150 Mt N world / 8.2B
-            // = 18 kg / p / yr). 70% consumer = 19 kg / p / yr.
-            nitrogen_mt_per_year: 0.000000019,
+            // Nitrogen. v3.8.13 (2026-08-09): per-capita N₂ → 0. Real
+            // people do NOT consume N₂ directly — the old 19 kg/p/yr
+            // value was a "fertilizer proxy" hack. Fertilizer-N demand
+            // now flows through the real chain: AmmoniaSynthesis draws
+            // N₂ as the Haber-Bosch input, and the ammonia output is
+            // consumed as fertilizer maintenance by Farm / Greenhouse
+            // / Aquaculture / AgriDome. N₂ is a genuine industrial
+            // loop, not a consumer good.
+            nitrogen_mt_per_year: 0.0,
             // Methane (natural gas, IEA 2026: 4,100 bcm world /
             // 8.2B = 500 m³ / p / yr; ~50% consumer share).
             methane_mt_per_year: 0.00000025,
@@ -368,10 +374,12 @@
             maintenance_resources: [
                 ("Iron", 0.05),
                 ("Copper", 0.0019415),
-                ("Nickel", 0.001),
-                ("Tungsten", 0.00003),
                 ("Lithium", 2.3634e-05),
                 ("Polymers", 0.003),
+                // v3.8.13: oxygen for basic-oxygen-furnace (BOF)
+                // steelmaking — 0.1 Mt/yr × 1,200 = 120 Mt/yr, the
+                // steel-industry O₂ share of the 150 Mt/yr world.
+                ("Oxygen", 0.1),
             ],
             modifiers: [
                 // v3.1 canary 11 (2026-08-06): the legacy
@@ -450,7 +458,7 @@
         (
             id: "ChemicalPlant",
             display_name: "Chemical Plant",
-            description: "Industrial chemistry at world scale (H2 100, NH3 200, polymers 450 Mt/yr)",
+            description: "Industrial chemistry at world scale. H₂ (SMR from methane) + NH₃ (Haber-Bosch from N₂ + H₂) + polymers (methane cracker) + Tritium breeding. Capacity: H₂ 100, NH₃ 200, polymers 450 Mt/yr; Earth fertilizer chain consumes ~135 Mt/yr NH₃.",
             icon: "textures/ui/buildings/chemical-plant.png",
             category: "Industry",
             build_points: 800.0,
@@ -465,10 +473,12 @@
             maintenance_resources: [
                 ("Iron", 0.02),
                 ("Copper", 0.003883),
-                ("Nickel", 0.0005),
                 ("Sulfur", 0.014),
                 ("Phosphorus", 0.0005),
                 ("Fluorine", 0.001),
+                // v3.8.13: CO₂ feedstock (urea/chemicals) — 0.1 Mt/yr
+                // × 700 = 70 Mt/yr of the 200 Mt/yr world industrial CO₂.
+                ("CarbonDioxide", 0.1),
             ],
             modifiers: [
                 // v3.8.4: per-build production calibrated at
@@ -2096,6 +2106,10 @@
                 ("Water", 0.05),
                 ("Iron", 0.01),
                 ("Lithium", 7.878e-05),
+                // v3.8.13: heavy-water (D₂O) moderator for the
+                // CANDU-style fleet — small (0.0005 × 20 = 0.01 Mt/yr)
+                // but gives Deuterium a real consumer.
+                ("Deuterium", 0.0005),
             ],
             modifiers: [
                 // 2026 reference: world nuclear share ≈ 9% of 30,000 TWh/yr = 310 GW avg.
@@ -2291,10 +2305,12 @@
             maintenance_resources: [
                 ("Water", 10.0),
                 ("Phosphorus", 0.5),
-                ("Sulfur", 0.023333),
                 ("Polymers", 0.01),
                 ("Nitrogen", 0.5),
                 ("Oxygen", 0.13333),
+                // v3.8.13: closed-environment ammonia fertilizer
+                // (hydroponic nutrient loop).
+                ("Ammonia", 0.5),
             ],
             modifiers: [
                 // 2026 reference: world food total ~9,000 Mt/yr; 1 AgriDome
@@ -2333,12 +2349,15 @@
                 ("Phosphorus", 3.0),
             ],
             maintenance_resources: [
-                ("Water", 0.0),
                 ("Sulfur", 0.0014),
                 ("Phosphorus", 0.0002),
                 ("Polymers", 0.001),
                 ("Nitrogen", 0.05),
                 ("Iron", 0.0005),
+                // v3.8.13: ammonia fertilizer (Haber-Bosch NH₃). 4 Mt/yr
+                // per Farm × 25 = 100 Mt/yr = the open-field fertilizer
+                // share of the 200 Mt/yr world ammonia output.
+                ("Ammonia", 4.0),
             ],
             modifiers: [
                 // 2026 reference: world food production (cereals + all) ~9,000 Mt/yr
@@ -2369,6 +2388,8 @@
                 ("Polymers", 0.003),
                 ("Phosphorus", 0.0005),
                 ("Sulfur", 0.00023333),
+                // v3.8.13: medical-grade oxygen (hospitals).
+                ("Oxygen", 0.05),
             ],
             modifiers: [
                 // Population-growth bonus per centre; calibration target
@@ -2454,10 +2475,12 @@
             maintenance_resources: [
                 ("RareEarths", 0.001),
                 ("Copper", 0.003883),
-                ("Cobalt", 0.0002),
                 ("Lithium", 0.00019958),
-                ("Polymers", 0.0005),
-                ("Water", 0.05),
+                // v3.8.13: precious metals for AI hardware (gold
+                // wire-bonding, silver interconnects, platinum sensors).
+                ("Gold", 5e-05),
+                ("Silver", 0.0005),
+                ("Platinum", 5e-06),
             ],
             modifiers: [
                 // 1 cluster = 3× research + 2× engineering sector contribution.
@@ -2581,9 +2604,11 @@
                 ("Iron", 5.0),
                 ("Titanium", 0.002),
                 ("Chromium", 0.5),
-                ("Cobalt", 0.0001),
-                ("Magnesium", 0.00125),
                 ("Polymers", 0.005),
+                // v3.8.13: H₂ fuel-cell/assembly + argon welding shield
+                // (H₂ 0.1 × 18 = 1.8 Mt/yr; Ar 0.03 × 18 = 0.54 Mt/yr).
+                ("Hydrogen", 0.1),
+                ("Argon", 0.03),
             ],
             modifiers: [
                 // -300% construction cost per shipyard (legacy percent; GRA-22c
@@ -2637,6 +2662,10 @@
                 ("Magnesium", 0.00125),
                 ("Water", 0.05),
                 ("Polymers", 0.001),
+                // v3.8.13: hydrogen/CH₄ rocket propellant (0.15 Mt/yr
+                // × 200 sites = 30 Mt/yr — the launch-sector H₂ share
+                // of the 100 Mt/yr world H₂ output).
+                ("Hydrogen", 0.15),
             ],
             modifiers: [],
             power_demand_mw: 750,
@@ -2817,12 +2846,14 @@
                 ("Aluminum", 67.0),
             ],
             maintenance_resources: [
-                ("Silicates", 0.5),
                 ("RareEarths", 0.01),
                 ("Copper", 0.007766),
                 ("Fluorine", 0.01),
-                ("Polymers", 0.005),
-                ("Water", 0.1),
+                // v3.8.13: precious metals for chip manufacturing
+                // (gold bond wires, silver plating, platinum targets).
+                ("Gold", 5e-05),
+                ("Silver", 0.0005),
+                ("Platinum", 5e-06),
             ],
             modifiers: [
                 // 1 fab ≈ 3× research + 2× engineering sector contribution.
@@ -2946,9 +2977,15 @@
             maintenance_resources: [
                 ("Water", 2.0),
                 ("Phosphorus", 0.001),
-                ("Sulfur", 0.00046667),
                 ("Polymers", 0.005),
                 ("Nitrogen", 0.05),
+                // v3.8.13: ammonia fertilizer + CO₂ enrichment.
+                // 20 Mt/yr NH₃ × 1 = 20 (intensive fertilizer);
+                // 80 Mt/yr CO₂ × 1 = 80 (real greenhouse CO₂
+                // enrichment boosts yield ~30%; at 1 build = 200 Mt/yr
+                // food, ~0.4 t CO₂/t food is the field ratio).
+                ("Ammonia", 20.0),
+                ("CarbonDioxide", 80.0),
             ],
             modifiers: [
                 // 2026 reference: greenhouse/vertical-farm share ~50% of food total.
@@ -2977,6 +3014,9 @@
                 ("Nitrogen", 0.05),
                 ("Polymers", 0.001),
                 ("Sulfur", 0.00023333),
+                // v3.8.13: ammonia fertilizer for aquatic protein
+                // (15 Mt/yr × 1 build).
+                ("Ammonia", 15.0),
             ],
             modifiers: [
                 // 2026 reference: world aquaculture production ~180 Mt/yr
@@ -3008,9 +3048,13 @@
                 ("Copper", 0.007766),
                 ("RareEarths", 0.0005),
                 ("Lithium", 0.00011554),
-                ("Polymers", 0.001),
-                ("Water", 0.1),
-                ("Cobalt", 0.0001),
+                // v3.8.13: precious metals for electronics (gold
+                // contacts, silver solder, platinum capacitors).
+                // 100 hubs × per-build = the world electronics share
+                // (Au ~0.001, Ag ~0.01, Pt ~0.0001 Mt/yr).
+                ("Gold", 1e-05),
+                ("Silver", 0.0001),
+                ("Platinum", 1e-06),
             ],
             modifiers: [
                 // 1 hub ≈ 4× research + 3× engineering sector contribution.
@@ -3041,9 +3085,12 @@
             maintenance_resources: [
                 ("Iron", 1.0),
                 ("Aluminum", 0.01),
-                ("Magnesium", 0.0025),
                 ("Polymers", 0.005),
                 ("Water", 0.05),
+                // v3.8.13: H₂/CH₄ propellant + argon welding shield
+                // (H₂ 0.2 × 50 = 10 Mt/yr; Ar 0.008 × 50 = 0.4 Mt/yr).
+                ("Hydrogen", 0.2),
+                ("Argon", 0.008),
             ],
             modifiers: [],
             power_demand_mw: 1500,
