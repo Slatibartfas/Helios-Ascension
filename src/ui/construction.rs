@@ -50,7 +50,11 @@ use super::resource_icons::{get_energy_icon_handle_bevy, get_resource_icon_handl
 // v0.5.2 (2026-08-06): the three canonical font handles, loaded once
 // at Startup by `widgets::init_ui_fonts`. Per-frame systems read
 // `Res<UiFonts>` instead of calling `asset_server.load("fonts/...")`.
-use super::widgets::{spawn_scrollable_container, UiFonts};
+// v0.5.3 (2026-08-10): `HoverElevation` + the canonical card shadows
+// for the card-level hover lift (see `spawn_card`).
+use super::widgets::{
+    card_shadow, card_shadow_hover, spawn_scrollable_container, HoverElevation, UiFonts,
+};
 
 // One row of a building's resource demand: the resource name as
 // it appears in `buildings.ron`, the per-unit amount (already
@@ -1702,13 +1706,14 @@ fn friendly_label(m: &BuildingModifierDef) -> Option<(EffectTone, String)> {
         ));
     }
 
-    // Storage capacity (Warehouse / Resource Depot) — +2.5% per
-    // building to ALL stockpile caps (see
-    // `economy/budget.rs::update_storage_capacity`).
+    // Storage capacity (Warehouse / Resource Depot) — +25% per
+    // building to ALL global stockpile caps (v3.8.16: raised from
+    // +10%; see `economy/budget.rs::update_storage_capacity` and
+    // `GlobalBudget::stockpile_cap` for the per-resource base caps).
     if ty == "StorageCapacity" && v > 0.0 {
         return Some((
             EffectTone::Positive,
-            format!("Stockpile capacity +{:.0}%", v * 100.0),
+            format!("Stockpile capacity +{:.0}% (all resources)", v * 100.0),
         ));
     }
 
@@ -6039,7 +6044,7 @@ fn spawn_card(
             // at the top fades to a dim outline at the bottom via the
             // two-tone gradient overlay spawned below, so the border
             // reads as a beveled edge (light catches the top).
-            BorderColor::all(Color::srgba(0.498, 0.804, 0.847, 0.90)),
+            BorderColor::all(CARD_BORDER_BRIGHT),
             // v0.5.2 PR-A.9 (2026-08-05): single subtle dark drop
             // shadow for 3D lift. The previous two-layer version
             // (cyan glow halo + dark drop shadow) read as a heavy
@@ -6051,19 +6056,16 @@ fn spawn_card(
             // rim overlays (cyan highlight above, dark line below)
             // still provide the bevel hint; this shadow just adds
             // the depth offset.
-            BoxShadow(vec![bevy::ui::ShadowStyle {
-                color: Color::srgba(0.0, 0.0, 0.0, 0.45),
-                // 4 px y-offset (was 8) so the shadow sits closer
-                // to the card and reads as a tight drop rather
-                // than a far-away cast. 10 px blur (was 18) keeps
-                // it soft but compact. 0 px spread (was 4) so the
-                // shadow doesn't bleed beyond the card's
-                // silhouette and create a wider halo.
-                x_offset: Val::Px(0.0),
-                y_offset: Val::Px(4.0),
-                spread_radius: Val::Px(0.0),
-                blur_radius: Val::Px(10.0),
-            }]),
+            //
+            // v0.5.3 (2026-08-10): the single 45%-alpha shadow was
+            // invisible between the near-black card and the darker
+            // panel — swapped for the canonical
+            // `widgets::card_shadow()` two-layer pair (tight 1-px
+            // spread contact shadow + soft wide cast). Both layers
+            // are dark (no neon halo), so the PR-A.9 intent (subtle
+            // lift, not glow) is preserved. The hover state deepens
+            // it via `HoverElevation::shadow_hover`.
+            card_shadow(),
             // Pickable makes the whole card area pickable so
             // `tick_subtitle_marquee` can read the card's `Interaction`
             // and scroll the description on hover. The CTA keeps its
@@ -6077,62 +6079,41 @@ fn spawn_card(
             ConstructionCard {
                 name: data.name.clone(),
             },
+            // v0.5.3 (2026-08-10): card-level hover elevation via the
+            // shared `widgets::tick_ui_hover_elevation` system — the
+            // whole card lifts on hover (scale 1.02, full-CYAN border,
+            // `CARD_BG_HOVER` fill, deeper shadow, ZIndex above its
+            // siblings). Before this only the Queue CTA button
+            // responded to hover; the card body sat flat. The
+            // border/bg/shadow fields here are the spawn-time rest
+            // values so the tick system restores them on mouse-out
+            // without a visual flash.
+            HoverElevation {
+                hover_scale: Vec2::splat(1.02),
+                press_scale: Vec2::splat(0.98),
+                border: Some(CARD_BORDER_BRIGHT),
+                border_hover: Some(CYAN),
+                bg: Some(CARD_BG),
+                bg_hover: Some(CARD_BG_HOVER),
+                shadow: Some(card_shadow()),
+                shadow_hover: Some(card_shadow_hover()),
+                z_lift: true,
+                ..default()
+            },
         ))
         .id();
     commands.entity(parent).add_child(card);
 
-    // Inner top-edge highlight (1.5 px tall, full width, light cyan at
-    // 80% alpha) — the "glass lift" effect. The lighter color + thicker
-    // height makes the card read as 3D, with the top edge catching light.
-    // The previous CYAN_RIM at 65% alpha was too subtle (read as a
-    // straight line); this version is more pronounced but still feels
-    // like a light reflection, not a hard border.
-    let rim = commands
-        .spawn((
-            Node {
-                position_type: PositionType::Absolute,
-                top: Val::Px(0.0),
-                // Inset 0.5 px so the rim doesn't overlap the 8-px corner
-                // radius (avoids the "right angle" artifact at the corners).
-                left: Val::Px(0.5),
-                right: Val::Px(0.5),
-                height: Val::Px(1.5),
-                ..default()
-            },
-            BackgroundColor(CARD_TOP_HIGHLIGHT),
-            Name::new("card_rim"),
-        ))
-        .id();
-    commands.entity(card).add_child(rim);
-
-    // Inner bottom-edge shadow — thin dark line at the bottom of
-    // the card body, complementary to the cyan rim at the top.
-    // Together they read as a beveled glass edge: light hits the
-    // top, shadow falls to the bottom, and the card visibly
-    // protrudes above the panel backdrop. The previous single-rim
-    // approach left the bottom edge visually flat, so the cards
-    // read as 2D rectangles rather than raised panels.
-    let bottom_shadow = commands
-        .spawn((
-            Node {
-                position_type: PositionType::Absolute,
-                bottom: Val::Px(0.0),
-                // Inset 0.5 px to match the top rim and avoid
-                // overlapping the corner radius.
-                left: Val::Px(0.5),
-                right: Val::Px(0.5),
-                height: Val::Px(1.0),
-                ..default()
-            },
-            // Dark shadow colour — same as the drop shadow's
-            // tint, slightly less alpha so it reads as the inner
-            // shadow cast by the rim rather than a duplicate
-            // outline.
-            BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.45)),
-            Name::new("card_bottom_shadow"),
-        ))
-        .id();
-    commands.entity(card).add_child(bottom_shadow);
+    // v0.5.3.1 (2026-08-10): the absolute-positioned top-rim
+    // overlay (`CARD_TOP_HIGHLIGHT` 1.5 px tall) and its companion
+    // bottom-shadow overlay were removed. Both sat at the same
+    // x-extent as the card's 1-px cyan border, so the top edge read
+    // as two stacked straight lines (a 1-px cyan border under a
+    // 1.5-px lighter-cyan highlight) and looked rough rather than
+    // beveled. The 1-px cyan border + the dual-layer tinted drop
+    // shadow from `widgets::card_shadow()` now carry the lift on
+    // their own. A future bevel highlight should be a per-edge
+    // gradient rather than stacked overlays.
 
     // Header row: icon + title + subtitle column. The row is a flex
     // row with the icon (16x16) on the left and the title_col on the
@@ -11756,13 +11737,14 @@ mod friendly_label_tests {
         assert_eq!(label, "Logistics capacity 20000 t/yr");
     }
 
-    // Storage capacity (Warehouse 0.10 → +10% to all stockpile caps).
+    // Storage capacity (Warehouse 0.25 → +25% to all stockpile caps,
+    // v3.8.16 bump from +10%).
     #[test]
     fn friendly_label_storage_capacity() {
-        let m = modf("StorageCapacity", 0.10);
+        let m = modf("StorageCapacity", 0.25);
         let (tone, label) = friendly_label(&m).expect("StorageCapacity should produce a label");
         assert_eq!(tone, EffectTone::Positive);
-        assert_eq!(label, "Stockpile capacity +10%");
+        assert_eq!(label, "Stockpile capacity +25% (all resources)");
     }
 
     // Breeding double-unit regression: TritiumBreeding 0.05 → "Breeds

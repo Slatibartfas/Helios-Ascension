@@ -397,6 +397,16 @@ impl GlobalBudget {
             ResourceType::Argon => 1.0,         // 1 Mt Ar tank storage
             ResourceType::Hydrogen => 5.0,      // 5 Mt H₂ tank storage
             ResourceType::Ammonia => 30.0,      // 30 Mt NH₃ refrigerated tanks
+            // v3.8.16: CarbonDioxide previously fell through to the
+            // `_ => f64::MAX` catch-all, so its stockpile grew forever
+            // (production 153 Mt/yr vs 150 cons, no throttle) and the
+            // Atmospheric Gases / Volatiles row showed an always-empty
+            // fill bar — "seemingly infinite storage". Industrial CO₂
+            // tank storage (beverage carbonation, dry ice, urea
+            // feedstock, EOR) is a few months of the game's 153 Mt/yr
+            // throughput: 50 Mt ≈ 0.33 yr, consistent with Nitrogen
+            // (30 Mt / 117 Mt/yr = 0.26 yr).
+            ResourceType::CarbonDioxide => 50.0, // 50 Mt CO₂ tank storage
             // Fissile / fusion
             ResourceType::Uranium => 0.05,      // 50 kt U₃O₈
             ResourceType::Thorium => 0.005,     // 5 kt Th
@@ -666,9 +676,14 @@ pub fn update_contextual_stockpile(
 /// System that scans all colonies for `StorageCapacity` building modifiers and
 /// updates `GlobalBudget.storage_multiplier`.
 ///
-/// Each Warehouse / Resource Depot has `StorageCapacity = 0.025`, meaning it
-/// adds +2.5% to ALL per-resource stockpile caps globally.
+/// Each Warehouse / Resource Depot has `StorageCapacity = 0.25`, meaning it
+/// adds +25% to ALL per-resource stockpile caps globally.
 /// `storage_multiplier = 1.0 + Σ(modifier.value × count)`.
+///
+/// v3.8.16: raised from 0.10 → 0.25 per depot. At +10% the player needed
+/// ten depots to double storage ("gigantic storage farms"); at +25% the
+/// four starting depots already give a 2.0× multiplier and a handful more
+/// makes storage a meaningful strategic lever without spamming depots.
 pub fn update_storage_capacity(
     mut budget: ResMut<GlobalBudget>,
     colonies: Query<&Colony>,

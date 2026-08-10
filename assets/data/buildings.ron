@@ -3182,7 +3182,7 @@
         (
             id: "Warehouse",
             display_name: "Resource Depot",
-            description: "Bulk storage depot expanding global stockpile capacity by 10% per depot",
+            description: "Bulk storage depot. +25% to ALL global stockpile caps per depot (v3.8.16: raised from +10%; the four starting depots give a 2.0× multiplier, so a handful of depots makes storage a real strategic lever instead of a depot farm).",
             icon: "textures/ui/buildings/warehouse.png",
             category: "Logistics",
             build_points: 300.0,
@@ -3200,10 +3200,13 @@
                 ("Sulfur", 0.00023333),
             ],
             modifiers: [
-                // 1 depot adds 10% to base cap for every resource type globally.
-                // (Coder 22b will recompute the exact cap formula; this is the
-                // per-build StorageCapacity contribution.)
-                (modifier_type: "StorageCapacity", value: 0.10),
+                // v3.8.16: raised from 0.10 → 0.25 (+25% per depot).
+                // At +10% the player needed ten depots to double
+                // storage; at +25% the four starting depots give a
+                // 2.0× multiplier. `update_storage_capacity` sums
+                // these across all colonies into
+                // `GlobalBudget.storage_multiplier`.
+                (modifier_type: "StorageCapacity", value: 0.25),
             ],
             power_demand_mw: 30.0,
         ),

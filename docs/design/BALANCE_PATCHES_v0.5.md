@@ -4357,6 +4357,55 @@ transient, no false "runs out".
 
 ---
 
+## §0.S v3.8.16 addendum — storage clarity: CO₂ cap + +25% depots (2026-08-10)
+
+> **v3.8.16 SHIPPED on `rework-ui-design`.** Two storage fixes from user
+> feedback: (1) the Atmospheric Gases / Volatiles row showed a
+> "seemingly infinite storage" — that was **CO₂**, which fell through
+> `stockpile_cap`'s `_ => f64::MAX` catch-all; (2) the Resource Depot
+> card said "+10% per depot" with no context, and the player needed ten
+> depots to double storage.
+
+### 0.S.1 CO₂ stockpile cap (the "infinite storage" fix)
+
+`GlobalBudget::stockpile_cap` had a catch-all `_ => f64::MAX` that only
+the **exotics** (Antimatter / ExoticMatter / Metamaterials /
+Computronium — genuinely uncapped late-game resources) were supposed to
+hit. **CO₂** also fell through it: production 153 Mt/yr vs 150
+consumption, no throttle, stockpile grew forever, and the fill bar in
+the Atmospheric Gases row stayed permanently empty.
+
+v3.8.16 gives CO₂ a real tank cap: **50 Mt** — a few months of the
+153 Mt/yr throughput, consistent with Nitrogen (30 Mt / 117 Mt/yr =
+0.26 yr). The catch-all now only covers the exotics.
+
+### 0.S.2 Resource Depot +10% → +25%
+
+| | v3.8.15 | v3.8.16 |
+|---|---|---|
+| `StorageCapacity` per depot | 0.10 | **0.25** |
+| Starting depots (Earth) | 4 | 4 |
+| Start multiplier | 1.4× | **2.0×** |
+| Depots to double storage | 10 | **4** |
+
+The card now reads **"Stockpile capacity +25% (all resources)"**, so the
+player immediately knows what a depot does and needs a handful — not a
+depot farm — to make storage a strategic lever. `update_storage_capacity`
+doc comment updated (was stale at 0.025).
+
+### 0.S.3 Files modified (v3.8.16)
+
+* `src/economy/budget.rs` — `CarbonDioxide => 50.0` tank cap; depot doc
+  comment updated.
+* `assets/data/buildings.ron` — Warehouse `StorageCapacity` 0.10 → 0.25;
+  description updated.
+* `src/ui/construction.rs` — StorageCapacity card label
+  "+25% (all resources)"; test updated.
+
+`cargo test` 1112 lib + all integration, green.
+
+---
+
 ## §1 TL;DR and stop conditions (v2 §1, updated for v3)
 
 ### 1.1 Three-line TL;DR (v3 NEW framing)
