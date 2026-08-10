@@ -1099,3 +1099,293 @@ pub fn tick_tooltip(
     // Body: re-spawn children to reflect new content.
     populate_tooltip_body(&mut commands, *body_entity_q, &body_children, content);
 }
+
+// =====================================================================
+// Scrollbar primitive (Phase 5: extracted from construction/scrollbar.rs.
+// Generalised so shipbuilding + any other panel can adopt it. Per-track
+// metrics stored as a Component (no more singleton resource bug).)
+// =====================================================================
+
+use bevy::picking::events::{Press, Release};
+use bevy::picking::pointer::PointerButton;
+use bevy::ui::RelativeCursorPosition;
+
+/// Component on the scrollbar track entity. Holds the entity whose
+/// `ScrollPosition` this scrollbar drives.
+#[derive(Component, Clone, Copy)]
+pub struct ScrollbarTrack {
+    /// The scrollable body (an `Overflow::scroll_y` container with
+    /// `ScrollPosition`).
+    pub target: Entity,
+}
+
+/// Component on the scrollbar thumb (the draggable part inside the track).
+#[derive(Component)]
+pub struct ScrollbarThumb;
+
+/// Per-track scrollbar metrics, stored on the track entity (not as
+/// a singleton Resource). Fixes the latent bug where two simultaneously
+/// visible tracks would clobber each other's measurements.
+#[derive(Component, Default, Debug, Clone, Copy)]
+pub struct ScrollbarMetrics {
+    pub usable_track_height: f32,
+    pub thumb_height: f32,
+    pub max_scroll: f32,
+}
+
+/// Drag state for the currently-active scrollbar drag. One shared
+/// Resource (drag is mouse-global, not per-track).
+#[derive(Resource, Default)]
+pub struct ScrollbarDragState {
+    pub active: bool,
+    pub started_on_track: bool,
+    pub press_track_y: f32,
+}
+
+// On-press observer for the thumb.
+pub fn on_thumb_press(
+    on: On<Pointer<Press>>,
+    mut drag: ResMut<ScrollbarDragState>,
+) {
+    if on.event.button != PointerButton::Primary {
+        return;
+    }
+    drag.active = true;
+    drag.started_on_track = false;
+    drag.press_track_y = 0.0;
+}
+
+// On-release observer for the thumb.
+pub fn on_thumb_release(
+    on: On<Pointer<Release>>,
+    mut drag: ResMut<ScrollbarDragState>,
+) {
+    if on.event.button != PointerButton::Primary {
+        return;
+    }
+    drag.active = false;
+    drag.started_on_track = false;
+}
+
+// On-press observer for the track (jump-to-position).
+pub fn on_track_press(
+    on: On<Pointer<Press>>,
+    mut drag: ResMut<ScrollbarDragState>,
+    track_query: Query<&RelativeCursorPosition, With<ScrollbarTrack>>,
+) {
+    if on.event.button != PointerButton::Primary {
+        return;
+    }
+    drag.active = true;
+    drag.started_on_track = true;
+    let y = track_query
+        .get(on.entity)
+        .ok()
+        .and_then(|rcp| rcp.normalized)
+        .map(|n| n.y)
+        .unwrap_or(0.0);
+    drag.press_track_y = y;
+}
+
+// On-release observer for the track.
+pub fn on_track_release(
+    on: On<Pointer<Release>>,
+    mut drag: ResMut<ScrollbarDragState>,
+) {
+    if on.event.button != PointerButton::Primary {
+        return;
+    }
+    drag.active = false;
+    drag.started_on_track = false;
+}
+
+/// Spawn the always-visible vertical scrollbar (track + thumb + observers)
+/// parented to a panel root, aimed at a specific scrollable body.
+///
+/// `track_top_px` / `track_bottom_px` set the vertical extent of the
+/// track (relative to the parent root).
+pub fn spawn_scrollbar(
+    commands: &mut Commands,
+    root: Entity,
+    target: Entity,
+    track_name: &'static str,
+    track_top_px: f32,
+    track_bottom_px: f32,
+) {
+    let scrollbar_track = commands
+        .spawn((
+            Node {
+                position_type: PositionType::Absolute,
+                right: Val::Px(2.0),
+                top: Val::Px(track_top_px),
+                bottom: Val::Px(track_bottom_px),
+                width: Val::Px(12.0),
+                border_radius: BorderRadius::all(Val::Px(6.0)),
+                ..default()
+            },
+            BackgroundColor(Color::srgba(1.0, 1.0, 1.0, 0.06)),
+            ZIndex(10),
+            Pickable::default(),
+            RelativeCursorPosition::default(),
+            ScrollbarMetrics::default(),
+            ScrollbarTrack { target },
+            Name::new(track_name),
+        ))
+        .id();
+    commands.entity(root).add_child(scrollbar_track);
+    commands.entity(scrollbar_track).observe(on_track_press);
+    commands.entity(scrollbar_track).observe(on_track_release);
+
+    let scrollbar_thumb = commands
+        .spawn((
+            Node {
+                position_type: PositionType::Absolute,
+                left: Val::Px(0.0),
+                right: Val::Px(0.0),
+                top: Val::Px(0.0),
+                height: Val::Px(0.0),
+                border_radius: BorderRadius::all(Val::Px(6.0)),
+                ..default()
+            },
+            BackgroundColor(Color::srgba(0.37, 0.78, 0.85, 0.6)), // CYAN.with_alpha(0.6)
+            ZIndex(11),
+            Pickable::default(),
+            ScrollbarThumb,
+            Name::new("scrollbar_thumb"),
+        ))
+        .id();
+    commands.entity(scrollbar_track).add_child(scrollbar_thumb);
+    commands.entity(scrollbar_thumb).observe(on_thumb_press);
+    commands.entity(scrollbar_thumb).observe(on_thumb_release);
+}
+
+/// Per-frame scrollbar driver: computes the thumb's height + vertical
+/// position from the target's `ScrollPosition`. Per-track metrics
+/// stored on the track entity (no singleton Resource).
+pub fn tick_scrollbar(
+    track_query: Query<(Entity, &ComputedNode, &ScrollbarTrack)>,
+    scrollable_query: Query<&ComputedNode>,
+    pos_query: Query<&ScrollPosition>,
+    mut metrics_query: Query<&mut ScrollbarMetrics>,
+    children_query: Query<&Children>,
+    mut thumb_query: Query<(Entity, &mut Node), With<ScrollbarThumb>>,
+) {
+    // Per-track scoping: each track has its own metrics + thumb. We
+    // index thumbs by their parent track so the loop body only
+    // updates the thumb that belongs to the current track.
+    let mut thumb_for_track: std::collections::HashMap<Entity, Entity> =
+        std::collections::HashMap::new();
+    for (thumb_entity, _) in thumb_query.iter() {
+        if let Ok(children) = children_query.get(thumb_entity) {
+            for parent in children.iter() {
+                thumb_for_track.insert(parent, thumb_entity);
+            }
+        }
+    }
+
+    for (track_entity, track_computed, track) in track_query.iter() {
+        let Ok(mut metrics) = metrics_query.get_mut(track_entity) else {
+            continue;
+        };
+        let Ok(target_computed) = scrollable_query.get(track.target) else {
+            continue;
+        };
+        let Ok(scroll_pos) = pos_query.get(track.target) else {
+            continue;
+        };
+        let track_height = track_computed.size().y;
+        let target_size = target_computed.size();
+        let target_content = target_computed.content_size().y;
+        let usable_track = (track_height - 16.0).max(0.0); // 8 px top + 8 px bottom padding
+        if target_content <= target_size.y || target_size.y <= 0.0 {
+            if let Some(&thumb_entity) = thumb_for_track.get(&track_entity) {
+                if let Ok((_, mut node)) = thumb_query.get_mut(thumb_entity) {
+                    node.height = Val::Px(0.0);
+                    node.top = Val::Px(0.0);
+                }
+            }
+            metrics.usable_track_height = usable_track;
+            metrics.thumb_height = 0.0;
+            metrics.max_scroll = 0.0;
+            continue;
+        }
+        let ratio = (target_size.y / target_content).clamp(0.0, 1.0);
+        let thumb_height = (usable_track * ratio).max(12.0);
+        let max_scroll_y = (target_content - target_size.y).max(0.0);
+        let scroll_progress = if max_scroll_y > 0.0 {
+            (scroll_pos.y / max_scroll_y).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        let thumb_y = scroll_progress * (usable_track - thumb_height);
+        metrics.usable_track_height = usable_track;
+        metrics.thumb_height = thumb_height;
+        metrics.max_scroll = max_scroll_y;
+        if let Some(&thumb_entity) = thumb_for_track.get(&track_entity) {
+            if let Ok((_, mut node)) = thumb_query.get_mut(thumb_entity) {
+                node.height = Val::Px(thumb_height);
+                node.top = Val::Px(thumb_y);
+            }
+        }
+    }
+}
+
+/// Wheel-scroll handler for `Overflow::scroll_y` containers. Walks
+/// the hover map from the cursor's deepest hit up to the root looking
+/// for either:
+///   1. A `ScrollbarTrack` (jump-scroll to the track's target).
+///   2. A `Node` whose `overflow.y` is `OverflowAxis::Scroll` (scroll it).
+///
+/// If neither is found, the wheel event is ignored. No construction-
+/// specific fallbacks; any panel can register this system without
+/// further wiring.
+pub fn tick_ui_scroll_on_wheel(
+    mut wheel_events: MessageReader<bevy::input::mouse::MouseWheel>,
+    hover_map: Res<bevy::picking::hover::HoverMap>,
+    nodes: Query<&bevy::ui::ComputedNode>,
+    mut scrollables: Query<&mut ScrollPosition>,
+    parents: Query<&bevy::ecs::hierarchy::ChildOf>,
+    tracks: Query<&ScrollbarTrack>,
+) {
+    use bevy::picking::pointer::PointerId;
+
+    for event in wheel_events.read() {
+        if event.y == 0.0 {
+            continue;
+        }
+        let pointer_id = PointerId::Mouse;
+        let Some(hovered_entities) = hover_map.0.get(&pointer_id) else {
+            continue;
+        };
+        if hovered_entities.is_empty() {
+            continue;
+        }
+        let start_entity = *hovered_entities
+            .keys()
+            .next()
+            .expect("non-empty checked above");
+        let mut scrollable: Option<Entity> = None;
+        if let Ok(track) = tracks.get(start_entity) {
+            scrollable = Some(track.target);
+        } else {
+            let mut cursor = start_entity;
+            for _ in 0..10 {
+                if let Ok(track) = tracks.get(cursor) {
+                    scrollable = Some(track.target);
+                    break;
+                }
+                let Ok(parent) = parents.get(cursor) else { break; };
+                cursor = parent.0;
+            }
+        }
+        if let Some(scrollable_entity) = scrollable {
+            if let Ok(mut pos) = scrollables.get_mut(scrollable_entity) {
+                if let Ok(computed) = nodes.get(scrollable_entity) {
+                    let max_y = (computed.content_size().y - computed.size().y).max(0.0);
+                    let new_y = (pos.y - event.y * 24.0).clamp(0.0, max_y);
+                    pos.y = new_y;
+                }
+            }
+        }
+    }
+}
