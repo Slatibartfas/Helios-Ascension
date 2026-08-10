@@ -77,14 +77,18 @@ use crate::game_state::{ActiveMenu, GameMenu};
 use state::ColonyDropdownState;
 
 // ── Re-exports — pure data types ──────────────────────────────────────
+//
+// Phase 1.5C: `friendly_label`, `format_mining_rate`, `format_residents`,
+// and `EffectTone` moved to `crate::colony::building_data` because they
+// are pure-data transformations with no UI dependencies. The remaining
+// items below still live in `data.rs`.
 
+pub use crate::colony::building_data::{friendly_label, format_mining_rate, format_residents, EffectTone};
 pub use data::{
     apply_effect_cap, build_power_chip_data, card_data_from_definition,
     card_data_with_multiplier, category_from_index, compute_colony_spare_power_mw,
-    friendly_label, format_mining_rate, format_mining_reserve, format_power,
-    format_residents, parse_category, power_output_gw_per_unit,
-    visible_cards, BuildCardData, EffectTone, MiningCardData, PowerChipData,
-    ResourceCostRow,
+    format_mining_reserve, format_power, parse_category, power_output_gw_per_unit,
+    visible_cards, BuildCardData, MiningCardData, PowerChipData, ResourceCostRow,
 };
 
 // ── Re-exports — state types / resources ──────────────────────────────

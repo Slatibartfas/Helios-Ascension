@@ -11,12 +11,14 @@
 
 use bevy::prelude::*;
 
+pub mod building_data;
 pub mod components;
 pub mod data;
 pub mod events;
 pub mod systems;
 pub mod types;
 
+pub use building_data::{friendly_label, format_mining_rate, format_residents, EffectTone};
 pub use components::{
     Colony, ColonyDevelopment, ColonyEnvironmentCosts, ColonyTier, ConstructionProject,
     EstablishOutpostRequest, PendingConstructionActions, CITY_YIELD_MULTIPLIER,

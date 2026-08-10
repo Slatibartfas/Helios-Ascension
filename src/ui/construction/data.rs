@@ -11,6 +11,13 @@ use crate::colony::types::BuildingCategory;
 use crate::colony::types::BuildingType;
 use crate::economy::ResourceType;
 
+// Phase 1.5C: format_mining_rate, friendly_label, format_residents, EffectTone
+// moved to crate::colony::building_data. The remaining helpers in this file
+// (compute_mining_card_data, card_data_with_multiplier, build_power_chip_data,
+// apply_effect_cap, ...) call them — pull them in here so the local call sites
+// keep their `friendly_label(m)` / `format_mining_rate(v)` style.
+pub use crate::colony::building_data::{friendly_label, format_mining_rate, format_residents, EffectTone};
+
 // One row of a building's resource demand: the resource name as
 // it appears in `buildings.ron`, the per-unit amount (already
 // multiplied by the build quantity), and the parsed
@@ -228,14 +235,14 @@ pub fn compute_colony_spare_power_mw(
 }
 
 // Effect-bullet tone (drives the color of the corresponding line).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum EffectTone {
-    Positive,
-    Negative,
-    Neutral,
-    Cost,
-    Throughput,
-}
+//
+// Phase 1.5C: moved to `crate::colony::building_data::EffectTone` because
+// it has no UI dependencies. The construction module re-exports it through
+// mod.rs so existing callers (`crate::ui::construction::EffectTone`) still
+// resolve. We `pub use` here so the wildcard `use super::data::*` in
+// sibling submodules (cards.rs, mining.rs) keeps working.
+// (EffectTone is imported once at the top of the file — see the `pub use`
+// block right after the imports above.)
 
 // Build card data: name, subtitle, stats, effects, queue label.
 #[derive(Debug, Clone)]
@@ -508,25 +515,10 @@ pub fn card_data_with_multiplier(
     // no-colony cases).
     let power_insufficient = power_chip.insufficient;
 
-    // v3.1 canary 11 (BALANCE_PATCHES_v0.5.md §0.H): replaced the
-    // single-modifier `find` with an iterate-all loop. The 13 hidden
-    // modifier types (HousingCapacity, NitrogenHarvesting,
-    // PlutoniumBreeding, BuildPointsProduction, ConstructionCost,
-    // ...) are now surfaced via `friendly_label()`. The
-    // `*Production` line still scales with `mult` (per the
-    // 2026-08-02 fix); other effects show per-unit values. The
-    // 5+1 effect-line cap (per the v0.5.2 PR-A.4 comment at line
-    // 1300) is enforced by `apply_effect_cap` after the loop.
-    //
-    // `BuildPointsProduction` is checked BEFORE the generic
-    // `*Production` strip_suffix because it also ends in
-    // "Production" — without the special case it would render as
-    // "Produces 10 Mt/yr BuildPoints" (wrong). The friendly_label
-    // helper knows about it and returns "Builds +10 BP/yr"
-    // (per-unit, no batch scaling — the +10 BP/yr is already the
-    // single-build rate, and ×N scaling would double-count since
-    // the construction system sums across Factories independently;
-    // see `src/colony/systems.rs:96`).
+    // Surface every recognized modifier type as a card effect via
+    // `friendly_label`. The `*Production` strip_suffix is special-cased
+    // because it scales with `mult` (per the 2026-08-02 fix: a ×6 build
+    // reads as per-unit × N = total, not just per-unit).
     for m in def.modifiers.iter() {
         if m.modifier_type == "BuildPointsProduction" {
             if let Some((tone, label)) = friendly_label(m) {
@@ -536,9 +528,6 @@ pub fn card_data_with_multiplier(
         }
         if let Some(res_name) = m.modifier_type.strip_suffix("Production") {
             if m.value > 0.0 {
-                // Production line scales with `mult` (preserves the
-                // 2026-08-02 fix: a ×6 build reads as per-unit × N =
-                // total, not just per-unit).
                 let per_unit = m.value;
                 let total = per_unit * mult;
                 let line = if mult > 1.0 {
@@ -573,329 +562,32 @@ pub fn card_data_with_multiplier(
         // (2026-08-04), see `power_chip` below.
         stat_c: ("", String::new()),
         effects,
-        // v0.5.2 PR-A.4 follow-up: typed resource-demand rows
-        // rendered with PNG icon + category tint (see
-        // `resource_costs` doc). Always passed alongside
-        // `effects`; the canary renders the two sets in
-        // separate visual zones (Power chip → Produces effect
-        // → [resource_cost rows]).
         resource_costs,
-        // v0.5.2 PR-A.7 (2026-08-04): the power readout now
-        // lives in a dedicated chip with the bolt-in-hex icon
-        // (`energy.png`) and a hover tooltip, mirroring the
-        // resource_cost chip pattern. See `PowerChipData` for
-        // the field semantics.
         power_chip,
         queue_label: "Queue".to_string(),
         power_insufficient,
         // v0.5.2 (build menu fix): Build tab cards are never body-blocked.
-        // The field exists for spawn_card's benefit so it can
-        // distinguish spawn-time-true body-blocked mining cards
-        // from resource-driven disabled states.
         body_blocked: false,
         build_points: def.build_points,
-        // v0.5.2 (2026-08-06): Build-tab cards are NOT constructed —
-        // they show the buildable catalog with a Queue CTA + ETA.
         constructed: false,
     }
 }
 
-// Clamp a description string to roughly two lines of caption-size text
-// (12 px) inside a card column of ~145 px width —— ~80 chars at the
-// prototype's character density. Appends an ellipsis when truncated so
-// the player knows the description continues. The 80-char budget keeps
-// every card subtitle visually consistent and prevents the effect
-// bullets below from being pushed off the card.
-pub(super) fn clamp_subtitle_two_lines(s: &str) -> String {
+// Helper: clamp a subtitle to ~80 chars + ellipsis, so every card
+// subtitle is visually consistent and the effect bullets below aren't
+// pushed off the card.
+pub fn clamp_subtitle_two_lines(s: &str) -> String {
     const MAX_CHARS: usize = 80;
     if s.chars().count() <= MAX_CHARS {
         return s.to_string();
     }
     let mut out: String = s.chars().take(MAX_CHARS - 1).collect();
-    out.push('…');
+    out.push('\u{2026}');
     out
 }
 
-// Format a mining production rate (Mt/yr) with a human-readable
-// unit suffix. Mirrors the helper in `src/ui/construction_panel.rs`
-// (egui Mining tab) so the canary and the legacy panel agree on
-// the same scale labels.
-//
-// | Range (Mt/yr)     | Suffix       | Example                     |
-// |-------------------|--------------|-----------------------------|
-// | < 1e-12           | "0"          | (effect suppressed upstream)|
-// | 1e-12 .. 1e-9     | g/yr         | "100 g/yr" Gold             |
-// | 1e-9 .. 1e-6      | kg/yr        | "500 kg/yr" Platinum        |
-// | 1e-6 .. 1e-3      | t/yr         | "500 t/yr" RareEarths       |
-// | 1e-3 .. 1         | kt/yr        | "120 kt/yr" Iron            |
-// | 1 .. 1e3          | Mt/yr        | "120 Mt/yr" Silicates       |
-// | 1e3 .. 1e6        | Gt/yr        | "120 Gt/yr" Water           |
-// | 1e6 .. 1e9        | Tt/yr        | "1.20 Tt/yr" Carbon         |
-// | 1e9 .. 1e12       | Pt/yr        | "1.20 Pt/yr" (planet bulk)  |
-// | 1e12 .. 1e15      | Et/yr        | "1.20 Et/yr" (planet bulk)  |
-// | 1e15 .. 1e18      | Zt/yr        | "5.97 Zt/yr" Earth          |
-// | ≥ 1e18            | Yt/yr        | (stellar-scale)             |
-pub fn format_mining_rate(mt_per_year: f64) -> String {
-    if mt_per_year.abs() < 1e-12 {
-        return "0".to_string();
-    }
-    let v = mt_per_year.abs();
-    // SI ladder for **Mt** input. Boundaries land each suffix in
-    // the 1..=999 range (one- to three-digit display). SI mass
-    // prefixes:
-    //   1 g  = 1e-12 Mt     1 Mt = 1    Mt
-    //   1 kg = 1e-9  Mt     1 Gt = 1e3  Mt
-    //   1 t  = 1e-6  Mt     1 Tt = 1e6  Mt
-    //   1 kt = 1e-3  Mt     1 Pt = 1e9  Mt
-    //                        1 Et = 1e12 Mt
-    //                        1 Zt = 1e15 Mt
-    //                        1 Yt = 1e18 Mt
-    if v < 1e-9 {
-        // grams (1..999 g)
-        format!("{:.0} g/yr", mt_per_year * 1e12)
-    } else if v < 1e-6 {
-        // kilograms (1..999 kg)
-        format!("{:.0} kg/yr", mt_per_year * 1e9)
-    } else if v < 1e-3 {
-        // tonnes (1..999 t)
-        format!("{:.0} t/yr", mt_per_year * 1e6)
-    } else if v < 1.0 {
-        // kilotonnes (1..999 kt)
-        format!("{:.0} kt/yr", mt_per_year * 1e3)
-    } else if v < 1e3 {
-        // megatonnes (1..999 Mt)
-        format!("{:.0} Mt/yr", mt_per_year)
-    } else if v < 1e6 {
-        // gigatonnes (1..999 Gt)
-        format!("{:.0} Gt/yr", mt_per_year / 1e3)
-    } else if v < 1e9 {
-        // teratonnes (1..999 Tt)
-        format!("{:.2} Tt/yr", mt_per_year / 1e6)
-    } else if v < 1e12 {
-        // petatonnes (1..999 Pt)
-        format!("{:.2} Pt/yr", mt_per_year / 1e9)
-    } else if v < 1e15 {
-        // exatonnes (1..999 Et)
-        format!("{:.2} Et/yr", mt_per_year / 1e12)
-    } else if v < 1e18 {
-        // zettatonnes (Earth-class planetary-bulk deposits)
-        format!("{:.2} Zt/yr", mt_per_year / 1e15)
-    } else {
-        // yottatonnes — stellar-mass scale, theoretical
-        format!("{:.2} Yt/yr", mt_per_year / 1e18)
-    }
-}
 
-// v3.1 canary 11 (BALANCE_PATCHES_v0.5.md §0.H.3): convert a
-// building modifier to a (tone, display) pair for the build card.
-// Replaces the v0.5.2 single-modifier filter that surfaced only
-// the first `*Production` modifier. Now every recognized
-// modifier type produces a friendly effect line, and the 5+1
-// effect-line cap (per the v0.5.2 PR-A.4 comment at line 1300)
-// limits how many appear on the card.
-//
-// Returns None for unrecognized modifier types — those are
-// silently hidden (they exist in the RON but are not surfaced
-// on the card; add a case here to surface a new type).
-//
-// Inventory of modifier types covered (v3.1 §0.H.2 + v3.8.12):
-//   * IronProduction, AluminumProduction, CopperMine, ..., WaterProduction, FoodProduction
-//   * HousingCapacity
-//   * HydrogenSynthesis, AmmoniaSynthesis, PolymerSynthesis (ChemicalPlant)
-//   * ResearchSpeed, EngineeringSpeed (ResearchLab, AiCluster, SemiconductorFab, DataCenter)
-//   * PopulationGrowth (MedicalCenter, PharmaceuticalPlant, WaterTreatmentPlant, DesalinationPlant)
-//   * WealthGeneration (Factory, CommercialHub, FinancialCenter, TradePort)
-//   * LogisticsCapacity (MassDriver, OrbitalLift, CargoTerminal)
-//   * StorageCapacity (Warehouse, Resource Depot)
-//   * NitrogenHarvesting
-//   * PlutoniumBreeding, TritiumBreeding
-//   * ConstructionCost (negative = "builds faster", positive = "more expensive")
-//   * BuildPointsProduction (the Factory's actual effect: +10 BP/yr per build)
-//
-// See `friendly_label_tests` in the test module below for one
-// test per recognized type plus the "+N more" cap test.
-pub fn friendly_label(m: &BuildingModifierDef) -> Option<(EffectTone, String)> {
-    let ty = m.modifier_type.as_str();
-    let v = m.value;
-
-    // Build points. The Factory's actual primary effect: +10 BP/yr per
-    // build (the v0.5.0 RON had `ConstructionCost: -200.0` as a legacy
-    // fallback from the GRA-22b transition; the Rust at
-    // `src/colony/systems.rs:96` reads `factories * 10.0` directly. The
-    // RON was renamed to `BuildPointsProduction: 10.0` in canary 11 so
-    // the card matches what the code actually does). Checked BEFORE the
-    // generic `*Production` strip_suffix because BuildPointsProduction
-    // also ends in "Production".
-    if ty == "BuildPointsProduction" && v > 0.0 {
-        return Some((
-            EffectTone::Positive,
-            format!("Builds +{} BP/yr", v as i64),
-        ));
-    }
-
-    // Production modifiers: "IronProduction" → "Iron" + the value as a rate.
-    // Multi-output buildings (e.g. ChemicalPlant with H₂ + NH₃ + Polymers
-    // + Tritium) produce one line per modifier.
-    if let Some(res_name) = ty.strip_suffix("Production") {
-        if v > 0.0 {
-            return Some((
-                EffectTone::Positive,
-                format!("Produces {} {}", format_mining_rate(v), res_name),
-            ));
-        }
-        return None;
-    }
-
-    // Breeding: "PlutoniumBreeding" → "Plutonium" + the value as a rate.
-    if let Some(elem) = ty.strip_suffix("Breeding") {
-        if v > 0.0 {
-            return Some((
-                EffectTone::Positive,
-                // v3.8.12: `format_mining_rate` already appends
-                // "/yr", so this used to render "Breeds 0.05 Mt/yr
-                // Mt/yr Tritium" (double unit). Keep the unit on
-                // the rate only.
-                format!("Breeds {} {}", format_mining_rate(v), elem),
-            ));
-        }
-        return None;
-    }
-
-    // Industrial synthesis: ChemicalPlant's H₂ / NH₃ / polymers
-    // ("HydrogenSynthesis" etc.). End in "Synthesis", not
-    // "Production", so the generic branch above never saw them —
-    // the ChemicalPlant card showed only "Breeds 0.05 Mt/yr
-    // Tritium" and hid its three main outputs. The `input_per_output`
-    // ratios live in `economy/mining.rs::industrial_process_rule`;
-    // here we surface the OUTPUT rate (the card's "effect").
-    if let Some(elem) = ty.strip_suffix("Synthesis") {
-        if v > 0.0 {
-            return Some((
-                EffectTone::Positive,
-                format!("Synthesizes {} {}", format_mining_rate(v), elem),
-            ));
-        }
-        return None;
-    }
-
-    // Research / engineering throughput (ResearchLab, AiCluster,
-    // SemiconductorFab, DataCenter). `ResearchSpeed` / `EngineeringSpeed`
-    // are additive percent bonuses (see
-    // `src/research/systems.rs:research_speed_multiplier`).
-    if ty == "ResearchSpeed" && v > 0.0 {
-        return Some((
-            EffectTone::Positive,
-            format!("Research speed +{}%", v as i64),
-        ));
-    }
-    if ty == "EngineeringSpeed" && v > 0.0 {
-        return Some((
-            EffectTone::Positive,
-            format!("Engineering speed +{}%", v as i64),
-        ));
-    }
-
-    // Population growth: MedicalCenter / PharmaceuticalPlant /
-    // WaterTreatmentPlant / DesalinationPlant add a flat bonus
-    // (value 50 = +0.5%/yr — see
-    // `Colony::population_growth_per_year`, which caps the bonus at
-    // `max_medical_growth_bonus`).
-    if ty == "PopulationGrowth" && v > 0.0 {
-        return Some((
-            EffectTone::Positive,
-            format!("Population growth +{:.1}%/yr", v / 100.0),
-        ));
-    }
-
-    // Wealth generation (Factory, CommercialHub, FinancialCenter,
-    // TradePort) — Mega-Credits per year.
-    if ty == "WealthGeneration" && v > 0.0 {
-        return Some((
-            EffectTone::Positive,
-            format!("Generates {:.0} MC/yr", v),
-        ));
-    }
-
-    // Logistics throughput (MassDriver / OrbitalLift / CargoTerminal)
-    // — tonnes per year surface-to-orbit.
-    if ty == "LogisticsCapacity" && v > 0.0 {
-        return Some((
-            EffectTone::Positive,
-            format!("Logistics capacity {:.0} t/yr", v),
-        ));
-    }
-
-    // Storage capacity (Warehouse / Resource Depot) — +25% per
-    // building to ALL global stockpile caps (v3.8.16: raised from
-    // +10%; see `economy/budget.rs::update_storage_capacity` and
-    // `GlobalBudget::stockpile_cap` for the per-resource base caps).
-    if ty == "StorageCapacity" && v > 0.0 {
-        return Some((
-            EffectTone::Positive,
-            format!("Stockpile capacity +{:.0}% (all resources)", v * 100.0),
-        ));
-    }
-
-    // Atmospheric / harvest modifiers. "NitrogenHarvesting" doesn't end in
-    // "Production" so it was hidden by the v0.5.2 filter.
-    if ty == "NitrogenHarvesting" && v > 0.0 {
-        return Some((
-            EffectTone::Positive,
-            format!("Harvests {} Mt/yr N\u{2082}", format_mining_rate(v)),
-        ));
-    }
-
-    // Capacity modifiers.
-    if ty == "HousingCapacity" && v > 0.0 {
-        return Some((
-            EffectTone::Positive,
-            format!("Houses {} residents", format_residents(v)),
-        ));
-    }
-
-    // Legacy ConstructionCost (research-panel modifier, also used as a
-    // building modifier pre-v3.1). Negative value = builds faster
-    // (positive effect); positive value = more expensive (neutral).
-    if ty == "ConstructionCost" {
-        if v < 0.0 {
-            return Some((
-                EffectTone::Positive,
-                format!("Builds {} BP/yr faster", (-v) as i64),
-            ));
-        } else if v > 0.0 {
-            return Some((
-                EffectTone::Neutral,
-                format!("Construction cost +{} BP/build", v as i64),
-            ));
-        }
-    }
-
-    None
-}
-
-// v3.1 canary 11 helper: human-readable headcount formatting for
-// `HousingCapacity` (e.g. 4,000,000,000 → "4.00B"). Mirrors the
-// SI ladder of `format_mining_rate` but for people.
-pub fn format_residents(people: f64) -> String {
-    let v = people.abs();
-    if v < 1.0 {
-        return format!("{:.0}", people);
-    }
-    if v < 1e3 {
-        return format!("{:.0}", people);
-    }
-    if v < 1e6 {
-        return format!("{:.1}k", people / 1e3);
-    }
-    if v < 1e9 {
-        return format!("{:.2}M", people / 1e6);
-    }
-    if v < 1e12 {
-        return format!("{:.2}B", people / 1e9);
-    }
-    format!("{:.2}T", people / 1e12)
-}
-
+// Phase 1.5C: format_residents moved to crate::colony::building_data.
 // v3.1 canary 11 helper: apply the 5+1 effect-line cap. If the
 // modifier list produces more than 5 effects, truncate to 5 and
 // append a "+N more" indicator. The cap is per the v0.5.2 PR-A.4
