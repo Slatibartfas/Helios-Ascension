@@ -797,25 +797,16 @@ pub fn tick_mining_group_visibility(
     headers: Query<(Entity, &Interaction, &MiningGroupHeader), With<Button>>,
     mut prev: Local<std::collections::HashMap<Entity, Interaction>>,
 ) {
-    let mut current: std::collections::HashMap<Entity, Interaction> =
-        std::collections::HashMap::new();
-
-    for (entity, interaction, header) in headers.iter() {
-        current.insert(entity, *interaction);
-        let prev_interaction = prev.get(&entity).copied().unwrap_or(Interaction::None);
-        if *interaction == Interaction::Pressed && prev_interaction != Interaction::Pressed {
-            if header.group_id == MiningGroupId::Helium3 {
-                ui_state.mining_orbital_collapsed = !ui_state.mining_orbital_collapsed;
+    crate::ui::widgets::detect_rising_edges(&mut prev, &headers, |_entity, header| {
+        if header.group_id == MiningGroupId::Helium3 {
+            ui_state.mining_orbital_collapsed = !ui_state.mining_orbital_collapsed;
+        } else {
+            let id = header.group_id;
+            if ui_state.mining_groups_collapsed.contains(&id) {
+                ui_state.mining_groups_collapsed.remove(&id);
             } else {
-                let id = header.group_id;
-                if ui_state.mining_groups_collapsed.contains(&id) {
-                    ui_state.mining_groups_collapsed.remove(&id);
-                } else {
-                    ui_state.mining_groups_collapsed.insert(id);
-                }
+                ui_state.mining_groups_collapsed.insert(id);
             }
         }
-    }
-
-    *prev = current;
+    });
 }

@@ -92,41 +92,31 @@ pub fn spawn_demolish_button(
 // Click handler for the Demolish button. Opens the centered
 // confirmation dialog (`DemolishConfirmDialog`).
 pub fn tick_demolish_click(
-    mut params: ParamSet<(
-        Query<(Entity, &Interaction, &DemolishButton), With<Button>>,
-        Query<Entity, With<DemolishDisabled>>,
-    )>,
+    disabled: Query<Entity, With<DemolishDisabled>>,
+    interactions: Query<(Entity, &Interaction, &DemolishButton), With<Button>>,
     ui_state: Res<ConstructionUiState>,
     mut confirm_state: ResMut<DemolishConfirmState>,
     mut prev: Local<std::collections::HashMap<Entity, Interaction>>,
 ) {
     let mut disabled_set: std::collections::HashSet<Entity> = std::collections::HashSet::new();
-    for entity in params.p1().iter() {
+    for entity in disabled.iter() {
         disabled_set.insert(entity);
     }
-
-    let mut current: std::collections::HashMap<Entity, Interaction> =
-        std::collections::HashMap::new();
-    for (entity, interaction, button) in params.p0().iter() {
-        current.insert(entity, *interaction);
-        let prev_interaction = prev.get(&entity).copied().unwrap_or(Interaction::None);
-        if *interaction == Interaction::Pressed
-            && prev_interaction != Interaction::Pressed
-            && !disabled_set.contains(&entity)
-        {
-            if ui_state.selected_colony.is_none() {
-                continue;
-            }
-            let count = match button.multiplier_source {
-                DemolishMultiplierSource::Mining => ui_state.build_multiplier.max(1),
-                DemolishMultiplierSource::Build => ui_state.build_multiplier.max(1),
-            };
-            confirm_state.open = true;
-            confirm_state.building_type = Some(button.building_type);
-            confirm_state.count = count;
+    crate::ui::widgets::detect_rising_edges(&mut prev, &interactions, |entity, button| {
+        if disabled_set.contains(&entity) {
+            return;
         }
-    }
-    *prev = current;
+        if ui_state.selected_colony.is_none() {
+            return;
+        }
+        let count = match button.multiplier_source {
+            DemolishMultiplierSource::Mining => ui_state.build_multiplier.max(1),
+            DemolishMultiplierSource::Build => ui_state.build_multiplier.max(1),
+        };
+        confirm_state.open = true;
+        confirm_state.building_type = Some(button.building_type);
+        confirm_state.count = count;
+    });
 }
 
 // Per-frame system: re-evaluate which Demolish buttons should be
@@ -332,30 +322,22 @@ pub fn tick_demolish_confirm_yes_click(
     mut pending: ResMut<PendingConstructionActions>,
     mut prev: Local<std::collections::HashMap<Entity, Interaction>>,
 ) {
-    let mut current: std::collections::HashMap<Entity, Interaction> =
-        std::collections::HashMap::new();
-    for (entity, interaction) in yes_query.iter() {
-        let prev_int = prev.get(&entity).copied().unwrap_or(Interaction::None);
-        if *interaction == Interaction::Pressed
-            && prev_int != Interaction::Pressed
-            && confirm_state.open
-        {
-            let (Some(bt), Some(colony_entity)) =
-                (confirm_state.building_type, ui_state.selected_colony)
-            else {
-                *confirm_state = DemolishConfirmState::default();
-                current.insert(entity, *interaction);
-                continue;
-            };
-            let count = confirm_state.count as i32;
-            if count > 0 {
-                pending.mining_edits.push((colony_entity, bt, -count));
-            }
-            *confirm_state = DemolishConfirmState::default();
+    crate::ui::widgets::detect_rising_edges_no_marker(&mut prev, &yes_query, |_entity| {
+        if !confirm_state.open {
+            return;
         }
-        current.insert(entity, *interaction);
-    }
-    *prev = current;
+        let (Some(bt), Some(colony_entity)) =
+            (confirm_state.building_type, ui_state.selected_colony)
+        else {
+            *confirm_state = DemolishConfirmState::default();
+            return;
+        };
+        let count = confirm_state.count as i32;
+        if count > 0 {
+            pending.mining_edits.push((colony_entity, bt, -count));
+        }
+        *confirm_state = DemolishConfirmState::default();
+    });
 }
 
 // No button click + backdrop click.
@@ -363,25 +345,15 @@ pub fn tick_demolish_confirm_no_click(
     no_query: Query<(Entity, &Interaction), (With<DemolishConfirmNo>, With<Button>)>,
     backdrop_query: Query<(Entity, &Interaction), (With<DemolishConfirmDialog>, With<Button>)>,
     mut confirm_state: ResMut<DemolishConfirmState>,
-    mut prev: Local<std::collections::HashMap<Entity, Interaction>>,
+    mut prev_no: Local<std::collections::HashMap<Entity, Interaction>>,
+    mut prev_backdrop: Local<std::collections::HashMap<Entity, Interaction>>,
 ) {
-    let mut current: std::collections::HashMap<Entity, Interaction> =
-        std::collections::HashMap::new();
-    for (entity, interaction) in no_query.iter() {
-        let prev_int = prev.get(&entity).copied().unwrap_or(Interaction::None);
-        if *interaction == Interaction::Pressed && prev_int != Interaction::Pressed {
-            *confirm_state = DemolishConfirmState::default();
-        }
-        current.insert(entity, *interaction);
-    }
-    for (entity, interaction) in backdrop_query.iter() {
-        let prev_int = prev.get(&entity).copied().unwrap_or(Interaction::None);
-        if *interaction == Interaction::Pressed && prev_int != Interaction::Pressed {
-            *confirm_state = DemolishConfirmState::default();
-        }
-        current.insert(entity, *interaction);
-    }
-    *prev = current;
+    crate::ui::widgets::detect_rising_edges_no_marker(&mut prev_no, &no_query, |_entity| {
+        *confirm_state = DemolishConfirmState::default();
+    });
+    crate::ui::widgets::detect_rising_edges_no_marker(&mut prev_backdrop, &backdrop_query, |_entity| {
+        *confirm_state = DemolishConfirmState::default();
+    });
 }
 
 // When the player switches tabs while the dialog is open, reset

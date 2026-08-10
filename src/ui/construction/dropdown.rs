@@ -35,18 +35,11 @@ pub fn tick_colony_picker_click(
     mut state: Option<ResMut<ColonyDropdownState>>,
     mut prev: Local<std::collections::HashMap<Entity, Interaction>>,
 ) {
-    let mut current: std::collections::HashMap<Entity, Interaction> =
-        std::collections::HashMap::new();
-    for (entity, interaction) in interactions.iter() {
-        let prev_interaction = prev.get(&entity).copied().unwrap_or(Interaction::None);
-        if *interaction == Interaction::Pressed && prev_interaction != Interaction::Pressed {
-            if let Some(ref mut s) = state {
-                s.open = !s.open;
-            }
+    crate::ui::widgets::detect_rising_edges_no_marker(&mut prev, &interactions, |_entity| {
+        if let Some(ref mut s) = state {
+            s.open = !s.open;
         }
-        current.insert(entity, *interaction);
-    }
-    *prev = current;
+    });
 }
 
 // Click handler for a single colony option inside the dropdown.
@@ -56,19 +49,12 @@ pub fn tick_colony_option_click(
     mut state: Option<ResMut<ColonyDropdownState>>,
     mut prev: Local<std::collections::HashMap<Entity, Interaction>>,
 ) {
-    let mut current: std::collections::HashMap<Entity, Interaction> =
-        std::collections::HashMap::new();
-    for (entity, interaction, option) in interactions.iter() {
-        let prev_interaction = prev.get(&entity).copied().unwrap_or(Interaction::None);
-        if *interaction == Interaction::Pressed && prev_interaction != Interaction::Pressed {
-            ui_state.selected_colony = Some(option.colony_entity);
-            if let Some(ref mut s) = state {
-                s.open = false;
-            }
+    crate::ui::widgets::detect_rising_edges(&mut prev, &interactions, |_entity, option| {
+        ui_state.selected_colony = Some(option.colony_entity);
+        if let Some(ref mut s) = state {
+            s.open = false;
         }
-        current.insert(entity, *interaction);
-    }
-    *prev = current;
+    });
 }
 
 // Toggle the colony dropdown menu visibility based on

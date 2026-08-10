@@ -842,9 +842,9 @@ pub fn tick_active_chip_glow(
 /// (non-Pressed -> Pressed transition). The previous-state cache
 /// lives in the supplied `Local<HashMap<...>>` so each system
 /// keeps its own edge history across frames.
-pub fn detect_rising_edges<M: Component>(
+pub fn detect_rising_edges<M: Component, B: bevy::ecs::query::QueryFilter>(
     prev: &mut Local<HashMap<Entity, Interaction>>,
-    query: &Query<(Entity, &Interaction, &M), With<Button>>,
+    query: &Query<(Entity, &Interaction, &M), B>,
     mut on_pressed: impl FnMut(Entity, &M),
 ) {
     let mut current: HashMap<Entity, Interaction> = HashMap::new();
@@ -858,3 +858,23 @@ pub fn detect_rising_edges<M: Component>(
     **prev = current;
 }
 
+
+
+/// Same as [`detect_rising_edges`] but for click systems that match on
+/// only `<Entity, &Interaction>` (no marker `M`). E.g. a single button
+/// in a one-off panel.
+pub fn detect_rising_edges_no_marker<B: bevy::ecs::query::QueryFilter>(
+    prev: &mut Local<HashMap<Entity, Interaction>>,
+    query: &Query<(Entity, &Interaction), B>,
+    mut on_pressed: impl FnMut(Entity),
+) {
+    let mut current: HashMap<Entity, Interaction> = HashMap::new();
+    for (entity, interaction) in query.iter() {
+        let prev_interaction = prev.get(&entity).copied().unwrap_or(Interaction::None);
+        if *interaction == Interaction::Pressed && prev_interaction != Interaction::Pressed {
+            on_pressed(entity);
+        }
+        current.insert(entity, *interaction);
+    }
+    **prev = current;
+}

@@ -266,27 +266,22 @@ pub fn tick_construction_cta_click(
     mut pending: ResMut<PendingConstructionActions>,
     mut prev: Local<std::collections::HashMap<Entity, Interaction>>,
 ) {
-    let mut current: std::collections::HashMap<Entity, Interaction> =
-        std::collections::HashMap::new();
-    for (entity, interaction, cta) in interactions.iter() {
-        let prev_interaction = prev.get(&entity).copied().unwrap_or(Interaction::None);
-        if *interaction == Interaction::Pressed && prev_interaction != Interaction::Pressed {
-            let Some(colony_entity) = ui_state.selected_colony else {
-                current.insert(entity, *interaction);
-                continue;
-            };
-            if disabled.get(entity).is_ok() {
-                current.insert(entity, *interaction);
-                continue;
-            }
-            let multiplier = ui_state.build_multiplier.max(1);
-            for _ in 0..multiplier {
-                pending
-                    .start_construction
-                    .push((colony_entity, cta.building_type));
-            }
-        }
-        current.insert(entity, *interaction);
+    let mut disabled_set: std::collections::HashSet<Entity> = std::collections::HashSet::new();
+    for entity in disabled.iter() {
+        disabled_set.insert(entity);
     }
-    *prev = current;
+    crate::ui::widgets::detect_rising_edges(&mut prev, &interactions, |entity, cta| {
+        if disabled_set.contains(&entity) {
+            return;
+        }
+        let Some(colony_entity) = ui_state.selected_colony else {
+            return;
+        };
+        let multiplier = ui_state.build_multiplier.max(1);
+        for _ in 0..multiplier {
+            pending
+                .start_construction
+                .push((colony_entity, cta.building_type));
+        }
+    });
 }

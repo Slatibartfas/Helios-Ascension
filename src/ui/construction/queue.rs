@@ -14,18 +14,11 @@ pub fn tick_open_queue_chip_click(
     mut state: Option<ResMut<QueuePanelState>>,
     mut prev: Local<std::collections::HashMap<Entity, Interaction>>,
 ) {
-    let mut current: std::collections::HashMap<Entity, Interaction> =
-        std::collections::HashMap::new();
-    for (entity, interaction) in interactions.iter() {
-        let prev_interaction = prev.get(&entity).copied().unwrap_or(Interaction::None);
-        if *interaction == Interaction::Pressed && prev_interaction != Interaction::Pressed {
-            if let Some(ref mut s) = state {
-                s.open = !s.open;
-            }
+    crate::ui::widgets::detect_rising_edges_no_marker(&mut prev, &interactions, |_entity| {
+        if let Some(ref mut s) = state {
+            s.open = !s.open;
         }
-        current.insert(entity, *interaction);
-    }
-    *prev = current;
+    });
 }
 
 // Click handler for the QueuePanel close button.
@@ -34,18 +27,11 @@ pub fn tick_queue_panel_close_click(
     mut state: Option<ResMut<QueuePanelState>>,
     mut prev: Local<std::collections::HashMap<Entity, Interaction>>,
 ) {
-    let mut current: std::collections::HashMap<Entity, Interaction> =
-        std::collections::HashMap::new();
-    for (entity, interaction) in interactions.iter() {
-        let prev_interaction = prev.get(&entity).copied().unwrap_or(Interaction::None);
-        if *interaction == Interaction::Pressed && prev_interaction != Interaction::Pressed {
-            if let Some(ref mut s) = state {
-                s.open = false;
-            }
+    crate::ui::widgets::detect_rising_edges_no_marker(&mut prev, &interactions, |_entity| {
+        if let Some(ref mut s) = state {
+            s.open = false;
         }
-        current.insert(entity, *interaction);
-    }
-    *prev = current;
+    });
 }
 
 // Toggle the QueuePanel visibility based on `QueuePanelState::open`.
@@ -369,16 +355,9 @@ pub fn tick_queue_panel_row_cancel_click(
     mut pending: ResMut<PendingConstructionActions>,
     mut prev: Local<std::collections::HashMap<Entity, Interaction>>,
 ) {
-    let mut current: std::collections::HashMap<Entity, Interaction> =
-        std::collections::HashMap::new();
-    for (entity, interaction, cancel) in interactions.iter() {
-        let prev_interaction = prev.get(&entity).copied().unwrap_or(Interaction::None);
-        if *interaction == Interaction::Pressed && prev_interaction != Interaction::Pressed {
-            pending.cancel_construction.push(cancel.project_entity);
-        }
-        current.insert(entity, *interaction);
-    }
-    *prev = current;
+    crate::ui::widgets::detect_rising_edges(&mut prev, &interactions, |_entity, cancel| {
+        pending.cancel_construction.push(cancel.project_entity);
+    });
 }
 
 // Re-export format_duration helpers from bevy_theme for local use.
