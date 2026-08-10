@@ -31,6 +31,7 @@
 use bevy::ecs::hierarchy::ChildSpawnerCommands;
 use bevy::prelude::*;
 use bevy::ui::ShadowStyle;
+use bevy::window::PrimaryWindow;
 use std::collections::HashMap;
 
 /// Canonical body font path. Regular-weight Inter for paragraphs,
@@ -877,4 +878,224 @@ pub fn detect_rising_edges_no_marker<B: bevy::ecs::query::QueryFilter>(
         current.insert(entity, *interaction);
     }
     **prev = current;
+}
+
+// =====================================================================
+// Tooltip primitive (Phase 4: extracted from shipbuilding_tooltip.rs
+// and construction/tooltip.rs. Generic request-driven tooltip with
+// 250 ms latency, viewport clamping, cursor mirroring, and the
+// `CANARY_ROOT_TOP_PX` coordinate-frame guard.)
+// =====================================================================
+
+/// Color tone for a tooltip stat row. Maps to a `bevy::Color` via
+/// [`tone_color`] (or callers can map to egui `Color32` if needed).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TooltipTone {
+    Neutral,
+    Positive,
+    Warning,
+    Negative,
+    Accent,
+    Muted,
+}
+
+/// A single line / paragraph / spacer inside a tooltip body.
+#[derive(Clone, Debug)]
+pub enum TooltipEntry {
+    Paragraph(String),
+    Stat {
+        label: String,
+        value: String,
+        tone: TooltipTone,
+    },
+    Spacer,
+}
+
+/// The data any consumer pushes into [`TooltipRequest`] to display
+/// a tooltip. The title is rendered as the tooltip header; entries
+/// populate the body in order.
+#[derive(Clone, Debug, Default)]
+pub struct TooltipContent {
+    pub title: String,
+    pub entries: Vec<TooltipEntry>,
+}
+
+/// Single source of truth for the active tooltip. Any system that
+/// wants a tooltip writes here; [`tick_tooltip`] reads it each frame.
+///
+/// `Option` semantics: `None` means "no tooltip this frame" (the
+/// `tick_tooltip` system hides the overlay in that case). Callers
+/// should set this to `Some` while hovering and `None` when the
+/// hover ends.
+#[derive(Resource, Default)]
+pub struct TooltipRequest {
+    pub content: Option<TooltipContent>,
+    /// Seconds since the hover started. Populated by the consumer
+    /// (typically via the time-since-hover-start tracker). `tick_tooltip`
+    /// hides the overlay until this exceeds `HOVER_LATENCY_SECS`.
+    pub hover_started_at: Option<f32>,
+}
+
+/// Singleton marker on the tooltip overlay root. Spawned once at
+/// startup (typically by the panel's `setup_X` function) and
+/// positioned by `tick_tooltip` each frame.
+#[derive(Component)]
+pub struct TooltipOverlay;
+
+/// Marker on the title text node of the tooltip overlay.
+#[derive(Component)]
+pub struct TooltipTitle;
+
+/// Marker on the body container (a `Node` whose `Children` are
+/// re-spawned every time the content changes).
+#[derive(Component)]
+pub struct TooltipBody;
+
+/// 250 ms hover latency (matches shipbuilding's GRA-17 tooltip).
+/// Consumers can override this in their own `tick_tooltip` if needed.
+pub const TOOLTIP_HOVER_LATENCY_SECS: f32 = 0.25;
+
+/// Map a [`TooltipTone`] to a [`bevy::Color`]. Default palette mirrors
+/// the shipbuilding native tooltip; callers can swap this for their
+/// own theme if needed.
+pub fn tone_color(tone: TooltipTone) -> Color {
+    match tone {
+        TooltipTone::Neutral => Color::srgb(0.831, 0.890, 0.937), // TEXT_LIGHT-ish
+        TooltipTone::Positive => Color::srgb(0.15, 1.00, 0.35),   // STATUS_SUCCESS
+        TooltipTone::Warning => Color::srgb(1.00, 0.75, 0.20),    // STATUS_WARNING
+        TooltipTone::Negative => Color::srgb(1.00, 0.30, 0.30),    // STATUS_DANGER
+        TooltipTone::Accent => Color::srgb(0.37, 0.78, 0.85),     // CYAN
+        TooltipTone::Muted => Color::srgb(0.50, 0.58, 0.66),
+    }
+}
+
+/// Re-spawn the tooltip body's children to reflect `content`. The
+/// caller is responsible for clearing any stale children first.
+///
+/// Mirrors `populate_native_tooltip_body` from shipbuilding but uses
+/// the generic [`TooltipEntry`] enum.
+pub fn populate_tooltip_body(
+    commands: &mut Commands,
+    body_entity: Entity,
+    body_children: &Query<&Children>,
+    content: &TooltipContent,
+) {
+    if let Ok(children) = body_children.get(body_entity) {
+        for child in children.iter() {
+            commands.entity(child).despawn();
+        }
+    }
+    commands.entity(body_entity).with_children(|parent| {
+        for entry in &content.entries {
+            match entry {
+                TooltipEntry::Paragraph(text) => {
+                    parent.spawn((
+                        Text::new(text.clone()),
+                        TextFont { font_size: 10.0, ..default() },
+                        TextColor(tone_color(TooltipTone::Muted)),
+                    ));
+                }
+                TooltipEntry::Stat { label, value, tone } => {
+                    parent
+                        .spawn(Node {
+                            width: Val::Percent(100.0),
+                            flex_direction: FlexDirection::Row,
+                            column_gap: Val::Px(6.0),
+                            ..default()
+                        })
+                        .with_children(|row| {
+                            row.spawn((
+                                Text::new(format!("{}:", label)),
+                                TextFont { font_size: 10.5, ..default() },
+                                TextColor(tone_color(TooltipTone::Neutral)),
+                            ));
+                            row.spawn((
+                                Text::new(value.clone()),
+                                TextFont { font_size: 10.0, ..default() },
+                                TextColor(tone_color(*tone)),
+                            ));
+                        });
+                }
+                TooltipEntry::Spacer => {
+                    parent.spawn(Node {
+                        width: Val::Px(1.0),
+                        height: Val::Px(4.0),
+                        ..default()
+                    });
+                }
+            }
+        }
+    });
+}
+
+/// Per-frame driver for the cursor-following tooltip overlay.
+///
+/// Reads `TooltipRequest`, applies `TOOLTIP_HOVER_LATENCY_SECS` latency,
+/// positions the overlay next to the cursor with viewport clamping,
+/// and re-spawns the body children to reflect the requested content.
+///
+/// `top_offset_px` is subtracted from the cursor's Y to translate
+/// window-space coords into the overlay's parent's content-area
+/// coords. The construction canary uses `126.0` (the AppBar's height)
+/// because the canary root is anchored at `top: 126` (see
+/// `setup_construction`). Pass `0.0` for an overlay that is a
+/// direct child of the window (no anchored parent).
+pub fn tick_tooltip(
+    mut commands: Commands,
+    time: Res<Time>,
+    primary_window: Query<&Window, With<PrimaryWindow>>,
+    request: Res<TooltipRequest>,
+    mut overlay_node: Single<&mut Node, With<TooltipOverlay>>,
+    mut title_text: Single<&mut Text, (With<TooltipTitle>, Without<TooltipBody>)>,
+    body_children: Query<&Children>,
+    body_entity_q: Single<Entity, (With<TooltipBody>, Without<TooltipTitle>)>,
+    top_offset_px: f32,
+) {
+    // No request this frame: hide the overlay.
+    let Some(content) = &request.content else {
+        overlay_node.display = Display::None;
+        return;
+    };
+
+    // Latency gate: don't show until the cursor has hovered long enough.
+    let elapsed = request
+        .hover_started_at
+        .map(|t| time.elapsed_secs() - t)
+        .unwrap_or(0.0);
+    if elapsed < TOOLTIP_HOVER_LATENCY_SECS {
+        overlay_node.display = Display::None;
+        return;
+    }
+
+    // Need the cursor and the primary window for positioning.
+    let Ok(window) = primary_window.single() else {
+        overlay_node.display = Display::None;
+        return;
+    };
+    let Some(cursor) = window.cursor_position() else {
+        overlay_node.display = Display::None;
+        return;
+    };
+
+    // Position the overlay next to the cursor with viewport clamping.
+    // Standard tooltip offset: 16 px right, 12 px down.
+    const CURSOR_OFFSET_X: f32 = 16.0;
+    const CURSOR_OFFSET_Y: f32 = 12.0;
+    // Standard tooltip size; consumers can override by resizing the
+    // overlay Node directly after spawning.
+    const TOOLTIP_W: f32 = 240.0;
+    const TOOLTIP_H: f32 = 48.0;
+    let max_left = (window.width() - TOOLTIP_W).max(0.0);
+    let max_top = (window.height() - top_offset_px - 72.0 - TOOLTIP_H).max(0.0);
+    overlay_node.left = Val::Px((cursor.x + CURSOR_OFFSET_X).clamp(0.0, max_left));
+    overlay_node.top = Val::Px(
+        (cursor.y - top_offset_px + CURSOR_OFFSET_Y).clamp(0.0, max_top),
+    );
+    overlay_node.display = Display::Flex;
+
+    // Title text.
+    **title_text = Text::new(content.title.clone());
+
+    // Body: re-spawn children to reflect new content.
+    populate_tooltip_body(&mut commands, *body_entity_q, &body_children, content);
 }
