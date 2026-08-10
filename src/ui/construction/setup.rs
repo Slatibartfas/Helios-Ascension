@@ -17,7 +17,7 @@ use super::scrollbar::spawn_construction_scrollbar;
 use super::state::*;
 use super::tooltip::*;
 use crate::ui::widgets::{
-    card_shadow, spawn_scrollable_container, UiFonts, HoverElevation,
+    card_shadow, spawn_scrollable_container, UiFonts, HoverElevation, ChipGroup,
 };
 use crate::ui::bevy_theme::{
     ChipButtonBundle, ChipRowContainerBundle, HairlineBundle, spawn_chip_text,
@@ -78,7 +78,7 @@ pub fn setup_construction(
     {
         let chip = ChipButtonBundle::new(label, *is_active);
         let mut entity_commands = commands.spawn(chip);
-        entity_commands.insert(ChipKind::Tab(i));
+        entity_commands.insert(ChipGroup::Tab(i));
         let tab = entity_commands.id();
         commands.entity(tab_strip).add_child(tab);
         spawn_chip_text(
@@ -373,7 +373,7 @@ pub fn setup_construction(
     {
         let is_active = i == 0;
         let btn = commands.spawn(ChipButtonBundle::new(label, is_active)).id();
-        commands.entity(btn).insert(ChipKind::Qty(*qty));
+        commands.entity(btn).insert(ChipGroup::Qty(*qty));
         commands.entity(build_qty_row).add_child(btn);
         spawn_chip_text(
             &mut commands,
@@ -424,7 +424,7 @@ pub fn setup_construction(
     {
         let is_active = i == 8;
         let chip = commands.spawn(ChipButtonBundle::new(label, is_active)).id();
-        commands.entity(chip).insert(ChipKind::Category(i));
+        commands.entity(chip).insert(ChipGroup::Category(i));
         commands.entity(filter_row).add_child(chip);
         spawn_chip_text(
             &mut commands,

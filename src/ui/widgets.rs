@@ -642,3 +642,190 @@ mod tests {
         assert!(app.world().get::<BoxShadow>(entity).unwrap().0.is_empty());
     }
 }
+
+// =====================================================================
+// Chip row machinery (Phase 2: extracted from `bevy_theme.rs` and
+// `construction::*`. Owns the chip marker enum, the active-state
+// resource, and the three per-frame tick systems that drive chip
+// hover / press / active-overlay / glow visuals.)
+// =====================================================================
+
+/// Identifies which row a chip belongs to and what value it carries.
+///
+/// Generic replacement for the construction-only `ChipKind` enum.
+/// The tick systems read `ChipGroup` to decide which chip in a row
+/// is currently "active" (selected tab / qty / category).
+///
+/// Filter chips are intentionally omitted — the original enum had a
+/// `Filter(BuildFilter)` variant but the tick systems treated it as
+/// always-inactive (return `false`), so it was effectively dead.
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChipGroup {
+    /// Sub-tab chip. Index is the tab's position in the row.
+    Tab(usize),
+    /// Build-quantity chip. Value is the multiplier (1, 5, 10, ...).
+    Qty(u32),
+    /// Build-category chip. Index is the category's position.
+    Category(usize),
+}
+
+/// Single source of truth for which chip in each row is currently
+/// "active" (selected). The three tick systems read this resource
+/// every frame and paint the matching chip in `ACTIVE_CHIP_BG` while
+/// the rest stay at `INACTIVE_CHIP_BG`.
+///
+/// `mining_qty` is construction-specific (Mining tab keeps its own
+/// qty separate from the Build tab's qty) but lives here so
+/// construction can keep a single `ActiveChips` resource rather than
+/// splitting it. The chip tick systems ignore it.
+#[derive(Resource, Debug, Clone)]
+pub struct ActiveChips {
+    /// Active sub-tab index (0=Overview, 1=Buildings, 2=Build, 3=Mining).
+    pub tab: usize,
+    /// Active build-qty multiplier (Build tab).
+    pub qty: u32,
+    /// Active filter/category index (0..8 = category, 9 = All).
+    pub category: usize,
+    /// Active mining-qty multiplier (Mining tab). Construction-only;
+    /// the chip tick systems do not read it.
+    pub mining_qty: u32,
+}
+
+impl Default for ActiveChips {
+    fn default() -> Self {
+        Self {
+            tab: 2,        // Build tab is default
+            qty: 1,        // x1 is default
+            category: 8,   // "All" is default
+            mining_qty: 1, // x1 is default for the Mining tab
+        }
+    }
+}
+
+/// Hover-state machine for chip buttons.
+///
+/// On hover: background brightens to `ACTIVE_CHIP_BG`, text inverts to
+/// bright white. On press: same as hover with a small scale-down.
+/// On release: returns to the chip's default state.
+///
+/// PERF-CRITICAL filter: `With<ChipGroup>` scopes the system to chip
+/// entities ONLY. Without it the `With<Button>` filter would match
+/// every button in the world and re-paint them every frame (the
+/// v0.5.0-era "huge compute for a simple menu" sink).
+pub fn tick_chip_button_hover(
+    mut button_query: Query<
+        (&Interaction, &mut BackgroundColor, &mut UiTransform, &Children),
+        (With<Button>, With<ChipGroup>),
+    >,
+    mut text_query: Query<&mut TextColor, With<crate::ui::bevy_theme::ChipTextNode>>,
+) {
+    use crate::ui::bevy_theme::{ACTIVE_CHIP_BG, ACTIVE_CHIP_TEXT, CYAN};
+    let mut bg_scale_plans: Vec<(BackgroundColor, Vec2)> =
+        Vec::with_capacity(button_query.iter().len());
+    let mut child_color_plan: Vec<(Entity, Color)> = Vec::new();
+    for (interaction, _, _, children) in button_query.iter() {
+        let (bg, scale, text_color) = match interaction {
+            Interaction::Pressed => (
+                BackgroundColor(ACTIVE_CHIP_BG),
+                Vec2::splat(0.96),
+                ACTIVE_CHIP_TEXT,
+            ),
+            Interaction::Hovered => (
+                BackgroundColor(ACTIVE_CHIP_BG),
+                Vec2::splat(1.00),
+                ACTIVE_CHIP_TEXT,
+            ),
+            Interaction::None => (
+                BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.0)),
+                Vec2::splat(1.00),
+                CYAN,
+            ),
+        };
+        bg_scale_plans.push((bg, scale));
+        for child in children.iter() {
+            child_color_plan.push((child, text_color));
+        }
+    }
+    let mut plan_iter = bg_scale_plans.into_iter();
+    for (_, mut bg, mut ui_transform, _) in button_query.iter_mut() {
+        if let Some((new_bg, new_scale)) = plan_iter.next() {
+            *bg = new_bg;
+            ui_transform.scale = new_scale;
+        }
+    }
+    for (child, color) in child_color_plan.iter() {
+        if let Ok(mut text_color) = text_query.get_mut(*child) {
+            *text_color = TextColor(*color);
+        }
+    }
+}
+
+/// Reverts chips to their **active** state every frame, so a chip
+/// marked active in `ActiveChips` stays highlighted even after
+/// mouse-out. `tick_chip_button_hover` wins on hover/press; this
+/// system wins the next frame for the active chip.
+pub fn tick_chip_button_active_overlay(
+    mut chips: Query<
+        (Entity, &ChipGroup, &mut BackgroundColor, &Children),
+        With<Button>,
+    >,
+    mut text_query: Query<&mut TextColor, With<crate::ui::bevy_theme::ChipTextNode>>,
+    active: Res<ActiveChips>,
+) {
+    use crate::ui::bevy_theme::{
+        ACTIVE_CHIP_BG, ACTIVE_CHIP_TEXT, INACTIVE_CHIP_BG, TEXT_BODY,
+    };
+    for (_entity, kind, mut bg, children) in chips.iter_mut() {
+        let is_active = match kind {
+            ChipGroup::Tab(idx) => *idx == active.tab,
+            ChipGroup::Qty(qty) => *qty == active.qty,
+            ChipGroup::Category(idx) => *idx == active.category,
+        };
+        if is_active {
+            *bg = BackgroundColor(ACTIVE_CHIP_BG);
+            for child in children.iter() {
+                if let Ok(mut text_color) = text_query.get_mut(child) {
+                    *text_color = TextColor(ACTIVE_CHIP_TEXT);
+                }
+            }
+        } else {
+            *bg = BackgroundColor(INACTIVE_CHIP_BG);
+            for child in children.iter() {
+                if let Ok(mut text_color) = text_query.get_mut(child) {
+                    *text_color = TextColor(TEXT_BODY);
+                }
+            }
+        }
+    }
+}
+
+/// Ensure the active chip has a subtle cyan glow and every other
+/// chip has none. Active state determined by `ActiveChips`. The
+/// glow is added/removed symmetrically so it tracks the active
+/// chip across row switches.
+pub fn tick_active_chip_glow(
+    mut commands: Commands,
+    chips: Query<(Entity, &ChipGroup, Option<&BoxShadow>), With<Button>>,
+    active: Res<ActiveChips>,
+) {
+    for (entity, kind, existing_shadow) in chips.iter() {
+        let is_active = match kind {
+            ChipGroup::Tab(idx) => *idx == active.tab,
+            ChipGroup::Qty(qty) => *qty == active.qty,
+            ChipGroup::Category(idx) => *idx == active.category,
+        };
+        if is_active {
+            if existing_shadow.is_none() {
+                commands.entity(entity).insert(BoxShadow::new(
+                    Color::srgba(0.373, 0.784, 0.847, 0.35),
+                    Val::Px(0.0),
+                    Val::Px(0.0),
+                    Val::Px(0.0),
+                    Val::Px(4.0),
+                ));
+            }
+        } else if existing_shadow.is_some() {
+            commands.entity(entity).remove::<BoxShadow>();
+        }
+    }
+}

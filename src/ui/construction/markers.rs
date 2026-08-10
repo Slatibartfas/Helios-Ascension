@@ -542,21 +542,8 @@ pub struct QueuePanelSummaryText;
 #[derive(Component)]
 pub struct QueuePanelBody;
 
-// What a chip in the Build sub-tab does when pressed. Attached to
-// each `ChipButtonBundle` so the click handler can dispatch.
-#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ChipKind {
-    // Sub-tab at the given index (0=Overview, 1=Buildings, 2=Build,
-    // 3=Mining).
-    Tab(usize),
-    // Build quantity multiplier (1, 5, 10, 25, 50, 100) on the
-    // Build tab.
-    Qty(u32),
-    // Functional-role filter (All / Food / Power / etc.).
-    Filter(super::state::BuildFilter),
-    // Build-category tab (0=Infrastructure, 1=Industry, 2=Logistics,
-    // ..., 7=Military, 8=All). v0.5.2 PR-A.2 (round 2): the
-    // Mining chip is removed from the Build tab (mines are
-    // managed in the dedicated Mining tab), so 9 → 8 chips.
-    Category(usize),
-}
+// Chip-kind enum moved to `crate::ui::widgets::ChipGroup` (Phase 2).
+// The construction-specific `BuildFilter` filter chip is dropped —
+// the tick systems treated it as always-inactive, so the
+// construction click handler can route it straight to the
+// `BuildFilter` resource without involving the chip tick pipeline.

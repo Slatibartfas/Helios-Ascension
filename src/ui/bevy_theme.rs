@@ -126,7 +126,7 @@ pub const YELLOW_ETA: Color = Color::srgba(0.957, 0.749, 0.349, 1.0);
 // Resource category names come from `ResourceType::category()` in
 // `src/economy/types.rs`. Keep these names in lockstep with that
 // function; the helper `category_color()` below falls back to
-/// `TEXT_BODY` for an unknown category.
+// `TEXT_BODY` for an unknown category.
 
 /// Biological (Food) — green-leaf.
 pub const RESOURCE_BIOLOGICAL: Color = Color::srgba(0.498, 0.812, 0.467, 1.0);
@@ -138,7 +138,7 @@ pub const RESOURCE_ATMOSPHERIC: Color = Color::srgba(0.561, 0.776, 0.949, 1.0);
 /// Construction Materials (Iron, Aluminum, Titanium, …) — warm copper.
 pub const RESOURCE_CONSTRUCTION: Color = Color::srgba(0.890, 0.580, 0.380, 1.0);
 /// Fusion Fuel (He-3, Deuterium, Tritium) — bright sun-yellow.
-pub const RESOURCE_FUSION: Color = Color::srgba(0.957, 0.812, 0.318, 1.0);
+pub const RESOURCE_FUSION: Color = Color::srgba(0.957, 0.812, 0.320, 1.0);
 /// Fissiles (Uranium, Thorium, Plutonium) — radioactive lime.
 pub const RESOURCE_FISSILE: Color = Color::srgba(0.682, 0.890, 0.388, 1.0);
 /// Precious Metals (Gold, Silver, Platinum) — warm gold.
@@ -197,8 +197,6 @@ pub const CTA_FOOTPRINT: f32 = 56.0;
 
 // ─── Layout Sizes ─────────────────────────────────────────────────────────
 
-/// Height of the global top AppBar (panel title + subtitle row).
-pub const APPBAR_H: f32 = 46.0;
 /// Height of the tab strip (Overview / Buildings / Build / Stockpiles).
 pub const TAB_STRIP_H: f32 = 44.0;
 /// Font size for the sub-tab row (Overview / Buildings / Build /
@@ -470,201 +468,6 @@ pub fn spawn_chip_text(
 
 /// Hover / press effect system for chip buttons.
 ///
-/// On hover: background brightens to ACTIVE_CHIP_BG, text inverts to
-/// bright white for contrast.
-/// On press: same as hover, with a small scale-down.
-/// On release: returns to the chip's default (active or inactive).
-///
-/// Chips have no individual border (the container provides it), so this
-/// system only mutates BackgroundColor + TextColor + UiTransform on the
-/// button entity. The text is in a child node (marked `ChipTextNode`) and
-/// the system mutates the child's TextColor via `Children`.
-pub fn tick_chip_button_hover(
-    mut button_query: Query<
-        (
-            &Interaction,
-            &mut BackgroundColor,
-            &mut UiTransform,
-            &Children,
-        ),
-        // PERF-CRITICAL filter: dropping `With<ChipKind>` matches every
-        // Button in the world and triggers the v0.5.0-era "huge compute
-        // for a simple menu" sink. This filter is the only thing scoping
-        // the system to chip entities. Phase 2 will delete the `ChipKind`
-        // enum entirely; the filter will be replaced with a generic chip
-        // marker (`widgets::ChipButton`) that is added to every chip at
-        // spawn time.
-        //
-        // v0.5.2 (2026-08-05 audit) provenance: the old bare
-        // `With<Button>` filter matched the queue panel's cancel buttons,
-        // the demolish buttons, the colony-dropdown options, even
-        // unrelated in-game UI — and re-painted their background / scale
-        // / text every frame. Chips are the only Button entities carrying
-        // `ChipKind`; the filter keeps this system on the ~25 chip
-        // entities it's meant for.
-        (With<Button>, With<super::construction::ChipKind>),
-    >,
-    mut text_query: Query<&mut TextColor, With<ChipTextNode>>,
-) {
-    // Plan: read interactions, then mutate in two passes to sidestep
-    // borrow-checker conflicts between `iter_mut` on the button query and
-    // the `text_query.get_mut(child)` call inside the loop.
-    let mut bg_scale_plans: Vec<(BackgroundColor, Vec2)> =
-        Vec::with_capacity(button_query.iter().len());
-    let mut child_color_plan: Vec<(Entity, Color)> = Vec::new();
-    for (interaction, _, _, children) in button_query.iter() {
-        let (bg, scale, text_color) = match interaction {
-            Interaction::Pressed => (
-                BackgroundColor(ACTIVE_CHIP_BG),
-                Vec2::splat(0.96),
-                ACTIVE_CHIP_TEXT,
-            ),
-            Interaction::Hovered => (
-                BackgroundColor(ACTIVE_CHIP_BG),
-                Vec2::splat(1.00),
-                ACTIVE_CHIP_TEXT,
-            ),
-            Interaction::None => (
-                BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.0)),
-                Vec2::splat(1.00),
-                CYAN,
-            ),
-        };
-        bg_scale_plans.push((bg, scale));
-        for child in children.iter() {
-            child_color_plan.push((child, text_color));
-        }
-    }
-    // Apply button background + scale. Re-iterate mutably and consume
-    // the plan in lockstep.
-    let mut plan_iter = bg_scale_plans.into_iter();
-    for (_, mut bg, mut ui_transform, _) in button_query.iter_mut() {
-        if let Some((new_bg, new_scale)) = plan_iter.next() {
-            *bg = new_bg;
-            ui_transform.scale = new_scale;
-        }
-    }
-    // Apply child text colors.
-    for (child, color) in child_color_plan.iter() {
-        if let Ok(mut text_color) = text_query.get_mut(*child) {
-            *text_color = TextColor(*color);
-        }
-    }
-}
-
-/// System that reverts chips to their **active** state every frame, so a
-/// chip that's marked active in the construction UI stays visually
-/// highlighted even after mouse-out. This is run alongside
-/// `tick_chip_button_hover` — the hover system wins on hover/press, this
-/// system wins on the next frame for the active chips.
-///
-/// In the canary phase, every chip with `is_active = true` stays highlighted
-/// by the construction UI's static selection (e.g. "Build" tab, "All"
-/// filter, "x1" build qty, "Infrastructure" category). Real interactivity
-/// (clicking to toggle active state) is Phase C4 work.
-///
-/// **Phase 2 dependency note.** The explicit kind-vs-`ActiveChips` match
-/// below is the coupling that keeps this theme module dependent on
-/// `super::construction`: it reads both `super::construction::ChipKind`
-/// (the per-chip identity component) and
-/// `Res<super::construction::ActiveChips>` (the single source of truth for
-/// which chip in each row is selected). The match is correct as written —
-/// no code change is needed here. Phase 2 moves this system, together with
-/// `tick_chip_button_hover` and `tick_active_chip_glow`, into `widgets.rs`,
-/// at which point `ChipKind` is deleted and the selection state is read
-/// through the generic chip marker instead of the construction module.
-pub fn tick_chip_button_active_overlay(
-    mut chips: Query<
-        (
-            Entity,
-            &super::construction::ChipKind,
-            &mut BackgroundColor,
-            &Children,
-        ),
-        With<Button>,
-    >,
-    mut text_query: Query<&mut TextColor, With<ChipTextNode>>,
-    active: Res<super::construction::ActiveChips>,
-) {
-    // Walk all chips, apply ACTIVE_CHIP_BG to the one matching the
-    // resource's row-specific active index, and INACTIVE_CHIP_BG to
-    // all others. This is the single source of truth: the ActiveChips
-    // resource determines the visual state, no markers needed.
-    for (_entity, kind, mut bg, children) in chips.iter_mut() {
-        let is_active = match kind {
-            super::construction::ChipKind::Tab(idx) => *idx == active.tab,
-            super::construction::ChipKind::Qty(qty) => *qty == active.qty,
-            super::construction::ChipKind::Category(idx) => *idx == active.category,
-            // Filter chips are unused (replaced by Category in v3.9)
-            super::construction::ChipKind::Filter(_) => false,
-        };
-        if is_active {
-            *bg = BackgroundColor(ACTIVE_CHIP_BG);
-            for child in children.iter() {
-                if let Ok(mut text_color) = text_query.get_mut(child) {
-                    *text_color = TextColor(ACTIVE_CHIP_TEXT);
-                }
-            }
-        } else {
-            *bg = BackgroundColor(INACTIVE_CHIP_BG);
-            for child in children.iter() {
-                if let Ok(mut text_color) = text_query.get_mut(child) {
-                    *text_color = TextColor(TEXT_BODY);
-                }
-            }
-        }
-    }
-}
-
-/// System: ensure every active chip has a subtle cyan glow, and every
-/// inactive chip has no glow. The active state is determined by the
-/// `ActiveChips` resource (single source of truth — the same resource
-/// `tick_chip_button_active_overlay` reads).
-///
-/// The glow is a small `BoxShadow` (4 px blur, cyan at 35% alpha) similar
-/// to the active-tab underline. We **add** it on the active chip and
-/// **remove** it from every other chip every frame — this is symmetric
-/// so the glow always tracks the active chip, even when the player
-/// clicks across rows (e.g. tab "Build" → tab "Overview" must move the
-/// glow from the Build tab to the Overview tab, not leave it stuck on
-/// Build). Cost is negligible: < 30 chips per frame.
-///
-/// **Phase 2 dependency note.** Like `tick_chip_button_active_overlay`,
-/// this system matches `super::construction::ChipKind` against
-/// `Res<super::construction::ActiveChips>` to decide which chip is
-/// selected. That pair is the construction-module coupling Phase 2 moves
-/// into `widgets.rs`; the `ChipKind` enum is deleted there and replaced by
-/// a generic chip marker. No code change is needed here in Phase 1.
-pub fn tick_active_chip_glow(
-    mut commands: Commands,
-    chips: Query<(Entity, &super::construction::ChipKind, Option<&BoxShadow>), With<Button>>,
-    active: Res<super::construction::ActiveChips>,
-) {
-    for (entity, kind, existing_shadow) in chips.iter() {
-        let is_active = match kind {
-            super::construction::ChipKind::Tab(idx) => *idx == active.tab,
-            super::construction::ChipKind::Qty(qty) => *qty == active.qty,
-            super::construction::ChipKind::Category(idx) => *idx == active.category,
-            super::construction::ChipKind::Filter(_) => false,
-        };
-        if is_active {
-            if existing_shadow.is_none() {
-                commands.entity(entity).insert(BoxShadow::new(
-                    Color::srgba(0.373, 0.784, 0.847, 0.35),
-                    Val::Px(0.0),
-                    Val::Px(0.0),
-                    Val::Px(0.0),
-                    Val::Px(4.0),
-                ));
-            }
-        } else if existing_shadow.is_some() {
-            // Inactive chip: remove the glow so the visual selection
-            // tracks the active chip at all times.
-            commands.entity(entity).remove::<BoxShadow>();
-        }
-    }
-}
-
 /// Bundle for a horizontal row of chip buttons wrapped in a single
 /// bordered container (Build qty, Filter, Category rows in the
 /// Construction panel).

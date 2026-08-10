@@ -435,36 +435,6 @@ pub struct QueuedBuild {
 //
 // This is the single source of truth for visual active state. The
 // `tick_chip_button_active_overlay` system reads this resource each
-// frame and applies ACTIVE_CHIP_BG to the matching chip +
-// INACTIVE_CHIP_BG to the rest. We store the active index per row
-// instead of using a ChipActive marker because marker add/remove
-// ordering with Commands is fragile.
-#[derive(Resource, Debug, Clone)]
-pub struct ActiveChips {
-    // Active sub-tab index (0=Overview, 1=Buildings, 2=Build, 3=Mining)
-    pub tab: usize,
-    // Active build qty multiplier (Build tab)
-    pub qty: u32,
-    // Active filter/category index (0..8 = category, 9 = All).
-    // v0.5.2: 8 categories → 9 — Mining was split out of Industry.
-    pub category: usize,
-    // Active mining qty multiplier (Mining tab).
-    // v0.5.2 PR-A.2: separate from `qty` so the Build tab's
-    // qty and the Mining tab's qty don't cross-pollute.
-    pub mining_qty: u32,
-}
-
-impl Default for ActiveChips {
-    fn default() -> Self {
-        Self {
-            tab: 2,        // Build tab is default
-            qty: 1,        // x1 is default
-            category: 8,   // "All" is default (was 9 before Mining chip was removed)
-            mining_qty: 1, // x1 is default for the Mining tab
-        }
-    }
-}
-
 // Resource: the construction queue + current output rate.
 //
 // In Phase C4 this will be replaced with the real queue (driven by

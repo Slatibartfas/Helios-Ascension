@@ -20,17 +20,6 @@ use crate::economy::PlanetResources;
 use crate::plugins::solar_system::CelestialBody;
 use crate::plugins::solar_system_data::BodyType;
 
-// Per-card derived data for the Mining tab.
-#[derive(Debug, Clone, Copy)]
-pub struct MiningCardDataPublic {
-    pub base_yield_mt_per_year: f64,
-    pub accessibility: f32,
-    pub reserve_mt: f64,
-}
-
-// Re-export the data type for callers.
-pub use super::data::MiningCardData as MiningCardDataAlias;
-
 // Build the **Mining** body.
 pub fn spawn_mining_body(commands: &mut Commands, parent: Entity) {
     let body = commands

@@ -14,6 +14,7 @@ use crate::ui::bevy_theme::*;
 use super::data::{format_mining_reserve, format_power};
 use super::markers::*;
 use super::state::*;
+use crate::ui::widgets::{ActiveChips, ChipGroup};
 use crate::game_state::{ActiveMenu, GameMenu};
 
 // Observer: on `Pointer<Over>`, snapshot the hovered chip's
@@ -470,7 +471,7 @@ pub fn update_queue_button_tooltip(
 // `ConstructionUiState` accordingly. The chip's `ChipKind` component
 // tells us what to do (set qty, set filter, set category, etc.).
 pub fn tick_construction_chip_click(
-    interactions: Query<(Entity, &Interaction, &ChipKind), With<Button>>,
+    interactions: Query<(Entity, &Interaction, &ChipGroup), With<Button>>,
     mut ui_state: ResMut<ConstructionUiState>,
     mut active: ResMut<ActiveChips>,
     mut prev: Local<std::collections::HashMap<Entity, Interaction>>,
@@ -481,7 +482,7 @@ pub fn tick_construction_chip_click(
         let prev_interaction = prev.get(&entity).copied().unwrap_or(Interaction::None);
         if *interaction == Interaction::Pressed && prev_interaction != Interaction::Pressed {
             match kind {
-                ChipKind::Tab(idx) => {
+                ChipGroup::Tab(idx) => {
                     ui_state.selected_tab = match idx {
                         0 => ConstructionTab::Overview,
                         1 => ConstructionTab::Buildings,
@@ -490,14 +491,11 @@ pub fn tick_construction_chip_click(
                     };
                     active.tab = *idx;
                 }
-                ChipKind::Qty(n) => {
+                ChipGroup::Qty(n) => {
                     ui_state.build_multiplier = *n;
                     active.qty = *n;
                 }
-                ChipKind::Filter(f) => {
-                    ui_state.selected_filter = *f;
-                }
-                ChipKind::Category(idx) => {
+                ChipGroup::Category(idx) => {
                     ui_state.selected_build_tab = *idx;
                     active.category = *idx;
                 }

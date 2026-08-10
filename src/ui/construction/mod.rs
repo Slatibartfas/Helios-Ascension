@@ -71,7 +71,7 @@ use bevy::window::{CursorMoved, PrimaryWindow};
 use bevy::input::mouse::MouseWheel;
 
 use crate::ui::bevy_theme::*;
-use crate::ui::bevy_theme::{tick_active_chip_glow, tick_chip_button_active_overlay, tick_chip_button_hover};
+use crate::ui::widgets::{tick_active_chip_glow, tick_chip_button_active_overlay, tick_chip_button_hover};
 use crate::colony::components::PendingConstructionActions;
 use crate::game_state::{ActiveMenu, GameMenu};
 use state::ColonyDropdownState;
@@ -94,7 +94,7 @@ pub use data::{
 // ── Re-exports — state types / resources ──────────────────────────────
 
 pub use state::{
-    load_building_icons, process_building_icons, ActiveChips, BuildFilter, BuildingIcons,
+    load_building_icons, process_building_icons, BuildFilter, BuildingIcons,
     ConstructionQueue, ConstructionState, ConstructionTab, ConstructionTabBody,
     ConstructionUiState, ConstructionUiState as ConstructionUiStateExport,
     DemolishConfirmState, MiningGroupId, QueuedBuild, QueuePanelState,
@@ -103,10 +103,18 @@ pub use state::{
     MINING_GROUPS_ORBITAL, MINING_GROUPS_SURFACE,
 };
 
+// Phase 2: ActiveChips and ChipKind → widgets.
+// - `ActiveChips` moved to `crate::ui::widgets::ActiveChips`.
+// - `ChipKind` renamed to `crate::ui::widgets::ChipGroup` (the
+//   `Filter(BuildFilter)` variant is dropped — see widget docs).
+// Re-export them here so existing `crate::ui::construction::ActiveChips`
+// and `crate::ui::construction::ChipKind` paths continue to resolve.
+pub use crate::ui::widgets::{ActiveChips, ChipGroup};
+
 // ── Re-exports — component markers ────────────────────────────────────
 
 pub use markers::{
-    BuildCard, CardGrid, ChipKind, ColonyDropdownMenu,
+    BuildCard, CardGrid, ColonyDropdownMenu,
     ColonyDropdownOption, ColonyDropdownOptionText, ColonyPicker, ColonyPickerText,
     ConstructionCard, ConstructionCta, ConstructionCtaBodyBlocked, ConstructionCtaDisabled,
     ConstructionCtaLabelMarker, ConstructionRoot, ConstructionScrollbarThumb,
@@ -401,9 +409,9 @@ impl Plugin for ConstructionPlugin {
             .add_systems(
                 Update,
                 (
-                    tick_chip_button_hover,
-                    tick_chip_button_active_overlay,
-                    tick_active_chip_glow,
+                    super::widgets::tick_chip_button_hover,
+                    super::widgets::tick_chip_button_active_overlay,
+                    super::widgets::tick_active_chip_glow,
                 )
                     .chain()
                     .run_if(construction_menu_open),
