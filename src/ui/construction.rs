@@ -3034,6 +3034,33 @@ fn spawn_buildings_body(commands: &mut Commands, parent: Entity, body_font_mediu
         ))
         .id();
     commands.entity(body).add_child(content);
+
+    // v0.5.2 PR-A.10 (2026-08-10): always-visible vertical
+    // scrollbar pinned to the right edge of the Buildings body,
+    // matching the Build + Mining tabs. Same chrome, same drag
+    // handler, same thumb style — so all three scrollable tabs
+    // read as one consistent UI. The track is parented to
+    // `parent` (the Construction menu root, NOT `body`) for the
+    // same reason as the Build + Mining tabs: if we parented it
+    // to `body` it would scroll out of view when the player
+    // scrolls content, because `body` inherits `Overflow::clip`
+    // from the body root. `ConstructionTabBody::Buildings`
+    // makes the visibility system flip the track in lockstep
+    // with the body.
+    //
+    // `track_top_px = 138.0` matches the Build tab — the
+    // Buildings tab shares the same chrome above the body (tab
+    // strip ~36 + chip rows ~80 + 12-px panel padding), so the
+    // track needs the same vertical offset.
+    spawn_construction_scrollbar(
+        commands,
+        parent,
+        content,
+        "buildings_scrollbar_track",
+        138.0_f32,
+        SPACE_SM,
+        ConstructionTabBody::Buildings,
+    );
 }
 
 // Marker on the Buildings body's header text so the update system
@@ -3681,6 +3708,19 @@ fn spawn_construction_scrollbar(
             BackgroundColor(Color::srgba(1.0, 1.0, 1.0, 0.06)),
             ZIndex(10),
             Pickable::default(),
+            // v0.5.2 PR-A.10 (2026-08-10): the
+            // `on_track_press` observer reads
+            // `RelativeCursorPosition.normalized` from this
+            // entity to compute the page-jump snap (where the
+            // thumb should land after a click on the empty
+            // track). Bevy 0.18's `ui_focus_system` only
+            // updates `RelativeCursorPosition` if the
+            // component already exists on the entity — it
+            // does NOT auto-insert. Without this line the
+            // observer's `track_query.get(...).ok()` returned
+            // `Err`, `press_track_y` fell back to 0.0, and
+            // every track click snapped the scroll to the top.
+            RelativeCursorPosition::default(),
             Name::new(track_name),
             ConstructionScrollbarTrack { target, tab },
         ))
@@ -7776,6 +7816,13 @@ pub fn tick_ui_scroll_on_wheel(
     // lands on the right scrollable.
     card_grids: Query<Entity, (With<CardGrid>, With<Node>)>,
     mining_contents: Query<Entity, (With<MiningContent>, With<Node>)>,
+    // v0.5.2 PR-A.10 (2026-08-10): same stale-hover concern for
+    // the Buildings tab — `update_buildings_body` rebuilds the
+    // card set on colony / buildings-signature change, so a
+    // wheel event whose hover entity was despawned mid-frame
+    // would otherwise silently no-op. Resolve by the active
+    // tab's stable `buildings_content` container.
+    buildings_contents: Query<Entity, (With<BuildingsContent>, With<Node>)>,
 ) {
     for event in wheel_events.read() {
         // Skip zero-delta events (some mice emit X-only scrolls).
@@ -7851,10 +7898,16 @@ pub fn tick_ui_scroll_on_wheel(
         //    scrollable from the active tab's stable container.
         //    This keeps wheel scrolling working on Mining even
         //    though its cards don't persist between frames.
+        //
+        //    v0.5.2 PR-A.10 (2026-08-10): extended to the
+        //    Buildings tab — `update_buildings_body` rebuilds
+        //    cards on colony / buildings-signature change, so the
+        //    same stale-hover scenario applies.
         if scrollable.is_none() {
             scrollable = match ui_state.selected_tab {
                 ConstructionTab::Mining => mining_contents.iter().next(),
                 ConstructionTab::Build => card_grids.iter().next(),
+                ConstructionTab::Buildings => buildings_contents.iter().next(),
                 _ => None,
             };
         }
