@@ -19,7 +19,7 @@ use super::dashboard::{format_mass, format_mass_compact, format_rate_monthly, ra
 use super::resources_bar::format_population;
 use super::tab::Tab;
 use super::theme::{
-    self, ACCENT, ACCENT_DIM, AMBER, BG, BORDER, BORDER_DIM, GREEN, RED, SURFACE, TEXT_DIM,
+    self, ACCENT_DIM, AMBER, BG, BORDER, BORDER_DIM, CYAN, GREEN, RED, SURFACE, TEXT_DIM,
     TEXT_VALUE,
 };
 use super::*;
@@ -1176,7 +1176,7 @@ fn draw_radar_chart(ui: &mut egui::Ui, scores: &[f32; 5]) {
     // Outline
     painter.add(egui::Shape::closed_line(
         player_pts.clone(),
-        egui::Stroke::new(1.0_f32, ACCENT),
+        egui::Stroke::new(1.0_f32, CYAN),
     ));
 
     // Axis labels + % score beneath each label.
@@ -1264,7 +1264,7 @@ fn draw_atmosphere_section(ui: &mut egui::Ui, entity: Entity, atmo: &AtmosphereC
         let (breath_icon, breath_color, breath_tip) = if atmo.breathable {
             (
                 "\u{25CF}  BREATHABLE",
-                ACCENT,
+                CYAN,
                 "O\u{2082} levels and pressure are safe for humans",
             )
         } else {
@@ -1808,9 +1808,9 @@ fn draw_dimension_progress_bar(ui: &mut egui::Ui, tier: u8, active_progress: Opt
                 egui::Vec2::new(segment.width() * fill, segment.height()),
             );
             let color = if fill < 1.0 {
-                theme::with_alpha(ACCENT, 150)
+                theme::with_alpha(CYAN, 150)
             } else {
-                ACCENT
+                CYAN
             };
             ui.painter().rect_filled(fill_rect, 2.0, color);
         }
@@ -2344,7 +2344,7 @@ fn draw_in_progress_mission_row(
         let (status_color, status_label) = match mission.status {
             MissionStatus::Queued => (TEXT_DIM, "QUEUED"),
             MissionStatus::Inflight => (egui::Color32::LIGHT_BLUE, "INFLIGHT"),
-            MissionStatus::Active => (ACCENT, "ACTIVE"),
+            MissionStatus::Active => (CYAN, "ACTIVE"),
             MissionStatus::Completing => (AMBER, "COMPLETING"),
             // Terminal states are rendered in
             // `draw_completed_mission_row`; this match arm is
@@ -2608,7 +2608,7 @@ fn draw_failed_missions_list(
                         .small_button(
                             egui::RichText::new("\u{25B6} DISPATCH RECOVERY")
                                 .font(mono_font(9.0))
-                                .color(ACCENT),
+                                .color(CYAN),
                         )
                         .clicked()
                     {
@@ -2694,7 +2694,7 @@ fn draw_dispatch_mission_picker(
             egui::Button::new(
                 egui::RichText::new("\u{25B6}  DISPATCH")
                     .font(mono_font(11.0))
-                    .color(ACCENT),
+                    .color(CYAN),
             )
             .min_size(egui::Vec2::new(140.0, 24.0)),
         )
@@ -2769,7 +2769,7 @@ fn draw_resource_compact(
                 let mass = format_mass_compact(discovered);
                 let rate = rate_tracker.get_entity_resource_rate(entity, &resource);
                 let (rate_text, _rate_color) = format_rate_monthly(rate);
-                ui.label(egui::RichText::new(sym).font(mono_font(11.0)).color(ACCENT));
+                ui.label(egui::RichText::new(sym).font(mono_font(11.0)).color(CYAN));
                 ui.label(
                     egui::RichText::new(name)
                         .font(mono_font(10.0))
@@ -3226,7 +3226,7 @@ fn draw_resource_tile(
                 ui.label(
                     egui::RichText::new(resource.display_name())
                         .font(mono_font(13.0))
-                        .color(ACCENT),
+                        .color(CYAN),
                 );
 
                 // Phase badge + magnitude tier
@@ -3624,7 +3624,7 @@ fn draw_colony_section(
         egui::Button::new(
             egui::RichText::new("🏗  Establish Outpost")
                 .font(mono_font(12.0))
-                .color(ACCENT),
+                .color(CYAN),
         )
         .min_size(egui::Vec2::new(200.0, 28.0)),
     );

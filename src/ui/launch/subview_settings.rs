@@ -112,7 +112,7 @@ pub fn ui_settings_subview(
                 ui.label(
                     egui::RichText::new("Settings")
                         .font(theme::title())
-                        .color(theme::ACCENT)
+                        .color(theme::CYAN)
                         .size(28.0),
                 );
                 ui.add_space(theme::Spacing::lg);
@@ -193,7 +193,7 @@ fn draw_audio_tab(ui: &mut egui::Ui, settings: &mut PersistentSettings) -> bool 
     let mut changed = false;
     ui.label(
         egui::RichText::new("Audio Mix")
-            .color(theme::ACCENT)
+            .color(theme::CYAN)
             .strong(),
     );
     ui.add_space(theme::Spacing::xs);
@@ -223,7 +223,7 @@ fn draw_audio_tab(ui: &mut egui::Ui, settings: &mut PersistentSettings) -> bool 
                 ui.add_space(theme::Spacing::xs);
                 ui.label(
                     egui::RichText::new(format!("\"{}\" by {}", MUSIC_TITLE, MUSIC_AUTHOR))
-                        .color(theme::ACCENT)
+                        .color(theme::CYAN)
                         .strong(),
                 );
                 ui.label(
@@ -251,7 +251,7 @@ fn draw_graphics_tab(ui: &mut egui::Ui, settings: &mut PersistentSettings) -> bo
     let mut changed = false;
     ui.label(
         egui::RichText::new("Graphics")
-            .color(theme::ACCENT)
+            .color(theme::CYAN)
             .strong(),
     );
     ui.add_space(theme::Spacing::xs);
@@ -302,7 +302,7 @@ fn draw_gameplay_tab(ui: &mut egui::Ui, settings: &mut PersistentSettings) -> bo
     let mut changed = false;
     ui.label(
         egui::RichText::new("Gameplay")
-            .color(theme::ACCENT)
+            .color(theme::CYAN)
             .strong(),
     );
     ui.add_space(theme::Spacing::xs);

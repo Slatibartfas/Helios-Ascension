@@ -161,7 +161,7 @@ pub fn ui_save_panel_subview(
                 ui.label(
                     egui::RichText::new("Save Game")
                         .font(theme::title())
-                        .color(theme::ACCENT)
+                        .color(theme::CYAN)
                         .size(28.0),
                 );
                 ui.add_space(theme::Spacing::sm);
@@ -234,7 +234,7 @@ pub fn ui_save_panel_subview(
                                     );
                                     let button =
                                         egui::Button::new(egui::RichText::new(label).color(
-                                            if selected { theme::ACCENT } else { theme::TEXT },
+                                            if selected { theme::CYAN } else { theme::TEXT },
                                         ))
                                         .fill(if selected {
                                             theme::BUTTON_ACTIVE_BG
@@ -244,7 +244,7 @@ pub fn ui_save_panel_subview(
                                         .stroke(egui::Stroke::new(
                                             1.0_f32,
                                             if selected {
-                                                theme::ACCENT
+                                                theme::CYAN
                                             } else {
                                                 theme::BORDER
                                             },
@@ -255,7 +255,7 @@ pub fn ui_save_panel_subview(
                                         ui.painter().rect_stroke(
                                             response.rect,
                                             3.0,
-                                            egui::Stroke::new(1.5_f32, theme::ACCENT),
+                                            egui::Stroke::new(1.5_f32, theme::CYAN),
                                             egui::StrokeKind::Inside,
                                         );
                                     }

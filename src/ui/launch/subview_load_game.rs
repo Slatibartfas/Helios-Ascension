@@ -88,7 +88,7 @@ pub fn ui_load_game_subview(
                 ui.label(
                     egui::RichText::new("Load Mission")
                         .font(theme::title())
-                        .color(theme::ACCENT)
+                        .color(theme::CYAN)
                         .size(28.0),
                 );
                 ui.add_space(theme::Spacing::sm);
@@ -263,7 +263,7 @@ fn render_save_list(
                         let label = save_row_label(path, header);
                         let button =
                             egui::Button::new(egui::RichText::new(label).color(if selected {
-                                theme::ACCENT
+                                theme::CYAN
                             } else {
                                 theme::TEXT
                             }))
@@ -275,7 +275,7 @@ fn render_save_list(
                             .stroke(egui::Stroke::new(
                                 1.0_f32,
                                 if selected {
-                                    theme::ACCENT
+                                    theme::CYAN
                                 } else {
                                     theme::BORDER
                                 },
@@ -286,7 +286,7 @@ fn render_save_list(
                             ui.painter().rect_stroke(
                                 response.rect,
                                 3.0,
-                                egui::Stroke::new(1.5_f32, theme::ACCENT),
+                                egui::Stroke::new(1.5_f32, theme::CYAN),
                                 egui::StrokeKind::Inside,
                             );
                         }

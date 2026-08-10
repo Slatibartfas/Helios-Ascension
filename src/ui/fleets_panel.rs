@@ -32,7 +32,7 @@ fn draw_menu_header(ui: &mut egui::Ui, title: &str, subtitle: &str) {
     ui.label(
         egui::RichText::new(title)
             .font(theme::title())
-            .color(theme::ACCENT),
+            .color(theme::CYAN),
     );
     ui.label(
         egui::RichText::new(subtitle)
@@ -174,7 +174,7 @@ fn render_ship_manifest_row(
                 theme::SURFACE_RAISED
             };
             let stroke_color = if response.dragged() {
-                theme::ACCENT
+                theme::CYAN
             } else {
                 theme::ACCENT_DIM
             };
@@ -247,7 +247,7 @@ fn render_ship_manifest_row(
                 columns[6],
                 &delta_v_text,
                 egui::Align2::RIGHT_CENTER,
-                theme::ACCENT,
+                theme::CYAN,
                 false,
             );
 
@@ -367,7 +367,7 @@ pub(super) fn ui_fleets_panel(
                             company_name,
                             company_filter_set.len()
                         ))
-                        .color(theme::ACCENT)
+                        .color(theme::CYAN)
                         .size(12.0),
                     );
                     if ui
@@ -453,7 +453,7 @@ pub(super) fn ui_fleets_panel(
                             ui.label(
                                 egui::RichText::new("FLEET LIST")
                                     .font(theme::heading())
-                                    .color(theme::ACCENT),
+                                    .color(theme::CYAN),
                             );
                             ui.separator();
 
@@ -997,7 +997,7 @@ fn render_fleet_list(
         // Selected: bright accent so text is readable on the teal selection background.
         // Unselected in-transit: cool blue.  Unselected orbiting: bright teal-green.
         let row_color = if is_primary {
-            theme::ACCENT
+            theme::CYAN
         } else if entry.in_transit {
             theme::RP_BLUE
         } else {
@@ -1047,7 +1047,7 @@ fn render_fleet_list(
                     ui.painter().rect_stroke(
                         rect.expand(1.0),
                         row_rounding,
-                        egui::Stroke::new(1.0_f32, theme::ACCENT),
+                        egui::Stroke::new(1.0_f32, theme::CYAN),
                         egui::StrokeKind::Inside,
                     );
                 } else if resp.hovered() {
@@ -1736,7 +1736,7 @@ fn render_fleet_detail(
                 egui::RichText::new(format_delta_v(fleet.max_delta_v_ms()))
                     .size(12.0)
                     .strong()
-                    .color(theme::ACCENT),
+                    .color(theme::CYAN),
             );
             ui.end_row();
         });

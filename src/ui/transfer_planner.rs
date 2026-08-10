@@ -3979,7 +3979,7 @@ pub(super) fn render_transfer_planner(
                                             is_sel,
                                             egui::RichText::new(label)
                                                 .size(12.0)
-                                                .color(theme::ACCENT),
+                                                .color(theme::CYAN),
                                         )
                                         .clicked()
                                         && !is_sel

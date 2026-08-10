@@ -31,7 +31,7 @@ fn draw_menu_header(ui: &mut egui::Ui, title: &str, subtitle: &str) {
     ui.label(
         egui::RichText::new(title)
             .font(theme::title())
-            .color(theme::ACCENT),
+            .color(theme::CYAN),
     );
     ui.label(
         egui::RichText::new(subtitle)
@@ -44,7 +44,7 @@ fn draw_menu_header(ui: &mut egui::Ui, title: &str, subtitle: &str) {
 fn draw_tab_button(ui: &mut egui::Ui, label: &str, selected: bool) -> egui::Response {
     let resp = ui.add(
         egui::Button::new(egui::RichText::new(label).size(13.5).color(if selected {
-            theme::ACCENT
+            theme::CYAN
         } else {
             theme::TEXT
         }))
@@ -54,7 +54,7 @@ fn draw_tab_button(ui: &mut egui::Ui, label: &str, selected: bool) -> egui::Resp
             theme::SURFACE
         })
         .stroke(if selected {
-            egui::Stroke::new(1.0_f32, theme::ACCENT)
+            egui::Stroke::new(1.0_f32, theme::CYAN)
         } else {
             egui::Stroke::new(1.0_f32, theme::BORDER)
         })
@@ -68,7 +68,7 @@ fn draw_section_title(ui: &mut egui::Ui, title: &str, subtitle: &str) {
     ui.label(
         egui::RichText::new(title)
             .font(theme::heading())
-            .color(theme::ACCENT),
+            .color(theme::CYAN),
     );
     if !subtitle.is_empty() {
         ui.label(
@@ -328,7 +328,7 @@ fn render_overview_tab(
     ui.label(
         egui::RichText::new("RESEARCH OVERVIEW")
             .font(theme::heading())
-            .color(theme::ACCENT),
+            .color(theme::CYAN),
     );
     ui.checkbox(
         &mut ui_prefs.show_inactive_warning,
@@ -342,7 +342,7 @@ fn render_overview_tab(
             ui.label(
                 egui::RichText::new("Point Generation")
                     .font(theme::heading())
-                    .color(theme::ACCENT),
+                    .color(theme::CYAN),
             );
             ui.separator();
 
@@ -389,7 +389,7 @@ fn render_overview_tab(
                     active_count, team_capacity.max_research_teams
                 ))
                 .font(theme::heading())
-                .color(theme::ACCENT),
+                .color(theme::CYAN),
             );
             ui.separator();
 
@@ -469,7 +469,7 @@ fn render_overview_tab(
             ui.label(
                 egui::RichText::new("Active Engineering Projects")
                     .font(theme::heading())
-                    .color(theme::ACCENT),
+                    .color(theme::CYAN),
             );
             ui.separator();
 
@@ -515,7 +515,7 @@ fn render_overview_tab(
             ui.label(
                 egui::RichText::new("Research & Engineering Teams")
                     .font(theme::heading())
-                    .color(theme::ACCENT),
+                    .color(theme::CYAN),
             );
             ui.separator();
 
@@ -664,10 +664,10 @@ pub(super) fn render_research_tech_tooltip_content(
             ui.label(
                 egui::RichText::new("Unlocks Hull Frames:")
                     .strong()
-                    .color(theme::ACCENT),
+                    .color(theme::CYAN),
             );
             for hull in unlocked_hulls.into_iter().flatten() {
-                ui.label(egui::RichText::new(format!("  ▣ {}", hull)).color(theme::ACCENT));
+                ui.label(egui::RichText::new(format!("  ▣ {}", hull)).color(theme::CYAN));
             }
         }
 
@@ -681,7 +681,7 @@ pub(super) fn render_research_tech_tooltip_content(
             for modifier in &tech.modifiers {
                 let (value_text, value_color) = match &modifier.modifier_type {
                     crate::research::types::ModifierType::UnlockMechanic(_) => {
-                        (modifier.modifier_type.display_name(), theme::ACCENT)
+                        (modifier.modifier_type.display_name(), theme::CYAN)
                     }
                     _ => {
                         let is_positive = modifier.value >= 0.0;
@@ -789,7 +789,7 @@ fn render_available_research_tab(
             ui.label(
                 egui::RichText::new("CURRENT RESEARCH")
                     .font(theme::heading())
-                    .color(theme::ACCENT),
+                    .color(theme::CYAN),
             );
             ui.add_space(4.0);
 
@@ -919,7 +919,7 @@ fn render_available_research_tab(
             ui.label(
                 egui::RichText::new("AVAILABLE TO START")
                     .font(theme::heading())
-                    .color(theme::ACCENT),
+                    .color(theme::CYAN),
             );
             ui.add_space(4.0);
 
@@ -1069,7 +1069,7 @@ fn render_available_engineering_tab(
                         theme::SURFACE
                     })
                     .stroke(if is_preselected {
-                        egui::Stroke::new(1.0_f32, theme::ACCENT)
+                        egui::Stroke::new(1.0_f32, theme::CYAN)
                     } else {
                         egui::Stroke::new(1.0_f32, theme::BORDER)
                     })
@@ -1248,7 +1248,7 @@ fn render_bonuses_tab(
             ui.label(
                 egui::RichText::new("NUMERIC BONUSES")
                     .font(theme::heading())
-                    .color(theme::ACCENT),
+                    .color(theme::CYAN),
             );
             ui.add_space(4.0);
 
@@ -1341,7 +1341,7 @@ fn render_bonuses_tab(
             ui.label(
                 egui::RichText::new("UNLOCKED MECHANICS")
                     .font(theme::heading())
-                    .color(theme::ACCENT),
+                    .color(theme::CYAN),
             );
             ui.add_space(4.0);
 
@@ -1363,7 +1363,7 @@ fn render_bonuses_tab(
                         ui.label(
                             egui::RichText::new(&modifier_name)
                                 .strong()
-                                .color(theme::ACCENT),
+                                .color(theme::CYAN),
                         );
                         if is_pinned {
                             ui.label(egui::RichText::new("📌").size(10.0));

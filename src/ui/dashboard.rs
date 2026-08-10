@@ -17,14 +17,14 @@ fn render_selectable_label(ui: &mut egui::Ui, is_selected: bool, name: &str) -> 
         egui::Color32::TRANSPARENT
     };
     let stroke = if response.hovered() {
-        egui::Stroke::new(1.0_f32, theme::ACCENT)
+        egui::Stroke::new(1.0_f32, theme::CYAN)
     } else if is_selected {
         egui::Stroke::new(1.0_f32, theme::ACCENT_DIM)
     } else {
         egui::Stroke::NONE
     };
     let text_color = if response.hovered() || is_selected {
-        theme::ACCENT
+        theme::CYAN
     } else {
         theme::TEXT
     };
@@ -536,7 +536,7 @@ fn render_fleet_ledger_tree(
 
         // Colour scheme matching the fleet-menu panel list.
         let row_color = if is_selected {
-            theme::ACCENT
+            theme::CYAN
         } else if in_transit {
             theme::RP_BLUE
         } else {
@@ -596,7 +596,7 @@ fn render_fleet_ledger_tree(
                 ui.painter().rect_stroke(
                     rect.expand(1.0),
                     rounding,
-                    egui::Stroke::new(1.0_f32, theme::ACCENT),
+                    egui::Stroke::new(1.0_f32, theme::CYAN),
                     egui::StrokeKind::Inside,
                 );
             } else if resp.hovered() {
@@ -1068,7 +1068,7 @@ pub(crate) fn ui_dashboard(
                     ui.label(
                         egui::RichText::new("Star Systems")
                             .font(theme::title())
-                            .color(theme::ACCENT),
+                            .color(theme::CYAN),
                     );
                     theme::divider(ui);
 
@@ -1123,7 +1123,7 @@ pub(crate) fn ui_dashboard(
                             ui.label(
                                 egui::RichText::new("Celestial Objects")
                                     .font(theme::title())
-                                    .color(theme::ACCENT),
+                                    .color(theme::CYAN),
                             );
                         });
                         ui.add_space(10.0);
@@ -1543,10 +1543,10 @@ pub(super) fn ui_time_controls(
                     let btn = if is_active {
                         egui::Button::new(
                             egui::RichText::new(SPEED_LABELS[i])
-                                .color(theme::ACCENT)
+                                .color(theme::CYAN)
                                 .strong(),
                         )
-                        .stroke(egui::Stroke::new(1.5_f32, theme::ACCENT))
+                        .stroke(egui::Stroke::new(1.5_f32, theme::CYAN))
                         .fill(theme::SURFACE_RAISED)
                     } else {
                         egui::Button::new(
@@ -1613,12 +1613,12 @@ pub(super) fn ui_time_controls(
 
                     let play_label = if playlist.paused { "▶" } else { "⏸" };
                     let play_color = if playlist.paused {
-                        theme::ACCENT
+                        theme::CYAN
                     } else {
                         theme::TEXT_DIM
                     };
                     let play_stroke = if playlist.paused {
-                        egui::Stroke::new(1.0_f32, theme::ACCENT)
+                        egui::Stroke::new(1.0_f32, theme::CYAN)
                     } else {
                         egui::Stroke::new(0.5_f32, theme::BORDER)
                     };
@@ -1695,7 +1695,7 @@ fn render_star_system_panel(
                     ui.label(
                         egui::RichText::new(&star_icon.name)
                             .font(theme::title())
-                            .color(theme::ACCENT),
+                            .color(theme::CYAN),
                     );
                     ui.add_space(6.0);
 
@@ -1713,7 +1713,7 @@ fn render_star_system_panel(
                         ui.label(
                             egui::RichText::new("STAR PROPERTIES")
                                 .font(theme::heading())
-                                .color(theme::ACCENT),
+                                .color(theme::CYAN),
                         );
                         ui.add_space(6.0);
 
@@ -1802,7 +1802,7 @@ fn render_star_system_panel(
                     ui.label(
                         egui::RichText::new("SYSTEM BODIES")
                             .font(theme::heading())
-                            .color(theme::ACCENT),
+                            .color(theme::CYAN),
                     );
                     ui.add_space(6.0);
 
@@ -1862,7 +1862,7 @@ fn render_star_system_panel(
                     ui.label(
                         egui::RichText::new("SYSTEM RESOURCES")
                             .font(theme::heading())
-                            .color(theme::ACCENT),
+                            .color(theme::CYAN),
                     );
                     ui.add_space(6.0);
 
@@ -2014,7 +2014,7 @@ fn render_star_system_panel(
                     ui.label(
                         egui::RichText::new("POPULATION")
                             .font(theme::heading())
-                            .color(theme::ACCENT),
+                            .color(theme::CYAN),
                     );
                     ui.add_space(6.0);
                     ui.label(
@@ -2137,7 +2137,7 @@ pub(super) fn ui_intel_panel(
             ui.label(
                 egui::RichText::new("INTEL")
                     .font(theme::title())
-                    .color(theme::ACCENT),
+                    .color(theme::CYAN),
             );
             ui.label(
                 egui::RichText::new(
@@ -2196,7 +2196,7 @@ pub(super) fn ui_intel_panel(
                                 ui.label(
                                     egui::RichText::new("EARLY-GAME PROGRESS")
                                         .font(theme::heading())
-                                        .color(theme::ACCENT),
+                                        .color(theme::CYAN),
                                 );
                                 ui.label(
                                     egui::RichText::new(
@@ -2220,7 +2220,7 @@ pub(super) fn ui_intel_panel(
                                 ui.label(
                                     egui::RichText::new("FACTION INTEL")
                                         .font(theme::heading())
-                                        .color(theme::ACCENT),
+                                        .color(theme::CYAN),
                                 );
                                 theme::divider(ui);
                                 ui.add_space(4.0);
@@ -2235,7 +2235,7 @@ pub(super) fn ui_intel_panel(
                                 ui.label(
                                     egui::RichText::new("ANOMALIES")
                                         .font(theme::heading())
-                                        .color(theme::ACCENT),
+                                        .color(theme::CYAN),
                                 );
                                 theme::divider(ui);
                                 ui.add_space(4.0);

@@ -576,9 +576,9 @@ pub fn ui_splash_system(
                     egui::Align2::CENTER_CENTER,
                     progress_label.as_deref().unwrap_or("Loading…"),
                     egui::FontId::proportional(16.0),
-                    crate::ui::theme::ACCENT,
+                    crate::ui::theme::CYAN,
                 );
-                let spinner = egui::Spinner::new().size(20.0).color(crate::ui::theme::ACCENT);
+                let spinner = egui::Spinner::new().size(20.0).color(crate::ui::theme::CYAN);
                 ui.put(
                     egui::Rect::from_center_size(
                         egui::pos2(rect.center().x, rect.max.y - 62.0),

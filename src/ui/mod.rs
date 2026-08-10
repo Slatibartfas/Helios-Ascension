@@ -1104,7 +1104,7 @@ fn ui_top_menu_bar(
                         // Tint the icon:
                         // Cyan for active, clearly visible light-grey for inactive
                         let tint = if is_active {
-                            theme::ACCENT
+                            theme::CYAN
                         } else {
                             theme::ICON_INACTIVE
                         };
@@ -1120,7 +1120,7 @@ fn ui_top_menu_bar(
                             ui.painter().rect_stroke(
                                 rect,
                                 4.0,
-                                egui::Stroke::new(2.0_f32, theme::ACCENT),
+                                egui::Stroke::new(2.0_f32, theme::CYAN),
                                 egui::StrokeKind::Outside,
                             );
                         }
@@ -1153,7 +1153,7 @@ fn ui_top_menu_bar(
                             egui::Button::new(
                                 egui::RichText::new(button_text)
                                     .size(14.0)
-                                    .color(theme::ACCENT),
+                                    .color(theme::CYAN),
                             )
                             .fill(theme::SURFACE_RAISED)
                         } else {
@@ -1188,7 +1188,7 @@ fn ui_top_menu_bar(
                         egui::Button::new(
                             egui::RichText::new(button_text)
                                 .size(14.0)
-                                .color(theme::ACCENT),
+                                .color(theme::CYAN),
                         )
                         .fill(theme::SURFACE_RAISED)
                     } else {
@@ -1239,7 +1239,7 @@ fn ui_top_menu_bar(
                     egui::Button::new(
                         egui::RichText::new(button_text)
                             .size(14.0)
-                            .color(theme::ACCENT),
+                            .color(theme::CYAN),
                     )
                     .fill(theme::SURFACE_RAISED)
                 } else {
@@ -1396,7 +1396,7 @@ fn ui_starmap_labels(
             }
 
             let color = if is_selected.is_some() {
-                theme::ACCENT
+                theme::CYAN
             } else {
                 theme::TEXT_DIM
             };
@@ -1491,7 +1491,7 @@ fn ui_hover_tooltip(
                                 ui.label(
                                     egui::RichText::new(format!("L{}", m.point))
                                         .size(16.0)
-                                        .color(theme::ACCENT)
+                                        .color(theme::CYAN)
                                         .strong(),
                                 );
                                 ui.label(
@@ -1582,7 +1582,7 @@ fn ui_hover_tooltip(
                             ui.label(
                                 egui::RichText::new(&body.name)
                                     .size(16.0)
-                                    .color(theme::ACCENT)
+                                    .color(theme::CYAN)
                                     .strong(),
                             );
                         });

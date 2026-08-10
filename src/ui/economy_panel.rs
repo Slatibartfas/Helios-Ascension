@@ -123,7 +123,7 @@ fn draw_menu_header(ui: &mut egui::Ui, title: &str, subtitle: &str) {
     ui.label(
         egui::RichText::new(title)
             .font(theme::title())
-            .color(theme::ACCENT),
+            .color(theme::CYAN),
     );
     ui.label(
         egui::RichText::new(subtitle)
@@ -375,7 +375,7 @@ fn mining_survey_label(level: SurveyLevel) -> &'static str {
 fn mining_survey_color(level: SurveyLevel) -> egui::Color32 {
     match level {
         SurveyLevel::Unsurveyed => theme::TEXT_DIM,
-        SurveyLevel::OrbitalScan => theme::ACCENT,
+        SurveyLevel::OrbitalScan => theme::CYAN,
         SurveyLevel::SeismicSurvey => theme::EP_TEAL,
         SurveyLevel::CoreSample => theme::GREEN,
     }
@@ -593,14 +593,14 @@ fn render_mining_body_row(
         egui::Color32::TRANSPARENT
     };
     let stroke = if response.hovered() {
-        egui::Stroke::new(1.0_f32, theme::ACCENT)
+        egui::Stroke::new(1.0_f32, theme::CYAN)
     } else if selected {
         egui::Stroke::new(1.0_f32, theme::ACCENT_DIM)
     } else {
         egui::Stroke::NONE
     };
     let text_color = if response.hovered() || selected {
-        theme::ACCENT
+        theme::CYAN
     } else {
         theme::TEXT
     };
@@ -1405,7 +1405,7 @@ pub(super) fn ui_economy_panels(
                     ui,
                     "CIV SCORE",
                     format!("{:.0}", budget.civilization_score),
-                    theme::ACCENT,
+                    theme::CYAN,
                 );
             });
 
@@ -1498,7 +1498,7 @@ fn render_econ_overview(
             ui.label(
                 egui::RichText::new("💰 Treasury & Budget")
                     .font(theme::heading())
-                    .color(theme::ACCENT),
+                    .color(theme::CYAN),
             );
             ui.separator();
 
@@ -1557,7 +1557,7 @@ fn render_econ_overview(
                 ui.label(
                     egui::RichText::new("⚡ Power Grid")
                         .font(theme::heading())
-                        .color(theme::ACCENT),
+                        .color(theme::CYAN),
                 );
                 ui.separator();
 
@@ -1610,7 +1610,7 @@ fn render_econ_overview(
                 ui.label(
                     egui::RichText::new("🧭 Civilization")
                         .font(theme::heading())
-                        .color(theme::ACCENT),
+                        .color(theme::CYAN),
                 );
                 ui.separator();
 
@@ -1658,7 +1658,7 @@ fn render_econ_overview(
             ui.label(
                 egui::RichText::new("🔻 Critical Resources")
                     .font(theme::heading())
-                    .color(theme::ACCENT),
+                    .color(theme::CYAN),
             );
             ui.separator();
 
@@ -1697,7 +1697,7 @@ fn render_econ_overview(
             ui.label(
                 egui::RichText::new("🛰 Per-System Summary")
                     .font(theme::heading())
-                    .color(theme::ACCENT),
+                    .color(theme::CYAN),
             );
             ui.separator();
 
@@ -1906,7 +1906,7 @@ fn render_econ_resources(
             ui.label(
                 egui::RichText::new("🔬 Research & Engineering Output")
                     .font(theme::heading())
-                    .color(theme::ACCENT),
+                    .color(theme::CYAN),
             );
             ui.separator();
             egui::Grid::new("econ_res_rp_ep")
@@ -1941,7 +1941,7 @@ fn render_econ_resources(
             ui.label(
                 egui::RichText::new("🌟 Production & Consumption by Location")
                     .font(theme::heading())
-                    .color(theme::ACCENT),
+                    .color(theme::CYAN),
             );
             ui.separator();
 
@@ -2308,7 +2308,7 @@ fn render_econ_colonies(ui: &mut egui::Ui, budget: &GlobalBudget, hierarchy: &[S
                 ui,
                 "COLONIES",
                 all_colonies.len().to_string(),
-                theme::ACCENT,
+                theme::CYAN,
             );
             draw_status_chip(
                 ui,
@@ -2766,7 +2766,7 @@ fn render_mining_body_details(
             body_entry.body_name
         ))
         .font(theme::title())
-        .color(theme::ACCENT),
+        .color(theme::CYAN),
     );
     ui.label(
         egui::RichText::new(system_name)
@@ -2796,7 +2796,7 @@ fn render_mining_body_details(
                 format!("{:.0}%", avg_access * 100.0),
                 theme::EP_TEAL,
             );
-            draw_status_chip(ui, "ACTIVE OPS", active_ops.to_string(), theme::ACCENT);
+            draw_status_chip(ui, "ACTIVE OPS", active_ops.to_string(), theme::CYAN);
         });
     });
 
@@ -3857,7 +3857,7 @@ pub(super) fn render_forecast_chart(
                     egui::pos2(pointer_pos.x, plot_rect.top()),
                     egui::pos2(pointer_pos.x, plot_rect.bottom()),
                 ],
-                egui::Stroke::new(1.0_f32, theme::ACCENT),
+                egui::Stroke::new(1.0_f32, theme::CYAN),
             );
 
             // Per-series horizontal lines + value labels.
@@ -3886,7 +3886,7 @@ pub(super) fn render_forecast_chart(
                     ],
                     egui::Stroke::new(0.5_f32, theme::ACCENT_DIM),
                 );
-                painter.circle_filled(pos, 3.5, theme::ACCENT);
+                painter.circle_filled(pos, 3.5, theme::CYAN);
 
                 // Floating label.
                 let label = format!(
@@ -4029,7 +4029,7 @@ fn render_econ_mining(
                 ui,
                 "MATCHING BODIES",
                 visible_body_count.to_string(),
-                theme::ACCENT,
+                theme::CYAN,
             );
             draw_status_chip(
                 ui,
@@ -4053,7 +4053,7 @@ fn render_econ_mining(
             ui.label(
                 egui::RichText::new("FILTERS")
                     .font(theme::heading())
-                    .color(theme::ACCENT),
+                    .color(theme::CYAN),
             );
             ui.add(
                 egui::TextEdit::singleline(&mut mining_ui_state.search_text)
@@ -4168,7 +4168,7 @@ fn render_econ_mining(
             ui.label(
                 egui::RichText::new("RESOURCE LEDGER")
                     .font(theme::heading())
-                    .color(theme::ACCENT),
+                    .color(theme::CYAN),
             );
             ui.label(
                 egui::RichText::new("Grouped by system and orbital hierarchy.")
@@ -4229,7 +4229,7 @@ fn render_econ_mining(
                                 visible_bodies.len()
                             ))
                             .font(theme::heading())
-                            .color(theme::ACCENT),
+                            .color(theme::CYAN),
                         )
                         .default_open(true)
                         .show(ui, |ui| {
@@ -4251,7 +4251,7 @@ fn render_econ_mining(
             ui.label(
                 egui::RichText::new("BODY DETAILS")
                     .font(theme::heading())
-                    .color(theme::ACCENT),
+                    .color(theme::CYAN),
             );
             ui.label(
                 egui::RichText::new(
@@ -4350,7 +4350,7 @@ fn render_econ_power_grid(
                 ui.label(
                     egui::RichText::new("🔋 Production by Source Type")
                         .font(theme::heading())
-                        .color(theme::ACCENT),
+                        .color(theme::CYAN),
                 );
                 ui.separator();
 
@@ -4390,7 +4390,7 @@ fn render_econ_power_grid(
                 ui.label(
                     egui::RichText::new("🏠 Colony Power Breakdown")
                         .font(theme::heading())
-                        .color(theme::ACCENT),
+                        .color(theme::CYAN),
                 );
                 ui.separator();
 
@@ -4516,7 +4516,7 @@ fn render_econ_power_grid(
             ui.label(
                 egui::RichText::new("🌟 Power by Location")
                     .font(theme::heading())
-                    .color(theme::ACCENT),
+                    .color(theme::CYAN),
             );
             ui.separator();
 
@@ -4680,7 +4680,7 @@ fn render_econ_logistics(
             ui.label(
                 egui::RichText::new("🚀 Shipping Companies")
                     .font(theme::heading())
-                    .color(theme::ACCENT),
+                    .color(theme::CYAN),
             );
             ui.separator();
 
@@ -4822,7 +4822,7 @@ fn render_econ_logistics(
             ui.label(
                 egui::RichText::new("💰 Logistics Expenditure")
                     .font(theme::heading())
-                    .color(theme::ACCENT),
+                    .color(theme::CYAN),
             );
             ui.separator();
             let total_paid: f64 = companies
@@ -4861,7 +4861,7 @@ fn render_econ_logistics(
             ui.label(
                 egui::RichText::new(format!("📋 Open Requests ({})", open.len()))
                     .font(theme::heading())
-                    .color(theme::ACCENT),
+                    .color(theme::CYAN),
             );
             ui.separator();
 
@@ -4897,7 +4897,7 @@ fn render_econ_logistics(
                             let priority_color = match req.priority {
                                 RequestPriority::Emergency => theme::RED,
                                 RequestPriority::Construction => theme::AMBER,
-                                RequestPriority::Maintenance => theme::ACCENT,
+                                RequestPriority::Maintenance => theme::CYAN,
                                 RequestPriority::Trade => theme::TEXT_DIM,
                             };
                             ui.label(
@@ -4930,7 +4930,7 @@ fn render_econ_logistics(
                 ui.label(
                     egui::RichText::new(format!("✅ Recent Deliveries ({})", delivered.len()))
                         .font(theme::heading())
-                        .color(theme::ACCENT),
+                        .color(theme::CYAN),
                 );
                 ui.separator();
 
@@ -5275,7 +5275,7 @@ fn render_shipping_overview(
                         // AI policy indicator.
                         let (icon, color) = match row.policy {
                             crate::economy::CompanyAIPolicy::AutoFreight => {
-                                ("🤖 Auto", theme::ACCENT)
+                                ("🤖 Auto", theme::CYAN)
                             }
                             crate::economy::CompanyAIPolicy::Manual => {
                                 ("✋ Manual", theme::TEXT_DIM)

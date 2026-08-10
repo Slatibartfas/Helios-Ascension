@@ -385,7 +385,7 @@ impl HistoryPanelMetric {
     fn accent(self, resource: ResourceType) -> egui::Color32 {
         match self {
             Self::Kardashev => theme::CAT_STRATEGIC,
-            Self::PowerProduced => theme::ACCENT,
+            Self::PowerProduced => theme::CYAN,
             Self::Population => theme::RB_POPULATION,
             Self::Colonies => theme::RB_COLONIES,
             Self::Ships => theme::RB_SHIPS,
@@ -805,7 +805,7 @@ fn render_history_plot(
 
     if let Some(last) = series.points.last() {
         let current_pos = to_screen(last.sim_seconds, last.value);
-        painter.circle_filled(current_pos, 3.5, theme::ACCENT);
+        painter.circle_filled(current_pos, 3.5, theme::CYAN);
         painter.circle_stroke(
             current_pos,
             5.0,
@@ -831,7 +831,7 @@ fn render_history_plot(
                     egui::pos2(nearest_pos.x, plot_rect.top()),
                     egui::pos2(nearest_pos.x, plot_rect.bottom()),
                 ],
-                egui::Stroke::new(1.0_f32, theme::ACCENT),
+                egui::Stroke::new(1.0_f32, theme::CYAN),
             );
             painter.line_segment(
                 [
@@ -840,7 +840,7 @@ fn render_history_plot(
                 ],
                 egui::Stroke::new(1.0_f32, theme::ACCENT_DIM),
             );
-            painter.circle_filled(nearest_pos, 4.0, theme::ACCENT);
+            painter.circle_filled(nearest_pos, 4.0, theme::CYAN);
 
             return Some(HistoryCursorInfo {
                 sim_seconds: nearest_point.sim_seconds,
@@ -1450,7 +1450,7 @@ pub(super) fn ui_resources_bar(
                         ui.horizontal(|ui| {
                             ui.add(
                                 egui::Label::new(
-                                    egui::RichText::new("📍").size(15.0).color(theme::ACCENT),
+                                    egui::RichText::new("📍").size(15.0).color(theme::CYAN),
                                 )
                                 .selectable(false),
                             );
@@ -4231,7 +4231,7 @@ fn render_per_body_breakdown(
                                 egui::RichText::new(format!("System {system_id}"))
                                     .strong()
                                     .size(11.0)
-                                    .color(theme::ACCENT),
+                                    .color(theme::CYAN),
                             )
                             .selectable(false),
                         );

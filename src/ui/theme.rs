@@ -63,6 +63,11 @@ pub const SURFACE_INPUT: egui::Color32 = egui::Color32::from_rgb(16, 20, 30);
     note = "Use theme::CYAN (the canonical accent, re-exporting bevy_theme::CYAN). ACCENT will be removed in a future release. The new CYAN is +6% more blue and +16% less green — the intended canonical RGB for the design system."
 )]
 pub const ACCENT: egui::Color32 = egui::Color32::from_rgb(0, 242, 255);
+/// Canonical primary accent — single source of truth.
+/// Re-exports the RGB from bevy_theme::CYAN (srgba(0.373, 0.784, 0.847, 1.0))
+/// in egui::Color32 form so egui code reads the same canonical RGB.
+/// Use this instead of `theme::ACCENT` (deprecated).
+pub const CYAN: egui::Color32 = egui::Color32::from_rgb(95, 200, 216);
 /// Dimmed accent (~31% alpha) for secondary outlines and inactive glyphs.
 pub const ACCENT_DIM: egui::Color32 = egui::Color32::from_rgba_premultiplied(0, 242, 255, 80);
 /// Very faint accent for borders, grid lines.
@@ -393,7 +398,7 @@ pub const TIER_OTHER: egui::Color32 = egui::Color32::from_rgb(80, 90, 100);
 /// Get the dossier tier colour for a numeric tier (0..=5).
 pub fn tier_color(tier: u8) -> egui::Color32 {
     match tier {
-        5 => ACCENT,
+        5 => CYAN,
         4 => TIER_4,
         3 => TIER_3,
         2 => TEXT_DIM,
@@ -661,7 +666,7 @@ pub fn caption(text: impl Into<String>) -> egui::RichText {
 pub fn kbd_shortcut_label(text: impl Into<String>) -> egui::RichText {
     egui::RichText::new(text)
         .font(mono(10.0))
-        .color(ACCENT)
+        .color(CYAN)
         .strong()
 }
 
@@ -929,7 +934,7 @@ pub fn apply_global_visuals(ctx: &egui::Context) {
     // ── Text & selection ─────────────────────────────────────────
     visuals.override_text_color = Some(TEXT);
     visuals.selection.bg_fill = egui::Color32::from_rgba_premultiplied(0, 160, 180, 60);
-    visuals.selection.stroke = egui::Stroke::new(1.0_f32, ACCENT);
+    visuals.selection.stroke = egui::Stroke::new(1.0_f32, CYAN);
 
     // ── Window chrome ────────────────────────────────────────────
     visuals.window_stroke = egui::Stroke::new(1.0_f32, BORDER);
@@ -955,19 +960,19 @@ pub fn apply_global_visuals(ctx: &egui::Context) {
     visuals.widgets.hovered.bg_fill = SURFACE_RAISED;
     visuals.widgets.hovered.weak_bg_fill = SURFACE_RAISED;
     visuals.widgets.hovered.bg_stroke = egui::Stroke::new(1.0_f32, ACCENT_DIM);
-    visuals.widgets.hovered.fg_stroke = egui::Stroke::new(1.0_f32, ACCENT);
+    visuals.widgets.hovered.fg_stroke = egui::Stroke::new(1.0_f32, CYAN);
 
     // Active (pressed)
     visuals.widgets.active.bg_fill = egui::Color32::from_rgb(0, 80, 90);
     visuals.widgets.active.weak_bg_fill = egui::Color32::from_rgb(0, 80, 90);
-    visuals.widgets.active.bg_stroke = egui::Stroke::new(1.5_f32, ACCENT);
-    visuals.widgets.active.fg_stroke = egui::Stroke::new(1.5_f32, ACCENT);
+    visuals.widgets.active.bg_stroke = egui::Stroke::new(1.5_f32, CYAN);
+    visuals.widgets.active.fg_stroke = egui::Stroke::new(1.5_f32, CYAN);
 
     // Open (e.g. combo box, expanded collapsing header)
     visuals.widgets.open.bg_fill = SURFACE_RAISED;
     visuals.widgets.open.weak_bg_fill = SURFACE_RAISED;
     visuals.widgets.open.bg_stroke = egui::Stroke::new(1.0_f32, ACCENT_DIM);
-    visuals.widgets.open.fg_stroke = egui::Stroke::new(1.0_f32, ACCENT);
+    visuals.widgets.open.fg_stroke = egui::Stroke::new(1.0_f32, CYAN);
 
     // ── Misc ─────────────────────────────────────────────────────
     visuals.striped = true;
@@ -1480,7 +1485,7 @@ pub fn section_h2(ui: &mut egui::Ui, label: impl Into<String>) {
     ui.label(
         egui::RichText::new(label.into())
             .font(heading())
-            .color(ACCENT),
+            .color(CYAN),
     );
     ui.add_space(Spacing::sm);
 }
@@ -1508,7 +1513,7 @@ pub fn section_h1(ui: &mut egui::Ui, label: impl Into<String>) {
     ui.label(
         egui::RichText::new(label.into())
             .font(title())
-            .color(ACCENT),
+            .color(CYAN),
     );
     ui.add_space(Spacing::md);
 }
@@ -1554,7 +1559,7 @@ pub fn tab_strip<T: crate::ui::tab::Tab>(
             };
             let text = egui::RichText::new(label)
                 .font(mono(11.0))
-                .color(if is_active { ACCENT } else { TEXT });
+                .color(if is_active { CYAN } else { TEXT });
             let response = ui.add(
                 egui::Button::new(text)
                     .frame(false)
@@ -1572,7 +1577,7 @@ pub fn tab_strip<T: crate::ui::tab::Tab>(
                 ui.painter().hline(
                     rect.left()..=rect.right(),
                     underline_y,
-                    egui::Stroke::new(2.0_f32, ACCENT),
+                    egui::Stroke::new(2.0_f32, CYAN),
                 );
             }
         }
