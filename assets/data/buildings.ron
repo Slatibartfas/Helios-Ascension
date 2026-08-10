@@ -587,7 +587,6 @@
             resource_costs: [
                 ("Iron", 100.0),
                 ("Copper", 30.0),
-                ("Coal", 0.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.01),
@@ -842,13 +841,11 @@
             resource_costs: [
                 ("Iron", 80.0),
                 ("Copper", 20.0),
-                ("Cyanide", 0.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.005),
                 ("Water", 0.05),
                 ("Polymers", 0.001),
-                ("Cyanide", 0.0),
                 ("Sulfur", 0.00046667),
             ],
             modifiers: [
@@ -871,14 +868,12 @@
             resource_costs: [
                 ("Iron", 100.0),
                 ("Copper", 25.0),
-                ("Lead", 0.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.005),
                 ("Water", 0.05),
                 ("Polymers", 0.001),
                 ("Sulfur", 0.00093333),
-                ("Zinc", 0.0),
             ],
             modifiers: [
                 // v3.8.14: Earth consumption 0.015 → 0.015/(25×0.3)×1.02 = 0.00204.
@@ -958,7 +953,6 @@
             resource_costs: [
                 ("Iron", 150.0),
                 ("Copper", 30.0),
-                ("Thorium", 5.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.01),

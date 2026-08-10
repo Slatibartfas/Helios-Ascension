@@ -1489,4 +1489,46 @@ mod tests {
         // He3Mine with body_type unknown: pass-through (buildable).
         assert!(data.is_available_on(&BuildingType::He3Mine, Some(true), None));
     }
+
+    #[test]
+    fn test_buildings_ron_only_references_implemented_resources() {
+        // GRA-22d regression: every resource name in buildings.ron
+        // (both `resource_costs` and `maintenance_resources`) must
+        // resolve through `parse_resource_type`. Past RON edits
+        // added phantom entries (`Cyanide` for GoldMine, `Lead` and
+        // `Zinc` for SilverMine, `Coal` for IronMine) that the
+        // construction system silently skipped with a `warn!` — the
+        // entries looked like they did something but had no effect
+        // and littered the log. This test makes that class of bug
+        // fail at `cargo test` instead.
+        let path = "assets/data/buildings.ron";
+        let contents = match std::fs::read_to_string(path) {
+            Ok(c) => c,
+            Err(_) => return, // File not available in test env; skip.
+        };
+        let data = match ron::from_str::<BuildingsFile>(&contents) {
+            Ok(d) => d,
+            Err(_) => panic!("buildings.ron should parse (RON schema may be invalid)"),
+        };
+        for def in &data.buildings {
+            for (name, _amount) in &def.resource_costs {
+                assert!(
+                    parse_resource_type(name).is_some(),
+                    "{}: resource_costs references unimplemented resource {:?}; \
+                     add it to ResourceType + parse_resource_type, or remove the entry",
+                    def.id,
+                    name
+                );
+            }
+            for (name, _amount) in &def.maintenance_resources {
+                assert!(
+                    parse_resource_type(name).is_some(),
+                    "{}: maintenance_resources references unimplemented resource {:?}; \
+                     add it to ResourceType + parse_resource_type, or remove the entry",
+                    def.id,
+                    name
+                );
+            }
+        }
+    }
 }

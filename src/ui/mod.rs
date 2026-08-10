@@ -898,6 +898,13 @@ impl Plugin for UIPlugin {
                     resource_icons::load_resource_icons.run_if(in_game_chrome),
                     switch_anchor_on_arrival
                         .after(crate::fleets::systems::complete_fleet_maneuvers),
+                    // v0.5.3 (2026-08-10): shared hover/press styling
+                    // for bevy_ui cards (scale, border, background,
+                    // shadow, z-index lift). Menu-agnostic — the
+                    // `Changed<Interaction>` filter keeps it near-free;
+                    // any future bevy_ui menu just inserts
+                    // `widgets::HoverElevation` on its cards.
+                    widgets::tick_ui_hover_elevation,
                 ),
             )
             // Capture egui's available_rect AFTER all panels have registered themselves

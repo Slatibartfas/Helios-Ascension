@@ -20,9 +20,17 @@
 //!   near-identical scroll containers; this is the one helper.
 //! - [`spawn_text_label`] — a one-line text node with a font +
 //!   size + colour, the most common child in any bevy_ui menu.
+//! - [`HoverElevation`] + [`tick_ui_hover_elevation`] — the shared
+//!   hover/press styling widget (scale, border, background, shadow,
+//!   z-index lift) so every menu's cards get the same interactive
+//!   3D treatment without per-menu hover systems.
+//! - [`card_shadow`] / [`card_shadow_hover`] — the canonical
+//!   raised-card drop shadows (dual-layer: tight contact + soft
+//!   cast) for the dark-on-dark theme.
 
 use bevy::ecs::hierarchy::ChildSpawnerCommands;
 use bevy::prelude::*;
+use bevy::ui::ShadowStyle;
 
 /// Canonical body font path. Regular-weight Inter for paragraphs,
 /// card bodies, and default UI text.
@@ -183,6 +191,269 @@ pub fn spawn_text_label<B: Bundle>(
     node
 }
 
+// ─── Card chrome (raised / "3D" primitives) ─────────────────────────────
+
+/// Tight contact shadow layer for a raised bevy_ui card.
+///
+/// v0.5.3.5 neumorphism redesign (2026-08-10). Research from the
+/// canonical Hype4 neumorphism generator + Refactoring UI palette
+/// guidance: an outward cyan glow reads as "neon outline", NOT
+/// "raised glass" — the raised-glass reading on dark surfaces comes
+/// from a *directional* drop shadow (cast to bottom-right) plus a
+/// bright top-left edge on the card itself. The card-vs-panel
+/// brightness delta in `CARD_BG` carries the silhouette; this
+/// shadow just gives the lift a "floor" below the card.
+///
+/// Offset is now `(+4, +5)` with a 10 px blur and dark navy colour —
+/// a single strong contact shadow with a clear light-from-top-left
+/// direction, no neon halo.
+pub const CARD_SHADOW: ShadowStyle = ShadowStyle {
+    color: Color::srgba(0.0, 0.02, 0.05, 0.55),
+    x_offset: Val::Px(4.0),
+    y_offset: Val::Px(5.0),
+    spread_radius: Val::Px(0.0),
+    blur_radius: Val::Px(10.0),
+};
+
+/// Soft wide-cast layer for a raised card — see [`CARD_SHADOW`].
+///
+/// Wider + softer so the directional shadow's edge fades smoothly
+/// rather than ending in a hard line; offset matches the contact
+/// shadow's direction.
+pub const CARD_SHADOW_SOFT: ShadowStyle = ShadowStyle {
+    color: Color::srgba(0.0, 0.02, 0.05, 0.35),
+    x_offset: Val::Px(2.0),
+    y_offset: Val::Px(8.0),
+    spread_radius: Val::Px(0.0),
+    blur_radius: Val::Px(22.0),
+};
+
+/// v0.5.3.5: outer cyan glow removed entirely (was a "neon" reading,
+/// not a "raised glass" reading). The constant stays for API
+/// compatibility but no longer participates in `card_shadow()`.
+/// A future surface that *wants* the neon reading (a glowing button,
+/// a power-on indicator) can still compose it manually.
+#[allow(dead_code)]
+pub const CARD_SHADOW_GLOW: ShadowStyle = ShadowStyle {
+    color: Color::srgba(0.373, 0.784, 0.847, 0.14),
+    x_offset: Val::Px(2.0),
+    y_offset: Val::Px(2.0),
+    spread_radius: Val::Px(0.0),
+    blur_radius: Val::Px(6.0),
+};
+
+/// Hovered tight contact shadow — `scale 1.02` + `ZIndex 1` already
+/// give the hover lift; the shadow just deepens slightly so the
+/// hovered card looks further away from the panel.
+pub const CARD_SHADOW_HOVER: ShadowStyle = ShadowStyle {
+    color: Color::srgba(0.0, 0.02, 0.05, 0.70),
+    x_offset: Val::Px(5.0),
+    y_offset: Val::Px(7.0),
+    spread_radius: Val::Px(0.0),
+    blur_radius: Val::Px(12.0),
+};
+
+/// Hovered soft wide-cast layer — see [`CARD_SHADOW_HOVER`].
+pub const CARD_SHADOW_HOVER_SOFT: ShadowStyle = ShadowStyle {
+    color: Color::srgba(0.0, 0.02, 0.05, 0.40),
+    x_offset: Val::Px(3.0),
+    y_offset: Val::Px(11.0),
+    spread_radius: Val::Px(0.0),
+    blur_radius: Val::Px(26.0),
+};
+
+/// v0.5.3.5: hovered outer cyan glow removed (same rationale as
+/// [`CARD_SHADOW_GLOW`]). Kept for API compatibility.
+#[allow(dead_code)]
+pub const CARD_SHADOW_HOVER_GLOW: ShadowStyle = ShadowStyle {
+    color: Color::srgba(0.373, 0.784, 0.847, 0.24),
+    x_offset: Val::Px(3.0),
+    y_offset: Val::Px(3.0),
+    spread_radius: Val::Px(0.0),
+    blur_radius: Val::Px(8.0),
+};
+
+/// The canonical resting drop shadow for a raised card — the
+/// directional dark-only pair (contact + soft cast). Both layers
+/// cast to the bottom-right; no neon halo. v0.5.3.5.
+pub fn card_shadow() -> BoxShadow {
+    BoxShadow(vec![CARD_SHADOW, CARD_SHADOW_SOFT])
+}
+
+/// The canonical hovered drop shadow for a raised card.
+pub fn card_shadow_hover() -> BoxShadow {
+    BoxShadow(vec![CARD_SHADOW_HOVER, CARD_SHADOW_HOVER_SOFT])
+}
+
+/// Per-node hover/press styling for bevy_ui.
+///
+/// Insert on any pickable node that should react to hover/press with
+/// a scale shift, border / background colour change, a deeper shadow,
+/// and/or a `ZIndex` lift above its siblings.
+/// [`tick_ui_hover_elevation`](tick_ui_hover_elevation) applies the
+/// state; [`Default`] is an identity (no visual change) so callers
+/// opt in field-by-field.
+///
+/// ## Ownership rule (how the tick system decides what to touch)
+///
+/// - **Scale** is always managed (`base_scale` / `hover_scale` /
+///   `press_scale` always exist).
+/// - **Border / background / shadow** are each managed only when the
+///   *pair* is set — e.g. both `border` and `border_hover` `Some`.
+///   This keeps rest-state restore symmetric: if only `bg_hover`
+///   were set, the hover colour would stick after mouse-out.
+/// - **`z_lift`** is independent: hover → `ZIndex(1)`, mouse-out →
+///   `ZIndex(0)`. The node gets a `ZIndex` from [`Node`]'s required
+///   components automatically.
+///
+/// The node must be pickable (carry [`Pickable`] / [`Button`]) so
+/// `Interaction` updates; the system skips nodes without it.
+#[derive(Component, Debug, Clone)]
+pub struct HoverElevation {
+    /// Resting scale — written back on `Interaction::None`.
+    pub base_scale: Vec2,
+    /// Scale while hovered.
+    pub hover_scale: Vec2,
+    /// Scale while pressed.
+    pub press_scale: Vec2,
+    /// Resting border state — a full per-edge `BorderColor` (Bevy
+    /// 0.18's `BorderColor` has `top/right/bottom/left` fields).
+    /// `Some` hands border ownership to the tick system; pairs with
+    /// [`Self::border_hover`]. v0.5.3.5: changed from `Option<Color>`
+    /// to `Option<BorderColor>` so a hover swap can restore a
+    /// directional per-edge bevel (e.g. bright top + left, dim
+    /// bottom + right) instead of collapsing it to a uniform colour
+    /// on mouse-out.
+    pub border_rest: Option<BorderColor>,
+    /// Border colour while hovered / pressed — always uniform.
+    /// The hover state overrides the per-edge bevel so the
+    /// "highlighted" reading is unmistakable; the resting bevel
+    /// comes back when the cursor leaves.
+    pub border_hover: Option<Color>,
+    /// Resting background colour — pairs with [`Self::bg_hover`].
+    pub bg: Option<Color>,
+    /// Background colour while hovered / pressed.
+    pub bg_hover: Option<Color>,
+    /// Resting drop shadow — pairs with [`Self::shadow_hover`].
+    pub shadow: Option<BoxShadow>,
+    /// Drop shadow while hovered / pressed.
+    pub shadow_hover: Option<BoxShadow>,
+    /// Lift `ZIndex` 0 → 1 while hovered so the node paints above
+    /// its siblings (draw order only — no layout impact).
+    pub z_lift: bool,
+}
+
+impl Default for HoverElevation {
+    fn default() -> Self {
+        Self {
+            base_scale: Vec2::ONE,
+            hover_scale: Vec2::ONE,
+            press_scale: Vec2::ONE,
+            border_rest: None,
+            border_hover: None,
+            bg: None,
+            bg_hover: None,
+            shadow: None,
+            shadow_hover: None,
+            z_lift: false,
+        }
+    }
+}
+
+/// System: apply [`HoverElevation`] to nodes that carry it.
+///
+/// Single query — no B0001 (dual-query) risk. `Changed<Interaction>`
+/// keeps the system near-free on frames where nothing is hovered;
+/// a `Local<HashMap<Entity, Interaction>>` suppresses redundant
+/// re-writes when the interaction state is unchanged (mirrors the
+/// flicker-mitigation pattern in
+/// `construction::tick_construction_cta_hover`). Only the field
+/// pairs that are `Some` are managed — see the [`HoverElevation`]
+/// ownership rule.
+pub fn tick_ui_hover_elevation(
+    mut nodes: Query<
+        (
+            Entity,
+            &Interaction,
+            &HoverElevation,
+            &mut UiTransform,
+            &mut BorderColor,
+            &mut BackgroundColor,
+            &mut ZIndex,
+            Option<&mut BoxShadow>,
+        ),
+        Changed<Interaction>,
+    >,
+    mut prev_state: Local<std::collections::HashMap<Entity, Interaction>>,
+) {
+    for (
+        entity,
+        interaction,
+        elevation,
+        mut transform,
+        mut border,
+        mut bg,
+        mut zindex,
+        mut shadow,
+    ) in nodes.iter_mut()
+    {
+        // Skip when the interaction state is unchanged since last
+        // write. First frame (`prev == None`) always writes so
+        // newly-spawned nodes get their base paint.
+        if prev_state.get(&entity).copied() == Some(*interaction) {
+            continue;
+        }
+        match *interaction {
+            Interaction::Hovered | Interaction::Pressed => {
+                let pressed = *interaction == Interaction::Pressed;
+                transform.scale = if pressed {
+                    elevation.press_scale
+                } else {
+                    elevation.hover_scale
+                };
+                if elevation.border_rest.is_some() {
+                    if let Some(hover) = elevation.border_hover {
+                        border.set_all(hover);
+                    }
+                }
+                if elevation.bg.is_some() {
+                    if let Some(hover) = elevation.bg_hover {
+                        bg.0 = hover;
+                    }
+                }
+                if elevation.shadow.is_some() {
+                    if let (Some(hover), Some(box_shadow)) =
+                        (&elevation.shadow_hover, shadow.as_mut())
+                    {
+                        // `Option<&mut T>` query items yield `Mut<T>`
+                        // in Bevy 0.18 — assign through it.
+                        **box_shadow = hover.clone();
+                    }
+                }
+                if elevation.z_lift {
+                    zindex.0 = 1;
+                }
+            }
+            Interaction::None => {
+                transform.scale = elevation.base_scale;
+                if let Some(rest) = elevation.border_rest {
+                    *border = rest;
+                }
+                if let Some(base) = elevation.bg {
+                    bg.0 = base;
+                }
+                if let (Some(base), Some(box_shadow)) = (&elevation.shadow, shadow.as_mut()) {
+                    **box_shadow = base.clone();
+                }
+                if elevation.z_lift {
+                    zindex.0 = 0;
+                }
+            }
+        }
+        prev_state.insert(entity, *interaction);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -205,5 +476,169 @@ mod tests {
         assert!(std::path::Path::new("assets").join(FONT_BODY).exists());
         assert!(std::path::Path::new("assets").join(FONT_MEDIUM).exists());
         assert!(std::path::Path::new("assets").join(FONT_MONO).exists());
+    }
+
+    #[test]
+    fn hover_elevation_applies_hover_state_and_restores() {
+        let mut app = App::new();
+        app.add_systems(Update, tick_ui_hover_elevation);
+
+        // v0.5.3.5 neumorphism: `border_rest` is now the full
+        // per-edge `BorderColor` rather than a single colour so the
+        // tick system can restore a directional bevel after a hover
+        // swap (the resting bevel survives the mouse-out frame).
+        let rest_border = BorderColor {
+            top: Color::srgba(0.9, 0.9, 0.9, 1.0),
+            bottom: Color::srgba(0.1, 0.1, 0.1, 1.0),
+            left: Color::srgba(0.9, 0.9, 0.9, 1.0),
+            right: Color::srgba(0.1, 0.1, 0.1, 1.0),
+        };
+        let elevation = HoverElevation {
+            hover_scale: Vec2::splat(1.02),
+            press_scale: Vec2::splat(0.98),
+            border_rest: Some(rest_border),
+            border_hover: Some(Color::WHITE),
+            bg: Some(Color::srgba(0.05, 0.1, 0.2, 0.9)),
+            bg_hover: Some(Color::srgba(0.2, 0.3, 0.4, 0.9)),
+            shadow: Some(card_shadow()),
+            shadow_hover: Some(card_shadow_hover()),
+            z_lift: true,
+            ..default()
+        };
+        let entity = app
+            .world_mut()
+            .spawn((
+                Node::default(),
+                elevation.clone(),
+                Interaction::None,
+                BoxShadow::default(),
+            ))
+            .id();
+
+        // First frame: base state applied (newly-spawned nodes always
+        // paint their rest state).
+        app.update();
+        {
+            let world = app.world();
+            assert_eq!(world.get::<UiTransform>(entity).unwrap().scale, Vec2::ONE);
+            assert_eq!(*world.get::<BorderColor>(entity).unwrap(), rest_border);
+            assert_eq!(
+                world.get::<BackgroundColor>(entity).unwrap().0,
+                elevation.bg.unwrap()
+            );
+            // v0.5.3.5: the resting shadow is now the 2-layer
+            // directional pair (no outer cyan glow).
+            assert_eq!(
+                world.get::<BoxShadow>(entity).unwrap().0,
+                vec![CARD_SHADOW, CARD_SHADOW_SOFT]
+            );
+            assert_eq!(world.get::<ZIndex>(entity).unwrap().0, 0);
+        }
+
+        // Hovered: lift + brighten + z-index above siblings.
+        *app.world_mut().get_mut::<Interaction>(entity).unwrap() = Interaction::Hovered;
+        app.update();
+        {
+            let world = app.world();
+            assert_eq!(
+                world.get::<UiTransform>(entity).unwrap().scale,
+                Vec2::splat(1.02)
+            );
+            // Hovered border is uniform CYAN — overrides the per-edge
+            // bevel for an unmistakable "selected" reading.
+            assert_eq!(world.get::<BorderColor>(entity).unwrap().top, Color::WHITE);
+            assert_eq!(
+                world.get::<BackgroundColor>(entity).unwrap().0,
+                elevation.bg_hover.unwrap()
+            );
+            // v0.5.3.5: hovered shadow is the 2-layer directional pair.
+            assert_eq!(
+                world.get::<BoxShadow>(entity).unwrap().0,
+                vec![CARD_SHADOW_HOVER, CARD_SHADOW_HOVER_SOFT]
+            );
+            assert_eq!(world.get::<ZIndex>(entity).unwrap().0, 1);
+        }
+
+        // Mouse-out: restore the base state, including the per-edge
+        // bevel.
+        *app.world_mut().get_mut::<Interaction>(entity).unwrap() = Interaction::None;
+        app.update();
+        {
+            let world = app.world();
+            assert_eq!(world.get::<UiTransform>(entity).unwrap().scale, Vec2::ONE);
+            assert_eq!(*world.get::<BorderColor>(entity).unwrap(), rest_border);
+            assert_eq!(
+                world.get::<BackgroundColor>(entity).unwrap().0,
+                elevation.bg.unwrap()
+            );
+            assert_eq!(
+                world.get::<BoxShadow>(entity).unwrap().0,
+                vec![CARD_SHADOW, CARD_SHADOW_SOFT]
+            );
+            assert_eq!(world.get::<ZIndex>(entity).unwrap().0, 0);
+        }
+    }
+
+    #[test]
+    fn hover_elevation_uses_press_scale_when_pressed() {
+        let mut app = App::new();
+        app.add_systems(Update, tick_ui_hover_elevation);
+        let elevation = HoverElevation {
+            hover_scale: Vec2::splat(1.02),
+            press_scale: Vec2::splat(0.98),
+            ..default()
+        };
+        let entity = app
+            .world_mut()
+            .spawn((Node::default(), elevation, Interaction::None))
+            .id();
+        app.update();
+        *app.world_mut().get_mut::<Interaction>(entity).unwrap() = Interaction::Pressed;
+        app.update();
+        assert_eq!(
+            app.world().get::<UiTransform>(entity).unwrap().scale,
+            Vec2::splat(0.98)
+        );
+    }
+
+    #[test]
+    fn hover_elevation_skips_nodes_without_the_component() {
+        let mut app = App::new();
+        app.add_systems(Update, tick_ui_hover_elevation);
+        let entity = app
+            .world_mut()
+            .spawn((Node::default(), Interaction::Hovered))
+            .id();
+        app.update();
+        // The system never runs for this entity — the default scale stays.
+        assert_eq!(
+            app.world().get::<UiTransform>(entity).unwrap().scale,
+            Vec2::ONE
+        );
+    }
+
+    #[test]
+    fn hover_elevation_leaves_unmanaged_shadow_alone() {
+        let mut app = App::new();
+        app.add_systems(Update, tick_ui_hover_elevation);
+        // shadow / shadow_hover both None → the system must not touch
+        // the node's BoxShadow (the caller owns it inline).
+        let elevation = HoverElevation {
+            hover_scale: Vec2::splat(1.05),
+            ..default()
+        };
+        let entity = app
+            .world_mut()
+            .spawn((
+                Node::default(),
+                elevation,
+                Interaction::None,
+                BoxShadow::default(),
+            ))
+            .id();
+        app.update();
+        *app.world_mut().get_mut::<Interaction>(entity).unwrap() = Interaction::Hovered;
+        app.update();
+        assert!(app.world().get::<BoxShadow>(entity).unwrap().0.is_empty());
     }
 }

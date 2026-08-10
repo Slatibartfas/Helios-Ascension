@@ -2,12 +2,12 @@
 
 This document is the source of truth for Helios Ascension's *layout-level*
 UI patterns. It complements `docs/UI.md` (design tokens, per-panel anatomy,
-contribution rules) by codifying the four canonical *layout shells* every
+contribution rules) by codifying the five canonical *layout shells* every
 panel composes from, and mapping every current panel to one of them.
 
 > **Why a separate doc?** `docs/UI.md` §2 codifies *components* (frames,
 > tokens, builders). §3 codifies *panels* (per-domain anatomy). Neither
-> captures the *layout shells* that panels share — the four recurring
+> captures the *layout shells* that panels share — the five recurring
 > skeletons we keep re-implementing. The v1 UI harmonization chain
 > (GRA-53..GRA-59) closed clean at `32a8365a` and standardised tokens;
 > this doc standardises the *shells* so v2 work (GRA-66..GRA-72) has a
@@ -23,7 +23,7 @@ panel composes from, and mapping every current panel to one of them.
 
 Helios Ascension has a mixed UI stack (egui 0.33 for most panels, native
 Bevy UI 0.18 for the Shipbuilding workspace — see `docs/UI.md` §1).
-Every panel — egui or Bevy UI — is built from one or more of the four
+Every panel — egui or Bevy UI — is built from one or more of the five
 **canonical layout patterns** below.
 
 | # | Pattern | Stack | Reference implementation |
@@ -32,12 +32,13 @@ Every panel — egui or Bevy UI — is built from one or more of the four
 | 2 | Right-side ledger | egui | `src/ui/dossier_panel.rs` (`ui_planet_dossier`) |
 | 3 | Tabbed workspace (3 panes) | Bevy UI | `src/ui/shipbuilding_workspace.rs:1241-1296` (`populate_tab_strip`) |
 | 4 | In-panel sub-tab strip | egui | `src/ui/construction_panel.rs:760-776` (`theme::tab_strip<ConstructionTab>` call site) |
+| 5 | Raised card grid + hover elevation | Bevy UI | `src/ui/construction.rs` (`spawn_card`) + `src/ui/widgets.rs` (`HoverElevation`, `tick_ui_hover_elevation`) |
 
 Panels can compose multiple patterns. The Shipbuilding workspace is
-*Pattern 3 + Pattern 4*. The Construction menu is *Pattern 4 + the
-8-`BuildingCategory` strip (a Pattern 4 sub-instance)*. The Main Menu
-is a *full-screen modal* built on `theme::central_frame()` and Pattern 2's
-ledger — it does not introduce a fifth pattern.
+*Pattern 3 + Pattern 4*. The Construction menu is *Pattern 4 + Pattern 5
+(the card grid) + a nested P4 sub-instance (the 8-`BuildingCategory` strip)*.
+The Main Menu is a *full-screen modal* built on `theme::central_frame()`
+and Pattern 2's ledger — it does not introduce a pattern of its own.
 
 ## 2. Pattern 1 — Top menu bar (egui)
 
@@ -307,16 +308,18 @@ When a new `GameMenu` variant lands (e.g. Personnel, Intel, Diplomacy):
 1. Open the *top menu bar* slot via the `GameMenu::all()` order in
    `src/game_state.rs:75-89`. Add the icon asset under
    `assets/textures/ui/menu/<name>.png`. Pattern 1.
-2. Pick a primary pattern from the four above. Default to P2 (ledger)
+2. Pick a primary pattern from the five below. Default to P2 (ledger)
    for read-only information; default to P4 (sub-tab strip) for
    multi-view interactions; default to P3 (tabbed workspace) only if
-   the panel is a *design* surface (hull/module/template editing).
+   the panel is a *design* surface (hull/module/template editing);
+   default to P5 (raised card grid) for browse-heavy catalogues
+   (buildings, modules, ships).
 3. Use `theme::*` tokens for every colour, frame, spacing, label, and
    value. The CI lint at `scripts/audit_color32_literals.py` (added in
    GRA-58) blocks hardcoded `Color32::from_rgb` outside `theme.rs`; the
    corresponding `scripts/audit_bevy_color_literals.py` is added in
    PR-B alongside the `theme::Color` mirror.
-4. If a layout need does not fit the four patterns, propose a *fifth*
+4. If a layout need does not fit the five patterns, propose a *sixth*
    pattern in this doc first; do not introduce a one-off shell.
 5. Map the new panel into the table in §6 before opening the PR.
 
@@ -341,6 +344,80 @@ four patterns apply. Some open questions to answer before then:
 
 These are not blockers for the v2 chain; they are notes for the next
 chain.
+
+## 10. Pattern 5 — Raised card grid with hover elevation (Bevy UI 0.18)
+
+The card grid behind the Construction canary's Build / Mining / Buildings
+tabs (`src/ui/construction.rs`), and the canonical home of the shared
+`widgets::HoverElevation` widget (v0.5.3, 2026-08-10). Any future bevy_ui
+menu with card surfaces composes this pattern instead of hand-rolling
+per-menu hover systems.
+
+### 10.1 Skeleton
+
+```text
+┌─ Overview │ Buildings │ Build │ Mining ───────┐  ← P4 sub-tab strip
+├───────────────────────────────────────────────┤
+│  ┌─────────────────────┐ ┌───────────────────┐ │
+│  │ 320×320 raised card │ │ 320×320 card      │ │  ← flex-wrap row grid
+│  │ [icon] Title        │ │ ...               │ │     (NOT CSS Grid)
+│  │ subtitle            │ │                   │ │
+│  │ BP | COST  ───────  │ │                   │ │
+│  │ [power chip]        │ │                   │ │
+│  │ ⚙ cost rows         │ │                   │ │
+│  │ [Queue CTA]         │ │                   │ │
+│  └─────────────────────┘ └───────────────────┘ │
+└───────────────────────────────────────────────┘
+```
+
+### 10.2 Layout contract
+
+- **Grid container:** `Display::Flex` + `FlexWrap::Wrap` (NOT CSS Grid —
+  Bevy 0.18 grid sizing produced single-pixel-tall rows combined with
+  `flex_grow: 1.0` + `Overflow::scroll_y()`; see the comment at
+  `construction.rs:5108`). `min_height: 0` on the grid **and** on every
+  flex wrapper between it and the scroll root — without it a tall child
+  grows the container instead of the inner scrollable overflowing (the
+  "scrollbar thumb hides / wheel dead" trap, fixed in `b20ebd0`).
+- **Cards:** fixed `width`/`height` (e.g. `320 × 320`), `flex_shrink: 0`
+  so a narrow viewport never crushes them, `Overflow::clip()` on the
+  card node, `border_radius` matching the theme.
+- **Static 3D chrome (dark-on-dark contrast rule):** the card fill must
+  be visibly *brighter* than the panel behind it — `CARD_BG`
+  `(0.045, 0.110, 0.210)` vs the construction backdrop
+  `(0.012, 0.024, 0.047)`. A black drop shadow is only visible when it
+  has a *spread* or *contact* layer: use the canonical
+  `widgets::card_shadow()` pair (tight 1-px-spread contact shadow +
+  soft wide cast). A single low-alpha `(0,0,0,0.45)` shadow with no
+  spread vanishes into a near-black panel (the pre-v0.5.3 flat-card bug).
+- **Interactive elevation:** every pickable card carries
+  `widgets::HoverElevation` (`hover_scale 1.02`, `press_scale 0.98`,
+  `border_hover` full `CYAN`, `bg_hover` `CARD_BG_HOVER`, deeper shadow,
+  `z_lift: true`). The shared `widgets::tick_ui_hover_elevation` system
+  (registered once in `UIPlugin::build`, `src/ui/mod.rs`) applies it:
+  scale + border + background + shadow + `ZIndex` lift on hover, restore
+  on mouse-out. **Ownership rule:** border/bg/shadow are only managed
+  when the base *and* hover values are both set — set the base to the
+  spawn-time rest value so restore doesn't flash.
+- **Hover scale uses `UiTransform` (Vec2), not `Transform` (Vec3).**
+  Bevy 0.18 UI scale/translation is applied through `UiTransform` (a
+  required component of `Node`); writing `Transform` on a UI node is
+  clobbered by the layout system.
+
+### 10.3 What *not* to do
+
+- Do not reintroduce CSS Grid for card grids (the `RepeatedGridTrack`
+  path) until Bevy's grid + `flex_grow` + `Overflow::scroll_y` sizing
+  is verified in this codebase.
+- Do not write a per-menu hover system — insert `HoverElevation` and let
+  the shared system run. Do not put a `Transform`-based scale on UI
+  nodes (see above).
+- Do not drop the `Overflow::clip()` + fixed-height card cap; content
+  that outgrows the card must scroll via the marquee or a clipped body,
+  not by growing the card (flex-wrap row heights take the tallest card —
+  mixed heights leave visible gaps).
+- Do not author `BoxShadow` literals with no spread at low alpha on dark
+  panels; use `widgets::card_shadow()` / `card_shadow_hover()`.
 
 ---
 

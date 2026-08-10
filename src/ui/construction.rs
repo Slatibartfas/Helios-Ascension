@@ -6038,13 +6038,23 @@ fn spawn_card(
                 ..default()
             },
             BackgroundColor(CARD_BG),
-            // Stronger border for a 3D "raised glass" reading — the
-            // previous CYAN_BORDER @ 50% alpha blended into the card
-            // background and the cards looked flat. Full alpha cyan
-            // at the top fades to a dim outline at the bottom via the
-            // two-tone gradient overlay spawned below, so the border
-            // reads as a beveled edge (light catches the top).
-            BorderColor::all(CARD_BORDER_BRIGHT),
+            // v0.5.3.5 neumorphism redesign (2026-08-10): per-edge
+            // `BorderColor` so the bevel has a *directional* reading.
+            // Bright top + left (light catches) at `CARD_BORDER_HIGHLIGHT`
+            // (90% alpha) and dim bottom + right (shadow falls) at
+            // `CARD_BORDER_SHADOW` (30% alpha). The previous uniform
+            // `CARD_BORDER_BRIGHT` gave every edge the same cyan tone,
+            // which killed the light direction — the cards read as
+            // flat rectangles with a 1-px cyan outline rather than
+            // raised surfaces. Per-edge borders are a native Bevy
+            // 0.18 feature (`BorderColor { top, bottom, left, right }`)
+            // so this doesn't need overlay children or a custom shader.
+            BorderColor {
+                top: CARD_BORDER_HIGHLIGHT,
+                bottom: CARD_BORDER_SHADOW,
+                left: CARD_BORDER_HIGHLIGHT,
+                right: CARD_BORDER_SHADOW,
+            },
             // v0.5.2 PR-A.9 (2026-08-05): single subtle dark drop
             // shadow for 3D lift. The previous two-layer version
             // (cyan glow halo + dark drop shadow) read as a heavy
@@ -6091,7 +6101,20 @@ fn spawn_card(
             HoverElevation {
                 hover_scale: Vec2::splat(1.02),
                 press_scale: Vec2::splat(0.98),
-                border: Some(CARD_BORDER_BRIGHT),
+                // v0.5.3.5 neumorphism: resting border is the full
+                // per-edge `BorderColor` we just set on the node
+                // (bright top + left, dim bottom + right). The tick
+                // system restores this exact bevel on mouse-out so
+                // the directional light-cue isn't lost when the
+                // cursor leaves. Hovered border stays uniform `CYAN`
+                // — a brighter, focused "selected" reading that
+                // overrides the bevel while hovered.
+                border_rest: Some(BorderColor {
+                    top: CARD_BORDER_HIGHLIGHT,
+                    bottom: CARD_BORDER_SHADOW,
+                    left: CARD_BORDER_HIGHLIGHT,
+                    right: CARD_BORDER_SHADOW,
+                }),
                 border_hover: Some(CYAN),
                 bg: Some(CARD_BG),
                 bg_hover: Some(CARD_BG_HOVER),

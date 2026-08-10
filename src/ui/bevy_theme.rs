@@ -19,10 +19,30 @@ use bevy::prelude::*;
 
 /// Body background — near-black deep navy.
 pub const BODY_BG: Color = Color::srgba(0.008, 0.039, 0.094, 1.0);
-/// Card background — translucent navy (the Earth bleeds through).
-pub const CARD_BG: Color = Color::srgba(0.031, 0.086, 0.172, 0.92);
+/// Card background — translucent navy.
+///
+/// v0.5.3 (2026-08-10): lifted from `(0.031, 0.086, 0.172)` to
+/// `(0.045, 0.110, 0.210)` so card surfaces separate from the darker
+/// panel chrome (the construction backdrop is `(0.012, 0.024, 0.047)`)
+/// — the previous value was so close to the panel that cards read
+/// flat even with a drop shadow.
+///
+/// v0.5.3.5 (2026-08-10): neumorphism redesign. Per
+/// `refactoringui.com/previews/building-your-color-palette` a
+/// card-vs-panel delta of *three or more shades* is the threshold
+/// below which the lift reads as flat on dark surfaces. The previous
+/// `(0.045, 0.110, 0.210)` was only ~1 shade brighter than the panel,
+/// so the directional border + outer cyan glow (the original
+/// "3D effect") never read. Bumped to `(0.078, 0.165, 0.290)` —
+/// ~3 shades brighter on a 0–1 luma scale while staying in the same
+/// navy hue. `CARD_BG_HOVER` is bumped one more shade to keep the
+/// "hovered = brighter" cue relative to the new resting fill.
+pub const CARD_BG: Color = Color::srgba(0.078, 0.165, 0.290, 0.92);
 /// Hovered card background — slightly brighter, also translucent.
-pub const CARD_BG_HOVER: Color = Color::srgba(0.063, 0.118, 0.227, 0.78);
+/// v0.5.3.5: bumped from `(0.063, 0.118, 0.227)` (one shade above
+/// the old `CARD_BG`) to `(0.105, 0.210, 0.345)` so the hover
+/// contrast stays one shade above the new resting fill.
+pub const CARD_BG_HOVER: Color = Color::srgba(0.105, 0.210, 0.345, 0.78);
 /// Hairline / divider — dim cyan-navy.
 pub const HAIRLINE: Color = Color::srgba(0.086, 0.188, 0.306, 1.0);
 /// Cyan accent — primary UI accent for titles, CTAs, active states.
@@ -32,6 +52,23 @@ pub const CYAN: Color = Color::srgba(0.373, 0.784, 0.847, 1.0);
 pub const CYAN_HAIRLINE: Color = Color::srgba(0.373, 0.784, 0.847, 0.16);
 /// Cyan accent at 18% alpha — for the card outer border (subtle, not bright).
 pub const CARD_BORDER: Color = Color::srgba(0.373, 0.784, 0.847, 0.18);
+/// Card top + left edge highlight — full-cyan at 90% alpha. Used by
+/// `spawn_card`'s per-edge `BorderColor` to give the bevel a
+/// directional reading (light from top-left). v0.5.3.5 neumorphism
+/// redesign.
+pub const CARD_BORDER_HIGHLIGHT: Color = Color::srgba(0.498, 0.804, 0.847, 0.90);
+/// Card bottom + right edge shadow — dim cyan at 30% alpha. The
+/// complementary darker half of the bevel; combined with
+/// [`CARD_BORDER_HIGHLIGHT`] it gives a 3D bevel reading without
+/// requiring overlay children. v0.5.3.5 neumorphism redesign.
+pub const CARD_BORDER_SHADOW: Color = Color::srgba(0.373, 0.784, 0.847, 0.30);
+
+/// v0.5.3.5: the uniform `CARD_BORDER_BRIGHT` was used for the
+/// `HoverElevation::border` swap base. `spawn_card` no longer relies
+/// on it (per-edge `BorderColor` replaces it). Kept for any future
+/// surface that wants a uniform bright cyan border.
+#[allow(dead_code)]
+pub const CARD_BORDER_BRIGHT: Color = Color::srgba(0.498, 0.804, 0.847, 0.90);
 /// Cyan accent at 50% alpha — for chip frames (clearly visible).
 pub const CYAN_BORDER: Color = Color::srgba(0.373, 0.784, 0.847, 0.50);
 /// Cyan accent at 60% alpha — for the CTA border (more visible than the chip border).
@@ -95,6 +132,13 @@ pub const YELLOW_ETA: Color = Color::srgba(0.957, 0.749, 0.349, 1.0);
 /// Top-edge inner highlight — light cyan at 80% alpha for the 3D lift
 /// effect on cards (lighter line on the inside top edge of the card,
 /// giving the impression of light hitting the top of a glass surface).
+///
+/// v0.5.3.1 (2026-08-10): the `spawn_card` rim overlay that
+/// consumed this colour was removed (the rim + bottom-shadow
+/// stacked on top of the 1-px cyan border and read as a rough
+/// double-line at the top). Kept the constant for any future
+/// per-edge gradient highlight.
+#[allow(dead_code)]
 pub const CARD_TOP_HIGHLIGHT: Color = Color::srgba(0.498, 0.733, 0.804, 0.80);
 
 // ─── Resource category palette ──────────────────────────────────────────
