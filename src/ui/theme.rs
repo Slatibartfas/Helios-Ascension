@@ -58,6 +58,10 @@ pub const SURFACE_INPUT: egui::Color32 = egui::Color32::from_rgb(16, 20, 30);
 // ─── Accent Colours ──────────────────────────────────────────────────────
 
 /// Primary cyan accent for highlights, selection, and interactive elements.
+#[deprecated(
+    since = "0.5.0",
+    note = "Use theme::CYAN (the canonical accent, re-exporting bevy_theme::CYAN). ACCENT will be removed in a future release. The new CYAN is +6% more blue and +16% less green — the intended canonical RGB for the design system."
+)]
 pub const ACCENT: egui::Color32 = egui::Color32::from_rgb(0, 242, 255);
 /// Dimmed accent (~31% alpha) for secondary outlines and inactive glyphs.
 pub const ACCENT_DIM: egui::Color32 = egui::Color32::from_rgba_premultiplied(0, 242, 255, 80);
@@ -1009,7 +1013,16 @@ pub mod Color {
 
     // ── Accent / Border ─────────────────────────────────────────
     /// Primary cyan — mirrors `ACCENT`.
+    #[deprecated(
+        since = "0.5.0",
+        note = "Use theme::Color::CYAN (the canonical accent, re-exporting bevy_theme::CYAN). ACCENT will be removed in a future release. The new CYAN is +6% more blue and +16% less green — the intended canonical RGB for the design system."
+    )]
     pub const ACCENT: Color = Color::srgb(0.0, 0.949, 1.0);
+    /// Canonical primary accent — single source of truth.
+    /// Re-exports `crate::ui::bevy_theme::CYAN` so shipbuilding widgets
+    /// and any other Bevy-UI consumer read the same canonical RGB.
+    /// Use this instead of `theme::Color::ACCENT` (deprecated).
+    pub const CYAN: Color = crate::ui::bevy_theme::CYAN;
     /// Faint accent border — mirrors `BORDER`.
     pub const BORDER: Color = Color::srgb(0.0, 0.949, 1.0);
 

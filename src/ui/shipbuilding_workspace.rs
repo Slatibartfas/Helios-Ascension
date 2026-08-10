@@ -1321,7 +1321,7 @@ fn populate_tab_strip(commands: &mut Commands, shell: WorkspaceShell, active_tab
                     theme::Color::TAB_INACTIVE_BG
                 }),
                 BorderColor::all(if selected {
-                    theme::Color::ACCENT
+                    theme::Color::CYAN
                 } else {
                     theme::Color::TAB_INACTIVE_BORDER
                 }),
@@ -1999,7 +1999,7 @@ fn populate_analytics_panel(
                 preview.delta_v_ms,
                 gauge_capacity(summary.delta_v_ms, preview.delta_v_ms, 100.0),
                 "m/s",
-                theme::Color::ACCENT,
+                theme::Color::CYAN,
             );
             spawn_analytics_gauge(
                 parent,
@@ -2039,7 +2039,7 @@ fn populate_analytics_panel(
                 preview.power_balance_mw(),
                 gauge_capacity(summary.power_balance_mw(), preview.power_balance_mw(), 5.0),
                 "MW",
-                theme::Color::ACCENT,
+                theme::Color::CYAN,
             );
             spawn_analytics_gauge(
                 parent,
@@ -2123,7 +2123,7 @@ fn populate_analytics_panel(
                         "GEN",
                         format!("{:.1} MW", summary.power_generation_mw),
                         format_delta(preview.power_generation_mw - summary.power_generation_mw, 1),
-                        theme::Color::ACCENT,
+                        theme::Color::CYAN,
                     ),
                     (
                         "LOAD",
@@ -3424,7 +3424,7 @@ fn dropdown_toggle_button(label: String, open: bool) -> impl Bundle {
         },
         BackgroundColor(theme::Color::SURFACE_DEEP),
         BorderColor::all(if open {
-            theme::Color::ACCENT
+            theme::Color::CYAN
         } else {
             theme::Color::ACCENT_CYAN_DIM_2
         }),
@@ -3454,7 +3454,7 @@ fn hull_option_button(hull_id: String, label: String, selected: bool) -> impl Bu
             theme::Color::TAB_INACTIVE_BG
         }),
         BorderColor::all(if selected {
-            theme::Color::ACCENT
+            theme::Color::CYAN
         } else {
             theme::Color::TAB_INACTIVE_BORDER
         }),
@@ -3708,7 +3708,7 @@ fn populate_archive_tab_native(
                     theme::Color::SURFACE_SLOT_BASE
                 }),
                 BorderColor::all(if selected {
-                    theme::Color::ACCENT
+                    theme::Color::CYAN
                 } else {
                     theme::Color::MINE_BAND_NONE
                 }),
@@ -3778,7 +3778,7 @@ fn populate_archive_tab_native(
                 "Open In Designer",
                 row.template_id,
                 ShipbuildingArchiveAction::Open,
-                theme::Color::ACCENT,
+                theme::Color::CYAN,
             );
             spawn_archive_action_button(
                 row_buttons,
@@ -3852,7 +3852,7 @@ fn populate_archive_tab_native(
                     theme::Color::SURFACE_SLOT_BASE
                 }),
                 BorderColor::all(if selected {
-                    theme::Color::ACCENT
+                    theme::Color::CYAN
                 } else {
                     theme::Color::MINE_BAND_NONE
                 }),
@@ -3878,7 +3878,7 @@ fn populate_archive_tab_native(
                 row.summary.delta_v_ms,
                 gauge_capacity(row.summary.delta_v_ms, row.summary.delta_v_ms, 100.0),
                 "m/s",
-                theme::Color::ACCENT,
+                theme::Color::CYAN,
             );
             spawn_analytics_gauge(
                 parent,
@@ -4032,7 +4032,7 @@ fn populate_construction_tab_native(
                     theme::Color::SURFACE_SLOT_BASE
                 }),
                 BorderColor::all(if selected {
-                    theme::Color::ACCENT
+                    theme::Color::CYAN
                 } else {
                     theme::Color::MINE_BAND_NONE
                 }),
@@ -4071,7 +4071,7 @@ fn populate_construction_tab_native(
                 theme::Color::SURFACE_SLOT_BASE
             }),
             BorderColor::all(if ui_state.construction_target_fleet.is_none() {
-                theme::Color::ACCENT
+                theme::Color::CYAN
             } else {
                 theme::Color::MINE_BAND_NONE
             }),
@@ -4103,7 +4103,7 @@ fn populate_construction_tab_native(
                     theme::Color::SURFACE_SLOT_BASE
                 }),
                 BorderColor::all(if selected {
-                    theme::Color::ACCENT
+                    theme::Color::CYAN
                 } else {
                     theme::Color::MINE_BAND_NONE
                 }),
@@ -4150,7 +4150,7 @@ fn populate_construction_tab_native(
                     theme::Color::SURFACE_SLOT_BASE
                 }),
                 BorderColor::all(if selected {
-                    theme::Color::ACCENT
+                    theme::Color::CYAN
                 } else {
                     theme::Color::MINE_BAND_NONE
                 }),
@@ -4433,7 +4433,7 @@ fn populate_components_tab_native(
                         theme::Color::SURFACE_BLACK
                     };
                     let row_border = if selected {
-                        theme::Color::ACCENT
+                        theme::Color::CYAN
                     } else if engineering_complete {
                         theme::Color::MINE_BAND_NONE
                     } else {
@@ -4607,7 +4607,7 @@ fn populate_components_tab_native(
                     1.0,
                 ),
                 "MW",
-                theme::Color::ACCENT,
+                theme::Color::CYAN,
             );
             spawn_analytics_chip_row(
                 parent,

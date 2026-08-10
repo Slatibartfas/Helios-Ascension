@@ -11,8 +11,6 @@
 //! would force the file to bridge two render systems. A separate module
 //! keeps the blast radius small and the diff reviewable.
 
-#![allow(dead_code)]
-
 use bevy::prelude::*;
 
 // ─── Palette ──────────────────────────────────────────────────────────────
@@ -47,9 +45,6 @@ pub const CARD_BG_HOVER: Color = Color::srgba(0.105, 0.210, 0.345, 0.78);
 pub const HAIRLINE: Color = Color::srgba(0.086, 0.188, 0.306, 1.0);
 /// Cyan accent — primary UI accent for titles, CTAs, active states.
 pub const CYAN: Color = Color::srgba(0.373, 0.784, 0.847, 1.0);
-/// Cyan accent at 16% alpha — for hairlines and 1px borders.
-#[allow(dead_code)]
-pub const CYAN_HAIRLINE: Color = Color::srgba(0.373, 0.784, 0.847, 0.16);
 /// Cyan accent at 18% alpha — for the card outer border (subtle, not bright).
 pub const CARD_BORDER: Color = Color::srgba(0.373, 0.784, 0.847, 0.18);
 /// Card top + left edge highlight — full-cyan at 90% alpha. Used by
@@ -63,28 +58,16 @@ pub const CARD_BORDER_HIGHLIGHT: Color = Color::srgba(0.498, 0.804, 0.847, 0.90)
 /// requiring overlay children. v0.5.3.5 neumorphism redesign.
 pub const CARD_BORDER_SHADOW: Color = Color::srgba(0.373, 0.784, 0.847, 0.30);
 
-/// v0.5.3.5: the uniform `CARD_BORDER_BRIGHT` was used for the
-/// `HoverElevation::border` swap base. `spawn_card` no longer relies
-/// on it (per-edge `BorderColor` replaces it). Kept for any future
-/// surface that wants a uniform bright cyan border.
-#[allow(dead_code)]
-pub const CARD_BORDER_BRIGHT: Color = Color::srgba(0.498, 0.804, 0.847, 0.90);
 /// Cyan accent at 50% alpha — for chip frames (clearly visible).
 pub const CYAN_BORDER: Color = Color::srgba(0.373, 0.784, 0.847, 0.50);
 /// Cyan accent at 60% alpha — for the CTA border (more visible than the chip border).
 pub const CYAN_BORDER_STRONG: Color = Color::srgba(0.373, 0.784, 0.847, 0.60);
 /// Cyan accent at 65% alpha — for the inner top-edge highlight (the "glass rim").
 pub const CYAN_RIM: Color = Color::srgba(0.373, 0.784, 0.847, 0.65);
-/// Cyan accent at 100% alpha — for active CTAs.
-#[allow(dead_code)]
-pub const CYAN_FILLED: Color = Color::srgba(0.373, 0.784, 0.847, 1.0);
 /// Dim text — subtitles, captions, effect bullets.
 pub const TEXT_DIM: Color = Color::srgba(0.498, 0.580, 0.659, 1.0);
 /// Brighter text — body content.
 pub const TEXT_BODY: Color = Color::srgba(0.831, 0.890, 0.937, 1.0);
-/// Category chip color (cyan).
-#[allow(dead_code)]
-pub const CHIP_CYAN: Color = Color::srgba(0.373, 0.784, 0.847, 1.0);
 /// Resource-state ore (orange) — StatsGrid tone.
 pub const ORANGE_ORE: Color = Color::srgba(0.941, 0.627, 0.439, 1.0);
 /// Resource-state green (finished product).
@@ -129,17 +112,6 @@ pub const ACTIVE_CHIP_TEXT: Color = Color::WHITE;
 pub const GREEN_OK: Color = Color::srgba(0.373, 0.784, 0.471, 1.0);
 /// Yellow — used for ETA / time-remaining indicators.
 pub const YELLOW_ETA: Color = Color::srgba(0.957, 0.749, 0.349, 1.0);
-/// Top-edge inner highlight — light cyan at 80% alpha for the 3D lift
-/// effect on cards (lighter line on the inside top edge of the card,
-/// giving the impression of light hitting the top of a glass surface).
-///
-/// v0.5.3.1 (2026-08-10): the `spawn_card` rim overlay that
-/// consumed this colour was removed (the rim + bottom-shadow
-/// stacked on top of the 1-px cyan border and read as a rough
-/// double-line at the top). Kept the constant for any future
-/// per-edge gradient highlight.
-#[allow(dead_code)]
-pub const CARD_TOP_HIGHLIGHT: Color = Color::srgba(0.498, 0.733, 0.804, 0.80);
 
 // ─── Resource category palette ──────────────────────────────────────────
 //
@@ -227,20 +199,12 @@ pub const CTA_FOOTPRINT: f32 = 56.0;
 
 /// Height of the global top AppBar (panel title + subtitle row).
 pub const APPBAR_H: f32 = 46.0;
-/// Height of the global resource strip (Treasury / Balance / Energy / Active Colony).
-pub const RESOURCE_STRIP_H: f32 = 36.0;
 /// Height of the tab strip (Overview / Buildings / Build / Stockpiles).
 pub const TAB_STRIP_H: f32 = 44.0;
-/// Height of the underline indicator on the active tab / filter / category
-/// chip. Tight (2 px) so it reads as a single line, not a separate row.
-pub const TAB_UNDERLINE_H: f32 = 2.0;
 /// Font size for the sub-tab row (Overview / Buildings / Build /
 /// Stockpiles). Bigger than the chip default (16) so the top-level
 /// section selector reads as the dominant control in the panel.
 pub const TAB_FONT_SIZE: f32 = 18.0;
-/// Height of the category chip row.
-#[allow(dead_code)]
-pub const CHIP_ROW_H: f32 = 28.0;
 
 /// Height of a single chip (tab / build qty / filter / category). 24 px
 /// matches the prototype's compact chip style.
@@ -253,111 +217,6 @@ pub const SUBTITLE_SIZE: f32 = 14.0;
 pub const SECTION_SIZE: f32 = 16.0;
 pub const BODY_SIZE: f32 = 14.0;
 pub const CAPTION_SIZE: f32 = 12.0;
-#[allow(dead_code)]
-pub const MONO_SIZE: f32 = 12.0;
-
-// ─── AppBar Bundle ────────────────────────────────────────────────────────
-
-/// Bundle for the top AppBar (panel title + subtitle row).
-///
-/// The AppBar is a Flex row, 46 px tall, no visible border, with the title
-/// left-aligned and the subtitle inline next to it. The body of the
-/// component tree is responsible for any other content (status pip, etc).
-///
-/// The bundle includes `Name` so the spawned entity is debuggable in the
-/// Bevy scene view.
-#[derive(Bundle, Clone)]
-pub struct AppBarBundle {
-    pub node: Node,
-    pub bg: BackgroundColor,
-    pub name: Name,
-}
-
-impl Default for AppBarBundle {
-    fn default() -> Self {
-        Self {
-            node: Node {
-                display: Display::Flex,
-                flex_direction: FlexDirection::Row,
-                align_items: AlignItems::Center,
-                height: Val::Px(APPBAR_H),
-                padding: UiRect::horizontal(Val::Px(SPACE_LG)),
-                column_gap: Val::Px(SPACE_XL),
-                ..default()
-            },
-            bg: BackgroundColor(BODY_BG),
-            name: Name::new("appbar"),
-        }
-    }
-}
-
-// ─── Card Bundle ──────────────────────────────────────────────────────────
-
-/// Bundle for the build-card style (4-column grid item).
-///
-/// The card is a Flex column with 12 px internal padding, 12 px gap, and
-/// a 1 px cyan border at 30% alpha. The card body content is added by the
-/// caller as children.
-#[derive(Bundle, Clone)]
-pub struct CardBundle {
-    pub node: Node,
-    pub bg: BackgroundColor,
-    pub border: BorderColor,
-    pub name: Name,
-}
-
-impl Default for CardBundle {
-    fn default() -> Self {
-        Self {
-            node: Node {
-                display: Display::Flex,
-                flex_direction: FlexDirection::Column,
-                padding: UiRect::all(Val::Px(SPACE_LG)),
-                row_gap: Val::Px(SPACE_SM),
-                border: UiRect::all(Val::Px(1.0)),
-                border_radius: BorderRadius::all(Val::Px(4.0)),
-                ..default()
-            },
-            bg: BackgroundColor(CARD_BG),
-            border: BorderColor::all(CARD_BORDER),
-            name: Name::new("card"),
-        }
-    }
-}
-
-// ─── Filled CTA Bundle ────────────────────────────────────────────────────
-
-/// Bundle for the filled cyan CTA button (e.g. "Queue").
-#[derive(Bundle, Clone)]
-pub struct CtaBundle {
-    pub node: Node,
-    pub bg: BackgroundColor,
-    pub border: BorderColor,
-    pub interaction: Interaction,
-    pub name: Name,
-}
-
-impl Default for CtaBundle {
-    fn default() -> Self {
-        Self {
-            node: Node {
-                display: Display::Flex,
-                flex_direction: FlexDirection::Row,
-                align_items: AlignItems::Center,
-                justify_content: JustifyContent::Center,
-                height: Val::Px(24.0),
-                padding: UiRect::horizontal(Val::Px(SPACE_MD)),
-                border: UiRect::all(Val::Px(1.0)),
-                border_radius: BorderRadius::all(Val::Px(3.0)),
-                ..default()
-            },
-            bg: BackgroundColor(CTA_FILL),
-            border: BorderColor::all(CYAN_BORDER),
-            interaction: Interaction::None,
-            name: Name::new("cta"),
-        }
-    }
-}
 
 // ─── Hairline Divider Bundle ──────────────────────────────────────────────
 
@@ -452,24 +311,6 @@ pub fn format_duration_padded(total_seconds: f64) -> String {
     let seconds = s as u32;
 
     format!("{:02}d {:02}h {:02}m {:02}s", days, hours, minutes, seconds)
-}
-
-/// Spawn a `Text` entity with the given content, font, size, and color.
-///
-/// Convenience wrapper that wraps `Text`, `TextFont`, `TextColor`,
-/// `TextLayout` in a bundle. The text is left-aligned by default.
-#[allow(dead_code)]
-pub fn text_components(text: &str, font: Handle<Font>, size: f32, color: Color) -> impl Bundle {
-    (
-        Text::new(text),
-        TextFont {
-            font,
-            font_size: size,
-            ..default()
-        },
-        TextColor(color),
-        TextLayout::default(),
-    )
 }
 
 // ─── Chip Button ────────────────────────────────────────────────────────────
@@ -646,14 +487,21 @@ pub fn tick_chip_button_hover(
             &mut UiTransform,
             &Children,
         ),
-        // v0.5.2 (2026-08-05 audit): scope to chips ONLY. The old
-        // `With<Button>` filter matched EVERY Button in the world —
-        // the queue panel's cancel buttons, the demolish buttons,
-        // the colony-dropdown options, even unrelated in-game UI —
-        // and re-painted their background / scale / text every frame
-        // (the "huge compute for a simple menu" sink). Chips are the
-        // only Button entities carrying `ChipKind`; the filter keeps
-        // this system on the ~25 chip entities it's meant for.
+        // PERF-CRITICAL filter: dropping `With<ChipKind>` matches every
+        // Button in the world and triggers the v0.5.0-era "huge compute
+        // for a simple menu" sink. This filter is the only thing scoping
+        // the system to chip entities. Phase 2 will delete the `ChipKind`
+        // enum entirely; the filter will be replaced with a generic chip
+        // marker (`widgets::ChipButton`) that is added to every chip at
+        // spawn time.
+        //
+        // v0.5.2 (2026-08-05 audit) provenance: the old bare
+        // `With<Button>` filter matched the queue panel's cancel buttons,
+        // the demolish buttons, the colony-dropdown options, even
+        // unrelated in-game UI — and re-painted their background / scale
+        // / text every frame. Chips are the only Button entities carrying
+        // `ChipKind`; the filter keeps this system on the ~25 chip
+        // entities it's meant for.
         (With<Button>, With<super::construction::ChipKind>),
     >,
     mut text_query: Query<&mut TextColor, With<ChipTextNode>>,
@@ -714,7 +562,17 @@ pub fn tick_chip_button_hover(
 /// by the construction UI's static selection (e.g. "Build" tab, "All"
 /// filter, "x1" build qty, "Infrastructure" category). Real interactivity
 /// (clicking to toggle active state) is Phase C4 work.
-
+///
+/// **Phase 2 dependency note.** The explicit kind-vs-`ActiveChips` match
+/// below is the coupling that keeps this theme module dependent on
+/// `super::construction`: it reads both `super::construction::ChipKind`
+/// (the per-chip identity component) and
+/// `Res<super::construction::ActiveChips>` (the single source of truth for
+/// which chip in each row is selected). The match is correct as written —
+/// no code change is needed here. Phase 2 moves this system, together with
+/// `tick_chip_button_hover` and `tick_active_chip_glow`, into `widgets.rs`,
+/// at which point `ChipKind` is deleted and the selection state is read
+/// through the generic chip marker instead of the construction module.
 pub fn tick_chip_button_active_overlay(
     mut chips: Query<
         (
@@ -770,6 +628,13 @@ pub fn tick_chip_button_active_overlay(
 /// clicks across rows (e.g. tab "Build" → tab "Overview" must move the
 /// glow from the Build tab to the Overview tab, not leave it stuck on
 /// Build). Cost is negligible: < 30 chips per frame.
+///
+/// **Phase 2 dependency note.** Like `tick_chip_button_active_overlay`,
+/// this system matches `super::construction::ChipKind` against
+/// `Res<super::construction::ActiveChips>` to decide which chip is
+/// selected. That pair is the construction-module coupling Phase 2 moves
+/// into `widgets.rs`; the `ChipKind` enum is deleted there and replaced by
+/// a generic chip marker. No code change is needed here in Phase 1.
 pub fn tick_active_chip_glow(
     mut commands: Commands,
     chips: Query<(Entity, &super::construction::ChipKind, Option<&BoxShadow>), With<Button>>,
@@ -799,12 +664,6 @@ pub fn tick_active_chip_glow(
         }
     }
 }
-
-/// Marker for a chip that should be visually rendered as active. Set this
-/// on chips whose `is_active` was true at spawn time, so the overlay
-/// system can find them.
-#[derive(Component)]
-pub struct ChipActive;
 
 /// Bundle for a horizontal row of chip buttons wrapped in a single
 /// bordered container (Build qty, Filter, Category rows in the
