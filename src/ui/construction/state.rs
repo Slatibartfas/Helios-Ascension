@@ -529,42 +529,6 @@ pub struct DemolishConfirmState {
     pub count: u32,
 }
 
-// Resource: hover-driven tooltip state for the construction canary.
-//
-// When the player hovers over a disabled Queue CTA (one they can't
-// afford at the current multiplier), `tick_construction_tooltip`
-// populates `text` with a short reason and flips `visible` to true.
-// The `update_tooltip_text` system mirrors that to the on-screen
-// tooltip Text node each frame so the player sees *why* the button
-// is greyed out.
-#[derive(Debug, Default, Resource)]
-pub struct ConstructionTooltipState {
-    pub text: String,
-    pub visible: bool,
-}
-
-// v0.5.2 (build menu fix): cursor-following tooltip for disabled
-// Queue CTAs (resource-shortage OR body-blocked). The
-// `tick_construction_tooltip` system populates this from the
-// per-frame CTA scan; the `update_queue_button_tooltip` system
-// positions a singleton overlay at the cursor and writes the
-// lines to its text node. Mirrors the resource-cost chip
-// tooltip pattern at `ResourceCostHoverState` /
-// `update_resource_cost_tooltip`, but with a multi-line
-// payload (the `Missing:` list) instead of a single line.
-#[derive(Debug, Default, Resource)]
-pub struct QueueButtonTooltipState {
-    // Entity id of the CTA the cursor is currently hovering, so
-    // the per-frame system can guard against stale state (the
-    // CTA may be despawned between frames when the player
-    // switches sub-tabs, multiplier, or colony).
-    pub hovered_cta: Option<Entity>,
-    // Pre-formatted lines, one per row of the tooltip. The
-    // per-frame system writes them into the overlay's Text node
-    // verbatim — no further formatting / wrapping.
-    pub lines: Vec<String>,
-}
-
 // Marker component on the **root** of each sub-tab body. The canary
 // spawns one of these per sub-tab (Overview / Buildings / Build /
 // Stockpiles) at setup time, all as children of the `ConstructionRoot`.

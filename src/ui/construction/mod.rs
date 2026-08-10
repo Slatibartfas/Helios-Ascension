@@ -98,8 +98,8 @@ pub use state::{
     ConstructionQueue, ConstructionState, ConstructionTab, ConstructionTabBody,
     ConstructionUiState, ConstructionUiState as ConstructionUiStateExport,
     DemolishConfirmState, MiningGroupId, QueuedBuild, QueuePanelState,
-    card_eta_seconds, queue_remaining_seconds, ConstructionTooltipState,
-    QueueButtonTooltipState, ShowOnBuildOrBuildings,
+    card_eta_seconds, queue_remaining_seconds,
+    ShowOnBuildOrBuildings,
     MINING_GROUPS_ORBITAL, MINING_GROUPS_SURFACE,
 };
 
@@ -119,16 +119,14 @@ pub use markers::{
     ConstructionCard, ConstructionCta, ConstructionCtaBodyBlocked, ConstructionCtaDisabled,
     ConstructionCtaLabelMarker, ConstructionRoot, ConstructionScrollbarThumb,
     ConstructionScrollbarTrack, ConstructionSubtitle, ConstructionTitle,
-    ConstructionTooltipText, DemolishButton, DemolishButtonLabel, DemolishConfirmDialog,
+    DemolishButton, DemolishButtonLabel, DemolishConfirmDialog,
     DemolishConfirmNo, DemolishConfirmSubtitle, DemolishConfirmTitle, DemolishConfirmYes,
-    DemolishDisabled, DemolishMultiplierSource, HoveredChipData, HoveredPowerChipData,
+    DemolishDisabled, DemolishMultiplierSource,
     MiningCard, MiningContent, MiningGroupBody, MiningGroupHeader, MiningOrbitalBody,
-    OpenQueueChip, PowerChip, PowerChipHoverState,
-    PowerChipTooltipOverlay, PowerChipTooltipText, QueueButtonTooltipOverlay,
-    QueueButtonTooltipText, QueuePanelBody, QueuePanelClose, QueuePanelRoot,
+    OpenQueueChip, PowerChip,
+    QueuePanelBody, QueuePanelClose, QueuePanelRoot,
     QueuePanelRow, QueuePanelRowCancel, QueuePanelRowEta, QueuePanelRowFill,
-    QueuePanelSummaryText, ResourceCostChip, ResourceCostHoverState,
-    ResourceCostTooltipOverlay, ResourceCostTooltipText, SubtitleMarquee,
+    QueuePanelSummaryText, ResourceCostChip, SubtitleMarquee,
 };
 pub use overview::{
     OverviewQueueContent, OverviewQueueRow, OverviewQueueRowFillChild,
@@ -185,9 +183,8 @@ pub use dropdown::{
 // Tooltip
 pub use tooltip::{
     on_chip_hover_out, on_chip_hover_over, on_power_chip_hover_out,
-    on_power_chip_hover_over, tick_construction_chip_click, tick_construction_tooltip,
-    update_construction_tooltip, update_power_chip_tooltip, update_queue_button_tooltip,
-    update_resource_cost_tooltip,
+    on_power_chip_hover_over, spawn_construction_tooltip_overlay,
+    tick_construction_chip_click, tick_construction_tooltip,
 };
 
 // Scrollbar
@@ -260,8 +257,7 @@ pub fn tick_construction_state(
     active_menu: Res<ActiveMenu>,
     mut state: ResMut<ConstructionState>,
     mut root_query: Query<&mut Visibility, With<ConstructionRoot>>,
-    mut tooltip_state: ResMut<ConstructionTooltipState>,
-    mut queue_tooltip: ResMut<QueueButtonTooltipState>,
+    mut tooltip_request: ResMut<crate::ui::widgets::TooltipRequest>,
     mut demolish_state: ResMut<DemolishConfirmState>,
     mut dropdown_state: ResMut<ColonyDropdownState>,
     mut queue_panel_state: ResMut<QueuePanelState>,
@@ -279,8 +275,7 @@ pub fn tick_construction_state(
         for mut v in root_query.iter_mut() {
             *v = Visibility::Hidden;
         }
-        *tooltip_state = ConstructionTooltipState::default();
-        *queue_tooltip = QueueButtonTooltipState::default();
+        *tooltip_request = crate::ui::widgets::TooltipRequest::default();
         *demolish_state = DemolishConfirmState::default();
         dropdown_state.open = false;
         queue_panel_state.open = false;
@@ -291,6 +286,11 @@ pub fn tick_construction_state(
 fn construction_menu_open(state: Res<ConstructionState>) -> bool {
     *state == ConstructionState::On
 }
+
+// Phase 4: canary root's `top: 126.0` (see `setup_construction`).
+// Passed to `widgets::tick_tooltip` so cursor coords are translated
+// from window-space into the overlay's local frame.
+const CONSTRUCTION_CANARY_TOP_PX: f32 = 126.0;
 
 // Plugin: registers the Construction canary on `bevy_ui`.
 pub struct ConstructionPlugin;
@@ -303,10 +303,7 @@ impl Plugin for ConstructionPlugin {
             .init_resource::<QueuePanelState>()
             .init_resource::<ColonyDropdownState>()
             .init_resource::<DemolishConfirmState>()
-            .init_resource::<ConstructionTooltipState>()
-            .init_resource::<QueueButtonTooltipState>()
-            .init_resource::<ResourceCostHoverState>()
-            .init_resource::<PowerChipHoverState>()
+            .init_resource::<crate::ui::widgets::TooltipRequest>()
             .init_resource::<ConstructionScrollbarMetrics>()
             .init_resource::<scrollbar::ScrollbarDragState>()
             .add_systems(
@@ -320,8 +317,6 @@ impl Plugin for ConstructionPlugin {
             )
             .add_systems(Update, process_building_icons)
             .add_systems(Update, tick_construction_state)
-            .add_systems(Update, update_resource_cost_tooltip.run_if(construction_menu_open))
-            .add_systems(Update, update_power_chip_tooltip.run_if(construction_menu_open))
             .add_systems(Update, tick_construction_cta_hover.run_if(construction_menu_open))
             .add_systems(Update, tick_subtitle_marquee.run_if(construction_menu_open))
             .add_systems(Update, tick_construction_scrollbar.run_if(construction_menu_open))
@@ -392,14 +387,22 @@ impl Plugin for ConstructionPlugin {
             )
             .add_systems(
                 Update,
-                (
-                    tick_construction_tooltip
-                        .after(tick_construction_cta_disabled)
-                        .run_if(construction_menu_open),
-                    update_construction_tooltip.run_if(construction_menu_open),
-                ),
+                tick_construction_tooltip
+                    .after(tick_construction_cta_disabled)
+                    .run_if(construction_menu_open),
             )
-            .add_systems(Update, update_queue_button_tooltip.run_if(construction_menu_open))
+            // Phase 4: the generic tooltip driver. Reads
+            // `TooltipRequest` (written by hover observers + the
+            // CTA scan), applies 250 ms latency, positions the
+            // overlay next to the cursor with viewport clamping.
+            // `top_offset_px: 126.0` translates window-space cursor
+            // coords into the canary root's local frame.
+            .add_systems(
+                Update,
+                tick_construction_tooltip_with_offset
+                    .after(tick_construction_tooltip)
+                    .run_if(construction_menu_open),
+            )
             .add_systems(
                 Update,
                 tick_construction_cta_label_dim
@@ -417,6 +420,45 @@ impl Plugin for ConstructionPlugin {
                     .run_if(construction_menu_open),
             );
     }
+}
+
+// Phase 4 adapter: the generic `widgets::tick_tooltip` takes a
+// `top_offset_px: f32` parameter, but `add_systems` requires a
+// system with no extra params. This thin shim supplies the
+// canary-root offset (126.0) at registration time.
+fn tick_construction_tooltip_with_offset(
+    commands: Commands,
+    time: Res<Time>,
+    primary_window: Query<&bevy::window::Window, With<bevy::window::PrimaryWindow>>,
+    request: Res<crate::ui::widgets::TooltipRequest>,
+    overlay_node: bevy::ecs::system::Single<&mut Node, With<crate::ui::widgets::TooltipOverlay>>,
+    title_text: bevy::ecs::system::Single<
+        &mut Text,
+        (
+            With<crate::ui::widgets::TooltipTitle>,
+            Without<crate::ui::widgets::TooltipBody>,
+        ),
+    >,
+    body_children: Query<&Children>,
+    body_entity_q: bevy::ecs::system::Single<
+        Entity,
+        (
+            With<crate::ui::widgets::TooltipBody>,
+            Without<crate::ui::widgets::TooltipTitle>,
+        ),
+    >,
+) {
+    crate::ui::widgets::tick_tooltip(
+        commands,
+        time,
+        primary_window,
+        request,
+        overlay_node,
+        title_text,
+        body_children,
+        body_entity_q,
+        CONSTRUCTION_CANARY_TOP_PX,
+    );
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────

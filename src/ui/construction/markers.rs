@@ -7,21 +7,6 @@
 
 use bevy::prelude::*;
 
-// Marker on the singleton cursor-following overlay for the
-// disabled Queue CTA tooltip. Spawned once at panel setup time
-// (alongside `ResourceCostTooltipOverlay` / `PowerChipTooltipOverlay`);
-// populated each frame by `update_queue_button_tooltip` from
-// `QueueButtonTooltipState`. Same ZIndex as the chip tooltips
-// (20) so it draws on top of card chrome but below the topbar.
-#[derive(Component)]
-pub struct QueueButtonTooltipOverlay;
-
-// Marker on the inner text node of the overlay. The update
-// system uses `Single<&mut Text, With<…>>` so it doesn't have
-// to walk a Children hierarchy.
-#[derive(Component)]
-pub struct QueueButtonTooltipText;
-
 // Marker component for the canary root container.
 #[derive(Component)]
 pub struct ConstructionRoot;
@@ -131,12 +116,6 @@ pub struct ColonyPickerText;
 // colonies changes.
 #[derive(Component)]
 pub struct ColonyDropdownOptionText;
-
-// Marker on the canary's hover tooltip text. The
-// `update_construction_tooltip` system reads `ConstructionTooltipState`
-// every frame and writes the text + toggles visibility.
-#[derive(Component)]
-pub struct ConstructionTooltipText;
 
 // Marker component for the marquee track that wraps an overflowing
 // build-card subtitle. The track holds two copies of the subtitle
@@ -294,96 +273,17 @@ pub struct ResourceCostChip {
     pub card: Entity,
 }
 
-// Marker on the singleton cost-chip hover tooltip overlay.
-// Spawned once at panel setup time (parented to the
-// construction `root`), populated each frame by
-// [`update_resource_cost_tooltip`] from
-// [`ResourceCostHoverState`]. Visual style mirrors the 3D
-// body-hover tooltip (`src/ui/mod.rs::ui_hover_tooltip`):
-// `TOOLTIP_BG` fill, cyan border, lg inner margin — so the
-// panel chrome and the world tooltips read as the same
-// design language.
-#[derive(Component)]
-pub struct ResourceCostTooltipOverlay;
-
-// Marker on the inner text node of the overlay. The update
-// system finds the text via `Single<&mut Text, With<…>>` so
-// it doesn't have to walk a Children hierarchy.
-#[derive(Component)]
-pub struct ResourceCostTooltipText;
-
-// Resource tracking which cost chip (if any) the cursor is
-// currently hovering. The `Pointer<Over>` observer writes
-// `Some(…)` on hover-in and the `Pointer<Out>` observer
-// writes `None` on hover-out. The `update_resource_cost_tooltip`
-// system reads this each frame to drive the overlay's
-// text/colour/position.
-//
-// Cloning the small `String` data on every hover is cheap
-// (a hover can only happen on one chip at a time, and the
-// hovered chip is one of a few visible chips in the panel).
-#[derive(Resource, Default)]
-pub struct ResourceCostHoverState {
-    pub chip: Option<HoveredChipData>,
-}
-
-// Snapshot of a hovered chip's display data. The
-// `category` field is the chip's category tint
-// (Construction / Volatiles / Fissile / etc.) so the
-// overlay's text can match the chip's hue. `entity` is
-// the chip entity id and is mainly there for debug logs.
-#[derive(Clone)]
-pub struct HoveredChipData {
-    pub name: String,
-    pub amount: String,
-    pub category: Color,
-    pub entity: Entity,
-}
-
 // Carries the tooltip payload for one Power chip. Attached
 // to the chip entity at spawn time; the observer reads it on
-// `Pointer<Over>` and snapshots the lines + tone into
-// [`PowerChipHoverState`]. The `card` field is the host card's
-// entity id — kept for future per-card context (e.g. showing
-// the batch's combined cost in the tooltip).
+// `Pointer<Over>` and writes the lines + tone into
+// [`crate::ui::widgets::TooltipRequest`]. The `card` field is
+// the host card's entity id — kept for future per-card context
+// (e.g. showing the batch's combined cost in the tooltip).
 #[derive(Component, Clone)]
 pub struct PowerChip {
     pub tooltip_lines: Vec<String>,
     pub tone: Color,
     pub card: Entity,
-}
-
-// Marker on the singleton power-chip hover tooltip overlay.
-// Spawned once at panel setup time (alongside
-// `ResourceCostTooltipOverlay`); populated each frame by
-// [`update_power_chip_tooltip`].
-#[derive(Component)]
-pub struct PowerChipTooltipOverlay;
-
-// Marker on the inner text node of the power-chip overlay.
-#[derive(Component)]
-pub struct PowerChipTooltipText;
-
-// Resource tracking which power chip (if any) the cursor is
-// currently hovering. Same write/read pattern as
-// [`ResourceCostHoverState`].
-#[derive(Resource, Default)]
-pub struct PowerChipHoverState {
-    pub chip: Option<HoveredPowerChipData>,
-}
-
-// Snapshot of a hovered power chip's display data. The
-// `tone` field is the chip's colour (GREEN_FIN for
-// fitting demand / production, ORANGE_ORE for
-// insufficient demand, TEXT_BODY for no-power-interaction)
-// so the overlay's text matches the chip's hue. `entity`
-// is the chip entity id, used by the hover-out observer
-// to guard against stale events from sibling elements.
-#[derive(Clone)]
-pub struct HoveredPowerChipData {
-    pub tooltip_lines: Vec<String>,
-    pub tone: Color,
-    pub entity: Entity,
 }
 
 // Marker on a single mine / AutoMine card's outer container.

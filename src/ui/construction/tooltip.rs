@@ -1,237 +1,239 @@
 //! Tooltip systems for the construction UI.
 //!
-//! Two flavours of tooltip:
-//! - Cursor-following hover overlays for resource-cost chips,
-//!   power chips, and the Queue CTA (multi-line "Missing:" payload)
-//! - The legacy bottom-left text tooltip (single-line, mirrors the
-//!   cursor-following version)
+//! Phase 4 (2026-08-10): ported off the four per-overlay hover-state
+//! resources (`ResourceCostHoverState`, `PowerChipHoverState`,
+//! `QueueButtonTooltipState`, `ConstructionTooltipState`) and the four
+//! per-frame driver systems onto the generic
+//! [`crate::ui::widgets::TooltipRequest`] /
+//! [`crate::ui::widgets::tick_tooltip`] primitive. All four tooltip
+//! surfaces (ResourceCostChip, PowerChip, Queue CTA, disabled CTA)
+//! now route through a single overlay that
+//! [`crate::ui::widgets::tick_tooltip`] positions at the cursor.
 
 use bevy::picking::events::{Out, Over, Pointer};
 use bevy::prelude::*;
-use bevy::window::PrimaryWindow;
 
 use crate::ui::bevy_theme::*;
 use super::data::{format_mining_reserve, format_power};
 use super::markers::*;
 use super::state::*;
-use crate::ui::widgets::{ActiveChips, ChipGroup};
-use crate::game_state::{ActiveMenu, GameMenu};
+use crate::ui::widgets::{
+    ChipGroup, TooltipBody, TooltipContent, TooltipEntry, TooltipOverlay,
+    TooltipRequest, TooltipTitle, TooltipTone,
+};
+
+// ── Hover observers ───────────────────────────────────────────────
 
 // Observer: on `Pointer<Over>`, snapshot the hovered chip's
-// `ResourceCostChip` data into [`ResourceCostHoverState`].
-// The `update_resource_cost_tooltip` system reads that
-// resource each frame to populate the singleton overlay.
-//
-// The observer doesn't touch the overlay entity directly
-// — pointer observers shouldn't mutate other entities'
-// per-frame state. The system handles the visible position
-// + text + colour work because the overlay's `left/top`
-// must be set from the live cursor position, which the
-// observer doesn't have.
+// `ResourceCostChip` data into [`TooltipRequest`]. The
+// generic `tick_tooltip` system reads that resource each
+// frame to populate the singleton overlay.
 pub fn on_chip_hover_over(
     on: On<Pointer<Over>>,
     chip_query: Query<&ResourceCostChip>,
-    mut hover_state: ResMut<ResourceCostHoverState>,
+    time: Res<Time>,
+    mut request: ResMut<TooltipRequest>,
 ) {
     let Ok(chip) = chip_query.get(on.entity) else {
         return;
     };
-    hover_state.chip = Some(HoveredChipData {
-        name: chip.name.clone(),
-        amount: chip.amount.clone(),
-        category: chip.category,
-        entity: on.entity,
+    request.content = Some(TooltipContent {
+        title: chip.name.clone(),
+        entries: vec![TooltipEntry::Stat {
+            label: chip.name.clone(),
+            value: chip.amount.clone(),
+            tone: tone_for_chip_color(chip.category),
+        }],
     });
+    request.hover_started_at = Some(time.elapsed_secs());
 }
 
-// Observer: on `Pointer<Out>`, clear the hover state if the
-// cursor left the chip we're currently tracking. `Pointer<Out>`
-// fires once per entity whose bounds the cursor leaves; we
-// compare against `hover_state.chip.entity` so the state
-// isn't cleared by a stale event from a sibling element.
-pub fn on_chip_hover_out(on: On<Pointer<Out>>, mut hover_state: ResMut<ResourceCostHoverState>) {
-    if let Some(current) = &hover_state.chip {
-        if current.entity == on.entity {
-            hover_state.chip = None;
-        }
+// Observer: on `Pointer<Out>`, clear the request iff the request
+// currently reflects the chip the cursor just left. We check the
+// request's title against the chip's display name (cheap `String`
+// compare) so a stale Out from a sibling chip doesn't drop a
+// freshly-set tooltip.
+pub fn on_chip_hover_out(
+    on: On<Pointer<Out>>,
+    chip_query: Query<&ResourceCostChip>,
+    mut request: ResMut<TooltipRequest>,
+) {
+    let Ok(chip) = chip_query.get(on.entity) else {
+        return;
+    };
+    let should_clear = request
+        .content
+        .as_ref()
+        .map(|c| c.title == chip.name)
+        .unwrap_or(false);
+    if should_clear {
+        request.content = None;
+        request.hover_started_at = None;
     }
 }
 
-// ── Power chip tooltip (v0.5.2 PR-A.7, 2026-08-04) ──────────────
+// ── Power chip tooltip ────────────────────────────────────────────
 
 // Observer: on `Pointer<Over>`, snapshot the hovered power
-// chip's `PowerChip` data into [`PowerChipHoverState`].
+// chip's `PowerChip` data into [`TooltipRequest`].
 pub fn on_power_chip_hover_over(
     on: On<Pointer<Over>>,
     chip_query: Query<&PowerChip>,
-    mut hover_state: ResMut<PowerChipHoverState>,
+    time: Res<Time>,
+    mut request: ResMut<TooltipRequest>,
 ) {
     let Ok(chip) = chip_query.get(on.entity) else {
         return;
     };
-    hover_state.chip = Some(HoveredPowerChipData {
-        tooltip_lines: chip.tooltip_lines.clone(),
-        tone: chip.tone,
-        entity: on.entity,
-    });
+    // Build a single Stat entry carrying the tone for the chip; the
+    // body renderer in `populate_tooltip_body` respects `Stat::tone`
+    // when picking the value's text colour.
+    let mut entries: Vec<TooltipEntry> = Vec::new();
+    if let Some((first, rest)) = chip.tooltip_lines.split_first() {
+        // First line becomes the Stat row's label, the rest of the
+        // lines are Paragraph rows beneath it (rendered muted). The
+        // tone from the chip is applied to the Stat value.
+        let value = rest.first().cloned().unwrap_or_default();
+        entries.push(TooltipEntry::Stat {
+            label: first.clone(),
+            value,
+            tone: tone_for_chip_color(chip.tone),
+        });
+        for line in rest.iter().skip(1) {
+            entries.push(TooltipEntry::Paragraph(line.clone()));
+        }
+    }
+    let title = chip
+        .tooltip_lines
+        .first()
+        .cloned()
+        .unwrap_or_else(|| "Power".to_string());
+    request.content = Some(TooltipContent { title, entries });
+    request.hover_started_at = Some(time.elapsed_secs());
 }
 
-// Observer: on `Pointer<Out>`, clear the hover state if the
-// cursor left the chip we're currently tracking.
+// Observer: on `Pointer<Out>`, clear the request iff the request
+// currently reflects the chip the cursor just left.
 pub fn on_power_chip_hover_out(
     on: On<Pointer<Out>>,
-    mut hover_state: ResMut<PowerChipHoverState>,
-) {
-    if let Some(current) = &hover_state.chip {
-        if current.entity == on.entity {
-            hover_state.chip = None;
-        }
-    }
-}
-
-// Per-frame driver for the cost-chip hover overlay. Reads
-// `ResourceCostHoverState` (written by the chip observers)
-// and `Window::cursor_position()`, then either:
-// - hides the overlay (`Display::None`) when no chip is
-//   hovered, when the chip entity was despawned between
-//   frames, or when the construction menu isn't the active
-//   menu, OR
-// - positions the overlay next to the cursor (4 px below
-//   the cursor vertically, 8 px right horizontally) and
-//   populates the text with `"<name>  <amount>"`.
-pub fn update_resource_cost_tooltip(
-    active_menu: Res<ActiveMenu>,
-    primary_window: Query<&Window, With<PrimaryWindow>>,
-    chip_query: Query<&ResourceCostChip>,
-    mut hover_state: ResMut<ResourceCostHoverState>,
-    mut overlay_node: Single<&mut Node, With<ResourceCostTooltipOverlay>>,
-    tooltip: Single<(&mut Text, &mut TextColor), With<ResourceCostTooltipText>>,
-) {
-    let (mut tooltip_text, mut tooltip_color) = tooltip.into_inner();
-
-    // The canary root's `top: 126.0` offset (set in
-    // `setup_construction`) is inherited by absolutely-
-    // positioned descendants; subtract it from the cursor Y
-    // to translate window-space cursor coords into overlay
-    // local coords.
-    const CANARY_ROOT_TOP_PX: f32 = 126.0;
-
-    // Hide the overlay whenever the construction canary isn't
-    // the active menu.
-    let construction_menu_active = matches!(active_menu.current, GameMenu::Construction);
-    if !construction_menu_active {
-        overlay_node.display = Display::None;
-        if hover_state.chip.is_some() {
-            hover_state.chip = None;
-        }
-        return;
-    }
-
-    let stale = match &hover_state.chip {
-        Some(data) => chip_query.get(data.entity).is_err(),
-        None => false,
-    };
-    if stale {
-        hover_state.chip = None;
-        overlay_node.display = Display::None;
-        return;
-    }
-    let Some(data) = &hover_state.chip else {
-        overlay_node.display = Display::None;
-        return;
-    };
-
-    let Ok(window): Result<&Window, _> = primary_window.single() else {
-        overlay_node.display = Display::None;
-        return;
-    };
-
-    if window.cursor_position().is_none() {
-        overlay_node.display = Display::None;
-        return;
-    }
-    let cursor = window.cursor_position().unwrap();
-
-    let local_x = cursor.x;
-    let local_y = cursor.y - CANARY_ROOT_TOP_PX + 4.0;
-
-    const TOOLTIP_W: f32 = 240.0;
-    const TOOLTIP_H: f32 = 48.0;
-    let root_width = (window.width() - 0.0).max(TOOLTIP_W);
-    let root_height = (window.height() - CANARY_ROOT_TOP_PX - 72.0).max(TOOLTIP_H);
-    let max_left = (root_width - TOOLTIP_W).max(0.0);
-    let max_top = (root_height - TOOLTIP_H).max(0.0);
-    overlay_node.left = Val::Px(local_x.clamp(0.0, max_left));
-    overlay_node.top = Val::Px(local_y.clamp(0.0, max_top));
-    overlay_node.display = Display::Flex;
-
-    *tooltip_text = Text::new(format!("{}  {}", data.name, data.amount));
-    *tooltip_color = TextColor(data.category);
-}
-
-// Per-frame driver for the **power**-chip hover overlay.
-pub fn update_power_chip_tooltip(
-    active_menu: Res<ActiveMenu>,
-    primary_window: Query<&Window, With<PrimaryWindow>>,
     chip_query: Query<&PowerChip>,
-    mut hover_state: ResMut<PowerChipHoverState>,
-    mut overlay_node: Single<&mut Node, With<PowerChipTooltipOverlay>>,
-    tooltip: Single<(&mut Text, &mut TextColor), With<PowerChipTooltipText>>,
+    mut request: ResMut<TooltipRequest>,
 ) {
-    let (mut tooltip_text, mut tooltip_color) = tooltip.into_inner();
-
-    const CANARY_ROOT_TOP_PX: f32 = 126.0;
-    const TOOLTIP_W: f32 = 280.0;
-    const TOOLTIP_H: f32 = 80.0;
-
-    let construction_menu_active = matches!(active_menu.current, GameMenu::Construction);
-    if !construction_menu_active {
-        overlay_node.display = Display::None;
-        if hover_state.chip.is_some() {
-            hover_state.chip = None;
-        }
-        return;
-    }
-
-    let stale = match &hover_state.chip {
-        Some(data) => chip_query.get(data.entity).is_err(),
-        None => false,
-    };
-    if stale {
-        hover_state.chip = None;
-        overlay_node.display = Display::None;
-        return;
-    }
-    let Some(data) = &hover_state.chip else {
-        overlay_node.display = Display::None;
+    let Ok(chip) = chip_query.get(on.entity) else {
         return;
     };
-
-    let Ok(window): Result<&Window, _> = primary_window.single() else {
-        overlay_node.display = Display::None;
-        return;
-    };
-    if window.cursor_position().is_none() {
-        overlay_node.display = Display::None;
-        return;
+    let should_clear = request
+        .content
+        .as_ref()
+        .map(|c| c.title == chip.tooltip_lines.first().cloned().unwrap_or_default())
+        .unwrap_or(false);
+    if should_clear {
+        request.content = None;
+        request.hover_started_at = None;
     }
-    let cursor = window.cursor_position().unwrap();
-
-    let local_x = cursor.x;
-    let local_y = cursor.y - CANARY_ROOT_TOP_PX + 4.0;
-    let local_x = local_x + 8.0;
-
-    let root_width = (window.width() - 0.0).max(TOOLTIP_W);
-    let root_height = (window.height() - CANARY_ROOT_TOP_PX - 72.0).max(TOOLTIP_H);
-    let max_left = (root_width - TOOLTIP_W).max(0.0);
-    let max_top = (root_height - TOOLTIP_H).max(0.0);
-    overlay_node.left = Val::Px(local_x.clamp(0.0, max_left));
-    overlay_node.top = Val::Px(local_y.clamp(0.0, max_top));
-    overlay_node.display = Display::Flex;
-
-    *tooltip_text = Text::new(data.tooltip_lines.join("\n"));
-    *tooltip_color = TextColor(data.tone);
 }
+
+// ── Helpers ────────────────────────────────────────────────────────
+
+// Map a chip's raw `bevy::Color` to the nearest [`TooltipTone`].
+// ResourceCostChip uses the chip's category tint; PowerChip uses
+// GREEN_FIN/ORANGE_ORE/TEXT_BODY depending on whether demand fits.
+pub(crate) fn tone_for_chip_color(color: Color) -> TooltipTone {
+    if approx_eq(color, GREEN_FIN) {
+        TooltipTone::Positive
+    } else if approx_eq(color, ORANGE_ORE) {
+        TooltipTone::Warning
+    } else if approx_eq(color, TEXT_BODY) {
+        TooltipTone::Neutral
+    } else {
+        // Chip category tints (construction / volatiles / fissile /
+        // etc.). The tooltip body uses the Accent tone so it pops
+        // against the dark background regardless of which chip it
+        // belongs to. The original `update_resource_cost_tooltip`
+        // applied the chip's raw colour to the text node; the
+        // generic `tick_tooltip` only honours `TooltipTone` buckets,
+        // and Accent is the closest match for an arbitrary chip
+        // category tint.
+        TooltipTone::Accent
+    }
+}
+
+fn approx_eq(a: Color, b: Color) -> bool {
+    const EPS: f32 = 0.05;
+    let ar = a.to_srgba().to_f32_array();
+    let br = b.to_srgba().to_f32_array();
+    (ar[0] - br[0]).abs() < EPS
+        && (ar[1] - br[1]).abs() < EPS
+        && (ar[2] - br[2]).abs() < EPS
+}
+
+// ── Overlay spawn helper ──────────────────────────────────────────
+
+// Spawn the singleton cursor-following tooltip overlay tree as a
+// child of the construction canary root. The overlay is a Node
+// carrying `TooltipOverlay`; its title (`TooltipTitle`) and body
+// (`TooltipBody`) are siblings under the overlay. The body holds
+// dynamic children re-spawned by [`crate::ui::widgets::tick_tooltip`]
+// on every content change.
+//
+// Called once at startup from `setup_construction`. Must NOT be
+// called per-frame — the overlay is a singleton, and re-spawning it
+// would orphan the in-flight hover latency tracking.
+pub fn spawn_construction_tooltip_overlay(
+    commands: &mut Commands,
+    parent: Entity,
+    body_font: Handle<Font>,
+) {
+    let overlay = commands
+        .spawn((
+            Node {
+                position_type: PositionType::Absolute,
+                left: Val::Px(0.0),
+                top: Val::Px(0.0),
+                display: Display::None,
+                padding: UiRect::all(Val::Px(10.0)),
+                border: UiRect::all(Val::Px(1.0)),
+                border_radius: BorderRadius::all(Val::Px(4.0)),
+                ..default()
+            },
+            BackgroundColor(crate::ui::theme::Color::TOOLTIP_BG),
+            BorderColor::all(crate::ui::theme::Color::STATUS_INFO_BORDER),
+            ZIndex(20),
+            TooltipOverlay,
+            Name::new("construction_tooltip_overlay"),
+        ))
+        .with_children(|parent| {
+            parent.spawn((
+                Text::new(String::new()),
+                TextFont {
+                    font: body_font.clone(),
+                    font_size: 12.0,
+                    ..default()
+                },
+                TextColor(TOOLTIP_TITLE_FALLBACK),
+                TooltipTitle,
+                Name::new("construction_tooltip_title"),
+            ));
+            parent.spawn((
+                Node {
+                    flex_direction: FlexDirection::Column,
+                    row_gap: Val::Px(2.0),
+                    ..default()
+                },
+                TooltipBody,
+                Name::new("construction_tooltip_body"),
+            ));
+        })
+        .id();
+    commands.entity(parent).add_child(overlay);
+}
+
+/// Title text colour — light cyan. Matches the shipbuilding native
+/// tooltip's title treatment; the body's tone-coloured entries are
+/// rendered below this row.
+const TOOLTIP_TITLE_FALLBACK: Color = Color::srgba(0.55, 0.95, 1.0, 1.0);
+
+// ── Per-CTA scan (disabled CTA / Queue CTA tooltip) ────────────────
 
 // Helper: enumerate every local-stockpile shortfall for the
 // given `costs × multiplier`, sorted by *missing* amount
@@ -259,9 +261,19 @@ pub(super) fn collect_local_shortfalls(
 
 // Update the canary's hover tooltip text every frame.
 //
-// Scans every CTA's `Interaction` and `ConstructionCtaDisabled`
-// state. If the player is hovering a disabled CTA, populates
-// `ConstructionTooltipState` with the most-binding constraint.
+// Scans every CTA's `Interaction` and `ConstructionCtaDisabled` /
+// `ConstructionCtaBodyBlocked` state. If the player is hovering a
+// disabled CTA, populates [`TooltipRequest`] with the most-binding
+// constraint (resource shortfalls + power deficit, in that order).
+// Queue-CTA body-blocked CTAs take precedence over resource
+// shortfalls so the most-blocking constraint wins.
+//
+// Merges the legacy "ConstructionTooltipState" (bottom-left
+// text mirror) and "QueueButtonTooltipState" (cursor-following
+// Missing: payload) into a single [`TooltipRequest`]. The
+// [`crate::ui::widgets::tick_tooltip`] driver positions the
+// shared overlay next to the cursor and renders the merged
+// content.
 pub fn tick_construction_tooltip(
     ctas: Query<(
         Entity,
@@ -274,8 +286,8 @@ pub fn tick_construction_tooltip(
     local_stockpiles: Query<&crate::economy::LocalStockpile>,
     colonies: Query<&crate::colony::Colony>,
     ui_state: Res<ConstructionUiState>,
-    mut tooltip: ResMut<ConstructionTooltipState>,
-    mut queue_tooltip: ResMut<QueueButtonTooltipState>,
+    time: Res<Time>,
+    mut request: ResMut<TooltipRequest>,
 ) {
     use crate::economy::budget::calculate_colony_power_totals;
 
@@ -291,10 +303,8 @@ pub fn tick_construction_tooltip(
         .unwrap_or(0.0);
     let local = active_colony_entity.and_then(|e| local_stockpiles.get(e).ok());
 
-    let mut best: Option<String> = None;
-    let mut queue_tooltip_entity: Option<Entity> = None;
-    let mut queue_tooltip_lines: Vec<String> = Vec::new();
-    for (entity, interaction, cta, is_disabled, is_body_blocked) in ctas.iter() {
+    let mut best: Option<Vec<String>> = None;
+    for (_entity, interaction, cta, is_disabled, is_body_blocked) in ctas.iter() {
         if !matches!(interaction, Interaction::Hovered | Interaction::Pressed) {
             continue;
         }
@@ -303,12 +313,11 @@ pub fn tick_construction_tooltip(
             None => continue,
         };
         if is_body_blocked {
-            queue_tooltip_lines = vec![
+            best = Some(vec![
                 "Missing:".to_string(),
                 "  Body unavailable".to_string(),
-            ];
-            queue_tooltip_entity = Some(entity);
-            continue;
+            ]);
+            break;
         }
         if !is_disabled {
             continue;
@@ -346,137 +355,31 @@ pub fn tick_construction_tooltip(
         }
 
         if lines.len() > 1 {
-            best = Some(lines.join("\n"));
+            best = Some(lines);
             break;
         }
     }
-    let best_text: Option<String> = if queue_tooltip_entity.is_none() {
-        best.clone()
-    } else {
-        None
-    };
-    if let Some(text) = best {
-        tooltip.text = text;
-        tooltip.visible = true;
-    } else {
-        tooltip.text.clear();
-        tooltip.visible = false;
-    }
 
-    if let Some(entity) = queue_tooltip_entity {
-        queue_tooltip.hovered_cta = Some(entity);
-        queue_tooltip.lines = queue_tooltip_lines;
-    } else if let Some(text) = best_text {
-        queue_tooltip.hovered_cta = None;
-        queue_tooltip.lines = text.split('\n').map(|s| s.to_string()).collect();
+    if let Some(lines) = best {
+        let title = "Missing resources".to_string();
+        let entries: Vec<TooltipEntry> = lines
+            .iter()
+            .map(|line| TooltipEntry::Paragraph(line.clone()))
+            .collect();
+        request.content = Some(TooltipContent { title, entries });
+        request.hover_started_at = Some(time.elapsed_secs());
     } else {
-        queue_tooltip.hovered_cta = None;
-        queue_tooltip.lines.clear();
+        request.content = None;
+        request.hover_started_at = None;
     }
 }
 
-// Mirror `ConstructionTooltipState` to the on-screen tooltip Text
-// node + its visibility every frame.
-pub fn update_construction_tooltip(
-    state: Res<ConstructionTooltipState>,
-    mut tooltip_query: Query<(&mut Text, &mut Visibility), With<ConstructionTooltipText>>,
-) {
-    if !state.visible {
-        let mut already_hidden = true;
-        for (t, v) in tooltip_query.iter() {
-            if !t.0.is_empty() || *v != Visibility::Hidden {
-                already_hidden = false;
-                break;
-            }
-        }
-        if already_hidden {
-            return;
-        }
-        for (mut t, mut v) in tooltip_query.iter_mut() {
-            **t = String::new();
-            *v = Visibility::Hidden;
-        }
-        return;
-    }
-    let text = state.text.clone();
-    for (mut t, mut v) in tooltip_query.iter_mut() {
-        **t = text.clone();
-        *v = Visibility::Inherited;
-    }
-}
+// ── Click handler (Phase 3: uses the shared `detect_rising_edges` helper) ─
 
-// v0.5.2 (build menu fix): per-frame driver for the
-// **cursor-following** Queue-CTA tooltip.
-pub fn update_queue_button_tooltip(
-    active_menu: Res<ActiveMenu>,
-    primary_window: Query<&Window, With<PrimaryWindow>>,
-    cta_query: Query<Entity, With<ConstructionCta>>,
-    queue_state: Res<QueueButtonTooltipState>,
-    mut overlay_node: Single<&mut Node, With<QueueButtonTooltipOverlay>>,
-    tooltip: Single<(&mut Text, &mut Visibility), With<QueueButtonTooltipText>>,
-) {
-    let (mut tooltip_text, mut tooltip_visibility) = tooltip.into_inner();
-
-    const CANARY_ROOT_TOP_PX: f32 = 126.0;
-    const TOOLTIP_W: f32 = 260.0;
-    const TOOLTIP_H: f32 = 110.0;
-
-    let construction_menu_active = matches!(active_menu.current, GameMenu::Construction);
-    if !construction_menu_active {
-        overlay_node.display = Display::None;
-        return;
-    }
-
-    let cta_alive = queue_state
-        .hovered_cta
-        .map(|e| cta_query.get(e).is_ok())
-        .unwrap_or(true);
-    if !queue_state.lines.is_empty() && !cta_alive {
-        overlay_node.display = Display::None;
-        return;
-    }
-    if queue_state.lines.is_empty() {
-        overlay_node.display = Display::None;
-        *tooltip_visibility = Visibility::Hidden;
-        return;
-    }
-
-    let Ok(window): Result<&Window, _> = primary_window.single() else {
-        overlay_node.display = Display::None;
-        return;
-    };
-
-    if window.cursor_position().is_none() {
-        overlay_node.display = Display::None;
-        return;
-    }
-    let cursor = window.cursor_position().unwrap();
-
-    let local_x = cursor.x;
-    let local_y = cursor.y - CANARY_ROOT_TOP_PX + 4.0;
-
-    let root_width = window.width().max(TOOLTIP_W);
-    let root_height = (window.height() - CANARY_ROOT_TOP_PX - 72.0).max(TOOLTIP_H);
-    let max_left = (root_width - TOOLTIP_W).max(0.0);
-    let max_top = (root_height - TOOLTIP_H).max(0.0);
-    overlay_node.left = Val::Px(local_x.clamp(0.0, max_left));
-    overlay_node.top = Val::Px(local_y.clamp(0.0, max_top));
-    overlay_node.display = Display::Flex;
-    *tooltip_visibility = Visibility::Inherited;
-
-    *tooltip_text = Text::new(queue_state.lines.join("\n"));
-}
-
-// Click handler: when a chip in the Build sub-tab is pressed, mutate
-// `ConstructionUiState` accordingly. The chip's `ChipGroup` component
-// tells us what to do (set tab, qty, category, etc.).
-//
-// Phase 3: uses the shared `detect_rising_edges` helper from
-// `widgets.rs` to drop the hand-rolled `Local<HashMap>` preamble.
 pub fn tick_construction_chip_click(
     interactions: Query<(Entity, &Interaction, &ChipGroup), With<Button>>,
     mut ui_state: ResMut<ConstructionUiState>,
-    mut active: ResMut<ActiveChips>,
+    mut active: ResMut<crate::ui::widgets::ActiveChips>,
     mut prev: Local<std::collections::HashMap<Entity, Interaction>>,
 ) {
     crate::ui::widgets::detect_rising_edges(&mut prev, &interactions, |_entity, kind| {
