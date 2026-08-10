@@ -468,40 +468,36 @@ pub fn update_queue_button_tooltip(
 }
 
 // Click handler: when a chip in the Build sub-tab is pressed, mutate
-// `ConstructionUiState` accordingly. The chip's `ChipKind` component
-// tells us what to do (set qty, set filter, set category, etc.).
+// `ConstructionUiState` accordingly. The chip's `ChipGroup` component
+// tells us what to do (set tab, qty, category, etc.).
+//
+// Phase 3: uses the shared `detect_rising_edges` helper from
+// `widgets.rs` to drop the hand-rolled `Local<HashMap>` preamble.
 pub fn tick_construction_chip_click(
     interactions: Query<(Entity, &Interaction, &ChipGroup), With<Button>>,
     mut ui_state: ResMut<ConstructionUiState>,
     mut active: ResMut<ActiveChips>,
     mut prev: Local<std::collections::HashMap<Entity, Interaction>>,
 ) {
-    let mut current: std::collections::HashMap<Entity, Interaction> =
-        std::collections::HashMap::new();
-    for (entity, interaction, kind) in interactions.iter() {
-        let prev_interaction = prev.get(&entity).copied().unwrap_or(Interaction::None);
-        if *interaction == Interaction::Pressed && prev_interaction != Interaction::Pressed {
-            match kind {
-                ChipGroup::Tab(idx) => {
-                    ui_state.selected_tab = match idx {
-                        0 => ConstructionTab::Overview,
-                        1 => ConstructionTab::Buildings,
-                        2 => ConstructionTab::Build,
-                        _ => ConstructionTab::Mining,
-                    };
-                    active.tab = *idx;
-                }
-                ChipGroup::Qty(n) => {
-                    ui_state.build_multiplier = *n;
-                    active.qty = *n;
-                }
-                ChipGroup::Category(idx) => {
-                    ui_state.selected_build_tab = *idx;
-                    active.category = *idx;
-                }
+    crate::ui::widgets::detect_rising_edges(&mut prev, &interactions, |_entity, kind| {
+        match kind {
+            ChipGroup::Tab(idx) => {
+                ui_state.selected_tab = match idx {
+                    0 => ConstructionTab::Overview,
+                    1 => ConstructionTab::Buildings,
+                    2 => ConstructionTab::Build,
+                    _ => ConstructionTab::Mining,
+                };
+                active.tab = *idx;
+            }
+            ChipGroup::Qty(n) => {
+                ui_state.build_multiplier = *n;
+                active.qty = *n;
+            }
+            ChipGroup::Category(idx) => {
+                ui_state.selected_build_tab = *idx;
+                active.category = *idx;
             }
         }
-        current.insert(entity, *interaction);
-    }
-    *prev = current;
+    });
 }

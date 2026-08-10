@@ -31,6 +31,7 @@
 use bevy::ecs::hierarchy::ChildSpawnerCommands;
 use bevy::prelude::*;
 use bevy::ui::ShadowStyle;
+use std::collections::HashMap;
 
 /// Canonical body font path. Regular-weight Inter for paragraphs,
 /// card bodies, and default UI text.
@@ -829,3 +830,31 @@ pub fn tick_active_chip_glow(
         }
     }
 }
+
+// =====================================================================
+// Click rise-edge helper (Phase 3: extracts the hand-rolled
+// `Local<HashMap<Entity, Interaction>>` preamble from every
+// construction click system. ~15-20 LOC saved per system.)
+// =====================================================================
+
+/// Walk every Button entity matching `<Button, With<M>>`, emit
+/// `on_pressed(entity, &M)` exactly once per rise edge
+/// (non-Pressed -> Pressed transition). The previous-state cache
+/// lives in the supplied `Local<HashMap<...>>` so each system
+/// keeps its own edge history across frames.
+pub fn detect_rising_edges<M: Component>(
+    prev: &mut Local<HashMap<Entity, Interaction>>,
+    query: &Query<(Entity, &Interaction, &M), With<Button>>,
+    mut on_pressed: impl FnMut(Entity, &M),
+) {
+    let mut current: HashMap<Entity, Interaction> = HashMap::new();
+    for (entity, interaction, marker) in query.iter() {
+        let prev_interaction = prev.get(&entity).copied().unwrap_or(Interaction::None);
+        if *interaction == Interaction::Pressed && prev_interaction != Interaction::Pressed {
+            on_pressed(entity, marker);
+        }
+        current.insert(entity, *interaction);
+    }
+    **prev = current;
+}
+
