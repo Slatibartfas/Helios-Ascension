@@ -368,7 +368,19 @@ pub fn tick_construction_tooltip(
             .collect();
         request.content = Some(TooltipContent { title, entries });
         request.hover_started_at = Some(time.elapsed_secs());
-    } else {
+    } else if request
+        .content
+        .as_ref()
+        .map(|c| c.title == "Missing resources")
+        .unwrap_or(false)
+    {
+        // No CTA hovered AND the previous tooltip was ours — clear it
+        // so a stale "Missing resources" doesn't linger after the
+        // cursor leaves the CTA. We DO NOT touch the request when the
+        // previous content was set by a chip hover observer (e.g.
+        // `ResourceCostChip`, `PowerChip`) because we don't own that
+        // tooltip — the corresponding `Pointer<Out>` observer is
+        // responsible for clearing it.
         request.content = None;
         request.hover_started_at = None;
     }
