@@ -320,7 +320,18 @@ impl Plugin for ConstructionPlugin {
             .add_systems(Update, process_building_icons)
             .add_systems(Update, tick_construction_state)
             .add_systems(Update, tick_construction_cta_hover.run_if(construction_menu_open))
+            // Phase 10: tick_subtitle_marquee is now a thin shim over
+            // widgets::tick_marquee. The generic system runs ungated
+            // (so any panel can adopt the primitive); the shim stays
+            // construction-gated for parity with the original
+            // always-on-while-menu-open behaviour.
             .add_systems(Update, tick_subtitle_marquee.run_if(construction_menu_open))
+            // Phase 10: per-frame progress bar width write. Reads the
+            // `ProgressFill(f32)` percentage on every ProgressFill
+            // entity (QueuePanelRow + OverviewQueueRow) and writes
+            // Node.width. Runs ungated so any panel with a progress
+            // fill benefits automatically.
+            .add_systems(Update, crate::ui::widgets::tick_progress_fill)
             // Phase 5B: tick_construction_scrollbar is a no-op
             // re-export of widgets::tick_scrollbar (the per-track
             // visual driver lives in widgets.rs and reads the

@@ -73,41 +73,19 @@ pub fn tick_construction_cta_hover(
     }
 }
 
-// Animate the `UiTransform.translation` of every `SubtitleMarquee`
-// track so an overflowing subtitle scrolls left/right on hover.
+// Phase 10: animation now goes through the generic
+// `widgets::tick_marquee` primitive. The construction-side system
+// is a thin shim that delegates to the widgets primitive so the
+// drag / wheel / hover machinery all share the same code path.
+// `SubtitleMarquee` is now a `pub use` alias for `widgets::Marquee`,
+// so the Query type matches the primitive's expected signature
+// directly without reinterpretation.
 pub fn tick_subtitle_marquee(
     time: Res<Time>,
     text_computed: Query<&ComputedNode>,
-    mut tracks: Query<(Entity, &mut SubtitleMarquee, &mut UiTransform)>,
+    tracks: Query<(Entity, &mut SubtitleMarquee, &mut UiTransform)>,
 ) {
-    const PIXELS_PER_SECOND: f32 = 30.0;
-    let dt = time.delta_secs().min(0.1);
-
-    for (_track_entity, mut marquee, mut ui_transform) in tracks.iter_mut() {
-        let text_width = text_computed
-            .get(marquee.text_node)
-            .map(|c| c.content_size().x)
-            .unwrap_or(0.0);
-        let container_width = text_computed
-            .get(marquee.clip_container)
-            .map(|c| c.size().x)
-            .unwrap_or(0.0);
-        marquee.text_width = text_width;
-        marquee.container_width = container_width;
-
-        let overflows = text_width > container_width + 0.5;
-
-        if overflows {
-            let delta_pixels = dt * PIXELS_PER_SECOND;
-            marquee.phase += delta_pixels;
-            if marquee.phase >= text_width {
-                marquee.phase -= text_width;
-            }
-        }
-
-        let dx = -marquee.phase;
-        ui_transform.translation = Val2::px(dx, 0.0);
-    }
+    crate::ui::widgets::tick_marquee(time, text_computed, tracks);
 }
 
 // Per-frame sweep that toggles the `ConstructionCtaDisabled` marker

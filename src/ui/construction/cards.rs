@@ -220,12 +220,12 @@ pub fn spawn_card(
             },
             UiTransform::default(),
             SubtitleMarquee {
-                card,
                 text_node: subtitle_text_a,
                 clip_container: subtitle_clip,
                 text_width: 0.0,
                 container_width: 0.0,
                 phase: 0.0,
+                rate_pixels_per_sec: 30.0,
             },
             Name::new("card_subtitle_track"),
         ))

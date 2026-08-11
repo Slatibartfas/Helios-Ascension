@@ -185,18 +185,20 @@ pub fn update_queue_row_eta(
 }
 
 // Update the progress-bar fill width on every existing queue row
-// every frame.
+// every frame. Phase 10: now a thin shim over the generic
+// `widgets::tick_progress_fill`. We pre-compute the per-entity
+// progress percentages so the generic system (which only knows the
+// `f32` value, not the project lookup) can write the width.
 pub fn update_queue_row_progress(
     projects: Query<(Entity, &crate::colony::ConstructionProject)>,
-    mut fill_query: Query<(&QueuePanelRowFill, &mut Node)>,
+    mut fill_query: Query<(Entity, &mut QueuePanelRowFill, &mut Node)>,
 ) {
-    let by_entity: std::collections::HashMap<Entity, &crate::colony::ConstructionProject> =
-        projects.iter().map(|(e, p)| (e, p)).collect();
-    for (fill_marker, mut node) in fill_query.iter_mut() {
-        let Some(project) = by_entity.get(&fill_marker.project_entity) else {
-            continue;
-        };
-        node.width = Val::Percent((project.progress_percent() as f32).clamp(0.0, 1.0) * 100.0);
+    for (entity, mut fill, mut node) in fill_query.iter_mut() {
+        let Ok((_, project)) = projects.get(entity) else { continue };
+        fill.0 = project.progress_percent().clamp(0.0, 1.0) as f32;
+        // The actual Node.width write happens in tick_progress_fill;
+        // we only set the percentage here.
+        let _ = node;
     }
 }
 
@@ -355,7 +357,7 @@ fn spawn_queue_row(
             },
             BackgroundColor(CYAN),
             Name::new("queue_row_progress_fill"),
-            QueuePanelRowFill { project_entity },
+            QueuePanelRowFill(0.0), // set by tick_progress_fill each frame
         ))
         .id();
     commands.entity(track).add_child(fill);

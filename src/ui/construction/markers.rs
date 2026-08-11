@@ -145,37 +145,13 @@ pub struct ColonyDropdownOptionText;
 // integrates `phase += dt * PIXELS_PER_SECOND` each tick while
 // the description overflows, so the track drifts leftward at
 // a constant rate that doesn't depend on card size, hover
-// state, or how many cards are visible.
-#[derive(Component)]
-pub struct SubtitleMarquee {
-    // Parent build-card entity, used by `tick_subtitle_marquee`
-    // to read the card's `Interaction` each frame. Stored
-    // explicitly so the system does one `Query::get` instead of
-    // walking `Parent` chains.
-    pub card: Entity,
-    // Entity of the first text copy, used to measure
-    // `ComputedNode::content_size` for the per-frame overflow
-    // check. The second copy shares the same string + font so we
-    // only need to read one.
-    pub text_node: Entity,
-    // Entity of the outer clip container, used to measure
-    // `ComputedNode::size` (the visible horizontal extent the
-    // track scrolls within).
-    pub clip_container: Entity,
-    // Most recent measured text content width in pixels. Updated
-    // each frame by `tick_subtitle_marquee` from `ComputedNode`.
-    pub text_width: f32,
-    // Most recent measured clip-container width in pixels.
-    pub container_width: f32,
-    // Current pixel offset of the track (leftward drift).
-    // `tick_subtitle_marquee` integrates this each tick and
-    // wraps modulo `text_width` so the value stays bounded
-    // over a long session. Initialised to 0.0 at spawn — each
-    // card therefore starts at a different drift point in its
-    // loop depending on when it was spawned, which keeps the
-    // grid from marching in lockstep.
-    pub phase: f32,
-}
+// Phase 10: SubtitleMarquee is now an alias for `widgets::Marquee`.
+// The legacy `card` field (read by the old `tick_subtitle_marquee`
+// to scope per-card drift integration) is gone — the generic
+// `widgets::tick_marquee` always animates regardless of card hover,
+// matching the previous construction behaviour. The alias keeps
+// `use ...::SubtitleMarquee` call sites compiling.
+pub use crate::ui::widgets::Marquee as SubtitleMarquee;
 
 // Marker component for the QueuePanel root. The
 // `tick_queue_panel_visibility` system hides all but the active
@@ -406,13 +382,13 @@ pub struct QueuePanelRowEta {
     pub project_entity: Entity,
 }
 
-// Marker component for the progress-fill bar on a queue row. The
-// `update_queue_row_progress` system uses this to update the bar
-// width every frame as the project advances.
-#[derive(Component)]
-pub struct QueuePanelRowFill {
-    pub project_entity: Entity,
-}
+// Phase 10: alias for `widgets::ProgressFill`. The construction-side
+// queue row progress bar now goes through the generic `tick_progress_fill`
+// primitive. The old `QueuePanelRowFill { project_entity }` field is gone
+// because the progress percentage is now stored in the
+// `widgets::ProgressFill(f32)` Component directly. The spawn site
+// writes the percentage each frame as the project advances.
+pub use crate::ui::widgets::ProgressFill as QueuePanelRowFill;
 
 // Marker component for the `queue_value` text in the AppBar so the
 // `update_queue_summary` system can find it without iterating every

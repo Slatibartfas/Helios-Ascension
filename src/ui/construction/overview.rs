@@ -197,10 +197,12 @@ pub struct OverviewQueueRowStatusChild;
 #[derive(Component)]
 pub struct OverviewQueueRowProgressChild;
 
-// Marker component on the `Node` whose `width` encodes the
-// progress fill (0 % – 100 % of the track) within a queued row.
-#[derive(Component)]
-pub struct OverviewQueueRowFillChild;
+// Phase 10: alias for `widgets::ProgressFill`. The construction-side
+// overview queue row progress bar now goes through the generic
+// `tick_progress_fill` primitive. The old bare marker
+// `OverviewQueueRowFillChild` (a `Node` whose width was set every
+// frame) is gone; the percentage lives on `ProgressFill` instead.
+pub use crate::ui::widgets::ProgressFill as OverviewQueueRowFillChild;
 
 #[derive(Component)]
 pub struct OverviewQueueRow {
@@ -386,14 +388,14 @@ pub fn update_overview_queue(
             let progress_fill = commands
                 .spawn((
                     Node {
-                        width: Val::Percent(progress.clamp(0.0, 1.0) * 100.0),
+                        width: Val::Percent(0.0), // set by tick_progress_fill
                         height: Val::Percent(100.0),
                         border_radius: BorderRadius::all(Val::Px(2.0)),
                         ..default()
                     },
                     BackgroundColor(CYAN),
                     Name::new("overview_queue_row_fill"),
-                    OverviewQueueRowFillChild,
+                    OverviewQueueRowFillChild(progress.clamp(0.0, 1.0)),
                 ))
                 .id();
             commands.entity(track).add_child(progress_fill);
