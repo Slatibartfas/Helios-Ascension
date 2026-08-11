@@ -317,6 +317,7 @@ pub fn spawn_construction_scrollbar(
 
     let scrollbar_thumb = commands
         .spawn((
+            Button,
             Node {
                 position_type: PositionType::Absolute,
                 left: Val::Px(0.0),
