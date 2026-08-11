@@ -208,9 +208,19 @@ pub fn refresh_card_grid(
     card_query: Query<Entity, With<BuildCard>>,
     grid_query: Query<Entity, With<CardGrid>>,
     colonies: Query<(Entity, &crate::colony::Colony)>,
+    mut tooltip_request: ResMut<crate::ui::widgets::TooltipRequest>,
 ) {
     for entity in card_query.iter() {
         commands.entity(entity).try_despawn();
+    }
+    // Clear any chip-driven tooltip: the chips we just despawned no
+    // longer exist, so the Pointer<Out> observer can never fire to
+    // clear the request itself. Without this guard the tooltip
+    // lingers against the cursor until the next chip's Pointer<Over>
+    // overwrites it.
+    if tooltip_request.content.is_some() {
+        tooltip_request.content = None;
+        tooltip_request.hover_started_at = None;
     }
     let Ok(card_grid) = grid_query.single() else {
         return;
