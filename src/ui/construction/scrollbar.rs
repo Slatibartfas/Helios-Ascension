@@ -19,7 +19,8 @@ use super::state::*;
 // the singleton `ConstructionScrollbarMetrics` Resource) are
 // stored on each track's `ScrollbarMetrics` Component, fixing the
 // latent bug where two simultaneously-visible tracks would clobber
-// each other's measurements.
+// each other's measurements. The dossier-style hover-to-expand
+// hover styling is implemented in widgets::tick_scrollbar.
 pub fn tick_construction_scrollbar(
     mut params: ParamSet<(
         Query<(&ComputedNode, &ConstructionScrollbarTrack)>,

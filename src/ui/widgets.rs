@@ -1267,19 +1267,29 @@ pub fn tick_scrollbar(
     scrollable_query: Query<&ComputedNode>,
     pos_query: Query<&ScrollPosition>,
     mut metrics_query: Query<&mut ScrollbarMetrics>,
-    children_query: Query<&Children>,
+    child_of_query: Query<&bevy::ecs::hierarchy::ChildOf>,
     mut thumb_query: Query<(Entity, &mut Node), With<ScrollbarThumb>>,
+    mut track_node_query: Query<&mut Node, With<ScrollbarTrack>>,
+    mut track_bg_query: Query<&mut BackgroundColor, With<ScrollbarTrack>>,
+    mut thumb_bg_query: Query<&mut BackgroundColor, With<ScrollbarThumb>>,
+    interaction_query: Query<&Interaction>,
 ) {
-    // Per-track scoping: each track has its own metrics + thumb. We
-    // index thumbs by their parent track so the loop body only
-    // updates the thumb that belongs to the current track.
+    const REST_WIDTH: f32 = 10.0;
+    const HOVER_WIDTH: f32 = 14.0;
+    let rest_bg = Color::srgba(1.0, 1.0, 1.0, 0.06);
+    let hover_bg = Color::srgba(1.0, 1.0, 1.0, 0.14);
+    let rest_thumb = Color::srgba(0.37, 0.78, 0.85, 0.55);
+    let hover_thumb = Color::srgba(0.37, 0.78, 0.85, 0.95);
+    // Per-track scoping: each track has its own metrics + thumb.
+    // Index thumbs by their PARENT track so the loop body updates only
+    // the thumb that belongs to the current track. (v0.5.2 fix:
+    // `Children` was the thumb's children — a leaf has none —
+    // which produced an empty map. `ChildOf` is the correct lookup.)
     let mut thumb_for_track: std::collections::HashMap<Entity, Entity> =
         std::collections::HashMap::new();
     for (thumb_entity, _) in thumb_query.iter() {
-        if let Ok(children) = children_query.get(thumb_entity) {
-            for parent in children.iter() {
-                thumb_for_track.insert(parent, thumb_entity);
-            }
+        if let Ok(child_of) = child_of_query.get(thumb_entity) {
+            thumb_for_track.insert(child_of.0, thumb_entity);
         }
     }
 
@@ -1325,6 +1335,32 @@ pub fn tick_scrollbar(
             if let Ok((_, mut node)) = thumb_query.get_mut(thumb_entity) {
                 node.height = Val::Px(thumb_height);
                 node.top = Val::Px(thumb_y);
+            }
+        }
+        // Dossier-style hover-to-expand. Hovering either the track
+        // or the thumb widens the track (10 → 14 px) and brightens
+        // both backgrounds. Idle state is subtle (the dossier's egui
+        // ScrollArea look).
+        let track_hovered = interaction_query.get(track_entity)
+            .map(|i| matches!(*i, Interaction::Hovered | Interaction::Pressed))
+            .unwrap_or(false);
+        let thumb_hovered = thumb_for_track.get(&track_entity)
+            .and_then(|t| interaction_query.get(*t).ok())
+            .map(|i| matches!(*i, Interaction::Hovered | Interaction::Pressed))
+            .unwrap_or(false);
+        let hovered = track_hovered || thumb_hovered;
+        let width = if hovered { HOVER_WIDTH } else { REST_WIDTH };
+        let track_bg = if hovered { hover_bg } else { rest_bg };
+        let thumb_bg = if hovered { hover_thumb } else { rest_thumb };
+        if let Ok(mut track_node) = track_node_query.get_mut(track_entity) {
+            track_node.width = Val::Px(width);
+        }
+        if let Ok(mut track_bg_node) = track_bg_query.get_mut(track_entity) {
+            *track_bg_node = BackgroundColor(track_bg);
+        }
+        if let Some(&thumb_entity) = thumb_for_track.get(&track_entity) {
+            if let Ok(mut thumb_bg_node) = thumb_bg_query.get_mut(thumb_entity) {
+                *thumb_bg_node = BackgroundColor(thumb_bg);
             }
         }
     }

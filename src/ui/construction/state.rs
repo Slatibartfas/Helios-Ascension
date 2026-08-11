@@ -75,11 +75,13 @@ pub struct ConstructionUiState {
     // v0.5.2 Mining tab: which surface groups are currently
     // collapsed. Persists across tab switches. Empty = all
     // surface groups visible.
+    //
+    // (No orbital section. The legacy orbital-collapsed bool
+    // and the `Auto*Mine` buildings were removed when the
+    // orbital UI was stripped — orbital construction will be
+    // reintroduced later via space stations, not via a
+    // duplicate mining grid.)
     pub mining_groups_collapsed: HashSet<MiningGroupId>,
-    // v0.5.2 Mining tab: whether the entire orbital section is
-    // collapsed (it carries 25 cards; collapsed by default so
-    // the initial paint is dominated by surface mines).
-    pub mining_orbital_collapsed: bool,
 }
 
 impl Default for ConstructionUiState {
@@ -96,54 +98,88 @@ impl Default for ConstructionUiState {
             selected_build_tab: 8,
             selected_filter: BuildFilter::default(),
             mining_groups_collapsed: HashSet::new(),
-            mining_orbital_collapsed: true, // collapsed by default
         }
     }
 }
 
-// Identifier for one of the 8 surface mine groups in the Mining
+// Identifier for one of the 6 surface mine groups in the Mining
 // tab. Used as a key into `ConstructionUiState::mining_groups_collapsed`
 // so collapse state persists per group.
 //
-// The orbital section is a single collapsible
-// (`mining_orbital_collapsed` bool) — it has 25 cards spread
-// across 5 sub-groups, and per spec the sub-groups themselves
-// are non-collapsible (matches the legacy egui tab's behaviour).
+// v0.5.2 PR-K: grouped using the **same canonical top-level
+// resource categories that the top resources bar uses**
+// (`ResourceType::category()`). The previous ad-hoc groups
+// ("Hydrocarbons", "HeavyWater", "Water", "Helium-3") were
+// confusing because they overlapped canonical categories
+// (Methane/Phosphorus are "Volatiles"; Deuterium is
+// "Fusion Fuel"; Helium-3 is "Fusion Fuel"; Water is
+// "Volatiles"). With the rewrite, the Mining tab groups
+// match the top-bar categories one-for-one, so the player
+// can mentally map "the resource icon I see in the top bar
+// belongs to the Construction group here, and so does its
+// mine".
+//
+// Construction handles building on the currently selected
+// body — moon, planet, asteroid, etc. Orbital construction
+// (the legacy `Auto*Mine` buildings) is not exposed here;
+// it will be reintroduced later via space stations rather
+// than via a duplicate mining grid.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum MiningGroupId {
+    // Top-bar "Construction" category (Iron, Aluminum, Titanium,
+    // Silicates, Nickel, Tungsten, Carbon, Chromium, Magnesium).
+    // Copper was moved out to `Strategic` so it matches the
+    // top-bar category — the top bar puts Copper under Strategic.
     Construction,
-    Precious,
+    // Top-bar "Precious Metals" (Gold, Silver, Platinum).
+    PreciousMetals,
+    // Top-bar "Strategic" (Copper, RareEarths, Lithium, Sulfur,
+    // Cobalt, Fluorine). Polymers has no mine.
     Strategic,
-    Fissile,
-    Hydrocarbons,
-    HeavyWater,
-    // `WaterProcessor` is a water extraction facility (atmospheric
-    // condenser / ice miner) — body-restricted to `[None]`
-    // atmospheres. Sits in its own group so it pairs with the
-    // orbital `AutoWaterProcessor` (the only AutoMine without a
-    // surface mine counterpart before this group was added).
-    Water,
-    Helium3,
+    // Top-bar "Fissiles" (Uranium, Thorium). Plutonium has no
+    // dedicated mine — it is bred from Uranium in reactors.
+    Fissiles,
+    // Top-bar "Volatiles" (Water, Hydrogen, Ammonia, Methane,
+    // Phosphorus). Mines/extractors that map here:
+    //   - WaterProcessor (atmospheric condenser / ice miner)
+    //   - MethaneExtractor (CH4 from lakes like Titan)
+    //   - PhosphorusMine (phosphate rock / apatite)
+    // Phosphorus is "Volatiles" per `ResourceType::category()`;
+    // this matches the top resources-bar grouping even though
+    // real-world phosphorus is more often classified as a
+    // strategic/industrial mineral.
+    Volatiles,
+    // Top-bar "Fusion Fuel" (Helium-3, Deuterium, Tritium).
+    // Mines that map here:
+    //   - He3Mine (regolith / gas giants)
+    //   - DeuteriumExtractor (heavy water from seawater / ice)
+    // Tritium has no dedicated mine — it is bred from Lithium
+    // or Deuterium in reactors.
+    FusionFuel,
 }
 
 // Surface mine group definitions for the Mining tab. Each entry
 // is `(group_id, display_label, buildings)` in display order.
 //
-// Source-of-truth: 25 entries — 24 base mines (one per
-// mineable resource, per v0.5.2's per-resource dedicated
-// design) + `WaterProcessor` (the only AutoMine counterpart
-// that wasn't a "mine" in the strict sense — it's an
-// atmospheric condenser / ice miner that pairs with the
-// orbital `AutoWaterProcessor`). The 24+1 layout mirrors
-// the 25-card orbital section so the player can see a
-// matched surface/orbital pair for every orbital AutoMine.
+// v0.5.2 PR-K: 6 groups that mirror the canonical top-bar
+// categories (`ResourceType::category()`):
+//   1. Construction      (9 mines — Iron .. Magnesium, no Copper)
+//   2. Precious Metals   (3 mines — Gold, Silver, Platinum)
+//   3. Strategic         (6 mines — Copper, RareEarths .. Fluorine)
+//   4. Fissiles          (2 mines — Uranium, Thorium)
+//   5. Volatiles         (3 mines/extractor — WaterProcessor, MethaneExtractor, Phosphorus)
+//   6. Fusion Fuel       (2 mines/extractor — He3, Deuterium)
+//
+// 25 cards total: 24 base mines + `WaterProcessor` (an
+// atmospheric condenser / ice miner — not a "mine" in the
+// strict sense, but the top-level extractor that produces
+// water and slots into the same Volatiles group).
 pub const MINING_GROUPS_SURFACE: &[(MiningGroupId, &str, &[BuildingType])] = &[
     (
         MiningGroupId::Construction,
-        "Construction Materials",
+        "Construction",
         &[
             BuildingType::IronMine,
-            BuildingType::CopperMine,
             BuildingType::AluminumMine,
             BuildingType::TitaniumMine,
             BuildingType::SilicatesMine,
@@ -155,7 +191,7 @@ pub const MINING_GROUPS_SURFACE: &[(MiningGroupId, &str, &[BuildingType])] = &[
         ],
     ),
     (
-        MiningGroupId::Precious,
+        MiningGroupId::PreciousMetals,
         "Precious Metals",
         &[
             BuildingType::GoldMine,
@@ -165,94 +201,34 @@ pub const MINING_GROUPS_SURFACE: &[(MiningGroupId, &str, &[BuildingType])] = &[
     ),
     (
         MiningGroupId::Strategic,
-        "Strategic Materials",
+        "Strategic",
         &[
+            BuildingType::CopperMine,
             BuildingType::RareEarthsMine,
             BuildingType::LithiumMine,
             BuildingType::SulfurMine,
-            BuildingType::PhosphorusMine,
             BuildingType::CobaltMine,
             BuildingType::FluorineMine,
         ],
     ),
     (
-        MiningGroupId::Fissile,
-        "Fissile",
+        MiningGroupId::Fissiles,
+        "Fissiles",
         &[BuildingType::UraniumMine, BuildingType::ThoriumMine],
     ),
     (
-        MiningGroupId::Hydrocarbons,
-        "Hydrocarbons",
-        &[BuildingType::MethaneExtractor],
-    ),
-    (
-        MiningGroupId::HeavyWater,
-        "Heavy Water",
-        &[BuildingType::DeuteriumExtractor],
-    ),
-    (
-        MiningGroupId::Water,
-        "Water (body: any atmosphere)",
-        &[BuildingType::WaterProcessor],
-    ),
-    (
-        MiningGroupId::Helium3,
-        "Helium-3 (body: Moon, GasGiant, Asteroid)",
-        &[BuildingType::He3Mine],
-    ),
-];
-
-// Orbital AutoMine sub-group definitions for the Mining tab.
-// Single collapsible, 5 non-collapsible sub-groups, 25 cards
-// total. Source-of-truth: 25 AutoMines from `parse_building_type`
-// (24 per the spec + `AutoTitaniumMine` which the spec omitted).
-pub const MINING_GROUPS_ORBITAL: &[(&str, &[BuildingType])] = &[
-    (
-        "Orbital — Construction",
+        MiningGroupId::Volatiles,
+        "Volatiles",
         &[
-            BuildingType::AutoIronMine,
-            BuildingType::AutoCopperMine,
-            BuildingType::AutoAluminumMine,
-            BuildingType::AutoTitaniumMine,
-            BuildingType::AutoSilicatesMine,
-            BuildingType::AutoNickelMine,
-            BuildingType::AutoTungstenMine,
-            BuildingType::AutoCarbonMine,
-            BuildingType::AutoChromiumMine,
-            BuildingType::AutoMagnesiumMine,
+            BuildingType::WaterProcessor,
+            BuildingType::MethaneExtractor,
+            BuildingType::PhosphorusMine,
         ],
     ),
     (
-        "Orbital — Precious",
-        &[
-            BuildingType::AutoGoldMine,
-            BuildingType::AutoSilverMine,
-            BuildingType::AutoPlatinumMine,
-        ],
-    ),
-    (
-        "Orbital — Strategic",
-        &[
-            BuildingType::AutoRareEarthsMine,
-            BuildingType::AutoLithiumMine,
-            BuildingType::AutoSulfurMine,
-            BuildingType::AutoPhosphorusMine,
-            BuildingType::AutoCobaltMine,
-            BuildingType::AutoFluorineMine,
-        ],
-    ),
-    (
-        "Orbital — Fissile",
-        &[BuildingType::AutoUraniumMine, BuildingType::AutoThoriumMine],
-    ),
-    (
-        "Orbital — Hydrocarbons / Heavy water / He-3 / Water",
-        &[
-            BuildingType::AutoMethaneExtractor,
-            BuildingType::AutoDeuteriumExtractor,
-            BuildingType::AutoHe3Mine,
-            BuildingType::AutoWaterProcessor,
-        ],
+        MiningGroupId::FusionFuel,
+        "Fusion Fuel",
+        &[BuildingType::He3Mine, BuildingType::DeuteriumExtractor],
     ),
 ];
 

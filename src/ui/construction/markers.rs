@@ -398,12 +398,6 @@ pub struct DemolishConfirmYes;
 #[derive(Component)]
 pub struct DemolishConfirmNo;
 
-// Marker on the orbital section's outer container (the 5 sub-groups).
-// Visibility is driven by `tick_mining_group_visibility` based on
-// `ui_state.mining_orbital_collapsed`.
-#[derive(Component)]
-pub struct MiningOrbitalBody;
-
 // Marker component for the ETA text on a queue row. The
 // `update_queue_row_eta` system uses this to find the text node by
 // project entity without iterating every `Text` node in the world.
