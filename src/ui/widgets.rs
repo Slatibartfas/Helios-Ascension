@@ -1389,3 +1389,150 @@ pub fn tick_ui_scroll_on_wheel(
         }
     }
 }
+
+// =====================================================================
+// KeyedList reconciler (Phase 6: extracts the hand-rolled Local<HashMap>
+// reconcilers that previously lived in construction/{buildings,dropdown,
+// overview}.rs. Tracks a K -> Entity map; on each call, given a new
+// set of live keys, despawns orphans and leaves existing rows alive
+// so per-row mutation systems can update them in place.)
+// =====================================================================
+
+/// Tracks a `(K -> Entity)` map for a bevy_ui list view.
+///
+/// Usage pattern (per frame):
+/// ```ignore
+/// fn my_system(mut list: Local<KeyedList<MyKey>>, mut commands: Commands, ...) {
+///     // 1. Compute the live key set from your data source.
+///     let live_keys: Vec<MyKey> = ...;
+///     // 2. Reconcile: despawn orphans + spawn missing.
+///     list.reconcile(&mut commands, parent, &live_keys, |commands, parent, key| {
+///         spawn_my_row(commands, parent, key)
+///     });
+///     // 3. Per-row updates (background, label, etc.) for both existing
+/// //    and freshly-spawned rows.
+///     for (key, &entity) in list.iter() {
+///         ...
+///     }
+/// }
+/// ```
+///
+/// The struct wraps a `HashMap<K, Entity>` and offers helpers that
+/// are the canonical "spawn missing + despawn orphans" pattern. The
+/// per-row mutation step is left to the caller — every list view
+/// has its own visual update strategy.
+pub struct KeyedList<K: std::hash::Hash + Eq, V = Entity> {
+    map: std::collections::HashMap<K, V>,
+}
+
+impl<K: std::hash::Hash + Eq, V> Default for KeyedList<K, V> {
+    fn default() -> Self {
+        Self {
+            map: std::collections::HashMap::new(),
+        }
+    }
+}
+
+/// Implemented by types that can tell `KeyedList::reconcile` which
+/// entity to despawn when the key goes missing. `Entity` is the
+/// trivial case; structs that store their own row entity can
+/// implement this trait inline.
+pub trait EntityContainer {
+    fn entity(&self) -> Entity;
+}
+
+impl EntityContainer for Entity {
+    fn entity(&self) -> Entity {
+        *self
+    }
+}
+
+impl<K: std::hash::Hash + Eq + Copy, V: Copy> KeyedList<K, V> {
+    /// Iterate over `(key, value)` pairs in arbitrary order.
+    pub fn iter(&self) -> impl Iterator<Item = (&K, &V)> {
+        self.map.iter()
+    }
+
+    /// Length of the tracked list.
+    pub fn len(&self) -> usize {
+        self.map.len()
+    }
+
+    /// Is the list empty?
+    pub fn is_empty(&self) -> bool {
+        self.map.is_empty()
+    }
+
+    /// Look up the value for a key.
+    pub fn get(&self, key: &K) -> Option<V> {
+        self.map.get(key).copied()
+    }
+
+    /// Direct mutable access to the underlying map (for advanced
+    /// callers that need to insert / remove outside the reconcile
+    /// flow).
+    pub fn map_mut(&mut self) -> &mut std::collections::HashMap<K, V> {
+        &mut self.map
+    }
+
+    /// Drain the entire map, returning all `(K, V)` pairs.
+    /// Use this for full-clear paths (e.g. "the menu closed, drop
+    /// every row") where the caller will iterate and despawn.
+    pub fn drain(&mut self) -> impl Iterator<Item = (K, V)> + '_ {
+        self.map.drain()
+    }
+
+    /// Clear all entries without returning them. Faster than
+    /// `drain().for_each(drop)` when the caller doesn't need the
+    /// keys (e.g. the caller uses `commands.entity(...).despawn()`).
+    pub fn clear(&mut self) {
+        self.map.clear();
+    }
+
+    /// Reconcile the tracked list against a new set of live keys.
+    ///
+    /// - Keys that are in the map but NOT in `live_keys` are despawned
+    ///   via `commands.entity(...).try_despawn()` and dropped from the map.
+    /// - Keys that are in `live_keys` but NOT in the map are spawned
+    ///   by calling `spawn_fn(commands, parent, key)` and inserted
+    ///   into the map.
+    /// - Keys that are in both are left untouched (the caller can
+    ///   iterate `self.iter()` after to update their visual state).
+    ///
+    /// Only available for `V = Entity` (the common case where the
+    /// value IS the row entity). For richer row types, callers can
+    /// implement their own reconcile loop or store the row entity
+    /// separately and query the rest via components / Children.
+    pub fn reconcile<F>(
+        &mut self,
+        commands: &mut Commands,
+        parent: Entity,
+        live_keys: &[K],
+        spawn_fn: F,
+    ) where
+        V: EntityContainer,
+        F: Fn(&mut Commands, Entity, K) -> V,
+    {
+        let live_set: std::collections::HashSet<K> = live_keys.iter().copied().collect();
+        // Despawn orphans.
+        let to_remove: Vec<K> = self
+            .map
+            .keys()
+            .filter(|k| !live_set.contains(k))
+            .copied()
+            .collect();
+        for key in to_remove {
+            if let Some(value) = self.map.remove(&key) {
+                commands.entity(value.entity()).try_despawn();
+            }
+        }
+        // Spawn missing.
+        for key in live_keys {
+            if self.map.contains_key(key) {
+                continue;
+            }
+            let value = spawn_fn(commands, parent, *key);
+            self.map.insert(*key, value);
+        }
+    }
+}

@@ -104,7 +104,7 @@ pub fn refresh_colony_dropdown(
     menu_query: Query<Entity, With<ColonyDropdownMenu>>,
     ui_state: Res<ConstructionUiState>,
     mut spawned_rows: Local<
-        std::collections::HashMap<bevy::ecs::entity::Entity, bevy::ecs::entity::Entity>,
+        crate::ui::widgets::KeyedList<bevy::ecs::entity::Entity>,
     >,
     mut row_bg_query: Query<
         (&ColonyDropdownOption, &mut BackgroundColor),
@@ -132,20 +132,80 @@ pub fn refresh_colony_dropdown(
         })
         .collect();
     live_colonies.sort_by(|a, b| a.1.cmp(&b.1));
-    let live_keys: std::collections::HashSet<bevy::ecs::entity::Entity> =
+    let live_keys: Vec<bevy::ecs::entity::Entity> =
         live_colonies.iter().map(|(e, _)| *e).collect();
 
-    let to_remove: Vec<bevy::ecs::entity::Entity> = spawned_rows
-        .keys()
-        .filter(|k| !live_keys.contains(k))
-        .copied()
-        .collect();
-    for key in to_remove {
-        if let Some(row_entity) = spawned_rows.remove(&key) {
-            commands.entity(row_entity).try_despawn();
-        }
-    }
+    // Phase 6: KeyedList::reconcile handles the despawn-orphans +
+    // spawn-missing loop. The spawn closure allocates the label inline
+    // so we don't have to retain `live_colonies` past the call.
+    spawned_rows.reconcile(
+        &mut commands,
+        menu,
+        &live_keys,
+        |commands, parent, colony_entity| {
+            let is_selected = ui_state.selected_colony == Some(colony_entity);
+            let row = commands
+                .spawn((
+                    Button,
+                    Node {
+                        display: Display::Flex,
+                        flex_direction: FlexDirection::Row,
+                        align_items: AlignItems::Center,
+                        width: Val::Percent(100.0),
+                        height: Val::Px(22.0),
+                        padding: UiRect::horizontal(Val::Px(SPACE_SM)),
+                        border: UiRect::all(Val::Px(1.0)),
+                        border_radius: BorderRadius::all(Val::Px(3.0)),
+                        ..default()
+                    },
+                    BackgroundColor(if is_selected {
+                        Color::srgba(0.196, 0.529, 0.612, 0.78)
+                    } else {
+                        Color::srgba(0.0, 0.0, 0.0, 0.0)
+                    }),
+                    BorderColor::all(Color::NONE),
+                    Pickable::default(),
+                    Name::new("colony_dropdown_option"),
+                    ColonyDropdownOption { colony_entity },
+                ))
+                .id();
+            commands.entity(parent).add_child(row);
+            let text_color = if is_selected {
+                ACTIVE_CHIP_TEXT
+            } else {
+                TEXT_BODY
+            };
+            let label = colonies
+                .get(colony_entity)
+                .map(|(_, c)| {
+                    format!(
+                        "{} ({})",
+                        c.name,
+                        crate::colony::Colony::format_population(c.population)
+                    )
+                })
+                .unwrap_or_else(|_| "(unknown)".to_string());
+            let label_text = commands
+                .spawn((
+                    Text::new(label),
+                    TextFont {
+                        font: body_font_medium.clone(),
+                        font_size: CAPTION_SIZE,
+                        ..default()
+                    },
+                    TextColor(text_color),
+                    Name::new("colony_dropdown_option_text"),
+                    ColonyDropdownOptionText,
+                ))
+                .id();
+            commands.entity(row).add_child(label_text);
+            row
+        },
+    );
 
+    // Per-row visual update for ALL tracked rows (existing + freshly
+    // spawned). Background colour + label text reflect the current
+    // selection / colony name.
     for (colony_entity, row_entity) in spawned_rows.iter() {
         let is_selected = ui_state.selected_colony == Some(*colony_entity);
         if let Ok((_, mut bg)) = row_bg_query.get_mut(*row_entity) {
@@ -177,58 +237,5 @@ pub fn refresh_colony_dropdown(
                 break;
             }
         }
-    }
-
-    for (colony_entity, label) in live_colonies {
-        if spawned_rows.contains_key(&colony_entity) {
-            continue;
-        }
-        let is_selected = ui_state.selected_colony == Some(colony_entity);
-        let row = commands
-            .spawn((
-                Button,
-                Node {
-                    display: Display::Flex,
-                    flex_direction: FlexDirection::Row,
-                    align_items: AlignItems::Center,
-                    width: Val::Percent(100.0),
-                    height: Val::Px(22.0),
-                    padding: UiRect::horizontal(Val::Px(SPACE_SM)),
-                    border: UiRect::all(Val::Px(1.0)),
-                    border_radius: BorderRadius::all(Val::Px(3.0)),
-                    ..default()
-                },
-                BackgroundColor(if is_selected {
-                    Color::srgba(0.196, 0.529, 0.612, 0.78)
-                } else {
-                    Color::srgba(0.0, 0.0, 0.0, 0.0)
-                }),
-                BorderColor::all(Color::NONE),
-                Pickable::default(),
-                Name::new("colony_dropdown_option"),
-                ColonyDropdownOption { colony_entity },
-            ))
-            .id();
-        commands.entity(menu).add_child(row);
-        let text_color = if is_selected {
-            ACTIVE_CHIP_TEXT
-        } else {
-            TEXT_BODY
-        };
-        let label_text = commands
-            .spawn((
-                Text::new(label),
-                TextFont {
-                    font: body_font_medium.clone(),
-                    font_size: CAPTION_SIZE,
-                    ..default()
-                },
-                TextColor(text_color),
-                Name::new("colony_dropdown_option_text"),
-                ColonyDropdownOptionText,
-            ))
-            .id();
-        commands.entity(row).add_child(label_text);
-        spawned_rows.insert(colony_entity, row);
     }
 }

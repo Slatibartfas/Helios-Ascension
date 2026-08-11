@@ -106,7 +106,7 @@ pub fn update_buildings_body(
     resource_icons: Option<Res<crate::ui::resource_icons::ResourceIcons>>,
     colonies: Query<(Entity, &crate::colony::Colony)>,
     content_query: Query<Entity, With<BuildingsContent>>,
-    mut spawned_cards: Local<std::collections::HashMap<BuildingType, Entity>>,
+    mut spawned_cards: Local<crate::ui::widgets::KeyedList<BuildingType>>,
     mut header_query: Query<&mut Text, With<BuildingsHeader>>,
     mut empty_placeholder: Local<Option<Entity>>,
     mut no_colony_placeholder: Local<Option<Entity>>,
@@ -289,45 +289,32 @@ pub fn update_buildings_body(
         an.cmp(bn)
     });
 
-    let live_keys: std::collections::HashSet<BuildingType> =
-        entries.iter().copied().collect();
-
-    let to_remove: Vec<BuildingType> = spawned_cards
-        .keys()
-        .filter(|k| !live_keys.contains(k))
-        .copied()
-        .collect();
-    for key in to_remove {
-        if let Some(card_entity) = spawned_cards.remove(&key) {
-            commands.entity(card_entity).try_despawn();
-        }
-    }
-
     let multiplier = ui_state.build_multiplier;
-    for building_type in &entries {
-        if spawned_cards.contains_key(building_type) {
-            continue;
-        }
-        let Some(def) = buildings_data.get(building_type) else {
-            continue;
-        };
-        let icon_handle = building_icons
-            .as_ref()
-            .and_then(|bi| bi.handles.get(building_type).cloned());
-        let count = colony.buildings.get(building_type).copied().unwrap_or(0);
-        let card = super::cards::spawn_constructed_card(
-            &mut commands,
-            content,
-            *building_type,
-            def,
-            count,
-            multiplier,
-            &body_font,
-            &body_font_medium,
-            &mono_font,
-            icon_handle.as_ref(),
-            resource_icons,
-        );
-        spawned_cards.insert(*building_type, card);
-    }
+    spawned_cards.reconcile(
+        &mut commands,
+        content,
+        &entries,
+        |commands, parent, building_type| {
+            let Some(def) = buildings_data.get(&building_type) else {
+                return Entity::PLACEHOLDER;
+            };
+            let icon_handle = building_icons
+                .as_ref()
+                .and_then(|bi| bi.handles.get(&building_type).cloned());
+            let count = colony.buildings.get(&building_type).copied().unwrap_or(0);
+            super::cards::spawn_constructed_card(
+                commands,
+                parent,
+                building_type,
+                def,
+                count,
+                multiplier,
+                &body_font,
+                &body_font_medium,
+                &mono_font,
+                icon_handle.as_ref(),
+                resource_icons,
+            )
+        },
+    );
 }
