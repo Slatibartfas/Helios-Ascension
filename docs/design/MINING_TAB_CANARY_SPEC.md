@@ -118,11 +118,11 @@ Type sizes:
 | `CAPTION_SIZE` | 12 | count, production, reserve, accessibility, body-gate |
 | `MONO_SIZE` | 12 | production rate + reserve (use `mono_font` for these — see §5.3) |
 
-Spacing: standard `SPACE_XS=4`, `SPACE_SM=8`, `SPACE_MD=10`, `SPACE_LG=12`, `SPACE_XL=16`. The card re-uses `CardBundle` (`bevy_theme.rs:172-197`) for the outer container — **do not invent a new card bundle**.
+Spacing: standard `SPACE_XS=4`, `SPACE_SM=8`, `SPACE_MD=10`, `SPACE_LG=12`, `SPACE_XL=16`. The card root is built via the `widgets::card_shell` composer (320×320, bevel border, shadow, CYAN hover elevation). See `src/ui/widgets.rs` for the composer source.
 
 ### 2.2 Per-card layout
 
-A single card is a `CardBundle` (column flex) with the following children, top-down:
+A single card is a `card_shell` root (column flex) with the following children, top-down:
 
 ```
 ┌─ card_rim (1.5 px, CARD_TOP_HIGHLIGHT) — absolute, inset 0.5 px ─┐
@@ -343,7 +343,7 @@ pub enum MiningGroupId {
 - The Build sub-tab's `ConstructionCta` button (`:282-284`) is the only meaningful click target on a Build card. The Mining card has no equivalent CTA — it's a pure inventory + production readout.
 - A "focus the camera on the body" or "open a detail panel" action would duplicate the ColonyPicker dropdown's affordance and add a new modal/route for marginal value. Out of scope for v0.5.2; flagged for v0.5.3 in §10.
 
-If the user disagrees: the card itself already has `Pickable::default()` (from `CardBundle`'s children setup), so wiring a card-level click is a 4-line change — `MiningCardClick` marker + a system that reads the click and emits whatever event. Spec it in §10 as a v0.5.3 follow-up.
+If the user disagrees: the card itself already has `Pickable::default()` (added by `card_shell` in `src/ui/construction/cards.rs`), so wiring a card-level click is a 4-line change — `MiningCardClick` marker + a system that reads the click and emits whatever event. Spec it in §10 as a v0.5.3 follow-up.
 
 ### 4.6 Keyboard
 
@@ -700,7 +700,7 @@ The PR ships when all of the following are true:
 8. **Click a group chevron** toggles that group's `Display::None`/`Flex`; the state persists when the player switches tabs and back.
 9. **Click the orbital section chevron** toggles the entire 5-sub-group section.
 10. **Switching colonies** via the picker re-runs `compute_mining_card_data` for the new body's `PlanetResources` and the gate predicate. The cards re-skin to the new body's deposit + body_type within one frame.
-11. **No allocations on the hot path** (no `String` in the per-frame spawn, no `Vec` reallocations inside the card body). The `MiningCardData` is computed once per card per frame, the card layout re-uses the existing `CardBundle`.
+11. **No allocations on the hot path** (no `String` in the per-frame spawn, no `Vec` reallocations inside the card body). The `MiningCardData` is computed once per card per frame, the card layout uses the generic `card_shell` composer from `widgets.rs`.
 12. **`process_construction_actions`** continues to consume `mining_edits` without changes (already does — see §6.5).
 13. **The legacy `render_mining_grid` and friends in `src/ui/construction_panel.rs:872-1392` are NOT removed** in this PR. They stay in place until the canary graduates (the egui path is still the live render for non-canary consumers). The PR adds the bevy_ui path; graduation is a separate PR that deletes the egui path AND `src/ui/theme.rs` together.
 14. **No new icons needed** — all 47 mine / AutoMine building PNGs are already in `assets/textures/ui/buildings/` and loaded by `BuildingIcons`.
