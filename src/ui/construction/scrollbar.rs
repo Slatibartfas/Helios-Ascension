@@ -288,6 +288,9 @@ pub fn spawn_construction_scrollbar(
     track_bottom_px: f32,
     tab: ConstructionTabBody,
 ) {
+    // Match widgets::spawn_scrollbar's 10-px track + 8-px thumb
+    // (1-px gap on each side). The previous 12-px track + full-width
+    // thumb made the two read as overlapping bars.
     let scrollbar_track = commands
         .spawn((
             Node {
@@ -295,11 +298,11 @@ pub fn spawn_construction_scrollbar(
                 right: Val::Px(2.0),
                 top: Val::Px(track_top_px),
                 bottom: Val::Px(track_bottom_px),
-                width: Val::Px(12.0),
-                border_radius: BorderRadius::all(Val::Px(6.0)),
+                width: Val::Px(10.0),
+                border_radius: BorderRadius::all(Val::Px(5.0)),
                 ..default()
             },
-            BackgroundColor(Color::srgba(1.0, 1.0, 1.0, 0.06)),
+            BackgroundColor(Color::srgba(1.0, 1.0, 1.0, 0.04)),
             ZIndex(10),
             Pickable::default(),
             RelativeCursorPosition::default(),
@@ -316,11 +319,11 @@ pub fn spawn_construction_scrollbar(
         .spawn((
             Node {
                 position_type: PositionType::Absolute,
-                left: Val::Px(0.0),
-                right: Val::Px(0.0),
+                left: Val::Px(1.0),
+                right: Val::Px(1.0),
                 top: Val::Px(0.0),
                 height: Val::Px(0.0),
-                border_radius: BorderRadius::all(Val::Px(6.0)),
+                border_radius: BorderRadius::all(Val::Px(4.0)),
                 ..default()
             },
             BackgroundColor(CYAN.with_alpha(0.6)),
