@@ -17,10 +17,9 @@ use crate::ui::resource_icons::{
     get_energy_icon_handle_bevy, get_resource_icon_handle_bevy, ResourceIcons,
 };
 
-// Spawn a single build / mine / constructed-building card.
-//
-// The `data` argument drives all chrome (header, stats, power chip,
-// effects, ETA, resource-cost strip, CTA). When `data.constructed`
+
+// Spawn a single build / mine / constructed-building card using
+// the generic card composers from `widgets.rs`. When `data.constructed`
 // is true (Buildings-tab cards), the CTA + ETA row are skipped
 // and the caller (`spawn_constructed_card`) is expected to attach
 // a Demolish button after spawn.
@@ -35,61 +34,15 @@ pub fn spawn_card(
     icon: Option<&Handle<Image>>,
     resource_icons: &ResourceIcons,
 ) -> Entity {
-    let card = commands
-        .spawn((
-            Node {
-                display: Display::Flex,
-                flex_direction: FlexDirection::Column,
-                padding: UiRect {
-                    top: Val::Px(SPACE_LG),
-                    right: Val::Px(SPACE_LG),
-                    bottom: Val::Px(if data.constructed { SPACE_LG } else { CTA_FOOTPRINT }),
-                    left: Val::Px(SPACE_LG),
-                },
-                row_gap: Val::Px(SPACE_SM),
-                border: UiRect::all(Val::Px(1.0)),
-                border_radius: BorderRadius::all(Val::Px(8.0)),
-                width: Val::Px(320.0),
-                flex_shrink: 0.0,
-                height: Val::Px(320.0),
-                flex_grow: 0.0,
-                overflow: Overflow::clip(),
-                ..default()
-            },
-            BackgroundColor(CARD_BG),
-            BorderColor {
-                top: CARD_BORDER_HIGHLIGHT,
-                bottom: CARD_BORDER_SHADOW,
-                left: CARD_BORDER_HIGHLIGHT,
-                right: CARD_BORDER_SHADOW,
-            },
-            card_shadow(),
-            Pickable::default(),
-            Name::new("build_card"),
-            ConstructionCard {
-                name: data.name.clone(),
-            },
-            HoverElevation {
-                hover_scale: Vec2::splat(1.02),
-                press_scale: Vec2::splat(0.98),
-                border_rest: Some(BorderColor {
-                    top: CARD_BORDER_HIGHLIGHT,
-                    bottom: CARD_BORDER_SHADOW,
-                    left: CARD_BORDER_HIGHLIGHT,
-                    right: CARD_BORDER_SHADOW,
-                }),
-                border_hover: Some(CYAN),
-                bg: Some(CARD_BG),
-                bg_hover: Some(CARD_BG_HOVER),
-                shadow: Some(card_shadow()),
-                shadow_hover: Some(card_shadow_hover()),
-                z_lift: true,
-                ..default()
-            },
-        ))
-        .id();
-    commands.entity(parent).add_child(card);
+    // 1. Card shell (root + bevel + shadow + hover elevation)
+    let card = crate::ui::widgets::card_shell(commands, parent, crate::ui::widgets::CardShellOpts::default());
+    commands.entity(card).insert((
+        Pickable::default(),
+        Name::new("build_card"),
+        ConstructionCard { name: data.name.clone() },
+    ));
 
+    // 2. Header row (icon + title column)
     let header_row = commands
         .spawn((
             Node {
@@ -104,38 +57,7 @@ pub fn spawn_card(
         .id();
     commands.entity(card).add_child(header_row);
 
-    let card_icon = match icon {
-        Some(handle) => commands
-            .spawn((
-                Node {
-                    width: Val::Px(36.0),
-                    height: Val::Px(36.0),
-                    flex_shrink: 0.0,
-                    border_radius: BorderRadius::all(Val::Px(4.0)),
-                    border: UiRect::all(Val::Px(1.0)),
-                    ..default()
-                },
-                BorderColor::all(CYAN_BORDER),
-                ImageNode::new(handle.clone()).with_color(CYAN),
-                Name::new("card_icon"),
-            ))
-            .id(),
-        None => commands
-            .spawn((
-                Node {
-                    width: Val::Px(36.0),
-                    height: Val::Px(36.0),
-                    flex_shrink: 0.0,
-                    border_radius: BorderRadius::all(Val::Px(4.0)),
-                    border: UiRect::all(Val::Px(1.0)),
-                    ..default()
-                },
-                BorderColor::all(CYAN_BORDER),
-                BackgroundColor(Color::srgba(0.373, 0.784, 0.847, 0.60)),
-                Name::new("card_icon_placeholder"),
-            ))
-            .id(),
-    };
+    let card_icon = crate::ui::widgets::card_icon(commands, icon, CYAN, 36.0, "card_icon");
     commands.entity(header_row).add_child(card_icon);
 
     let title_col = commands
@@ -167,73 +89,18 @@ pub fn spawn_card(
         .id();
     commands.entity(title_col).add_child(title);
 
-    let subtitle_clip = commands
-        .spawn((
-            Node {
-                height: Val::Px(20.0),
-                width: Val::Percent(100.0),
-                min_width: Val::Px(0.0),
-                overflow: Overflow::clip(),
-                ..default()
-            },
-            Name::new("card_subtitle_clip"),
-        ))
-        .id();
-    commands.entity(title_col).add_child(subtitle_clip);
+    // 3. Subtitle marquee
+    crate::ui::widgets::card_marquee_subtitle(
+        commands,
+        title_col,
+        &data.subtitle,
+        body_font,
+        CAPTION_SIZE,
+        TEXT_DIM,
+        30.0,
+    );
 
-    let subtitle_text_a = commands
-        .spawn((
-            Text::new(data.subtitle.clone()),
-            TextFont {
-                font: body_font.clone(),
-                font_size: CAPTION_SIZE,
-                ..default()
-            },
-            TextColor(TEXT_DIM),
-            TextLayout::new_with_no_wrap(),
-            Name::new("card_subtitle_text"),
-        ))
-        .id();
-
-    let subtitle_text_b = commands
-        .spawn((
-            Text::new(data.subtitle.clone()),
-            TextFont {
-                font: body_font.clone(),
-                font_size: CAPTION_SIZE,
-                ..default()
-            },
-            TextColor(TEXT_DIM),
-            TextLayout::new_with_no_wrap(),
-            Name::new("card_subtitle_text"),
-        ))
-        .id();
-
-    let subtitle_track = commands
-        .spawn((
-            Node {
-                display: Display::Flex,
-                flex_direction: FlexDirection::Row,
-                flex_shrink: 0.0,
-                align_items: AlignItems::Center,
-                ..default()
-            },
-            UiTransform::default(),
-            SubtitleMarquee {
-                text_node: subtitle_text_a,
-                clip_container: subtitle_clip,
-                text_width: 0.0,
-                container_width: 0.0,
-                phase: 0.0,
-                rate_pixels_per_sec: 30.0,
-            },
-            Name::new("card_subtitle_track"),
-        ))
-        .id();
-    commands.entity(subtitle_clip).add_child(subtitle_track);
-    commands.entity(subtitle_track).add_child(subtitle_text_a);
-    commands.entity(subtitle_track).add_child(subtitle_text_b);
-
+    // 4. Stats row (label/value pairs)
     let stats_row = commands
         .spawn((
             Node {
@@ -268,9 +135,11 @@ pub fn spawn_card(
         commands.entity(stats_row).add_child(stat);
     }
 
+    // 5. Hairline divider
     let hairline = commands.spawn(HairlineBundle::default()).id();
     commands.entity(card).add_child(hairline);
 
+    // 6. Power chip
     let power_chrome = YELLOW_ENERGY;
     let power_text_color = if data.power_chip.per_unit_mw < -0.01 {
         RED
@@ -286,10 +155,7 @@ pub fn spawn_card(
     } else {
         ""
     };
-    let power_chip_label = format!(
-        "{}{}",
-        sign_prefix, data.power_chip.amount
-    );
+    let power_chip_label = format!("{}{}", sign_prefix, data.power_chip.amount);
     let power_chip = commands
         .spawn((
             Node {
@@ -315,8 +181,8 @@ pub fn spawn_card(
         ))
         .id();
     commands.entity(card).add_child(power_chip);
-    commands.entity(power_chip).observe(on_power_chip_hover_over);
-    commands.entity(power_chip).observe(on_power_chip_hover_out);
+    commands.entity(power_chip).observe(super::tooltip::on_power_chip_hover_over);
+    commands.entity(power_chip).observe(super::tooltip::on_power_chip_hover_out);
 
     let power_icon_node = match get_energy_icon_handle_bevy(resource_icons) {
         Some(handle) => commands
@@ -359,6 +225,7 @@ pub fn spawn_card(
         .id();
     commands.entity(power_chip).add_child(label);
 
+    // 7. Effect bullets
     for (tone, line) in &data.effects {
         let color = match tone {
             super::data::EffectTone::Positive => GREEN_FIN,
@@ -382,10 +249,11 @@ pub fn spawn_card(
         commands.entity(card).add_child(bullet);
     }
 
-    let strip = if data.resource_costs.is_empty() {
-        None
+    // 8. Resource-cost strip + chips
+    if data.resource_costs.is_empty() {
+        // No strip needed.
     } else {
-        let s = commands
+        let strip = commands
             .spawn((
                 Node {
                     display: Display::Flex,
@@ -400,67 +268,67 @@ pub fn spawn_card(
                 Name::new("resource_cost_strip"),
             ))
             .id();
-        commands.entity(card).add_child(s);
-        Some(s)
-    };
+        commands.entity(card).add_child(strip);
 
-    for cost in &data.resource_costs {
-        let category = cost
-            .resource
-            .map(|r| crate::ui::bevy_theme::category_color_for_resource(&r))
-            .unwrap_or(TEXT_BODY);
-        let amount_str = super::data::format_mining_reserve(cost.amount);
+        for cost in &data.resource_costs {
+            let category = cost
+                .resource
+                .map(|r| crate::ui::bevy_theme::category_color_for_resource(&r))
+                .unwrap_or(TEXT_BODY);
+            let amount_str = super::data::format_mining_reserve(cost.amount);
+            let amount_str_for_label = amount_str.clone();
 
-        let display_name: String = cost
-            .resource
-            .map(|r| r.display_name().to_string())
-            .unwrap_or_else(|| cost.name.clone());
-        let chip = commands
-            .spawn((
-                Node {
-                    display: Display::Flex,
-                    flex_direction: FlexDirection::Row,
-                    align_items: AlignItems::Center,
-                    column_gap: Val::Px(4.0),
-                    padding: UiRect::horizontal(Val::Px(6.0)),
-                    height: Val::Px(28.0),
-                    border: UiRect::all(Val::Px(1.0)),
-                    border_radius: BorderRadius::all(Val::Px(4.0)),
-                    ..default()
-                },
-                BackgroundColor(category.with_alpha(0.12)),
-                BorderColor::all(category.with_alpha(0.35)),
-                Pickable::default(),
-                ResourceCostChip {
-                    name: display_name,
-                    amount: amount_str.clone(),
-                    category,
-                    card,
-                },
-                Name::new("resource_cost_chip"),
-            ))
-            .id();
-        commands.entity(strip.unwrap()).add_child(chip);
-        commands.entity(chip).observe(super::tooltip::on_chip_hover_over);
-        commands.entity(chip).observe(super::tooltip::on_chip_hover_out);
+            let display_name: String = cost
+                .resource
+                .map(|r| r.display_name().to_string())
+                .unwrap_or_else(|| cost.name.clone());
 
-        let icon_node = match cost
-            .resource
-            .and_then(|r| get_resource_icon_handle_bevy(resource_icons, r))
-        {
-            Some(handle) => commands
+            let icon_handle = cost
+                .resource
+                .and_then(|r| get_resource_icon_handle_bevy(resource_icons, r));
+
+            let chip = commands
                 .spawn((
                     Node {
-                        width: Val::Px(20.0),
-                        height: Val::Px(20.0),
+                        display: Display::Flex,
+                        flex_direction: FlexDirection::Row,
+                        align_items: AlignItems::Center,
+                        column_gap: Val::Px(4.0),
+                        padding: UiRect::horizontal(Val::Px(6.0)),
+                        height: Val::Px(28.0),
+                        border: UiRect::all(Val::Px(1.0)),
+                        border_radius: BorderRadius::all(Val::Px(4.0)),
                         ..default()
                     },
-                    ImageNode::new(handle.clone()).with_color(category),
-                    Name::new("resource_cost_chip_icon"),
+                    BackgroundColor(category.with_alpha(0.12)),
+                    BorderColor::all(category.with_alpha(0.35)),
+                    Pickable::default(),
+                    ResourceCostChip {
+                        name: display_name,
+                        amount: amount_str,
+                        category,
+                        card,
+                    },
+                    Name::new("resource_cost_chip"),
                 ))
-                .id(),
-            None => {
-                let placeholder = commands
+                .id();
+            commands.entity(strip).add_child(chip);
+            commands.entity(chip).observe(super::tooltip::on_chip_hover_over);
+            commands.entity(chip).observe(super::tooltip::on_chip_hover_out);
+
+            let icon_node = match icon_handle {
+                Some(handle) => commands
+                    .spawn((
+                        Node {
+                            width: Val::Px(20.0),
+                            height: Val::Px(20.0),
+                            ..default()
+                        },
+                        ImageNode::new(handle.clone()).with_color(category),
+                        Name::new("resource_cost_chip_icon"),
+                    ))
+                    .id(),
+                None => commands
                     .spawn((
                         Node {
                             width: Val::Px(20.0),
@@ -471,27 +339,27 @@ pub fn spawn_card(
                         BackgroundColor(category.with_alpha(0.85)),
                         Name::new("resource_cost_chip_icon_placeholder"),
                     ))
-                    .id();
-                placeholder
-            }
-        };
-        commands.entity(chip).add_child(icon_node);
+                    .id(),
+            };
+            commands.entity(chip).add_child(icon_node);
 
-        let label = commands
-            .spawn((
-                Text::new(amount_str),
-                TextFont {
-                    font: mono_font.clone(),
-                    font_size: CAPTION_SIZE,
-                    ..default()
-                },
-                TextColor(category),
-                Name::new("resource_cost_chip_label"),
-            ))
-            .id();
-        commands.entity(chip).add_child(label);
+            let chip_label = commands
+                .spawn((
+                    Text::new(amount_str_for_label),
+                    TextFont {
+                        font: mono_font.clone(),
+                        font_size: CAPTION_SIZE,
+                        ..default()
+                    },
+                    TextColor(category),
+                    Name::new("resource_cost_chip_label"),
+                ))
+                .id();
+            commands.entity(chip).add_child(chip_label);
+        }
     }
 
+    // 9. ETA row (only for non-constructed cards)
     if !data.constructed {
         let eta_hairline = commands.spawn(HairlineBundle::default()).id();
         commands.entity(card).add_child(eta_hairline);
@@ -500,106 +368,36 @@ pub fn spawn_card(
         let batch_bp = unit_bp * data.multiplier.max(1) as f64;
         let eta_seconds = batch_bp / 12_001.0 * 365.25 * 24.0 * 3600.0;
         let eta_str = format_duration_compact(eta_seconds);
-        let eta_row = commands
-            .spawn((
-                Node {
-                    display: Display::Flex,
-                    flex_direction: FlexDirection::Row,
-                    align_items: AlignItems::Center,
-                    width: Val::Percent(100.0),
-                    padding: UiRect::horizontal(Val::Px(SPACE_XS)),
-                    column_gap: Val::Px(SPACE_SM),
-                    ..default()
-                },
-                BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.0)),
-                Name::new("card_eta_row"),
-            ))
-            .id();
-        commands.entity(card).add_child(eta_row);
-        let eta_label = commands
-            .spawn((
-                Text::new("ETA: "),
-                TextFont {
-                    font: mono_font.clone(),
-                    font_size: CAPTION_SIZE,
-                    ..default()
-                },
-                TextColor(TEXT_DIM),
-                Name::new("card_eta_label"),
-            ))
-            .id();
-        commands.entity(eta_row).add_child(eta_label);
-        let eta_value = commands
-            .spawn((
-                Text::new(eta_str),
-                TextFont {
-                    font: mono_font.clone(),
-                    font_size: CAPTION_SIZE,
-                    ..default()
-                },
-                TextColor(YELLOW_ETA),
-                Name::new("card_eta_value"),
-            ))
-            .id();
-        commands.entity(eta_row).add_child(eta_value);
+        crate::ui::widgets::card_label_value_row(
+            commands,
+            card,
+            "ETA: ",
+            TEXT_DIM,
+            &eta_str,
+            YELLOW_ETA,
+            mono_font,
+            CAPTION_SIZE,
+            SPACE_SM,
+        );
     }
 
+    // 10. Footer CTA (only for non-constructed cards)
     if !data.constructed {
-        let cta = commands
-            .spawn((
-                Button,
-                Node {
-                    display: Display::Flex,
-                    flex_direction: FlexDirection::Row,
-                    align_items: AlignItems::Center,
-                    justify_content: JustifyContent::Center,
-                    align_self: AlignSelf::FlexStart,
-                    height: Val::Px(32.0),
-                    padding: UiRect::horizontal(Val::Px(SPACE_XL)),
-                    border: UiRect::all(Val::Px(1.0)),
-                    border_radius: BorderRadius::all(Val::Px(4.0)),
-                    position_type: PositionType::Absolute,
-                    bottom: Val::Px(SPACE_LG),
-                    left: Val::Px(SPACE_LG),
-                    ..default()
-                },
-                BackgroundColor(CTA_FILL),
-                BorderColor::all(CYAN_BORDER_STRONG),
-                Name::new("card_cta"),
-                ConstructionCta { building_type },
-                ConstructionCtaDisabled,
-                Pickable::default(),
-            ))
-            .id();
+        let cta = crate::ui::widgets::card_footer_cta(
+            commands,
+            card,
+            &data.queue_label,
+            body_font_medium,
+            BODY_SIZE,
+            ConstructionCta { building_type },
+        );
+        commands.entity(cta).insert(Pickable::default());
         if !data.power_insufficient {
-            commands.entity(cta).remove::<ConstructionCtaDisabled>();
+            commands.entity(cta).insert(ConstructionCtaDisabled);
         }
         if data.body_blocked {
             commands.entity(cta).insert(ConstructionCtaBodyBlocked);
         }
-        commands.entity(card).add_child(cta);
-
-        let cta_label = commands
-            .spawn((
-                Text::new(data.queue_label.clone()),
-                TextFont {
-                    font: body_font_medium.clone(),
-                    font_size: BODY_SIZE,
-                    ..default()
-                },
-                TextColor(CYAN),
-                Node {
-                    flex_grow: 1.0,
-                    justify_content: JustifyContent::Center,
-                    align_items: AlignItems::Center,
-                    display: Display::Flex,
-                    ..default()
-                },
-                ConstructionCtaLabelMarker,
-                Name::new("card_cta_label"),
-            ))
-            .id();
-        commands.entity(cta).add_child(cta_label);
     }
 
     card
