@@ -37,8 +37,11 @@ pub fn on_chip_hover_over(
     let Ok(chip) = chip_query.get(on.entity) else {
         return;
     };
+    // Title is empty so the resource name isn't rendered twice.
+    // The body's `Stat` row shows `<name>: <amount>` in the chip's
+    // category tone — that single line is the full tooltip payload.
     request.content = Some(TooltipContent {
-        title: chip.name.clone(),
+        title: String::new(),
         entries: vec![TooltipEntry::Stat {
             label: chip.name.clone(),
             value: chip.amount.clone(),
@@ -85,30 +88,22 @@ pub fn on_power_chip_hover_over(
     let Ok(chip) = chip_query.get(on.entity) else {
         return;
     };
-    // Build a single Stat entry carrying the tone for the chip; the
-    // body renderer in `populate_tooltip_body` respects `Stat::tone`
-    // when picking the value's text colour.
-    let mut entries: Vec<TooltipEntry> = Vec::new();
-    if let Some((first, rest)) = chip.tooltip_lines.split_first() {
-        // First line becomes the Stat row's label, the rest of the
-        // lines are Paragraph rows beneath it (rendered muted). The
-        // tone from the chip is applied to the Stat value.
-        let value = rest.first().cloned().unwrap_or_default();
-        entries.push(TooltipEntry::Stat {
-            label: first.clone(),
-            value,
-            tone: tone_for_chip_color(chip.tone),
-        });
-        for line in rest.iter().skip(1) {
-            entries.push(TooltipEntry::Paragraph(line.clone()));
-        }
-    }
-    let title = chip
+    // Render each tooltip line as a Paragraph in the body. The first
+    // line ("Power demand: 45 MW") is the title-equivalent — no
+    // separate title to avoid the name being shown twice. The body
+    // renderer applies the chip's tone to the first line via the
+    // paragraph above the rest; we keep it as Paragraph for
+    // simplicity and rely on the chip's category colour in the
+    // overlay background.
+    let entries: Vec<TooltipEntry> = chip
         .tooltip_lines
-        .first()
-        .cloned()
-        .unwrap_or_else(|| "Power".to_string());
-    request.content = Some(TooltipContent { title, entries });
+        .iter()
+        .map(|line| TooltipEntry::Paragraph(line.clone()))
+        .collect();
+    request.content = Some(TooltipContent {
+        title: String::new(),
+        entries,
+    });
     request.hover_started_at = Some(time.elapsed_secs());
 }
 
@@ -366,8 +361,15 @@ pub fn tick_construction_tooltip(
             .iter()
             .map(|line| TooltipEntry::Paragraph(line.clone()))
             .collect();
+        let was_empty = request.content.is_none();
         request.content = Some(TooltipContent { title, entries });
-        request.hover_started_at = Some(time.elapsed_secs());
+        // Only set `hover_started_at` on the first frame the CTA
+        // becomes hovered (transition from None → Some). Re-setting
+        // it every frame would reset the 250 ms latency gate
+        // indefinitely, preventing the overlay from ever appearing.
+        if was_empty {
+            request.hover_started_at = Some(time.elapsed_secs());
+        }
     } else if request
         .content
         .as_ref()
