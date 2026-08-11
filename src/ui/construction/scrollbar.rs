@@ -98,11 +98,19 @@ fn on_track_press(
     drag.active = true;
     drag.started_on_track = true;
     drag.active_track = Some(on.entity);
+    // Bevy 0.18's `RelativeCursorPosition.normalized` puts the
+    // CENTER of the node at 0 (range: -0.5..+0.5). Shift by
+    // +0.5 to get a 0..1 range where 0 = top of the track and
+    // 1 = bottom — matches the `usable_track_height * press_track_y`
+    // math in the drag system. (Previous bug: pressing the visual
+    // center of the track set press_track_y = 0 → jump-to-top
+    // offset; pressing the bottom half set press_track_y = 0..0.5
+    // → jump-to-position was always off by half the track.)
     let y = track_query
         .get(on.entity)
         .ok()
         .and_then(|rcp| rcp.normalized)
-        .map(|n| n.y)
+        .map(|n| (n.y + 0.5).clamp(0.0, 1.0))
         .unwrap_or(0.0);
     drag.press_track_y = y;
 }
