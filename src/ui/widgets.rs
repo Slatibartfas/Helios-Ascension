@@ -1219,11 +1219,11 @@ pub fn spawn_scrollbar(
                 right: Val::Px(2.0),
                 top: Val::Px(track_top_px),
                 bottom: Val::Px(track_bottom_px),
-                width: Val::Px(12.0),
-                border_radius: BorderRadius::all(Val::Px(6.0)),
+                width: Val::Px(10.0),
+                border_radius: BorderRadius::all(Val::Px(5.0)),
                 ..default()
             },
-            BackgroundColor(Color::srgba(1.0, 1.0, 1.0, 0.06)),
+            BackgroundColor(Color::srgba(1.0, 1.0, 1.0, 0.04)),
             ZIndex(10),
             Pickable::default(),
             RelativeCursorPosition::default(),
@@ -1236,15 +1236,19 @@ pub fn spawn_scrollbar(
     commands.entity(scrollbar_track).observe(on_track_press);
     commands.entity(scrollbar_track).observe(on_track_release);
 
+    // Thumb is narrower than the track (8 px on a 10 px track) so
+    // there's a visible 1-px gap on each side — the track and thumb
+    // read as distinct elements, not two overlapping bars. Width
+    // padding is done via left: 1 + right: 1 (absolutely positioned).
     let scrollbar_thumb = commands
         .spawn((
             Node {
                 position_type: PositionType::Absolute,
-                left: Val::Px(0.0),
-                right: Val::Px(0.0),
+                left: Val::Px(1.0),
+                right: Val::Px(1.0),
                 top: Val::Px(0.0),
                 height: Val::Px(0.0),
-                border_radius: BorderRadius::all(Val::Px(6.0)),
+                border_radius: BorderRadius::all(Val::Px(4.0)),
                 ..default()
             },
             BackgroundColor(Color::srgba(0.37, 0.78, 0.85, 0.6)), // CYAN.with_alpha(0.6)
@@ -1281,25 +1285,10 @@ pub fn tick_scrollbar(
         (Entity, &mut Node, &mut BackgroundColor),
         (With<ScrollbarThumb>, Without<ScrollbarTrack>),
     >,
-    interaction_query: Query<&Interaction>,
 ) {
-    const REST_WIDTH: f32 = 10.0;
-    const HOVER_WIDTH: f32 = 14.0;
-    let rest_bg = Color::srgba(1.0, 1.0, 1.0, 0.06);
-    let hover_bg = Color::srgba(1.0, 1.0, 1.0, 0.14);
-    let rest_thumb = Color::srgba(0.37, 0.78, 0.85, 0.55);
-    let hover_thumb = Color::srgba(0.37, 0.78, 0.85, 0.95);
     // Per-track scoping: each track has its own metrics + thumb.
-    // Index thumbs by their PARENT track so the loop body updates only
-    // the thumb that belongs to the current track. (v0.5.2 fix:
-    // `Children` was the thumb's children — a leaf has none —
-    // which produced an empty map. `ChildOf` is the correct lookup.)
-    //
-    // v0.5.2 B0001 fix: combined the four Node-mutating queries
-    // (track_node, track_bg, thumb_node, thumb_bg) into single
-    // combined queries per archetype. The track loop body uses a
-    // single mutable borrow per track entity, the thumb loop body
-    // uses a single mutable borrow per thumb entity.
+    // Index thumbs by their PARENT track so the loop body updates
+    // only the thumb that belongs to the current track.
     let mut thumb_for_track: std::collections::HashMap<Entity, Entity> =
         std::collections::HashMap::new();
     for (thumb_entity, _, _) in thumb_query.iter() {
@@ -1308,7 +1297,7 @@ pub fn tick_scrollbar(
         }
     }
 
-    for (track_entity, track_computed, track, mut track_node, mut track_bg_node) in
+    for (track_entity, track_computed, track, _track_node, mut track_bg_node) in
         track_query.iter_mut()
     {
         let Ok(mut metrics) = metrics_query.get_mut(track_entity) else {
@@ -1325,28 +1314,12 @@ pub fn tick_scrollbar(
         let target_content = target_computed.content_size().y;
         let usable_track = (track_height - 16.0).max(0.0); // 8 px top + 8 px bottom padding
 
-        // Hover detection — done BEFORE the thumb update so the
-        // sizing logic doesn't accidentally resize after we mutate
-        // Node.
-        let track_hovered = interaction_query.get(track_entity)
-            .map(|i| matches!(*i, Interaction::Hovered | Interaction::Pressed))
-            .unwrap_or(false);
-        let thumb_hovered = thumb_for_track.get(&track_entity)
-            .and_then(|t| interaction_query.get(*t).ok())
-            .map(|i| matches!(*i, Interaction::Hovered | Interaction::Pressed))
-            .unwrap_or(false);
-        let hovered = track_hovered || thumb_hovered;
-
-        // Dossier-style hover-to-expand: track width + bg colour flip
-        // per-frame based on hover state.
-        track_node.width = Val::Px(if hovered { HOVER_WIDTH } else { REST_WIDTH });
-        *track_bg_node = BackgroundColor(if hovered { hover_bg } else { rest_bg });
-
         if target_content <= target_size.y || target_size.y <= 0.0 {
             if let Some(&thumb_entity) = thumb_for_track.get(&track_entity) {
                 if let Ok((_, mut node, _)) = thumb_query.get_mut(thumb_entity) {
                     node.height = Val::Px(0.0);
                     node.top = Val::Px(0.0);
+                    *track_bg_node = BackgroundColor(Color::srgba(1.0, 1.0, 1.0, 0.06));
                 }
             }
             metrics.usable_track_height = usable_track;
@@ -1370,9 +1343,12 @@ pub fn tick_scrollbar(
             if let Ok((_, mut node, mut thumb_bg_node)) = thumb_query.get_mut(thumb_entity) {
                 node.height = Val::Px(thumb_height);
                 node.top = Val::Px(thumb_y);
-                *thumb_bg_node = BackgroundColor(if hovered { hover_thumb } else { rest_thumb });
+                *thumb_bg_node = BackgroundColor(Color::srgba(0.37, 0.78, 0.85, 0.55));
             }
         }
+        // Subtle track background — just enough to hint at the
+        // scrollable range without competing with the cyan thumb.
+        *track_bg_node = BackgroundColor(Color::srgba(1.0, 1.0, 1.0, 0.04));
     }
 }
 
