@@ -1684,3 +1684,407 @@ pub fn tick_progress_fill(mut q: Query<(&ProgressFill, &mut Node)>) {
         node.width = Val::Percent(pct * 100.0);
     }
 }
+
+// =====================================================================
+// Card composers (Phase 11A: building blocks for spawn_card decomp).
+// =====================================================================
+
+pub struct CardShellOpts {
+    pub width: f32,
+    pub height: f32,
+    pub constructed: bool,
+    pub hover_scale: f32,
+    pub press_scale: f32,
+    pub border_rest: BorderColor,
+    pub border_hover: Color,
+    pub bg: Color,
+    pub bg_hover: Color,
+    pub shadow: BoxShadow,
+    pub shadow_hover: BoxShadow,
+    pub z_lift: bool,
+}
+
+impl Default for CardShellOpts {
+    fn default() -> Self {
+        Self {
+            width: 320.0,
+            height: 320.0,
+            constructed: false,
+            hover_scale: 1.02,
+            press_scale: 0.98,
+            border_rest: BorderColor::default(),
+            border_hover: Color::srgba(0.373, 0.784, 0.847, 1.0),
+            bg: Color::srgba(0.027, 0.047, 0.094, 0.96),
+            bg_hover: Color::srgba(0.039, 0.071, 0.137, 0.96),
+            shadow: BoxShadow::new(
+                Color::srgba(0.0, 0.0, 0.0, 0.6),
+                Val::Px(0.0),
+                Val::Px(2.0),
+                Val::Px(0.0),
+                Val::Px(8.0),
+            ),
+            shadow_hover: BoxShadow::new(
+                Color::srgba(0.0, 0.0, 0.0, 0.7),
+                Val::Px(0.0),
+                Val::Px(4.0),
+                Val::Px(0.0),
+                Val::Px(16.0),
+            ),
+            z_lift: true,
+        }
+    }
+}
+
+pub fn card_shell(commands: &mut Commands, parent: Entity, opts: CardShellOpts) -> Entity {
+    let card = commands
+        .spawn((
+            Node {
+                display: Display::Flex,
+                flex_direction: FlexDirection::Column,
+                padding: UiRect {
+                    top: Val::Px(10.0),
+                    right: Val::Px(10.0),
+                    bottom: Val::Px(if opts.constructed { 10.0 } else { 64.0 }),
+                    left: Val::Px(10.0),
+                },
+                row_gap: Val::Px(6.0),
+                border: UiRect::all(Val::Px(1.0)),
+                border_radius: BorderRadius::all(Val::Px(8.0)),
+                width: Val::Px(opts.width),
+                flex_shrink: 0.0,
+                height: Val::Px(opts.height),
+                flex_grow: 0.0,
+                overflow: Overflow::clip(),
+                ..default()
+            },
+            BackgroundColor(opts.bg),
+            BorderColor::default(),
+            HoverElevation {
+                hover_scale: Vec2::splat(opts.hover_scale),
+                press_scale: Vec2::splat(opts.press_scale),
+                border_rest: Some(opts.border_rest),
+                border_hover: Some(opts.border_hover),
+                bg: Some(opts.bg),
+                bg_hover: Some(opts.bg_hover),
+                shadow: Some(BoxShadow::new(
+                    Color::srgba(0.0, 0.0, 0.0, 0.6),
+                    Val::Px(0.0),
+                    Val::Px(2.0),
+                    Val::Px(0.0),
+                    Val::Px(8.0),
+                )),
+                shadow_hover: Some(BoxShadow::new(
+                    Color::srgba(0.0, 0.0, 0.0, 0.7),
+                    Val::Px(0.0),
+                    Val::Px(4.0),
+                    Val::Px(0.0),
+                    Val::Px(16.0),
+                )),
+                z_lift: opts.z_lift,
+                ..default()
+            },
+        ))
+        .id();
+    commands.entity(parent).add_child(card);
+    card
+}
+
+pub fn card_icon(
+    commands: &mut Commands,
+    handle: Option<&Handle<Image>>,
+    tint: Color,
+    size_px: f32,
+    name: &'static str,
+) -> Entity {
+    let node = commands
+        .spawn((
+            Node {
+                width: Val::Px(size_px),
+                height: Val::Px(size_px),
+                flex_shrink: 0.0,
+                border_radius: BorderRadius::all(Val::Px(4.0)),
+                border: UiRect::all(Val::Px(1.0)),
+                ..default()
+            },
+            BorderColor::all(Color::srgba(0.373, 0.784, 0.847, 0.6)),
+            Name::new(name),
+        ))
+        .id();
+    if let Some(handle) = handle {
+        commands.entity(node).insert(ImageNode::new(handle.clone()).with_color(tint));
+    } else {
+        commands.entity(node).insert(BackgroundColor(Color::srgba(0.373, 0.784, 0.847, 0.60)));
+    }
+    node
+}
+
+pub fn card_data_chip(
+    commands: &mut Commands,
+    parent: Entity,
+    tone: Color,
+    label: &str,
+    font: &Handle<Font>,
+    font_size: f32,
+    icon: Option<Handle<Image>>,
+    icon_size_px: f32,
+    label_color: Color,
+    height_px: f32,
+    marker: Option<impl Component>,
+) -> Entity {
+    let chip = commands
+        .spawn((
+            Node {
+                display: Display::Flex,
+                flex_direction: FlexDirection::Row,
+                align_items: AlignItems::Center,
+                column_gap: Val::Px(4.0),
+                padding: UiRect::horizontal(Val::Px(6.0)),
+                height: Val::Px(height_px),
+                border: UiRect::all(Val::Px(1.0)),
+                border_radius: BorderRadius::all(Val::Px(4.0)),
+                ..default()
+            },
+            BackgroundColor(tone.with_alpha(0.12)),
+            BorderColor::all(tone.with_alpha(0.35)),
+            Pickable::default(),
+            Name::new("data_chip"),
+        ))
+        .id();
+    commands.entity(parent).add_child(chip);
+
+    if let Some(handle) = icon {
+        let icon_n = commands
+            .spawn((
+                Node {
+                    width: Val::Px(icon_size_px),
+                    height: Val::Px(icon_size_px),
+                    ..default()
+                },
+                ImageNode::new(handle).with_color(tone),
+                Name::new("data_chip_icon"),
+            ))
+            .id();
+        commands.entity(chip).add_child(icon_n);
+    } else {
+        let placeholder = commands
+            .spawn((
+                Node {
+                    width: Val::Px(icon_size_px),
+                    height: Val::Px(icon_size_px),
+                    border_radius: BorderRadius::all(Val::Px(2.0)),
+                    ..default()
+                },
+                BackgroundColor(tone.with_alpha(0.85)),
+                Name::new("data_chip_icon_placeholder"),
+            ))
+            .id();
+        commands.entity(chip).add_child(placeholder);
+    }
+
+    let label_n = commands
+        .spawn((
+            Text::new(label),
+            TextFont {
+                font: font.clone(),
+                font_size,
+                ..default()
+            },
+            TextColor(label_color),
+            Name::new("data_chip_label"),
+        ))
+        .id();
+    commands.entity(chip).add_child(label_n);
+
+    if let Some(m) = marker {
+        commands.entity(chip).insert(m);
+    }
+    chip
+}
+
+pub fn card_marquee_subtitle(
+    commands: &mut Commands,
+    parent: Entity,
+    text: &str,
+    font: &Handle<Font>,
+    font_size: f32,
+    color: Color,
+    rate_pixels_per_sec: f32,
+) -> Entity {
+    let clip = commands
+        .spawn((
+            Node {
+                height: Val::Px(20.0),
+                width: Val::Percent(100.0),
+                min_width: Val::Px(0.0),
+                overflow: Overflow::clip(),
+                ..default()
+            },
+            Name::new("card_subtitle_clip"),
+        ))
+        .id();
+    commands.entity(parent).add_child(clip);
+
+    let text_a = commands
+        .spawn((
+            Text::new(text),
+            TextFont {
+                font: font.clone(),
+                font_size,
+                ..default()
+            },
+            TextColor(color),
+            TextLayout::new_with_no_wrap(),
+            Name::new("card_subtitle_text"),
+        ))
+        .id();
+    let text_b = commands
+        .spawn((
+            Text::new(text),
+            TextFont {
+                font: font.clone(),
+                font_size,
+                ..default()
+            },
+            TextColor(color),
+            TextLayout::new_with_no_wrap(),
+            Name::new("card_subtitle_text"),
+        ))
+        .id();
+
+    let track = commands
+        .spawn((
+            Node {
+                display: Display::Flex,
+                flex_direction: FlexDirection::Row,
+                flex_shrink: 0.0,
+                align_items: AlignItems::Center,
+                ..default()
+            },
+            UiTransform::default(),
+            Marquee {
+                text_node: text_a,
+                clip_container: clip,
+                text_width: 0.0,
+                container_width: 0.0,
+                phase: 0.0,
+                rate_pixels_per_sec,
+            },
+            Name::new("card_subtitle_track"),
+        ))
+        .id();
+    commands.entity(clip).add_child(track);
+    commands.entity(track).add_child(text_a);
+    commands.entity(track).add_child(text_b);
+    track
+}
+
+pub fn card_label_value_row(
+    commands: &mut Commands,
+    parent: Entity,
+    label: &str,
+    label_color: Color,
+    value: &str,
+    value_color: Color,
+    font: &Handle<Font>,
+    font_size: f32,
+    column_gap: f32,
+) -> Entity {
+    let row = commands
+        .spawn((
+            Node {
+                display: Display::Flex,
+                flex_direction: FlexDirection::Row,
+                align_items: AlignItems::Center,
+                column_gap: Val::Px(column_gap),
+                ..default()
+            },
+            Name::new("card_label_value_row"),
+        ))
+        .id();
+    commands.entity(parent).add_child(row);
+    let label_n = commands
+        .spawn((
+            Text::new(label),
+            TextFont {
+                font: font.clone(),
+                font_size,
+                ..default()
+            },
+            TextColor(label_color),
+            Name::new("card_label_value_label"),
+        ))
+        .id();
+    commands.entity(row).add_child(label_n);
+    let value_n = commands
+        .spawn((
+            Text::new(value),
+            TextFont {
+                font: font.clone(),
+                font_size,
+                ..default()
+            },
+            TextColor(value_color),
+            Node { flex_grow: 1.0, ..default() },
+            Name::new("card_label_value"),
+        ))
+        .id();
+    commands.entity(row).add_child(value_n);
+    row
+}
+
+pub fn card_footer_cta(
+    commands: &mut Commands,
+    parent: Entity,
+    label: &str,
+    font: &Handle<Font>,
+    font_size: f32,
+    marker: impl Component,
+) -> Entity {
+    let cta = commands
+        .spawn((
+            Button,
+            Node {
+                display: Display::Flex,
+                flex_direction: FlexDirection::Row,
+                align_items: AlignItems::Center,
+                justify_content: JustifyContent::Center,
+                align_self: AlignSelf::FlexStart,
+                height: Val::Px(32.0),
+                padding: UiRect::horizontal(Val::Px(18.0)),
+                border: UiRect::all(Val::Px(1.0)),
+                border_radius: BorderRadius::all(Val::Px(4.0)),
+                position_type: PositionType::Absolute,
+                bottom: Val::Px(10.0),
+                left: Val::Px(10.0),
+                ..default()
+            },
+            BackgroundColor(Color::srgba(0.012, 0.110, 0.169, 0.95)),
+            BorderColor::all(Color::srgba(0.0, 0.949, 1.0, 0.6)),
+            Pickable::default(),
+            Name::new("card_cta"),
+            marker,
+        ))
+        .id();
+    commands.entity(parent).add_child(cta);
+    let label_n = commands
+        .spawn((
+            Text::new(label),
+            TextFont {
+                font: font.clone(),
+                font_size,
+                ..default()
+            },
+            TextColor(Color::srgba(0.373, 0.784, 0.847, 1.0)),
+            Node {
+                flex_grow: 1.0,
+                justify_content: JustifyContent::Center,
+                align_items: AlignItems::Center,
+                display: Display::Flex,
+                ..default()
+            },
+            Name::new("card_cta_label"),
+        ))
+        .id();
+    commands.entity(cta).add_child(label_n);
+    cta
+}
