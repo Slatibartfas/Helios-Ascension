@@ -1727,8 +1727,8 @@ impl Default for CardShellOpts {
             press_scale: 0.98,
             border_rest,
             border_hover: Color::srgba(0.373, 0.784, 0.847, 1.0),
-            bg: Color::srgba(0.078, 0.165, 0.290, 0.92),
-            bg_hover: Color::srgba(0.105, 0.210, 0.345, 0.92),
+            bg: Color::srgba(0.027, 0.047, 0.094, 0.96),
+            bg_hover: Color::srgba(0.039, 0.071, 0.137, 0.96),
             shadow: BoxShadow::new(
                 Color::srgba(0.0, 0.0, 0.0, 0.6),
                 Val::Px(0.0),
