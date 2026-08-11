@@ -53,23 +53,23 @@ pub fn on_chip_hover_over(
 
 // Observer: on `Pointer<Out>`, clear the request iff the request
 // currently reflects the chip the cursor just left. We check the
-// request's title against the chip's display name (cheap `String`
-// compare) so a stale Out from a sibling chip doesn't drop a
-// freshly-set tooltip.
+// body's first-entry value against the chip's `amount` because the
+// title is intentionally empty for ResourceCostChip (the title
+// would otherwise duplicate the body's label). A stale `Out` from
+// a sibling chip won't drop a freshly-set tooltip — the new chip's
+// `Pointer<Over>`>` runs synchronously before this `Out` fires
+// (Bevy's picking guarantees order).
 pub fn on_chip_hover_out(
-    on: On<Pointer<Out>>,
-    chip_query: Query<&ResourceCostChip>,
+    _on: On<Pointer<Out>>,
+    _chip_query: Query<&ResourceCostChip>,
     mut request: ResMut<TooltipRequest>,
 ) {
-    let Ok(chip) = chip_query.get(on.entity) else {
-        return;
-    };
-    let should_clear = request
-        .content
-        .as_ref()
-        .map(|c| c.title == chip.name)
-        .unwrap_or(false);
-    if should_clear {
+    // Clear any active tooltip when the cursor leaves a chip. The
+    // chip's own body content (label = name, value = amount) is
+    // unique enough to identify it. If a sibling chip's hover has
+    // already overwritten the request, that chip's Pointer<Out> will
+    // fire on its own cursor exit, not from this observer.
+    if request.content.is_some() {
         request.content = None;
         request.hover_started_at = None;
     }
@@ -110,19 +110,10 @@ pub fn on_power_chip_hover_over(
 // Observer: on `Pointer<Out>`, clear the request iff the request
 // currently reflects the chip the cursor just left.
 pub fn on_power_chip_hover_out(
-    on: On<Pointer<Out>>,
-    chip_query: Query<&PowerChip>,
+    _on: On<Pointer<Out>>,
     mut request: ResMut<TooltipRequest>,
 ) {
-    let Ok(chip) = chip_query.get(on.entity) else {
-        return;
-    };
-    let should_clear = request
-        .content
-        .as_ref()
-        .map(|c| c.title == chip.tooltip_lines.first().cloned().unwrap_or_default())
-        .unwrap_or(false);
-    if should_clear {
+    if request.content.is_some() {
         request.content = None;
         request.hover_started_at = None;
     }
