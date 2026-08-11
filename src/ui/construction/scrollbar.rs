@@ -1,5 +1,14 @@
 //! Construction scrollbar — shared chrome for all scrollable tabs
 //! (Build + Mining + Buildings).
+//!
+//! Phase 5B follow-up (2026-08-11): per-track visibility gating is
+//! restored via the [`ConstructionScrollbarTab`] marker attached to
+//! each track. The tracks are children of the panel ROOT, not of
+//! their tab bodies, so the Phase 5B "inherited Visibility" claim
+//! left every track visible + overlapping — the two-tone grey bar,
+//! and Build-tab click/drag routing to the topmost (Mining) track.
+//! The drag system stays construction-side; the visual driver is the
+//! ungated `widgets::tick_scrollbar`.
 
 use bevy::input::mouse::MouseWheel;
 use bevy::picking::events::{Press, Release};
@@ -21,6 +30,13 @@ use super::state::*;
 // latent bug where two simultaneously-visible tracks would clobber
 // each other's measurements. The dossier-style hover-to-expand
 // hover styling is implemented in widgets::tick_scrollbar.
+//
+// Phase 5B follow-up (2026-08-11): this function is now a no-op —
+// the visual driver is `widgets::tick_scrollbar`, and per-track
+// visibility gating lives in `tick_construction_body_visibility` via
+// the `ConstructionScrollbarTab` marker (the tracks are children of
+// the panel ROOT, not of their bodies, so only the active tab's
+// track should be pickable/visible).
 pub fn tick_construction_scrollbar(
     mut params: ParamSet<(
         Query<(&ComputedNode, &ConstructionScrollbarTrack)>,
@@ -317,6 +333,7 @@ pub fn spawn_construction_scrollbar(
             crate::ui::widgets::ScrollbarMetrics::default(),
             Name::new(track_name),
             ConstructionScrollbarTrack { target },
+            ConstructionScrollbarTab(tab),
         ))
         .id();
     commands.entity(root).add_child(scrollbar_track);

@@ -7,6 +7,8 @@
 
 use bevy::prelude::*;
 
+use super::state::ConstructionTabBody;
+
 // Marker component for the canary root container.
 #[derive(Component)]
 pub struct ConstructionRoot;
@@ -207,10 +209,30 @@ pub struct CardGrid;
 // the body root, so the track follows naturally via Bevy's inherited
 // Visibility. The alias keeps legacy `use ...::ConstructionScrollbarTrack`
 // call sites compiling during the migration.
+//
+// Phase 5B follow-up (2026-08-11): the "inherited Visibility" claim
+// above was WRONG — the tracks are children of the panel ROOT, not of
+// the tab bodies, so hiding a body does NOT hide its track. All three
+// tracks rendered simultaneously and overlapped at the right edge
+// (two-tone grey bar; click/drag on the Build tab hit the topmost
+// Mining track and scrolled a hidden body). Per-track visibility is
+// restored via `ConstructionScrollbarTab` below.
 pub use crate::ui::widgets::ScrollbarTrack as ConstructionScrollbarTrack;
 
 // Phase 5B: thumb alias for `widgets::ScrollbarThumb`.
 pub use crate::ui::widgets::ScrollbarThumb as ConstructionScrollbarThumb;
+
+// Phase 5B follow-up (2026-08-11): per-track tab marker for the
+// construction scrollbars. `ConstructionScrollbarTrack` is an alias
+// of `widgets::ScrollbarTrack`, which only carries `target` — the
+// pre-migration `tab` field is gone, and the tracks are children of
+// the panel ROOT (not of their tab bodies), so they do NOT inherit
+// the body's Visibility. This marker lets
+// `tick_construction_body_visibility` restore the pre-migration
+// per-track gating: only the active tab's track gets `Display::Flex`;
+// the rest are `Display::None` (no render, no pick).
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ConstructionScrollbarTab(pub ConstructionTabBody);
 
 // Marker on the card_cta_label text entity so the per-frame
 // dim pass can identify it without walking the name. Spawned in

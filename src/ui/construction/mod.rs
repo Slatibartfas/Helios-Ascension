@@ -117,8 +117,9 @@ pub use markers::{
     BuildCard, CardGrid, ColonyDropdownMenu,
     ColonyDropdownOption, ColonyDropdownOptionText, ColonyPicker, ColonyPickerText,
     ConstructionCard, ConstructionCta, ConstructionCtaBodyBlocked, ConstructionCtaDisabled,
-    ConstructionCtaLabelMarker, ConstructionRoot, ConstructionScrollbarThumb,
-    ConstructionScrollbarTrack, ConstructionSubtitle, ConstructionTitle,
+    ConstructionCtaLabelMarker, ConstructionRoot, ConstructionScrollbarTab,
+    ConstructionScrollbarThumb, ConstructionScrollbarTrack, ConstructionSubtitle,
+    ConstructionTitle,
     DemolishButton, DemolishButtonLabel, DemolishConfirmDialog,
     DemolishConfirmNo, DemolishConfirmSubtitle, DemolishConfirmTitle, DemolishConfirmYes,
     DemolishDisabled, DemolishMultiplierSource,
@@ -218,7 +219,7 @@ pub fn tick_construction_body_visibility(
         ),
     >,
     mut scrollbar_track: Query<
-        (&ConstructionScrollbarTrack, &mut Node),
+        (&ConstructionScrollbarTab, &mut Node),
         (
             Without<ConstructionTabBody>,
             Without<ShowOnBuildOrBuildings>,
@@ -243,14 +244,21 @@ pub fn tick_construction_body_visibility(
             Display::None
         };
     }
-    // Phase 5B: track visibility is no longer driven by the
-    // `tab` field (gone after the widgets primitive migration). Each
-    // track follows its body's Visibility — which is set by the body
-    // visibility system just above — via Bevy's inherited Visibility.
-    // The visual update is now purely `widgets::tick_scrollbar`-driven
-    // (re-exported as `tick_construction_scrollbar`).
-    for (_track, mut node) in scrollbar_track.iter_mut() {
-        node.display = Display::Flex;
+    // Phase 5B follow-up (2026-08-11): the scrollbar tracks are
+    // children of the panel ROOT, NOT of their tab bodies — so the
+    // Phase 5B assumption ("each track follows its body's Visibility
+    // via inherited Visibility") was wrong: all three tracks stayed
+    // visible and overlapped at the right edge (the two-tone grey
+    // bar, and Build-tab click/drag hitting the topmost Mining track
+    // and scrolling a hidden body). Restore the pre-migration
+    // per-track gating via the `ConstructionScrollbarTab` marker —
+    // only the active tab's track gets `Display::Flex`; the rest are
+    // `Display::None` (no render, no pick). The visual driver stays
+    // the ungated `widgets::tick_scrollbar`; hidden tracks simply
+    // compute zero-height thumbs.
+    for (tab_marker, mut node) in scrollbar_track.iter_mut() {
+        let visible = tab_marker.0 == active;
+        node.display = if visible { Display::Flex } else { Display::None };
     }
 }
 
