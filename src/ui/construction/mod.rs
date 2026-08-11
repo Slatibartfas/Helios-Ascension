@@ -100,7 +100,7 @@ pub use state::{
     DemolishConfirmState, MiningGroupId, QueuedBuild, QueuePanelState,
     card_eta_seconds, queue_remaining_seconds,
     ShowOnBuildOrBuildings,
-    MINING_GROUPS_ORBITAL, MINING_GROUPS_SURFACE,
+    MINING_GROUPS_SURFACE,
 };
 
 // Phase 2: ActiveChips and ChipKind → widgets.
@@ -122,7 +122,7 @@ pub use markers::{
     DemolishButton, DemolishButtonLabel, DemolishConfirmDialog,
     DemolishConfirmNo, DemolishConfirmSubtitle, DemolishConfirmTitle, DemolishConfirmYes,
     DemolishDisabled, DemolishMultiplierSource,
-    MiningCard, MiningContent, MiningGroupBody, MiningGroupHeader, MiningOrbitalBody,
+    MiningCard, MiningContent, MiningGroupBody, MiningGroupHeader,
     OpenQueueChip, PowerChip,
     QueuePanelBody, QueuePanelClose, QueuePanelRoot,
     QueuePanelRow, QueuePanelRowCancel, QueuePanelRowEta, QueuePanelRowFill,
@@ -207,7 +207,7 @@ pub use disabled::{
 // hide the others.
 pub fn tick_construction_body_visibility(
     ui_state: Res<ConstructionUiState>,
-    mut body_query: Query<(&ConstructionTabBody, &mut Node, &mut Visibility)>,
+    body_query: Query<(&ConstructionTabBody, &mut Node, &mut Visibility)>,
     mut show_on_build_or_buildings: Query<
         &mut Node,
         (
@@ -227,15 +227,11 @@ pub fn tick_construction_body_visibility(
     >,
 ) {
     let active = ConstructionTabBody::from_tab(ui_state.selected_tab);
-    for (kind, mut node, mut visibility) in body_query.iter_mut() {
-        if *kind == active {
-            node.display = Display::Flex;
-            *visibility = Visibility::Inherited;
-        } else {
-            node.display = Display::None;
-            *visibility = Visibility::Hidden;
-        }
-    }
+    // Phase 9: body visibility now goes through the generic
+    // `widgets::tick_tab_body_visibility` primitive.
+    crate::ui::widgets::tick_tab_body_visibility(body_query, active as usize, |kind| {
+        *kind == active
+    });
     let show_chrome_subset = matches!(
         active,
         ConstructionTabBody::Build | ConstructionTabBody::Buildings

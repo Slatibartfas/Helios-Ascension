@@ -1536,3 +1536,43 @@ impl<K: std::hash::Hash + Eq + Copy, V: Copy> KeyedList<K, V> {
         }
     }
 }
+
+// =====================================================================
+// Tab body visibility (Phase 9: extracted from
+// construction/mod.rs::tick_construction_body_visibility. Generic over
+// the active-tab index resource + per-body marker, so any panel
+// (construction, shipbuilding) can drive its tab bodies from a
+// single system.)
+// =====================================================================
+
+/// Generic tab-body visibility system. Callers pass:
+/// - the `active_index` value (typically read from a Resource like
+///   `ConstructionUiState::selected_tab` or a dedicated `ActiveTabs`)
+/// - a closure `body_matches(index)` that returns true for the body
+///   entity that should be visible
+///
+/// For each `TabBody { index, group }` entity, sets Display::None
+/// (and Visibility::Hidden) when `body_matches(index) == false`,
+/// Display::Flex (and Visibility::Inherited) when true.
+///
+/// Panel-specific subsets (e.g. "show chrome on Build + Buildings
+/// only") are intentionally not handled here — panels compose this
+/// primitive with their own subset filters in their plugin module.
+pub fn tick_tab_body_visibility<B, F>(
+    mut bodies: Query<(&B, &mut Node, &mut Visibility)>,
+    active_index: usize,
+    body_matches: F,
+) where
+    B: Component,
+    F: Fn(&B) -> bool,
+{
+    for (kind, mut node, mut visibility) in bodies.iter_mut() {
+        let visible = body_matches(kind);
+        node.display = if visible { Display::Flex } else { Display::None };
+        *visibility = if visible {
+            Visibility::Inherited
+        } else {
+            Visibility::Hidden
+        };
+    }
+}
