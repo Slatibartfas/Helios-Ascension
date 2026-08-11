@@ -222,7 +222,8 @@ pub fn update_overview_queue(
     buildings_data: Res<crate::colony::data::BuildingsData>,
     projects: Query<(Entity, &crate::colony::ConstructionProject)>,
     content_query: Query<Entity, With<OverviewQueueContent>>,
-    mut spawned_rows: Local<std::collections::HashMap<Entity, OverviewQueueRow>>,
+    mut spawned_rows: Local<crate::ui::widgets::KeyedList<Entity>>,
+    row_query: Query<&OverviewQueueRow>,
     mut text_params: ParamSet<(
         Query<&mut Text, With<OverviewQueueRowNameChild>>,
         Query<&mut Text, With<OverviewQueueRowProgressChild>>,
@@ -249,19 +250,168 @@ pub fn update_overview_queue(
                 .collect()
         })
         .unwrap_or_default();
-    let live_keys: std::collections::HashSet<Entity> =
-        colony_projects.iter().map(|(e, _)| *e).collect();
+    // Phase 6: KeyedList::reconcile handles orphan despawn + missing
+    // spawn. The spawn closure builds the row + its four child text/fill
+    // entities and stores the OverviewQueueRow struct as a Component on
+    // the row (queried below via row_query).
+    let live_keys: Vec<Entity> = colony_projects.iter().map(|(e, _)| *e).collect();
+    let projects_for_spawn = colony_projects.clone();
+    spawned_rows.reconcile(
+        &mut commands,
+        content,
+        &live_keys,
+        |commands, parent, project_entity| {
+            // Look up the project data for this key.
+            let project = projects_for_spawn
+                .iter()
+                .find(|(e, _)| *e == project_entity)
+                .map(|(_, p)| p.clone());
+            let Some(project) = project else {
+                // Defensive: spawn an empty placeholder row so the
+                // KeyedList invariant (every live key has an entity)
+                // is preserved. Should not happen in practice — the
+                // live_keys set came from the same source.
+                return commands.spawn(Node::default()).id();
+            };
+            let display_name = buildings_data
+                .get(&project.building_type)
+                .map(|d| d.display_name.as_str())
+                .unwrap_or("(unknown)");
+            let progress = project.progress_percent();
+            let status = if project.awaiting_resources {
+                "Awaiting delivery"
+            } else {
+                "Building"
+            };
+            let row = commands
+                .spawn((
+                    Node {
+                        display: Display::Flex,
+                        flex_direction: FlexDirection::Column,
+                        padding: UiRect::all(Val::Px(SPACE_MD)),
+                        row_gap: Val::Px(SPACE_XS),
+                        border: UiRect::all(Val::Px(1.0)),
+                        border_radius: BorderRadius::all(Val::Px(4.0)),
+                        width: Val::Percent(100.0),
+                        ..default()
+                    },
+                    BackgroundColor(CARD_BG),
+                    BorderColor::all(CYAN_BORDER),
+                    Name::new("overview_queue_row"),
+                ))
+                .id();
+            commands.entity(parent).add_child(row);
 
-    let to_remove: Vec<Entity> = spawned_rows
-        .keys()
-        .filter(|k| !live_keys.contains(k))
-        .copied()
-        .collect();
-    for key in to_remove {
-        if let Some(row_info) = spawned_rows.remove(&key) {
-            commands.entity(row_info.row).try_despawn();
-        }
-    }
+            let header = commands
+                .spawn((
+                    Node {
+                        display: Display::Flex,
+                        flex_direction: FlexDirection::Row,
+                        align_items: AlignItems::Center,
+                        column_gap: Val::Px(SPACE_MD),
+                        width: Val::Percent(100.0),
+                        ..default()
+                    },
+                    Name::new("overview_queue_row_header"),
+                ))
+                .id();
+            commands.entity(row).add_child(header);
+
+            let name_text = commands
+                .spawn((
+                    Text::new(display_name.to_string()),
+                    TextFont {
+                        font: body_font_medium.clone(),
+                        font_size: BODY_SIZE,
+                        ..default()
+                    },
+                    TextColor(CYAN),
+                    Node {
+                        flex_grow: 1.0,
+                        ..default()
+                    },
+                    Name::new("overview_queue_row_name"),
+                    OverviewQueueRowNameChild,
+                ))
+                .id();
+            commands.entity(header).add_child(name_text);
+
+            let status_text = commands
+                .spawn((
+                    Text::new(status.to_string()),
+                    TextFont {
+                        font: body_font.clone(),
+                        font_size: CAPTION_SIZE,
+                        ..default()
+                    },
+                    TextColor(if project.awaiting_resources {
+                        ORANGE_ORE
+                    } else {
+                        GREEN_FIN
+                    }),
+                    Name::new("overview_queue_row_status"),
+                    OverviewQueueRowStatusChild,
+                ))
+                .id();
+            commands.entity(header).add_child(status_text);
+
+            let progress_text = commands
+                .spawn((
+                    Text::new(format!("{:.0}%", (progress as f64) * 100.0)),
+                    TextFont {
+                        font: mono_font.clone(),
+                        font_size: CAPTION_SIZE,
+                        ..default()
+                    },
+                    TextColor(CYAN),
+                    Name::new("overview_queue_row_progress"),
+                    OverviewQueueRowProgressChild,
+                ))
+                .id();
+            commands.entity(header).add_child(progress_text);
+
+            let track = commands
+                .spawn((
+                    Node {
+                        width: Val::Percent(100.0),
+                        height: Val::Px(4.0),
+                        border_radius: BorderRadius::all(Val::Px(2.0)),
+                        ..default()
+                    },
+                    BackgroundColor(Color::srgba(0.196, 0.529, 0.612, 0.30)),
+                    Name::new("overview_queue_row_track"),
+                ))
+                .id();
+            commands.entity(row).add_child(track);
+            let progress_fill = commands
+                .spawn((
+                    Node {
+                        width: Val::Percent(progress.clamp(0.0, 1.0) * 100.0),
+                        height: Val::Percent(100.0),
+                        border_radius: BorderRadius::all(Val::Px(2.0)),
+                        ..default()
+                    },
+                    BackgroundColor(CYAN),
+                    Name::new("overview_queue_row_fill"),
+                    OverviewQueueRowFillChild,
+                ))
+                .id();
+            commands.entity(track).add_child(progress_fill);
+
+            // Store the row + child handles as a Component so the
+            // per-frame update below can resolve them without walking
+            // Children / ChildrenOf chains.
+            commands.entity(row).insert(OverviewQueueRow {
+                project_entity,
+                row,
+                name_text,
+                status_text,
+                progress_text,
+                progress_fill,
+            });
+            row
+        },
+    );
 
     if colony_projects.is_empty() {
         let need_spawn = match *empty_placeholder {
@@ -292,7 +442,10 @@ pub fn update_overview_queue(
     }
 
     for (project_entity, project) in &colony_projects {
-        let Some(row) = spawned_rows.get(project_entity) else {
+        let Some(row_entity) = spawned_rows.get(project_entity) else {
+            continue;
+        };
+        let Ok(row) = row_query.get(row_entity) else {
             continue;
         };
         let progress = project.progress_percent();
@@ -332,157 +485,6 @@ pub fn update_overview_queue(
         if let Ok(mut node) = progress_fill_query.get_mut(row.progress_fill) {
             node.width = Val::Percent(progress.clamp(0.0, 1.0) * 100.0);
         }
-    }
-
-    for (project_entity, project) in &colony_projects {
-        if spawned_rows.contains_key(project_entity) {
-            continue;
-        }
-        let display_name = buildings_data
-            .get(&project.building_type)
-            .map(|d| d.display_name.as_str())
-            .unwrap_or("(unknown)");
-        let progress = project.progress_percent();
-        let status = if project.awaiting_resources {
-            "Awaiting delivery"
-        } else {
-            "Building"
-        };
-
-        let row = commands
-            .spawn((
-                Node {
-                    display: Display::Flex,
-                    flex_direction: FlexDirection::Column,
-                    padding: UiRect::all(Val::Px(SPACE_MD)),
-                    row_gap: Val::Px(SPACE_XS),
-                    border: UiRect::all(Val::Px(1.0)),
-                    border_radius: BorderRadius::all(Val::Px(4.0)),
-                    width: Val::Percent(100.0),
-                    ..default()
-                },
-                BackgroundColor(CARD_BG),
-                BorderColor::all(CYAN_BORDER),
-                Name::new("overview_queue_row"),
-            ))
-            .id();
-        commands.entity(content).add_child(row);
-
-        let header = commands
-            .spawn((
-                Node {
-                    display: Display::Flex,
-                    flex_direction: FlexDirection::Row,
-                    align_items: AlignItems::Center,
-                    column_gap: Val::Px(SPACE_MD),
-                    width: Val::Percent(100.0),
-                    ..default()
-                },
-                Name::new("overview_queue_row_header"),
-            ))
-            .id();
-        commands.entity(row).add_child(header);
-
-        let name_text = commands
-            .spawn((
-                Text::new(display_name.to_string()),
-                TextFont {
-                    font: body_font_medium.clone(),
-                    font_size: BODY_SIZE,
-                    ..default()
-                },
-                TextColor(CYAN),
-                Node {
-                    flex_grow: 1.0,
-                    ..default()
-                },
-                Name::new("overview_queue_row_name"),
-                OverviewQueueRowNameChild,
-            ))
-            .id();
-        commands.entity(header).add_child(name_text);
-
-        let status_text = commands
-            .spawn((
-                Text::new(status.to_string()),
-                TextFont {
-                    font: body_font.clone(),
-                    font_size: CAPTION_SIZE,
-                    ..default()
-                },
-                TextColor(if project.awaiting_resources {
-                    ORANGE_ORE
-                } else {
-                    GREEN_FIN
-                }),
-                Name::new("overview_queue_row_status"),
-                OverviewQueueRowStatusChild,
-            ))
-            .id();
-        commands.entity(header).add_child(status_text);
-
-        let progress_text = commands
-            .spawn((
-                Text::new(format!("{:.0}%", (progress as f64) * 100.0)),
-                TextFont {
-                    font: mono_font.clone(),
-                    font_size: CAPTION_SIZE,
-                    ..default()
-                },
-                TextColor(CYAN),
-                Name::new("overview_queue_row_progress"),
-                OverviewQueueRowProgressChild,
-            ))
-            .id();
-        commands.entity(header).add_child(progress_text);
-
-        let track = commands
-            .spawn((
-                Node {
-                    width: Val::Percent(100.0),
-                    height: Val::Px(4.0),
-                    border_radius: BorderRadius::all(Val::Px(2.0)),
-                    ..default()
-                },
-                BackgroundColor(Color::srgba(0.196, 0.529, 0.612, 0.30)),
-                Name::new("overview_queue_row_track"),
-            ))
-            .id();
-        commands.entity(row).add_child(track);
-        let progress_fill = commands
-            .spawn((
-                Node {
-                    width: Val::Percent(progress.clamp(0.0, 1.0) * 100.0),
-                    height: Val::Percent(100.0),
-                    border_radius: BorderRadius::all(Val::Px(2.0)),
-                    ..default()
-                },
-                BackgroundColor(CYAN),
-                Name::new("overview_queue_row_fill"),
-                OverviewQueueRowFillChild,
-            ))
-            .id();
-        commands.entity(track).add_child(progress_fill);
-
-        commands.entity(row).insert(OverviewQueueRow {
-            project_entity: *project_entity,
-            row,
-            name_text,
-            status_text,
-            progress_text,
-            progress_fill,
-        });
-        spawned_rows.insert(
-            *project_entity,
-            OverviewQueueRow {
-                project_entity: *project_entity,
-                row,
-                name_text,
-                status_text,
-                progress_text,
-                progress_fill,
-            },
-        );
     }
 }
 
