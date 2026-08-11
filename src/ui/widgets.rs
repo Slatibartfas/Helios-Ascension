@@ -1771,7 +1771,7 @@ pub fn card_shell(commands: &mut Commands, parent: Entity, opts: CardShellOpts) 
                 ..default()
             },
             BackgroundColor(opts.bg),
-            BorderColor::default(),
+            opts.border_rest.clone(),
             HoverElevation {
                 hover_scale: Vec2::splat(opts.hover_scale),
                 press_scale: Vec2::splat(opts.press_scale),
