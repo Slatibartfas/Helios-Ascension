@@ -216,22 +216,29 @@ pub fn compute_colony_spare_power_mw(
     colonies: &Query<(Entity, &crate::colony::Colony)>,
     buildings_data: Option<&crate::colony::data::BuildingsData>,
 ) -> f64 {
+    compute_colony_spare_power_mw_opt(ui_state, colonies, buildings_data).unwrap_or(0.0)
+}
+
+/// `Option`-returning variant of [`compute_colony_spare_power_mw`].
+/// `None` means "no active colony" (the canary has no colony selected,
+/// or the colony entity is missing); `Some(mw)` is the real surplus —
+/// a positive value when the grid is producing more than consumed,
+/// or a non-positive value (zero / negative) when there is a deficit.
+///
+/// Use this when "no colony" must be distinguished from "deficit".
+/// The plain f64-returning variant collapses both to `0.0`.
+pub fn compute_colony_spare_power_mw_opt(
+    ui_state: &super::state::ConstructionUiState,
+    colonies: &Query<(Entity, &crate::colony::Colony)>,
+    buildings_data: Option<&crate::colony::data::BuildingsData>,
+) -> Option<f64> {
     use crate::economy::budget::calculate_colony_power_totals;
 
-    let Some(colony_entity) = ui_state.selected_colony else {
-        return 0.0;
-    };
-    let Some(data) = buildings_data else {
-        return 0.0;
-    };
-    let Ok((_, colony)) = colonies.get(colony_entity) else {
-        return 0.0;
-    };
+    let colony_entity = ui_state.selected_colony?;
+    let data = buildings_data?;
+    let (_, colony) = colonies.get(colony_entity).ok()?;
     let totals = calculate_colony_power_totals(colony, Some(data));
-    // produced_watts / consumed_watts are in W. Convert to MW for the
-    // card display (the build definitions use MW for `power_demand_mw`
-    // so the two scales line up).
-    (totals.produced_watts - totals.consumed_watts) / 1_000_000.0
+    Some((totals.produced_watts - totals.consumed_watts) / 1_000_000.0)
 }
 
 // Effect-bullet tone (drives the color of the corresponding line).
@@ -431,7 +438,7 @@ pub fn card_data_from_definition(
     building_type: BuildingType,
     def: &BuildingDefinition,
 ) -> BuildCardData {
-    card_data_with_multiplier(building_type, def, 1, 0.0)
+    card_data_with_multiplier(building_type, def, 1, None)
 }
 
 // Build a `BuildCardData` with the player's chosen build multiplier
@@ -452,7 +459,7 @@ pub fn card_data_with_multiplier(
     building_type: BuildingType,
     def: &BuildingDefinition,
     multiplier: u32,
-    spare_power_mw: f64,
+    spare_power_mw: Option<f64>,
 ) -> BuildCardData {
     let mult = multiplier.max(1) as f64;
 
@@ -495,20 +502,13 @@ pub fn card_data_with_multiplier(
         });
     }
     // Power chip (v0.5.2, 2026-08-06): shared builder extracted from
-    // the three card-data builders. The Build tab maps its spare-power
-    // sentinel (0.0 = no colony) onto `Option`: a positive surplus is
-    // `Some`, anything ≤ 0 (no colony OR a deficit) is `None` — the
-    // chip then reads "No active colony" and never gates on a deficit
-    // it can't distinguish from "no colony".
-    let power_chip = build_power_chip_data(
-        def,
-        mult,
-        if spare_power_mw > 0.0 {
-            Some(spare_power_mw)
-        } else {
-            None
-        },
-    );
+    // the three card-data builders. Pass the `Option<f64>` through
+    // directly: `None` means "no active colony"; `Some(s)` is the
+    // real surplus (which may be ≤ 0 for a deficit). Previously this
+    // mapped `spare_power_mw > 0.0` to `Some`, which silently turned
+    // any deficit into "No active colony" — confusing when the colony
+    // IS active but the grid can't keep up.
+    let power_chip = build_power_chip_data(def, mult, spare_power_mw);
     // `power_insufficient` drives the Queue-button disable. It matches
     // the chip's `insufficient` (the shared builder computes the same
     // "batch demand > spare" predicate, `false` for generators and
@@ -729,7 +729,7 @@ pub fn visible_cards(
     category_index: usize,
     _filter: super::state::BuildFilter,
     multiplier: u32,
-    spare_power_mw: f64,
+    spare_power_mw: Option<f64>,
 ) -> Vec<(BuildingType, BuildCardData)> {
     let mut entries: Vec<(BuildingType, &BuildingDefinition)> = data
         .definitions

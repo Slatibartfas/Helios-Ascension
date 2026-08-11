@@ -8,7 +8,7 @@
 use bevy::prelude::*;
 
 use crate::ui::bevy_theme::*;
-use super::data::compute_colony_spare_power_mw;
+use super::data::compute_colony_spare_power_mw_opt;
 use super::markers::*;
 use super::state::*;
 use crate::ui::widgets::UiFonts;
@@ -221,7 +221,7 @@ pub fn refresh_card_grid(
     let category_idx = ui_state.selected_build_tab;
     let filter = ui_state.selected_filter;
     let multiplier = ui_state.build_multiplier;
-    let spare_power_mw = compute_colony_spare_power_mw(&ui_state, &colonies, Some(&buildings_data));
+    let spare_power_mw = compute_colony_spare_power_mw_opt(&ui_state, &colonies, Some(&buildings_data));
     for (building_type, card_data) in super::data::visible_cards(
         &buildings_data,
         &research_state,

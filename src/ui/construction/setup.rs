@@ -4,7 +4,7 @@ use bevy::prelude::*;
 
 use crate::ui::bevy_theme::*;
 use super::cards::spawn_card;
-use super::data::{compute_colony_spare_power_mw, visible_cards};
+use super::data::{compute_colony_spare_power_mw_opt, visible_cards};
 use super::demolish::spawn_demolish_confirm_dialog;
 use super::disabled::refresh_card_grid;
 use super::dropdown::auto_select_first_colony;
@@ -481,7 +481,7 @@ pub fn setup_construction(
     let category_idx = ui_state.selected_build_tab;
     let filter = ui_state.selected_filter;
     let multiplier = ui_state.build_multiplier;
-    let spare_power_mw = compute_colony_spare_power_mw(&ui_state, &colonies, Some(&buildings_data));
+    let spare_power_mw = compute_colony_spare_power_mw_opt(&ui_state, &colonies, Some(&buildings_data));
     for (building_type, card_data) in visible_cards(
         &buildings_data,
         &research_state,
