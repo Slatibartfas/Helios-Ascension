@@ -27,6 +27,31 @@ pub fn auto_select_first_colony(
     }
 }
 
+// Outside-click dismissal for the colony dropdown. Attached to the
+// menu root via .observe() in setup.rs. The picking system routes
+// Pointer<Click> events to this observer whenever the menu is the
+// click target. If the click landed on a `ColonyDropdownOption`,
+// `tick_colony_option_click` will already have set the selection +
+// closed the menu — we don't double-close. If the click landed on
+// the menu's empty padding / backdrop, we close without selecting.
+pub fn on_colony_dropdown_outside_click(
+    on: On<Pointer<Click>>,
+    option_query: Query<Entity, With<ColonyDropdownOption>>,
+    mut state: Option<ResMut<ColonyDropdownState>>,
+) {
+    // The click landed on the menu itself (not on an option row).
+    // Close the dropdown. Picking events bubble up the hierarchy,
+    // so this also fires when an option was clicked — but in that
+    // case the option click handler will have closed it first; this
+    // is idempotent.
+    if option_query.get(on.entity).is_ok() {
+        return;
+    }
+    if let Some(ref mut s) = state {
+        s.open = false;
+    }
+}
+
 // Click handler for the "Active Colony" picker. Toggles
 // `ColonyDropdownState::open` so the floating dropdown appears /
 // disappears.

@@ -335,11 +335,19 @@ pub fn setup_construction(
             ),
             GlobalZIndex(100),
             Visibility::Hidden,
+            Pickable::default(),
             Name::new("active_colony_dropdown"),
             ColonyDropdownMenu,
         ))
         .id();
     commands.entity(picker).add_child(dropdown);
+    // Outside-click dismissal: a Pointer<Click> on the menu's empty
+    // area (not on an option) closes it. The observer ignores clicks
+    // that land on option rows so the selection handler stays the
+    // source of truth.
+    commands
+        .entity(dropdown)
+        .observe(super::dropdown::on_colony_dropdown_outside_click);
 
     let build_qty_row = commands
         .spawn(ChipRowContainerBundle::new("build_qty", 28.0))
