@@ -1576,3 +1576,88 @@ pub fn tick_tab_body_visibility<B, F>(
         };
     }
 }
+
+// =====================================================================
+// Generic marquee primitive (Phase 10: extracted from
+// construction/disabled.rs::tick_subtitle_marquee. Animate a
+// horizontally-overflowing text track so the visible window
+// scrolls left at a constant rate when the underlying text is wider
+// than the clip container.)
+// =====================================================================
+
+/// Generic marquee track. Spawned with two copies of the text
+/// side-by-side (no gap) — the second copy seamlessly takes over
+/// when the first scrolls past the visible window.
+#[derive(Component)]
+pub struct Marquee {
+    /// Entity of the first text copy (used for overflow measurement).
+    pub text_node: Entity,
+    /// Entity of the clip container (used for visible-width
+    /// measurement).
+    pub clip_container: Entity,
+    /// Most recent text-content width (px).
+    pub text_width: f32,
+    /// Most recent clip-container width (px).
+    pub container_width: f32,
+    /// Current pixel offset of the track (leftward drift).
+    pub phase: f32,
+    /// Drift rate in pixels per second.
+    pub rate_pixels_per_sec: f32,
+}
+
+/// Per-frame marquee driver. Reads `ComputedNode` on the text + clip
+/// entities, advances `phase` while the text overflows, and writes
+/// the offset back to the track's `UiTransform.translation.x`.
+pub fn tick_marquee(
+    time: Res<Time>,
+    text_computed: Query<&ComputedNode>,
+    mut tracks: Query<(Entity, &mut Marquee, &mut UiTransform)>,
+) {
+    let dt = time.delta_secs().min(0.1);
+    for (_track_entity, mut marquee, mut ui_transform) in tracks.iter_mut() {
+        let text_width = text_computed
+            .get(marquee.text_node)
+            .map(|c| c.content_size().x)
+            .unwrap_or(0.0);
+        let container_width = text_computed
+            .get(marquee.clip_container)
+            .map(|c| c.size().x)
+            .unwrap_or(0.0);
+        marquee.text_width = text_width;
+        marquee.container_width = container_width;
+
+        let overflows = text_width > container_width + 0.5;
+        if overflows {
+            marquee.phase += dt * marquee.rate_pixels_per_sec;
+            if marquee.phase >= text_width {
+                marquee.phase -= text_width;
+            }
+        }
+
+        let dx = -marquee.phase;
+        ui_transform.translation = Val2::px(dx, 0.0);
+    }
+}
+
+// =====================================================================
+// Progress fill primitive (Phase 10: the queue-row progress bar
+// pattern shared between `QueuePanelRow` (sidebar queue list) and
+// `OverviewQueueRow` (Overview tab). A `ProgressFill` Component
+// holds the percentage; `tick_progress_fill` writes the width
+// every frame.)
+// =====================================================================
+
+/// Marker on a foreground fill node whose width encodes a 0.0–1.0
+/// progress value. Companion to a track node (just a `BackgroundColor`).
+#[derive(Component)]
+pub struct ProgressFill(pub f32);
+
+/// Per-frame driver: writes `Node.width = Val::Percent(p * 100%)`
+/// for every ProgressFill entity. Cheap; the system only writes the
+/// field so layout reflow happens once per row per frame.
+pub fn tick_progress_fill(mut q: Query<(&ProgressFill, &mut Node)>) {
+    for (fill, mut node) in q.iter_mut() {
+        let pct = fill.0.clamp(0.0, 1.0);
+        node.width = Val::Percent(pct * 100.0);
+    }
+}
