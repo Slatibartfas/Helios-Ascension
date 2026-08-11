@@ -1271,13 +1271,16 @@ pub fn tick_scrollbar(
             &mut Node,
             &mut BackgroundColor,
         ),
-        With<ScrollbarTrack>,
+        (With<ScrollbarTrack>, Without<ScrollbarThumb>),
     >,
     scrollable_query: Query<&ComputedNode>,
     pos_query: Query<&ScrollPosition>,
     mut metrics_query: Query<&mut ScrollbarMetrics>,
     child_of_query: Query<&bevy::ecs::hierarchy::ChildOf>,
-    mut thumb_query: Query<(Entity, &mut Node, &mut BackgroundColor), With<ScrollbarThumb>>,
+    mut thumb_query: Query<
+        (Entity, &mut Node, &mut BackgroundColor),
+        (With<ScrollbarThumb>, Without<ScrollbarTrack>),
+    >,
     interaction_query: Query<&Interaction>,
 ) {
     const REST_WIDTH: f32 = 10.0;
