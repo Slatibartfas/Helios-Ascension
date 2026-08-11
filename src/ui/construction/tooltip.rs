@@ -319,7 +319,10 @@ pub fn tick_construction_tooltip(
         }
 
         let mut lines: Vec<String> = Vec::new();
-        lines.push("Missing:".to_string());
+        // Title is "Missing resources" so the body starts with the
+        // first concrete shortfall (no "Missing:" prefix — it would
+        // render immediately after the title and look like a typo:
+        // "Missing resourcesMissing:").
 
         if let Some(ls) = local {
             let shortfalls = collect_local_shortfalls(
