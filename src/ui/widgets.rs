@@ -1706,16 +1706,29 @@ pub struct CardShellOpts {
 
 impl Default for CardShellOpts {
     fn default() -> Self {
+        // Construction-panel chrome: dark navy bg with a 3D bevel
+        // (bright cyan top/left, dim cyan bottom/right) and a
+        // hover-state that swaps the whole border to bright cyan.
+        // These values mirror the pre-Phase 11 CARD_BG /
+        // CARD_BORDER_HIGHLIGHT / CARD_BORDER_SHADOW / CYAN
+        // constants in `src/ui/bevy_theme.rs` so the composer
+        // produces the same visual as the original spawn_card.
+        let border_rest = BorderColor {
+            top: Color::srgba(0.498, 0.804, 0.847, 0.90),
+            bottom: Color::srgba(0.373, 0.784, 0.847, 0.30),
+            left: Color::srgba(0.498, 0.804, 0.847, 0.90),
+            right: Color::srgba(0.373, 0.784, 0.847, 0.30),
+        };
         Self {
             width: 320.0,
             height: 320.0,
             constructed: false,
             hover_scale: 1.02,
             press_scale: 0.98,
-            border_rest: BorderColor::default(),
+            border_rest,
             border_hover: Color::srgba(0.373, 0.784, 0.847, 1.0),
-            bg: Color::srgba(0.027, 0.047, 0.094, 0.96),
-            bg_hover: Color::srgba(0.039, 0.071, 0.137, 0.96),
+            bg: Color::srgba(0.078, 0.165, 0.290, 0.92),
+            bg_hover: Color::srgba(0.105, 0.210, 0.345, 0.92),
             shadow: BoxShadow::new(
                 Color::srgba(0.0, 0.0, 0.0, 0.6),
                 Val::Px(0.0),
