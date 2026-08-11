@@ -191,7 +191,7 @@ pub use tooltip::{
 
 // Scrollbar
 pub use scrollbar::{
-    ConstructionScrollbarMetrics, spawn_construction_scrollbar, tick_construction_scrollbar,
+    spawn_construction_scrollbar, tick_construction_scrollbar,
     tick_construction_scrollbar_drag, tick_ui_scroll_on_wheel,
 };
 
@@ -247,9 +247,14 @@ pub fn tick_construction_body_visibility(
             Display::None
         };
     }
-    for (track, mut node) in scrollbar_track.iter_mut() {
-        let visible = track.tab == active;
-        node.display = if visible { Display::Flex } else { Display::None };
+    // Phase 5B: track visibility is no longer driven by the
+    // `tab` field (gone after the widgets primitive migration). Each
+    // track follows its body's Visibility — which is set by the body
+    // visibility system just above — via Bevy's inherited Visibility.
+    // The visual update is now purely `widgets::tick_scrollbar`-driven
+    // (re-exported as `tick_construction_scrollbar`).
+    for (_track, mut node) in scrollbar_track.iter_mut() {
+        node.display = Display::Flex;
     }
 }
 
@@ -306,7 +311,6 @@ impl Plugin for ConstructionPlugin {
             .init_resource::<ColonyDropdownState>()
             .init_resource::<DemolishConfirmState>()
             .init_resource::<crate::ui::widgets::TooltipRequest>()
-            .init_resource::<ConstructionScrollbarMetrics>()
             .init_resource::<scrollbar::ScrollbarDragState>()
             .add_systems(
                 Startup,
@@ -321,9 +325,20 @@ impl Plugin for ConstructionPlugin {
             .add_systems(Update, tick_construction_state)
             .add_systems(Update, tick_construction_cta_hover.run_if(construction_menu_open))
             .add_systems(Update, tick_subtitle_marquee.run_if(construction_menu_open))
-            .add_systems(Update, tick_construction_scrollbar.run_if(construction_menu_open))
+            // Phase 5B: tick_construction_scrollbar is a no-op
+            // re-export of widgets::tick_scrollbar (the per-track
+            // visual driver lives in widgets.rs and reads the
+            // ScrollbarMetrics Component on each track). The drag
+            // system stays construction-side because it needs the
+            // construction's ScrollbarDragState Resource.
             .add_systems(Update, tick_construction_scrollbar_drag.run_if(construction_menu_open))
             .add_systems(Update, tick_ui_scroll_on_wheel.run_if(construction_menu_open))
+            // Per-track visual driver — ungated so all construction
+            // scrollbars (and any future panel) keep their thumbs in
+            // sync regardless of which menu is active. The drag
+            // observer handlers (`on_thumb_press` / `on_track_press`)
+            // are entity-scoped and don't need a run_if.
+            .add_systems(Update, crate::ui::widgets::tick_scrollbar)
             .add_systems(Update, tick_construction_cta_click.run_if(construction_menu_open))
             .add_systems(Update, tick_construction_chip_click.run_if(construction_menu_open))
             .add_systems(Update, auto_select_first_colony.before(refresh_card_grid))

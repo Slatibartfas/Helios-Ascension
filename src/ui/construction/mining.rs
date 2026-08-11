@@ -1,4 +1,10 @@
-//! Mining tab body — per-resource / per-AutoMine cards with [-] [+] buttons.
+//! Mining tab body — per-resource extraction cards with [-] [+] buttons.
+//!
+//! Construction on the currently selected body — moon, planet,
+//! asteroid, etc. There is no orbital section: orbital mining
+//! (the legacy `Auto*Mine` buildings) is not exposed here and
+//! will be reintroduced later via space stations rather than as
+//! a duplicate mining grid.
 
 use bevy::prelude::*;
 
@@ -11,7 +17,7 @@ use super::demolish::{spawn_demolish_button, DemolishMultiplierSource};
 use super::markers::*;
 use super::scrollbar::spawn_construction_scrollbar;
 use super::state::{
-    BuildingIcons, ConstructionTabBody, MiningGroupId, MINING_GROUPS_ORBITAL,
+    BuildingIcons, ConstructionTabBody, MiningGroupId,
     MINING_GROUPS_SURFACE,
 };
 use crate::ui::widgets::{spawn_scrollable_container, UiFonts};
@@ -120,7 +126,6 @@ pub fn update_mining_body(
             colony_entity: active_colony_entity,
             multiplier: ui_state.build_multiplier,
             collapsed: ui_state.mining_groups_collapsed.clone(),
-            orbital_collapsed: ui_state.mining_orbital_collapsed,
             counts: counts.clone(),
             breathable: *breathable,
             body_type: *body_type,
@@ -208,25 +213,6 @@ pub fn update_mining_body(
         );
         spawned_rows.push(group_node);
     }
-
-    let orbital_node = spawn_mining_orbital_section(
-        &mut commands,
-        content,
-        ui_state.mining_orbital_collapsed,
-        body_breathable,
-        body_type,
-        planet_resources,
-        &buildings_data,
-        &building_counts,
-        &body_font,
-        &body_font_medium,
-        &mono_font,
-        multiplier,
-        &resource_icons,
-        building_icons_ref,
-        spare_power_mw,
-    );
-    spawned_rows.push(orbital_node);
 }
 
 // Build a `BuildCardData` for a mine / AutoMine.
@@ -567,194 +553,12 @@ fn spawn_mining_group_section(
     group_container
 }
 
-// Spawn the orbital section (collapsible, 5 non-collapsible
-// sub-groups).
-#[allow(clippy::too_many_arguments)]
-fn spawn_mining_orbital_section(
-    commands: &mut Commands,
-    parent: Entity,
-    collapsed: bool,
-    body_breathable: bool,
-    body_type: Option<BodyType>,
-    planet_resources: Option<&crate::economy::PlanetResources>,
-    buildings_data: &crate::colony::data::BuildingsData,
-    building_counts: &std::collections::HashMap<BuildingType, u32>,
-    body_font: &Handle<Font>,
-    body_font_medium: &Handle<Font>,
-    mono_font: &Handle<Font>,
-    multiplier: u32,
-    resource_icons: &crate::ui::resource_icons::ResourceIcons,
-    building_icons: &BuildingIcons,
-    spare_power_mw: f64,
-) -> Entity {
-    let total_orbital: usize = MINING_GROUPS_ORBITAL.iter().map(|(_, b)| b.len()).sum();
-
-    let container = commands
-        .spawn((
-            Node {
-                display: Display::Flex,
-                flex_direction: FlexDirection::Column,
-                width: Val::Percent(100.0),
-                row_gap: Val::Px(SPACE_SM),
-                padding: UiRect::all(Val::Px(SPACE_SM)),
-                margin: UiRect::top(Val::Px(SPACE_MD)),
-                ..default()
-            },
-            BackgroundColor(Color::srgba(0.020, 0.060, 0.118, 0.85)),
-            Name::new("mining_orbital_section"),
-        ))
-        .id();
-    commands.entity(parent).add_child(container);
-
-    let header = commands
-        .spawn((
-            Button,
-            Node {
-                display: Display::Flex,
-                flex_direction: FlexDirection::Row,
-                align_items: AlignItems::Center,
-                column_gap: Val::Px(SPACE_SM),
-                padding: UiRect::all(Val::Px(SPACE_XS)),
-                width: Val::Percent(100.0),
-                ..default()
-            },
-            BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.0)),
-            MiningGroupHeader {
-                group_id: MiningGroupId::Helium3,
-            },
-            Name::new("mining_orbital_header"),
-        ))
-        .id();
-    commands.entity(container).add_child(header);
-
-    let chevron = if collapsed { "▶" } else { "▼" };
-    let chevron_text = commands
-        .spawn((
-            Text::new(chevron),
-            TextFont {
-                font: body_font.clone(),
-                font_size: BODY_SIZE,
-                ..default()
-            },
-            TextColor(ORANGE_ORE),
-            Name::new("mining_orbital_chevron"),
-        ))
-        .id();
-    commands.entity(header).add_child(chevron_text);
-
-    let label_text = commands
-        .spawn((
-            Text::new(format!(
-                "ORBITAL MINES (body: Asteroid, Moon, GasGiant) ({})",
-                total_orbital
-            )),
-            TextFont {
-                font: body_font.clone(),
-                font_size: SECTION_SIZE,
-                ..default()
-            },
-            TextColor(ORANGE_ORE),
-            Node {
-                flex_grow: 1.0,
-                ..default()
-            },
-            Name::new("mining_orbital_label"),
-        ))
-        .id();
-    commands.entity(header).add_child(label_text);
-
-    let body_node = commands
-        .spawn((
-            Node {
-                display: if collapsed {
-                    Display::None
-                } else {
-                    Display::Flex
-                },
-                flex_direction: FlexDirection::Column,
-                width: Val::Percent(100.0),
-                row_gap: Val::Px(SPACE_SM),
-                padding: UiRect::all(Val::Px(SPACE_XS)),
-                ..default()
-            },
-            BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.0)),
-            MiningOrbitalBody,
-            Name::new("mining_orbital_body"),
-        ))
-        .id();
-    commands.entity(container).add_child(body_node);
-
-    if !collapsed {
-        for (sub_label, sub_buildings) in MINING_GROUPS_ORBITAL {
-            let sub_header = commands
-                .spawn((
-                    Text::new(format!("{} ({})", sub_label, sub_buildings.len())),
-                    TextFont {
-                        font: body_font.clone(),
-                        font_size: CAPTION_SIZE,
-                        ..default()
-                    },
-                    TextColor(TEXT_DIM),
-                    Node {
-                        width: Val::Percent(100.0),
-                        padding: UiRect::vertical(Val::Px(SPACE_XS)),
-                        ..default()
-                    },
-                    Name::new("mining_orbital_sub_header"),
-                ))
-                .id();
-            commands.entity(body_node).add_child(sub_header);
-
-            let sub_row = commands
-                .spawn((
-                    Node {
-                        display: Display::Flex,
-                        flex_direction: FlexDirection::Row,
-                        flex_wrap: FlexWrap::Wrap,
-                        column_gap: Val::Px(SPACE_SM),
-                        row_gap: Val::Px(SPACE_SM),
-                        width: Val::Percent(100.0),
-                        ..default()
-                    },
-                    BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.0)),
-                    Name::new("mining_orbital_sub_row"),
-                ))
-                .id();
-            commands.entity(body_node).add_child(sub_row);
-
-            for bt in *sub_buildings {
-                let icon_handle: Option<&Handle<Image>> = building_icons.handles.get(bt);
-                spawn_mining_card(
-                    commands,
-                    sub_row,
-                    *bt,
-                    body_breathable,
-                    body_type,
-                    planet_resources,
-                    buildings_data,
-                    building_counts,
-                    body_font,
-                    body_font_medium,
-                    mono_font,
-                    icon_handle,
-                    multiplier,
-                    resource_icons,
-                    spare_power_mw,
-                );
-            }
-        }
-    }
-
-    container
-}
-
 // Fingerprint of the inputs that determine the Mining body's card content.
 #[derive(PartialEq)]
 pub struct MiningBodyFingerprint {
     colony_entity: Option<bevy::ecs::entity::Entity>,
     multiplier: u32,
     collapsed: std::collections::HashSet<MiningGroupId>,
-    orbital_collapsed: bool,
     counts: std::collections::HashMap<BuildingType, u32>,
     breathable: bool,
     body_type: Option<BodyType>,
@@ -767,7 +571,6 @@ impl MiningBodyFingerprint {
             colony_entity: None,
             multiplier: ui_state.build_multiplier,
             collapsed: ui_state.mining_groups_collapsed.clone(),
-            orbital_collapsed: ui_state.mining_orbital_collapsed,
             counts: std::collections::HashMap::new(),
             breathable: false,
             body_type: None,
@@ -798,15 +601,11 @@ pub fn tick_mining_group_visibility(
     mut prev: Local<std::collections::HashMap<Entity, Interaction>>,
 ) {
     crate::ui::widgets::detect_rising_edges(&mut prev, &headers, |_entity, header| {
-        if header.group_id == MiningGroupId::Helium3 {
-            ui_state.mining_orbital_collapsed = !ui_state.mining_orbital_collapsed;
+        let id = header.group_id;
+        if ui_state.mining_groups_collapsed.contains(&id) {
+            ui_state.mining_groups_collapsed.remove(&id);
         } else {
-            let id = header.group_id;
-            if ui_state.mining_groups_collapsed.contains(&id) {
-                ui_state.mining_groups_collapsed.remove(&id);
-            } else {
-                ui_state.mining_groups_collapsed.insert(id);
-            }
+            ui_state.mining_groups_collapsed.insert(id);
         }
     });
 }

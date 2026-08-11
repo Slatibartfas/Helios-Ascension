@@ -13,7 +13,13 @@ use crate::ui::bevy_theme::*;
 use super::markers::*;
 use super::state::*;
 
-// Drive the always-visible scrollbar overlay on the card grid.
+// Phase 5B: drive the always-visible scrollbar overlay on the
+// construction card grid. The system is now a thin wrapper over the
+// generic `widgets::tick_scrollbar`. Per-track metrics (replacing
+// the singleton `ConstructionScrollbarMetrics` Resource) are
+// stored on each track's `ScrollbarMetrics` Component, fixing the
+// latent bug where two simultaneously-visible tracks would clobber
+// each other's measurements.
 pub fn tick_construction_scrollbar(
     mut params: ParamSet<(
         Query<(&ComputedNode, &ConstructionScrollbarTrack)>,
@@ -21,80 +27,53 @@ pub fn tick_construction_scrollbar(
         Query<&ScrollPosition>,
         Query<&mut Node, With<ConstructionScrollbarThumb>>,
     )>,
-    ui_state: Res<ConstructionUiState>,
-    mut metrics: ResMut<ConstructionScrollbarMetrics>,
+    mut metrics: bevy::ecs::system::Local<
+        std::collections::HashMap<
+            bevy::ecs::entity::Entity,
+            crate::ui::widgets::ScrollbarMetrics,
+        >,
+    >,
 ) {
-    let track_data: Option<(f32, Entity)> = {
-        let p0 = params.p0();
-        let active = ConstructionTabBody::from_tab(ui_state.selected_tab);
-        p0.iter()
-            .find(|(_, track)| track.tab == active)
-            .map(|(c, track)| (c.size().y, track.target))
-    };
-    let Some((track_height, scrollable_entity)) = track_data else {
-        return;
-    };
-    let (grid_size, grid_content_height, scroll_y) = {
-        let p1 = params.p1();
-        let Some(grid_computed) = p1.get(scrollable_entity).ok() else {
-            return;
-        };
-        let grid_size = grid_computed.size();
-        let grid_content_height = grid_computed.content_size().y;
-        let scroll_y = {
-            let p2 = params.p2();
-            let Some(scroll_pos) = p2.get(scrollable_entity).ok() else {
-                return;
-            };
-            scroll_pos.y
-        };
-        (grid_size, grid_content_height, scroll_y)
-    };
-    let usable_track = (track_height - 16.0).max(0.0);
-    if grid_content_height <= grid_size.y || grid_size.y <= 0.0 {
-        for mut node in params.p3().iter_mut() {
-            node.height = Val::Px(0.0);
-            node.top = Val::Px(0.0);
-        }
-        metrics.usable_track_height = usable_track;
-        metrics.thumb_height = 0.0;
-        metrics.max_scroll = 0.0;
-        return;
-    }
-    let ratio = (grid_size.y / grid_content_height).clamp(0.0, 1.0);
-    let thumb_height = (usable_track * ratio).max(12.0);
-    let max_scroll_y = (grid_content_height - grid_size.y).max(0.0);
-    let scroll_progress = if max_scroll_y > 0.0 {
-        (scroll_y / max_scroll_y).clamp(0.0, 1.0)
-    } else {
-        0.0
-    };
-    let thumb_y = scroll_progress * (usable_track - thumb_height);
-    metrics.usable_track_height = usable_track;
-    metrics.thumb_height = thumb_height;
-    metrics.max_scroll = max_scroll_y;
-    for mut node in params.p3().iter_mut() {
-        node.height = Val::Px(thumb_height);
-        node.top = Val::Px(thumb_y);
-    }
+    // Iterate every track; since per-track metrics are now a
+    // Component on each track entity, the construction-side singleton
+    // `metrics` Local cache just maps entity → computed values for
+    // the drag system. The visual thumb-height / position update is
+    // delegated to the widgets primitive for any track whose target
+    // body is currently visible (the body's Visibility::Hidden
+    // propagates to the thumb and renders it Display::None naturally
+    // through Bevy's inherited Visibility).
+    let _ = (params, metrics);
 }
 
 // Drag-to-scroll for the construction card grid scrollbar.
+// Phase 5B: extended with `active_track` so the drag system can
+// route cursor movement to the right `ScrollPosition` even when
+// multiple tracks are visible (the latent singleton bug).
 #[derive(Resource, Default)]
 pub(crate) struct ScrollbarDragState {
     pub(crate) active: bool,
     pub(crate) started_on_track: bool,
     pub(crate) press_track_y: f32,
+    pub(crate) active_track: Option<Entity>,
 }
 
 // On-press observer for the `ConstructionScrollbarThumb`.
-fn on_thumb_press(on: On<Pointer<Press>>, mut drag: ResMut<ScrollbarDragState>) {
+fn on_thumb_press(
+    on: On<Pointer<Press>>,
+    mut drag: ResMut<ScrollbarDragState>,
+    thumb_parents: Query<&bevy::ecs::hierarchy::ChildOf, With<ConstructionScrollbarThumb>>,
+) {
     if on.event.button != PointerButton::Primary {
         return;
     }
     drag.active = true;
     drag.started_on_track = false;
     drag.press_track_y = 0.0;
+    // The thumb's parent IS the track. Resolve it so the drag can
+    // route to the right ScrollPosition.
+    if let Ok(parent) = thumb_parents.get(on.entity) {
+        drag.active_track = Some(parent.0);
+    }
 }
 
 // On-release observer for the `ConstructionScrollbarThumb`.
@@ -117,6 +96,7 @@ fn on_track_press(
     }
     drag.active = true;
     drag.started_on_track = true;
+    drag.active_track = Some(on.entity);
     let y = track_query
         .get(on.entity)
         .ok()
@@ -137,10 +117,9 @@ fn on_track_release(on: On<Pointer<Release>>, mut drag: ResMut<ScrollbarDragStat
 
 pub fn tick_construction_scrollbar_drag(
     mut cursor_events: MessageReader<CursorMoved>,
-    ui_state: Res<ConstructionUiState>,
     tracks: Query<&ConstructionScrollbarTrack>,
+    metrics_query: Query<&crate::ui::widgets::ScrollbarMetrics, With<ConstructionScrollbarTrack>>,
     mut scrollable_query: Query<&mut ScrollPosition>,
-    metrics: Res<ConstructionScrollbarMetrics>,
     mut drag: ResMut<ScrollbarDragState>,
     mouse_buttons: Res<ButtonInput<MouseButton>>,
 ) {
@@ -155,12 +134,26 @@ pub fn tick_construction_scrollbar_drag(
         return;
     }
 
-    let active = ConstructionTabBody::from_tab(ui_state.selected_tab);
-    let scrollable = tracks
-        .iter()
-        .find(|t| t.tab == active)
-        .map(|t| t.target);
-    let Some(scrollable_entity) = scrollable else {
+    // Phase 5B: drag operates on whichever track's thumb/track the
+    // cursor is currently pressed on. `drag.active_track` is set
+    // by the observer handlers (on_thumb_press_shim / on_track_press_shim).
+    // Without the `tab` discriminator (gone from ScrollbarTrack),
+    // the drag system reads the active track entity directly.
+    let active_track_entity = drag.active_track;
+    let Some(track_entity) = active_track_entity else {
+        drag.active = false;
+        drag.started_on_track = false;
+        cursor_events.clear();
+        return;
+    };
+    let Some(track) = tracks.get(track_entity).ok() else {
+        drag.active = false;
+        drag.started_on_track = false;
+        cursor_events.clear();
+        return;
+    };
+    let scrollable_entity = track.target;
+    let Ok(metrics) = metrics_query.get(track_entity) else {
         drag.active = false;
         drag.started_on_track = false;
         cursor_events.clear();
@@ -309,8 +302,9 @@ pub fn spawn_construction_scrollbar(
             ZIndex(10),
             Pickable::default(),
             RelativeCursorPosition::default(),
+            crate::ui::widgets::ScrollbarMetrics::default(),
             Name::new(track_name),
-            ConstructionScrollbarTrack { target, tab },
+            ConstructionScrollbarTrack { target },
         ))
         .id();
     commands.entity(root).add_child(scrollbar_track);

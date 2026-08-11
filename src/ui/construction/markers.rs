@@ -223,28 +223,18 @@ pub struct CardGrid;
 // v0.5.2 PR-A.8 generalisation of the original Build-tab-only
 // `CardGridScrollbarTrack`: the same chrome now appears on every
 // construction tab whose content can overflow vertically.
-#[derive(Component)]
-pub struct ConstructionScrollbarTrack {
-    // The scrollable entity this track drives. Set at spawn time
-    // from `setup_construction` (Build tab → `card_grid`) or
-    // `spawn_mining_body` (Mining tab → `mining_content`). The
-    // visual tick reads `target`'s `ScrollPosition` each frame.
-    pub target: Entity,
-    // The tab this scrollbar belongs to. The visibility system
-    // shows the track only when the matching body is active, so a
-    // Mining-track overlay doesn't bleed onto the Build tab and
-    // vice versa. Mirrors the `ConstructionTabBody` marker the
-    // body root carries — the two move in lockstep.
-    pub tab: super::state::ConstructionTabBody,
-}
+// Phase 5B (2026-08-10): ConstructionScrollbarTrack is now an alias
+// for `widgets::ScrollbarTrack`. The legacy `tab` field (used to hide
+// non-active tracks via a separate visibility system) is gone — the
+// per-track `widgets::ScrollbarMetrics` Component scopes each track
+// independently, and `tick_construction_body_visibility` already hides
+// the body root, so the track follows naturally via Bevy's inherited
+// Visibility. The alias keeps legacy `use ...::ConstructionScrollbarTrack`
+// call sites compiling during the migration.
+pub use crate::ui::widgets::ScrollbarTrack as ConstructionScrollbarTrack;
 
-// Marker for the thumb (the draggable handle inside the track).
-// Driven each frame by `tick_construction_scrollbar`. The thumb
-// inherits its `target` from the parent track via the observer
-// pattern (`on_thumb_press` / `on_track_press` both look up the
-// track's `target` so the drag updates the right scrollable).
-#[derive(Component)]
-pub struct ConstructionScrollbarThumb;
+// Phase 5B: thumb alias for `widgets::ScrollbarThumb`.
+pub use crate::ui::widgets::ScrollbarThumb as ConstructionScrollbarThumb;
 
 // Marker on the card_cta_label text entity so the per-frame
 // dim pass can identify it without walking the name. Spawned in
