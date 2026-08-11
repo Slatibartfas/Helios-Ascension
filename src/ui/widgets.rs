@@ -1220,10 +1220,12 @@ pub fn spawn_scrollbar(
                 top: Val::Px(track_top_px),
                 bottom: Val::Px(track_bottom_px),
                 width: Val::Px(10.0),
+                // Invisible — the track is just a click target for
+                // jump-to-position. Only the thumb is visible.
                 border_radius: BorderRadius::all(Val::Px(5.0)),
                 ..default()
             },
-            BackgroundColor(Color::srgba(1.0, 1.0, 1.0, 0.04)),
+            BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.0)),
             ZIndex(10),
             Pickable::default(),
             RelativeCursorPosition::default(),
@@ -1236,22 +1238,20 @@ pub fn spawn_scrollbar(
     commands.entity(scrollbar_track).observe(on_track_press);
     commands.entity(scrollbar_track).observe(on_track_release);
 
-    // Thumb is narrower than the track (8 px on a 10 px track) so
-    // there's a visible 1-px gap on each side — the track and thumb
-    // read as distinct elements, not two overlapping bars. Width
-    // padding is done via left: 1 + right: 1 (absolutely positioned).
+    // Thumb fills the full track width so there's no visible
+    // "double bar" — the track is invisible and only the thumb shows.
     let scrollbar_thumb = commands
         .spawn((
             Node {
                 position_type: PositionType::Absolute,
-                left: Val::Px(1.0),
-                right: Val::Px(1.0),
+                left: Val::Px(0.0),
+                right: Val::Px(0.0),
                 top: Val::Px(0.0),
                 height: Val::Px(0.0),
-                border_radius: BorderRadius::all(Val::Px(4.0)),
+                border_radius: BorderRadius::all(Val::Px(5.0)),
                 ..default()
             },
-            BackgroundColor(Color::srgba(0.37, 0.78, 0.85, 0.6)), // CYAN.with_alpha(0.6)
+            BackgroundColor(Color::srgba(0.37, 0.78, 0.85, 0.85)), // CYAN.with_alpha(0.85) — visible
             ZIndex(11),
             Pickable::default(),
             ScrollbarThumb,

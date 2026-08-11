@@ -288,9 +288,9 @@ pub fn spawn_construction_scrollbar(
     track_bottom_px: f32,
     tab: ConstructionTabBody,
 ) {
-    // Match widgets::spawn_scrollbar's 10-px track + 8-px thumb
-    // (1-px gap on each side). The previous 12-px track + full-width
-    // thumb made the two read as overlapping bars.
+    // Match widgets::spawn_scrollbar: invisible track + visible cyan
+    // thumb filling the track width. The previous 12-px track with
+    // a full-width thumb made the two read as overlapping bars.
     let scrollbar_track = commands
         .spawn((
             Node {
@@ -302,7 +302,7 @@ pub fn spawn_construction_scrollbar(
                 border_radius: BorderRadius::all(Val::Px(5.0)),
                 ..default()
             },
-            BackgroundColor(Color::srgba(1.0, 1.0, 1.0, 0.04)),
+            BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.0)),
             ZIndex(10),
             Pickable::default(),
             RelativeCursorPosition::default(),
@@ -319,14 +319,14 @@ pub fn spawn_construction_scrollbar(
         .spawn((
             Node {
                 position_type: PositionType::Absolute,
-                left: Val::Px(1.0),
-                right: Val::Px(1.0),
+                left: Val::Px(0.0),
+                right: Val::Px(0.0),
                 top: Val::Px(0.0),
                 height: Val::Px(0.0),
-                border_radius: BorderRadius::all(Val::Px(4.0)),
+                border_radius: BorderRadius::all(Val::Px(5.0)),
                 ..default()
             },
-            BackgroundColor(CYAN.with_alpha(0.6)),
+            BackgroundColor(Color::srgba(0.37, 0.78, 0.85, 0.85)), // CYAN.with_alpha(0.85) — visible
             ZIndex(11),
             Pickable::default(),
             Name::new("construction_scrollbar_thumb"),
