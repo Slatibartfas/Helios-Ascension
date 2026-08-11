@@ -324,7 +324,7 @@ impl Plugin for ConstructionPlugin {
             .add_systems(Update, tick_ui_scroll_on_wheel.run_if(construction_menu_open))
             .add_systems(Update, tick_construction_cta_click.run_if(construction_menu_open))
             .add_systems(Update, tick_construction_chip_click.run_if(construction_menu_open))
-            .add_systems(Update, auto_select_first_colony)
+            .add_systems(Update, auto_select_first_colony.before(refresh_card_grid))
             .add_systems(
                 Update,
                 refresh_card_grid
