@@ -34,6 +34,20 @@ pub fn tick_queue_panel_close_click(
     });
 }
 
+// Esc-to-close for the QueuePanel (Phase 8). The panel is a slide-in
+// drawer; pressing Escape closes it without committing.
+pub fn tick_queue_panel_close_on_esc(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut state: Option<ResMut<QueuePanelState>>,
+) {
+    let is_open = state.as_ref().map(|s| s.open).unwrap_or(false);
+    if is_open && keys.just_pressed(KeyCode::Escape) {
+        if let Some(ref mut s) = state {
+            s.open = false;
+        }
+    }
+}
+
 // Toggle the QueuePanel visibility based on `QueuePanelState::open`.
 pub fn tick_queue_panel_visibility(
     state: Option<Res<QueuePanelState>>,

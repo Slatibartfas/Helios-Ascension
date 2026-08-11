@@ -356,6 +356,17 @@ pub fn tick_demolish_confirm_no_click(
     });
 }
 
+// Esc-to-close for the Demolish confirm dialog (Phase 8). The
+// dialog is the topmost modal — pressing Escape resets its state.
+pub fn tick_demolish_dialog_close_on_esc(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut confirm_state: ResMut<DemolishConfirmState>,
+) {
+    if confirm_state.open && keys.just_pressed(KeyCode::Escape) {
+        *confirm_state = DemolishConfirmState::default();
+    }
+}
+
 // When the player switches tabs while the dialog is open, reset
 // the dialog state.
 pub fn tick_demolish_dialog_close_on_tab_switch(

@@ -162,14 +162,16 @@ pub use buildings::{spawn_buildings_body, update_buildings_body};
 pub use demolish::{
     spawn_demolish_button, spawn_demolish_confirm_dialog, tick_demolish_click,
     tick_demolish_confirm_no_click, tick_demolish_confirm_yes_click,
-    tick_demolish_dialog_close_on_colony_change, tick_demolish_dialog_close_on_tab_switch,
+    tick_demolish_dialog_close_on_colony_change, tick_demolish_dialog_close_on_esc,
+    tick_demolish_dialog_close_on_tab_switch,
     tick_demolish_dialog_visibility, tick_demolish_disabled, tick_demolish_hover,
     update_demolish_button_labels, update_demolish_dialog_text,
 };
 
 // Queue panel
 pub use queue::{
-    tick_open_queue_chip_click, tick_queue_panel_close_click, tick_queue_panel_row_cancel_click,
+    tick_open_queue_chip_click, tick_queue_panel_close_click, tick_queue_panel_close_on_esc,
+    tick_queue_panel_row_cancel_click,
     tick_queue_panel_visibility, update_queue_panel, update_queue_row_eta,
     update_queue_row_progress, update_queue_summary,
 };
@@ -355,6 +357,7 @@ impl Plugin for ConstructionPlugin {
                     update_demolish_dialog_text,
                     tick_demolish_confirm_yes_click,
                     tick_demolish_confirm_no_click,
+                    tick_demolish_dialog_close_on_esc,
                     tick_demolish_dialog_close_on_tab_switch,
                     tick_demolish_dialog_close_on_colony_change,
                 )
@@ -365,6 +368,7 @@ impl Plugin for ConstructionPlugin {
                 (
                     tick_open_queue_chip_click,
                     tick_queue_panel_close_click,
+                    tick_queue_panel_close_on_esc,
                     tick_queue_panel_visibility,
                     update_queue_summary,
                     update_queue_panel,
