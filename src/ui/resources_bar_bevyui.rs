@@ -39,10 +39,10 @@ use crate::ui::widgets::{
     TooltipContent, TooltipEntry, TooltipRequest, TooltipTone, UiFonts,
 };
 
-const TOP_BAR_HEIGHT: f32 = 48.0;
-const TILE_WIDTH: f32 = 88.0;
+const TOP_BAR_HEIGHT: f32 = 56.0;
+const TILE_WIDTH: f32 = 140.0;
 const TILE_PADDING: f32 = 6.0;
-const TILE_ICON_SIZE: f32 = 28.0;
+const TILE_ICON_SIZE: f32 = 32.0;
 const TILE_COUNT_FONT_SIZE: f32 = 11.0;
 const TILE_BAR_HEIGHT: f32 = 3.0;
 
@@ -157,6 +157,7 @@ pub fn spawn_bevy_ui_top_bar(
                     flex_grow: 1.0,
                     ..default()
                 },
+                Pickable::IGNORE,
                 Name::new("top_bar_tile_top_row"),
             ))
             .id();
@@ -178,6 +179,11 @@ pub fn spawn_bevy_ui_top_bar(
                     flex_shrink: 0.0,
                     ..default()
                 },
+                // Pickable::IGNORE — let the parent tile receive
+                // pointer events. Without this, the icon is
+                // hoverable by default (Bevy 0.18 picking) and
+                // blocks the parent from getting the events.
+                Pickable::IGNORE,
                 Name::new("top_bar_tile_icon"),
             ))
             .id();
@@ -201,6 +207,7 @@ pub fn spawn_bevy_ui_top_bar(
                     justify_content: JustifyContent::FlexEnd,
                     ..default()
                 },
+                Pickable::IGNORE,
                 Name::new("top_bar_count"),
                 BevyUiTopBarCountText {
                     category: category_name,
@@ -224,6 +231,7 @@ pub fn spawn_bevy_ui_top_bar(
                     ..default()
                 },
                 BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.45)),
+                Pickable::IGNORE,
                 Name::new("top_bar_tile_bar_track"),
             ))
             .id();
@@ -236,6 +244,7 @@ pub fn spawn_bevy_ui_top_bar(
                     ..default()
                 },
                 BackgroundColor(tint.with_alpha(0.85)),
+                Pickable::IGNORE,
                 BevyUiTopBarBarFill {
                     category: category_name,
                 },
