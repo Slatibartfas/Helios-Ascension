@@ -390,9 +390,15 @@ pub fn spawn_card(
             body_font_medium,
             BODY_SIZE,
             ConstructionCta { building_type },
+            ConstructionCtaLabelMarker,
         );
         commands.entity(cta).insert(Pickable::default());
-        if !data.power_insufficient {
+        // `power_insufficient = true` means the batch demand
+        // exceeds the active colony's grid surplus (see
+        // `BuildCardData::power_insufficient` in data.rs:329).
+        // The Queue button reads this and adds `ConstructionCtaDisabled`
+        // so the player can't push a build the grid can't power.
+        if data.power_insufficient {
             commands.entity(cta).insert(ConstructionCtaDisabled);
         }
         if data.body_blocked {

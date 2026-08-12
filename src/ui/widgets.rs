@@ -2045,13 +2045,14 @@ pub fn card_label_value_row(
     row
 }
 
-pub fn card_footer_cta(
+pub fn card_footer_cta<L: Component>(
     commands: &mut Commands,
     parent: Entity,
     label: &str,
     font: &Handle<Font>,
     font_size: f32,
     marker: impl Component,
+    label_marker: L,
 ) -> Entity {
     let cta = commands
         .spawn((
@@ -2096,6 +2097,7 @@ pub fn card_footer_cta(
                 ..default()
             },
             Name::new("card_cta_label"),
+            label_marker,
         ))
         .id();
     commands.entity(cta).add_child(label_n);
