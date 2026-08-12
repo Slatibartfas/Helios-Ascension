@@ -349,32 +349,9 @@ fn spawn_mining_card(
     resource_icons: &crate::ui::resource_icons::ResourceIcons,
     spare_power_mw: f64,
 ) -> Entity {
-    let def = match buildings_data.get(&bt) {
-        Some(d) => d,
-        None => {
-            let card = commands
-                .spawn((
-                    Node {
-                        display: Display::Flex,
-                        flex_direction: FlexDirection::Column,
-                        width: Val::Px(320.0),
-                        min_height: Val::Px(320.0),
-                        padding: UiRect::all(Val::Px(SPACE_LG)),
-                        border: UiRect::all(Val::Px(1.0)),
-                        border_radius: BorderRadius::all(Val::Px(8.0)),
-                        ..default()
-                    },
-                    BackgroundColor(CARD_BG),
-                    BorderColor::all(CARD_BORDER),
-                    MiningCard { building_type: bt },
-                    Name::new("mining_card_unknown"),
-                ))
-                .id();
-            commands.entity(parent).add_child(card);
-            return card;
-        }
-    };
-
+    let def = buildings_data
+        .get(&bt)
+        .expect("spawn_mining_card called with unknown BuildingType");
     let count = building_counts.get(&bt).copied().unwrap_or(0);
     let data = build_mine_card_data(
         bt,
@@ -386,7 +363,6 @@ fn spawn_mining_card(
         multiplier,
         spare_power_mw,
     );
-
     let card = spawn_card(
         commands,
         parent,
@@ -398,7 +374,6 @@ fn spawn_mining_card(
         icon,
         resource_icons,
     );
-
     spawn_demolish_button(
         commands,
         card,
@@ -408,7 +383,6 @@ fn spawn_mining_card(
         body_font_medium,
         DemolishMultiplierSource::Mining,
     );
-
     card
 }
 
