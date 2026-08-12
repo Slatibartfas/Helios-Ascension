@@ -40,16 +40,12 @@ use crate::ui::widgets::{
     TooltipTone, UiFonts,
 };
 
-const TOP_BAR_HEIGHT: f32 = 56.0;
+const TOP_BAR_HEIGHT: f32 = 60.0;
 const TILE_WIDTH: f32 = 140.0;
 const TILE_PADDING: f32 = 6.0;
 const TILE_ICON_SIZE: f32 = 32.0;
 const TILE_COUNT_FONT_SIZE: f32 = 11.0;
-const TILE_BAR_HEIGHT: f32 = 5.0;
-/// Vertical offset below the egui top bar. The egui bar is 48 px
-/// tall (see `resources_bar.rs:1435`); we sit just below it so
-/// both bars are visible together.
-const TOP_BAR_Y_OFFSET: f32 = 48.0;
+const TILE_BAR_HEIGHT: f32 = 8.0;
 
 /// Spawn the singleton TooltipOverlay + TooltipTitle + TooltipBody
 /// tree used by `widgets::tick_tooltip`. Idempotent — only spawns
@@ -168,7 +164,7 @@ pub fn spawn_bevy_ui_top_bar(
         .spawn((
             Node {
                 position_type: PositionType::Absolute,
-                top: Val::Px(TOP_BAR_Y_OFFSET),
+                top: Val::Px(0.0),
                 left: Val::Px(0.0),
                 right: Val::Px(0.0),
                 height: Val::Px(TOP_BAR_HEIGHT),
@@ -209,7 +205,8 @@ pub fn spawn_bevy_ui_top_bar(
                     padding: UiRect::all(Val::Px(4.0)),
                     border: UiRect::all(Val::Px(1.0)),
                     border_radius: BorderRadius::all(Val::Px(4.0)),
-                    row_gap: Val::Px(2.0),
+                    row_gap: Val::Px(0.0),
+                    overflow: Overflow::clip(),
                     ..default()
                 },
                 BackgroundColor(Color::srgba(0.039, 0.071, 0.137, 0.85)),
@@ -233,6 +230,7 @@ pub fn spawn_bevy_ui_top_bar(
                     column_gap: Val::Px(4.0),
                     width: Val::Percent(100.0),
                     flex_grow: 1.0,
+                    min_height: Val::Px(0.0),
                     ..default()
                 },
                 Pickable::IGNORE,
@@ -299,6 +297,12 @@ pub fn spawn_bevy_ui_top_bar(
         // to the largest resource's share of the category total
         // (so a category with one dominant resource looks "full"
         // and one with evenly-distributed resources looks sparse).
+        // Stockpile bar — a thin tinted track at the very bottom of the
+        // tile. The track sits INSIDE the tile's content area (after
+        // the 4 px padding) so the 8 px fill is fully visible. The
+        // bar fill is sized per-frame to `(largest resource in
+        // category) / (category total)`. Tinted to the category color
+        // so the bar reads as part of the tile identity.
         let bar_track = commands
             .spawn((
                 Node {
@@ -306,9 +310,10 @@ pub fn spawn_bevy_ui_top_bar(
                     height: Val::Px(TILE_BAR_HEIGHT),
                     display: Display::Flex,
                     flex_direction: FlexDirection::Row,
+                    flex_shrink: 0.0,
                     ..default()
                 },
-                BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.65)),
+                BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.85)),
                 Pickable::IGNORE,
                 Name::new("top_bar_tile_bar_track"),
             ))
@@ -319,6 +324,7 @@ pub fn spawn_bevy_ui_top_bar(
                 Node {
                     width: Val::Percent(0.0), // updated per-frame
                     height: Val::Percent(100.0),
+                    flex_shrink: 0.0,
                     ..default()
                 },
                 BackgroundColor(tint), // full alpha — bar should pop
@@ -341,16 +347,23 @@ pub fn spawn_bevy_ui_top_bar(
 
 /// Hover observer: build a `TooltipContent` listing every resource
 /// in the hovered tile's category. Also brightens the tile's border
-/// so the player sees which tile the tooltip belongs to. The rate
-/// column is filled in by `update_bevy_ui_top_bar` per frame so the
-/// player sees current production rates without waiting for a
-/// tooltip rebuild.
+/// + background so the player sees which tile the tooltip belongs
+/// to. The rate column is filled in by `update_bevy_ui_top_bar`
+/// per frame so the player sees current production rates without
+/// waiting for a tooltip rebuild.
 fn on_tile_hover(
     on: On<Pointer<Over>>,
     mut tooltip: ResMut<TooltipRequest>,
-    mut tile_query: Query<(&BevyUiTopBarTile, &mut BorderColor)>,
+    mut tile_query: Query<
+        (
+            &BevyUiTopBarTile,
+            &mut BorderColor,
+            &mut BackgroundColor,
+        ),
+        With<Button>,
+    >,
 ) {
-    let Ok((tile, mut border)) = tile_query.get_mut(on.entity) else {
+    let Ok((tile, mut border, mut bg)) = tile_query.get_mut(on.entity) else {
         return;
     };
     let resources: Vec<ResourceType> = ResourceType::by_category()
@@ -370,19 +383,27 @@ fn on_tile_hover(
         title: tile.category.to_string(),
         entries,
     });
-    // Hover effect: brighten the border to full alpha + the category
-    // tint (vs the resting 0.5 alpha).
+    // Hover effect: brighten the border to full alpha + brighten
+    // the background so the hovered tile is unmistakable.
     let tint = bevy_theme::category_color(tile.category);
     *border = BorderColor::all(tint.with_alpha(1.0));
+    *bg = BackgroundColor(tint.with_alpha(0.20));
 }
 
 /// Hover-out observer: clears the tooltip when the pointer leaves.
 fn on_tile_hover_out(
     on: On<Pointer<Out>>,
     mut tooltip: ResMut<TooltipRequest>,
-    mut tile_query: Query<(&BevyUiTopBarTile, &mut BorderColor)>,
+    mut tile_query: Query<
+        (
+            &BevyUiTopBarTile,
+            &mut BorderColor,
+            &mut BackgroundColor,
+        ),
+        With<Button>,
+    >,
 ) {
-    let Ok((tile, mut border)) = tile_query.get_mut(on.entity) else {
+    let Ok((tile, mut border, mut bg)) = tile_query.get_mut(on.entity) else {
         return;
     };
     if tooltip
@@ -393,9 +414,10 @@ fn on_tile_hover_out(
     {
         tooltip.content = None;
     }
-    // Restore the resting border.
+    // Restore the resting border + background.
     let tint = bevy_theme::category_color(tile.category);
     *border = BorderColor::all(tint.with_alpha(0.5));
+    *bg = BackgroundColor(Color::srgba(0.039, 0.071, 0.137, 0.85));
 }
 
 /// Per-frame update: writes the contextual stockpile count + rate
