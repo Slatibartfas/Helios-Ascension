@@ -33,6 +33,7 @@ use bevy::prelude::*;
 use bevy::ui::ShadowStyle;
 use bevy::window::PrimaryWindow;
 use std::collections::HashMap;
+use std::hash::Hash;
 
 /// Canonical body font path. Regular-weight Inter for paragraphs,
 /// card bodies, and default UI text.
@@ -1599,6 +1600,95 @@ pub fn tick_tab_body_visibility<B, F>(
         };
     }
 }
+
+// =====================================================================
+// ActiveTabs<K> — keyed tab-strip state primitive.
+//
+// Holds the currently-active tab index per group. The companion
+// components (`TabButton<K>`, `TabBody<K>`) and systems below let
+// any panel drive its tabs from one shared source of truth, with
+// no bespoke per-panel state or visibility systems.
+//
+// K is the group key. Default to `&'static str` so static names
+// ("construction", "shipbuilding") work without ceremony; panels
+// that want compile-time-checked groups can pass a `Copy` enum.
+// =====================================================================
+
+/// Per-group tab state. The `active` map holds the current
+/// selected tab index per group key.
+#[derive(Resource, Debug, Default)]
+pub struct ActiveTabs<K = &'static str> {
+    pub active: HashMap<K, usize>,
+}
+
+impl<K: Hash + Eq + Copy> ActiveTabs<K> {
+    /// Read the active tab index for `group`. Returns `0` when the
+    /// group hasn't been set yet (so a freshly-spawned panel
+    /// shows its first tab).
+    pub fn get(&self, group: K) -> usize {
+        self.active.get(&group).copied().unwrap_or(0)
+    }
+
+    /// Write the active tab index for `group`.
+    pub fn set(&mut self, group: K, index: usize) {
+        self.active.insert(group, index);
+    }
+}
+
+/// Marker on a tab-strip button. `detect_rising_edges` reads
+/// `(group, index)` and writes `ActiveTabs` on click.
+#[derive(Component, Debug, Clone, Copy)]
+pub struct TabButton<K = &'static str> {
+    pub group: K,
+    pub index: usize,
+}
+
+/// Marker on a tab body. `tick_active_tab_body_visibility` reads
+/// `(group, index)` against `ActiveTabs` to set visibility.
+#[derive(Component, Debug, Clone, Copy)]
+pub struct TabBody<K = &'static str> {
+    pub group: K,
+    pub index: usize,
+}
+
+/// Per-frame: drives body visibility from `ActiveTabs<K>`. For
+/// each `TabBody` in the world, sets `Display::None` +
+/// `Visibility::Hidden` when `active[body.group] != body.index`,
+/// `Display::Flex` + `Visibility::Inherited` otherwise.
+pub fn tick_active_tab_body_visibility<K: Hash + Eq + Copy + Send + Sync + 'static>(
+    active: Res<ActiveTabs<K>>,
+    mut bodies: Query<(&TabBody<K>, &mut Node, &mut Visibility)>,
+) {
+    for (body, mut node, mut visibility) in bodies.iter_mut() {
+        let visible = active.get(body.group) == body.index;
+        node.display = if visible { Display::Flex } else { Display::None };
+        *visibility = if visible {
+            Visibility::Inherited
+        } else {
+            Visibility::Hidden
+        };
+    }
+}
+
+/// Convenience click handler for tab buttons. Call from a system
+/// that has `ResMut<ActiveTabs<K>>` and a `Local<HashMap<Entity,
+/// Interaction>>` cache, like:
+///
+/// ```ignore
+/// pub fn tick_tab_clicks(
+///     mut active: ResMut<ActiveTabs<&'static str>>,
+///     mut prev: Local<HashMap<Entity, Interaction>>,
+///     buttons: Query<(Entity, &Interaction, &TabButton<&'static str>), With<Button>>,
+/// ) {
+///     detect_rising_edges(&mut prev, &buttons, |_e, button| {
+///         active.set(button.group, button.index);
+///     });
+/// }
+/// ```
+///
+/// (Documented inline because Bevy's `detect_rising_edges` helper
+/// is generic over a closure, not a callback type — wiring this as
+/// a function pointer would require a trait object.)
 
 // =====================================================================
 // Generic marquee primitive (Phase 10: extracted from
