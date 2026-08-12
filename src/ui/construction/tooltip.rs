@@ -165,11 +165,21 @@ fn approx_eq(a: Color, b: Color) -> bool {
 // Called once at startup from `setup_construction`. Must NOT be
 // called per-frame — the overlay is a singleton, and re-spawning it
 // would orphan the in-flight hover latency tracking.
+//
+// Idempotent: skips if `existing_overlay` is `Some(_)`. The caller
+// (in `setup_construction`) does the `TooltipOverlay` query before
+// calling and passes the result. We can't take a `Query<…>` here
+// because this function isn't a system — it's a helper invoked
+// from inside `setup_construction`.
 pub fn spawn_construction_tooltip_overlay(
     commands: &mut Commands,
     parent: Entity,
     body_font: Handle<Font>,
+    existing_overlay: Option<Entity>,
 ) {
+    if existing_overlay.is_some() {
+        return;
+    }
     let overlay = commands
         .spawn((
             Node {

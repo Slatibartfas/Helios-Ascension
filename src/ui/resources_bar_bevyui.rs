@@ -36,7 +36,8 @@ use crate::economy::ResourceRateTracker;
 use crate::economy::ResourceType;
 use crate::ui::bevy_theme;
 use crate::ui::widgets::{
-    TooltipContent, TooltipEntry, TooltipRequest, TooltipTone, UiFonts,
+    TooltipBody, TooltipContent, TooltipEntry, TooltipOverlay, TooltipRequest, TooltipTitle,
+    TooltipTone, UiFonts,
 };
 
 const TOP_BAR_HEIGHT: f32 = 56.0;
@@ -44,7 +45,78 @@ const TILE_WIDTH: f32 = 140.0;
 const TILE_PADDING: f32 = 6.0;
 const TILE_ICON_SIZE: f32 = 32.0;
 const TILE_COUNT_FONT_SIZE: f32 = 11.0;
-const TILE_BAR_HEIGHT: f32 = 3.0;
+const TILE_BAR_HEIGHT: f32 = 5.0;
+/// Vertical offset below the egui top bar. The egui bar is 48 px
+/// tall (see `resources_bar.rs:1435`); we sit just below it so
+/// both bars are visible together.
+const TOP_BAR_Y_OFFSET: f32 = 48.0;
+
+/// Spawn the singleton TooltipOverlay + TooltipTitle + TooltipBody
+/// tree used by `widgets::tick_tooltip`. Idempotent — only spawns
+/// if no `TooltipOverlay` exists yet, so the construction menu's
+/// own overlay-spawner (which lives in `construction/tooltip.rs`)
+/// doesn't create a duplicate when the construction menu opens.
+fn spawn_global_tooltip_overlay(
+    commands: &mut Commands,
+    parent: Entity,
+    body_font: Handle<Font>,
+) {
+    // The shared `widgets::tick_tooltip` requires exactly one
+    // `TooltipOverlay` to exist via `Single<…, With<TooltipOverlay>>`.
+    // We spawn it here once at Startup so the overlay exists in
+    // every app state (not just inside the construction menu).
+    // `spawn_construction_tooltip_overlay` is now idempotent and
+    // skips when this overlay already exists.
+    // We can't easily query for `TooltipOverlay` from inside a
+    // commands-only function, so the construction spawner needs
+    // its own idempotency check. This function still helps by
+    // bootstrapping the overlay at startup (before construction
+    // has loaded), so the first frame after launch already has
+    // an overlay available.
+    let overlay = commands
+        .spawn((
+            Node {
+                position_type: PositionType::Absolute,
+                left: Val::Px(0.0),
+                top: Val::Px(0.0),
+                display: Display::None,
+                padding: UiRect::all(Val::Px(10.0)),
+                border: UiRect::all(Val::Px(1.0)),
+                border_radius: BorderRadius::all(Val::Px(4.0)),
+                max_width: Val::Px(280.0),
+                ..default()
+            },
+            BackgroundColor(Color::srgba(0.02, 0.04, 0.07, 0.96)),
+            BorderColor::all(Color::srgb(0.22, 0.72, 0.86)),
+            ZIndex(20),
+            TooltipOverlay,
+            Name::new("bevy_ui_global_tooltip_overlay"),
+        ))
+        .with_children(|parent| {
+            parent.spawn((
+                Text::new(String::new()),
+                TextFont {
+                    font: body_font.clone(),
+                    font_size: 12.0,
+                    ..default()
+                },
+                TextColor(Color::srgba(0.831, 0.890, 0.937, 1.0)),
+                TooltipTitle,
+                Name::new("bevy_ui_global_tooltip_title"),
+            ));
+            parent.spawn((
+                Node {
+                    flex_direction: FlexDirection::Column,
+                    row_gap: Val::Px(2.0),
+                    ..default()
+                },
+                TooltipBody,
+                Name::new("bevy_ui_global_tooltip_body"),
+            ));
+        })
+        .id();
+    commands.entity(parent).add_child(overlay);
+}
 
 /// Marker on the native bevy_ui top bar root.
 #[derive(Component)]
@@ -96,7 +168,7 @@ pub fn spawn_bevy_ui_top_bar(
         .spawn((
             Node {
                 position_type: PositionType::Absolute,
-                top: Val::Px(0.0),
+                top: Val::Px(TOP_BAR_Y_OFFSET),
                 left: Val::Px(0.0),
                 right: Val::Px(0.0),
                 height: Val::Px(TOP_BAR_HEIGHT),
@@ -112,6 +184,12 @@ pub fn spawn_bevy_ui_top_bar(
             Name::new("bevy_ui_top_bar"),
         ))
         .id();
+
+    // Spawn a global TooltipOverlay so the hover popup works in
+    // every app state (not just the construction menu). The
+    // shared `tick_tooltip` system uses `Single<…, With<TooltipOverlay>>`
+    // which requires exactly one such entity to exist.
+    spawn_global_tooltip_overlay(&mut commands, root, fonts.body.clone());
 
     for (idx, (category_name, _resources)) in ResourceType::by_category().into_iter().enumerate() {
         let tint = bevy_theme::category_color(category_name);
@@ -230,7 +308,7 @@ pub fn spawn_bevy_ui_top_bar(
                     flex_direction: FlexDirection::Row,
                     ..default()
                 },
-                BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.45)),
+                BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.65)),
                 Pickable::IGNORE,
                 Name::new("top_bar_tile_bar_track"),
             ))
@@ -243,7 +321,7 @@ pub fn spawn_bevy_ui_top_bar(
                     height: Val::Percent(100.0),
                     ..default()
                 },
-                BackgroundColor(tint.with_alpha(0.85)),
+                BackgroundColor(tint), // full alpha — bar should pop
                 Pickable::IGNORE,
                 BevyUiTopBarBarFill {
                     category: category_name,
