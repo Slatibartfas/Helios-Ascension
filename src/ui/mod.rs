@@ -39,7 +39,6 @@ mod research_panel;
 mod icon_cache;
 mod resource_icons;
 mod resources_bar;
-mod resources_bar_bevyui;
 mod settings;
 mod shipbuilding_state;
 mod shipbuilding_workspace;
@@ -762,22 +761,6 @@ impl Plugin for UIPlugin {
                     // did that in five per-frame systems).
                     widgets::init_ui_fonts,
                 ),
-            )
-            // v3.x Phase 12B (2026-08-12): spawn the native
-            // bevy_ui top bar (the always-visible resource
-            // chrome). The egui version remains in front until
-            // the full migration lands; both coexist.
-            .add_systems(
-                Startup,
-                resources_bar_bevyui::spawn_bevy_ui_top_bar,
-            )
-            // Per-frame text refresh for the bevy_ui top bar.
-            // Runs in `Update` because bevy_ui isn't gated by
-            // EguiPrimaryContextPass — the egui top bar paints
-            // on top of this one regardless.
-            .add_systems(
-                Update,
-                resources_bar_bevyui::update_bevy_ui_top_bar,
             )
             // UI rendering systems
             // Ordered sequence to ensure correct layout stacking:

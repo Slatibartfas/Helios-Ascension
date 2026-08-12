@@ -31,7 +31,6 @@ pub fn setup_construction(
     buildings_data_opt: Option<Res<crate::colony::data::BuildingsData>>,
     research_state: Res<ResearchState>,
     ui_state: Res<ConstructionUiState>,
-    existing_tooltip_overlay: Query<Entity, With<crate::ui::widgets::TooltipOverlay>>,
     building_icons: Option<Res<BuildingIcons>>,
     resource_icons: Option<Res<crate::ui::resource_icons::ResourceIcons>>,
     colonies: Query<(Entity, &crate::colony::Colony)>,
@@ -535,13 +534,7 @@ pub fn setup_construction(
     // tree (TooltipOverlay + TooltipTitle + TooltipBody) used by
     // every construction tooltip surface. Replaces the three
     // per-overlay trees that used to live here.
-    let existing_overlay = existing_tooltip_overlay.iter().next();
-    spawn_construction_tooltip_overlay(
-        &mut commands,
-        root,
-        body_font.clone(),
-        existing_overlay,
-    );
+    spawn_construction_tooltip_overlay(&mut commands, root, body_font.clone());
 
     let queue_panel = commands
         .spawn((
