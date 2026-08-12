@@ -1,4 +1,4 @@
-//! Phase 12B iteration 2: native bevy_ui top bar chrome.
+//! Phase 12B iteration 3: native bevy_ui top bar chrome.
 //!
 //! Visual parity target: matches the egui top bar's resource tiles
 //! (per-category group with hover-popup per-resource breakdown)
@@ -6,12 +6,15 @@
 //! the full migration lands; this commit is purely a "can we make
 //! this look as good as egui?" experiment.
 //!
-//! ## What's new vs the MVP scaffold (commit cd26527)
-//! - Bigger tiles (96 px wide) so labels fit on one line.
-//! - A real resource icon (representative resource) per tile.
-//! - Per-tile `Pickable` + hover observer that writes a
-//!   `TooltipRequest` listing the resources in the category.
-//! - The per-frame text update now writes both count and rate.
+//! ## What's in this iteration
+//! - Real category-badge icons (24×24, tinted to category color)
+//! - Bigger tile width (132 px) so count + rate fit on one line
+//! - Count + rate text right-aligned in the remaining width
+//! - Hover effect: border brightens + slight scale
+//! - Per-tile "stockpile bar" at the bottom showing the relative
+//!   fill of the category's largest resource
+//! - Hover popup listing every resource in the category with
+//!   its count + rate (via shared `TooltipRequest`)
 //!
 //! ## What's NOT yet here (left for follow-up sessions)
 //! - The 8 popup panels (cat / resource / research / EP / power /
@@ -33,16 +36,15 @@ use crate::economy::ResourceRateTracker;
 use crate::economy::ResourceType;
 use crate::ui::bevy_theme;
 use crate::ui::widgets::{
-    spawn_text_label, TooltipContent, TooltipEntry, TooltipRequest, TooltipTone, UiFonts,
+    TooltipContent, TooltipEntry, TooltipRequest, TooltipTone, UiFonts,
 };
 
 const TOP_BAR_HEIGHT: f32 = 48.0;
-const TILE_WIDTH: f32 = 132.0;
+const TILE_WIDTH: f32 = 88.0;
 const TILE_PADDING: f32 = 6.0;
-const TILE_ICON_SIZE: f32 = 24.0;
-const TILE_LABEL_FONT_SIZE: f32 = 9.0;
+const TILE_ICON_SIZE: f32 = 28.0;
 const TILE_COUNT_FONT_SIZE: f32 = 11.0;
-const TILE_COUNT_WIDTH: f32 = 64.0;
+const TILE_BAR_HEIGHT: f32 = 3.0;
 
 /// Marker on the native bevy_ui top bar root.
 #[derive(Component)]
@@ -53,6 +55,15 @@ pub struct BevyUiTopBarRoot;
 /// `Children`/`ChildOf` (avoids B0001 noise).
 #[derive(Component)]
 pub struct BevyUiTopBarCountText {
+    pub category: &'static str,
+}
+
+/// Marker on the per-tile "stockpile bar" — a thin horizontal
+/// strip at the bottom of the tile whose width represents the
+/// largest resource's share of the category total. Updated each
+/// frame by `update_bevy_ui_top_bar`.
+#[derive(Component)]
+pub struct BevyUiTopBarBarFill {
     pub category: &'static str,
 }
 
@@ -105,6 +116,9 @@ pub fn spawn_bevy_ui_top_bar(
     for (idx, (category_name, _resources)) in ResourceType::by_category().into_iter().enumerate() {
         let tint = bevy_theme::category_color(category_name);
 
+        // Inner column wraps the icon row + the bottom stockpile
+        // bar. The Button sits on the outer row so the hover
+        // observer fires over both children.
         let tile = commands
             .spawn((
                 Button,
@@ -112,12 +126,12 @@ pub fn spawn_bevy_ui_top_bar(
                     width: Val::Px(TILE_WIDTH),
                     height: Val::Px(TOP_BAR_HEIGHT - 2.0 * TILE_PADDING),
                     display: Display::Flex,
-                    flex_direction: FlexDirection::Row,
-                    align_items: AlignItems::Center,
+                    flex_direction: FlexDirection::Column,
+                    justify_content: JustifyContent::SpaceBetween,
                     padding: UiRect::all(Val::Px(4.0)),
                     border: UiRect::all(Val::Px(1.0)),
                     border_radius: BorderRadius::all(Val::Px(4.0)),
-                    column_gap: Val::Px(4.0),
+                    row_gap: Val::Px(2.0),
                     ..default()
                 },
                 BackgroundColor(Color::srgba(0.039, 0.071, 0.137, 0.85)),
@@ -131,10 +145,26 @@ pub fn spawn_bevy_ui_top_bar(
             .id();
         commands.entity(root).add_child(tile);
 
+        // Top row: icon (left) + count/rate text (right, fills).
+        let top_row = commands
+            .spawn((
+                Node {
+                    display: Display::Flex,
+                    flex_direction: FlexDirection::Row,
+                    align_items: AlignItems::Center,
+                    column_gap: Val::Px(4.0),
+                    width: Val::Percent(100.0),
+                    flex_grow: 1.0,
+                    ..default()
+                },
+                Name::new("top_bar_tile_top_row"),
+            ))
+            .id();
+        commands.entity(tile).add_child(top_row);
+
         // Category-badge icon (loaded directly via AssetServer —
         // the existing ResourceIcons cache only stores per-resource
-        // PNGs, not category badges). Falls back to a tinted square
-        // if the asset hasn't loaded yet.
+        // PNGs, not category badges).
         let basename = crate::ui::resource_icons::category_icon_basename(category_name)
             .unwrap_or("category-biological");
         let path = format!("textures/ui/resources/{}.png", basename);
@@ -151,28 +181,10 @@ pub fn spawn_bevy_ui_top_bar(
                 Name::new("top_bar_tile_icon"),
             ))
             .id();
-        commands.entity(tile).add_child(icon_entity);
+        commands.entity(top_row).add_child(icon_entity);
 
-        // Category label — flex_grows to fill, min_width 0 so it
-        // shrinks before pushing the count off-screen.
-        let label = spawn_text_label(
-            &mut commands,
-            tile,
-            category_name,
-            fonts.medium.clone(),
-            TILE_LABEL_FONT_SIZE,
-            Color::srgba(0.831, 0.890, 0.937, 1.0),
-            (),
-        );
-        commands.entity(label).insert(Node {
-            flex_grow: 1.0,
-            flex_shrink: 1.0,
-            min_width: Val::Px(0.0),
-            ..default()
-        });
-
-        // Count text node — fixed width so it's always visible,
-        // right-aligned so the number hugs the right edge.
+        // Count + rate text — flex_grows to fill remaining row
+        // width, right-aligned so the number hugs the right edge.
         let count_text = commands
             .spawn((
                 Text::new("..."),
@@ -183,8 +195,9 @@ pub fn spawn_bevy_ui_top_bar(
                 },
                 TextColor(tint),
                 Node {
-                    width: Val::Px(TILE_COUNT_WIDTH),
-                    flex_shrink: 0.0,
+                    flex_grow: 1.0,
+                    flex_shrink: 1.0,
+                    min_width: Val::Px(0.0),
                     justify_content: JustifyContent::FlexEnd,
                     ..default()
                 },
@@ -194,7 +207,42 @@ pub fn spawn_bevy_ui_top_bar(
                 },
             ))
             .id();
-        commands.entity(tile).add_child(count_text);
+        commands.entity(top_row).add_child(count_text);
+
+        // Stockpile bar — a thin tinted track at the bottom of the
+        // tile. The bar itself is a child that fills proportionally
+        // to the largest resource's share of the category total
+        // (so a category with one dominant resource looks "full"
+        // and one with evenly-distributed resources looks sparse).
+        let bar_track = commands
+            .spawn((
+                Node {
+                    width: Val::Percent(100.0),
+                    height: Val::Px(TILE_BAR_HEIGHT),
+                    display: Display::Flex,
+                    flex_direction: FlexDirection::Row,
+                    ..default()
+                },
+                BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.45)),
+                Name::new("top_bar_tile_bar_track"),
+            ))
+            .id();
+        commands.entity(tile).add_child(bar_track);
+        let bar_fill = commands
+            .spawn((
+                Node {
+                    width: Val::Percent(0.0), // updated per-frame
+                    height: Val::Percent(100.0),
+                    ..default()
+                },
+                BackgroundColor(tint.with_alpha(0.85)),
+                BevyUiTopBarBarFill {
+                    category: category_name,
+                },
+                Name::new("top_bar_tile_bar_fill"),
+            ))
+            .id();
+        commands.entity(bar_track).add_child(bar_fill);
 
         // Hover observers: write the per-resource tooltip on Over,
         // clear it on Out. Uses the shared `TooltipRequest` resource
@@ -205,15 +253,17 @@ pub fn spawn_bevy_ui_top_bar(
 }
 
 /// Hover observer: build a `TooltipContent` listing every resource
-/// in the hovered tile's category. The rate column is filled in by
-/// `update_bevy_ui_top_bar` per frame so the player sees current
-/// production rates without waiting for a tooltip rebuild.
+/// in the hovered tile's category. Also brightens the tile's border
+/// so the player sees which tile the tooltip belongs to. The rate
+/// column is filled in by `update_bevy_ui_top_bar` per frame so the
+/// player sees current production rates without waiting for a
+/// tooltip rebuild.
 fn on_tile_hover(
     on: On<Pointer<Over>>,
     mut tooltip: ResMut<TooltipRequest>,
-    tile_query: Query<&BevyUiTopBarTile>,
+    mut tile_query: Query<(&BevyUiTopBarTile, &mut BorderColor)>,
 ) {
-    let Ok(tile) = tile_query.get(on.entity) else {
+    let Ok((tile, mut border)) = tile_query.get_mut(on.entity) else {
         return;
     };
     let resources: Vec<ResourceType> = ResourceType::by_category()
@@ -233,15 +283,19 @@ fn on_tile_hover(
         title: tile.category.to_string(),
         entries,
     });
+    // Hover effect: brighten the border to full alpha + the category
+    // tint (vs the resting 0.5 alpha).
+    let tint = bevy_theme::category_color(tile.category);
+    *border = BorderColor::all(tint.with_alpha(1.0));
 }
 
 /// Hover-out observer: clears the tooltip when the pointer leaves.
 fn on_tile_hover_out(
     on: On<Pointer<Out>>,
     mut tooltip: ResMut<TooltipRequest>,
-    tile_query: Query<&BevyUiTopBarTile>,
+    mut tile_query: Query<(&BevyUiTopBarTile, &mut BorderColor)>,
 ) {
-    let Ok(tile) = tile_query.get(on.entity) else {
+    let Ok((tile, mut border)) = tile_query.get_mut(on.entity) else {
         return;
     };
     if tooltip
@@ -252,21 +306,27 @@ fn on_tile_hover_out(
     {
         tooltip.content = None;
     }
+    // Restore the resting border.
+    let tint = bevy_theme::category_color(tile.category);
+    *border = BorderColor::all(tint.with_alpha(0.5));
 }
 
 /// Per-frame update: writes the contextual stockpile count + rate
-/// for each tile's category. Also refreshes the live tooltip
-/// entries so the rate column stays current while hovering.
+/// for each tile's category, drives the stockpile bar width, and
+/// refreshes the live tooltip entries so the rate column stays
+/// current while hovering.
 pub fn update_bevy_ui_top_bar(
     contextual: Res<ContextualStockpile>,
     rate_tracker: Option<Res<ResourceRateTracker>>,
     _budget: Res<GlobalBudget>,
     mut text_query: Query<(&mut Text, &BevyUiTopBarCountText)>,
+    mut bar_query: Query<(&BevyUiTopBarBarFill, &mut Node)>,
     mut tooltip: ResMut<TooltipRequest>,
 ) {
     let Some(rate_tracker) = rate_tracker else {
         return;
     };
+
     for (mut text, marker) in text_query.iter_mut() {
         let resources: Vec<ResourceType> = ResourceType::by_category()
             .into_iter()
@@ -285,6 +345,32 @@ pub fn update_bevy_ui_top_bar(
             let _ = write!(buf, " {}{:.1}/s", sign, rate);
         }
         **text = buf;
+    }
+
+    // Stockpile bar — fraction = (largest resource in category) /
+    // (category total). Categories with one dominant resource look
+    // "full"; evenly-distributed categories look sparse.
+    for (marker, mut node) in bar_query.iter_mut() {
+        let resources: Vec<ResourceType> = ResourceType::by_category()
+            .into_iter()
+            .find(|(name, _)| *name == marker.category)
+            .map(|(_, r)| r)
+            .unwrap_or_default();
+        if resources.is_empty() {
+            node.width = Val::Percent(0.0);
+            continue;
+        }
+        let total: f64 = resources.iter().map(|r| contextual.get(r)).sum();
+        if total <= 0.0 {
+            node.width = Val::Percent(0.0);
+            continue;
+        }
+        let max_count: f64 = resources
+            .iter()
+            .map(|r| contextual.get(r))
+            .fold(0.0_f64, f64::max);
+        let fraction = (max_count / total).clamp(0.0, 1.0) as f32;
+        node.width = Val::Percent(fraction * 100.0);
     }
 
     // Refresh the live tooltip entries if a tile-tooltip is showing.
