@@ -32,14 +32,17 @@ use crate::economy::budget::{ContextualStockpile, GlobalBudget};
 use crate::economy::ResourceRateTracker;
 use crate::economy::ResourceType;
 use crate::ui::bevy_theme;
-use crate::ui::resource_icons::{get_resource_icon_handle_bevy, ResourceIcons};
 use crate::ui::widgets::{
     spawn_text_label, TooltipContent, TooltipEntry, TooltipRequest, TooltipTone, UiFonts,
 };
 
 const TOP_BAR_HEIGHT: f32 = 48.0;
-const TILE_WIDTH: f32 = 96.0;
+const TILE_WIDTH: f32 = 132.0;
 const TILE_PADDING: f32 = 6.0;
+const TILE_ICON_SIZE: f32 = 24.0;
+const TILE_LABEL_FONT_SIZE: f32 = 9.0;
+const TILE_COUNT_FONT_SIZE: f32 = 11.0;
+const TILE_COUNT_WIDTH: f32 = 64.0;
 
 /// Marker on the native bevy_ui top bar root.
 #[derive(Component)]
@@ -69,7 +72,7 @@ pub fn spawn_bevy_ui_top_bar(
     mut commands: Commands,
     root_query: Query<Entity, With<BevyUiTopBarRoot>>,
     ui_fonts: Option<Res<UiFonts>>,
-    resource_icons: Option<Res<ResourceIcons>>,
+    asset_server: Res<AssetServer>,
 ) {
     if !root_query.is_empty() {
         return;
@@ -77,8 +80,6 @@ pub fn spawn_bevy_ui_top_bar(
     let Some(fonts) = ui_fonts else {
         return;
     };
-    let empty_icons = ResourceIcons::default();
-    let icons: &ResourceIcons = resource_icons.as_deref().unwrap_or(&empty_icons);
 
     let root = commands
         .spawn((
@@ -101,9 +102,8 @@ pub fn spawn_bevy_ui_top_bar(
         ))
         .id();
 
-    for (idx, (category_name, resources)) in ResourceType::by_category().into_iter().enumerate() {
+    for (idx, (category_name, _resources)) in ResourceType::by_category().into_iter().enumerate() {
         let tint = bevy_theme::category_color(category_name);
-        let representative = resources.first().copied().unwrap_or(ResourceType::Food);
 
         let tile = commands
             .spawn((
@@ -131,61 +131,61 @@ pub fn spawn_bevy_ui_top_bar(
             .id();
         commands.entity(root).add_child(tile);
 
-        // Representative resource icon (or tinted placeholder square).
-        let icon_entity = match get_resource_icon_handle_bevy(icons, representative) {
-            Some(handle) => commands
-                .spawn((
-                    ImageNode::new(handle.clone()).with_color(tint),
-                    Node {
-                        width: Val::Px(20.0),
-                        height: Val::Px(20.0),
-                        ..default()
-                    },
-                    Name::new("top_bar_tile_icon"),
-                ))
-                .id(),
-            None => commands
-                .spawn((
-                    Node {
-                        width: Val::Px(20.0),
-                        height: Val::Px(20.0),
-                        border_radius: BorderRadius::all(Val::Px(2.0)),
-                        ..default()
-                    },
-                    BackgroundColor(tint.with_alpha(0.85)),
-                    Name::new("top_bar_tile_icon_placeholder"),
-                ))
-                .id(),
-        };
+        // Category-badge icon (loaded directly via AssetServer —
+        // the existing ResourceIcons cache only stores per-resource
+        // PNGs, not category badges). Falls back to a tinted square
+        // if the asset hasn't loaded yet.
+        let basename = crate::ui::resource_icons::category_icon_basename(category_name)
+            .unwrap_or("category-biological");
+        let path = format!("textures/ui/resources/{}.png", basename);
+        let icon_handle: Handle<Image> = asset_server.load(&path);
+        let icon_entity = commands
+            .spawn((
+                ImageNode::new(icon_handle).with_color(tint),
+                Node {
+                    width: Val::Px(TILE_ICON_SIZE),
+                    height: Val::Px(TILE_ICON_SIZE),
+                    flex_shrink: 0.0,
+                    ..default()
+                },
+                Name::new("top_bar_tile_icon"),
+            ))
+            .id();
         commands.entity(tile).add_child(icon_entity);
 
-        // Category label
+        // Category label — flex_grows to fill, min_width 0 so it
+        // shrinks before pushing the count off-screen.
         let label = spawn_text_label(
             &mut commands,
             tile,
             category_name,
             fonts.medium.clone(),
-            9.0,
+            TILE_LABEL_FONT_SIZE,
             Color::srgba(0.831, 0.890, 0.937, 1.0),
             (),
         );
         commands.entity(label).insert(Node {
             flex_grow: 1.0,
+            flex_shrink: 1.0,
+            min_width: Val::Px(0.0),
             ..default()
         });
 
-        // Count text node (will be updated each frame)
+        // Count text node — fixed width so it's always visible,
+        // right-aligned so the number hugs the right edge.
         let count_text = commands
             .spawn((
                 Text::new("..."),
                 TextFont {
                     font: fonts.mono.clone(),
-                    font_size: 11.0,
+                    font_size: TILE_COUNT_FONT_SIZE,
                     ..default()
                 },
                 TextColor(tint),
                 Node {
-                    width: Val::Px(0.0), // auto-size
+                    width: Val::Px(TILE_COUNT_WIDTH),
+                    flex_shrink: 0.0,
+                    justify_content: JustifyContent::FlexEnd,
                     ..default()
                 },
                 Name::new("top_bar_count"),
