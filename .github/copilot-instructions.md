@@ -141,13 +141,44 @@ helios_ascension/
 │       ├── dashboard.rs           # Main dashboard, time controls, star system panel
 │       ├── research_panel.rs      # Research/engineering UI (overview, available, bonuses, archive tabs)
 │       ├── tech_tree.rs           # Tech tree tab, edit dialog, category colors
-│       ├── construction_panel.rs  # Construction queue UI
+│       ├── construction/          # NATIVE BEVY UI Construction menu (v0.5.2 canary).
+│                             # The 11 865-LOC src/ui/construction.rs was split
+│                             # into this directory (commit 6e9e8f4) and the migration
+│                             # to native Bevy UI landed in commit 4794803.
+│                             # Sub-modules: mod.rs, state.rs, data.rs, markers.rs,
+│                             # cards.rs, mining.rs, overview.rs, buildings.rs,
+│                             # demolish.rs, queue.rs, dropdown.rs, tooltip.rs,
+│                             # scrollbar.rs, disabled.rs, setup.rs. The legacy
+│                             # src/ui/construction_panel.rs and the canary-era
+│                             # src/ui/construction.rs no longer exist.
+│       ├── widgets.rs             # Menu-agnostic native-Bevy-UI primitive library
+│                             # (v0.5.2; UiFonts, HoverElevation, KeyedList,
+│                             # TooltipRequest, Scrollbar, Marquee, ProgressFill,
+│                             # ActiveTabs<T>, six CardShell* composers). Consumed by
+│                             # Construction today and any future bevy_ui menu.
+│       ├── bevy_theme.rs          # Native-Bevy-UI palette mirror (CARD_BG, CYAN, ...)
+│                             # - coexists with the egui palette in theme.rs.
+│       ├── resource_icons.rs      # Build / mining / research icon atlas (MAX_ICONS_PER_FRAME = 2)
+│       ├── icon_cache.rs          # Hash-validated icon cache + async bake + splash progress
 │       ├── economy_panel.rs       # Economy/budget UI
 │       ├── shipbuilding_state.rs  # Shared shipbuilding UI state (selected hull, focused slot, queued builds)
-│       ├── shipbuilding_workspace.rs # Native Bevy UI shipbuilding workspace (Logistics Hub / Design Blueprint / Engineering Analytics)
-│       ├── shipbuilding_tooltip.rs # Slot hover tooltips and module compatibility hints
+│       ├── shipbuilding_workspace.rs # Native Bevy UI shipbuilding workspace (Logistics Hub /
+│                             # Design Blueprint / Engineering Analytics). Slot hover
+│                             # tooltips + module-compatibility hints were inlined here
+│                             # in commit 17472dd; the former shipbuilding_tooltip.rs
+│                             # no longer exists.
 │       ├── fleets_panel.rs        # Fleet list, detail, orbit/maneuver status, FleetUiState
 │       ├── transfer_planner.rs    # Transfer planner sub-panel (destination, options, LP transfers)
+│       ├── transfer_planner_card.rs  # Per-fleet transfer planner card UI
+│       ├── porkchop_panel.rs      # Porkchop plot planner (GRA-152)
+│       ├── notifications/         # v0.5.0 notifications (toast panel, settings, bridges)
+│       ├── launch/                # Splash, main-menu, sub-views (New Game / Load Game /
+│                             # Save Game / Settings), save index, userdata persistence
+│       ├── personnel_panel.rs     # Personnel Roster UI (v0.5.0; scientists, hiring, seniority)
+│       ├── settings.rs            # Top-menu settings + screenshot slots
+│       ├── cursors.rs             # Cursor sprite management
+│       ├── tab.rs                 # Tab-strip primitives (egui side, shared with widgets.rs)
+│       ├── screenshot.rs / screenshot_state.rs # Shift+F12 screenshot capture
 │       └── interaction.rs         # Selection management
 ├── assets/
 │   ├── audio/
@@ -574,7 +605,6 @@ canonical pattern.
   - `calculate_transfer_options_phased()` — same but after a player-chosen departure delay
   - `compute_transfer_window()` — live synodic-period countdown, phase-angle error, and phase-rate (rad/s)
   - `GravityAssistOption` — flyby bodies near the transfer arc that reduce total Δv
-- **`FleetUiState`** resource (defined in `src/ui/fleets_panel.rs`, re-exported as `crate::ui::FleetUiState`; transfer planner rendering lives in `src/ui/transfer_planner.rs`): per-frame state for the Fleet panel
   - `selected_fleet`, `target_body`, `target_lagrange`, `target_fleet`
   - `departure_offset_days` slider for phased departure timing
   - `computed_options` / `planned_transfer` / `show_transfer_popup`
@@ -728,6 +758,46 @@ canonical pattern.
 
 ### Worktree & Build-Artifact Safety (recap)
 - See **Multi-Agent Worktree Safety** at the top of this document. The TL;DR: never `git stash`, never `cargo clean`, never `git reset --hard`, never `rm -rf target/` in a shared worktree. Use a fresh worktree (`git worktree add`) for hermetic experiments, and re-run failing tests on a clean `main` worktree to confirm pre-existence rather than stashing. This rule applies to **every agent** working in this repo.
+
+### UI Migration Status (as of v0.5.2, branch `rework-ui-design`)
+
+The Construction menu has graduated from egui to **native Bevy UI**
+(`src/ui/construction/` directory + `src/ui/widgets.rs` primitive
+library + `src/ui/bevy_theme.rs` palette). Shipbuilding was already on
+native Bevy UI (`src/ui/shipbuilding_workspace.rs`). All other panels
+remain on egui and continue to consume `src/ui/theme.rs`.
+
+**The current shared primitive library lives in `src/ui/widgets.rs`.**
+Any new bevy_ui menu (Research, Economy, Fleets, Personnel) MUST depend
+on `crate::ui::widgets` for `UiFonts`, `HoverElevation`, `KeyedList`,
+`TooltipRequest`, `Scrollbar`, `Marquee`, `ProgressFill`,
+`ActiveTabs<T>`, the six `CardShell*` composers, and the
+`tick_ui_hover_elevation` system. Do NOT re-roll hover / scrollbar /
+tooltip / chip / tab chrome inside a menu's own module — add the
+primitive to `widgets.rs` if it's missing and document it in
+`docs/UI.md` §9.3.1 + `docs/UI_LAYOUT_PATTERNS.md` §10.
+
+**The egui palette stays the egui palette.** New colors for egui
+surfaces go in `src/ui/theme.rs`; new colors for Bevy UI surfaces go in
+`src/ui/bevy_theme.rs`. The two files coexist on purpose — do not
+duplicate a token across both.
+
+**A panel migrating from egui → Bevy UI follows this recipe:**
+1. Wire the bevy_ui surface into the existing `GameMenu` enum (don't
+   add a parallel menu).
+2. Replace each bespoke chrome system with the `widgets` equivalent
+   (HoverElevation, ActiveTabs<T>, Scrollbar, TooltipRequest, etc.).
+3. Move shared palette tokens to `bevy_theme.rs`.
+4. Delete the egui `spawn_*` / `render_*` paths once the Bevy versions
+   pass parity tests.
+5. Update `docs/UI.md` (per-panel anatomy + §9.3 primitive inventory),
+   `docs/UI_LAYOUT_PATTERNS.md` (§10 + the panel-to-pattern table), and
+   `ARCHITECTURE.md` (the `src/ui/` block) in the same PR.
+
+The continuation playbook (which menus have been migrated, what's
+known-good in `widgets.rs`, the parity checklist, and the gotchas
+discovered during the Construction canary) lives in
+`memories/repo/ui-migration-2026-08-14.md`.
 
 ### Splash / First-Frame Stall Prevention (CRITICAL)
 

@@ -648,7 +648,6 @@
             resource_costs: [
                 ("Iron", 120.0),
                 ("Copper", 30.0),
-                ("Titanium", 0.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.01),

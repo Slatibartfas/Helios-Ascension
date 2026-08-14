@@ -1,4 +1,24 @@
-# Mining Tab — bevy_ui Canary Spec (v0.5.2)
+# Mining Tab — bevy_ui Canary Spec (v0.5.2) [ARCHIVED 2026-08-14]
+
+> **Historical document, archived 2026-08-14.** This spec described
+> the proposed migration of the Construction menu's Mining tab from
+> the legacy egui panel (`src/ui/construction_panel.rs`) to native
+> Bevy UI. The migration was implemented in commits `4794803` +
+> `6e9e8f4`, and the Construction menu **graduated** from a canary to
+> the live panel in v0.5.2 (branch `rework-ui-design`). The legacy
+> `src/ui/construction_panel.rs`, the canary-era
+> `src/ui/construction.rs`, and `src/ui/theme.rs`'s mining tab helpers
+> have all been deleted; the live path is `src/ui/construction/` (15
+> files) + the shared primitive library in `src/ui/widgets.rs`. For
+> the graduation recipe and the post-graduation continuation
+> playbook, see `docs/design/UI_MIGRATION_PLAN.md` and
+> `memories/repo/ui-migration-2026-08-14.md`. The body of this
+> document below is preserved verbatim for historical reference and
+> for the rationale that drove specific decisions during the canary
+> weeks.
+
+---
+
 
 **Branch:** `rework-ui-design`
 **Target file:** `src/ui/construction.rs` (canary; replaces the legacy egui mining body in `src/ui/construction_panel.rs:872-1392`)

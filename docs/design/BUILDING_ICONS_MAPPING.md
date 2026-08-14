@@ -140,7 +140,7 @@ edit of `buildings.ron`:
    line with `icon: "textures/ui/buildings/<filename>.png"`.
 2. The RON schema is already wired for this — `icon: String` is
    already a field on every building entry.
-3. The legacy egui panel (`src/ui/construction_panel.rs`) currently
+3. The legacy egui panel (`src/ui/construction_panel.rs`, deleted in v0.5.2 — see `src/ui/construction/` directory) currently
    renders the emoji directly via `egui::RichText`. **It will break
    on PNG paths** — that panel needs to be updated to render
    `Handle<Image>` (or read the RON `icon:` field and look it up

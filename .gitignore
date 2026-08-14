@@ -71,3 +71,12 @@ assets/data/JPL_CometsList.csv
 # commit; only assets/data/solar_system.ron is loaded by the game.
 /solar_system.ron
 .claude/settings.local.json
+
+# ── Agent-scratch docs (operator's local files) ──────────────────────
+# AGENTS.md is the operator's local overview that overlaps with
+# .github/copilot-instructions.md and CLAUDE.md. The canonical
+# content lives in those two files; AGENTS.md itself is untracked.
+# Delete the file before opening a PR if you want to ship the
+# content (and add it to one of the canonical files). Otherwise it
+# stays out of git.
+/AGENTS.md

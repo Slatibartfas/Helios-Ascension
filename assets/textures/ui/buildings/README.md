@@ -255,7 +255,6 @@ python _verify_all.py
   Source of the tinting contract.
 - `src/ui/construction.rs` — bevy_ui canary. Does not yet load
   building icons (see "Load contract" above).
-- `src/ui/construction_panel.rs` — legacy egui panel. Renders
-  emoji glyphs directly via egui text.
+- `src/ui/construction/tooltip.rs` + `src/ui/construction/state.rs` — v0.5.2 bevy_ui replacement. The legacy `src/ui/construction_panel.rs` was deleted in v0.5.2 along with the canary-era `src/ui/construction.rs`.
 - `docs/design/BUILDING_ICONS_MAPPING.md` — 52-row table mapping
   `BuildingType` → filename → emoji-to-icon swap plan.

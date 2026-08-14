@@ -18,15 +18,31 @@ docs:
 Helios Ascension uses a mixed UI stack:
 
 - **egui 0.33** for the dashboard, the resource bar, and most full-screen
-  panels (Survey, Construction, Research, Economy, Fleets, Dossier).
-- **Native Bevy UI 0.18** for the Shipbuilding workspace (Logistics Hub /
-  Design Blueprint / Engineering Analytics) — this is the canonical
-  shipbuilding UI, not an alternate.
+  panels (Survey, Research, Economy, Fleets, Dossier, Personnel, Intel).
+- **Native Bevy UI 0.18** for the **Construction** menu (canary; the
+  v0.5.2 reworked panel — see `src/ui/construction/`) **and** the
+  Shipbuilding workspace (Logistics Hub / Design Blueprint / Engineering
+  Analytics). These are the canonical Construction / Shipbuilding UIs —
+  not alternates.
 
-Every panel — egui or Bevy UI — pulls its colours, fonts, and spacing from
-`src/ui/theme.rs`. There is no per-panel palette. The egui visuals
+Every panel — egui or Bevy UI — pulls its colours, fonts, and spacing
+from `src/ui/theme.rs`. There is no per-panel palette. The egui visuals
 (backgrounds, hover/active/focus, separators) are configured once via
-`theme::apply_global_visuals(ctx)` at startup.
+`theme::apply_global_visuals(ctx)` at startup. Bevy-side panels share a
+parallel palette in `src/ui/bevy_theme.rs` plus the menu-agnostic
+primitives in `src/ui/widgets.rs` (`UiFonts`, `HoverElevation`,
+`KeyedList`, `TooltipRequest`, `Scrollbar`, `Marquee`, `ProgressFill`,
+`CardShell*` composers, etc.) — the construction canary and any future
+bevy_ui menu (Research, Economy, …) both consume that library.
+
+> **Migration status (2026-08-14):** Construction is the first v0.5.2
+> canary to graduate from the egui stack to native Bevy UI. The
+> constructor canary reuses the same widget primitives that ship in
+> `src/ui/widgets.rs`; future menus (Research, Economy, Fleets,
+> Personnel) should plan to use the same primitives rather than
+> re-rolling shells. See
+> [`docs/design/UI_MIGRATION_PLAN.md`](design/UI_MIGRATION_PLAN.md) for
+> the staged rollout.
 
 ## 2. Design Tokens
 
@@ -266,19 +282,27 @@ View and select celestial bodies or star systems.
 
 ### 3.3 Construction Panel
 
-Manage colony buildings and construction projects.
+Manage colony buildings and construction projects. **Implemented with
+native Bevy UI** (`src/ui/construction/` directory + `src/ui/bevy_theme.rs`
++ `src/ui/widgets.rs`); this is the Construction **canary** that became
+the in-game Construction menu in v0.5.2. There is no egui fallback for
+this panel.
+
+The panel is composed from the Pattern 5 card-grid primitive and the
+shared widgets — see [`UI_LAYOUT_PATTERNS.md` §10](UI_LAYOUT_PATTERNS.md#10-pattern-5--raised-card-grid-with-hover-elevation-bevy-ui-018)
+for the layout contract, `src/ui/bevy_theme.rs` for the palette, and
+`src/ui/widgets.rs` for the menu-agnostic primitive library.
 
 #### Sub-tab strip
 
-The panel opens with a `theme::tab_strip<ConstructionTab>` (Pattern 4 in
-[`UI_LAYOUT_PATTERNS.md` §5](UI_LAYOUT_PATTERNS.md#5-pattern-4--in-panel-sub-tab-strip-egui))
-that exposes the panel's top-level sub-tabs (Overview, Buildings, Build,
-Stockpiles). The Build tab nests a second
-`theme::tab_strip<BuildingCategory>` strip with eight `BuildingCategory`
-rows indented by `theme::Spacing::md` — see §9 for the primitive
-contract. Bespoke `ConstructionTab` + `BuildFilter` state is gone; the
-two strips are the single source of truth for "which sub-view is
-active".
+The panel opens with a `widgets::ActiveTabs<ConstructionTab>` strip (the
+Bevy-UI mirror of `theme::tab_strip<ConstructionTab>`) that exposes the
+panel's top-level sub-tabs (Overview, Buildings, Build, Stockpiles).
+The Build tab nests a second `widgets::ActiveTabs<BuildingCategory>`
+strip with eight `BuildingCategory` rows. Bespoke `ConstructionTab` +
+`BuildFilter` state is gone; the two strips are the single source of
+truth for "which sub-view is active". `TabButton` / `TabBody` markers
+plus `widgets::tick_active_tab_body_visibility` drive the swap.
 
 #### Features
 
@@ -438,9 +462,13 @@ for the full Pattern 2 layout contract.
 
 ### 3.6 Shipbuilding Panel
 
-Native Bevy UI workspace. There is no egui fallback — it is the only path
-for designing hull layouts, picking modules into slots, queueing ships, and
-inspecting live engineering metrics. See §9.3 for the Bevy UI
+Native Bevy UI workspace (`src/ui/shipbuilding_workspace.rs` +
+`src/ui/shipbuilding_state.rs`). There is no egui fallback — it is the
+only path for designing hull layouts, picking modules into slots,
+queueing ships, and inspecting live engineering metrics. Slot-hover
+tooltips and module-compatibility hints are inlined into
+`shipbuilding_workspace.rs` (the legacy `src/ui/shipbuilding_tooltip.rs`
+was deleted in v0.5.2 — see commit `17472dd`). See §9.3 for the Bevy UI
 `theme::Color` mirror and the two Bevy primitives; the full Pattern 3
 contract lives in
 [`UI_LAYOUT_PATTERNS.md` §4](UI_LAYOUT_PATTERNS.md#4-pattern-3--tabbed-workspace-bevy-ui-018).
@@ -828,29 +856,64 @@ extension points (dynamic `Cow::Owned` labels, per-tab icons).
 | `theme::tab_strip<T: Tab>(ui, tabs, active, on_select) -> T` | Horizontal sub-tab strip. Active tab in `ACCENT` + 2px bottom underline; inactive in `TEXT`. Returns `active` so callers that want the click to take effect within the same frame can re-assign their state. | Construction (top-level + 8-way `BuildingCategory` second-level), Research (Archive tab categories), Economy (7-way `EconomyTab`). |
 | `theme::ledger_panel<T>(ui, id, title, _token, contents)` | Collapsible ledger section: `section_h2` title + `CollapsingHeader` (default-open). Generic `T` is reserved for future typed tokens; pass `&()` if you don't need a filter. | Economy Colonies tab, Construction Overview. |
 
-### 9.3 Bevy UI 0.18 primitives (Pattern 3 mirror)
+### 9.3 Bevy UI 0.18 primitives (Pattern 3 + Pattern 5 mirror)
 
-The Shipbuilding workspace is the only native Bevy UI panel
-(`docs/UI.md` §1). PR-B added a `theme::Color` mirror of the egui
-tokens and two Bevy-side primitives; PR-D replaced the previous
-`Color::srgb(0.0, 0.95, 1.0)` literals at
+The Shipbuilding workspace and the Construction canary are both native
+Bevy UI panels (`docs/UI.md` §1). PR-B added a `theme::Color` mirror of
+the egui tokens and two Bevy-side primitives; PR-D replaced the
+previous `Color::srgb(0.0, 0.95, 1.0)` literals at
 `src/ui/shipbuilding_workspace.rs:1241-1296` with `theme::Color`, and
-PR-E consolidated the 3-pane shell.
+PR-E consolidated the 3-pane shell. The v0.5.2 rework landed a much
+larger set in `src/ui/widgets.rs` — see §9.3.1.
 
 | Primitive | Purpose |
 | --------- | ------- |
 | `theme::section_h1_bevy(commands, parent_entity, label)` | Spawn a `Text` child of `parent_entity` styled as the canonical pane title (15pt body font, `Color::PANEL_TITLE`). |
 | `theme::tab_strip_bevy<T: Tab>(commands, tabs_root, tabs, active)` | Spawn one `Button` per tab as a child of `tabs_root`, with the standard `Color::TAB_*` palette. |
 
+#### 9.3.1 `src/ui/widgets.rs` — canonical bevy_ui primitive library
+
+The Construction canary (v0.5.2) grew a menu-agnostic primitive library
+so future menus do not hand-roll hover systems, scrollbar chrome, tab
+bodies, tooltips, marquees, progress fills, or card shells. Anything
+in `widgets.rs` is decoupled from construction state and may be
+consumed by the next bevy_ui menu (Research, Economy, Fleets).
+
+| Primitive (in `widgets`) | Purpose |
+| ------------------------- | ------- |
+| `UiFonts` resource + `init_ui_fonts` | Loaded once at Startup. Reads `Res<UiFonts>` instead of `asset_server.load("fonts/...")` per frame. |
+| `spawn_scrollable_container` / `spawn_scrollable_container_child` | Single helper for `Overflow::scroll_y()` columns. |
+| `spawn_text_label` | One-call `Text` node with font + size + colour. |
+| `HoverElevation` + `tick_ui_hover_elevation` | Shared hover/press styling (scale + border + bg + shadow + ZIndex lift). |
+| `card_shadow` / `card_shadow_hover` / `CARD_SHADOW*` consts | Canonical raised-card drop shadows (tight contact + soft cast) for dark-on-dark. |
+| `ChipGroup` / `ActiveChips` + `tick_chip_button_hover` / `tick_chip_button_active_overlay` / `tick_active_chip_glow` | Chip-row machinery (single helper, replaces 5 ad-hoc copies). |
+| `detect_rising_edges` / `detect_rising_edges_no_marker` | Click-edge helper; the first-call port replaced a problematic construction click system with an idiomatic generic. |
+| `TooltipTone`, `TooltipEntry`, `TooltipContent`, `TooltipRequest`, `TooltipOverlay`, `TooltipTitle`, `TooltipBody` + `populate_tooltip_body` / `tick_tooltip` | Generic cursor-following tooltip primitive; all four construction tooltips port to it. |
+| `ScrollbarTrack` / `ScrollbarThumb` / `ScrollbarMetrics` / `ScrollbarDragState` + `on_thumb_press/release` / `on_track_press/release` + `spawn_scrollbar` / `tick_scrollbar` / `tick_ui_scroll_on_wheel` | Reusable scrollbar chrome; the Construction `Build` + `Mining` + `Queue` scrollbars all delegate to it. |
+| `KeyedList<K, V>` + `EntityContainer` trait | Diff-based reconciler for keyed lists (colonist rows, queue entries). Two call sites already ported. |
+| `tick_tab_body_visibility` | Generic tab-body visibility swap. |
+| `ActiveTabs<K>` / `TabButton<K>` / `TabBody<K>` + `tick_active_tab_body_visibility` | The Bevy-UI mirror of `theme::tab_strip<T>` (replaces `widgets::TabStrip` in earlier canary versions). |
+| `Marquee` + `tick_marquee` | Progress marquee with running bar (used by Queue + Overview fills). |
+| `ProgressFill(pub f32)` + `tick_progress_fill` | Per-resource / per-project progress fill. |
+| `CardShellOpts` + `card_shell` / `card_icon` / `card_data_chip` / `card_marquee_subtitle` / `card_label_value_row` / `card_footer_cta` | Six card composers — every spawn_card body in `src/ui/construction/` builds on these. |
+
+**Authorship rule:** when adding a new bevy_ui menu, depend on
+`crate::ui::widgets` for every primitive above. Do not reintroduce
+hand-rolled implementations in the menu's own module. If a primitive
+is missing, add it to `widgets.rs` and document it in this table.
+
 ### 9.4 Per-panel use
 
 The §3 anatomy subsections reference these primitives inline at the
 call site they appear in:
 
-- **Construction** (§3.3) — `theme::tab_strip<ConstructionTab>` (top-level
-  4-way) + nested `theme::tab_strip<BuildingCategory>` (8-way
-  `BuildingCategory` second-level strip), `theme::ledger_panel` in
-  Overview.
+- **Construction** (§3.3, v0.5.2 bevy_ui canary) —
+  `widgets::ActiveTabs<ConstructionTab>` (top-level 4-way) + nested
+  `widgets::ActiveTabs<BuildingCategory>` (8-way second-level strip),
+  `widgets::CardShell` composers + `KeyedList` for the Overview's queue.
+  All primitive wiring is in `src/ui/widgets.rs`; the panel's own
+  module (`src/ui/construction/`) re-exports composition helpers but
+  never hand-rolls chrome.
 - **Research** (§3.4) — `theme::tab_strip<TechCategory>` in the Archive
   tab category grouping (replaces the bespoke loop in
   `src/ui/research_panel.rs:1568-1574`).

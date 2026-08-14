@@ -126,7 +126,7 @@ Resources in Helios are physical. They live on a specific body and must be trans
 - **`ContextualStockpile`** (`src/economy/budget.rs:506`) is a view-scoped `Resource` aggregating `LocalStockpile`s for the player UI. The `update_contextual_stockpile` system reads `ViewMode` and `CurrentStarSystem` and sums: in **System view**, every body in the active star system; in **Starmap view**, every body across all systems. The label (`"Sol System"` vs `"All Systems"`) is set on the resource and surfaced in the top resource bar marquee (`src/ui/resources_bar.rs:1196`). Construction does **not** read this — it is display-only.
 - **Request / delivery flow.** When a body needs materials it cannot produce locally, a `ResourceRequest` is created in `PendingResourceRequests` (ECS `Resource`; see `src/economy/logistics.rs`). Requests carry a `RequestPriority` (`Emergency` > `Construction` > `Maintenance` > `Trade`) and a `RequestState` (`Pending` → `Assigned` → `InTransit` → `Delivered`, or `Expired`). Triggers: construction that exceeds local stock, `MinimumStockpile` thresholds falling below their configured level, and life-support shortfalls (Emergency). Delivery is performed either by a private `ShippingCompany` AI (`src/economy/company.rs`) or by a player-assigned Freighter fleet from the Fleet panel. The `complete_deliveries` system credits the destination `LocalStockpile` and unblocks the linked `ConstructionProject` when all linked requests are `Delivered`.
 
-UI surfaces: the construction panel shows "⏳ Awaiting resources" / "⏳ Waiting for freighter" badges per project (`src/ui/construction_panel.rs:1177`); the top resource bar reads the `ContextualStockpile` for the current view and switches its label between `"Sol System"` and `"All Systems"` accordingly; the Economy panel's Logistics tab lists open requests, company registry, and recent deliveries (`src/ui/economy_panel.rs:3551`).
+UI surfaces: the construction menu shows "⏳ Awaiting resources" / "⏳ Waiting for freighter" badges per project (`src/ui/construction/queue.rs` + `src/ui/construction/tooltip.rs`); the top resource bar reads the `ContextualStockpile` for the current view and switches its label between `"Sol System"` and `"All Systems"` accordingly; the Economy panel's Logistics tab lists open requests, company registry, and recent deliveries (`src/ui/economy_panel.rs:3551`).
 
 See `docs/design/LOGISTICS_NETWORK.md` for the full design specification.
 
@@ -237,15 +237,22 @@ Egui-based dashboard with time controls, body info, and resource display. The mo
 **Sub-modules:**
 - `time.rs`: `SimulationTime` custom clock, `TimeScale` multiplier, time-formatting helpers
 - `icons.rs`: `MenuIcons` and `ResearchIcons` texture handles, icon load/process systems
+- `resource_icons.rs`: Build / mining / research icon atlas + per-frame-bounded async bake (the canonical `MAX_ICONS_PER_FRAME = 2` pattern)
+- `icon_cache.rs`: Hash-validated icon cache, async baking, splash/boot progress reporting
+- `widgets.rs`: Menu-agnostic native-Bevy-UI primitive library — `UiFonts`, `HoverElevation`, `KeyedList`, `TooltipRequest`, `Scrollbar`, `Marquee`, `ProgressFill`, `ActiveTabs<T>`, six `CardShell*` composers; consumable by any future bevy_ui menu
+- `bevy_theme.rs`: Native-Bevy-UI palette mirror (`CARD_BG`, `CYAN`, `CARD_BORDER`, shadow styles) — coexists with `theme.rs` (the egui palette)
 - `resources_bar.rs`: Top resource bar rendering (~1 000 lines)
 - `dashboard.rs`: Main survey panel, time controls bar, star system detail panel
 - `research_panel.rs`: Full research/engineering UI including interactive tech tree
-- `construction_panel.rs`: Construction queue panel
+- `construction/`: **Native Bevy UI Construction menu** (v0.5.2 canary — split from the legacy 11 865-LOC `src/ui/construction.rs`, refactored out into a 15-file directory). Sub-modules: `state.rs`, `data.rs`, `markers.rs`, `cards.rs`, `mining.rs`, `overview.rs`, `buildings.rs`, `demolish.rs`, `queue.rs`, `dropdown.rs`, `tooltip.rs`, `scrollbar.rs`, `disabled.rs`, `setup.rs`, `mod.rs`
 - `shipbuilding_workspace.rs`: Native Bevy UI shipbuilding workspace (Logistics Hub, Design Blueprint, Engineering Analytics; hull design, module selection, ship/station build queues)
-- `shipbuilding_state.rs`: Shared shipbuilding UI state (selected hull, focused slot, queued builds) consumed by the workspace and the resource-side construction systems
-- `shipbuilding_tooltip.rs`: Slot hover tooltips and module compatibility hints for the workspace
+- `shipbuilding_state.rs`: Shared shipbuilding UI state (selected hull, focused slot, queued builds) consumed by the workspace and the resource-side construction systems. The legacy `shipbuilding_tooltip.rs` was inlined into `shipbuilding_workspace.rs` in commit `17472dd` — slot hover tooltips and module-compatibility hints now live there.
 - `economy_panel.rs`: Economy overview, per-resource rates, colony/mining/power tabs
 - `fleets_panel.rs`: Fleet list, detail view, `FleetUiState`, transfer planner, LP transfers
+- `porkchop_panel.rs`, `transfer_planner.rs`, `transfer_planner_card.rs`: Transfer planner UI (porkchop plot, Lagrange routing)
+- `launch/`: Splash, main-menu, sub-views (New Game, Load Game, Save Game, Settings), save index, userdata persistence, menu backdrop
+- `notifications/`: Toast panel, per-category settings, event bridges, click-to-focus
+- `personnel_panel.rs`: Personnel Roster UI (v0.5.0 data layer; scientists, hiring, seniority/specialty display)
 - `interaction.rs`: `Selection` resource, body selection helpers
 - `mod.rs`: `UIPlugin`, shared constants, overlay systems (tooltips, starmap labels), re-exports
 
@@ -479,21 +486,48 @@ src/
     ├── resources_bar.rs       # Top resource bar UI with in-transit indicator
     ├── dashboard.rs           # Main dashboard, time controls, star system panel
     ├── dossier_panel.rs       # Per-body dossier (Survey + Construction + Resource ledger)
-    ├── research_panel.rs      # Research/engineering UI and tech tree
-    ├── construction_panel.rs  # Construction queue UI with yield chip & depletion timeline
-    ├── economy_panel.rs       # Economy/budget UI + Logistics subpanel
-    ├── fleets_panel.rs        # Fleet management, transfer planner, FleetUiState
+    ├── research_panel.rs      # Research/engineering UI and tech tree (egui)
+    ├── construction/          # NATIVE BEVY UI Construction menu (v0.5.2 canary — split
+    │                         # from the 11 865-LOC `src/ui/construction.rs` in commits
+    │                         # `6e9e8f4` + `4794803`). Sub-modules:
+    │                         #   mod.rs (re-exports), state.rs, data.rs, markers.rs,
+    │                         #   cards.rs, mining.rs, overview.rs, buildings.rs,
+    │                         #   demolish.rs, queue.rs, dropdown.rs, tooltip.rs,
+    │                         #   scrollbar.rs, disabled.rs, setup.rs.
+    │                         # Everything in src/ui/construction/ builds on the
+    │                         # menu-agnostic primitive library in src/ui/widgets.rs.
+    ├── widgets.rs             # Menu-agnostic native-Bevy-UI primitive library
+    │                         # (v0.5.2; `UiFonts`, `HoverElevation`, `KeyedList`,
+    │                         # `TooltipRequest`, `Scrollbar`, `Marquee`,
+    │                         # `ProgressFill`, `ActiveTabs<T>`, six `CardShell*`
+    │                         # composers). Consumed by Construction today and any
+    │                         # future bevy_ui menu.
+    ├── bevy_theme.rs          # Native-Bevy-UI palette mirror (`CARD_BG`, `CYAN`, etc.)
+    │                         # — coexists with the egui palette in `theme.rs`.
+    ├── economy_panel.rs       # Economy/budget UI + Logistics subpanel (egui)
+    ├── fleets_panel.rs        # Fleet management, transfer planner, FleetUiState (egui)
     ├── transfer_planner.rs    # Transfer-window planner (Hohmann / moderate / fast)
+    ├── transfer_planner_card.rs # Per-fleet transfer planner card UI
     ├── porkchop_panel.rs      # Porkchop plot (GRA-152) with interactive cursor
-    ├── shipbuilding_workspace.rs  # Native Bevy UI shipbuilding workspace
+    ├── porkchop_color_ramp.rs # Porkchop Δv colour ramp helper
+    ├── shipbuilding_workspace.rs  # Native Bevy UI shipbuilding workspace (slot hover
+    │                         # tooltips + module-compatibility hints inlined here in
+    │                         # commit `17472dd`; the legacy `shipbuilding_tooltip.rs`
+    │                         # no longer exists).
     ├── shipbuilding_state.rs  # Shared shipbuilding UI state
-    ├── shipbuilding_tooltip.rs # Slot hover tooltips
     ├── notifications/         # v0.5.0 notifications (toast panel, settings, bridges)
+    ├── launch/                # Splash, main-menu, sub-views (New Game / Load Game /
+    │                         # Save Game / Settings), save index, userdata persistence,
+    │                         # menu backdrop
     ├── settings.rs            # Top-menu settings + screenshot slots
     ├── cursors.rs             # Cursor sprite management
-    ├── tab.rs                 # Tab-strip primitives
+    ├── tab.rs                 # Tab-strip primitives (egui side, shared with widgets.rs)
     ├── tech_tree.rs           # Tech tree visualisation
+    ├── resource_icons.rs      # Build / mining / research icon atlas + per-frame-bounded
+    │                         # async bake (canonical `MAX_ICONS_PER_FRAME = 2` pattern)
+    ├── icon_cache.rs          # Hash-validated icon cache, async baking, splash/boot progress
     ├── screenshot.rs / screenshot_state.rs # Shift+F12 screenshot capture
+    ├── personnel_panel.rs     # Personnel Roster UI (v0.5.0; scientists, hiring, seniority)
     └── interaction.rs         # Selection management
 ```
 
