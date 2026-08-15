@@ -30,9 +30,9 @@
 use std::collections::HashMap;
 use std::future::Future;
 
+use bevy::image::ImageSampler;
 use bevy::prelude::*;
 use bevy::render::render_resource::Extent3d;
-use bevy::image::ImageSampler;
 use bevy_egui::egui;
 
 use crate::economy::ResourceType;
@@ -198,8 +198,7 @@ pub fn load_resource_icons_bevy_ui(mut commands: Commands, asset_server: Res<Ass
     // lives in its own slot. Load it through the asset server so
     // the bevy_ui canary (Build / Mining cards) can tint the
     // `ImageNode` per-row (red for demand, green for production).
-    let energy_bevy_handle: Handle<Image> =
-        asset_server.load("textures/ui/resources/energy.png");
+    let energy_bevy_handle: Handle<Image> = asset_server.load("textures/ui/resources/energy.png");
     commands.insert_resource(ResourceIcons {
         handles: HashMap::new(), // egui path remains untouched
         bevy_handles: handles,
@@ -208,7 +207,7 @@ pub fn load_resource_icons_bevy_ui(mut commands: Commands, asset_server: Res<Ass
         energy_handle: None,              // populated by load_resource_icons (egui path)
         energy_bevy_handle: Some(energy_bevy_handle),
         energy_bevy_pending: true,
-        texture_size: 0, // forces the egui loader to bake on its first frame
+        texture_size: 0,      // forces the egui loader to bake on its first frame
         cache_manifest: None, // validated lazily on the first egui frame
         cache_ready: false,
         bake_task: None,
@@ -378,13 +377,17 @@ pub fn post_process_resource_icons(
         // Cache fast-path: the 64 px baked energy icon is already
         // white-on-transparent; copy it straight in.
         let cache_hit = if let Some(manifest) = icons.cache_manifest.clone() {
-            cached_icon_path(&Some(manifest), icon_cache::ENERGY_KEY, BEVY_ICON_TEXTURE_SIZE)
-                .and_then(|p| load_cached_png_rgba(&p))
-                .map(|(bytes, w, h)| {
-                    apply_cached_bevy_icon(image, &bytes, w, h);
-                    true
-                })
-                .unwrap_or(false)
+            cached_icon_path(
+                &Some(manifest),
+                icon_cache::ENERGY_KEY,
+                BEVY_ICON_TEXTURE_SIZE,
+            )
+            .and_then(|p| load_cached_png_rgba(&p))
+            .map(|(bytes, w, h)| {
+                apply_cached_bevy_icon(image, &bytes, w, h);
+                true
+            })
+            .unwrap_or(false)
         } else {
             false
         };
@@ -797,15 +800,15 @@ fn bake_keys(
     keys: &[String],
 ) {
     if let Err(e) = std::fs::create_dir_all(cache_dir) {
-        warn!("icon cache: could not create {} ({e}); bake aborted", cache_dir.display());
+        warn!(
+            "icon cache: could not create {} ({e}); bake aborted",
+            cache_dir.display()
+        );
         return;
     }
     // Start from the manifest already on disk so a resume keeps the
     // entries completed by a previous (interrupted) bake.
-    let mut manifest = load_manifest(cache_dir)
-        .ok()
-        .flatten()
-        .unwrap_or_default();
+    let mut manifest = load_manifest(cache_dir).ok().flatten().unwrap_or_default();
     // Stamp the schema version — `Default` yields 0, but the
     // validator rejects anything != CACHE_VERSION as stale, so a
     // manifest written with version 0 would be re-baked on every
@@ -916,7 +919,9 @@ impl ResourceIconNeeds {
 
     /// True when every icon in `ResourceType::all()` has been marked.
     pub fn wants_all(&self) -> bool {
-        ResourceType::all().iter().all(|r| self.resources.contains(r))
+        ResourceType::all()
+            .iter()
+            .all(|r| self.resources.contains(r))
     }
 }
 
@@ -931,7 +936,10 @@ impl ResourceIcons {
     /// world" bar finishes.
     pub fn all_needed_loaded(&self, needs: &ResourceIconNeeds) -> bool {
         needs.resources.iter().all(|r| self.handles.contains_key(r))
-            && needs.categories.iter().all(|c| self.category_handles.contains_key(c))
+            && needs
+                .categories
+                .iter()
+                .all(|c| self.category_handles.contains_key(c))
             && (!needs.energy || self.energy_handle.is_some())
     }
 }
@@ -953,8 +961,7 @@ fn all_icon_sources() -> HashMap<String, std::path::PathBuf> {
         };
         sources.insert(
             format!("category:{}", category),
-            std::path::PathBuf::from("assets/textures/ui/resources")
-                .join(format!("{}.png", slug)),
+            std::path::PathBuf::from("assets/textures/ui/resources").join(format!("{}.png", slug)),
         );
     }
     sources.insert(
@@ -992,7 +999,10 @@ fn bake_one_key(
             key.to_string(),
             crate::ui::icon_cache::IconCacheEntry {
                 source_path: source_path.display().to_string(),
-                source_stat: crate::ui::icon_cache::SourceStat { len: 0, mtime_ns: 0 },
+                source_stat: crate::ui::icon_cache::SourceStat {
+                    len: 0,
+                    mtime_ns: 0,
+                },
                 source_hash: String::new(),
                 outputs: HashMap::new(),
                 missing: true,
@@ -1040,10 +1050,7 @@ fn bake_one_key(
             return;
         };
         if image::DynamicImage::ImageRgba8(img)
-            .write_to(
-                &mut std::io::BufWriter::new(file),
-                image::ImageFormat::Png,
-            )
+            .write_to(&mut std::io::BufWriter::new(file), image::ImageFormat::Png)
             .is_err()
         {
             return;
@@ -1387,7 +1394,9 @@ mod tests {
         assert_eq!(out.len(), 64 * 64 * 4);
         // RGB must stay pure white so the egui/bevy tint shader still
         // produces the category colour.
-        assert!(out.chunks_exact(4).all(|c| c[0] == 255 && c[1] == 255 && c[2] == 255));
+        assert!(out
+            .chunks_exact(4)
+            .all(|c| c[0] == 255 && c[1] == 255 && c[2] == 255));
     }
 
     #[test]
@@ -1396,10 +1405,20 @@ mod tests {
         // A 2x2 bilinear tap on this input would sample only whole
         // stripes or whole gaps and land nowhere near the true mean.
         let src = striped_rgba(1024, 1024, 16);
-        let src_mean =
-            src.iter().skip(3).step_by(4).map(|&a| a as f64).sum::<f64>() / (1024.0 * 1024.0);
+        let src_mean = src
+            .iter()
+            .skip(3)
+            .step_by(4)
+            .map(|&a| a as f64)
+            .sum::<f64>()
+            / (1024.0 * 1024.0);
         let (out, w, h) = downscale_icon_rgba(&src, 1024, 1024, 64);
-        let out_mean = out.iter().skip(3).step_by(4).map(|&a| a as f64).sum::<f64>()
+        let out_mean = out
+            .iter()
+            .skip(3)
+            .step_by(4)
+            .map(|&a| a as f64)
+            .sum::<f64>()
             / (w as f64 * h as f64);
         assert!(
             (src_mean - out_mean).abs() < 2.0,
@@ -1514,10 +1533,16 @@ mod tests {
             bootstrap_icon_cache_with_sources(&mut icons, &sources);
             assert!(polls < 400, "async bake never finished after {polls} polls");
         }
-        assert!(icons.bake_task.is_none(), "task handle not cleared on completion");
+        assert!(
+            icons.bake_task.is_none(),
+            "task handle not cleared on completion"
+        );
 
         // Manifest was persisted with entries for both synthetic keys.
-        let loaded = load_manifest(&cache_dir()).ok().flatten().expect("manifest written");
+        let loaded = load_manifest(&cache_dir())
+            .ok()
+            .flatten()
+            .expect("manifest written");
         assert!(
             loaded.entries.contains_key("resource:Water") && loaded.entries.contains_key("energy"),
             "manifest missing baked keys: {:?}",
@@ -1545,7 +1570,10 @@ mod tests {
         // sanitized names (no `:` — illegal on Windows / ADS trap).
         let water = &loaded.entries["resource:Water"];
         assert_eq!(water.outputs.len(), icon_cache::ICON_CACHE_SIZES.len());
-        assert!(!water.missing, "source existed — must not be marked missing");
+        assert!(
+            !water.missing,
+            "source existed — must not be marked missing"
+        );
         for (_, file_name) in &water.outputs {
             assert!(
                 !file_name.contains(':'),

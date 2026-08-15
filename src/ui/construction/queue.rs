@@ -2,11 +2,11 @@
 
 use bevy::prelude::*;
 
-use crate::ui::bevy_theme::*;
 use super::markers::*;
 use super::state::*;
-use crate::ui::widgets::{spawn_scrollable_container, UiFonts};
 use crate::colony::components::PendingConstructionActions;
+use crate::ui::bevy_theme::*;
+use crate::ui::widgets::{spawn_scrollable_container, UiFonts};
 
 // Click handler for the AppBar "OPEN QUEUE" chip.
 pub fn tick_open_queue_chip_click(
@@ -194,7 +194,9 @@ pub fn update_queue_row_progress(
     mut fill_query: Query<(Entity, &mut QueuePanelRowFill, &mut Node)>,
 ) {
     for (entity, mut fill, _node) in fill_query.iter_mut() {
-        let Ok((_, project)) = projects.get(entity) else { continue };
+        let Ok((_, project)) = projects.get(entity) else {
+            continue;
+        };
         fill.0 = project.progress_percent().clamp(0.0, 1.0) as f32;
         // The actual Node.width write happens in tick_progress_fill;
         // we only set the percentage here.

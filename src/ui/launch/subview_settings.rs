@@ -191,11 +191,7 @@ pub fn ui_settings_subview(
 /// the caller should persist.
 fn draw_audio_tab(ui: &mut egui::Ui, settings: &mut PersistentSettings) -> bool {
     let mut changed = false;
-    ui.label(
-        egui::RichText::new("Audio Mix")
-            .color(theme::CYAN)
-            .strong(),
-    );
+    ui.label(egui::RichText::new("Audio Mix").color(theme::CYAN).strong());
     ui.add_space(theme::Spacing::xs);
 
     changed |= draw_volume_slider(ui, "Master", &mut settings.master_volume);
@@ -249,11 +245,7 @@ fn draw_audio_tab(ui: &mut egui::Ui, settings: &mut PersistentSettings) -> bool 
 /// Draw the Graphics tab. Returns `true` on change.
 fn draw_graphics_tab(ui: &mut egui::Ui, settings: &mut PersistentSettings) -> bool {
     let mut changed = false;
-    ui.label(
-        egui::RichText::new("Graphics")
-            .color(theme::CYAN)
-            .strong(),
-    );
+    ui.label(egui::RichText::new("Graphics").color(theme::CYAN).strong());
     ui.add_space(theme::Spacing::xs);
 
     // ── Window mode combo box ─────────────────────────────────
@@ -300,11 +292,7 @@ fn draw_graphics_tab(ui: &mut egui::Ui, settings: &mut PersistentSettings) -> bo
 /// Draw the Gameplay tab. Returns `true` on change.
 fn draw_gameplay_tab(ui: &mut egui::Ui, settings: &mut PersistentSettings) -> bool {
     let mut changed = false;
-    ui.label(
-        egui::RichText::new("Gameplay")
-            .color(theme::CYAN)
-            .strong(),
-    );
+    ui.label(egui::RichText::new("Gameplay").color(theme::CYAN).strong());
     ui.add_space(theme::Spacing::xs);
 
     if ui

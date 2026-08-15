@@ -1,5 +1,17 @@
 # Construction chip tooltip — stale-state + offset (2026-08-03)
 
+> **Historical note (updated 2026-08-15).** The line numbers below
+> refer to the **pre-v0.5.2 `src/ui/construction.rs` monolith**.
+> The file was split into `src/ui/construction/` (commit `6e9e8f4`)
+> and then migrated from egui to native Bevy UI (commit `4794803`).
+> The tooltip logic now lives in `src/ui/construction/tooltip.rs`
+> (the canary-era `update_resource_cost_tooltip` was renamed +
+> generalised into the shared `widgets::TooltipRequest` primitive
+> in phase 4 of the canary; the construction-specific chip tooltip
+> plumbing lives in `src/ui/construction/disabled.rs` and
+> `src/ui/construction/tooltip.rs`). Treat the rest of this memory
+> note as the historical record of the bug.
+
 ## Bug summary
 
 The `ResourceCostChip` hover tooltip overlay in the Construction canary

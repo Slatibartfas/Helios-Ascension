@@ -1,5 +1,16 @@
 # Mining card multiplier fix (2026-08-03)
 
+> **Historical note (updated 2026-08-15).** The single-file
+> `src/ui/construction.rs` referenced below was split into the
+> `src/ui/construction/` directory in commit `6e9e8f4` (v0.5.2).
+> `build_mine_card_data` now lives in `src/ui/construction/cards.rs`
+> (or `src/ui/construction/mining.rs` — both have the relevant
+> helpers after the split); `card_data_with_multiplier` lives in
+> `src/ui/construction/data.rs`. The link below to
+> `[src/ui/construction.rs](src/ui/construction.rs)` is a dead link
+> to the deleted monolith; treat the rest of this memory note as
+> the historical record of the bug.
+
 **Symptom**: In the Construction menu's Mining tab, the "Produces X
 Mt/yr Aluminum/yr" line never scaled with the build-multiplier chip
 (×5, ×10, ×25, …) while every other line on the card — Power

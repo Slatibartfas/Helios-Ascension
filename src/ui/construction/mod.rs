@@ -62,18 +62,20 @@ mod state;
 mod tooltip;
 
 // Internal use — siblings reference each other.
+use bevy::input::mouse::MouseWheel;
 use bevy::picking::events::{Out, Over, Pointer, Press, Release};
 use bevy::picking::hover::HoverMap;
 use bevy::picking::pointer::{PointerButton, PointerId};
 use bevy::picking::Pickable;
 use bevy::ui::RelativeCursorPosition;
 use bevy::window::{CursorMoved, PrimaryWindow};
-use bevy::input::mouse::MouseWheel;
 
-use crate::ui::bevy_theme::*;
-use crate::ui::widgets::{tick_active_chip_glow, tick_chip_button_active_overlay, tick_chip_button_hover};
 use crate::colony::components::PendingConstructionActions;
 use crate::game_state::{ActiveMenu, GameMenu};
+use crate::ui::bevy_theme::*;
+use crate::ui::widgets::{
+    tick_active_chip_glow, tick_chip_button_active_overlay, tick_chip_button_hover,
+};
 use state::ColonyDropdownState;
 
 // ── Re-exports — pure data types ──────────────────────────────────────
@@ -83,23 +85,23 @@ use state::ColonyDropdownState;
 // are pure-data transformations with no UI dependencies. The remaining
 // items below still live in `data.rs`.
 
-pub use crate::colony::building_data::{friendly_label, format_mining_rate, format_residents, EffectTone};
+pub use crate::colony::building_data::{
+    format_mining_rate, format_residents, friendly_label, EffectTone,
+};
 pub use data::{
-    apply_effect_cap, build_power_chip_data, card_data_from_definition,
-    card_data_with_multiplier, category_from_index, compute_colony_spare_power_mw,
-    format_mining_reserve, format_power, parse_category, power_output_gw_per_unit,
-    visible_cards, BuildCardData, MiningCardData, PowerChipData, ResourceCostRow,
+    apply_effect_cap, build_power_chip_data, card_data_from_definition, card_data_with_multiplier,
+    category_from_index, compute_colony_spare_power_mw, format_mining_reserve, format_power,
+    parse_category, power_output_gw_per_unit, visible_cards, BuildCardData, MiningCardData,
+    PowerChipData, ResourceCostRow,
 };
 
 // ── Re-exports — state types / resources ──────────────────────────────
 
 pub use state::{
-    load_building_icons, process_building_icons, BuildFilter, BuildingIcons,
-    ConstructionQueue, ConstructionState, ConstructionTab, ConstructionTabBody,
-    ConstructionUiState, ConstructionUiState as ConstructionUiStateExport,
-    DemolishConfirmState, MiningGroupId, QueuedBuild, QueuePanelState,
-    card_eta_seconds, queue_remaining_seconds,
-    ShowOnBuildOrBuildings,
+    card_eta_seconds, load_building_icons, process_building_icons, queue_remaining_seconds,
+    BuildFilter, BuildingIcons, ConstructionQueue, ConstructionState, ConstructionTab,
+    ConstructionTabBody, ConstructionUiState, ConstructionUiState as ConstructionUiStateExport,
+    DemolishConfirmState, MiningGroupId, QueuePanelState, QueuedBuild, ShowOnBuildOrBuildings,
     MINING_GROUPS_SURFACE,
 };
 
@@ -113,28 +115,23 @@ pub use crate::ui::widgets::{ActiveChips, ChipGroup};
 
 // ── Re-exports — component markers ────────────────────────────────────
 
+pub use buildings::{BuildingsContent, BuildingsHeader};
 pub use markers::{
-    BuildCard, CardGrid, ColonyDropdownMenu,
-    ColonyDropdownOption, ColonyDropdownOptionText, ColonyPicker, ColonyPickerText,
-    ConstructionCard, ConstructionCta, ConstructionCtaBodyBlocked, ConstructionCtaDisabled,
-    ConstructionCtaLabelMarker, ConstructionRoot, ConstructionScrollbarTab,
-    ConstructionScrollbarThumb, ConstructionScrollbarTrack, ConstructionSubtitle,
-    ConstructionTitle,
-    DemolishButton, DemolishButtonLabel, DemolishConfirmDialog,
-    DemolishConfirmNo, DemolishConfirmSubtitle, DemolishConfirmTitle, DemolishConfirmYes,
-    DemolishDisabled, DemolishMultiplierSource,
-    MiningCard, MiningContent, MiningGroupBody, MiningGroupHeader,
-    OpenQueueChip, PowerChip,
-    QueuePanelBody, QueuePanelClose, QueuePanelRoot,
-    QueuePanelRow, QueuePanelRowCancel, QueuePanelRowEta, QueuePanelRowFill,
+    BuildCard, CardGrid, ColonyDropdownMenu, ColonyDropdownOption, ColonyDropdownOptionText,
+    ColonyPicker, ColonyPickerText, ConstructionCard, ConstructionCta, ConstructionCtaBodyBlocked,
+    ConstructionCtaDisabled, ConstructionCtaLabelMarker, ConstructionRoot,
+    ConstructionScrollbarTab, ConstructionScrollbarThumb, ConstructionScrollbarTrack,
+    ConstructionSubtitle, ConstructionTitle, DemolishButton, DemolishButtonLabel,
+    DemolishConfirmDialog, DemolishConfirmNo, DemolishConfirmSubtitle, DemolishConfirmTitle,
+    DemolishConfirmYes, DemolishDisabled, DemolishMultiplierSource, MiningCard, MiningContent,
+    MiningGroupBody, MiningGroupHeader, OpenQueueChip, PowerChip, QueuePanelBody, QueuePanelClose,
+    QueuePanelRoot, QueuePanelRow, QueuePanelRowCancel, QueuePanelRowEta, QueuePanelRowFill,
     QueuePanelSummaryText, ResourceCostChip, SubtitleMarquee,
 };
 pub use overview::{
-    OverviewQueueContent, OverviewQueueRow, OverviewQueueRowFillChild,
-    OverviewQueueRowNameChild, OverviewQueueRowProgressChild, OverviewQueueRowStatusChild,
-    OverviewRowKind, OverviewRowValue,
+    OverviewQueueContent, OverviewQueueRow, OverviewQueueRowFillChild, OverviewQueueRowNameChild,
+    OverviewQueueRowProgressChild, OverviewQueueRowStatusChild, OverviewRowKind, OverviewRowValue,
 };
-pub use buildings::{BuildingsContent, BuildingsHeader};
 
 // ── Re-exports — systems ──────────────────────────────────────────────
 
@@ -147,14 +144,11 @@ pub use cards::{build_constructed_card_data, spawn_card, spawn_constructed_card}
 
 // Mining tab
 pub use mining::{
-    build_mine_card_data, spawn_mining_body, tick_mining_group_visibility,
-    update_mining_body,
+    build_mine_card_data, spawn_mining_body, tick_mining_group_visibility, update_mining_body,
 };
 
 // Overview tab
-pub use overview::{
-    spawn_overview_body, update_overview_body, update_overview_queue,
-};
+pub use overview::{spawn_overview_body, update_overview_body, update_overview_queue};
 
 // Buildings tab
 pub use buildings::{spawn_buildings_body, update_buildings_body};
@@ -164,17 +158,16 @@ pub use demolish::{
     spawn_demolish_button, spawn_demolish_confirm_dialog, tick_demolish_click,
     tick_demolish_confirm_no_click, tick_demolish_confirm_yes_click,
     tick_demolish_dialog_close_on_colony_change, tick_demolish_dialog_close_on_esc,
-    tick_demolish_dialog_close_on_tab_switch,
-    tick_demolish_dialog_visibility, tick_demolish_disabled, tick_demolish_hover,
-    update_demolish_button_labels, update_demolish_dialog_text,
+    tick_demolish_dialog_close_on_tab_switch, tick_demolish_dialog_visibility,
+    tick_demolish_disabled, tick_demolish_hover, update_demolish_button_labels,
+    update_demolish_dialog_text,
 };
 
 // Queue panel
 pub use queue::{
     tick_open_queue_chip_click, tick_queue_panel_close_click, tick_queue_panel_close_on_esc,
-    tick_queue_panel_row_cancel_click,
-    tick_queue_panel_visibility, update_queue_panel, update_queue_row_eta,
-    update_queue_row_progress, update_queue_summary,
+    tick_queue_panel_row_cancel_click, tick_queue_panel_visibility, update_queue_panel,
+    update_queue_row_eta, update_queue_row_progress, update_queue_summary,
 };
 
 // Dropdown
@@ -185,15 +178,14 @@ pub use dropdown::{
 
 // Tooltip
 pub use tooltip::{
-    on_chip_hover_out, on_chip_hover_over, on_power_chip_hover_out,
-    on_power_chip_hover_over, spawn_construction_tooltip_overlay,
-    tick_construction_chip_click, tick_construction_tooltip,
+    on_chip_hover_out, on_chip_hover_over, on_power_chip_hover_out, on_power_chip_hover_over,
+    spawn_construction_tooltip_overlay, tick_construction_chip_click, tick_construction_tooltip,
 };
 
 // Scrollbar
 pub use scrollbar::{
-    spawn_construction_scrollbar, tick_construction_scrollbar,
-    tick_construction_scrollbar_drag, tick_ui_scroll_on_wheel,
+    spawn_construction_scrollbar, tick_construction_scrollbar, tick_construction_scrollbar_drag,
+    tick_ui_scroll_on_wheel,
 };
 
 // Disabled / hover / marquee / CTA click
@@ -258,7 +250,11 @@ pub fn tick_construction_body_visibility(
     // compute zero-height thumbs.
     for (tab_marker, mut node) in scrollbar_track.iter_mut() {
         let visible = tab_marker.0 == active;
-        node.display = if visible { Display::Flex } else { Display::None };
+        node.display = if visible {
+            Display::Flex
+        } else {
+            Display::None
+        };
     }
 }
 
@@ -327,7 +323,10 @@ impl Plugin for ConstructionPlugin {
             )
             .add_systems(Update, process_building_icons)
             .add_systems(Update, tick_construction_state)
-            .add_systems(Update, tick_construction_cta_hover.run_if(construction_menu_open))
+            .add_systems(
+                Update,
+                tick_construction_cta_hover.run_if(construction_menu_open),
+            )
             // Phase 10: tick_subtitle_marquee is now a thin shim over
             // widgets::tick_marquee. The generic system runs ungated
             // (so any panel can adopt the primitive); the shim stays
@@ -346,16 +345,28 @@ impl Plugin for ConstructionPlugin {
             // ScrollbarMetrics Component on each track). The drag
             // system stays construction-side because it needs the
             // construction's ScrollbarDragState Resource.
-            .add_systems(Update, tick_construction_scrollbar_drag.run_if(construction_menu_open))
-            .add_systems(Update, tick_ui_scroll_on_wheel.run_if(construction_menu_open))
+            .add_systems(
+                Update,
+                tick_construction_scrollbar_drag.run_if(construction_menu_open),
+            )
+            .add_systems(
+                Update,
+                tick_ui_scroll_on_wheel.run_if(construction_menu_open),
+            )
             // Per-track visual driver — ungated so all construction
             // scrollbars (and any future panel) keep their thumbs in
             // sync regardless of which menu is active. The drag
             // observer handlers (`on_thumb_press` / `on_track_press`)
             // are entity-scoped and don't need a run_if.
             .add_systems(Update, crate::ui::widgets::tick_scrollbar)
-            .add_systems(Update, tick_construction_cta_click.run_if(construction_menu_open))
-            .add_systems(Update, tick_construction_chip_click.run_if(construction_menu_open))
+            .add_systems(
+                Update,
+                tick_construction_cta_click.run_if(construction_menu_open),
+            )
+            .add_systems(
+                Update,
+                tick_construction_chip_click.run_if(construction_menu_open),
+            )
             .add_systems(Update, auto_select_first_colony.before(refresh_card_grid))
             .add_systems(
                 Update,
@@ -370,7 +381,10 @@ impl Plugin for ConstructionPlugin {
                     .after(auto_select_first_colony)
                     .run_if(construction_menu_open),
             )
-            .add_systems(Update, tick_construction_body_visibility.run_if(construction_menu_open))
+            .add_systems(
+                Update,
+                tick_construction_body_visibility.run_if(construction_menu_open),
+            )
             .add_systems(
                 Update,
                 (
@@ -536,10 +550,10 @@ mod formatter_tests {
 #[cfg(test)]
 mod body_blocked_tests {
     use super::*;
-    use crate::colony::AtmosphereKind;
     use crate::colony::data::{BuildingDefinition, BuildingModifierDef};
     use crate::colony::types::BuildingCategory;
     use crate::colony::types::BuildingType;
+    use crate::colony::AtmosphereKind;
     use crate::plugins::solar_system_data::BodyType;
 
     fn he3_mine_def() -> BuildingDefinition {
@@ -561,16 +575,9 @@ mod body_blocked_tests {
             replaces: None,
             replaces_in_line: None,
             synergy: vec![],
-            available_atmospheres: vec![
-                AtmosphereKind::Breathable,
-                AtmosphereKind::None,
-            ],
+            available_atmospheres: vec![AtmosphereKind::Breathable, AtmosphereKind::None],
             required_anomalies: vec![],
-            allowed_body_types: vec![
-                BodyType::Moon,
-                BodyType::GasGiant,
-                BodyType::Asteroid,
-            ],
+            allowed_body_types: vec![BodyType::Moon, BodyType::GasGiant, BodyType::Asteroid],
         }
     }
 
@@ -593,10 +600,7 @@ mod body_blocked_tests {
             replaces: None,
             replaces_in_line: None,
             synergy: vec![],
-            available_atmospheres: vec![
-                AtmosphereKind::Breathable,
-                AtmosphereKind::None,
-            ],
+            available_atmospheres: vec![AtmosphereKind::Breathable, AtmosphereKind::None],
             required_anomalies: vec![],
             allowed_body_types: vec![],
         }
@@ -837,7 +841,8 @@ mod friendly_label_tests {
     #[test]
     fn friendly_label_build_points_production() {
         let m = modf("BuildPointsProduction", 10.0);
-        let (tone, label) = friendly_label(&m).expect("BuildPointsProduction should produce a label");
+        let (tone, label) =
+            friendly_label(&m).expect("BuildPointsProduction should produce a label");
         assert_eq!(tone, EffectTone::Positive);
         assert_eq!(label, "Builds +10 BP/yr");
     }

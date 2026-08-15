@@ -2,19 +2,23 @@
 
 use bevy::prelude::*;
 
-use crate::ui::bevy_theme::*;
-use super::data::{parse_category, category_from_index};
+use super::data::{category_from_index, parse_category};
 use super::demolish::{spawn_demolish_button, DemolishMultiplierSource};
 use super::markers::*;
 use super::scrollbar::spawn_construction_scrollbar;
 use super::state::*;
-use crate::ui::widgets::UiFonts;
 use crate::colony::types::BuildingCategory;
 use crate::colony::types::BuildingType;
+use crate::ui::bevy_theme::*;
+use crate::ui::widgets::UiFonts;
 
 // Build the **Buildings** body. A persistent container with a header
 // + a content scroll area.
-pub fn spawn_buildings_body(commands: &mut Commands, parent: Entity, body_font_medium: &Handle<Font>) {
+pub fn spawn_buildings_body(
+    commands: &mut Commands,
+    parent: Entity,
+    body_font_medium: &Handle<Font>,
+) {
     let body = commands
         .spawn((
             Node {
@@ -273,10 +277,7 @@ pub fn update_buildings_body(
         .map(|(bt, count)| (*bt, *count))
         .collect();
 
-    let mut entries: Vec<BuildingType> = filtered
-        .iter()
-        .map(|(bt, _)| *bt)
-        .collect::<Vec<_>>();
+    let mut entries: Vec<BuildingType> = filtered.iter().map(|(bt, _)| *bt).collect::<Vec<_>>();
     entries.sort_by(|a, b| {
         let an = buildings_data
             .get(a)

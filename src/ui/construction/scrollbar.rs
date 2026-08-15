@@ -18,9 +18,9 @@ use bevy::prelude::*;
 use bevy::ui::RelativeCursorPosition;
 use bevy::window::CursorMoved;
 
-use crate::ui::bevy_theme::*;
 use super::markers::*;
 use super::state::*;
+use crate::ui::bevy_theme::*;
 
 // Phase 5B: drive the always-visible scrollbar overlay on the
 // construction card grid. The system is now a thin wrapper over the
@@ -45,10 +45,7 @@ pub fn tick_construction_scrollbar(
         Query<&mut Node, With<ConstructionScrollbarThumb>>,
     )>,
     mut metrics: bevy::ecs::system::Local<
-        std::collections::HashMap<
-            bevy::ecs::entity::Entity,
-            crate::ui::widgets::ScrollbarMetrics,
-        >,
+        std::collections::HashMap<bevy::ecs::entity::Entity, crate::ui::widgets::ScrollbarMetrics>,
     >,
 ) {
     // Iterate every track; since per-track metrics are now a

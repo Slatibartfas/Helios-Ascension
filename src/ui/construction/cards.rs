@@ -3,20 +3,17 @@
 
 use bevy::prelude::*;
 
-use crate::ui::bevy_theme::*;
 use super::data::{clamp_subtitle_two_lines, BuildCardData};
 use super::markers::*;
 use super::state::*;
-use super::tooltip::on_power_chip_hover_over;
 use super::tooltip::on_power_chip_hover_out;
-use crate::ui::widgets::{
-    card_shadow, card_shadow_hover, HoverElevation, UiFonts,
-};
+use super::tooltip::on_power_chip_hover_over;
 use crate::ui::bevy_theme::HairlineBundle;
+use crate::ui::bevy_theme::*;
 use crate::ui::resource_icons::{
     get_energy_icon_handle_bevy, get_resource_icon_handle_bevy, ResourceIcons,
 };
-
+use crate::ui::widgets::{card_shadow, card_shadow_hover, HoverElevation, UiFonts};
 
 // Spawn a single build / mine / constructed-building card using
 // the generic card composers from `widgets.rs`. When `data.constructed`
@@ -35,11 +32,17 @@ pub fn spawn_card(
     resource_icons: &ResourceIcons,
 ) -> Entity {
     // 1. Card shell (root + bevel + shadow + hover elevation)
-    let card = crate::ui::widgets::card_shell(commands, parent, crate::ui::widgets::CardShellOpts::default());
+    let card = crate::ui::widgets::card_shell(
+        commands,
+        parent,
+        crate::ui::widgets::CardShellOpts::default(),
+    );
     commands.entity(card).insert((
         Pickable::default(),
         Name::new("build_card"),
-        ConstructionCard { name: data.name.clone() },
+        ConstructionCard {
+            name: data.name.clone(),
+        },
     ));
 
     // 2. Header row (icon + title column)
@@ -181,8 +184,12 @@ pub fn spawn_card(
         ))
         .id();
     commands.entity(card).add_child(power_chip);
-    commands.entity(power_chip).observe(super::tooltip::on_power_chip_hover_over);
-    commands.entity(power_chip).observe(super::tooltip::on_power_chip_hover_out);
+    commands
+        .entity(power_chip)
+        .observe(super::tooltip::on_power_chip_hover_over);
+    commands
+        .entity(power_chip)
+        .observe(super::tooltip::on_power_chip_hover_out);
 
     let power_icon_node = match get_energy_icon_handle_bevy(resource_icons) {
         Some(handle) => commands
@@ -313,8 +320,12 @@ pub fn spawn_card(
                 ))
                 .id();
             commands.entity(strip).add_child(chip);
-            commands.entity(chip).observe(super::tooltip::on_chip_hover_over);
-            commands.entity(chip).observe(super::tooltip::on_chip_hover_out);
+            commands
+                .entity(chip)
+                .observe(super::tooltip::on_chip_hover_over);
+            commands
+                .entity(chip)
+                .observe(super::tooltip::on_chip_hover_out);
 
             let icon_node = match icon_handle {
                 Some(handle) => commands
@@ -443,7 +454,11 @@ pub fn build_constructed_card_data(
                         res_name
                     )
                 } else {
-                    format!("Produces {} {}", super::data::format_mining_rate(per_unit), res_name)
+                    format!(
+                        "Produces {} {}",
+                        super::data::format_mining_rate(per_unit),
+                        res_name
+                    )
                 };
                 effects.push((super::data::EffectTone::Positive, line));
             }
@@ -471,7 +486,11 @@ pub fn build_constructed_card_data(
             insufficient: false,
             tooltip_lines: vec![
                 format!("Total generation: {}", super::data::format_power(total_mw)),
-                format!("{} built \u{00d7} {} each", count, super::data::format_power(per_unit_mw)),
+                format!(
+                    "{} built \u{00d7} {} each",
+                    count,
+                    super::data::format_power(per_unit_mw)
+                ),
                 "Net surplus to the grid".to_string(),
             ],
         }
@@ -497,7 +516,11 @@ pub fn build_constructed_card_data(
             insufficient: false,
             tooltip_lines: vec![
                 format!("Total demand: {}", super::data::format_power(total_mw)),
-                format!("{} built \u{00d7} {} each", count, super::data::format_power(per_unit_mw)),
+                format!(
+                    "{} built \u{00d7} {} each",
+                    count,
+                    super::data::format_power(per_unit_mw)
+                ),
             ],
         }
     };

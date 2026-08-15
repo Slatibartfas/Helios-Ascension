@@ -7,8 +7,12 @@ The capture handler auto-picks the slot from the active
 each press writes to the file matching the menu the player is
 currently looking at.
 
-For the full capture sequence see
-[`../../audit/MENU_AUDIT_RUNBOOK.md`](../../audit/MENU_AUDIT_RUNBOOK.md).
+For the full capture sequence see the slot map below and the wider
+workflow documented in [`docs/UI.md` §4 Screenshot Gallery](../../UI.md#4-screenshot-gallery)
+plus the operator shortcuts in [`docs/UI.md` §6.2](../../UI.md#62-keyboard-shortcuts).
+(The original `MENU_AUDIT_RUNBOOK.md` referenced by earlier revisions
+of this file was never authored — the in-repo workflow lives in
+`UI.md` + the per-slot file list below.)
 
 ## Default slot map
 

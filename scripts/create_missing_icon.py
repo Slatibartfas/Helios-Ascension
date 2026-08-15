@@ -7,11 +7,36 @@ hasn't landed yet. The build_icons pipeline + map_icons_by_id.py
 normally maps every entry to a real PNG, so missing.png is a
 fallback of last resort.
 """
+import argparse
 import struct
 import zlib
 from pathlib import Path
 
-OUT = Path(r"G:\Repositories\Helios-Ascension\assets\textures\ui\buildings\missing.png")
+# Resolve the destination relative to this script so the helper works
+# on any contributor's checkout (Linux / macOS / Windows). Falls back
+# to CWD for "python -c"-style invocations.
+_DEFAULT_OUT = (
+    Path(__file__).resolve().parent.parent
+    / "assets"
+    / "textures"
+    / "ui"
+    / "buildings"
+    / "missing.png"
+)
+
+
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Create the 1x1 transparent `missing.png` placeholder "
+        "used when a building icon has not landed yet."
+    )
+    parser.add_argument(
+        "--out",
+        type=Path,
+        default=_DEFAULT_OUT,
+        help="Output path (default: repo's assets/textures/ui/buildings/missing.png).",
+    )
+    return parser.parse_args()
 
 
 def make_png(width: int, height: int, rgba_bytes: bytes) -> bytes:
@@ -47,5 +72,15 @@ for y in range(SIZE):
             pixels[i + 3] = 0  # fully transparent inside
 
 png = make_png(SIZE, SIZE, bytes(pixels))
-OUT.write_bytes(png)
-print(f"Wrote {OUT} ({len(png)} bytes)")
+
+
+def main() -> None:
+    args = _parse_args()
+    out: Path = args.out
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_bytes(png)
+    print(f"Wrote {out} ({len(png)} bytes)")
+
+
+if __name__ == "__main__":
+    main()

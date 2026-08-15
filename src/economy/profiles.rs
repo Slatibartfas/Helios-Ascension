@@ -519,8 +519,7 @@ pub(super) fn apply_special_body_profile(
 
             // Carbon Dioxide: 0.04% of atmosphere — ~35 Mt/yr industrial
             {
-                let mut dep =
-                    MineralDeposit::new(2_200_000.0, 2_200_000.0, 0.0, 0.26923078, 1.0);
+                let mut dep = MineralDeposit::new(2_200_000.0, 2_200_000.0, 0.0, 0.26923078, 1.0);
                 dep.is_atmospheric = true;
                 resources.add_deposit(ResourceType::CarbonDioxide, dep);
             }

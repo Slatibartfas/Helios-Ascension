@@ -451,7 +451,10 @@ pub(super) fn ui_planet_dossier(mut params: DossierUiParams) {
                             surface_temp,
                             ocean_props,
                             &mut params.pending_actions,
-                            params.buildings_data.as_deref().unwrap_or(&crate::colony::data::BuildingsData::default()),
+                            params
+                                .buildings_data
+                                .as_deref()
+                                .unwrap_or(&crate::colony::data::BuildingsData::default()),
                         );
                     }
 

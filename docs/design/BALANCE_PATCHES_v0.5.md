@@ -42,6 +42,25 @@
 > * ⏳ PENDING — change is not yet applied; queued in this doc
 > * 🔁 SUPERSEDED — v0.5.1 spec replaced by v0.5.2
 
+> **Line-number caveat (added 2026-08-15).** Roughly two dozen
+> references in this document cite `src/ui/construction.rs` with
+> specific line numbers (e.g. `:1387-1391`, `:1604-1625`,
+> `:2845-2871`). The 11 865-LOC `construction.rs` monolith was
+> **split into the `src/ui/construction/` directory in commit
+> `6e9e8f4`** (v0.5.2) and then **migrated from egui to native
+> Bevy UI in commit `4794803`**. The line numbers below therefore
+> refer to the **pre-split monolith** and no longer resolve. The
+> corresponding code is now spread across
+> `src/ui/construction/cards.rs`, `src/ui/construction/overview.rs`,
+> `src/ui/construction/queue.rs`, `src/ui/construction/data.rs`,
+> and `src/ui/construction/state.rs`. We left the historic line
+> numbers in place because the patch *specifications* still match
+> the post-split logic; the line ranges simply no longer point at
+> the same source. Re-shoot line numbers if you need to drive a
+> code-search across the live split, but treat the existing
+> references as historically accurate (they describe the
+> pre-v0.5.2 code).
+
 ## Contents
 
 * §0 Executive summary (v3 NEW — read this first)

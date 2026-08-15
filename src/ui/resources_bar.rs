@@ -133,7 +133,7 @@ pub(super) fn render_resource_icon(
         // Tint the white pixels to the panel's accent color so the
         // icon reads as part of the UI.  The egui shader multiplies
         // the texture's white by the `tint` color.
-        let tint = egui::Color32::from_rgb(0x60, 0xC8, 0xD8); // cyan, matches menu icons
+        let tint = theme::RB_ICON_CYAN; // cyan, matches menu icons
         ui.add(
             egui::Image::from_texture(handle)
                 .tint(tint)
@@ -147,7 +147,7 @@ pub(super) fn render_resource_icon(
         ui.painter().rect_filled(
             rect,
             egui::CornerRadius::same(2),
-            egui::Color32::from_rgba_unmultiplied(0x60, 0xC8, 0xD8, 153),
+            theme::RB_ICON_CYAN_PLACEHOLDER,
         );
     }
 }
@@ -199,7 +199,7 @@ pub(super) fn render_category_icon(
         ui.painter().rect_filled(
             rect,
             egui::CornerRadius::same(2),
-            egui::Color32::from_rgba_unmultiplied(0x60, 0xC8, 0xD8, 153),
+            theme::RB_ICON_CYAN_PLACEHOLDER,
         );
     }
 }
@@ -235,7 +235,7 @@ pub(super) fn render_energy_icon(
         ui.painter().rect_filled(
             rect,
             egui::CornerRadius::same(2),
-            egui::Color32::from_rgba_unmultiplied(tint.r(), tint.g(), tint.b(), 153),
+            theme::rb_icon_placeholder_at(tint),
         );
     }
 }
@@ -1639,13 +1639,13 @@ pub(super) fn ui_resources_bar(
                                     // band (green < 60%, yellow 60-80%,
                                     // orange 80-95%, red 95%+).
                                     let bar_color = if fill_ratio >= 0.95 {
-                                        theme::RED
+                                        theme::CAP_FILL_RED
                                     } else if fill_ratio >= 0.80 {
-                                        egui::Color32::from_rgb(255, 165, 0) // orange
+                                        theme::CAP_FILL_ORANGE
                                     } else if fill_ratio >= 0.60 {
-                                        egui::Color32::from_rgb(255, 215, 0) // yellow
+                                        theme::CAP_FILL_YELLOW
                                     } else {
-                                        egui::Color32::from_rgb(80, 200, 120) // green
+                                        theme::CAP_FILL_GREEN
                                     };
                                     let bar_rect = ui.allocate_space(egui::vec2(60.0, 4.0)).1;
                                     ui.painter().rect_filled(
@@ -1654,7 +1654,7 @@ pub(super) fn ui_resources_bar(
                                             egui::vec2(60.0, 4.0),
                                         ),
                                         1.0,
-                                        egui::Color32::from_gray(50),
+                                        theme::FILL_TRACK_GRAY,
                                     );
                                     let fill_w = (60.0 * fill_ratio as f32).max(0.0);
                                     if fill_w > 0.0 {
@@ -2301,12 +2301,7 @@ pub(super) fn ui_resources_bar(
                         // 22-px size so it reads as the
                         // primary visual element next to the
                         // 16-pt bold title text.
-                        render_energy_icon(
-                            ui,
-                            &ui_runtime.resource_icons,
-                            theme::GOLD,
-                            22.0,
-                        );
+                        render_energy_icon(ui, &ui_runtime.resource_icons, theme::GOLD, 22.0);
                         ui.add(
                             egui::Label::new(
                                 egui::RichText::new("Power Production")
@@ -2840,9 +2835,8 @@ pub(super) fn ui_resources_bar(
                                 .buildings_data
                                 .as_deref()
                                 .unwrap_or(&default_data);
-                            let housing = colony_opt
-                                .map(|c| c.housing_capacity(data))
-                                .unwrap_or(0.0);
+                            let housing =
+                                colony_opt.map(|c| c.housing_capacity(data)).unwrap_or(0.0);
                             let growth_yr = colony_opt
                                 .map(|c| c.population_growth_per_year(1.0, data))
                                 .unwrap_or(0.0);
@@ -3516,11 +3510,23 @@ fn build_category_rate_tooltip(
     // Aggregate category totals.
     let total_prod: f64 = resources
         .iter()
-        .map(|r| rate_tracker.gross_production_rates.get(r).copied().unwrap_or(0.0))
+        .map(|r| {
+            rate_tracker
+                .gross_production_rates
+                .get(r)
+                .copied()
+                .unwrap_or(0.0)
+        })
         .sum();
     let total_pop: f64 = resources
         .iter()
-        .map(|r| rate_tracker.population_consumption.get(r).copied().unwrap_or(0.0))
+        .map(|r| {
+            rate_tracker
+                .population_consumption
+                .get(r)
+                .copied()
+                .unwrap_or(0.0)
+        })
         .sum();
     let total_synth: f64 = resources
         .iter()
@@ -3528,7 +3534,13 @@ fn build_category_rate_tooltip(
         .sum();
     let total_cons: f64 = resources
         .iter()
-        .map(|r| rate_tracker.gross_consumption_rates.get(r).copied().unwrap_or(0.0))
+        .map(|r| {
+            rate_tracker
+                .gross_consumption_rates
+                .get(r)
+                .copied()
+                .unwrap_or(0.0)
+        })
         .sum();
     let total_maint = (total_cons - total_pop - total_synth).max(0.0);
     let total_net = total_prod - total_cons;
@@ -3556,10 +3568,22 @@ fn build_category_rate_tooltip(
     // non-trivial rate (≥0.01 Mt/mo) so the tooltip doesn't drown
     // the player in zeros.
     for r in resources {
-        let prod = rate_tracker.gross_production_rates.get(r).copied().unwrap_or(0.0);
-        let pop = rate_tracker.population_consumption.get(r).copied().unwrap_or(0.0);
+        let prod = rate_tracker
+            .gross_production_rates
+            .get(r)
+            .copied()
+            .unwrap_or(0.0);
+        let pop = rate_tracker
+            .population_consumption
+            .get(r)
+            .copied()
+            .unwrap_or(0.0);
         let synth = rate_tracker.synthesis_input.get(r).copied().unwrap_or(0.0);
-        let cons = rate_tracker.gross_consumption_rates.get(r).copied().unwrap_or(0.0);
+        let cons = rate_tracker
+            .gross_consumption_rates
+            .get(r)
+            .copied()
+            .unwrap_or(0.0);
         let net = rate_tracker.resource_rates.get(r).copied().unwrap_or(0.0);
 
         if prod.abs() < 0.01 && cons.abs() < 0.01 && net.abs() < 0.01 {
@@ -3661,8 +3685,7 @@ fn build_single_resource_forecast(
     // for the reserve-aware variant.  v3.8.3: pass `None` for the
     // storage cap too (this is the per-resource mini-chart, not the
     // full forecast tab).
-    let mut series =
-        crate::economy::project_stockpile(current_mt, annual_mt, None, None);
+    let mut series = crate::economy::project_stockpile(current_mt, annual_mt, None, None);
     series.resource = resource;
     let _ = current_sim_seconds;
     series
@@ -4025,19 +4048,19 @@ fn in_view_context(
 fn render_fill_cell(ui: &mut egui::Ui, fill_ratio: f64) {
     ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
         let bar_color = if fill_ratio >= 0.95 {
-            theme::RED
+            theme::CAP_FILL_RED
         } else if fill_ratio >= 0.80 {
-            egui::Color32::from_rgb(255, 165, 0) // orange = soft-knee
+            theme::CAP_FILL_ORANGE // orange = soft-knee
         } else if fill_ratio >= 0.60 {
-            egui::Color32::from_rgb(255, 215, 0) // yellow
+            theme::CAP_FILL_YELLOW
         } else {
-            egui::Color32::from_rgb(80, 200, 120) // green
+            theme::CAP_FILL_GREEN
         };
         let bar_rect = ui.allocate_space(egui::vec2(40.0, 6.0)).1;
         ui.painter().rect_filled(
             egui::Rect::from_min_size(bar_rect.min, egui::vec2(40.0, 6.0)),
             1.0,
-            egui::Color32::from_gray(50),
+            theme::FILL_TRACK_GRAY,
         );
         let fill_w = (40.0 * fill_ratio as f32).max(0.0);
         if fill_w > 0.0 {

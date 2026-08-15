@@ -717,7 +717,12 @@ impl Default for ActiveChips {
 /// v0.5.0-era "huge compute for a simple menu" sink).
 pub fn tick_chip_button_hover(
     mut button_query: Query<
-        (&Interaction, &mut BackgroundColor, &mut UiTransform, &Children),
+        (
+            &Interaction,
+            &mut BackgroundColor,
+            &mut UiTransform,
+            &Children,
+        ),
         (With<Button>, With<ChipGroup>),
     >,
     mut text_query: Query<&mut TextColor, With<crate::ui::bevy_theme::ChipTextNode>>,
@@ -768,16 +773,11 @@ pub fn tick_chip_button_hover(
 /// mouse-out. `tick_chip_button_hover` wins on hover/press; this
 /// system wins the next frame for the active chip.
 pub fn tick_chip_button_active_overlay(
-    mut chips: Query<
-        (Entity, &ChipGroup, &mut BackgroundColor, &Children),
-        With<Button>,
-    >,
+    mut chips: Query<(Entity, &ChipGroup, &mut BackgroundColor, &Children), With<Button>>,
     mut text_query: Query<&mut TextColor, With<crate::ui::bevy_theme::ChipTextNode>>,
     active: Res<ActiveChips>,
 ) {
-    use crate::ui::bevy_theme::{
-        ACTIVE_CHIP_BG, ACTIVE_CHIP_TEXT, INACTIVE_CHIP_BG, TEXT_BODY,
-    };
+    use crate::ui::bevy_theme::{ACTIVE_CHIP_BG, ACTIVE_CHIP_TEXT, INACTIVE_CHIP_BG, TEXT_BODY};
     for (_entity, kind, mut bg, children) in chips.iter_mut() {
         let is_active = match kind {
             ChipGroup::Tab(idx) => *idx == active.tab,
@@ -859,8 +859,6 @@ pub fn detect_rising_edges<M: Component, B: bevy::ecs::query::QueryFilter>(
     }
     **prev = current;
 }
-
-
 
 /// Same as [`detect_rising_edges`] but for click systems that match on
 /// only `<Entity, &Interaction>` (no marker `M`). E.g. a single button
@@ -964,7 +962,7 @@ pub fn tone_color(tone: TooltipTone) -> Color {
         TooltipTone::Neutral => Color::srgb(0.831, 0.890, 0.937), // TEXT_LIGHT-ish
         TooltipTone::Positive => Color::srgb(0.15, 1.00, 0.35),   // STATUS_SUCCESS
         TooltipTone::Warning => Color::srgb(1.00, 0.75, 0.20),    // STATUS_WARNING
-        TooltipTone::Negative => Color::srgb(1.00, 0.30, 0.30),    // STATUS_DANGER
+        TooltipTone::Negative => Color::srgb(1.00, 0.30, 0.30),   // STATUS_DANGER
         TooltipTone::Accent => Color::srgb(0.37, 0.78, 0.85),     // CYAN
         TooltipTone::Muted => Color::srgb(0.50, 0.58, 0.66),
     }
@@ -992,7 +990,10 @@ pub fn populate_tooltip_body(
                 TooltipEntry::Paragraph(text) => {
                     parent.spawn((
                         Text::new(text.clone()),
-                        TextFont { font_size: 10.0, ..default() },
+                        TextFont {
+                            font_size: 10.0,
+                            ..default()
+                        },
                         TextColor(tone_color(TooltipTone::Muted)),
                     ));
                 }
@@ -1007,12 +1008,18 @@ pub fn populate_tooltip_body(
                         .with_children(|row| {
                             row.spawn((
                                 Text::new(format!("{}:", label)),
-                                TextFont { font_size: 10.5, ..default() },
+                                TextFont {
+                                    font_size: 10.5,
+                                    ..default()
+                                },
                                 TextColor(tone_color(TooltipTone::Neutral)),
                             ));
                             row.spawn((
                                 Text::new(value.clone()),
-                                TextFont { font_size: 10.0, ..default() },
+                                TextFont {
+                                    font_size: 10.0,
+                                    ..default()
+                                },
                                 TextColor(tone_color(*tone)),
                             ));
                         });
@@ -1089,9 +1096,7 @@ pub fn tick_tooltip(
     let max_left = (window.width() - TOOLTIP_W).max(0.0);
     let max_top = (window.height() - top_offset_px - 72.0 - TOOLTIP_H).max(0.0);
     overlay_node.left = Val::Px((cursor.x + CURSOR_OFFSET_X).clamp(0.0, max_left));
-    overlay_node.top = Val::Px(
-        (cursor.y - top_offset_px + CURSOR_OFFSET_Y).clamp(0.0, max_top),
-    );
+    overlay_node.top = Val::Px((cursor.y - top_offset_px + CURSOR_OFFSET_Y).clamp(0.0, max_top));
     overlay_node.display = Display::Flex;
 
     // Title text.
@@ -1144,10 +1149,7 @@ pub struct ScrollbarDragState {
 }
 
 // On-press observer for the thumb.
-pub fn on_thumb_press(
-    on: On<Pointer<Press>>,
-    mut drag: ResMut<ScrollbarDragState>,
-) {
+pub fn on_thumb_press(on: On<Pointer<Press>>, mut drag: ResMut<ScrollbarDragState>) {
     if on.event.button != PointerButton::Primary {
         return;
     }
@@ -1157,10 +1159,7 @@ pub fn on_thumb_press(
 }
 
 // On-release observer for the thumb.
-pub fn on_thumb_release(
-    on: On<Pointer<Release>>,
-    mut drag: ResMut<ScrollbarDragState>,
-) {
+pub fn on_thumb_release(on: On<Pointer<Release>>, mut drag: ResMut<ScrollbarDragState>) {
     if on.event.button != PointerButton::Primary {
         return;
     }
@@ -1189,10 +1188,7 @@ pub fn on_track_press(
 }
 
 // On-release observer for the track.
-pub fn on_track_release(
-    on: On<Pointer<Release>>,
-    mut drag: ResMut<ScrollbarDragState>,
-) {
+pub fn on_track_release(on: On<Pointer<Release>>, mut drag: ResMut<ScrollbarDragState>) {
     if on.event.button != PointerButton::Primary {
         return;
     }
@@ -1398,7 +1394,9 @@ pub fn tick_ui_scroll_on_wheel(
                     scrollable = Some(track.target);
                     break;
                 }
-                let Ok(parent) = parents.get(cursor) else { break; };
+                let Ok(parent) = parents.get(cursor) else {
+                    break;
+                };
                 cursor = parent.0;
             }
         }
@@ -1592,7 +1590,11 @@ pub fn tick_tab_body_visibility<B, F>(
 {
     for (kind, mut node, mut visibility) in bodies.iter_mut() {
         let visible = body_matches(kind);
-        node.display = if visible { Display::Flex } else { Display::None };
+        node.display = if visible {
+            Display::Flex
+        } else {
+            Display::None
+        };
         *visibility = if visible {
             Visibility::Inherited
         } else {
@@ -1661,7 +1663,11 @@ pub fn tick_active_tab_body_visibility<K: Hash + Eq + Copy + Send + Sync + 'stat
 ) {
     for (body, mut node, mut visibility) in bodies.iter_mut() {
         let visible = active.get(body.group) == body.index;
-        node.display = if visible { Display::Flex } else { Display::None };
+        node.display = if visible {
+            Display::Flex
+        } else {
+            Display::None
+        };
         *visibility = if visible {
             Visibility::Inherited
         } else {
@@ -1914,9 +1920,13 @@ pub fn card_icon(
         ))
         .id();
     if let Some(handle) = handle {
-        commands.entity(node).insert(ImageNode::new(handle.clone()).with_color(tint));
+        commands
+            .entity(node)
+            .insert(ImageNode::new(handle.clone()).with_color(tint));
     } else {
-        commands.entity(node).insert(BackgroundColor(Color::srgba(0.373, 0.784, 0.847, 0.60)));
+        commands
+            .entity(node)
+            .insert(BackgroundColor(Color::srgba(0.373, 0.784, 0.847, 0.60)));
     }
     node
 }
@@ -2127,7 +2137,10 @@ pub fn card_label_value_row(
                 ..default()
             },
             TextColor(value_color),
-            Node { flex_grow: 1.0, ..default() },
+            Node {
+                flex_grow: 1.0,
+                ..default()
+            },
             Name::new("card_label_value"),
         ))
         .id();

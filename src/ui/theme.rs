@@ -92,6 +92,38 @@ pub const STAR_GOLD: egui::Color32 = egui::Color32::from_rgb(255, 220, 100);
 /// Gravity-assist / flyby purple accent.
 pub const GRAVITY_ASSIST: egui::Color32 = egui::Color32::from_rgb(180, 130, 255);
 
+// ─── Resource-bar / cap-throttle palette (v3.8.1+, v0.5.2 follow-up) ────
+
+/// Cyan tint for resource/category icons in the top bar
+/// (`render_resource_icon` in `resources_bar.rs`). Matches the
+/// menu-icon cyan so the top bar reads as part of the same
+/// surface family.
+pub const RB_ICON_CYAN: egui::Color32 = egui::Color32::from_rgb(0x60, 0xC8, 0xD8);
+/// Same `RB_ICON_CYAN` at ~60% alpha — used to fill the
+/// placeholder square that swaps in for a missing icon until the
+/// async bake lands.
+pub const RB_ICON_CYAN_PLACEHOLDER: egui::Color32 =
+    egui::Color32::from_rgba_unmultiplied_const(0x60, 0xC8, 0xD8, 153);
+/// Returns the icon-placeholder tint (`base` colour at alpha 153/255).
+/// Used by the energy-icon fallback in `resources_bar.rs` where the
+/// placeholder must mirror the caller's chosen tint (not always cyan).
+pub fn rb_icon_placeholder_at(base: egui::Color32) -> egui::Color32 {
+    egui::Color32::from_rgba_unmultiplied(base.r(), base.g(), base.b(), 153)
+}
+/// Soft-knee cap-throttle bands (v3.8.1+). The fill-ratio bar on
+/// per-body rows goes green → yellow → orange → red as the body
+/// approaches its cap. The colors live here so the bar can be
+/// rethemed in one place. The RED and GOLD constants are
+/// duplicated literally here (rather than referenced as
+/// `crate::theme::RED`) because `const`s in this module cannot
+/// reference each other when they are declared out of order.
+pub const CAP_FILL_RED: egui::Color32 = egui::Color32::from_rgb(231, 76, 60); // ≥95% — heavy throttle
+pub const CAP_FILL_ORANGE: egui::Color32 = egui::Color32::from_rgb(255, 165, 0); // 80–95%
+pub const CAP_FILL_YELLOW: egui::Color32 = egui::Color32::from_rgb(255, 215, 0); // 60–80%
+pub const CAP_FILL_GREEN: egui::Color32 = egui::Color32::from_rgb(80, 200, 120); // <60%
+/// Neutral gray used as the empty track behind a fill-ratio bar.
+pub const FILL_TRACK_GRAY: egui::Color32 = egui::Color32::from_gray(50);
+
 // ─── Text Colours ────────────────────────────────────────────────────────
 
 /// Bright foreground (primary text).
@@ -1510,11 +1542,7 @@ pub fn section_h3(ui: &mut egui::Ui, label: impl Into<String>) {
 /// only place this primitive is used in PR-B.
 pub fn section_h1(ui: &mut egui::Ui, label: impl Into<String>) {
     ui.add_space(Spacing::sm);
-    ui.label(
-        egui::RichText::new(label.into())
-            .font(title())
-            .color(CYAN),
-    );
+    ui.label(egui::RichText::new(label.into()).font(title()).color(CYAN));
     ui.add_space(Spacing::md);
 }
 

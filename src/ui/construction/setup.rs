@@ -2,7 +2,7 @@
 
 use bevy::prelude::*;
 
-use crate::ui::bevy_theme::*;
+use super::buildings::{spawn_buildings_body, update_buildings_body};
 use super::cards::spawn_card;
 use super::data::{compute_colony_spare_power_mw_opt, visible_cards};
 use super::demolish::spawn_demolish_confirm_dialog;
@@ -11,18 +11,18 @@ use super::dropdown::auto_select_first_colony;
 use super::markers::*;
 use super::mining::{spawn_mining_body, update_mining_body};
 use super::overview::{spawn_overview_body, update_overview_body, update_overview_queue};
-use super::buildings::{spawn_buildings_body, update_buildings_body};
 use super::queue::*;
 use super::scrollbar::spawn_construction_scrollbar;
 use super::state::*;
 use super::tooltip::*;
-use crate::ui::widgets::{
-    card_shadow, spawn_scrollable_container, UiFonts, HoverElevation, ChipGroup,
-};
-use crate::ui::bevy_theme::{
-    ChipButtonBundle, ChipRowContainerBundle, HairlineBundle, spawn_chip_text,
-};
 use crate::research::systems::ResearchState;
+use crate::ui::bevy_theme::*;
+use crate::ui::bevy_theme::{
+    spawn_chip_text, ChipButtonBundle, ChipRowContainerBundle, HairlineBundle,
+};
+use crate::ui::widgets::{
+    card_shadow, spawn_scrollable_container, ChipGroup, HoverElevation, UiFonts,
+};
 
 // Setup system: spawns the Construction panel entities once at startup.
 pub fn setup_construction(
@@ -489,7 +489,8 @@ pub fn setup_construction(
     let category_idx = ui_state.selected_build_tab;
     let filter = ui_state.selected_filter;
     let multiplier = ui_state.build_multiplier;
-    let spare_power_mw = compute_colony_spare_power_mw_opt(&ui_state, &colonies, Some(&buildings_data));
+    let spare_power_mw =
+        compute_colony_spare_power_mw_opt(&ui_state, &colonies, Some(&buildings_data));
     for (building_type, card_data) in visible_cards(
         &buildings_data,
         &research_state,

@@ -7,14 +7,14 @@
 
 use bevy::prelude::*;
 
-use crate::ui::bevy_theme::*;
 use super::data::compute_colony_spare_power_mw_opt;
 use super::markers::*;
 use super::state::*;
-use crate::ui::widgets::UiFonts;
 use crate::colony::components::PendingConstructionActions;
 use crate::colony::data::{parse_resource_type, BuildingsData};
 use crate::economy::ResourceType;
+use crate::ui::bevy_theme::*;
+use crate::ui::widgets::UiFonts;
 
 // Hover / click effect system for the Queue CTAs.
 pub fn tick_construction_cta_hover(
@@ -29,7 +29,13 @@ pub fn tick_construction_cta_hover(
             ),
             With<ConstructionCta>,
         >,
-        Query<Entity, Or<(With<ConstructionCtaDisabled>, With<ConstructionCtaBodyBlocked>)>>,
+        Query<
+            Entity,
+            Or<(
+                With<ConstructionCtaDisabled>,
+                With<ConstructionCtaBodyBlocked>,
+            )>,
+        >,
     )>,
     mut prev_state: Local<std::collections::HashMap<Entity, (Interaction, bool)>>,
 ) {
@@ -63,9 +69,7 @@ pub fn tick_construction_cta_hover(
             }
             _ => {
                 *bg = BackgroundColor(Color::srgba(1.0, 1.0, 1.0, 0.04));
-                *border = BorderColor::all(Color::srgba(
-                    0.498, 0.580, 0.659, 0.40,
-                ));
+                *border = BorderColor::all(Color::srgba(0.498, 0.580, 0.659, 0.40));
                 ui_transform.scale = Vec2::splat(1.00);
             }
         }
@@ -151,15 +155,14 @@ impl bevy::ecs::system::EntityCommand for RemoveCtaDisabled {
 pub fn tick_construction_cta_label_dim(
     cta_q: Query<
         Entity,
-        Or<(With<ConstructionCtaDisabled>, With<ConstructionCtaBodyBlocked>)>,
+        Or<(
+            With<ConstructionCtaDisabled>,
+            With<ConstructionCtaBodyBlocked>,
+        )>,
     >,
-    mut label_q: Query<
-        (&ChildOf, &mut TextColor),
-        With<ConstructionCtaLabelMarker>,
-    >,
+    mut label_q: Query<(&ChildOf, &mut TextColor), With<ConstructionCtaLabelMarker>>,
 ) {
-    let mut disabled: std::collections::HashSet<Entity> =
-        std::collections::HashSet::new();
+    let mut disabled: std::collections::HashSet<Entity> = std::collections::HashSet::new();
     for entity in cta_q.iter() {
         disabled.insert(entity);
     }
@@ -209,7 +212,8 @@ pub fn refresh_card_grid(
     let category_idx = ui_state.selected_build_tab;
     let filter = ui_state.selected_filter;
     let multiplier = ui_state.build_multiplier;
-    let spare_power_mw = compute_colony_spare_power_mw_opt(&ui_state, &colonies, Some(&buildings_data));
+    let spare_power_mw =
+        compute_colony_spare_power_mw_opt(&ui_state, &colonies, Some(&buildings_data));
     for (building_type, card_data) in super::data::visible_cards(
         &buildings_data,
         &research_state,
@@ -248,7 +252,10 @@ pub fn tick_construction_cta_click(
     interactions: Query<(Entity, &Interaction, &ConstructionCta), With<ConstructionCta>>,
     disabled: Query<
         Entity,
-        Or<(With<ConstructionCtaDisabled>, With<ConstructionCtaBodyBlocked>)>,
+        Or<(
+            With<ConstructionCtaDisabled>,
+            With<ConstructionCtaBodyBlocked>,
+        )>,
     >,
     ui_state: Res<ConstructionUiState>,
     mut pending: ResMut<PendingConstructionActions>,

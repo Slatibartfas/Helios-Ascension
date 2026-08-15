@@ -31,6 +31,7 @@ use fleets::FleetPlugin;
 use game_state::GameStatePlugin;
 use persistence::{GameSetupPlugin, PersistencePlugin, SaveLoadPlugin};
 use personnel::PersonnelPlugin;
+use plugins::window_constants::{MIN_WINDOW_HEIGHT, MIN_WINDOW_WIDTH};
 use plugins::{
     atmosphere::AtmospherePlugin, camera::CameraPlugin, music::MusicPlugin,
     solar_system::SolarSystemPlugin, starmap::StarmapPlugin,
@@ -43,7 +44,6 @@ use shipbuilding::ShipbuildingPlugin;
 use survey::SurveyPlugin;
 use ui::launch::SplashPlugin;
 use ui::UIPlugin;
-use plugins::window_constants::{MIN_WINDOW_HEIGHT, MIN_WINDOW_WIDTH};
 
 /// Entry point: build the game app and run it. The splash lives
 /// inside the same Bevy app as the main game (see

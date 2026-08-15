@@ -141,9 +141,7 @@ pub fn project_stockpile(
         (Some(s), None) => (Some(s.max(current_mt)), false),
         (None, Some(r)) => (Some(r.max(current_mt)), false),
         (None, None) => (
-            Some(
-                current_mt + annual_net_rate_mt.max(0.0) * FORECAST_HORIZON_YEARS * 2.0,
-            ),
+            Some(current_mt + annual_net_rate_mt.max(0.0) * FORECAST_HORIZON_YEARS * 2.0),
             true,
         ),
     };

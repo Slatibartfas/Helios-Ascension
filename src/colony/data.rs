@@ -294,7 +294,11 @@ impl BuildingsData {
     pub fn per_build_value(&self, building_type: BuildingType, modifier_type: &str) -> f64 {
         self.definitions
             .get(&building_type)
-            .and_then(|d| d.modifiers.iter().find(|m| m.modifier_type == modifier_type))
+            .and_then(|d| {
+                d.modifiers
+                    .iter()
+                    .find(|m| m.modifier_type == modifier_type)
+            })
             .map(|m| m.value)
             .unwrap_or(0.0)
     }

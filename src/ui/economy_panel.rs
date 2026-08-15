@@ -822,9 +822,7 @@ fn body_has_resource_flows(
                     // `*Production` suffix here.
                     (matches!(
                         modifier.modifier_type.as_str(),
-                        "MiningEfficiency"
-                            | "DeepMiningEfficiency"
-                            | "BulkMiningEfficiency"
+                        "MiningEfficiency" | "DeepMiningEfficiency" | "BulkMiningEfficiency"
                     ) || modifier.modifier_type.ends_with("Production"))
                         && modifier.value > 0.0
                 })
@@ -2067,8 +2065,9 @@ fn render_econ_resources(
                                                 // modifiers no
                                                 // longer exist
                                                 // in the RON).
-                                                if let Some(resource_name) =
-                                                    modifier.modifier_type.strip_suffix("Production")
+                                                if let Some(resource_name) = modifier
+                                                    .modifier_type
+                                                    .strip_suffix("Production")
                                                 {
                                                     if let Some(target) =
                                                         crate::colony::data::parse_resource_type(
@@ -2078,9 +2077,7 @@ fn render_econ_resources(
                                                         production_rows.push((
                                                             bt.display_name().to_string(),
                                                             target,
-                                                            modifier.value
-                                                                * *count as f64
-                                                                / 12.0,
+                                                            modifier.value * *count as f64 / 12.0,
                                                         ));
                                                     }
                                                 }
@@ -2139,11 +2136,11 @@ fn render_econ_resources(
                                     // (1.1e-6 Mt/p/yr), not the v0.5-era
                                     // 0.0001 hard-code (which was ~91× too
                                     // high — a Mt-vs-kg unit error).
-                                    let food_consumption_monthly =
-                                        colony.population
-                                            * data.colony_constants
-                                                .food_consumption_per_capita_mt_per_year
-                                            / 12.0;
+                                    let food_consumption_monthly = colony.population
+                                        * data
+                                            .colony_constants
+                                            .food_consumption_per_capita_mt_per_year
+                                        / 12.0;
                                     if food_consumption_monthly > 0.0 {
                                         consumption_rows.push((
                                             "Population".to_string(),
@@ -2304,12 +2301,7 @@ fn render_econ_colonies(ui: &mut egui::Ui, budget: &GlobalBudget, hierarchy: &[S
     theme::elevated_frame().show(ui, |ui| {
         let sign = if net >= 0.0 { "+" } else { "" };
         ui.horizontal_wrapped(|ui| {
-            draw_status_chip(
-                ui,
-                "COLONIES",
-                all_colonies.len().to_string(),
-                theme::CYAN,
-            );
+            draw_status_chip(ui, "COLONIES", all_colonies.len().to_string(), theme::CYAN);
             draw_status_chip(
                 ui,
                 "POPULATION",

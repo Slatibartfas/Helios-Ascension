@@ -213,12 +213,7 @@ fn consume_with_fallback(
 ///   `consumption_per_tick`
 /// * `headroom == 0` (at cap): throttled = `consumption_per_tick`
 ///   (production covers the local draw; net flow = 0)
-fn throttle_production(
-    desired: f64,
-    current: f64,
-    cap: f64,
-    consumption_per_tick: f64,
-) -> f64 {
+fn throttle_production(desired: f64, current: f64, cap: f64, consumption_per_tick: f64) -> f64 {
     // Always return a non-negative value. Negative `desired` is
     // a defensive no-op (a body can't "un-mine" material).
     if cap >= f64::MAX || desired <= 0.0 {
@@ -539,9 +534,7 @@ pub fn extract_resources(
                             if let Some(resource_name) =
                                 modifier.modifier_type.strip_suffix("Production")
                             {
-                                if let Some(target) =
-                                    parse_resource_type_static(resource_name)
-                                {
+                                if let Some(target) = parse_resource_type_static(resource_name) {
                                     *direct_production.entry(target).or_insert(0.0) +=
                                         modifier.value * count as f64 * yield_mult;
                                 }
@@ -612,9 +605,7 @@ pub fn extract_resources(
                         // body actually draws, and the excess output
                         // is vented.
                         let cap = budget.effective_stockpile_cap(rule.output);
-                        let current = local_opt
-                            .as_ref()
-                            .map_or(0.0, |ls| ls.get(&rule.output));
+                        let current = local_opt.as_ref().map_or(0.0, |ls| ls.get(&rule.output));
                         let throttled_output = throttle_production(
                             actual_output,
                             current,
@@ -646,8 +637,7 @@ pub fn extract_resources(
                             // direct-production throttle floor below
                             // covers it (methane → PolymerSynthesis
                             // etc.).
-                            *synthesis_drawn.entry(*input_resource).or_insert(0.0) +=
-                                input_amount;
+                            *synthesis_drawn.entry(*input_resource).or_insert(0.0) += input_amount;
                         }
 
                         deposit_with_fallback(
@@ -706,9 +696,7 @@ pub fn extract_resources(
                     // excess over `headroom` is "vented" (refined
                     // material that can't be stored).
                     let cap = budget.effective_stockpile_cap(*resource);
-                    let current = local_opt
-                        .as_ref()
-                        .map_or(0.0, |ls| ls.get(resource));
+                    let current = local_opt.as_ref().map_or(0.0, |ls| ls.get(resource));
                     let desired = base_rate * access * bonus * years_elapsed;
                     // v3.8.12: the throttle floor now includes the
                     // synthesis-input draw (`synthesis_drawn`) recorded by
@@ -823,8 +811,7 @@ pub fn update_resource_rates(
         // 1.0× when the body has no orbiting station.
         let mining_bonus = ContinuousStationBonus::multiplier_or_neutral(station_bonus_opt);
         // base_rate_mt_per_year → per month = rate * (month / year)
-        let monthly =
-            op.base_rate_mt_per_year * mining_bonus * monthly_fraction;
+        let monthly = op.base_rate_mt_per_year * mining_bonus * monthly_fraction;
         // v3.8: cap-aware throttle. MiningOperation bodies without
         // a colony consume nothing, so the throttle is the strict
         // headroom cap. With a colony (rare for v0.5.2 MiningOps —
@@ -935,9 +922,7 @@ pub fn update_resource_rates(
                             if let Some(resource_name) =
                                 modifier.modifier_type.strip_suffix("Production")
                             {
-                                if let Some(target) =
-                                    parse_resource_type_static(resource_name)
-                                {
+                                if let Some(target) = parse_resource_type_static(resource_name) {
                                     *direct_production.entry(target).or_insert(0.0) +=
                                         modifier.value * count as f64 * yield_mult;
                                 }
@@ -1033,17 +1018,12 @@ pub fn update_resource_rates(
                         let monthly_consumption = buildings_data
                             .as_ref()
                             .map(|d| {
-                                colony
-                                    .annual_resource_consumption(rule.output, d)
+                                colony.annual_resource_consumption(rule.output, d)
                                     * monthly_fraction
                             })
                             .unwrap_or(0.0);
-                        let throttled_output = throttle_production(
-                            actual_output,
-                            current,
-                            cap,
-                            monthly_consumption,
-                        );
+                        let throttled_output =
+                            throttle_production(actual_output, current, cap, monthly_consumption);
 
                         if throttled_output <= 0.0 {
                             // Output is fully saturated and there is
@@ -1085,8 +1065,7 @@ pub fn update_resource_rates(
                             *synthesis_drawn.entry(*input_resource).or_insert(0.0) += consumed;
                         }
 
-                        *simulated_available.entry(rule.output).or_insert(0.0) +=
-                            throttled_output;
+                        *simulated_available.entry(rule.output).or_insert(0.0) += throttled_output;
                         add_production(
                             &mut rates,
                             &mut production_rates,
@@ -1128,12 +1107,7 @@ pub fn update_resource_rates(
                         })
                         .unwrap_or(0.0)
                         + synthesis_drawn.get(resource).copied().unwrap_or(0.0);
-                    let throttled = throttle_production(
-                        monthly,
-                        current,
-                        cap,
-                        monthly_consumption,
-                    );
+                    let throttled = throttle_production(monthly, current, cap, monthly_consumption);
                     if throttled > 0.0 {
                         add_production(
                             &mut rates,
@@ -1256,8 +1230,7 @@ pub fn update_resource_rates(
                 if annual_amount <= 0.0 {
                     continue;
                 }
-                let monthly_cost =
-                    annual_amount * (SECONDS_PER_MONTH / SECONDS_PER_YEAR);
+                let monthly_cost = annual_amount * (SECONDS_PER_MONTH / SECONDS_PER_YEAR);
                 add_consumption(
                     &mut rates,
                     &mut consumption_rates,
@@ -1268,9 +1241,7 @@ pub fn update_resource_rates(
                 );
                 // v3.8.11: track per-capita draw separately so the UI
                 // tooltip can break down the rate into its components.
-                *population_consumption
-                    .entry(resource)
-                    .or_insert(0.0) += monthly_cost;
+                *population_consumption.entry(resource).or_insert(0.0) += monthly_cost;
             }
         }
     }
@@ -1349,15 +1320,15 @@ pub fn update_resource_rates(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bevy::app::App;
-    use bevy::ecs::system::RunSystemOnce;
-    use crate::colony::Colony;
     use crate::colony::data::BuildingsData;
+    use crate::colony::Colony;
     use crate::economy::budget::{GlobalBudget, ResourceRateTracker};
     use crate::economy::components::{LocalStockpile, MineralDeposit, PlanetResources};
     use crate::economy::types::ResourceType;
     use crate::plugins::solar_system_data::BodyType;
     use crate::research::ResearchState;
+    use bevy::app::App;
+    use bevy::ecs::system::RunSystemOnce;
 
     /// Helper: create a deposit with specific proven/deep/bulk, concentration, and atmospheric flag
     fn make_deposit(
@@ -1539,7 +1510,10 @@ mod tests {
         let consumption = 50.0;
         let throttled = throttle_production(desired, current, cap, consumption);
         // throttled = min(desired, headroom + consumption) = min(1000, 0 + 50) = 50
-        assert!((throttled - 50.0).abs() < 1e-9, "expected 50, got {throttled}");
+        assert!(
+            (throttled - 50.0).abs() < 1e-9,
+            "expected 50, got {throttled}"
+        );
     }
 
     /// Above cap (shouldn't happen in practice, but the formula is
@@ -1689,7 +1663,7 @@ mod tests {
         let current = 2_500.0; // at cap
         let cap = 2_500.0;
         let consumption = -10.0; // defensive
-        // With consumption = 0: headroom = 0, throttled = min(1000, 0) = 0
+                                 // With consumption = 0: headroom = 0, throttled = min(1000, 0) = 0
         let throttled = throttle_production(desired, current, cap, consumption);
         assert_eq!(throttled, 0.0);
     }
@@ -1745,39 +1719,39 @@ mod tests {
     fn world_2026_mt_per_year(rt: ResourceType) -> Option<f64> {
         use ResourceType::*;
         Some(match rt {
-            Food => 9_000.0,          // FAO 2024 (v3.7: 25 Farms × 360 = 9,000)
-            Water => 4_000.0,         // v3.8.10: 500 WaterTreatmentPlant × 8.0
-            Iron => 2_500.0,          // worldsteel 2024
-            Aluminum => 70.0,         // USGS 2024
-            Titanium => 9.0,          // USGS 2024
-            Silicates => 50_000.0,    // USGS NMA aggregate
-            Nickel => 3.5,            // USGS 2024 refined
-            Tungsten => 0.10,         // v3.8.10 (94 kt)
-            Carbon => 8_200.0,        // IEA 2026 coal
-            Chromium => 47.0,         // v3.8.10 chromite ore
-            Magnesium => 1.0,         // USGS 2024
-            Copper => 26.0,           // USGS 2024
-            RareEarths => 0.35,       // USGS REO
-            Lithium => 0.13,          // USGS 2024 Li content
-            Sulfur => 70.0,           // USGS 2024 elemental
-            Phosphorus => 240.0,      // phosphate rock equiv
-            Cobalt => 0.20,           // v3.8.10
-            Fluorine => 3.5,          // fluorspar
-            Gold => 0.0036,           // 3,600 t
-            Silver => 0.028,          // 28,000 t
-            Platinum => 0.00023,      // v3.8.10 (230 t)
-            Uranium => 0.074,         // WNA 2024
-            Thorium => 0.0008,        // WNA 2024 (800 t)
-            Methane => 4_100.0,       // IEA 2026 (v3.8.9/10 anchor)
-            Deuterium => 0.035,       // v3.8.10 (35 kt)
-            Nitrogen => 200.0,        // v3.8.12 per-gas split (300 × 0.667)
-            Oxygen => 150.0,          // v3.8.12 (300 × 0.5)
-            Argon => 1.0,             // v3.8.12 (300 × 0.00333)
-            CarbonDioxide => 200.0,   // v3.8.12 (300 × 0.667)
-            Polymers => 450.0,        // OECD 2024
-            Hydrogen => 100.0,        // v3.8.10 (ChemicalPlant × 700)
-            Ammonia => 200.0,         // v3.8.10
-            _ => return None,         // exotics / bred-only (Pu, He-3, Tritium)
+            Food => 9_000.0,        // FAO 2024 (v3.7: 25 Farms × 360 = 9,000)
+            Water => 4_000.0,       // v3.8.10: 500 WaterTreatmentPlant × 8.0
+            Iron => 2_500.0,        // worldsteel 2024
+            Aluminum => 70.0,       // USGS 2024
+            Titanium => 9.0,        // USGS 2024
+            Silicates => 50_000.0,  // USGS NMA aggregate
+            Nickel => 3.5,          // USGS 2024 refined
+            Tungsten => 0.10,       // v3.8.10 (94 kt)
+            Carbon => 8_200.0,      // IEA 2026 coal
+            Chromium => 47.0,       // v3.8.10 chromite ore
+            Magnesium => 1.0,       // USGS 2024
+            Copper => 26.0,         // USGS 2024
+            RareEarths => 0.35,     // USGS REO
+            Lithium => 0.13,        // USGS 2024 Li content
+            Sulfur => 70.0,         // USGS 2024 elemental
+            Phosphorus => 240.0,    // phosphate rock equiv
+            Cobalt => 0.20,         // v3.8.10
+            Fluorine => 3.5,        // fluorspar
+            Gold => 0.0036,         // 3,600 t
+            Silver => 0.028,        // 28,000 t
+            Platinum => 0.00023,    // v3.8.10 (230 t)
+            Uranium => 0.074,       // WNA 2024
+            Thorium => 0.0008,      // WNA 2024 (800 t)
+            Methane => 4_100.0,     // IEA 2026 (v3.8.9/10 anchor)
+            Deuterium => 0.035,     // v3.8.10 (35 kt)
+            Nitrogen => 200.0,      // v3.8.12 per-gas split (300 × 0.667)
+            Oxygen => 150.0,        // v3.8.12 (300 × 0.5)
+            Argon => 1.0,           // v3.8.12 (300 × 0.00333)
+            CarbonDioxide => 200.0, // v3.8.12 (300 × 0.667)
+            Polymers => 450.0,      // OECD 2024
+            Hydrogen => 100.0,      // v3.8.10 (ChemicalPlant × 700)
+            Ammonia => 200.0,       // v3.8.10
+            _ => return None,       // exotics / bred-only (Pu, He-3, Tritium)
         })
     }
 
@@ -1914,9 +1888,7 @@ mod tests {
         let (schedule, mut app) = earth_start_app();
         let mut schedule = schedule;
         for _ in 0..months {
-            app.world_mut()
-                .resource_mut::<SimulationTime>()
-                .elapsed += SECONDS_PER_MONTH;
+            app.world_mut().resource_mut::<SimulationTime>().elapsed += SECONDS_PER_MONTH;
             schedule.run(app.world_mut());
         }
         app.world_mut().run_system_once(update_resource_rates);
@@ -1924,8 +1896,16 @@ mod tests {
         let tracker = app.world().resource::<ResourceRateTracker>();
         let mut net = std::collections::HashMap::new();
         for rt in ResourceType::all() {
-            let prod = tracker.gross_production_rates.get(rt).copied().unwrap_or(0.0);
-            let cons = tracker.gross_consumption_rates.get(rt).copied().unwrap_or(0.0);
+            let prod = tracker
+                .gross_production_rates
+                .get(rt)
+                .copied()
+                .unwrap_or(0.0);
+            let cons = tracker
+                .gross_consumption_rates
+                .get(rt)
+                .copied()
+                .unwrap_or(0.0);
             // monthly → annual
             net.insert(*rt, (prod - cons) * (SECONDS_PER_YEAR / SECONDS_PER_MONTH));
         }
@@ -2047,9 +2027,7 @@ mod tests {
         let (schedule, mut app) = earth_start_app();
         let mut schedule = schedule;
         for _ in 0..36 {
-            app.world_mut()
-                .resource_mut::<SimulationTime>()
-                .elapsed += SECONDS_PER_MONTH;
+            app.world_mut().resource_mut::<SimulationTime>().elapsed += SECONDS_PER_MONTH;
             schedule.run(app.world_mut());
         }
         app.world_mut().run_system_once(update_resource_rates);
@@ -2071,18 +2049,24 @@ mod tests {
         let (schedule, mut app) = earth_start_app();
         let mut schedule = schedule;
         for _ in 0..36 {
-            app.world_mut()
-                .resource_mut::<SimulationTime>()
-                .elapsed += SECONDS_PER_MONTH;
+            app.world_mut().resource_mut::<SimulationTime>().elapsed += SECONDS_PER_MONTH;
             schedule.run(app.world_mut());
         }
         app.world_mut().run_system_once(update_resource_rates);
         let tracker = app.world().resource::<ResourceRateTracker>();
         let mut rows = Vec::new();
         for rt in ResourceType::all() {
-            let prod = tracker.gross_production_rates.get(rt).copied().unwrap_or(0.0)
+            let prod = tracker
+                .gross_production_rates
+                .get(rt)
+                .copied()
+                .unwrap_or(0.0)
                 * (SECONDS_PER_YEAR / SECONDS_PER_MONTH);
-            let percap = tracker.population_consumption.get(rt).copied().unwrap_or(0.0)
+            let percap = tracker
+                .population_consumption
+                .get(rt)
+                .copied()
+                .unwrap_or(0.0)
                 * (SECONDS_PER_YEAR / SECONDS_PER_MONTH);
             let synth = tracker.synthesis_input.get(rt).copied().unwrap_or(0.0)
                 * (SECONDS_PER_YEAR / SECONDS_PER_MONTH);
@@ -2095,7 +2079,9 @@ mod tests {
                 - percap
                 - synth;
             let net = prod - percap - maint - synth;
-            let world = world_2026_mt_per_year(*rt).map(|w| format!("{w:.3}")).unwrap_or("-".into());
+            let world = world_2026_mt_per_year(*rt)
+                .map(|w| format!("{w:.3}"))
+                .unwrap_or("-".into());
             rows.push(format!(
                 "  {:12} prod={:>10.3} percap={:>9.3} maint={:>9.3} synth={:>9.3} net={:>+10.3}  world={}",
                 format!("{:?}", rt),

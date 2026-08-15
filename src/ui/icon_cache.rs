@@ -279,7 +279,8 @@ pub fn validate(
                     needs_bake.push(key.clone());
                     continue;
                 }
-                if entry.source_stat.len != stat.len || entry.source_stat.mtime_ns != stat.mtime_ns {
+                if entry.source_stat.len != stat.len || entry.source_stat.mtime_ns != stat.mtime_ns
+                {
                     needs_bake.push(key.clone());
                     continue;
                 }
@@ -479,7 +480,10 @@ mod tests {
             "resource:Water".into(),
             IconCacheEntry {
                 source_path: "/tmp/a.png".into(),
-                source_stat: SourceStat { len: 10, mtime_ns: 1 },
+                source_stat: SourceStat {
+                    len: 10,
+                    mtime_ns: 1,
+                },
                 source_hash: "x".into(),
                 outputs,
                 missing: false,
@@ -503,7 +507,10 @@ mod tests {
             "energy".into(),
             IconCacheEntry {
                 source_path: "/tmp/e.png".into(),
-                source_stat: SourceStat { len: 10, mtime_ns: 1 },
+                source_stat: SourceStat {
+                    len: 10,
+                    mtime_ns: 1,
+                },
                 source_hash: "x".into(),
                 outputs: HashMap::new(),
                 missing: true,
@@ -524,7 +531,10 @@ mod tests {
             "energy".into(),
             IconCacheEntry {
                 source_path: "/tmp/e.png".into(),
-                source_stat: SourceStat { len: 10, mtime_ns: 1 },
+                source_stat: SourceStat {
+                    len: 10,
+                    mtime_ns: 1,
+                },
                 source_hash: "abc".into(),
                 outputs: HashMap::from([(32u32, "energy_32.png".to_string())]),
                 missing: false,

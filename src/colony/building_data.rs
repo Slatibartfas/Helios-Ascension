@@ -97,10 +97,7 @@ pub fn friendly_label(m: &BuildingModifierDef) -> Option<(EffectTone, String)> {
     let v = m.value;
 
     if ty == "BuildPointsProduction" && v > 0.0 {
-        return Some((
-            EffectTone::Positive,
-            format!("Builds +{} BP/yr", v as i64),
-        ));
+        return Some((EffectTone::Positive, format!("Builds +{} BP/yr", v as i64)));
     }
 
     if let Some(res_name) = ty.strip_suffix("Production") {
@@ -154,10 +151,7 @@ pub fn friendly_label(m: &BuildingModifierDef) -> Option<(EffectTone, String)> {
     }
 
     if ty == "WealthGeneration" && v > 0.0 {
-        return Some((
-            EffectTone::Positive,
-            format!("Generates {:.0} MC/yr", v),
-        ));
+        return Some((EffectTone::Positive, format!("Generates {:.0} MC/yr", v)));
     }
 
     if ty == "LogisticsCapacity" && v > 0.0 {

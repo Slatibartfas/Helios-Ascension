@@ -378,7 +378,9 @@ per-menu hover systems.
 - **Grid container:** `Display::Flex` + `FlexWrap::Wrap` (NOT CSS Grid —
   Bevy 0.18 grid sizing produced single-pixel-tall rows combined with
   `flex_grow: 1.0` + `Overflow::scroll_y()`; see the comment at
-  `construction.rs:5108`). `min_height: 0` on the grid **and** on every
+  `construction/cards.rs:5108` — the line-numbered note was carried
+  over from the legacy `src/ui/construction.rs` monolith before the
+  v0.5.2 split). `min_height: 0` on the grid **and** on every
   flex wrapper between it and the scroll root — without it a tall child
   grows the container instead of the inner scrollable overflowing (the
   "scrollbar thumb hides / wheel dead" trap, fixed in `b20ebd0`).
@@ -430,7 +432,10 @@ per-menu hover systems.
 *Anchor refresh:* 2026-06-12 (post-v2-UI chain landing). Authored by
 LGD `8b113021-…` on branch `lgd/gra-95-96-97-ui-layout-anchor-bundle`.
 Covers issues GRA-95 (wrong-context + 4 off-by-ones), GRA-96
-(legacy `src/ui/construction.rs:697-719` wrong-context — the file was split into `src/ui/construction/` in commit `6e9e8f4`), and GRA-97 (3
+(legacy `src/ui/construction.rs:697-719` wrong-context — the file was
+split into `src/ui/construction/` in commit `6e9e8f4`; the
+wrong-context code moved into `src/ui/construction/cards.rs` /
+`src/ui/construction/setup.rs` after the split), and GRA-97 (3
 additional wrong-contexts + 2 off-by-ones).
 *Supersedes:* the v1 plan's deferred layout-level work (per
 `issue_comments.id=2ed30e26-…` and `df13b1ae-…` operator answer

@@ -5,12 +5,12 @@
 
 use bevy::prelude::*;
 
-use crate::ui::bevy_theme::*;
-use super::markers::*;
 pub use super::markers::DemolishMultiplierSource;
+use super::markers::*;
 use super::state::*;
-use crate::ui::widgets::UiFonts;
 use crate::colony::components::PendingConstructionActions;
+use crate::ui::bevy_theme::*;
+use crate::ui::widgets::UiFonts;
 
 // ── Demolish button (per-card) ──────────────────────────────────────
 
@@ -191,8 +191,7 @@ pub fn tick_demolish_hover(
     let hover_fill = Color::srgba(0.55, 0.235, 0.255, 1.0);
     let rest_border = Color::srgba(0.847, 0.373, 0.392, 0.50);
     let hover_border = Color::srgba(0.95, 0.45, 0.45, 1.0);
-    let mut disabled_set: std::collections::HashSet<Entity> =
-        std::collections::HashSet::new();
+    let mut disabled_set: std::collections::HashSet<Entity> = std::collections::HashSet::new();
     for entity in params.p1().iter() {
         disabled_set.insert(entity);
     }
@@ -301,10 +300,7 @@ pub fn update_demolish_dialog_text(
         confirm.count = clamped_count;
     }
     let title = format!("Demolish {} {}?", clamped_count, bt);
-    let subtitle = format!(
-        "You currently have {} on {}.",
-        live_count, colony.name
-    );
+    let subtitle = format!("You currently have {} on {}.", live_count, colony.name);
     for mut text in texts.p0().iter_mut() {
         **text = title.clone();
     }
@@ -351,9 +347,13 @@ pub fn tick_demolish_confirm_no_click(
     crate::ui::widgets::detect_rising_edges_no_marker(&mut prev_no, &no_query, |_entity| {
         *confirm_state = DemolishConfirmState::default();
     });
-    crate::ui::widgets::detect_rising_edges_no_marker(&mut prev_backdrop, &backdrop_query, |_entity| {
-        *confirm_state = DemolishConfirmState::default();
-    });
+    crate::ui::widgets::detect_rising_edges_no_marker(
+        &mut prev_backdrop,
+        &backdrop_query,
+        |_entity| {
+            *confirm_state = DemolishConfirmState::default();
+        },
+    );
 }
 
 // Esc-to-close for the Demolish confirm dialog (Phase 8). The

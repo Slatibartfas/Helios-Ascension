@@ -2,9 +2,9 @@
 
 use bevy::prelude::*;
 
-use crate::ui::bevy_theme::*;
 use super::markers::*;
 use super::state::*;
+use crate::ui::bevy_theme::*;
 use crate::ui::widgets::{spawn_scrollable_container, UiFonts};
 
 // Build the **Overview** body. Read-only summary of the active colony:

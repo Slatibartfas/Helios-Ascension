@@ -224,7 +224,10 @@ mod tests {
         let mut query = world.query::<&Window>();
         let window = query.iter(&world).next().expect("window exists");
         assert_eq!(window.resolution.physical_width(), MIN_WINDOW_WIDTH as u32);
-        assert_eq!(window.resolution.physical_height(), MIN_WINDOW_HEIGHT as u32);
+        assert_eq!(
+            window.resolution.physical_height(),
+            MIN_WINDOW_HEIGHT as u32
+        );
     }
 
     #[test]

@@ -209,9 +209,7 @@ pub fn kickoff_world_system(world: &mut World) {
                 .get_resource::<crate::boot_init::BootPreParseState>()
                 .and_then(|p| p.solar_data.clone());
             let factory = move || {
-                crate::persistence::game_setup::build_minimal_world_for_restore_cached(
-                    cached_solar,
-                )
+                crate::persistence::game_setup::build_minimal_world_for_restore_cached(cached_solar)
             };
             match restore_save(world, &path, factory) {
                 Ok(()) => info!("kickoff: restore_save committed"),

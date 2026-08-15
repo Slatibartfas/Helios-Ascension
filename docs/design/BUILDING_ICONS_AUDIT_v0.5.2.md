@@ -1,9 +1,12 @@
 # Building Icon Audit — `rework-ui-design` (read-only)
 
 > **Scope.** Read-only audit of `assets/textures/ui/buildings/*.png` (102 files)
-> against the post-processing recipe in `src/ui/construction.rs:78-129`
-> (luminance key + premultiplied white, byte-for-byte the same as
-> `src/ui/icons.rs:54-87` for menus and `:137-185` for research).
+> against the post-processing recipe in `src/ui/construction/state.rs:341-400`
+> (`process_building_icons`, in the v0.5.2 split; the legacy
+> `src/ui/construction.rs:78-129` was deleted with the monolith).
+> The recipe is luminance-key + premultiplied white, byte-for-byte
+> the same as `src/ui/icons.rs:54-87` for menus and `:137-185` for
+> research.
 > Coverage is the runtime `alpha = (1.0 - luminance).powf(3.0)` summed over
 > every pixel of a 256×256 PNG, expressed as a percentage of total area —
 > the higher the number, the more the icon will look like a tinted
@@ -28,7 +31,9 @@
 
 ## 1. Post-processing recipe (reference)
 
-From `src/ui/construction.rs:105-125`, the runtime does this to every
+From `src/ui/construction/state.rs::process_building_icons`
+(previously `src/ui/construction.rs:105-125` before the v0.5.2 split),
+the runtime does this to every
 building-icon pixel:
 
 ```rust
@@ -596,7 +601,8 @@ difference is in the source PNG, not in the pipeline.
 
 ## 8. Files cited
 
-- `src/ui/construction.rs:78-129` — building-icon post-processing
+- `src/ui/construction/state.rs:341-400` — building-icon post-processing
+  (previously `src/ui/construction.rs:78-129` before the v0.5.2 split)
   recipe (luminance key + premultiplied white)
 - `src/ui/icons.rs:54-87` — menu-icon post-processing (same recipe)
 - `src/ui/icons.rs:137-185` — research-icon post-processing (same recipe)

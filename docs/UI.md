@@ -289,7 +289,7 @@ the in-game Construction menu in v0.5.2. There is no egui fallback for
 this panel.
 
 The panel is composed from the Pattern 5 card-grid primitive and the
-shared widgets — see [`UI_LAYOUT_PATTERNS.md` §10](UI_LAYOUT_PATTERNS.md#10-pattern-5--raised-card-grid-with-hover-elevation-bevy-ui-018)
+shared widgets — see [`UI_LAYOUT_PATTERNS.md` §10](UI_LAYOUT_PATTERNS.md#10-pattern-5-raised-card-grid-with-hover-elevation-bevy-ui-018)
 for the layout contract, `src/ui/bevy_theme.rs` for the palette, and
 `src/ui/widgets.rs` for the menu-agnostic primitive library.
 

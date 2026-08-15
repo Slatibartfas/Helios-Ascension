@@ -13,13 +13,13 @@
 use bevy::picking::events::{Out, Over, Pointer};
 use bevy::prelude::*;
 
-use crate::ui::bevy_theme::*;
 use super::data::{format_mining_reserve, format_power};
 use super::markers::*;
 use super::state::*;
+use crate::ui::bevy_theme::*;
 use crate::ui::widgets::{
-    ChipGroup, TooltipBody, TooltipContent, TooltipEntry, TooltipOverlay,
-    TooltipRequest, TooltipTitle, TooltipTone,
+    ChipGroup, TooltipBody, TooltipContent, TooltipEntry, TooltipOverlay, TooltipRequest,
+    TooltipTitle, TooltipTone,
 };
 
 // ── Hover observers ───────────────────────────────────────────────
@@ -109,10 +109,7 @@ pub fn on_power_chip_hover_over(
 
 // Observer: on `Pointer<Out>`, clear the request iff the request
 // currently reflects the chip the cursor just left.
-pub fn on_power_chip_hover_out(
-    _on: On<Pointer<Out>>,
-    mut request: ResMut<TooltipRequest>,
-) {
+pub fn on_power_chip_hover_out(_on: On<Pointer<Out>>, mut request: ResMut<TooltipRequest>) {
     if request.content.is_some() {
         request.content = None;
         request.hover_started_at = None;
@@ -148,9 +145,7 @@ fn approx_eq(a: Color, b: Color) -> bool {
     const EPS: f32 = 0.05;
     let ar = a.to_srgba().to_f32_array();
     let br = b.to_srgba().to_f32_array();
-    (ar[0] - br[0]).abs() < EPS
-        && (ar[1] - br[1]).abs() < EPS
-        && (ar[2] - br[2]).abs() < EPS
+    (ar[0] - br[0]).abs() < EPS && (ar[1] - br[1]).abs() < EPS && (ar[2] - br[2]).abs() < EPS
 }
 
 // ── Overlay spawn helper ──────────────────────────────────────────
@@ -316,19 +311,12 @@ pub fn tick_construction_tooltip(
         // "Missing resourcesMissing:").
 
         if let Some(ls) = local {
-            let shortfalls = collect_local_shortfalls(
-                ls,
-                def.resource_costs.as_slice(),
-                multiplier,
-            );
+            let shortfalls =
+                collect_local_shortfalls(ls, def.resource_costs.as_slice(), multiplier);
             const MAX_LINES: usize = 4;
             let show = shortfalls.len().min(MAX_LINES);
             for (name, missing) in shortfalls.iter().take(show) {
-                lines.push(format!(
-                    "  {} {}",
-                    name,
-                    format_mining_reserve(*missing)
-                ));
+                lines.push(format!("  {} {}", name, format_mining_reserve(*missing)));
             }
             if shortfalls.len() > MAX_LINES {
                 lines.push(format!("  +{} more", shortfalls.len() - MAX_LINES));
@@ -390,25 +378,23 @@ pub fn tick_construction_chip_click(
     mut active: ResMut<crate::ui::widgets::ActiveChips>,
     mut prev: Local<std::collections::HashMap<Entity, Interaction>>,
 ) {
-    crate::ui::widgets::detect_rising_edges(&mut prev, &interactions, |_entity, kind| {
-        match kind {
-            ChipGroup::Tab(idx) => {
-                ui_state.selected_tab = match idx {
-                    0 => ConstructionTab::Overview,
-                    1 => ConstructionTab::Buildings,
-                    2 => ConstructionTab::Build,
-                    _ => ConstructionTab::Mining,
-                };
-                active.tab = *idx;
-            }
-            ChipGroup::Qty(n) => {
-                ui_state.build_multiplier = *n;
-                active.qty = *n;
-            }
-            ChipGroup::Category(idx) => {
-                ui_state.selected_build_tab = *idx;
-                active.category = *idx;
-            }
+    crate::ui::widgets::detect_rising_edges(&mut prev, &interactions, |_entity, kind| match kind {
+        ChipGroup::Tab(idx) => {
+            ui_state.selected_tab = match idx {
+                0 => ConstructionTab::Overview,
+                1 => ConstructionTab::Buildings,
+                2 => ConstructionTab::Build,
+                _ => ConstructionTab::Mining,
+            };
+            active.tab = *idx;
+        }
+        ChipGroup::Qty(n) => {
+            ui_state.build_multiplier = *n;
+            active.qty = *n;
+        }
+        ChipGroup::Category(idx) => {
+            ui_state.selected_build_tab = *idx;
+            active.category = *idx;
         }
     });
 }

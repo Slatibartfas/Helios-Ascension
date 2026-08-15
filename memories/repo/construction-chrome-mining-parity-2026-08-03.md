@@ -1,12 +1,23 @@
 # Construction/Mining Chrome Parity (2026-08-03)
 
+> **Historical note (updated 2026-08-15).** The single-file
+> `src/ui/construction.rs` referenced below was split into the
+> `src/ui/construction/` directory in commit `6e9e8f4` (v0.5.2).
+> The chrome helper now lives across `src/ui/construction/setup.rs`
+> (the `setup_construction` entry point), `src/ui/construction/cards.rs`
+> (the card-shell composers in `src/ui/widgets.rs`), and the shared
+> `widgets::ChipGroup` primitive. The `MiningQty` arms were removed
+> entirely (chip-row machinery was unified in phase 2 — see
+> `commit ff6c453`). Treat the rest of this memory note as the
+> historical record of the parity fix.
+
 v0.5.2 PR-A.6 (round 1) extracts a shared `spawn_construction_chrome` helper. PR-A.6 (round 2 — this commit) lifts the chrome out of the per-tab bodies so it lives at the canary root, visible on every tab. Only the body content swaps when the player switches tabs.
 
 ## What changed (round 2)
 
 | File | Change |
 |---|---|
-| `src/ui/construction.rs` | Renamed `build_header_stack` → `shared_chrome` (no longer carries `ConstructionTabBody::Build`); new `build_body` (`ConstructionTabBody::Build`) wraps the filter row + card grid; removed `MiningChromeStack` + `ColonyPickerDisplay` + `ChipKind::MiningQty` + `spawn_mining_qty_row` + `MINING_QTY_CHIPS` + `MiningHeader` (chrome is now shared); picker is always interactive; `tick_construction_chip_click` dispatches qty clicks by `selected_tab` to either `build_multiplier` or `mining_build_multiplier` and syncs `active.qty` on tab switches |
+| `src/ui/construction.rs` (legacy; see `src/ui/construction/`) | Renamed `build_header_stack` → `shared_chrome` (no longer carries `ConstructionTabBody::Build`); new `build_body` (`ConstructionTabBody::Build`) wraps the filter row + card grid; removed `MiningChromeStack` + `ColonyPickerDisplay` + `ChipKind::MiningQty` + `spawn_mining_qty_row` + `MINING_QTY_CHIPS` + `MiningHeader` (chrome is now shared); picker is always interactive; `tick_construction_chip_click` dispatches qty clicks by `selected_tab` to either `build_multiplier` or `mining_build_multiplier` and syncs `active.qty` on tab switches |
 | `src/ui/bevy_theme.rs` | Removed `MiningQty` arms from `tick_chip_button_active_overlay` and `tick_active_chip_glow` |
 
 ## Architecture before / after

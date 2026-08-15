@@ -243,11 +243,7 @@ pub fn ui_save_panel_subview(
                                         })
                                         .stroke(egui::Stroke::new(
                                             1.0_f32,
-                                            if selected {
-                                                theme::CYAN
-                                            } else {
-                                                theme::BORDER
-                                            },
+                                            if selected { theme::CYAN } else { theme::BORDER },
                                         ))
                                         .min_size(egui::vec2(ui.available_width(), 34.0));
                                     let response = ui.add(button);

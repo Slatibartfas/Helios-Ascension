@@ -140,12 +140,12 @@ edit of `buildings.ron`:
    line with `icon: "textures/ui/buildings/<filename>.png"`.
 2. The RON schema is already wired for this — `icon: String` is
    already a field on every building entry.
-3. The legacy egui panel (`src/ui/construction_panel.rs`, deleted in v0.5.2 — see `src/ui/construction/` directory) currently
-   renders the emoji directly via `egui::RichText`. **It will break
-   on PNG paths** — that panel needs to be updated to render
-   `Handle<Image>` (or read the RON `icon:` field and look it up
-   via the new `BuildingIcons` resource). Treat that as a
-   follow-up against the egui stack.
+3. The legacy egui panel (`src/ui/construction_panel.rs`, deleted
+   in v0.5.2 — see `src/ui/construction/` directory) **used to**
+   render the emoji directly via `egui::RichText`. The native-Bevy-UI
+   panel that replaced it (`src/ui/construction/`) loads the PNG via
+   the `BuildingIcons` resource in `src/ui/construction/state.rs` —
+   see `process_building_icons` (line 341).
 4. The bevy_ui canary does not yet load building icons; see the
    "Load contract" section of `assets/textures/ui/buildings/README.md`
    for the additive work needed before it can render these.

@@ -2,9 +2,9 @@
 
 use bevy::prelude::*;
 
-use crate::ui::bevy_theme::*;
 use super::markers::*;
 use super::state::*;
+use crate::ui::bevy_theme::*;
 use crate::ui::widgets::UiFonts;
 
 // Auto-select the first available colony if `selected_colony` is None
@@ -128,9 +128,7 @@ pub fn refresh_colony_dropdown(
     colonies: Query<(Entity, &crate::colony::Colony)>,
     menu_query: Query<Entity, With<ColonyDropdownMenu>>,
     ui_state: Res<ConstructionUiState>,
-    mut spawned_rows: Local<
-        crate::ui::widgets::KeyedList<bevy::ecs::entity::Entity>,
-    >,
+    mut spawned_rows: Local<crate::ui::widgets::KeyedList<bevy::ecs::entity::Entity>>,
     mut row_bg_query: Query<
         (&ColonyDropdownOption, &mut BackgroundColor),
         Without<ColonyDropdownOptionText>,
@@ -157,8 +155,7 @@ pub fn refresh_colony_dropdown(
         })
         .collect();
     live_colonies.sort_by(|a, b| a.1.cmp(&b.1));
-    let live_keys: Vec<bevy::ecs::entity::Entity> =
-        live_colonies.iter().map(|(e, _)| *e).collect();
+    let live_keys: Vec<bevy::ecs::entity::Entity> = live_colonies.iter().map(|(e, _)| *e).collect();
 
     // Phase 6: KeyedList::reconcile handles the despawn-orphans +
     // spawn-missing loop. The spawn closure allocates the label inline

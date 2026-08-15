@@ -147,10 +147,7 @@ impl ResourceRateTracker {
     /// v3.8.11: industrial-process input draw for a resource, in Mt/month.
     /// Returns 0.0 if not tracked.
     pub fn get_synthesis_input(&self, resource: &ResourceType) -> f64 {
-        self.synthesis_input
-            .get(resource)
-            .copied()
-            .unwrap_or(0.0)
+        self.synthesis_input.get(resource).copied().unwrap_or(0.0)
     }
 }
 
@@ -367,36 +364,36 @@ impl GlobalBudget {
     pub fn stockpile_cap(resource: ResourceType) -> f64 {
         match resource {
             // Construction materials — LME-bonded + port + strategic
-            ResourceType::Iron => 100.0,        // 100 Mt iron-ore stockpiles
+            ResourceType::Iron => 100.0, // 100 Mt iron-ore stockpiles
             ResourceType::Silicates => 5_000.0, // 5 Gt construction aggregate
-            ResourceType::Copper => 30.0,       // 30 Mt LME-bonded Cu
-            ResourceType::Aluminum => 10.0,     // 10 Mt LME Al
-            ResourceType::Titanium => 5.0,      // 5 Mt Ti mineral stockpiles
-            ResourceType::Nickel => 1.0,        // 1 Mt LME Ni
-            ResourceType::Tungsten => 0.05,     // 50 kt W APT stockpiles
-            ResourceType::Chromium => 5.0,      // 5 Mt chromite stockpiles
-            ResourceType::Magnesium => 0.5,     // 500 kt Mg
-            ResourceType::Cobalt => 0.05,       // 50 kt Co
+            ResourceType::Copper => 30.0, // 30 Mt LME-bonded Cu
+            ResourceType::Aluminum => 10.0, // 10 Mt LME Al
+            ResourceType::Titanium => 5.0, // 5 Mt Ti mineral stockpiles
+            ResourceType::Nickel => 1.0, // 1 Mt LME Ni
+            ResourceType::Tungsten => 0.05, // 50 kt W APT stockpiles
+            ResourceType::Chromium => 5.0, // 5 Mt chromite stockpiles
+            ResourceType::Magnesium => 0.5, // 500 kt Mg
+            ResourceType::Cobalt => 0.05, // 50 kt Co
             // Industrial / energy
-            ResourceType::Carbon => 200.0,      // 200 Mt coal stockpiles
-            ResourceType::Methane => 50.0,      // 50 Mt gas-storage facilities
-            ResourceType::Water => 600.0,       // 600 Mt industrial reservoir
-            ResourceType::Sulfur => 30.0,       // 30 Mt elemental S stockpiles
-            ResourceType::Phosphorus => 30.0,   // 30 Mt phosphate rock
-            ResourceType::Polymers => 50.0,     // 50 Mt plastics-resin tanks
-            ResourceType::Fluorine => 1.0,      // 1 Mt fluorspar
-            ResourceType::RareEarths => 0.1,    // 100 kt REO stockpiles
-            ResourceType::Lithium => 0.2,       // 200 kt Li carbonate
+            ResourceType::Carbon => 200.0,    // 200 Mt coal stockpiles
+            ResourceType::Methane => 50.0,    // 50 Mt gas-storage facilities
+            ResourceType::Water => 600.0,     // 600 Mt industrial reservoir
+            ResourceType::Sulfur => 30.0,     // 30 Mt elemental S stockpiles
+            ResourceType::Phosphorus => 30.0, // 30 Mt phosphate rock
+            ResourceType::Polymers => 50.0,   // 50 Mt plastics-resin tanks
+            ResourceType::Fluorine => 1.0,    // 1 Mt fluorspar
+            ResourceType::RareEarths => 0.1,  // 100 kt REO stockpiles
+            ResourceType::Lithium => 0.2,     // 200 kt Li carbonate
             // Precious metals — small tank / vault storage
-            ResourceType::Gold => 0.001,        // 1,000 t central-bank+LBMA
-            ResourceType::Silver => 0.005,      // 5,000 t silver stockpiles
-            ResourceType::Platinum => 0.0001,   // 100 t Pt stockpiles
+            ResourceType::Gold => 0.001,   // 1,000 t central-bank+LBMA
+            ResourceType::Silver => 0.005, // 5,000 t silver stockpiles
+            ResourceType::Platinum => 0.0001, // 100 t Pt stockpiles
             // Atmospheric / industrial gases — tank storage
-            ResourceType::Nitrogen => 30.0,     // 30 Mt N₂ tank storage
-            ResourceType::Oxygen => 20.0,       // 20 Mt O₂ tank storage
-            ResourceType::Argon => 1.0,         // 1 Mt Ar tank storage
-            ResourceType::Hydrogen => 5.0,      // 5 Mt H₂ tank storage
-            ResourceType::Ammonia => 30.0,      // 30 Mt NH₃ refrigerated tanks
+            ResourceType::Nitrogen => 30.0, // 30 Mt N₂ tank storage
+            ResourceType::Oxygen => 20.0,   // 20 Mt O₂ tank storage
+            ResourceType::Argon => 1.0,     // 1 Mt Ar tank storage
+            ResourceType::Hydrogen => 5.0,  // 5 Mt H₂ tank storage
+            ResourceType::Ammonia => 30.0,  // 30 Mt NH₃ refrigerated tanks
             // v3.8.16: CarbonDioxide previously fell through to the
             // `_ => f64::MAX` catch-all, so its stockpile grew forever
             // (production 153 Mt/yr vs 150 cons, no throttle) and the
@@ -408,14 +405,14 @@ impl GlobalBudget {
             // (30 Mt / 117 Mt/yr = 0.26 yr).
             ResourceType::CarbonDioxide => 50.0, // 50 Mt CO₂ tank storage
             // Fissile / fusion
-            ResourceType::Uranium => 0.05,      // 50 kt U₃O₈
-            ResourceType::Thorium => 0.005,     // 5 kt Th
-            ResourceType::Plutonium => 0.001,   // 1 t Pu stockpiles
-            ResourceType::Helium3 => 0.0001,    // 100 kg He-3 strategic reserve
-            ResourceType::Deuterium => 0.1,     // 100 kt D₂O stockpiles
-            ResourceType::Tritium => 0.05,      // 50 kg T₂ reserve
+            ResourceType::Uranium => 0.05,    // 50 kt U₃O₈
+            ResourceType::Thorium => 0.005,   // 5 kt Th
+            ResourceType::Plutonium => 0.001, // 1 t Pu stockpiles
+            ResourceType::Helium3 => 0.0001,  // 100 kg He-3 strategic reserve
+            ResourceType::Deuterium => 0.1,   // 100 kt D₂O stockpiles
+            ResourceType::Tritium => 0.05,    // 50 kg T₂ reserve
             // Food
-            ResourceType::Food => 800.0,        // 800 Mt grain reserves
+            ResourceType::Food => 800.0, // 800 Mt grain reserves
             // Exotic / late-game (effectively uncapped)
             _ => f64::MAX,
         }

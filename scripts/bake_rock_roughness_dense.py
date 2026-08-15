@@ -27,6 +27,7 @@ in [0.85, 1.00] even with the noise layer on top.
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
 
 import Imath
@@ -127,16 +128,47 @@ def to_uint8(arr: np.ndarray) -> np.ndarray:
     return np.clip(arr * 255.0, 0, 255).astype(np.uint8)
 
 
+def _default_src() -> Path:
+    """Pick a sensible default source EXR.
+
+    Resolution order:
+      1. The `HELIOS_ROCK_ROUGHNESS_SRC` env var, if set (CI / scripted runs).
+      2. The original Windows-only path (so existing operator machines
+         keep working without a flag).
+      3. A POSIX-friendly fallback under `~/Downloads/` matching the
+         same filename, so contributors who downloaded the asset under
+         the conventional location on Linux / macOS can run with no
+         arguments.
+    """
+    env = os.environ.get("HELIOS_ROCK_ROUGHNESS_SRC")
+    if env:
+        return Path(env)
+    windows_path = Path(
+        r"G:\Eigene Dateien\Downloads\dark_rock_02_4k.blend\textures"
+        r"\dark_rock_02_rough_4k.exr"
+    )
+    if windows_path.exists():
+        return windows_path
+    posix_fallback = (
+        Path.home()
+        / "Downloads"
+        / "dark_rock_02_4k.blend"
+        / "textures"
+        / "dark_rock_02_rough_4k.exr"
+    )
+    return posix_fallback
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--src",
         type=Path,
-        default=Path(
-            r"G:\Eigene Dateien\Downloads\dark_rock_02_4k.blend\textures"
-            r"\dark_rock_02_rough_4k.exr"
-        ),
-        help="Path to the OpenEXR roughness map (single channel).",
+        default=_default_src(),
+        help="Path to the OpenEXR roughness map (single channel). "
+        "Defaults to $HELIOS_ROCK_ROUGHNESS_SRC if set, then the "
+        "operator's Windows Downloads path if it exists, then a "
+        "POSIX $HOME/Downloads/ fallback.",
     )
     parser.add_argument(
         "--dst",

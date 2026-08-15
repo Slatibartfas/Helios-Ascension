@@ -54,7 +54,13 @@ fn forecast_construction_step_change() {
         completion_sim_seconds: 5.0 * 31_557_600.0,
         delta_mt_per_year: 15.0, // -5 + 15 = +10 post-completion (annual)
     };
-    let series = build_forecast(&scope, &[impact], 0.0, &StorageCaps::new(), &ReserveBounds::new());
+    let series = build_forecast(
+        &scope,
+        &[impact],
+        0.0,
+        &StorageCaps::new(),
+        &ReserveBounds::new(),
+    );
     assert_eq!(series.len(), 1);
     let food = &series[0];
     assert_eq!(food.resource, ResourceType::Food);
@@ -185,7 +191,13 @@ fn forecast_impact_far_future_is_ignored() {
         completion_sim_seconds: 100.0 * 31_557_600.0, // 100 yr out
         delta_mt_per_year: 50.0,
     };
-    let series = build_forecast(&scope, &[impact], 0.0, &StorageCaps::new(), &ReserveBounds::new());
+    let series = build_forecast(
+        &scope,
+        &[impact],
+        0.0,
+        &StorageCaps::new(),
+        &ReserveBounds::new(),
+    );
     assert_eq!(series.len(), 1);
     // Curve unchanged at the horizon: 100 + (-5/12)*12*20 = 100 - 100 = 0
     let last = series[0].samples.last().unwrap().value_mt;

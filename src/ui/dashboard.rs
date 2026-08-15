@@ -925,14 +925,34 @@ pub fn rate_tooltip(
     cap: f64,
     body_fills: &[(String, f64)],
 ) -> String {
-    let prod = rate_tracker.gross_production_rates.get(resource).copied().unwrap_or(0.0);
-    let pop = rate_tracker.population_consumption.get(resource).copied().unwrap_or(0.0);
-    let synth = rate_tracker.synthesis_input.get(resource).copied().unwrap_or(0.0);
-    let total_cons = rate_tracker.gross_consumption_rates.get(resource).copied().unwrap_or(0.0);
+    let prod = rate_tracker
+        .gross_production_rates
+        .get(resource)
+        .copied()
+        .unwrap_or(0.0);
+    let pop = rate_tracker
+        .population_consumption
+        .get(resource)
+        .copied()
+        .unwrap_or(0.0);
+    let synth = rate_tracker
+        .synthesis_input
+        .get(resource)
+        .copied()
+        .unwrap_or(0.0);
+    let total_cons = rate_tracker
+        .gross_consumption_rates
+        .get(resource)
+        .copied()
+        .unwrap_or(0.0);
     // Maintenance = total consumption - per-cap - synthesis input.
     // (Could be slightly off by floating point; clamp to >=0.)
     let maint = (total_cons - pop - synth).max(0.0);
-    let net = rate_tracker.resource_rates.get(resource).copied().unwrap_or(0.0);
+    let net = rate_tracker
+        .resource_rates
+        .get(resource)
+        .copied()
+        .unwrap_or(0.0);
 
     // The same `format_mass` used by the rate label, so the tooltip
     // numbers line up visually with what the player is reading.

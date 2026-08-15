@@ -1151,7 +1151,6 @@
             ],
             maintenance_resources: [
                 ("Iron", 0.01),
-                ("Thorium", 0.0),
                 ("Water", 0.05),
                 ("Polymers", 0.002),
                 ("RareEarths", 0.0001),
@@ -1309,7 +1308,6 @@
             ],
             maintenance_resources: [
                 ("Iron", 0.01),
-                ("Iron", 0.0001),
                 ("Water", 0.02),
                 ("Polymers", 0.002),
                 ("Sulfur", 0.00046667),
@@ -1732,7 +1730,6 @@
                 ("Sulfur", 4.6667e-05),
                 ("Water", 0.02),
                 ("Polymers", 0.002),
-                ("Sulfur", 0.00046667),
             ],
             modifiers: [
                 (modifier_type: "SulfurProduction", value: 0.5),
@@ -1869,7 +1866,6 @@
             ],
             maintenance_resources: [
                 ("Iron", 0.01),
-                ("Thorium", 0.0),
                 ("Water", 0.02),
                 ("Polymers", 0.002),
                 ("Sulfur", 0.00046667),
@@ -2279,7 +2275,6 @@
                 ("Lithium", 17.0),
             ],
             maintenance_resources: [
-                ("Thorium", 0.0),
                 ("Fluorine", 0.004),
                 ("Water", 0.05),
                 ("Iron", 0.01),

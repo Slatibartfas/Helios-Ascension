@@ -339,7 +339,10 @@ impl Colony {
     /// `colony_constants.food_consumption_per_capita_mt_per_year`.
     /// FAO 2024 SOFA: 1,100 kg/person/yr = 0.0000011 Mt/person/yr.
     pub fn food_consumption_per_year(&self, data: &super::data::BuildingsData) -> f64 {
-        self.population * data.colony_constants.food_consumption_per_capita_mt_per_year
+        self.population
+            * data
+                .colony_constants
+                .food_consumption_per_capita_mt_per_year
     }
 
     /// v3.7: per-capita consumer consumption as a HashMap of
@@ -509,8 +512,8 @@ impl Colony {
         // high so the player gets feedback from any deficit, not
         // just severe famine.
         let mortality_rate = if food_ratio_clamped < cc.food_decline_threshold {
-            let deficit_frac = (cc.food_decline_threshold - food_ratio_clamped)
-                / cc.food_decline_threshold;
+            let deficit_frac =
+                (cc.food_decline_threshold - food_ratio_clamped) / cc.food_decline_threshold;
             cc.food_decline_max_mortality * deficit_frac
         } else {
             0.0
@@ -1014,7 +1017,8 @@ mod tests {
 
         let outpost_food =
             outpost.food_production_per_year(&data()) * outpost.effective_yield_multiplier();
-        let earth_food = earth.food_production_per_year(&data()) * earth.effective_yield_multiplier();
+        let earth_food =
+            earth.food_production_per_year(&data()) * earth.effective_yield_multiplier();
         assert!(
             (earth_food / outpost_food - 10.0).abs() < 1e-6,
             "Earth food / Outpost food should be 10×, got {:.4}×",
@@ -1027,7 +1031,8 @@ mod tests {
         earth.add_building(BuildingType::CommercialHub);
         let outpost_wealth =
             outpost.wealth_generation_per_year(&data()) * outpost.effective_yield_multiplier();
-        let earth_wealth = earth.wealth_generation_per_year(&data()) * earth.effective_yield_multiplier();
+        let earth_wealth =
+            earth.wealth_generation_per_year(&data()) * earth.effective_yield_multiplier();
         assert!(
             (earth_wealth / outpost_wealth - 10.0).abs() < 1e-6,
             "Earth wealth / Outpost wealth should be 10×, got {:.4}×",
@@ -1039,7 +1044,8 @@ mod tests {
         // Earth: 75 × 1.0; Outpost: 75 × 0.10.
         outpost.add_building(BuildingType::IronMine);
         earth.add_building(BuildingType::IronMine);
-        let outpost_op = outpost.operating_cost_per_year(&data()) * outpost.effective_yield_multiplier();
+        let outpost_op =
+            outpost.operating_cost_per_year(&data()) * outpost.effective_yield_multiplier();
         let earth_op = earth.operating_cost_per_year(&data()) * earth.effective_yield_multiplier();
         assert!(
             (earth_op / outpost_op - 10.0).abs() < 1e-6,
@@ -1084,10 +1090,7 @@ mod tests {
     fn test_annual_resource_consumption_zero_for_empty_colony() {
         // No population, no buildings → no draw.
         let colony = Colony::new("Luna".to_string(), 0.0);
-        let draw = colony.annual_resource_consumption(
-            crate::economy::ResourceType::Iron,
-            &data(),
-        );
+        let draw = colony.annual_resource_consumption(crate::economy::ResourceType::Iron, &data());
         assert_eq!(draw, 0.0);
     }
 
@@ -1098,10 +1101,7 @@ mod tests {
         // 1,747 Mt/yr. Sanity check: ~70% of USGS 2024 world iron-ore
         // demand (~2,500 Mt/yr finished-steel equivalent).
         let colony = Colony::new_civilisation("Earth".to_string(), 8.2e9);
-        let draw = colony.annual_resource_consumption(
-            crate::economy::ResourceType::Iron,
-            &data(),
-        );
+        let draw = colony.annual_resource_consumption(crate::economy::ResourceType::Iron, &data());
         // 0.000000213 Mt/p/yr × 8.2e9 = 1,746.6 Mt/yr
         assert!(
             (draw - 1_746.6).abs() < 5.0,
@@ -1115,10 +1115,8 @@ mod tests {
         // contributes 0. (Industrial maintenance is the only path
         // for non-per-capita resources.)
         let colony = Colony::new_civilisation("Earth".to_string(), 8.2e9);
-        let draw = colony.annual_resource_consumption(
-            crate::economy::ResourceType::Tungsten,
-            &data(),
-        );
+        let draw =
+            colony.annual_resource_consumption(crate::economy::ResourceType::Tungsten, &data());
         assert_eq!(draw, 0.0);
     }
 }

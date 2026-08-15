@@ -1643,13 +1643,13 @@ mod tests {
         // on a new colony (the v0.5.0 50M-per-dome is "metropolitan
         // tier" and a 100k colony can't use it).
         let early_buildings = [
-            BuildingType::LifeSupport,    // 2,000
-            BuildingType::HabitatTent,    // 5 (v3.2 starter-tier)
-            BuildingType::HabitatModule,  // 50 (v3.2 starter-tier)
-            BuildingType::SolarPower,     // 500
-            BuildingType::IronMine,       // 5,000 (v0.5.2: was Mine)
-            BuildingType::Farm,           // 2,000 (v3.1 canary 9)
-            BuildingType::AgriDome,       // 3,000
+            BuildingType::LifeSupport,   // 2,000
+            BuildingType::HabitatTent,   // 5 (v3.2 starter-tier)
+            BuildingType::HabitatModule, // 50 (v3.2 starter-tier)
+            BuildingType::SolarPower,    // 500
+            BuildingType::IronMine,      // 5,000 (v0.5.2: was Mine)
+            BuildingType::Farm,          // 2,000 (v3.1 canary 9)
+            BuildingType::AgriDome,      // 3,000
         ];
         let total: u32 = early_buildings.iter().map(|b| b.workforce_required()).sum();
         assert!(

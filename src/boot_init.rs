@@ -246,9 +246,7 @@ pub const BOOT_STEP_COUNT: usize = 15;
 /// already finished. Pure function over `&BootProgress` so tests
 /// can call it directly without constructing a `Res` SystemParam.
 fn progress_at(step_n: u32) -> impl Fn(Res<BootProgress>) -> bool {
-    move |progress: Res<BootProgress>| {
-        progress.step == step_n && !progress.done
-    }
+    move |progress: Res<BootProgress>| progress.step == step_n && !progress.done
 }
 
 /// Plugin that owns the deferred game-state init.
@@ -414,7 +412,6 @@ pub struct GenerateSolarSystemResourcesStepLabel;
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct InitializeBaselineTechnologyStepLabel;
 
-
 /// `run_if` predicate for the boot-init chain: fires only while
 /// `BootState == Loading`. After [`mark_boot_ready`] flips the gate,
 /// the entire chain is suppressed on subsequent frames.
@@ -487,9 +484,8 @@ fn start_pre_parse(mut state: ResMut<BootPreParseState>) {
     let pool = AsyncComputeTaskPool::get();
     let path = "assets/data/solar_system.ron".to_string();
     let task = pool.spawn(async move {
-        SolarSystemData::load_from_file(&path).map_err(|e| {
-            format!("solar_system.ron pre-parse failed: {e}")
-        })
+        SolarSystemData::load_from_file(&path)
+            .map_err(|e| format!("solar_system.ron pre-parse failed: {e}"))
     });
     state.solar_task = Some(task);
     info!("boot_init: pre-parse started (solar_system.ron → AsyncComputeTaskPool)");
@@ -844,7 +840,8 @@ mod tests {
         use bevy::MinimalPlugins;
 
         let mut app = App::new();
-        app.add_plugins(MinimalPlugins).init_resource::<BootProgress>();
+        app.add_plugins(MinimalPlugins)
+            .init_resource::<BootProgress>();
 
         // Frame 1: counter advances 0 → 1.
         assert_eq!(app.world().resource::<BootProgress>().step, 0);
@@ -951,8 +948,7 @@ mod tests {
         let p = app.world().resource::<BootProgress>();
         assert!(p.done);
         assert_eq!(
-            p.step,
-            BOOT_STEP_COUNT as u32,
+            p.step, BOOT_STEP_COUNT as u32,
             "mark_boot_ready must clamp step to total so no further run_if matches"
         );
     }
@@ -979,7 +975,8 @@ mod tests {
         use bevy::MinimalPlugins;
 
         let mut app = App::new();
-        app.add_plugins(MinimalPlugins).init_resource::<BootPreParseState>();
+        app.add_plugins(MinimalPlugins)
+            .init_resource::<BootPreParseState>();
 
         // Run several frames; `started` should latch `true` exactly
         // once and never spawn a second task.
@@ -1008,7 +1005,8 @@ mod tests {
         use bevy::MinimalPlugins;
 
         let mut app = App::new();
-        app.add_plugins(MinimalPlugins).init_resource::<BootPreParseState>();
+        app.add_plugins(MinimalPlugins)
+            .init_resource::<BootPreParseState>();
 
         // Inject a "pre-completed" task by spawning one and waiting
         // for it on the same thread via block_on. Simpler: drop the
@@ -1016,9 +1014,8 @@ mod tests {
         // completion after one frame (the work is just constructing
         // an empty SolarSystemData, which is trivial).
         let pool = bevy::tasks::AsyncComputeTaskPool::get();
-        let task: Task<Result<SolarSystemData, String>> = pool.spawn(async move {
-            Ok(SolarSystemData { bodies: Vec::new() })
-        });
+        let task: Task<Result<SolarSystemData, String>> =
+            pool.spawn(async move { Ok(SolarSystemData { bodies: Vec::new() }) });
         {
             let mut state = app.world_mut().resource_mut::<BootPreParseState>();
             state.started = true;

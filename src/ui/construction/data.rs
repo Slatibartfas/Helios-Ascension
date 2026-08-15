@@ -16,7 +16,9 @@ use crate::economy::ResourceType;
 // (compute_mining_card_data, card_data_with_multiplier, build_power_chip_data,
 // apply_effect_cap, ...) call them — pull them in here so the local call sites
 // keep their `friendly_label(m)` / `format_mining_rate(v)` style.
-pub use crate::colony::building_data::{friendly_label, format_mining_rate, format_residents, EffectTone};
+pub use crate::colony::building_data::{
+    format_mining_rate, format_residents, friendly_label, EffectTone,
+};
 
 // One row of a building's resource demand: the resource name as
 // it appears in `buildings.ron`, the per-unit amount (already
@@ -586,23 +588,17 @@ pub fn clamp_subtitle_two_lines(s: &str) -> String {
     out
 }
 
-
 // Phase 1.5C: format_residents moved to crate::colony::building_data.
 // v3.1 canary 11 helper: apply the 5+1 effect-line cap. If the
 // modifier list produces more than 5 effects, truncate to 5 and
 // append a "+N more" indicator. The cap is per the v0.5.2 PR-A.4
 // comment at the top of `build_build_card_data` (line 1300-1309).
-pub fn apply_effect_cap(
-    effects: &mut Vec<(EffectTone, String)>,
-) {
+pub fn apply_effect_cap(effects: &mut Vec<(EffectTone, String)>) {
     const EFFECT_CAP: usize = 5;
     if effects.len() > EFFECT_CAP {
         let hidden = effects.len() - EFFECT_CAP;
         effects.truncate(EFFECT_CAP);
-        effects.push((
-            EffectTone::Neutral,
-            format!("+{} more", hidden),
-        ));
+        effects.push((EffectTone::Neutral, format!("+{} more", hidden)));
     }
 }
 

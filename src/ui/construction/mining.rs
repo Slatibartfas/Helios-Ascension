@@ -8,7 +8,6 @@
 
 use bevy::prelude::*;
 
-use crate::ui::bevy_theme::*;
 use super::cards::spawn_card;
 use super::data::{
     apply_effect_cap, compute_mining_card_data, friendly_label, BuildCardData, MiningCardData,
@@ -16,15 +15,13 @@ use super::data::{
 use super::demolish::{spawn_demolish_button, DemolishMultiplierSource};
 use super::markers::*;
 use super::scrollbar::spawn_construction_scrollbar;
-use super::state::{
-    BuildingIcons, ConstructionTabBody, MiningGroupId,
-    MINING_GROUPS_SURFACE,
-};
-use crate::ui::widgets::{spawn_scrollable_container, UiFonts};
+use super::state::{BuildingIcons, ConstructionTabBody, MiningGroupId, MINING_GROUPS_SURFACE};
 use crate::colony::types::BuildingType;
 use crate::economy::PlanetResources;
 use crate::plugins::solar_system::CelestialBody;
 use crate::plugins::solar_system_data::BodyType;
+use crate::ui::bevy_theme::*;
+use crate::ui::widgets::{spawn_scrollable_container, UiFonts};
 
 // Build the **Mining** body.
 pub fn spawn_mining_body(commands: &mut Commands, parent: Entity) {
@@ -49,13 +46,8 @@ pub fn spawn_mining_body(commands: &mut Commands, parent: Entity) {
         .id();
     commands.entity(parent).add_child(body);
 
-    let content = spawn_scrollable_container(
-        commands,
-        body,
-        "mining_content",
-        SPACE_XS,
-        MiningContent,
-    );
+    let content =
+        spawn_scrollable_container(commands, body, "mining_content", SPACE_XS, MiningContent);
 
     spawn_construction_scrollbar(
         commands,
