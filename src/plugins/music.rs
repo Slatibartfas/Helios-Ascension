@@ -1,12 +1,24 @@
 //! Background music playlist system.
 //!
 //! Plays a looping playlist of ambient tracks during gameplay. Playback
-//! controls (play/pause, skip, volume) and the CC-BY attribution are rendered
-//! inside the time-controls bottom panel by `ui_time_controls`.
+//! controls (play/pause, skip, volume) and the per-track attribution are
+//! rendered inside the time-controls bottom panel by `ui_time_controls`.
 //!
 //! ## Adding more tracks
-//! Push a new `TrackInfo` entry into the `Vec` inside `MusicPlaylist::default()`.
-//! The rest of the system picks it up automatically.
+//! Push a new [`TrackInfo`] entry into the `Vec` inside
+//! `MusicPlaylist::default()`. Each track carries its own [`TrackAttribution`]
+//! so the in-game overlay can credit the right author/license without
+//! hard-coding a single composer. The rest of the system picks it up
+//! automatically.
+//!
+//! ## Attribution policy
+//! - **CC-BY-licensed human-composed tracks** (e.g. Scott Buckley) credit the
+//!   composer and license in the overlay; the settings panel shows the same
+//!   line under the Audio tab.
+//! - **AI-generated tracks** (MiniMax Music 3.0) credit
+//!   `MiniMax Music 3.0 (AI-generated)` and link to the MiniMax docs. The
+//!   track prompt used for each generation lives in `assets/data/music_prompts.ron`
+//!   so future regenerations are reproducible and auditable.
 
 use bevy::audio::{AudioPlugin, AudioSink, AudioSinkPlayback, PlaybackMode};
 use bevy::prelude::*;
@@ -34,6 +46,20 @@ impl Plugin for MusicPlugin {
 // Data
 // ---------------------------------------------------------------------------
 
+/// Per-track attribution shown in the in-game overlay and the
+/// Settings → Audio tab. Tracks from a single human composer share
+/// the same author/license string; AI-generated tracks carry their
+/// own entry.
+#[derive(Debug, Clone)]
+pub struct TrackAttribution {
+    /// Author / source of the track (composer name or `MiniMax Music 3.0 (AI-generated)`).
+    pub author: &'static str,
+    /// SPDX-style short license (`CC-BY 4.0`, `AI-generated`, etc.).
+    pub license: &'static str,
+    /// Optional URL surfaced in the overlay (composer homepage, AI docs).
+    pub source_url: Option<&'static str>,
+}
+
 /// Metadata for one track in the playlist.
 #[derive(Debug, Clone)]
 pub struct TrackInfo {
@@ -41,6 +67,8 @@ pub struct TrackInfo {
     pub path: &'static str,
     /// Display title used in the attribution overlay.
     pub title: &'static str,
+    /// Credit shown alongside the title when this track is playing.
+    pub attribution: TrackAttribution,
 }
 
 /// Global playlist state resource.
@@ -62,19 +90,64 @@ pub struct MusicPlaylist {
 
 impl Default for MusicPlaylist {
     fn default() -> Self {
+        // CC-BY 4.0 attribution string used by every Scott Buckley
+        // track. Kept as a local binding so the three Buckley
+        // entries stay in sync (typo in one would be obvious in
+        // review; constant-folding in release builds is fine).
+        const BUCKLEY: TrackAttribution = TrackAttribution {
+            author: "Scott Buckley",
+            license: "CC-BY 4.0",
+            source_url: Some("scottbuckley.com.au"),
+        };
+        const MINIMAX: TrackAttribution = TrackAttribution {
+            author: "MiniMax Music 3.0 (AI-generated)",
+            license: "AI-generated",
+            source_url: Some("platform.minimax.io/docs/guides/music-generation"),
+        };
+
         Self {
             tracks: vec![
+                // ── Scott Buckley (CC-BY 4.0) ──────────────────
                 TrackInfo {
                     path: "audio/music/starfire.mp3",
                     title: "Starfire",
+                    attribution: BUCKLEY,
                 },
                 TrackInfo {
                     path: "audio/music/adrift-among-infinite-stars.mp3",
                     title: "Adrift Among Infinite Stars",
+                    attribution: BUCKLEY,
                 },
                 TrackInfo {
                     path: "audio/music/passage-of-time.mp3",
                     title: "Passage Of Time",
+                    attribution: BUCKLEY,
+                },
+                // ── MiniMax Music 3.0 (AI-generated) ────────────
+                TrackInfo {
+                    path: "audio/music/helios-drift.mp3",
+                    title: "Helios Drift",
+                    attribution: MINIMAX,
+                },
+                TrackInfo {
+                    path: "audio/music/helios-jovian-rendezvous.mp3",
+                    title: "Helios Jovian Rendezvous",
+                    attribution: MINIMAX,
+                },
+                TrackInfo {
+                    path: "audio/music/helios-first-light.mp3",
+                    title: "Helios First Light",
+                    attribution: MINIMAX,
+                },
+                TrackInfo {
+                    path: "audio/music/helios-long-vigil.mp3",
+                    title: "Helios Long Vigil",
+                    attribution: MINIMAX,
+                },
+                TrackInfo {
+                    path: "audio/music/helios-new-horizons.mp3",
+                    title: "Helios New Horizons",
+                    attribution: MINIMAX,
                 },
             ],
             current_index: 0,

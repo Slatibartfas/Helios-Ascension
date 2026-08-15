@@ -1,0 +1,93 @@
+// Music generation prompts (MiniMax Music 3.0)
+//
+// Captures the exact prompts + parameters used to generate the
+// AI-authored entries in `src/plugins/music.rs::MusicPlaylist`.
+// Keep this file in sync with `MusicPlaylist::default()` so any
+// future regeneration produces the same family of tracks.
+//
+// Generated via: `mmx music generate --instrumental --prompt <...> ...`
+// API reference: https://platform.minimax.io/docs/guides/music-generation
+
+[
+    // ── helios-drift.mp3 ──────────────────────────────────────
+    // Slot: between exploration turns; the quietest, most
+    // contemplative track in the playlist.
+    (
+        track_id: "helios-drift",
+        title: "Helios Drift",
+        path: "audio/music/helios-drift.mp3",
+        attribution: "minimax-music-3.0",
+        prompt: "Slow ambient space orchestral, cinematic, atmospheric, vast and contemplative, gentle piano with soft synthesizer pads and distant strings, inspired by Scott Buckley's Adrift Among Infinite Stars, suitable as background music for a 4X space strategy game during quiet exploration, no vocals, no percussion, 80 BPM",
+        use_case: "background music for video",
+        bpm: 80,
+        key: "D minor",
+        bitrate: 256000,
+        sample_rate: 44100,
+        format: "mp3",
+    ),
+
+    // ── helios-jovian-rendezvous.mp3 ──────────────────────────
+    // Slot: mid-game fleet maneuvers; builds tension without
+    // becoming action music.
+    (
+        track_id: "helios-jovian-rendezvous",
+        title: "Helios Jovian Rendezvous",
+        path: "audio/music/helios-jovian-rendezvous.mp3",
+        attribution: "minimax-music-3.0",
+        prompt: "Cinematic ambient orchestral building tension, deep synth bass with rising arpeggios and ethereal pads, inspired by Interstellar and Scott Buckley space tracks, mysterious and awe-inspiring mood, suitable as background music for a 4X space strategy game during mid-game fleet maneuvers, no vocals, slow crescendo to climax, 90 BPM",
+        use_case: "background music for video",
+        bpm: 90,
+        key: "C minor",
+        bitrate: 256000,
+        sample_rate: 44100,
+        format: "mp3",
+    ),
+
+    // ── helios-first-light.mp3 ────────────────────────────────
+    // Slot: colony establishment, first-light moments.
+    (
+        track_id: "helios-first-light",
+        title: "Helios First Light",
+        path: "audio/music/helios-first-light.mp3",
+        attribution: "minimax-music-3.0",
+        prompt: "Triumphant ambient orchestral, hopeful and uplifting mood, warm strings with soft piano melody and gentle synthesizer textures, inspired by Sigur Ros and Scott Buckley, suitable as background music for a 4X space strategy game during colony establishment and first-light moments, no vocals, swelling crescendos, 100 BPM",
+        use_case: "background music for video",
+        bpm: 100,
+        key: "E major",
+        bitrate: 256000,
+        sample_rate: 44100,
+        format: "mp3",
+    ),
+
+    // ── helios-long-vigil.mp3 ─────────────────────────────────
+    // Slot: late-game setbacks, quiet reflection.
+    (
+        track_id: "helios-long-vigil",
+        title: "Helios Long Vigil",
+        path: "audio/music/helios-long-vigil.mp3",
+        attribution: "minimax-music-3.0",
+        prompt: "Dark melancholic ambient, melancholic and introspective mood, low piano with deep synthesizer drones and sparse ethereal textures, inspired by Stars of the Lid and Scott Buckley's Passage of Time, suitable as background music for a 4X space strategy game during late-game setbacks and quiet moments of reflection, no vocals, sparse and haunting, 75 BPM",
+        use_case: "background music for video",
+        bpm: 75,
+        key: "A minor",
+        bitrate: 256000,
+        sample_rate: 44100,
+        format: "mp3",
+    ),
+
+    // ── helios-new-horizons.mp3 ───────────────────────────────
+    // Slot: early exploration, survey missions.
+    (
+        track_id: "helios-new-horizons",
+        title: "Helios New Horizons",
+        path: "audio/music/helios-new-horizons.mp3",
+        attribution: "minimax-music-3.0",
+        prompt: "Bright hopeful ambient, discovery and wonder mood, sparkling synthesizer arpeggios with warm strings and gentle piano, inspired by Vangelis and Scott Buckley's Starfire, suitable as background music for a 4X space strategy game during early exploration and survey missions, no vocals, uplifting and expansive, 95 BPM",
+        use_case: "background music for video",
+        bpm: 95,
+        key: "G major",
+        bitrate: 256000,
+        sample_rate: 44100,
+        format: "mp3",
+    ),
+]

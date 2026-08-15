@@ -1653,22 +1653,31 @@ pub(super) fn ui_time_controls(
 
                     ui.separator();
 
-                    let track_title = playlist.tracks[playlist.current_index].title;
+                    let track = &playlist.tracks[playlist.current_index];
+                    let attribution = &track.attribution;
+                    let attribution_label = match attribution.source_url {
+                        Some(url) => format!(
+                            "{} — {} · {}",
+                            attribution.author, attribution.license, url
+                        ),
+                        None => format!(
+                            "{} — {}",
+                            attribution.author, attribution.license
+                        ),
+                    };
                     ui.vertical(|ui| {
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             ui.label(
-                                egui::RichText::new(format!("♪ {}", track_title))
+                                egui::RichText::new(format!("♪ {}", track.title))
                                     .font(egui::FontId::proportional(11.0))
                                     .color(theme::TEXT_DIM),
                             );
                         });
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             ui.label(
-                                egui::RichText::new(
-                                    "Scott Buckley — CC-BY 4.0 · scottbuckley.com.au",
-                                )
-                                .font(egui::FontId::proportional(9.0))
-                                .color(theme::TEXT_HINT),
+                                egui::RichText::new(attribution_label)
+                                    .font(egui::FontId::proportional(9.0))
+                                    .color(theme::TEXT_HINT),
                             );
                         });
                     });
