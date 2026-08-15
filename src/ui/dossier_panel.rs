@@ -15,11 +15,11 @@
 //! remaining bespoke `RichText::new(...).font(heading_font()).color(...)`
 //! calls are left for downstream PRs to sweep.
 
-use super::dashboard::{format_mass, format_mass_compact, format_rate_monthly};
+use super::dashboard::{format_mass, format_mass_compact, format_rate_monthly, rate_tooltip};
 use super::resources_bar::format_population;
 use super::tab::Tab;
 use super::theme::{
-    self, ACCENT, ACCENT_DIM, AMBER, BG, BORDER, BORDER_DIM, GREEN, RED, SURFACE, TEXT_DIM,
+    self, ACCENT_DIM, AMBER, BG, BORDER, BORDER_DIM, CYAN, GREEN, RED, SURFACE, TEXT_DIM,
     TEXT_VALUE,
 };
 use super::*;
@@ -186,6 +186,9 @@ pub(super) struct DossierUiParams<'w, 's> {
     pub rate_tracker: Res<'w, ResourceRateTracker>,
     pub mission_templates: Res<'w, SurveyMissionTemplates>,
     pub pending_actions: ResMut<'w, PendingConstructionActions>,
+    /// v3.6: RON-driven building definitions + colony constants. Used by
+    /// the housing-capacity and population-growth displays.
+    pub buildings_data: Option<Res<'w, crate::colony::data::BuildingsData>>,
     /// PR-F (GRA-117): needed by the legacy-to-state fallback so the
     /// dossier can render a `SurveyState` view for bodies that still
     /// only carry the old `SurveyLevel` component (Phase 1 migration
@@ -448,6 +451,10 @@ pub(super) fn ui_planet_dossier(mut params: DossierUiParams) {
                             surface_temp,
                             ocean_props,
                             &mut params.pending_actions,
+                            params
+                                .buildings_data
+                                .as_deref()
+                                .unwrap_or(&crate::colony::data::BuildingsData::default()),
                         );
                     }
 
@@ -1172,7 +1179,7 @@ fn draw_radar_chart(ui: &mut egui::Ui, scores: &[f32; 5]) {
     // Outline
     painter.add(egui::Shape::closed_line(
         player_pts.clone(),
-        egui::Stroke::new(1.0_f32, ACCENT),
+        egui::Stroke::new(1.0_f32, CYAN),
     ));
 
     // Axis labels + % score beneath each label.
@@ -1260,7 +1267,7 @@ fn draw_atmosphere_section(ui: &mut egui::Ui, entity: Entity, atmo: &AtmosphereC
         let (breath_icon, breath_color, breath_tip) = if atmo.breathable {
             (
                 "\u{25CF}  BREATHABLE",
-                ACCENT,
+                CYAN,
                 "O\u{2082} levels and pressure are safe for humans",
             )
         } else {
@@ -1804,9 +1811,9 @@ fn draw_dimension_progress_bar(ui: &mut egui::Ui, tier: u8, active_progress: Opt
                 egui::Vec2::new(segment.width() * fill, segment.height()),
             );
             let color = if fill < 1.0 {
-                theme::with_alpha(ACCENT, 150)
+                theme::with_alpha(CYAN, 150)
             } else {
-                ACCENT
+                CYAN
             };
             ui.painter().rect_filled(fill_rect, 2.0, color);
         }
@@ -2340,7 +2347,7 @@ fn draw_in_progress_mission_row(
         let (status_color, status_label) = match mission.status {
             MissionStatus::Queued => (TEXT_DIM, "QUEUED"),
             MissionStatus::Inflight => (egui::Color32::LIGHT_BLUE, "INFLIGHT"),
-            MissionStatus::Active => (ACCENT, "ACTIVE"),
+            MissionStatus::Active => (CYAN, "ACTIVE"),
             MissionStatus::Completing => (AMBER, "COMPLETING"),
             // Terminal states are rendered in
             // `draw_completed_mission_row`; this match arm is
@@ -2604,7 +2611,7 @@ fn draw_failed_missions_list(
                         .small_button(
                             egui::RichText::new("\u{25B6} DISPATCH RECOVERY")
                                 .font(mono_font(9.0))
-                                .color(ACCENT),
+                                .color(CYAN),
                         )
                         .clicked()
                     {
@@ -2690,7 +2697,7 @@ fn draw_dispatch_mission_picker(
             egui::Button::new(
                 egui::RichText::new("\u{25B6}  DISPATCH")
                     .font(mono_font(11.0))
-                    .color(ACCENT),
+                    .color(CYAN),
             )
             .min_size(egui::Vec2::new(140.0, 24.0)),
         )
@@ -2765,7 +2772,7 @@ fn draw_resource_compact(
                 let mass = format_mass_compact(discovered);
                 let rate = rate_tracker.get_entity_resource_rate(entity, &resource);
                 let (rate_text, _rate_color) = format_rate_monthly(rate);
-                ui.label(egui::RichText::new(sym).font(mono_font(11.0)).color(ACCENT));
+                ui.label(egui::RichText::new(sym).font(mono_font(11.0)).color(CYAN));
                 ui.label(
                     egui::RichText::new(name)
                         .font(mono_font(10.0))
@@ -2776,11 +2783,28 @@ fn draw_resource_compact(
                         .font(mono_font(10.0))
                         .color(TEXT_VALUE),
                 );
+                // v3.8.11 (2026-08-07): attach a hover tooltip that
+                // breaks the rate into production / per-cap / maint /
+                // synthesis input. Without this, the +X.X Mt/mo number
+                // is opaque — the user has no way to know whether the
+                // rate is being eaten by a per-cap draw, by building
+                // maintenance, or (the v3.8.0-v3.8.10 bug for Methane)
+                // by a synthesis-input draw that was being added
+                // instead of subtracted.
+                //
+                // The tooltip also flags when this resource is
+                // consumed as an industrial-process input (e.g. Methane
+                // → PolymerSynthesis). Cap / reserve throttling notes
+                // are skipped here (the resources bar already shows
+                // the per-category cap lock icon) — this surface
+                // focuses on the *composition* of the rate.
+                let tooltip_text = rate_tooltip(&resource, rate_tracker, f64::MAX, &[]);
                 ui.label(
                     egui::RichText::new(rate_text)
                         .font(mono_font(9.0))
                         .color(TEXT_DIM),
-                );
+                )
+                .on_hover_text(tooltip_text);
                 ui.end_row();
             }
         });
@@ -3205,7 +3229,7 @@ fn draw_resource_tile(
                 ui.label(
                     egui::RichText::new(resource.display_name())
                         .font(mono_font(13.0))
-                        .color(ACCENT),
+                        .color(CYAN),
                 );
 
                 // Phase badge + magnitude tier
@@ -3366,6 +3390,7 @@ fn draw_colony_section(
     surface_temp: Option<&SurfaceTemperature>,
     ocean: Option<&OceanProperties>,
     pending_actions: &mut PendingConstructionActions,
+    buildings_data: &crate::colony::data::BuildingsData,
 ) {
     if let Some(colony) = existing_colony {
         // ── Already colonised ──────────────────────────────────────
@@ -3390,7 +3415,7 @@ fn draw_colony_section(
         });
 
         let pop = colony.population;
-        let housing = colony.housing_capacity();
+        let housing = colony.housing_capacity(buildings_data);
         let util_pct = if housing > 0.0 {
             (pop / housing * 100.0).min(100.0)
         } else {
@@ -3602,7 +3627,7 @@ fn draw_colony_section(
         egui::Button::new(
             egui::RichText::new("🏗  Establish Outpost")
                 .font(mono_font(12.0))
-                .color(ACCENT),
+                .color(CYAN),
         )
         .min_size(egui::Vec2::new(200.0, 28.0)),
     );

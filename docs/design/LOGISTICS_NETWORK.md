@@ -10,7 +10,7 @@ Inspired by **Aurora 4X** (player-directed logistics) and **Distant Worlds 2** (
 |-------|---------|--------|----------------|
 | 1 | Resource locality (`LocalStockpile` per body, no system-pool fallback) | ✅ Shipped (v0.4.x) | `src/economy/components.rs`, `src/colony/systems.rs`, `src/economy/budget.rs` |
 | 1 | `ResourceRequest` + `PendingResourceRequests`; construction emits requests when local is short | ✅ Shipped (v0.4.x) | `src/economy/logistics.rs`, `src/colony/systems.rs` |
-| 1 | Construction panel shows "Waiting for freighter" / "Awaiting resources" | ✅ Shipped (v0.4.x) | `src/ui/construction_panel.rs` |
+| 1 | Construction panel shows "Waiting for freighter" / "Awaiting resources" | ✅ Shipped (v0.4.x) | `src/ui/construction/queue.rs` + `src/ui/construction/tooltip.rs` — bevy_ui path. The legacy `src/ui/construction_panel.rs` and the canary-era `src/ui/construction.rs` were deleted in v0.5.2; the new construction UI was **refactored** into the `src/ui/construction/` directory |
 | 2 | Fleet panel — assign a player Freighter to an open request | ✅ Shipped (v0.4.x) | `src/ui/fleets_panel.rs` ([PR #99](https://github.com/Slatibartfas/Helios-Ascension/pull/99)) |
 | 3 | Private `ShippingCompany` AI + payment + buy-ship loop | ✅ Shipped (v0.4.x) | `src/economy/company.rs` |
 | 4 | `MinimumStockpile` per colony + default Life Support thresholds + per-tick system | ✅ Shipped (v0.4.x) | `src/economy/logistics.rs` |
@@ -254,7 +254,7 @@ The top resource bar continues to show **system-wide aggregates** for at-a-glanc
 - [x] `MinimumStockpile` component: `HashMap<ResourceType, f64>` per colony
 - [x] System generates Maintenance requests when below threshold
 - [x] Default minimums for Life Support resources (O₂ 200 Mt, Water 100 Mt — PR #97; Uranium deferred)
-- [x] UI in construction panel: per-resource minimum input fields (`render_minimum_stockpile_editor` in `src/ui/construction_panel.rs:2473`)
+- [x] UI in construction panel: per-resource minimum input fields (`render_minimum_stockpile_editor` was **reimplemented** in `src/ui/construction/state.rs` / `src/ui/construction/data.rs` after the v0.5.2 split; the legacy `src/ui/construction_panel.rs:2473` no longer exists)
 
 ---
 
@@ -350,6 +350,6 @@ pub struct CompanyFreighter {
 - `src/economy/logistics.rs` — `ResourceRequest`, `PendingResourceRequests`, `MinimumStockpile`, request-flow systems
 - `src/economy/company.rs` — `ShippingCompany` AI, payment, fleet expansion
 - `src/colony/systems.rs` — `process_construction_actions` (emits `ResourceRequest` when local is short)
-- `src/ui/construction_panel.rs` — "Awaiting resources" / "Waiting for freighter" badges
+- `src/ui/construction/queue.rs` + `src/ui/construction/tooltip.rs` — bevy_ui path; "Awaiting resources" / "Waiting for freighter" badges. The legacy `src/ui/construction_panel.rs` and the canary-era `src/ui/construction.rs` were deleted in v0.5.2; the new construction UI was **refactored** into the `src/ui/construction/` directory
 - `src/ui/fleets_panel.rs` — manual freighter → request assignment
 - `src/fleets/orbital_mechanics.rs` — transfer physics reused by company ships

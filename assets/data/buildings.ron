@@ -20,9 +20,119 @@
 // Schema fields:
 // - `population_scale_multiplier` (top-level, f64) is the colony-population /
 //   per-build worker-unit conversion factor. Read by Rust as `pub const` in GRA-22b.
+// - `colony_constants` (top-level, struct) holds the colony-level tuning
+//   parameters that used to be hard-coded in `src/colony/components.rs`
+//   (food consumption per capita, base growth rate, workforce fraction, etc.).
+//   v3.6 moved these to RON so the data file is the single source of truth.
+//   v3.7 added `per_capita_consumption_*` fields so the population
+//   drives the consumer economy (real-world per-capita data from
+//   USGS 2024 / worldsteel 2024 / OECD 2024 / WNA 2024 / NMA 2024).
+//   v3.7 also added `food_decline_*` for the gradual growth-to-decline
+//   transition when food production falls below demand.
 
 (
     population_scale_multiplier: 100.0,
+    colony_constants: (
+        // Per-capita food consumption. FAO 2024 SOFA: 1,100 kg/person/year
+        // = 0.0000011 Mt/person/year. (1 Mt = 10⁹ kg.)
+        food_consumption_per_capita_mt_per_year: 0.0000011,
+        // Population growth parameters (per `population_growth_per_year`).
+        // Base rate matches Earth 2026 demographic baseline (0.9%/yr).
+        base_growth_rate: 0.009,
+        // Medical centre growth bonus (capped).
+        medical_growth_per_center: 0.0003,
+        max_medical_growth_bonus: 0.009,
+        // Housing utilisation: at 100% full, growth = (1 - 0.8) = 0.2×.
+        housing_utilization_penalty: 0.8,
+        // Available workforce: ~40% of population is working-age and willing.
+        available_workforce_fraction: 0.4,
+        // Operating cost as fraction of build cost per year.
+        operating_cost_fraction: 0.05,
+        // v3.7.1 (steeper curve): food-driven growth formula.
+        // Growth factor = (2*ratio - 1)^1.5 for ratio in [0.5, 1.0],
+        // 0 below 0.5, 1 above 1.0. Power 1.5 (not sqrt) makes
+        // the curve feel pressure earlier:
+        //   ratio 0.95 → factor 0.85  (5% deficit → 15% slowdown)
+        //   ratio 0.85 → factor 0.59  (15% deficit → 41% slowdown)
+        //   ratio 0.70 → factor 0.25  (30% deficit → 75% slowdown)
+        //   ratio 0.50 → factor 0.00  (50% deficit → 0% growth)
+        // Calibrated to give IPC-level-style feedback (Lanz 2016,
+        // Ó Gráda 2009, Sen 1981): level 2 (Stressed) at 0.95,
+        // level 3 (Crisis) at 0.85, level 4 (Emergency) at 0.7,
+        // level 5 (Famine) at 0.5. Real-world data shows 0.5-3% per
+        // year mortality in moderate food insecurity and 1-5%
+        // peak in famines, so max mortality = 3%/yr is realistic.
+        // Threshold 0.95 (was 0.70 in v3.7 first attempt) so the
+        // player sees feedback from any deficit, not just severe
+        // famine. Combined with the steeper growth-factor curve,
+        // the player should rarely see <0.5 because they're warned
+        // at 0.95.
+        food_decline_threshold: 0.95,
+        food_decline_max_mortality: 0.03,
+
+        // v3.7: per-capita consumer consumption. Sums across the
+        // colony's population to drive the consumer economy. Each
+        // value is in Mt/person/year (1 Mt = 10⁹ kg; 1 kg = 10⁻⁹ Mt).
+        // Calibrated so 8.2B people consume ~70% of USGS 2024 /
+        // OECD 2024 / worldsteel 2024 world demand; the remaining
+        // ~30% goes to industry, maintenance, feedstock, and power.
+        per_capita_consumption: (
+            // Iron (steel). worldsteel 2024: 214.7 kg finished
+            // steel / p / yr × 0.97 Fe = 208 kg Fe / p / yr.
+            // 8.2B × 2.13e-7 = 1,747 Mt ≈ 70% of 2,500 Mt world.
+            iron_mt_per_year: 0.000000213,
+            // Copper. USGS NMA 2024: 12 lbs / p / yr US ≈ 5.4 kg;
+            // world ~3 kg. Scaled to 70% = 1.88 kg / p / yr.
+            copper_mt_per_year: 0.0000000019,
+            // Aluminum. USGS 2024: 70 Mt world / 8.2B = 8.5 kg.
+            // Scaled to 70% = 5.98 kg / p / yr.
+            aluminum_mt_per_year: 0.000000006,
+            // Silicates (sand/gravel/aggregate). USGS NMA 2024:
+            // 16,284 lbs / p / yr US; world ~410 kg / p / yr.
+            silicates_mt_per_year: 0.00000041,
+            // Titanium (TiO₂). v3.8.10 (2026-08-07): Ti is 100%
+            // industrial (TiO₂ pigment, aerospace alloys, medical
+            // implants) — real per-capita Ti consumption is
+            // essentially zero. Set to 0 (matches the Rust
+            // `PerCapitaConsumption` default; previously the RON
+            // overrode it back to 1.1 kg/p/yr and Earth burned
+            // 9 Mt/yr of Ti against an 9 Mt/yr world).
+            titanium_mt_per_year: 0.0,
+            // Polymers (plastics). OECD 2024: 450 Mt world / 8.2B = 55 kg.
+            // Scaled to 70% = 38 kg / p / yr.
+            polymers_mt_per_year: 0.000000038,
+            // Phosphorus (P₂O₅ fertilizer). USGS 2024: 55 Mt world
+            // / 8.2B = 6.7 kg. Scaled to 70% = 18.8 kg / p / yr.
+            phosphorus_mt_per_year: 0.0000000188,
+            // Sulfur. USGS 2024: 70 Mt world / 8.2B = 8.5 kg.
+            // Scaled to 70% = 6 kg / p / yr.
+            sulfur_mt_per_year: 0.000000006,
+            // Nitrogen. v3.8.13 (2026-08-09): per-capita N₂ → 0. Real
+            // people do NOT consume N₂ directly — the old 19 kg/p/yr
+            // value was a "fertilizer proxy" hack. Fertilizer-N demand
+            // now flows through the real chain: AmmoniaSynthesis draws
+            // N₂ as the Haber-Bosch input, and the ammonia output is
+            // consumed as fertilizer maintenance by Farm / Greenhouse
+            // / Aquaculture / AgriDome. N₂ is a genuine industrial
+            // loop, not a consumer good.
+            nitrogen_mt_per_year: 0.0,
+            // Methane (natural gas, IEA 2026: 4,100 bcm world /
+            // 8.2B = 500 m³ / p / yr; ~50% consumer share).
+            methane_mt_per_year: 0.00000025,
+            // Uranium (WNA 2024: 74 kt world). v3.8.9
+            // (2026-08-07): per-capita U is nonsensical — U is
+            // 100% nuclear-power industrial, not a consumer good.
+            // Set to 0 (matches the Rust `PerCapitaConsumption`
+            // default; previously the RON overrode it back to 6.3
+            // g/p/yr and Earth burned ~52 kt/yr against 74 kt/yr
+            // production).
+            uranium_mt_per_year: 0.0,
+            // Carbon (coal/feedstock). USGS NMA 2024: 2,414 lbs
+            // coal / p / yr US ≈ 1,095 kg. World ~700 kg / p / yr
+            // (NMA is US only). 70% of 8,200 Mt = 700 kg / p / yr.
+            carbon_mt_per_year: 0.0000007,
+        ),
+    ),
 
     buildings: [
         // ========================================
@@ -32,7 +142,7 @@
             id: "LifeSupport",
             display_name: "Life Support",
             description: "Converts local volatiles into breathable atmosphere",
-            icon: "🌬",
+            icon: "textures/ui/buildings/life-support.png",
             category: "Infrastructure",
             build_points: 500.0,
             workforce: 2000,
@@ -43,19 +153,19 @@
             ],
             maintenance_resources: [
                 ("Water", 5.0),
-                ("Oxygen", 2.0),
+                ("Oxygen", 1.3333),
                 ("Polymers", 0.005),
                 ("Nitrogen", 0.5),
                 ("CarbonDioxide", 0.8),
             ],
             modifiers: [],
-            power_demand_mw: 200.0,
+            power_demand_mw: 300,
         ),
         (
             id: "HabitatDome",
             display_name: "Habitat Dome",
             description: "Pressurised arcology housing ~50M residents",
-            icon: "🏠",
+            icon: "textures/ui/buildings/habitat-dome.png",
             category: "Infrastructure",
             build_points: 800.0,
             workforce: 1000,
@@ -68,9 +178,9 @@
             maintenance_resources: [
                 ("Iron", 1.0),
                 ("Polymers", 0.01),
-                ("Magnesium", 0.005),
+                ("Magnesium", 0.003125),
                 ("Water", 2.0),
-                ("Oxygen", 1.0),
+                ("Oxygen", 0.66667),
                 ("Nitrogen", 0.5),
             ],
             modifiers: [
@@ -79,21 +189,34 @@
                 // This RON entry is human-readable documentation; the helper
                 // does not read it.  See GRA-127 / Phase B-1, GRA-133, GRA-338.
                 //
-                // Tier role: large pressurised arcology (above Housing Complex,
-                // below true megacity).  At this scale Earth needs ~165 Habitat
-                // Domes to reach its 8.2B seed.  Combined with the Housing
-                // Complex count the player manages tens to low-hundreds of
-                // residential buildings per body — never the thousands-of-clicks
-                // count GRA-338 explicitly rules out (operator guideline).
-                (modifier_type: "HousingCapacity", value: 4000000000.0),
+                // v3.2 canary 12 (2026-08-07): synced RON to match
+                // the simulation's hard-coded value at
+                // `src/colony/components.rs:298`. Before this fix the
+                // `friendly_label` (canary 11) was reading the RON
+                // (4,000,000,000) and showing "Houses 4.00B residents"
+                // on the card, while the simulation actually used
+                // 50,000,000 — a 80× mismatch. Card and sim now agree.
+                //
+                // Tier role: metropolitan (above Housing Complex,
+                // below arcology).  At this scale Earth needs ~164
+                // Habitat Domes to reach its 8.2B seed — within the
+                // v2 manageable-count band (10–50 was the target;
+                // 164 is the v0.5.0 design choice per
+                // `src/colony/components.rs:291`).
+                //
+                // For new colonies on airless bodies, see the
+                // v3.2 starter-tier `HabitatTent` (1k) and
+                // `HabitatModule` (10k) — these are the first
+                // buildings the player can build on a fresh outpost.
+                (modifier_type: "HousingCapacity", value: 50000000.0),
             ],
-            power_demand_mw: 150.0,
+            power_demand_mw: 225,
         ),
         (
             id: "Housing",
             display_name: "Housing Complex",
             description: "City-block-scale residential complex, housing ~25M residents",
-            icon: "🏙",
+            icon: "textures/ui/buildings/housing.png",
             category: "Infrastructure",
             build_points: 200.0,
             workforce: 500,
@@ -106,8 +229,8 @@
                 ("Iron", 0.001),
                 ("Polymers", 0.002),
                 ("Water", 0.5),
-                ("Copper", 0.0005),
-                ("Sulfur", 0.0005),
+                ("Copper", 0.00019415),
+                ("Sulfur", 0.00023333),
             ],
             modifiers: [
                 // Authoritative value lives in `Colony::housing_capacity` at
@@ -118,20 +241,25 @@
                 // RON entry is human-readable documentation; the helper does
                 // not read it.  See GRA-127 / Phase B-1, GRA-133, GRA-338.
                 //
-                // Tier role: the workhorse city-block residential complex.
-                // Cross-reference: docs/COLONIES.md has the same tier curve
-                // (HabitatDome / Housing / UndergroundHabitat) in tabular form.
-                // Modders changing this value should also update the
-                // authoritative helper and the docs/COLONIES.md row.
-                (modifier_type: "HousingCapacity", value: 800000000.0),
+                // v3.2 canary 12 (2026-08-07): synced RON to match
+                // the simulation at `src/colony/components.rs:298`
+                // (25,000,000 per Housing Complex). Before this fix
+                // the card showed "Houses 800M residents" while the
+                // sim used 25M — a 32× mismatch.
+                //
+                // Tier role: the workhorse metropolitan residential
+                // complex (~25M residents = a Tokyo-class metro area).
+                // For starter-scale colonization, see v3.2
+                // `HabitatTent` (1k) and `HabitatModule` (10k).
+                (modifier_type: "HousingCapacity", value: 25000000.0),
             ],
-            power_demand_mw: 50.0,
+            power_demand_mw: 75,
         ),
         (
             id: "UndergroundHabitat",
             display_name: "Underground Habitat",
             description: "Buried habitat for airless or hostile bodies, housing ~30M residents",
-            icon: "⛏",
+            icon: "textures/ui/buildings/underground-habitat.png",
             category: "Infrastructure",
             build_points: 1200.0,
             workforce: 1500,
@@ -145,91 +273,94 @@
                 ("Iron", 2.0),
                 ("Polymers", 0.008),
                 ("Water", 1.0),
-                ("Oxygen", 0.5),
+                ("Oxygen", 0.33333),
                 ("Titanium", 0.002),
                 ("Nitrogen", 0.2),
             ],
             modifiers: [
-                // Authoritative value lives in `Colony::housing_capacity` at
-                // src/colony/components.rs:264 (30,000,000 per UndergroundHabitat).
-                // This RON entry is human-readable documentation; the helper
-                // does not read it.  See GRA-127 / Phase B-1, GRA-133, GRA-338.
+                // v3.2 canary 12 (2026-08-07): synced RON to match
+                // the simulation at `src/colony/components.rs:298`
+                // (30,000,000 per UndergroundHabitat). Before this
+                // fix the card showed "Houses 2.00B residents" while
+                // the sim used 30M — a 67× mismatch.
                 //
-                // Tier role: buried habitat for airless / hostile bodies
-                // (Moon, Mars underground, Mercury, asteroid interiors).  At
-                // this scale a body seeded to 1B needs ~33 UndergroundHabitats.
-                // Modders changing this value should also update the
-                // authoritative helper and the docs/COLONIES.md row.
-                (modifier_type: "HousingCapacity", value: 2000000000.0),
+                // Tier role: buried metropolitan habitat for
+                // airless / hostile bodies (Moon, Mars underground,
+                // Mercury, asteroid interiors). At this scale a body
+                // seeded to 1B needs ~33 UndergroundHabitats. For
+                // starter-scale colonization, see v3.2
+                // `HabitatTent` (1k) and `HabitatModule` (10k).
+                (modifier_type: "HousingCapacity", value: 30000000.0),
             ],
             available_atmospheres: [None],
-            power_demand_mw: 300.0,
+            power_demand_mw: 450,
         ),
 
         // ========================================
-        // MINING & INDUSTRY
+        // STARTER-TIER HOUSING (v3.2 canary 12)
         // ========================================
+        // For new colonies on airless bodies (Moon, Mars, asteroid).
+        // The smallest existing housing (Housing Complex, 25M residents)
+        // is "metropolitan tier" — too big for a 100k-population new
+        // colony. The two buildings below are the first buildings the
+        // player can actually USE on a fresh outpost.
         (
-            id: "Mine",
-            display_name: "Mine",
-            description: "Strip-mine district producing 1.8 Gt/yr (world iron share)",
-            icon: "⚒",
-            category: "Industry",
-            build_points: 400.0,
-            workforce: 5000,
+            id: "HabitatTent",
+            display_name: "Habitat Tent",
+            description: "Inflatable emergency shelter, 1,000 residents. First building on a new colony.",
+            icon: "textures/ui/buildings/habitat-tent.png",
+            category: "Infrastructure",
+            build_points: 50.0,
+            workforce: 5,
             required_tech: "",
             resource_costs: [
-                ("Iron", 83.0),
-                ("Copper", 17.0),
+                ("Iron", 3.0),
+                ("Silicates", 5.0),
             ],
             maintenance_resources: [
-                ("Iron", 0.01),
-                ("Nickel", 0.0001),
                 ("Water", 0.05),
-                ("Polymers", 0.002),
-                ("Cobalt", 0.0001),
+                ("Polymers", 0.001),
+                ("Iron", 0.0001),
+                ("Nitrogen", 0.001),
             ],
             modifiers: [
-                // 2026 reference: world iron-ore production ~1,800 Mt/yr (USGS 2024).
-                // Operator bar: 1 mine ≈ world iron share.
-                (modifier_type: "MiningEfficiency", value: 1800.0),
+                (modifier_type: "HousingCapacity", value: 1000.0),
             ],
-            power_demand_mw: 250.0,
+            power_demand_mw: 5.0,
         ),
         (
-            id: "Refinery",
-            display_name: "Refinery",
-            description: "Refines raw ores into usable materials at world scale (1.8 Gt/yr steel share)",
-            icon: "🏭",
-            category: "Industry",
-            build_points: 600.0,
-            workforce: 6000,
+            id: "HabitatModule",
+            display_name: "Habitat Module",
+            description: "Prefab habitat module, 10,000 residents. Second-tier starter for growing colonies.",
+            icon: "textures/ui/buildings/habitat-module.png",
+            category: "Infrastructure",
+            build_points: 200.0,
+            workforce: 50,
             required_tech: "",
             resource_costs: [
-                ("Iron", 133.0),
-                ("Copper", 50.0),
-                ("Silicates", 33.0),
+                ("Iron", 10.0),
+                ("Silicates", 15.0),
+                ("Copper", 1.0),
+                ("Aluminum", 3.0),
             ],
             maintenance_resources: [
-                ("Iron", 0.02),
                 ("Water", 0.5),
-                ("Nickel", 0.0005),
-                ("Tungsten", 0.00003),
-                ("Sulfur", 0.008),
-                ("Chromium", 0.003),
+                ("Polymers", 0.005),
+                ("Iron", 0.001),
+                ("Copper", 3.883e-05),
+                ("Nitrogen", 0.005),
             ],
             modifiers: [
-                // 2026 reference: world steel production ~1,900 Mt/yr (worldsteel 2024).
-                // Operator bar: 1 refinery ≈ world steel share.
-                (modifier_type: "MiningEfficiency", value: 1800.0),
+                (modifier_type: "HousingCapacity", value: 10000.0),
             ],
-            power_demand_mw: 500.0,
+            power_demand_mw: 30.0,
         ),
+
         (
             id: "Factory",
             display_name: "Factory",
-            description: "Regional megafactory. Construction speed bonus is +200 BP/yr in GRA-22b Rust wiring.",
-            icon: "🔧",
+            description: "Regional megafactory. Provides +10 BP/yr to the colony's construction queue (per Factory).",
+            icon: "textures/ui/buildings/factory.png",
             category: "Industry",
             build_points: 1000.0,
             workforce: 12000,
@@ -242,114 +373,47 @@
             ],
             maintenance_resources: [
                 ("Iron", 0.05),
-                ("Copper", 0.005),
+                ("Copper", 0.0019415),
+                ("Polymers", 0.003),
+                // v3.8.13: oxygen for basic-oxygen-furnace (BOF)
+                // steelmaking — 0.1 Mt/yr × 1,200 = 120 Mt/yr, the
+                // steel-industry O₂ share of the 150 Mt/yr world.
+                ("Oxygen", 0.1),
+                // v3.8.14: nickel (alloy/stainless steel — the real
+                // reason a megafactory consumes Ni) + tungsten
+                // (carbide tooling). 0.001 × 1200 = 1.2 Mt/yr Ni,
+                // 3e-5 × 1200 = 0.036 Mt/yr W — the alloy-steel
+                // consumers that were accidentally dropped in the
+                // v3.8.13 maintenance consolidation.
                 ("Nickel", 0.001),
                 ("Tungsten", 0.00003),
-                ("Lithium", 0.00006),
-                ("Polymers", 0.003),
             ],
             modifiers: [
-                // ConstructionCost is a percent reduction; in GRA-22b the Rust
-                // `advance_construction` will switch to a per-build +200 BP/yr
-                // `BuildPointsProduction` modifier. The percent value here is
-                // the legacy fallback during the 22a/22b transition.
-                (modifier_type: "ConstructionCost", value: -200.0),
+                // v3.1 canary 11 (2026-08-06): the legacy
+                // `ConstructionCost: -200.0` was a GRA-22b transition
+                // placeholder. The Rust at `src/colony/systems.rs:96`
+                // actually does `1.0 + factories * 10.0` BP/yr — i.e.
+                // 1 BP/yr base + 10 BP/yr per Factory. Renamed the
+                // modifier to `BuildPointsProduction: 10.0` so the
+                // build card displays the actual effect ("Builds
+                // +10 BP/yr") instead of the misleading
+                // "ConstructionCost -200" line. The Rust formula is
+                // unchanged (still hard-coded at systems.rs:96); the
+                // RON value is documentation + the card display.
+                (modifier_type: "BuildPointsProduction", value: 10.0),
+                // v3.6: WealthGeneration per-Factory = 100 MC/yr
+                // (manufactured-goods revenue). Authoritative value
+                // moved to RON from hard-code at
+                // `src/colony/components.rs:wealth_generation_per_year`.
+                (modifier_type: "WealthGeneration", value: 100.0),
             ],
-            power_demand_mw: 800.0,
-        ),
-        (
-            id: "DeepDrill",
-            display_name: "Deep Drill",
-            description: "Deep drilling into planetary crust for hidden deposits (~100 Mt/yr rare metals)",
-            icon: "🕳",
-            category: "Industry",
-            build_points: 2000.0,
-            workforce: 10000,
-            required_tech: "deep_drilling",
-            resource_costs: [
-                ("Iron", 333.0),
-                ("Titanium", 167.0),
-                ("Copper", 83.0),
-            ],
-            maintenance_resources: [
-                ("Iron", 1.0),
-                ("Titanium", 0.01),
-                ("Tungsten", 0.0001),
-                ("Chromium", 0.005),
-                ("Polymers", 0.001),
-                ("Cobalt", 0.0002),
-            ],
-            modifiers: [
-                // 2026 reference: deep-mining share is dominated by rare metals
-                // (rare earths ~0.35 Mt, cobalt ~0.23 Mt, lithium ~0.18 Mt, etc.).
-                // 1 deep drill ≈ 100 Mt/yr aggregated deep resource rate.
-                (modifier_type: "DeepMiningEfficiency", value: 100.0),
-            ],
-            power_demand_mw: 600.0,
-        ),
-        (
-            id: "LaserDrill",
-            display_name: "Laser Drill",
-            description: "Laser-based deep mining for maximum extraction (~200 Mt/yr)",
-            icon: "🔦",
-            category: "Industry",
-            build_points: 6000.0,
-            workforce: 4000,
-            required_tech: "laser_drilling",
-            resource_costs: [
-                ("Titanium", 417.0),
-                ("RareEarths", 200.0),
-                ("Copper", 167.0),
-            ],
-            maintenance_resources: [
-                ("RareEarths", 0.001),
-                ("Copper", 0.002),
-                ("Titanium", 0.0005),
-                ("Water", 0.01),
-                ("Polymers", 0.0005),
-            ],
-            modifiers: [
-                // 2026 reference: laser-grade deep extraction 2× DeepDrill scope.
-                (modifier_type: "DeepMiningEfficiency", value: 200.0),
-            ],
-            power_demand_mw: 1500.0,
-        ),
-        (
-            id: "StripMine",
-            display_name: "Strip Mine",
-            description: "Strip mining entire surface layers at world scale (5 Gt/yr bulk extraction)",
-            icon: "🗻",
-            category: "Industry",
-            build_points: 12000.0,
-            workforce: 50000,
-            required_tech: "strip_mining",
-            resource_costs: [
-                ("Iron", 1000.0),
-                ("Titanium", 583.0),
-                ("Aluminum", 417.0),
-            ],
-            maintenance_resources: [
-                ("Iron", 5.0),
-                ("Titanium", 0.05),
-                ("Water", 1.0),
-                ("Polymers", 0.05),
-                ("Cobalt", 0.001),
-                ("Fluorine", 0.0005),
-            ],
-            modifiers: [
-                // 2026 reference: world bulk mining aggregates to ~5,000 Mt/yr
-                // (iron 1,800 + aluminum 70 + copper 22 + coal 8,000 etc. — but
-                // StripMine targets planetary bulk metals excluding fuels).
-                // Operator bar: 1 strip mine ≈ world planetary-bulk share.
-                (modifier_type: "BulkMiningEfficiency", value: 5000.0),
-            ],
-            power_demand_mw: 2000.0,
+            power_demand_mw: 1200,
         ),
         (
             id: "AtmosphericProcessor",
             display_name: "Atmospheric Processor",
-            description: "Harvests industrial gases (500 Mt/yr world total)",
-            icon: "☁",
+            description: "Harvests industrial gases (N₂ + O₂ + Ar + CO₂) for the colony. v3.8.12: per-gas rates sized so 300 processors (Earth start) produce the 2026 world demand — N₂ 0.667, O₂ 0.5, Ar 0.00333, CO₂ 0.667 Mt/yr per build = 200 / 150 / 1 / 200 Mt/yr.",
+            icon: "textures/ui/buildings/atmospheric-processor.png",
             category: "Industry",
             build_points: 500.0,
             workforce: 3000,
@@ -361,25 +425,58 @@
             ],
             maintenance_resources: [
                 ("Iron", 0.01),
-                ("Copper", 0.005),
+                ("Copper", 0.0019415),
                 ("Aluminum", 0.001),
                 ("Water", 0.05),
                 ("Polymers", 0.001),
                 ("Fluorine", 0.0005),
             ],
             modifiers: [
-                // 2026 reference: world industrial gas production (N₂, O₂, H₂, CO₂, Ar)
-                // aggregates to ~500 Mt/yr (Linde/Air Liquide reports 2024).
-                // Operator bar: 1 processor ≈ world industrial gas share.
-                (modifier_type: "AtmosphericHarvesting", value: 500.0),
+                // v3.8.12 (2026-08-08): per-gas production modifiers
+                // (N₂ / O₂ / Ar / CO₂). Replaces the old single
+                // `AtmosphericHarvesting` modifier with concentration-
+                // weighted share-fold (see commit `c1c8807` for
+                // context). The share-fold over-produced N (78% of
+                // atmosphere but only 48% share under the deposit-
+                // concentration weights in profiles.rs) and wildly
+                // under-produced CO₂ (0.04% of atmosphere = 0.2% of
+                // demand), and over-produced Ar (775% of demand).
+                //
+                // Per-build rates sized so 300 AtmosphericProcessors
+                // (Earth starting count) produces exactly the world
+                // 2026 demand for each gas (Linde / Air Liquide 2024):
+                //   - N:   200 / 300 = 0.667   Mt/yr/build
+                //   - O:   150 / 300 = 0.500   Mt/yr/build
+                //   - Ar:    1 / 300 = 0.00333 Mt/yr/build
+                //   - CO₂: 200 / 300 = 0.667   Mt/yr/build
+                // The "operator bar" the v3.8.10 comment invoked
+                // (1 processor ≈ world share) is now per-gas: 1/300 of
+                // each gas's world demand, not 1/300 of the mixed
+                // share-folded total.  This is the design §5.18 /
+                // §8.3.6 split that BALANCE_PATCHES_v0.5.md
+                // documented as PENDING.
+                //
+                // v3.8.14: re-calibrated to Earth-start CONSUMPTION
+                // (per-cap + maintenance + Haber-Bosch input) so the
+                // t=0 net rate ≈ +2% instead of the world-anchored
+                // surpluses (N₂ was +156 Mt/yr, O₂ +150, CO₂ +200):
+                //   - N:  117.05 / 300 × 1.02 = 0.398 (per-cap 0 +
+                //          maint 6.35 + NH₃ input 110.7)
+                //   - O:  130.0  / 300 × 1.02 = 0.442 (BOF steel + medical)
+                //   - Ar: 0.94   / 300 × 1.02 = 0.0032 (welding)
+                //   - CO₂: 150.0 / 300 × 1.02 = 0.51 (greenhouse + urea)
+                (modifier_type: "NitrogenProduction", value: 0.398),
+                (modifier_type: "OxygenProduction", value: 0.442),
+                (modifier_type: "ArgonProduction", value: 0.0032),
+                (modifier_type: "CarbonDioxideProduction", value: 0.51),
             ],
-            power_demand_mw: 400.0,
+            power_demand_mw: 600,
         ),
         (
             id: "ChemicalPlant",
             display_name: "Chemical Plant",
-            description: "Industrial chemistry at world scale (H2 100, NH3 200, polymers 450 Mt/yr)",
-            icon: "⚗",
+            description: "Industrial chemistry at world scale. H₂ (SMR from methane) + NH₃ (Haber-Bosch from N₂ + H₂) + polymers (methane cracker) + Tritium breeding. v3.8.15 demand-sized: H₂ 65.6, NH₃ 135, polymers 322 Mt/yr = Earth-start consumption (no overshoot transient).",
+            icon: "textures/ui/buildings/chemical-plant.png",
             category: "Industry",
             build_points: 800.0,
             workforce: 4000,
@@ -392,65 +489,1514 @@
             ],
             maintenance_resources: [
                 ("Iron", 0.02),
-                ("Copper", 0.01),
-                ("Nickel", 0.0005),
-                ("Sulfur", 0.03),
+                ("Copper", 0.003883),
+                ("Sulfur", 0.014),
                 ("Phosphorus", 0.0005),
                 ("Fluorine", 0.001),
+                // v3.8.13: CO₂ feedstock (urea/chemicals) — 0.1 Mt/yr
+                // × 700 = 70 Mt/yr of the 200 Mt/yr world industrial CO₂.
+                ("CarbonDioxide", 0.1),
             ],
             modifiers: [
-                // 2026 reference per product (operator bar: 1 plant ≈ world share).
-                // Hydrogen (commercial): ~100 Mt/yr.
-                (modifier_type: "HydrogenSynthesis", value: 100.0),
-                // Ammonia: ~200 Mt/yr (IEA 2024).
-                (modifier_type: "AmmoniaSynthesis", value: 200.0),
-                // Polymers (plastics): ~450 Mt/yr (OECD 2024).
-                (modifier_type: "PolymerSynthesis", value: 450.0),
+                // v3.8.4: per-build production calibrated at
+                // 1 plant ≈ world_demand / (N_plants × access) so the
+                // starting count exactly matches 1× world demand
+                // (CLAUDE.md operator bar for Tier 2).  Earth has
+                // 700 ChemicalPlant, access = 0.6, so:
+                //   - Hydrogen (commercial): 100 Mt/yr / 700 / 0.6 = 0.238 Mt/yr/build
+                //   - Ammonia: 200 Mt/yr / 700 / 0.6 = 0.476 Mt/yr/build
+                //   - Polymers: 450 Mt/yr / 700 / 0.6 = 1.071 Mt/yr/build
+                // The previous calibration (100/200/450) was 1 plant =
+                // world demand, which with 700 ChemicalPlants overproduced
+                // by 300× and starved downstream processes
+                // (PolymerSynthesis couldn't run because Methane was
+                // over-allocated to HydrogenSynthesis + AmmoniaSynthesis).
+                // v3.8.10 (2026-08-07): 700 plants × 0.238 × 0.6 = 100 Mt H2
+                // (matches world), but the access multiplier is wrong here
+                // because ChemicalPlant is a Tier 2 industrial facility, not
+                // a mine.  Synthesis doesn't depend on deposit accessibility.
+                // Removing the 0.6 access for these three modifiers:
+                //   - H2:  0.238 / 0.6 = 0.397  → use 0.143 (700 × 0.143 = 100 Mt)
+                //   - NH3: 0.476 / 0.6 = 0.794  → use 0.286 (700 × 0.286 = 200 Mt)
+                //   - Pol: 1.071 / 0.6 = 1.785  → use 0.643 (700 × 0.643 = 450 Mt)
+                // This is a "v3.8.10 design correction": the 0.6 access
+                // multiplier was double-counted in v3.8.4.  Per CLAUDE.md
+                // operator bar, 1 ChemicalPlant ≈ 1/300 of world, so 700
+                // plants = 2.33× world → at full utilization produces 2.33×
+                // 2026 demand.  We scale the per-build to land at exactly 1×
+                // (so the cap throttles overflow once player builds more
+                // plants).
+                //
+                // v3.8.15 (2026-08-09): DEMAND-SIZED. The 200/100/450 Mt/yr
+                // world-anchored capacity produced a transient overshoot at
+                // game start: ammonia ran at full 200 Mt/yr until its tiny
+                // 30 Mt stockpile cap filled (~3 months), drawing N₂ at
+                // 164 Mt/yr and H₂ at 35.2 — so the forecast panel showed
+                // "Nitrogen runs out in 3 months" (a false alarm; steady
+                // state N₂ nets +2.35). Re-derived each per-build to the
+                // Earth-start DEMAND (per-cap + maintenance + downstream
+                // input) so capacity = demand and no transient exists:
+                //   - H₂:  65.56 Mt/yr (maint 41.8 + NH₃ input 23.76)
+                //          → 65.56/700 = 0.0937
+                //   - NH₃: 135.0 Mt/yr (fertilizer maint)
+                //          → 135.0/700 = 0.1929
+                //   - Pol: 321.8 Mt/yr (per-cap 311.6 + maint 10.2)
+                //          → 321.8/700 = 0.4597
+                (modifier_type: "HydrogenSynthesis", value: 0.0937),
+                (modifier_type: "AmmoniaSynthesis", value: 0.1929),
+                (modifier_type: "PolymerSynthesis", value: 0.4597),
                 // Tritium breeding is only active once `fusion_power` is unlocked.
                 // 2026: 0 (no commercial fusion yet); game-unlock target 0.05 Mt/yr.
                 (modifier_type: "TritiumBreeding", value: 0.05),
             ],
-            power_demand_mw: 600.0,
+            power_demand_mw: 900,
         ),
+        // ========================================
+        
+        // ========================================
+        // v0.5.1 + v0.5.2 MINES (per-resource dedicated)
+        // ========================================
+        // v0.5.2: each base mine produces ONE resource at
+        // `base_yield × deposit.accessibility × yield_mult` Mt/yr.
+        // The legacy tier system (MiningEfficiency / share-fold) is
+        // gone — see `src/economy/mining.rs` extract_resources.
+        //
+        // Body restrictions:
+        //   He3Mine: [Moon, GasGiant, Asteroid] (canary 3 — lunar regolith
+        //            + gas-giant primordial He-3)
+        //   AutoXxx: [Asteroid, Moon, GasGiant] (orbital mining only)
+        //
+        // Calibration (v3.8.14): 25 × base_yield × deposit.accessibility
+        //   ≈ Earth-start CONSUMPTION (per-cap + maintenance + synthesis
+        //   input) × 1.02 buffer, so the game-start "Net rate" display
+        //   shows ≈ +2% for every resource (no negative burns, no
+        //   Gt/yr surpluses). Each per-build = consumption / (25 × real
+        //   Earth deposit accessibility from `src/economy/profiles.rs`
+        //   "Earth" profile) — see BALANCE_PATCHES_v0.5.md §0.Q.
+        //   The 2026 world anchor remains in the deposit RESERVES.
+        // Construction materials (9)
         (
-            id: "HydrocarbonExtractor",
-            display_name: "Hydrocarbon Extractor",
-            description: "Drills for fossil fuels (4 Gt/yr world share)",
-            icon: "⛽",
-            category: "Industry",
-            build_points: 1200.0,
-            workforce: 2000,
+            id: "IronMine",
+            display_name: "Iron Mine",
+            description: "Iron ore extraction (open-pit / underground). 111.1 Mt/yr per build (v3.8.12: Earth deposit access 0.9 → 25 × 111.1 × 0.9 = 2,500 Mt/yr = worldsteel 2024; v3.8.10 used a flat 0.6 = 166.67) × deposit.accessibility.",
+            icon: "textures/ui/buildings/iron-mine.png",
+            category: "Mining",
+            build_points: 1500.0,
+            workforce: 5000,
             required_tech: "",
             resource_costs: [
-                ("Iron", 167.0),
-                ("Copper", 33.0),
+                ("Iron", 100.0),
+                ("Copper", 30.0),
             ],
             maintenance_resources: [
-                ("Iron", 0.05),
-                ("Sulfur", 0.005),
+                ("Iron", 0.01),
+                ("Nickel", 0.0001),
                 ("Water", 0.05),
-                ("Methane", 0.01),
+                ("Polymers", 0.002),
+                ("Cobalt", 0.0001),
+            ],
+            modifiers: [
+                // v3.8.14: Earth consumption 2143 → 2143/(25×0.9)×1.02 = 97.15.
+                (modifier_type: "IronProduction", value: 97.15),
+            ],
+            power_demand_mw: 375,
+            line: Some("Mine"),
+        ),
+        (
+            id: "AluminumMine",
+            display_name: "Aluminum Mine",
+            description: "Aluminum (bauxite) extraction. 3.5 Mt/yr per build (v3.8.12: Earth deposit access 0.8 → 25 × 3.5 × 0.8 = 70 Mt/yr = USGS 2026; v3.8.10 used a flat 0.6 = 4.667) × deposit.accessibility.",
+            icon: "textures/ui/buildings/aluminum-mine.png",
+            category: "Mining",
+            build_points: 1200.0,
+            // v3.1 canary 9 (BALANCE_PATCHES_v0.5.md §0.F.3): 4,500
+            // workers for a 5 Mt/yr Al mine was 2.4× overstaffed
+            // (real-world 1 worker / ~2.2 t/yr/worker, so a 5 Mt/yr
+            // mine needs ~2,300 workers; the Bayer+Hall-Héroult
+            // process is highly automated, so 1,500 is the
+            // operator-bar value). Drops the workforce 3× while
+            // preserving the 25-AlMine operator bar.
+            workforce: 1500,
+            required_tech: "",
+            resource_costs: [
+                ("Iron", 80.0),
+                ("Copper", 20.0),
+            ],
+            maintenance_resources: [
+                ("Iron", 0.005),
+                ("Water", 0.05),
+                ("Polymers", 0.001),
+                ("Cobalt", 0.0001),
+                ("Sulfur", 0.00093333),
+            ],
+            modifiers: [
+                // v3.8.14: Earth consumption 51.4 → 51.4/(25×0.8)×1.02 = 2.62.
+                (modifier_type: "AluminumProduction", value: 2.62),
+            ],
+            power_demand_mw: 300,
+            line: Some("Mine"),
+        ),
+        (
+            id: "TitaniumMine",
+            display_name: "Titanium Mine",
+            description: "Titanium (rutile / ilmenite) extraction. 0.6 Mt/yr per build (v3.5: 25 × 0.6 × 0.6 = 9 Mt/yr = USGS 2026) × deposit.accessibility.",
+            icon: "textures/ui/buildings/titanium-mine.png",
+            category: "Mining",
+            build_points: 1800.0,
+            workforce: 5500,
+            required_tech: "",
+            resource_costs: [
+                ("Iron", 120.0),
+                ("Copper", 30.0),
+            ],
+            maintenance_resources: [
+                ("Iron", 0.01),
+                ("Titanium", 0.0001),
+                ("Water", 0.05),
+                ("Polymers", 0.002),
+                ("Tungsten", 0.00003),
+            ],
+            modifiers: [
+                // v3.8.14: Earth consumption 0.288 → 0.288/(25×0.6)×1.02 = 0.0196.
+                (modifier_type: "TitaniumProduction", value: 0.0196),
+            ],
+            power_demand_mw: 220.0,
+            line: Some("Mine"),
+        ),
+        (
+            id: "SilicatesMine",
+            display_name: "Silicates Quarry",
+            description: "Silicates (granite / basalt / quartz) aggregate quarry. 2,000 Mt/yr per build (v3.8.12: Earth deposit access 1.0 → 25 × 2000 × 1.0 = 50,000 Mt/yr = USGS 2026 aggregate; v3.8.10 used a flat 0.6 = 320) × deposit.accessibility.",
+            icon: "textures/ui/buildings/silicates-mine.png",
+            category: "Mining",
+            build_points: 300.0,
+            workforce: 1500,
+            required_tech: "",
+            resource_costs: [
+                ("Iron", 30.0),
+                ("Copper", 10.0),
+            ],
+            maintenance_resources: [
+                ("Iron", 0.005),
+                ("Water", 0.02),
+                ("Polymers", 0.001),
+                ("Copper", 0.0003883),
+                ("Sulfur", 0.00046667),
+            ],
+            modifiers: [
+                // v3.8.14: Earth consumption 3365 → 3365/(25×1.0)×1.02 = 137.3.
+                (modifier_type: "SilicatesProduction", value: 137.3),
+            ],
+            power_demand_mw: 120,
+            line: Some("Mine"),
+        ),
+        (
+            id: "NickelMine",
+            display_name: "Nickel Mine",
+            description: "Nickel ore extraction. 0.2 Mt/yr per build (v3.8.12: Earth deposit access 0.7 → 25 × 0.2 × 0.7 = 3.5 Mt/yr = USGS 2026; v3.8.10 used a flat 0.6 = 0.233) × deposit.accessibility.",
+            icon: "textures/ui/buildings/nickel-mine.png",
+            category: "Mining",
+            build_points: 1100.0,
+            workforce: 4000,
+            required_tech: "",
+            resource_costs: [
+                ("Iron", 70.0),
+                ("Copper", 20.0),
+            ],
+            maintenance_resources: [
+                ("Iron", 0.005),
+                ("Nickel", 0.0001),
+                ("Water", 0.04),
                 ("Polymers", 0.001),
                 ("Cobalt", 0.0001),
             ],
             modifiers: [
-                // 2026 reference: world fossil-fuel extraction aggregates to
-                // ~12,000 Mt/yr (coal 8,000 + oil 4,500 equiv + gas 4,000).
-                // HydrocarbonExtractor covers oil + gas (8,500 Mt/yr share).
-                // Operator bar: 1 extractor ≈ world oil+gas share.
-                (modifier_type: "MiningEfficiency", value: 4000.0),
+                // v3.8.14: Earth consumption 1.23 (Factory alloy steel +
+                // mines self) → 1.23/(25×0.7)×1.02 = 0.0717.
+                (modifier_type: "NickelProduction", value: 0.0717),
+            ],
+            power_demand_mw: 180.0,
+            line: Some("Mine"),
+        ),
+        (
+            id: "TungstenMine",
+            display_name: "Tungsten Mine",
+            description: "Tungsten (wolframite / scheelite) extraction. 0.01 Mt/yr per build (v3.8.12: Earth deposit access 0.4 → 25 × 0.01 × 0.4 = 0.10 Mt/yr = 100 kt/yr = USGS 2026; v3.8.10 used a flat 0.6 = 0.00667) × deposit.accessibility.",
+            icon: "textures/ui/buildings/tungsten-mine.png",
+            category: "Mining",
+            build_points: 2200.0,
+            workforce: 6000,
+            required_tech: "",
+            resource_costs: [
+                ("Iron", 150.0),
+                ("Titanium", 50.0),
+                ("Copper", 30.0),
+            ],
+            maintenance_resources: [
+                ("Iron", 0.01),
+                ("Tungsten", 0.0001),
+                ("Water", 0.05),
+                ("Polymers", 0.002),
+                ("Cobalt", 0.0002),
+            ],
+            modifiers: [
+                // v3.8.14: Earth consumption 0.039 → 0.039/(25×0.4)×1.02 = 0.004.
+                (modifier_type: "TungstenProduction", value: 0.004),
+            ],
+            power_demand_mw: 280.0,
+            line: Some("Mine"),
+        ),
+        (
+            id: "CarbonMine",
+            display_name: "Carbon Mine",
+            description: "Carbon (coal / graphite) extraction. 410 Mt/yr per build (v3.8.12: Earth deposit access 0.8 → 25 × 410 × 0.8 = 8,200 Mt/yr = IEA 2026 coal equiv; v3.8.10 used a flat 0.6 = 546.667) × deposit.accessibility.",
+            icon: "textures/ui/buildings/carbon-mine.png",
+            category: "Mining",
+            build_points: 900.0,
+            workforce: 3500,
+            required_tech: "",
+            resource_costs: [
+                ("Iron", 60.0),
+                ("Copper", 15.0),
+            ],
+            maintenance_resources: [
+                ("Iron", 0.005),
+                ("Water", 0.04),
+                ("Polymers", 0.001),
+                ("Sulfur", 0.00093333),
+                ("Copper", 0.0003883),
+            ],
+            modifiers: [
+                // v3.8.14: Earth consumption 7690 → 7690/(25×0.8)×1.02 = 392.2.
+                (modifier_type: "CarbonProduction", value: 392.2),
+            ],
+            power_demand_mw: 200.0,
+            line: Some("Mine"),
+        ),
+        (
+            id: "ChromiumMine",
+            display_name: "Chromium Mine",
+            description: "Chromium (chromite) extraction. 3.76 Mt/yr per build (v3.8.12: Earth deposit access 0.5 → 25 × 3.76 × 0.5 = 47 Mt/yr = USGS 2026; v3.8.10 used a flat 0.6 = 3.13) × deposit.accessibility.",
+            icon: "textures/ui/buildings/chromium-mine.png",
+            category: "Mining",
+            build_points: 1300.0,
+            workforce: 4500,
+            required_tech: "",
+            resource_costs: [
+                ("Iron", 90.0),
+                ("Copper", 20.0),
+            ],
+            maintenance_resources: [
+                ("Iron", 0.005),
+                ("Chromium", 0.0001),
+                ("Water", 0.04),
+                ("Polymers", 0.001),
+                ("Sulfur", 0.00093333),
+            ],
+            modifiers: [
+                // v3.8.14: Earth consumption 9.005 → 9.005/(25×0.5)×1.02 = 0.735.
+                (modifier_type: "ChromiumProduction", value: 0.735),
+            ],
+            power_demand_mw: 220.0,
+            line: Some("Mine"),
+        ),
+        (
+            id: "MagnesiumMine",
+            display_name: "Magnesium Mine",
+            description: "Magnesium (magnesite / dolomite / seawater) extraction. 0.0571 Mt/yr per build (v3.8.12: Earth deposit access 0.7 → 25 × 0.0571 × 0.7 = 1.0 Mt/yr = USGS 2026; v3.8.10 used a flat 0.6 = 0.0667) × deposit.accessibility.",
+            icon: "textures/ui/buildings/magnesium-mine.png",
+            category: "Mining",
+            build_points: 1400.0,
+            workforce: 5000,
+            required_tech: "",
+            resource_costs: [
+                ("Iron", 100.0),
+                ("Copper", 25.0),
+            ],
+            maintenance_resources: [
+                ("Iron", 0.005),
+                ("Magnesium", 6.25e-05),
+                ("Water", 0.05),
+                ("Polymers", 0.001),
+                ("Sulfur", 0.00093333),
+            ],
+            modifiers: [
+                // v3.8.14: Earth consumption 0.399 → 0.399/(25×0.7)×1.02 = 0.0233.
+                (modifier_type: "MagnesiumProduction", value: 0.0233),
+            ],
+            power_demand_mw: 240.0,
+            line: Some("Mine"),
+        ),
+        // Precious metals (3 — v0.5.1)
+        (
+            id: "GoldMine",
+            display_name: "Gold Mine",
+            description: "Placer / lode gold extraction with cyanidation. 0.00048 Mt/yr per build (v3.8.12: Earth deposit access 0.3 → 25 × 0.00048 × 0.3 = 0.0036 Mt/yr = 3,600 t/yr = USGS 2026; v3.8.10 used a flat 0.6 = 0.00024) × deposit.accessibility.",
+            icon: "textures/ui/buildings/gold-mine.png",
+            category: "Mining",
+            build_points: 1200.0,
+            workforce: 4000,
+            required_tech: "",
+            resource_costs: [
+                ("Iron", 80.0),
+                ("Copper", 20.0),
+            ],
+            maintenance_resources: [
+                ("Iron", 0.005),
+                ("Water", 0.05),
+                ("Polymers", 0.001),
+                ("Sulfur", 0.00046667),
+            ],
+            modifiers: [
+                // v3.8.14: Earth consumption 0.0015 (DataCenter + AiCluster
+                // electronics) → 0.0015/(25×0.3)×1.02 = 0.000204.
+                (modifier_type: "GoldProduction", value: 0.000204),
+            ],
+            power_demand_mw: 100.0,
+            line: Some("Mine"),
+        ),
+        (
+            id: "SilverMine",
+            display_name: "Silver Mine",
+            description: "Lead-zinc byproduct-style silver extraction. 0.00373 Mt/yr per build (v3.8.12: Earth deposit access 0.3 → 25 × 0.00373 × 0.3 = 0.028 Mt/yr = 28 kt/yr = USGS 2026; v3.8.10 used a flat 0.6 = 0.00187) × deposit.accessibility.",
+            icon: "textures/ui/buildings/silver-mine.png",
+            category: "Mining",
+            build_points: 1500.0,
+            workforce: 5000,
+            required_tech: "",
+            resource_costs: [
+                ("Iron", 100.0),
+                ("Copper", 25.0),
+            ],
+            maintenance_resources: [
+                ("Iron", 0.005),
+                ("Water", 0.05),
+                ("Polymers", 0.001),
+                ("Sulfur", 0.00093333),
+            ],
+            modifiers: [
+                // v3.8.14: Earth consumption 0.015 → 0.015/(25×0.3)×1.02 = 0.00204.
+                (modifier_type: "SilverProduction", value: 0.00204),
+            ],
+            power_demand_mw: 150.0,
+            line: Some("Mine"),
+        ),
+        (
+            id: "PlatinumMine",
+            display_name: "Platinum Mine",
+            description: "Platinum-group-metal extraction from layered intrusions (Bushveld / Norilsk analog). 4.6e-05 Mt/yr per build (v3.8.12: Earth deposit access 0.2 → 25 × 4.6e-05 × 0.2 = 0.00023 Mt/yr = 230 t/yr = USGS 2026; v3.8.10 used a flat 0.6 = 1.53e-05) × deposit.accessibility.",
+            icon: "textures/ui/buildings/platinum-mine.png",
+            category: "Mining",
+            build_points: 2000.0,
+            workforce: 6000,
+            required_tech: "",
+            resource_costs: [
+                ("Iron", 150.0),
+                ("Copper", 30.0),
+                ("Nickel", 30.0),
+            ],
+            maintenance_resources: [
+                ("Iron", 0.01),
+                ("Nickel", 0.001),
+                ("Water", 0.05),
+                ("Polymers", 0.002),
+                ("Chromium", 0.0001),
+            ],
+            modifiers: [
+                // v3.8.14: Earth consumption 0.00015 → 0.00015/(25×0.2)×1.02 = 0.0000306.
+                (modifier_type: "PlatinumProduction", value: 0.0000306),
+            ],
+            power_demand_mw: 180.0,
+            line: Some("Mine"),
+        ),
+        // Strategic materials (6)
+        (
+            id: "CopperMine",
+            display_name: "Copper Mine",
+            description: "Copper ore extraction (chalcopyrite / porphyry). 2.08 Mt/yr per build (v3.8.12: Earth deposit access 0.5 → 25 × 2.08 × 0.5 = 26 Mt/yr = USGS 2026; v3.8.9 used a flat 0.6 = 1.733) × deposit.accessibility.",
+            icon: "textures/ui/buildings/copper-mine.png",
+            category: "Mining",
+            build_points: 1300.0,
+            workforce: 4500,
+            required_tech: "",
+            resource_costs: [
+                ("Iron", 90.0),
+                ("Copper", 30.0),
+            ],
+            maintenance_resources: [
+                ("Iron", 0.005),
+                ("Copper", 3.883e-05),
+                ("Water", 0.05),
+                ("Polymers", 0.001),
+                ("Sulfur", 0.00093333),
+            ],
+            modifiers: [
+                // v3.8.14: Earth consumption 26.0 → 26.0/(25×0.5)×1.02 = 2.12.
+                // The +2% buffer keeps the t=0 display positive (the old
+                // 2.08 showed a tiny −0.4 kt/yr that the player read as
+                // "copper burns immediately").
+                (modifier_type: "CopperProduction", value: 2.12),
+            ],
+            power_demand_mw: 345,
+            line: Some("Mine"),
+        ),
+        (
+            id: "RareEarthsMine",
+            display_name: "Rare Earths Mine",
+            description: "Rare-earth element extraction (bastnäsite / monazite). 0.035 Mt/yr per build (v3.8.12: Earth deposit access 0.4 → 25 × 0.035 × 0.4 = 0.35 Mt/yr = USGS 2026 REO; v3.8.10 used a flat 0.6 = 0.02) × deposit.accessibility.",
+            icon: "textures/ui/buildings/rare-earths-mine.png",
+            category: "Mining",
+            build_points: 2200.0,
+            workforce: 6000,
+            required_tech: "",
+            resource_costs: [
+                ("Iron", 150.0),
+                ("Copper", 30.0),
+            ],
+            maintenance_resources: [
+                ("Iron", 0.01),
+                ("RareEarths", 0.0001),
+                ("Water", 0.05),
+                ("Polymers", 0.002),
+                ("Sulfur", 0.0023333),
+            ],
+            modifiers: [
+                // v3.8.14: Earth consumption 0.165 → 0.165/(25×0.4)×1.02 = 0.0168.
+                (modifier_type: "RareEarthsProduction", value: 0.0168),
+            ],
+            power_demand_mw: 280.0,
+            line: Some("Mine"),
+        ),
+        (
+            id: "LithiumMine",
+            display_name: "Lithium Mine",
+            description: "Lithium (spodumene / brine) extraction. 0.01486 Mt/yr per build (v3.8.12: Earth deposit access 0.35 → 25 × 0.01486 × 0.35 = 0.13 Mt/yr = 130 kt/yr = USGS 2026; v3.8.10 used a flat 0.6 = 0.0087) × deposit.accessibility.",
+            icon: "textures/ui/buildings/lithium-mine.png",
+            category: "Mining",
+            build_points: 1900.0,
+            workforce: 5500,
+            required_tech: "",
+            resource_costs: [
+                ("Iron", 130.0),
+                ("Copper", 25.0),
+            ],
+            maintenance_resources: [
+                ("Iron", 0.01),
+                ("Lithium", 3.939e-05),
+                ("Water", 0.10),
+                ("Polymers", 0.002),
+                ("Sulfur", 0.00093333),
+            ],
+            modifiers: [
+                // v3.8.14: Earth consumption 0.102 (ResearchLab + DataCenter
+                // + AiCluster + FissionReactor, no Factory) →
+                // 0.102/(25×0.35)×1.02 = 0.0119.
+                (modifier_type: "LithiumProduction", value: 0.0119),
+            ],
+            power_demand_mw: 240.0,
+            line: Some("Mine"),
+        ),
+        (
+            id: "SulfurMine",
+            display_name: "Sulfur Mine",
+            description: "Sulfur (Frasch / pyrite roasting) extraction. 4.67 Mt/yr per build (v3.5: 25 × 4.67 × 0.6 = 70 Mt/yr = USGS 2026) × deposit.accessibility.",
+            icon: "textures/ui/buildings/sulfur-mine.png",
+            category: "Mining",
+            build_points: 1000.0,
+            workforce: 3500,
+            required_tech: "",
+            resource_costs: [
+                ("Iron", 70.0),
+                ("Copper", 15.0),
+            ],
+            maintenance_resources: [
+                ("Iron", 0.005),
+                ("Sulfur", 4.6667e-05),
+                ("Water", 0.05),
+                ("Polymers", 0.001),
+                ("Copper", 3.883e-05),
+            ],
+            modifiers: [
+                // v3.8.14: Earth consumption 70.28 → 70.28/(25×0.6)×1.02 = 4.78.
+                // The +2% buffer keeps the t=0 display positive (the old
+                // 4.667 left sulfur at −0.28 Mt/yr).
+                (modifier_type: "SulfurProduction", value: 4.78),
+            ],
+            power_demand_mw: 180.0,
+            line: Some("Mine"),
+        ),
+        (
+            id: "PhosphorusMine",
+            display_name: "Phosphorus Mine",
+            description: "Phosphate rock (apatite) extraction. 19.2 Mt/yr per build (v3.8.12: Earth deposit access 0.5 → 25 × 19.2 × 0.5 = 240 Mt/yr = USGS 2026 phosphate rock; v3.8.10 used a flat 0.6 = 14.667) × deposit.accessibility.",
+            icon: "textures/ui/buildings/phosphorus-mine.png",
+            category: "Mining",
+            build_points: 1500.0,
+            workforce: 5000,
+            required_tech: "",
+            resource_costs: [
+                ("Iron", 100.0),
+                ("Copper", 20.0),
+            ],
+            maintenance_resources: [
+                ("Iron", 0.005),
+                ("Phosphorus", 0.0001),
+                ("Water", 0.05),
+                ("Polymers", 0.001),
+                ("Sulfur", 0.0023333),
+            ],
+            modifiers: [
+                // v3.8.14: Earth consumption 154.7 → 154.7/(25×0.5)×1.02 = 12.63.
+                (modifier_type: "PhosphorusProduction", value: 12.63),
+            ],
+            power_demand_mw: 220.0,
+            line: Some("Mine"),
+        ),
+        (
+            id: "CobaltMine",
+            display_name: "Cobalt Mine",
+            description: "Cobalt ore extraction. 0.02286 Mt/yr per build (v3.8.12: Earth deposit access 0.35 → 25 × 0.02286 × 0.35 = 0.20 Mt/yr = 200 kt/yr = USGS 2026; v3.8.10 used a flat 0.6 = 0.01333) × deposit.accessibility.",
+            icon: "textures/ui/buildings/cobalt-mine.png",
+            category: "Mining",
+            build_points: 1700.0,
+            workforce: 5500,
+            required_tech: "",
+            resource_costs: [
+                ("Iron", 120.0),
+                ("Copper", 30.0),
+            ],
+            maintenance_resources: [
+                ("Iron", 0.01),
+                ("Cobalt", 0.0001),
+                ("Water", 0.05),
+                ("Polymers", 0.002),
+                ("Sulfur", 0.00093333),
+            ],
+            modifiers: [
+                // v3.8.14: Earth consumption 0.065 (ResearchLab + CobaltMine
+                // self + Shipyard) → 0.065/(25×0.35)×1.02 = 0.00758.
+                (modifier_type: "CobaltProduction", value: 0.00758),
+            ],
+            power_demand_mw: 240.0,
+            line: Some("Mine"),
+        ),
+        (
+            id: "FluorineMine",
+            display_name: "Fluorine Mine",
+            description: "Fluorite (CaF₂) extraction / fluorospar mining. 0.28 Mt/yr per build (v3.8.12: Earth deposit access 0.5 → 25 × 0.28 × 0.5 = 3.5 Mt/yr = USGS 2026 fluorospar; v3.8.10 used a flat 0.6 = 0.233) × deposit.accessibility.",
+            icon: "textures/ui/buildings/fluorine-mine.png",
+            category: "Mining",
+            build_points: 1400.0,
+            workforce: 4500,
+            required_tech: "",
+            resource_costs: [
+                ("Iron", 100.0),
+                ("Copper", 20.0),
+            ],
+            maintenance_resources: [
+                ("Iron", 0.005),
+                ("Fluorine", 0.0001),
+                ("Water", 0.05),
+                ("Polymers", 0.001),
+                ("Sulfur", 0.00093333),
+            ],
+            modifiers: [
+                // v3.8.14: Earth consumption 0.953 → 0.953/(25×0.5)×1.02 = 0.0778.
+                (modifier_type: "FluorineProduction", value: 0.0778),
+            ],
+            power_demand_mw: 200.0,
+            line: Some("Mine"),
+        ),
+        // Fissile (2)
+        (
+            id: "UraniumMine",
+            display_name: "Uranium Mine",
+            description: "Uranium (U₃O₈) extraction. 0.00987 Mt/yr per build (v3.8.12: Earth deposit access 0.3 → 25 × 0.00987 × 0.3 = 0.074 Mt/yr = 74 kt/yr = WNA 2024; v3.8.10 used a flat 0.6 = 0.0049) × deposit.accessibility.",
+            icon: "textures/ui/buildings/uranium-mine.png",
+            category: "Mining",
+            build_points: 2500.0,
+            workforce: 6500,
+            required_tech: "",
+            resource_costs: [
+                ("Iron", 180.0),
+                ("Copper", 40.0),
+                ("Titanium", 30.0),
+            ],
+            maintenance_resources: [
+                ("Iron", 0.02),
+                ("Uranium", 0.0001265),
+                ("Water", 0.05),
+                ("Polymers", 0.002),
+                ("Sulfur", 0.0046667),
+            ],
+            modifiers: [
+                // v3.8.14: Earth consumption 0.074 → 0.074/(25×0.3)×1.02 = 0.0101.
+                (modifier_type: "UraniumProduction", value: 0.0101),
+            ],
+            power_demand_mw: 320.0,
+            line: Some("Mine"),
+        ),
+        (
+            id: "ThoriumMine",
+            display_name: "Thorium Mine",
+            description: "Thorium (monazite) extraction. 9.14e-05 Mt/yr per build (v3.8.12: Earth deposit access 0.35 → 25 × 9.14e-05 × 0.35 = 0.0008 Mt/yr = 800 t/yr = WNA 2024; v3.8.10 used a flat 0.6 = 5.33e-05) × deposit.accessibility.",
+            icon: "textures/ui/buildings/thorium-mine.png",
+            category: "Mining",
+            build_points: 2100.0,
+            workforce: 6000,
+            required_tech: "",
+            resource_costs: [
+                ("Iron", 150.0),
+                ("Copper", 30.0),
+            ],
+            maintenance_resources: [
+                ("Iron", 0.01),
+                ("Water", 0.05),
+                ("Polymers", 0.002),
+                ("RareEarths", 0.0001),
+            ],
+            modifiers: [
+                // v3.8.12: Earth deposit accessibility 0.35 → 0.0008/(25×0.35) = 0.0000914.
+                (modifier_type: "ThoriumProduction", value: 0.0000914),
+            ],
+            power_demand_mw: 280.0,
+            line: Some("Mine"),
+        ),
+        // Hydrocarbons (1)
+        (
+            id: "MethaneExtractor",
+            display_name: "Methane Extractor",
+            description: "Methane (natural gas / clathrate / Titan lakes) extraction. 273 Mt/yr per build (v3.5: 25 × 273 × 0.6 = 4,100 Mt/yr = IEA 2026) × deposit.accessibility.",
+            icon: "textures/ui/buildings/methane-extractor.png",
+            category: "Mining",
+            build_points: 1100.0,
+            workforce: 3500,
+            required_tech: "",
+            resource_costs: [
+                ("Iron", 70.0),
+                ("Copper", 15.0),
+            ],
+            maintenance_resources: [
+                ("Iron", 0.005),
+                ("Water", 0.05),
+                ("Polymers", 0.001),
+                ("Sulfur", 0.00046667),
+                ("Methane", 0.0001),
+            ],
+            modifiers: [
+                // v3.8.14: Earth consumption 3226 (per-cap 2050 + NG 675
+                // + synth 501) → 3226/(25×0.3)×1.02 = 438.8.
+                (modifier_type: "MethaneProduction", value: 438.8),
+            ],
+            power_demand_mw: 250.0,
+            line: Some("Mine"),
+        ),
+        // Heavy water (1)
+        (
+            id: "DeuteriumExtractor",
+            display_name: "Deuterium Extractor",
+            description: "Deuterium (heavy water) extraction from seawater / ice. 0.00233 Mt/yr per build (v3.8.10: 25 × 0.00233 × 0.6 = 0.035 Mt/yr = 35 t/yr D2O = IAEA 2024; v3.5 had 0.0033 = 50, 43% over) × deposit.accessibility.",
+            icon: "textures/ui/buildings/deuterium-extractor.png",
+            category: "Mining",
+            build_points: 1800.0,
+            workforce: 5500,
+            required_tech: "",
+            resource_costs: [
+                ("Iron", 130.0),
+                ("Copper", 30.0),
+                ("Water", 20.0),
+            ],
+            maintenance_resources: [
+                ("Iron", 0.01),
+                ("Water", 0.50),
+                ("Polymers", 0.002),
+                ("Sulfur", 0.00046667),
+                ("Deuterium", 0.0001),
+            ],
+            modifiers: [
+                // v3.8.14: Earth consumption 0.013 (FissionReactor D₂O
+                // moderator) → 0.013/(25×0.6)×1.02 = 0.00088.
+                (modifier_type: "DeuteriumProduction", value: 0.00088),
             ],
             power_demand_mw: 350.0,
+            line: Some("Mine"),
+        ),
+        // He-3 (1 — canary 3, body-restricted to [Moon, GasGiant, Asteroid])
+        (
+            id: "He3Mine",
+            display_name: "Helium-3 Mine",
+            description: "Helium-3 mining from solar-wind-implanted regolith (Moon, asteroids) or primordial gas-giant atmospheres. 0.5 Mt/yr per build × deposit.accessibility.",
+            icon: "textures/ui/buildings/he3-mine.png",
+            category: "Mining",
+            build_points: 3500.0,
+            workforce: 8000,
+            required_tech: "lunar_colony",
+            resource_costs: [
+                ("Iron", 250.0),
+                ("Copper", 50.0),
+                ("Titanium", 50.0),
+            ],
+            maintenance_resources: [
+                ("Iron", 0.02),
+                ("Helium3", 0.0001),
+                ("Water", 0.05),
+                ("Polymers", 0.002),
+                ("Sulfur", 0.00046667),
+            ],
+            modifiers: [
+                (modifier_type: "Helium3Production", value: 0.5),
+            ],
+            power_demand_mw: 100.0,
+            line: Some("Mine"),
+            allowed_body_types: [Moon, GasGiant, Asteroid],
+        ),
+        // Off-world water (v0.5.1 — canary 2)
+        (
+            id: "WaterProcessor",
+            display_name: "Water Processor",
+            description: "Atmospheric condenser / regolith ice miner. 16 Mt/yr water for non-breathable colony life support; body-restricted to non-breathable atmospheres.",
+            icon: "textures/ui/buildings/water-processor.png",
+            category: "Infrastructure",
+            build_points: 600.0,
+            workforce: 2000,
+            required_tech: "",
+            resource_costs: [
+                ("Iron", 50.0),
+                ("Copper", 20.0),
+                ("Aluminum", 10.0),
+                ("Polymers", 5.0),
+            ],
+            maintenance_resources: [
+                ("Iron", 0.005),
+                ("Copper", 0.0003883),
+                ("Aluminum", 0.001),
+                ("Water", 0.05),
+                ("Polymers", 0.001),
+            ],
+            modifiers: [
+                (modifier_type: "WaterProduction", value: 16.0),
+            ],
+            power_demand_mw: 450,
+            line: Some("Water"),
+            available_atmospheres: [None],
+        ),
+        // ========================================
+        // v0.5.2 AUTOMINES (per-resource, body-restricted to [Asteroid, Moon, GasGiant])
+        // ========================================
+        // Per-resource orbital mining rigs. ~1/10 the surface base
+        // mine yield (orbital extraction is harder). All require
+        // `asteroid_mining` tech + body-type gate. Each produces
+        // ONE resource at `base_yield × deposit.accessibility × yield_mult`.
+        // AutoMines are NOT generic — one per resource — because
+        // the operator bar demands predictable per-build numbers
+        // and ore body composition varies wildly between asteroids.
+        // See BALANCE_PATCHES_v0.5.md §5.19 for spec.
+
+        (
+            id: "AutoIronMine",
+            display_name: "Auto Iron Mine",
+            description: "Orbital Iron extraction rig (asteroid). 12.0 Mt/yr per build × deposit.accessibility. Body: [Asteroid, Moon, GasGiant].",
+            icon: "textures/ui/buildings/auto-iron-mine.png",
+            category: "Mining",
+            build_points: 2500,
+            workforce: 800,
+            required_tech: "asteroid_mining",
+            resource_costs: [
+                ("Iron", 150.0),
+                ("Copper", 30.0),
+                ("Titanium", 20.0),
+            ],
+            maintenance_resources: [
+                ("Iron", 0.01),
+                ("Water", 0.02),
+                ("Polymers", 0.002),
+                ("Sulfur", 0.00046667),
+            ],
+            modifiers: [
+                (modifier_type: "IronProduction", value: 12.0),
+            ],
+            power_demand_mw: 150.0,
+            line: Some("AutoMine"),
+            allowed_body_types: [Asteroid, Moon, GasGiant],
+        ),
+        (
+            id: "AutoAluminumMine",
+            display_name: "Auto Aluminum Mine",
+            description: "Orbital Aluminum extraction rig (asteroid). 0.5 Mt/yr per build × deposit.accessibility. Body: [Asteroid, Moon, GasGiant].",
+            icon: "textures/ui/buildings/auto-aluminum-mine.png",
+            category: "Mining",
+            build_points: 2200,
+            workforce: 700,
+            required_tech: "asteroid_mining",
+            resource_costs: [
+                ("Iron", 150.0),
+                ("Copper", 30.0),
+                ("Titanium", 20.0),
+            ],
+            maintenance_resources: [
+                ("Iron", 0.01),
+                ("Aluminum", 0.0001),
+                ("Water", 0.02),
+                ("Polymers", 0.002),
+                ("Sulfur", 0.00046667),
+            ],
+            modifiers: [
+                (modifier_type: "AluminumProduction", value: 0.5),
+            ],
+            power_demand_mw: 150.0,
+            line: Some("AutoMine"),
+            allowed_body_types: [Asteroid, Moon, GasGiant],
+        ),
+        (
+            id: "AutoTitaniumMine",
+            display_name: "Auto Titanium Mine",
+            description: "Orbital Titanium extraction rig (asteroid). 0.002 Mt/yr per build × deposit.accessibility. Body: [Asteroid, Moon, GasGiant].",
+            icon: "textures/ui/buildings/auto-titanium-mine.png",
+            category: "Mining",
+            build_points: 2800,
+            workforce: 900,
+            required_tech: "asteroid_mining",
+            resource_costs: [
+                ("Iron", 150.0),
+                ("Copper", 30.0),
+                ("Titanium", 20.0),
+            ],
+            maintenance_resources: [
+                ("Iron", 0.01),
+                ("Titanium", 0.0001),
+                ("Water", 0.02),
+                ("Polymers", 0.002),
+                ("Sulfur", 0.00046667),
+            ],
+            modifiers: [
+                (modifier_type: "TitaniumProduction", value: 0.002),
+            ],
+            power_demand_mw: 150.0,
+            line: Some("AutoMine"),
+            allowed_body_types: [Asteroid, Moon, GasGiant],
+        ),
+        (
+            id: "AutoSilicatesMine",
+            display_name: "Auto Silicates Mine",
+            description: "Orbital Silicates extraction rig (asteroid). 70.0 Mt/yr per build × deposit.accessibility. Body: [Asteroid, Moon, GasGiant].",
+            icon: "textures/ui/buildings/auto-silicates-mine.png",
+            category: "Mining",
+            build_points: 1500,
+            workforce: 300,
+            required_tech: "asteroid_mining",
+            resource_costs: [
+                ("Iron", 150.0),
+                ("Copper", 30.0),
+                ("Titanium", 20.0),
+            ],
+            maintenance_resources: [
+                ("Iron", 0.01),
+                ("Silicates", 0.0001),
+                ("Water", 0.02),
+                ("Polymers", 0.002),
+                ("Sulfur", 0.00046667),
+            ],
+            modifiers: [
+                (modifier_type: "SilicatesProduction", value: 70.0),
+            ],
+            power_demand_mw: 150.0,
+            line: Some("AutoMine"),
+            allowed_body_types: [Asteroid, Moon, GasGiant],
+        ),
+        (
+            id: "AutoNickelMine",
+            display_name: "Auto Nickel Mine",
+            description: "Orbital Nickel extraction rig (asteroid). 0.02 Mt/yr per build × deposit.accessibility. Body: [Asteroid, Moon, GasGiant].",
+            icon: "textures/ui/buildings/auto-nickel-mine.png",
+            category: "Mining",
+            build_points: 2400,
+            workforce: 800,
+            required_tech: "asteroid_mining",
+            resource_costs: [
+                ("Iron", 150.0),
+                ("Copper", 30.0),
+                ("Titanium", 20.0),
+            ],
+            maintenance_resources: [
+                ("Iron", 0.01),
+                ("Nickel", 0.0001),
+                ("Water", 0.02),
+                ("Polymers", 0.002),
+                ("Sulfur", 0.00046667),
+            ],
+            modifiers: [
+                (modifier_type: "NickelProduction", value: 0.02),
+            ],
+            power_demand_mw: 150.0,
+            line: Some("AutoMine"),
+            allowed_body_types: [Asteroid, Moon, GasGiant],
+        ),
+        (
+            id: "AutoTungstenMine",
+            display_name: "Auto Tungsten Mine",
+            description: "Orbital Tungsten extraction rig (asteroid). 0.0005 Mt/yr per build × deposit.accessibility. Body: [Asteroid, Moon, GasGiant].",
+            icon: "textures/ui/buildings/auto-tungsten-mine.png",
+            category: "Mining",
+            build_points: 3200,
+            workforce: 1000,
+            required_tech: "asteroid_mining",
+            resource_costs: [
+                ("Iron", 150.0),
+                ("Copper", 30.0),
+                ("Titanium", 20.0),
+            ],
+            maintenance_resources: [
+                ("Iron", 0.01),
+                ("Tungsten", 0.0001),
+                ("Water", 0.02),
+                ("Polymers", 0.002),
+                ("Sulfur", 0.00046667),
+            ],
+            modifiers: [
+                (modifier_type: "TungstenProduction", value: 0.0005),
+            ],
+            power_demand_mw: 150.0,
+            line: Some("AutoMine"),
+            allowed_body_types: [Asteroid, Moon, GasGiant],
+        ),
+        (
+            id: "AutoCarbonMine",
+            display_name: "Auto Carbon Mine",
+            description: "Orbital Carbon extraction rig (asteroid). 35.0 Mt/yr per build × deposit.accessibility. Body: [Asteroid, Moon, GasGiant].",
+            icon: "textures/ui/buildings/auto-carbon-mine.png",
+            category: "Mining",
+            build_points: 2000,
+            workforce: 600,
+            required_tech: "asteroid_mining",
+            resource_costs: [
+                ("Iron", 150.0),
+                ("Copper", 30.0),
+                ("Titanium", 20.0),
+            ],
+            maintenance_resources: [
+                ("Iron", 0.01),
+                ("Carbon", 0.0001),
+                ("Water", 0.02),
+                ("Polymers", 0.002),
+                ("Sulfur", 0.00046667),
+            ],
+            modifiers: [
+                (modifier_type: "CarbonProduction", value: 35.0),
+            ],
+            power_demand_mw: 150.0,
+            line: Some("AutoMine"),
+            allowed_body_types: [Asteroid, Moon, GasGiant],
+        ),
+        (
+            id: "AutoChromiumMine",
+            display_name: "Auto Chromium Mine",
+            description: "Orbital Chromium extraction rig (asteroid). 0.2 Mt/yr per build × deposit.accessibility. Body: [Asteroid, Moon, GasGiant].",
+            icon: "textures/ui/buildings/auto-chromium-mine.png",
+            category: "Mining",
+            build_points: 2500,
+            workforce: 800,
+            required_tech: "asteroid_mining",
+            resource_costs: [
+                ("Iron", 150.0),
+                ("Copper", 30.0),
+                ("Titanium", 20.0),
+            ],
+            maintenance_resources: [
+                ("Iron", 0.01),
+                ("Chromium", 0.0001),
+                ("Water", 0.02),
+                ("Polymers", 0.002),
+                ("Sulfur", 0.00046667),
+            ],
+            modifiers: [
+                (modifier_type: "ChromiumProduction", value: 0.2),
+            ],
+            power_demand_mw: 150.0,
+            line: Some("AutoMine"),
+            allowed_body_types: [Asteroid, Moon, GasGiant],
+        ),
+        (
+            id: "AutoMagnesiumMine",
+            display_name: "Auto Magnesium Mine",
+            description: "Orbital Magnesium extraction rig (asteroid). 0.007 Mt/yr per build × deposit.accessibility. Body: [Asteroid, Moon, GasGiant].",
+            icon: "textures/ui/buildings/auto-magnesium-mine.png",
+            category: "Mining",
+            build_points: 2600,
+            workforce: 800,
+            required_tech: "asteroid_mining",
+            resource_costs: [
+                ("Iron", 150.0),
+                ("Copper", 30.0),
+                ("Titanium", 20.0),
+            ],
+            maintenance_resources: [
+                ("Iron", 0.01),
+                ("Magnesium", 6.25e-05),
+                ("Water", 0.02),
+                ("Polymers", 0.002),
+                ("Sulfur", 0.00046667),
+            ],
+            modifiers: [
+                (modifier_type: "MagnesiumProduction", value: 0.007),
+            ],
+            power_demand_mw: 150.0,
+            line: Some("AutoMine"),
+            allowed_body_types: [Asteroid, Moon, GasGiant],
+        ),
+        (
+            id: "AutoGoldMine",
+            display_name: "Auto Gold Mine",
+            description: "Orbital Gold extraction rig (asteroid). 1e-05 Mt/yr per build × deposit.accessibility. Body: [Asteroid, Moon, GasGiant].",
+            icon: "textures/ui/buildings/auto-gold-mine.png",
+            category: "Mining",
+            build_points: 3500,
+            workforce: 1200,
+            required_tech: "asteroid_mining",
+            resource_costs: [
+                ("Iron", 150.0),
+                ("Copper", 30.0),
+                ("Titanium", 20.0),
+            ],
+            maintenance_resources: [
+                ("Iron", 0.01),
+                ("Gold", 0.0001),
+                ("Water", 0.02),
+                ("Polymers", 0.002),
+                ("Sulfur", 0.00046667),
+            ],
+            modifiers: [
+                (modifier_type: "GoldProduction", value: 1e-05),
+            ],
+            power_demand_mw: 150.0,
+            line: Some("AutoMine"),
+            allowed_body_types: [Asteroid, Moon, GasGiant],
+        ),
+        (
+            id: "AutoSilverMine",
+            display_name: "Auto Silver Mine",
+            description: "Orbital Silver extraction rig (asteroid). 0.0001 Mt/yr per build × deposit.accessibility. Body: [Asteroid, Moon, GasGiant].",
+            icon: "textures/ui/buildings/auto-silver-mine.png",
+            category: "Mining",
+            build_points: 3200,
+            workforce: 1000,
+            required_tech: "asteroid_mining",
+            resource_costs: [
+                ("Iron", 150.0),
+                ("Copper", 30.0),
+                ("Titanium", 20.0),
+            ],
+            maintenance_resources: [
+                ("Iron", 0.01),
+                ("Silver", 0.0001),
+                ("Water", 0.02),
+                ("Polymers", 0.002),
+                ("Sulfur", 0.00046667),
+            ],
+            modifiers: [
+                (modifier_type: "SilverProduction", value: 0.0001),
+            ],
+            power_demand_mw: 150.0,
+            line: Some("AutoMine"),
+            allowed_body_types: [Asteroid, Moon, GasGiant],
+        ),
+        (
+            id: "AutoPlatinumMine",
+            display_name: "Auto Platinum Mine",
+            description: "Orbital Platinum extraction rig (asteroid). 1e-06 Mt/yr per build × deposit.accessibility. Body: [Asteroid, Moon, GasGiant].",
+            icon: "textures/ui/buildings/auto-platinum-mine.png",
+            category: "Mining",
+            build_points: 4000,
+            workforce: 1500,
+            required_tech: "asteroid_mining",
+            resource_costs: [
+                ("Iron", 150.0),
+                ("Copper", 30.0),
+                ("Titanium", 20.0),
+            ],
+            maintenance_resources: [
+                ("Iron", 0.01),
+                ("Platinum", 0.0001),
+                ("Water", 0.02),
+                ("Polymers", 0.002),
+                ("Sulfur", 0.00046667),
+            ],
+            modifiers: [
+                (modifier_type: "PlatinumProduction", value: 1e-06),
+            ],
+            power_demand_mw: 150.0,
+            line: Some("AutoMine"),
+            allowed_body_types: [Asteroid, Moon, GasGiant],
+        ),
+        (
+            id: "AutoCopperMine",
+            display_name: "Auto Copper Mine",
+            description: "Orbital Copper extraction rig (asteroid). 0.15 Mt/yr per build × deposit.accessibility. Body: [Asteroid, Moon, GasGiant].",
+            icon: "textures/ui/buildings/auto-copper-mine.png",
+            category: "Mining",
+            build_points: 2400,
+            workforce: 800,
+            required_tech: "asteroid_mining",
+            resource_costs: [
+                ("Iron", 150.0),
+                ("Copper", 30.0),
+                ("Titanium", 20.0),
+            ],
+            maintenance_resources: [
+                ("Iron", 0.01),
+                ("Copper", 3.883e-05),
+                ("Water", 0.02),
+                ("Polymers", 0.002),
+                ("Sulfur", 0.00046667),
+            ],
+            modifiers: [
+                (modifier_type: "CopperProduction", value: 0.15),
+            ],
+            power_demand_mw: 150.0,
+            line: Some("AutoMine"),
+            allowed_body_types: [Asteroid, Moon, GasGiant],
+        ),
+        (
+            id: "AutoRareEarthsMine",
+            display_name: "Auto Rare Earths Mine",
+            description: "Orbital Rare Earths extraction rig (asteroid). 0.0025 Mt/yr per build × deposit.accessibility. Body: [Asteroid, Moon, GasGiant].",
+            icon: "textures/ui/buildings/auto-rare-earths-mine.png",
+            category: "Mining",
+            build_points: 3500,
+            workforce: 1200,
+            required_tech: "asteroid_mining",
+            resource_costs: [
+                ("Iron", 150.0),
+                ("Copper", 30.0),
+                ("Titanium", 20.0),
+            ],
+            maintenance_resources: [
+                ("Iron", 0.01),
+                ("RareEarths", 0.0001),
+                ("Water", 0.02),
+                ("Polymers", 0.002),
+                ("Sulfur", 0.00046667),
+            ],
+            modifiers: [
+                (modifier_type: "RareEarthsProduction", value: 0.0025),
+            ],
+            power_demand_mw: 150.0,
+            line: Some("AutoMine"),
+            allowed_body_types: [Asteroid, Moon, GasGiant],
+        ),
+        (
+            id: "AutoLithiumMine",
+            display_name: "Auto Lithium Mine",
+            description: "Orbital Lithium extraction rig (asteroid). 0.0012 Mt/yr per build × deposit.accessibility. Body: [Asteroid, Moon, GasGiant].",
+            icon: "textures/ui/buildings/auto-lithium-mine.png",
+            category: "Mining",
+            build_points: 3200,
+            workforce: 1000,
+            required_tech: "asteroid_mining",
+            resource_costs: [
+                ("Iron", 150.0),
+                ("Copper", 30.0),
+                ("Titanium", 20.0),
+            ],
+            maintenance_resources: [
+                ("Iron", 0.01),
+                ("Lithium", 3.939e-05),
+                ("Water", 0.02),
+                ("Polymers", 0.002),
+                ("Sulfur", 0.00046667),
+            ],
+            modifiers: [
+                (modifier_type: "LithiumProduction", value: 0.0012),
+            ],
+            power_demand_mw: 150.0,
+            line: Some("AutoMine"),
+            allowed_body_types: [Asteroid, Moon, GasGiant],
+        ),
+        (
+            id: "AutoSulfurMine",
+            display_name: "Auto Sulfur Mine",
+            description: "Orbital Sulfur extraction rig (asteroid). 0.5 Mt/yr per build × deposit.accessibility. Body: [Asteroid, Moon, GasGiant].",
+            icon: "textures/ui/buildings/auto-sulfur-mine.png",
+            category: "Mining",
+            build_points: 2000,
+            workforce: 600,
+            required_tech: "asteroid_mining",
+            resource_costs: [
+                ("Iron", 150.0),
+                ("Copper", 30.0),
+                ("Titanium", 20.0),
+            ],
+            maintenance_resources: [
+                ("Iron", 0.01),
+                ("Sulfur", 4.6667e-05),
+                ("Water", 0.02),
+                ("Polymers", 0.002),
+            ],
+            modifiers: [
+                (modifier_type: "SulfurProduction", value: 0.5),
+            ],
+            power_demand_mw: 150.0,
+            line: Some("AutoMine"),
+            allowed_body_types: [Asteroid, Moon, GasGiant],
+        ),
+        (
+            id: "AutoPhosphorusMine",
+            display_name: "Auto Phosphorus Mine",
+            description: "Orbital Phosphorus extraction rig (asteroid). 0.0003 Mt/yr per build × deposit.accessibility. Body: [Asteroid, Moon, GasGiant].",
+            icon: "textures/ui/buildings/auto-phosphorus-mine.png",
+            category: "Mining",
+            build_points: 2700,
+            workforce: 900,
+            required_tech: "asteroid_mining",
+            resource_costs: [
+                ("Iron", 150.0),
+                ("Copper", 30.0),
+                ("Titanium", 20.0),
+            ],
+            maintenance_resources: [
+                ("Iron", 0.01),
+                ("Phosphorus", 0.0001),
+                ("Water", 0.02),
+                ("Polymers", 0.002),
+                ("Sulfur", 0.00046667),
+            ],
+            modifiers: [
+                (modifier_type: "PhosphorusProduction", value: 0.0003),
+            ],
+            power_demand_mw: 150.0,
+            line: Some("AutoMine"),
+            allowed_body_types: [Asteroid, Moon, GasGiant],
+        ),
+        (
+            id: "AutoCobaltMine",
+            display_name: "Auto Cobalt Mine",
+            description: "Orbital Cobalt extraction rig (asteroid). 0.0015 Mt/yr per build × deposit.accessibility. Body: [Asteroid, Moon, GasGiant].",
+            icon: "textures/ui/buildings/auto-cobalt-mine.png",
+            category: "Mining",
+            build_points: 2900,
+            workforce: 1000,
+            required_tech: "asteroid_mining",
+            resource_costs: [
+                ("Iron", 150.0),
+                ("Copper", 30.0),
+                ("Titanium", 20.0),
+            ],
+            maintenance_resources: [
+                ("Iron", 0.01),
+                ("Cobalt", 0.0001),
+                ("Water", 0.02),
+                ("Polymers", 0.002),
+                ("Sulfur", 0.00046667),
+            ],
+            modifiers: [
+                (modifier_type: "CobaltProduction", value: 0.0015),
+            ],
+            power_demand_mw: 150.0,
+            line: Some("AutoMine"),
+            allowed_body_types: [Asteroid, Moon, GasGiant],
+        ),
+        (
+            id: "AutoFluorineMine",
+            display_name: "Auto Fluorine Mine",
+            description: "Orbital Fluorine extraction rig (asteroid). 0.02 Mt/yr per build × deposit.accessibility. Body: [Asteroid, Moon, GasGiant].",
+            icon: "textures/ui/buildings/auto-fluorine-mine.png",
+            category: "Mining",
+            build_points: 2500,
+            workforce: 800,
+            required_tech: "asteroid_mining",
+            resource_costs: [
+                ("Iron", 150.0),
+                ("Copper", 30.0),
+                ("Titanium", 20.0),
+            ],
+            maintenance_resources: [
+                ("Iron", 0.01),
+                ("Fluorine", 0.0001),
+                ("Water", 0.02),
+                ("Polymers", 0.002),
+                ("Sulfur", 0.00046667),
+            ],
+            modifiers: [
+                (modifier_type: "FluorineProduction", value: 0.02),
+            ],
+            power_demand_mw: 150.0,
+            line: Some("AutoMine"),
+            allowed_body_types: [Asteroid, Moon, GasGiant],
+        ),
+        (
+            id: "AutoUraniumMine",
+            display_name: "Auto Uranium Mine",
+            description: "Orbital Uranium extraction rig (asteroid). 0.0003 Mt/yr per build × deposit.accessibility. Body: [Asteroid, Moon, GasGiant].",
+            icon: "textures/ui/buildings/auto-uranium-mine.png",
+            category: "Mining",
+            build_points: 3800,
+            workforce: 1300,
+            required_tech: "asteroid_mining",
+            resource_costs: [
+                ("Iron", 150.0),
+                ("Copper", 30.0),
+                ("Titanium", 20.0),
+            ],
+            maintenance_resources: [
+                ("Iron", 0.01),
+                ("Uranium", 0.0001265),
+                ("Water", 0.02),
+                ("Polymers", 0.002),
+                ("Sulfur", 0.00046667),
+            ],
+            modifiers: [
+                (modifier_type: "UraniumProduction", value: 0.0003),
+            ],
+            power_demand_mw: 150.0,
+            line: Some("AutoMine"),
+            allowed_body_types: [Asteroid, Moon, GasGiant],
+        ),
+        (
+            id: "AutoThoriumMine",
+            display_name: "Auto Thorium Mine",
+            description: "Orbital Thorium extraction rig (asteroid). 7e-05 Mt/yr per build × deposit.accessibility. Body: [Asteroid, Moon, GasGiant].",
+            icon: "textures/ui/buildings/auto-thorium-mine.png",
+            category: "Mining",
+            build_points: 3500,
+            workforce: 1200,
+            required_tech: "asteroid_mining",
+            resource_costs: [
+                ("Iron", 150.0),
+                ("Copper", 30.0),
+                ("Titanium", 20.0),
+            ],
+            maintenance_resources: [
+                ("Iron", 0.01),
+                ("Water", 0.02),
+                ("Polymers", 0.002),
+                ("Sulfur", 0.00046667),
+            ],
+            modifiers: [
+                (modifier_type: "ThoriumProduction", value: 7e-05),
+            ],
+            power_demand_mw: 150.0,
+            line: Some("AutoMine"),
+            allowed_body_types: [Asteroid, Moon, GasGiant],
+        ),
+        (
+            id: "AutoMethaneExtractor",
+            display_name: "Auto Methane Extractor",
+            description: "Orbital methane extraction rig (Titan lakes, gas-giant moons). 27 Mt/yr per build × deposit.accessibility. Body: [Asteroid, Moon, GasGiant].",
+            icon: "textures/ui/buildings/auto-methane-extractor.png",
+            category: "Mining",
+            build_points: 2500.0,
+            workforce: 800,
+            required_tech: "asteroid_mining",
+            resource_costs: [
+                ("Iron", 180.0),
+                ("Copper", 35.0),
+                ("Titanium", 25.0),
+            ],
+            maintenance_resources: [
+                ("Iron", 0.01),
+                ("Methane", 0.0001),
+                ("Water", 0.02),
+                ("Polymers", 0.002),
+                ("Sulfur", 0.00046667),
+            ],
+            modifiers: [
+                (modifier_type: "MethaneProduction", value: 27.0),
+            ],
+            power_demand_mw: 200.0,
+            line: Some("AutoMine"),
+            allowed_body_types: [Asteroid, Moon, GasGiant],
+        ),
+        (
+            id: "AutoDeuteriumExtractor",
+            display_name: "Auto Deuterium Extractor",
+            description: "Orbital heavy-water extraction rig (carbonaceous chondrite ice). 0.05 Mt/yr per build × deposit.accessibility. Body: [Asteroid, Moon, GasGiant].",
+            icon: "textures/ui/buildings/auto-deuterium-extractor.png",
+            category: "Mining",
+            build_points: 3000.0,
+            workforce: 1000,
+            required_tech: "asteroid_mining",
+            resource_costs: [
+                ("Iron", 200.0),
+                ("Copper", 40.0),
+                ("Titanium", 30.0),
+            ],
+            maintenance_resources: [
+                ("Iron", 0.01),
+                ("Water", 0.05),
+                ("Polymers", 0.002),
+                ("Deuterium", 0.0001),
+                ("Sulfur", 0.00046667),
+            ],
+            modifiers: [
+                (modifier_type: "DeuteriumProduction", value: 0.05),
+            ],
+            power_demand_mw: 250.0,
+            line: Some("AutoMine"),
+            allowed_body_types: [Asteroid, Moon, GasGiant],
+        ),
+        (
+            id: "AutoHe3Mine",
+            display_name: "Auto Helium-3 Mine",
+            description: "Orbital He-3 sweeper for solar-wind-implanted asteroid / lunar regolith. 0.05 Mt/yr per build × deposit.accessibility. Body: [Asteroid, Moon, GasGiant].",
+            icon: "textures/ui/buildings/auto-he3-mine.png",
+            category: "Mining",
+            build_points: 5000.0,
+            workforce: 1500,
+            required_tech: "asteroid_mining",
+            resource_costs: [
+                ("Iron", 300.0),
+                ("Copper", 50.0),
+                ("Titanium", 50.0),
+            ],
+            maintenance_resources: [
+                ("Iron", 0.02),
+                ("Helium3", 0.0001),
+                ("Water", 0.02),
+                ("Polymers", 0.002),
+                ("Sulfur", 0.00046667),
+            ],
+            modifiers: [
+                (modifier_type: "Helium3Production", value: 0.05),
+            ],
+            power_demand_mw: 100.0,
+            line: Some("AutoMine"),
+            allowed_body_types: [Asteroid, Moon, GasGiant],
+        ),
+        (
+            id: "AutoWaterProcessor",
+            display_name: "Auto Water Extractor",
+            description: "Orbital water extractor for carbonaceous chondrites / icy moons. 1.6 Mt/yr per build × deposit.accessibility. Body: [Asteroid, Moon, GasGiant].",
+            icon: "textures/ui/buildings/auto-water-processor.png",
+            category: "Mining",
+            build_points: 2000.0,
+            workforce: 600,
+            required_tech: "asteroid_mining",
+            resource_costs: [
+                ("Iron", 130.0),
+                ("Copper", 30.0),
+                ("Aluminum", 20.0),
+            ],
+            maintenance_resources: [
+                ("Iron", 0.01),
+                ("Water", 0.05),
+                ("Polymers", 0.002),
+                ("Aluminum", 0.001),
+                ("Sulfur", 0.00046667),
+            ],
+            modifiers: [
+                (modifier_type: "WaterProduction", value: 1.6),
+            ],
+            power_demand_mw: 200.0,
+            line: Some("AutoMine"),
+            allowed_body_types: [Asteroid, Moon, GasGiant],
         ),
 
-        // ========================================
         // LOGISTICS
         // ========================================
         (
             id: "MassDriver",
             display_name: "Mass Driver",
             description: "Electromagnetic launcher for bulk cargo between bodies",
-            icon: "🧲",
+            icon: "textures/ui/buildings/mass-driver.png",
             category: "Logistics",
             build_points: 2000.0,
             workforce: 2500,
@@ -461,26 +2007,41 @@
                 ("RareEarths", 50.0),
             ],
             maintenance_resources: [
-                ("Copper", 0.5),
+                ("Copper", 0.19415),
                 ("Iron", 0.05),
                 ("RareEarths", 0.0005),
                 ("Water", 0.05),
                 ("Polymers", 0.001),
             ],
-            modifiers: [],
+            modifiers: [
+                // v3.6: LogisticsCapacity per MassDriver = 5,000 t/yr
+                // (Earth-to-orbit bulk cargo). Authoritative value
+                // moved to RON from hard-code at
+                // `src/colony/components.rs:logistics_capacity`.
+                (modifier_type: "LogisticsCapacity", value: 5000.0),
+            ],
             power_demand_mw: 500.0,
         ),
         (
             id: "OrbitalLift",
             display_name: "Orbital Lift",
             description: "Space elevator for efficient surface-to-orbit transport",
-            icon: "🚡",
+            icon: "textures/ui/buildings/orbital-lift.png",
             category: "Logistics",
             build_points: 5000.0,
             workforce: 6000,
             required_tech: "",
             resource_costs: [
-                ("Titanium", 500.0),
+                // v3.1 canary 10 (BALANCE_PATCHES_v0.5.md §0.G): 500 Mt
+                // Ti at 25 TitaniumMines × 0.02 Mt/yr × 0.6 Earth
+                // accessibility = 0.3 Mt/yr Ti production → 1,667 yr
+                // payback. Hard blocker: the player can never build
+                // an OrbitalLift. Dropping to 5 Mt gives a 16.7 yr
+                // payback (tier-3 strategic, per the v3.1 cost curve).
+                // Real-world space elevator Ti requirement is ~0.1 Mt
+                // per cable (USGS / NASA 2024), so 5 Mt is still
+                // 50× the real figure — calibrated for tier-3 pacing.
+                ("Titanium", 5.0),
                 ("Iron", 333.0),
                 ("RareEarths", 83.0),
                 ("Carbon", 167.0),
@@ -490,16 +2051,22 @@
                 ("Iron", 0.5),
                 ("Carbon", 0.05),
                 ("RareEarths", 0.001),
-                ("Copper", 0.01),
+                ("Copper", 0.003883),
             ],
-            modifiers: [],
-            power_demand_mw: 800.0,
+            modifiers: [
+                // v3.6: LogisticsCapacity per OrbitalLift = 20,000 t/yr
+                // (Earth-to-orbit; 4× MassDriver — the most efficient
+                // ground-to-orbit option). Authoritative value moved
+                // to RON from hard-code.
+                (modifier_type: "LogisticsCapacity", value: 20000.0),
+            ],
+            power_demand_mw: 1200,
         ),
         (
             id: "CargoTerminal",
             display_name: "Cargo Terminal",
             description: "Ground-based cargo distribution hub",
-            icon: "📦",
+            icon: "textures/ui/buildings/cargo-terminal.png",
             category: "Logistics",
             build_points: 300.0,
             workforce: 3000,
@@ -510,12 +2077,17 @@
             ],
             maintenance_resources: [
                 ("Iron", 0.05),
-                ("Copper", 0.002),
+                ("Copper", 0.0007766),
                 ("Polymers", 0.001),
                 ("Water", 0.01),
             ],
-            modifiers: [],
-            power_demand_mw: 100.0,
+            modifiers: [
+                // v3.6: LogisticsCapacity per CargoTerminal = 2,000 t/yr
+                // (ground distribution; 0.4× MassDriver). Authoritative
+                // value moved to RON from hard-code.
+                (modifier_type: "LogisticsCapacity", value: 2000.0),
+            ],
+            power_demand_mw: 150,
         ),
 
         // ========================================
@@ -525,7 +2097,7 @@
             id: "SolarPower",
             display_name: "Solar Power Plant",
             description: "Solar PV arrays at world scale (240 GW avg, 2026 solar share)",
-            icon: "☀",
+            icon: "textures/ui/buildings/solar-power.png",
             category: "Power",
             build_points: 200.0,
             workforce: 500,
@@ -537,23 +2109,23 @@
             ],
             maintenance_resources: [
                 ("Silicates", 0.01),
-                ("Copper", 0.001),
-                ("Lithium", 0.0005),
+                ("Copper", 0.0003883),
+                ("Lithium", 0.00019958),
                 ("Aluminum", 0.0005),
                 ("Polymers", 0.0005),
             ],
             modifiers: [
                 // 2026 reference: world solar share ≈ 7% of 30,000 TWh/yr = 240 GW avg.
                 // Operator bar: 1 solar plant ≈ world solar share.
-                (modifier_type: "PowerGeneration", value: 240.0),
+                (modifier_type: "PowerGeneration", value: 1.02),
             ],
             power_demand_mw: 0.0,
         ),
         (
             id: "FissionReactor",
             display_name: "Fission Reactor",
-            description: "Nuclear fission reactor park at world scale (310 GW avg, 2026 nuclear share)",
-            icon: "☢",
+            description: "Nuclear fission reactor park at world scale (310 GW avg, 2026 nuclear share). Spent-fuel reprocessing yields Pu as a byproduct (real-life 2026: ~70 t/yr global).",
+            icon: "textures/ui/buildings/fission-reactor.png",
             category: "Power",
             build_points: 1500.0,
             workforce: 4000,
@@ -565,16 +2137,31 @@
                 ("Lithium", 17.0),
             ],
             maintenance_resources: [
-                ("Uranium", 0.0028),
+                ("Uranium", 0.003542),
                 ("Fluorine", 0.005),
                 ("Water", 0.05),
                 ("Iron", 0.01),
-                ("Lithium", 0.0002),
+                ("Lithium", 7.878e-05),
+                // v3.8.13: heavy-water (D₂O) moderator for the
+                // CANDU-style fleet — small (0.0005 × 20 = 0.01 Mt/yr)
+                // but gives Deuterium a real consumer.
+                ("Deuterium", 0.0005),
             ],
             modifiers: [
                 // 2026 reference: world nuclear share ≈ 9% of 30,000 TWh/yr = 310 GW avg.
                 // Operator bar: 1 reactor ≈ world nuclear share.
-                (modifier_type: "PowerGeneration", value: 310.0),
+                (modifier_type: "PowerGeneration", value: 16.28),
+                // v3.8.6 (2026-08-07): Plutonium production as a
+                // byproduct of fission (Pu-239 bred from U-238 by
+                // neutron capture in the reactor blanket, then
+                // separated during spent-fuel reprocessing).  Real
+                // 2026: ~70 t/yr global, growing to ~1,000 t/yr
+                // if all spent fuel is reprocessed.  Calibrated
+                // so 20 reactors × value × 0.6 = 12 t/yr
+                // (1× commercial reprocessing rate, conservative
+                // for the 2026 baseline; Pu is mostly in
+                // stockpiles, not actively reprocessed yet).
+                (modifier_type: "PlutoniumProduction", value: 0.001),
             ],
             power_demand_mw: 100.0,
         ),
@@ -582,7 +2169,7 @@
             id: "FusionReactor",
             display_name: "Fusion Reactor",
             description: "Advanced fusion power plant (game-unlock; 2,000 GW mature sector target)",
-            icon: "⚡",
+            icon: "textures/ui/buildings/fusion-reactor.png",
             category: "Power",
             build_points: 5000.0,
             workforce: 8000,
@@ -599,7 +2186,7 @@
                 ("Cobalt", 0.002),
                 ("Fluorine", 0.003),
                 ("Titanium", 0.05),
-                ("Lithium", 0.0005),
+                ("Lithium", 0.00019958),
             ],
             modifiers: [
                 // 2026: commercial fusion is 0 GW. Game-unlock target: dominant
@@ -612,7 +2199,7 @@
             id: "DTFusionReactor",
             display_name: "D-T Fusion Reactor",
             description: "High-output D-T fusion with lithium breeding (3,000 GW mature target)",
-            icon: "⚛",
+            icon: "textures/ui/buildings/dt-fusion-reactor.png",
             category: "Power",
             build_points: 6000.0,
             workforce: 9000,
@@ -626,7 +2213,7 @@
             maintenance_resources: [
                 ("Deuterium", 0.0015),
                 ("Tritium", 0.0005),
-                ("Lithium", 0.0002),
+                ("Lithium", 7.878e-05),
                 ("Cobalt", 0.002),
                 ("Fluorine", 0.003),
                 ("Titanium", 0.05),
@@ -641,7 +2228,7 @@
             id: "DHe3FusionReactor",
             display_name: "D-He3 Fusion Reactor",
             description: "Premium D-He3 fusion for cleaner late-game baseload (2,500 GW mature)",
-            icon: "☀",
+            icon: "textures/ui/buildings/missing.png",
             category: "Power",
             build_points: 7000.0,
             workforce: 9500,
@@ -658,7 +2245,7 @@
                 ("Cobalt", 0.002),
                 ("Fluorine", 0.003),
                 ("Titanium", 0.05),
-                ("Lithium", 0.0005),
+                ("Lithium", 0.00019958),
             ],
             modifiers: [
                 // 2026: 0. Game-unlock: 2,500 GW premium baseload.
@@ -676,7 +2263,7 @@
             id: "ThoriumReactor",
             display_name: "Thorium Reactor",
             description: "Molten-salt thorium reactor (800 GW mature target)",
-            icon: "♨",
+            icon: "textures/ui/buildings/thorium-reactor.png",
             category: "Power",
             build_points: 1800.0,
             workforce: 4500,
@@ -688,11 +2275,10 @@
                 ("Lithium", 17.0),
             ],
             maintenance_resources: [
-                ("Thorium", 0.0012),
                 ("Fluorine", 0.004),
                 ("Water", 0.05),
                 ("Iron", 0.01),
-                ("Lithium", 0.0002),
+                ("Lithium", 7.878e-05),
             ],
             modifiers: [
                 // 2026: 0 (molten-salt thorium is research-stage).
@@ -705,7 +2291,7 @@
             id: "BreederReactor",
             display_name: "Breeder Reactor",
             description: "Fast-spectrum breeder (700 GW power + 0.23 Mt/yr plutonium)",
-            icon: "☢",
+            icon: "textures/ui/buildings/breeder-reactor.png",
             category: "Power",
             build_points: 2600.0,
             workforce: 5000,
@@ -717,7 +2303,7 @@
                 ("RareEarths", 20.0),
             ],
             maintenance_resources: [
-                ("Uranium", 0.0015),
+                ("Uranium", 0.0018975),
                 ("Fluorine", 0.004),
                 ("Water", 0.05),
                 ("Iron", 0.01),
@@ -739,8 +2325,8 @@
         (
             id: "AgriDome",
             display_name: "Agricultural Dome",
-            description: "Closed-environment food production for off-world colonies (Moon, Mars, asteroids), 180 Mt/yr. Requires Hydroponics tech — not buildable on Earth from start.",
-            icon: "🥬",
+            description: "Closed-environment food production for off-world colonies (Moon, Mars, asteroids). 4 Mt/yr per build (v3.5: 1 AgriDome feeds 3.6M people at 1,100 kg/p/yr; 5 AgriDomes feed 18M). Requires Hydroponics tech — not buildable on Earth from start.",
+            icon: "textures/ui/buildings/agri-dome.png",
             category: "Population",
             build_points: 600.0,
             workforce: 3000,
@@ -754,16 +2340,18 @@
             maintenance_resources: [
                 ("Water", 10.0),
                 ("Phosphorus", 0.5),
-                ("Sulfur", 0.05),
                 ("Polymers", 0.01),
                 ("Nitrogen", 0.5),
-                ("Oxygen", 0.2),
+                ("Oxygen", 0.13333),
+                // v3.8.13: closed-environment ammonia fertilizer
+                // (hydroponic nutrient loop).
+                ("Ammonia", 0.5),
             ],
             modifiers: [
                 // 2026 reference: world food total ~9,000 Mt/yr; 1 AgriDome
                 // represents 2% of a Farm (closed env penalty).
                 // Operator bar: 1 dome ≈ moon-base food share.
-                (modifier_type: "FoodProduction", value: 180.0),
+                (modifier_type: "FoodProduction", value: 4),
             ],
             available_atmospheres: [None],
             power_demand_mw: 200.0,
@@ -771,11 +2359,24 @@
         (
             id: "Farm",
             display_name: "Farm",
-            description: "Industrial-scale open-air food production, 9 Gt/yr (world food total)",
-            icon: "🌾",
+            description: "Industrial-scale open-air food production. 360 Mt/yr per build (v3.5: 25 Farms × 360 × 1.0 yield = 9,000 Mt/yr = 8.2B × 1,100 kg/p/yr = FAO 2024 world food). 1 Farm feeds 327M people at 1,100 kg/p/yr.",
+            icon: "textures/ui/buildings/farm.png",
             category: "Population",
             build_points: 100.0,
-            workforce: 1000,
+            // v3.1 canary 9 (BALANCE_PATCHES_v0.5.md §0.F.3): 1,000
+            // workers per Farm was 1,600× understaffed vs the
+            // post-v3 food calibration (1 Farm feeds 327M people
+            // at 1,100 kg/p/yr; real-world 1 farmer feeds ~155
+            // people, so 2.1M workers per Farm is the strict
+            // operator-bar value). The early-colony test at
+            // `src/colony/types.rs:1592-1610` requires 6 early
+            // buildings to fit in 40,000 workers, so 2,100,000
+            // would break the test. 2,000 is the v3.1 compromise:
+            // 1 worker / 164,000 people-fed (2× the real-world 1:155
+            // productivity, since the v3 FoodProduction value is
+            // operator-bar scaled not 1:1 with reality) and the
+            // early-colony test still passes (sum 13,500 < 40,000).
+            workforce: 2000,
             required_tech: "",
             resource_costs: [
                 ("Iron", 8.0),
@@ -783,27 +2384,30 @@
                 ("Phosphorus", 3.0),
             ],
             maintenance_resources: [
-                ("Water", 0.0),
-                ("Sulfur", 0.003),
+                ("Sulfur", 0.0014),
                 ("Phosphorus", 0.0002),
                 ("Polymers", 0.001),
                 ("Nitrogen", 0.05),
                 ("Iron", 0.0005),
+                // v3.8.13: ammonia fertilizer (Haber-Bosch NH₃). 4 Mt/yr
+                // per Farm × 25 = 100 Mt/yr = the open-field fertilizer
+                // share of the 200 Mt/yr world ammonia output.
+                ("Ammonia", 4.0),
             ],
             modifiers: [
                 // 2026 reference: world food production (cereals + all) ~9,000 Mt/yr
                 // (FAO 2024; cereals ~2,900 Mt/yr cereals alone, ~9 Gt total).
                 // Operator bar: 1 farm ≈ world food total.
-                (modifier_type: "FoodProduction", value: 9000.0),
+                (modifier_type: "FoodProduction", value: 360),
             ],
             available_atmospheres: [Breathable],
-            power_demand_mw: 30.0,
+            power_demand_mw: 45,
         ),
         (
             id: "MedicalCenter",
             display_name: "Medical Center",
             description: "Medical facilities to boost population growth",
-            icon: "🏥",
+            icon: "textures/ui/buildings/medical-center.png",
             category: "Population",
             build_points: 800.0,
             workforce: 6000,
@@ -815,17 +2419,19 @@
             ],
             maintenance_resources: [
                 ("Water", 0.1),
-                ("Copper", 0.005),
+                ("Copper", 0.0019415),
                 ("Polymers", 0.003),
                 ("Phosphorus", 0.0005),
-                ("Sulfur", 0.0005),
+                ("Sulfur", 0.00023333),
+                // v3.8.13: medical-grade oxygen (hospitals).
+                ("Oxygen", 0.05),
             ],
             modifiers: [
                 // Population-growth bonus per centre; calibration target
                 // ~0.5% world growth-rate boost per center.
                 (modifier_type: "PopulationGrowth", value: 50.0),
             ],
-            power_demand_mw: 150.0,
+            power_demand_mw: 225,
         ),
 
         // ========================================
@@ -835,7 +2441,7 @@
             id: "ResearchLab",
             display_name: "Research Lab",
             description: "Scientific research laboratory (100% research-sector share per lab)",
-            icon: "🔬",
+            icon: "textures/ui/buildings/research-lab.png",
             category: "Research",
             build_points: 1000.0,
             workforce: 8000,
@@ -846,9 +2452,9 @@
                 ("RareEarths", 50.0),
             ],
             maintenance_resources: [
-                ("Copper", 0.005),
+                ("Copper", 0.0019415),
                 ("RareEarths", 0.0001),
-                ("Lithium", 0.00005),
+                ("Lithium", 1.9695e-05),
                 ("Polymers", 0.002),
                 ("Cobalt", 0.0001),
                 ("Water", 0.05),
@@ -858,13 +2464,13 @@
                 // to give 1 lab ≈ 100% of one research sector contribution.
                 (modifier_type: "ResearchSpeed", value: 100.0),
             ],
-            power_demand_mw: 300.0,
+            power_demand_mw: 450,
         ),
         (
             id: "EngineeringBay",
             display_name: "Engineering Bay",
             description: "Engineering workshop for component development",
-            icon: "🔩",
+            icon: "textures/ui/buildings/engineering-bay.png",
             category: "Research",
             build_points: 1200.0,
             workforce: 10000,
@@ -876,7 +2482,7 @@
             ],
             maintenance_resources: [
                 ("Iron", 0.1),
-                ("Copper", 0.01),
+                ("Copper", 0.003883),
                 ("Titanium", 0.001),
                 ("Polymers", 0.001),
                 ("RareEarths", 0.0002),
@@ -885,13 +2491,13 @@
                 // 1 bay ≈ 100% of one engineering sector contribution.
                 (modifier_type: "EngineeringSpeed", value: 100.0),
             ],
-            power_demand_mw: 400.0,
+            power_demand_mw: 600,
         ),
         (
             id: "AiCluster",
             display_name: "AI Cluster",
             description: "AI computation cluster (high-throughput research and engineering)",
-            icon: "🤖",
+            icon: "textures/ui/buildings/ai-cluster.png",
             category: "Research",
             build_points: 4000.0,
             workforce: 2000,
@@ -903,11 +2509,13 @@
             ],
             maintenance_resources: [
                 ("RareEarths", 0.001),
-                ("Copper", 0.01),
-                ("Cobalt", 0.0002),
-                ("Lithium", 0.0005),
-                ("Polymers", 0.0005),
-                ("Water", 0.05),
+                ("Copper", 0.003883),
+                ("Lithium", 0.00019958),
+                // v3.8.13: precious metals for AI hardware (gold
+                // wire-bonding, silver interconnects, platinum sensors).
+                ("Gold", 5e-05),
+                ("Silver", 0.0005),
+                ("Platinum", 5e-06),
             ],
             modifiers: [
                 // 1 cluster = 3× research + 2× engineering sector contribution.
@@ -924,7 +2532,7 @@
             id: "CommercialHub",
             display_name: "Commercial Hub",
             description: "Commercial centre generating wealth from trade",
-            icon: "🏪",
+            icon: "textures/ui/buildings/commercial-hub.png",
             category: "Financial",
             build_points: 500.0,
             workforce: 8000,
@@ -935,19 +2543,25 @@
             ],
             maintenance_resources: [
                 ("Iron", 0.01),
-                ("Copper", 0.002),
+                ("Copper", 0.0007766),
                 ("Polymers", 0.001),
                 ("Water", 0.05),
-                ("Sulfur", 0.001),
+                ("Sulfur", 0.00046667),
             ],
-            modifiers: [],
-            power_demand_mw: 80.0,
+            modifiers: [
+                // v3.6: WealthGeneration per CommercialHub = 500 MC/yr
+                // (local-economy revenue). Authoritative value moved
+                // to RON from hard-code at
+                // `src/colony/components.rs:wealth_generation_per_year`.
+                (modifier_type: "WealthGeneration", value: 500.0),
+            ],
+            power_demand_mw: 120,
         ),
         (
             id: "FinancialCenter",
             display_name: "Financial Center",
             description: "Banking and investment for wealth generation",
-            icon: "🏦",
+            icon: "textures/ui/buildings/financial-center.png",
             category: "Financial",
             build_points: 1500.0,
             workforce: 10000,
@@ -958,20 +2572,24 @@
                 ("RareEarths", 50.0),
             ],
             maintenance_resources: [
-                ("Copper", 0.01),
+                ("Copper", 0.003883),
                 ("RareEarths", 0.0005),
                 ("Iron", 0.01),
                 ("Polymers", 0.001),
-                ("Lithium", 0.0001),
+                ("Lithium", 3.939e-05),
             ],
-            modifiers: [],
-            power_demand_mw: 100.0,
+            modifiers: [
+                // v3.6: WealthGeneration per FinancialCenter = 2,000 MC/yr
+                // (investment returns). Authoritative value moved to RON.
+                (modifier_type: "WealthGeneration", value: 2000.0),
+            ],
+            power_demand_mw: 150,
         ),
         (
             id: "TradePort",
             display_name: "Trade Port",
             description: "Interplanetary trade port for import/export revenue",
-            icon: "🚢",
+            icon: "textures/ui/buildings/trade-port.png",
             category: "Financial",
             build_points: 2500.0,
             workforce: 15000,
@@ -983,13 +2601,18 @@
             ],
             maintenance_resources: [
                 ("Iron", 0.5),
-                ("Copper", 0.02),
+                ("Copper", 0.007766),
                 ("Titanium", 0.005),
                 ("Polymers", 0.001),
                 ("Water", 0.05),
             ],
-            modifiers: [],
-            power_demand_mw: 200.0,
+            modifiers: [
+                // v3.6: WealthGeneration per TradePort = 5,000 MC/yr
+                // (interplanetary trade revenue). Authoritative value
+                // moved to RON from hard-code.
+                (modifier_type: "WealthGeneration", value: 5000.0),
+            ],
+            power_demand_mw: 300,
         ),
 
         // ========================================
@@ -999,7 +2622,7 @@
             id: "Shipyard",
             display_name: "Shipyard",
             description: "Orbital shipyard for constructing vessels",
-            icon: "⚓",
+            icon: "textures/ui/buildings/shipyard.png",
             category: "Military",
             build_points: 10000.0,
             workforce: 80000,
@@ -1016,22 +2639,24 @@
                 ("Iron", 5.0),
                 ("Titanium", 0.002),
                 ("Chromium", 0.5),
-                ("Cobalt", 0.0001),
-                ("Magnesium", 0.002),
                 ("Polymers", 0.005),
+                // v3.8.13: H₂ fuel-cell/assembly + argon welding shield
+                // (H₂ 0.1 × 18 = 1.8 Mt/yr; Ar 0.03 × 18 = 0.54 Mt/yr).
+                ("Hydrogen", 0.1),
+                ("Argon", 0.03),
             ],
             modifiers: [
                 // -300% construction cost per shipyard (legacy percent; GRA-22c
                 // will replace with tier-2 build-cost modifier).
                 (modifier_type: "ConstructionCost", value: -300.0),
             ],
-            power_demand_mw: 3000.0,
+            power_demand_mw: 4500,
         ),
         (
             id: "MissileSilo",
             display_name: "Missile Silo",
             description: "Ground-based missile silo for planetary defence",
-            icon: "🚀",
+            icon: "textures/ui/buildings/missile-silo.png",
             category: "Military",
             build_points: 3000.0,
             workforce: 5000,
@@ -1044,7 +2669,7 @@
             ],
             maintenance_resources: [
                 ("Iron", 0.5),
-                ("Copper", 0.01),
+                ("Copper", 0.003883),
                 ("Titanium", 0.005),
                 ("Tungsten", 0.001),
                 ("Polymers", 0.001),
@@ -1056,7 +2681,7 @@
             id: "LaunchSite",
             display_name: "Launch Site",
             description: "Rocket launch site for orbital access",
-            icon: "🛫",
+            icon: "textures/ui/buildings/launch-site.png",
             category: "Military",
             build_points: 2000.0,
             workforce: 12000,
@@ -1069,12 +2694,16 @@
             maintenance_resources: [
                 ("Iron", 0.5),
                 ("Aluminum", 0.005),
-                ("Magnesium", 0.002),
+                ("Magnesium", 0.00125),
                 ("Water", 0.05),
                 ("Polymers", 0.001),
+                // v3.8.13: hydrogen/CH₄ rocket propellant (0.15 Mt/yr
+                // × 200 sites = 30 Mt/yr — the launch-sector H₂ share
+                // of the 100 Mt/yr world H₂ output).
+                ("Hydrogen", 0.15),
             ],
             modifiers: [],
-            power_demand_mw: 500.0,
+            power_demand_mw: 750,
         ),
 
         // ========================================
@@ -1084,10 +2713,20 @@
             id: "WindFarm",
             display_name: "Wind Farm",
             description: "Wind turbines at world scale (310 GW avg, 2026 wind share)",
-            icon: "💨",
+            icon: "textures/ui/buildings/wind-farm.png",
             category: "Power",
             build_points: 300.0,
-            workforce: 200,
+            // v3.1 canary 9 (BALANCE_PATCHES_v0.5.md §0.F.3): 200
+            // workers for a 250 GW wind farm was 100× understaffed
+            // (real-world 1 worker per 5–10 MW, so 250 GW needs
+            // 25,000–50,000 workers). 1,000 is a 5× bump that
+            // lands per-worker productivity at 250 MW/worker —
+            // 25–50× real-world — closer to the v3.1
+            // operator-bar band without breaking the
+            // early-colony test. (Wind farms have the lowest
+            // operator density of any power source; 200 was
+            // an extreme outlier.)
+            workforce: 1000,
             required_tech: "",
             resource_costs: [
                 ("Iron", 50.0),
@@ -1096,14 +2735,14 @@
             ],
             maintenance_resources: [
                 ("Iron", 0.01),
-                ("Copper", 0.002),
+                ("Copper", 0.0007766),
                 ("Aluminum", 0.0005),
                 ("Polymers", 0.0005),
-                ("Lithium", 0.00005),
+                ("Lithium", 1.9695e-05),
             ],
             modifiers: [
                 // 2026 reference: world wind share ≈ 9% of 30,000 TWh/yr = 310 GW avg.
-                (modifier_type: "PowerGeneration", value: 310.0),
+                (modifier_type: "PowerGeneration", value: 0.9),
             ],
             power_demand_mw: 0.0,
         ),
@@ -1111,7 +2750,7 @@
             id: "HydroelectricDam",
             display_name: "Hydroelectric Dam",
             description: "Hydroelectric at world scale (510 GW avg, 2026 hydro share)",
-            icon: "🌊",
+            icon: "textures/ui/buildings/hydroelectric-dam.png",
             category: "Power",
             build_points: 2500.0,
             workforce: 1000,
@@ -1123,14 +2762,14 @@
             ],
             maintenance_resources: [
                 ("Iron", 0.1),
-                ("Copper", 0.005),
+                ("Copper", 0.0019415),
                 ("Aluminum", 0.001),
                 ("Polymers", 0.001),
                 ("Water", 0.05),
             ],
             modifiers: [
                 // 2026 reference: world hydro share ≈ 15% of 30,000 TWh/yr = 510 GW avg.
-                (modifier_type: "PowerGeneration", value: 510.0),
+                (modifier_type: "PowerGeneration", value: 6.18),
             ],
             power_demand_mw: 0.0,
         ),
@@ -1138,7 +2777,7 @@
             id: "GeothermalPlant",
             display_name: "Geothermal Plant",
             description: "Geothermal at world scale (100 GW avg, 2026 geothermal share)",
-            icon: "🌋",
+            icon: "textures/ui/buildings/geothermal-plant.png",
             category: "Power",
             build_points: 1800.0,
             workforce: 800,
@@ -1165,7 +2804,7 @@
             id: "CoalPowerPlant",
             display_name: "Coal Power Sector",
             description: "Coal-fired power at world scale (1,200 GW avg, 2026 coal share)",
-            icon: "🏭",
+            icon: "textures/ui/buildings/coal-power-plant.png",
             category: "Power",
             build_points: 800.0,
             workforce: 2000,
@@ -1176,17 +2815,22 @@
                 ("Silicates", 83.0),
             ],
             maintenance_resources: [
-                ("Carbon", 20.0),
+                ("Carbon", 10.0),
                 ("Iron", 0.1),
-                ("Copper", 0.005),
+                ("Copper", 0.0019415),
                 ("Water", 0.05),
-                ("Sulfur", 0.05),
+                ("Sulfur", 0.023333),
                 ("Polymers", 0.001),
             ],
             modifiers: [
                 // 2026 reference: world coal share ≈ 35% of 30,000 TWh/yr = 1,200 GW avg.
                 // Operator bar: 1 coal sector ≈ world coal share.
-                (modifier_type: "PowerGeneration", value: 1200.0),
+                // v3.8.10: coal consumption halved 20→10 Mt/yr/build (50% efficiency
+                // improvement, ~2030 ultra-supercritical target). Same 5.56 GW output
+                // per plant, half the coal. 195 plants × 10 = 1950 Mt/yr coal use,
+                // leaving per-cap (5740) + maint (1950) = 7690 vs prod 8200 → +510
+                // surplus (exportable).
+                (modifier_type: "PowerGeneration", value: 5.56),
             ],
             power_demand_mw: 0.0,
         ),
@@ -1194,7 +2838,7 @@
             id: "NaturalGasPlant",
             display_name: "Gas Power Sector",
             description: "Gas turbine power at world scale (750 GW avg, 2026 gas share)",
-            icon: "🔥",
+            icon: "textures/ui/buildings/natural-gas-plant.png",
             category: "Power",
             build_points: 600.0,
             workforce: 1500,
@@ -1207,13 +2851,13 @@
             maintenance_resources: [
                 ("Methane", 5.0),
                 ("Iron", 0.05),
-                ("Copper", 0.002),
+                ("Copper", 0.0007766),
                 ("Water", 0.05),
                 ("Polymers", 0.001),
             ],
             modifiers: [
                 // 2026 reference: world gas share ≈ 22% of 30,000 TWh/yr = 750 GW avg.
-                (modifier_type: "PowerGeneration", value: 750.0),
+                (modifier_type: "PowerGeneration", value: 5.89),
             ],
             power_demand_mw: 0.0,
         ),
@@ -1225,7 +2869,7 @@
             id: "SemiconductorFab",
             display_name: "Electronics Industry",
             description: "Planetary electronics and microchip manufacturing (~$0.6T world sector share)",
-            icon: "💾",
+            icon: "textures/ui/buildings/semiconductor-fab.png",
             category: "Industry",
             build_points: 5000.0,
             workforce: 5000,
@@ -1237,25 +2881,27 @@
                 ("Aluminum", 67.0),
             ],
             maintenance_resources: [
-                ("Silicates", 0.5),
                 ("RareEarths", 0.01),
-                ("Copper", 0.02),
+                ("Copper", 0.007766),
                 ("Fluorine", 0.01),
-                ("Polymers", 0.005),
-                ("Water", 0.1),
+                // v3.8.13: precious metals for chip manufacturing
+                // (gold bond wires, silver plating, platinum targets).
+                ("Gold", 5e-05),
+                ("Silver", 0.0005),
+                ("Platinum", 5e-06),
             ],
             modifiers: [
                 // 1 fab ≈ 3× research + 2× engineering sector contribution.
                 (modifier_type: "ResearchSpeed", value: 300.0),
                 (modifier_type: "EngineeringSpeed", value: 200.0),
             ],
-            power_demand_mw: 1000.0,
+            power_demand_mw: 1500,
         ),
         (
             id: "PharmaceuticalPlant",
             display_name: "Pharmaceutical Sector",
             description: "Civilisation-scale pharmaceutical and biomedical production",
-            icon: "💊",
+            icon: "textures/ui/buildings/pharmaceutical-plant.png",
             category: "Industry",
             build_points: 800.0,
             workforce: 4000,
@@ -1267,17 +2913,17 @@
             ],
             maintenance_resources: [
                 ("Water", 0.5),
-                ("Sulfur", 0.1),
+                ("Sulfur", 0.046667),
                 ("Phosphorus", 0.0005),
                 ("Polymers", 0.005),
                 ("Nitrogen", 0.05),
-                ("Copper", 0.002),
+                ("Copper", 0.0007766),
             ],
             modifiers: [
                 // 1 plant ≈ 0.3% world growth-rate boost (per plant basis).
                 (modifier_type: "PopulationGrowth", value: 30.0),
             ],
-            power_demand_mw: 300.0,
+            power_demand_mw: 450,
         ),
 
         // ========================================
@@ -1287,7 +2933,7 @@
             id: "WaterTreatmentPlant",
             display_name: "Water Management Complex",
             description: "Planetary water purification and distribution network",
-            icon: "💧",
+            icon: "textures/ui/buildings/water-treatment-plant.png",
             category: "Infrastructure",
             build_points: 400.0,
             workforce: 500,
@@ -1299,14 +2945,27 @@
             ],
             maintenance_resources: [
                 ("Iron", 0.01),
-                ("Sulfur", 0.005),
+                ("Sulfur", 0.0023333),
                 ("Polymers", 0.001),
-                ("Copper", 0.001),
+                ("Copper", 0.0003883),
                 ("Phosphorus", 0.0001),
             ],
             modifiers: [
                 // 1 complex ≈ 0.2% world growth-rate boost.
                 (modifier_type: "PopulationGrowth", value: 20.0),
+                // v3.8.4: added per-build water production
+                // (Earth had 500 WaterTreatmentPlant producing 0).
+                // v3.8.10 (2026-08-07): calibrated to 8.0 Mt/yr/build so
+                // 500 plants = 4,000 Mt/yr = real 2026 world water
+                // throughput (UNESCO 2024 / IEA 2024: 1,500 industrial +
+                // 1,500 agricultural + 1,000 municipal).  v3.8.4 had 12.33
+                // = 3,700 Mt (close but 8% under), v3.8.10 bumps to 8.0
+                // (= exactly 1× 2026 world).
+                //
+                // v3.8.14: the t=0 display showed +3.5 Gt/yr (gross 4,000
+                // vs consumption 429). Re-calibrated to Earth-start
+                // consumption: 429/(500×1.0)×1.02 = 0.875 Mt/yr/build.
+                (modifier_type: "WaterProduction", value: 0.875),
             ],
             power_demand_mw: 150.0,
         ),
@@ -1314,7 +2973,7 @@
             id: "DesalinationPlant",
             display_name: "Desalination Complex",
             description: "Large-scale ocean desalination infrastructure for water-scarce worlds",
-            icon: "🧂",
+            icon: "textures/ui/buildings/desalination-plant.png",
             category: "Infrastructure",
             build_points: 600.0,
             workforce: 400,
@@ -1328,8 +2987,8 @@
                 ("Iron", 0.02),
                 ("Titanium", 0.005),
                 ("Polymers", 0.001),
-                ("Copper", 0.001),
-                ("Sulfur", 0.001),
+                ("Copper", 0.0003883),
+                ("Sulfur", 0.00046667),
             ],
             modifiers: [
                 // 1 plant ≈ 0.1% world growth-rate boost.
@@ -1337,41 +2996,14 @@
             ],
             power_demand_mw: 200.0,
         ),
-        (
-            id: "RecyclingCenter",
-            display_name: "Industrial Recycling Complex",
-            description: "Industrial-scale material recovery and resource reprocessing (500 Mt/yr world share)",
-            icon: "♻️",
-            category: "Infrastructure",
-            build_points: 300.0,
-            workforce: 1000,
-            required_tech: "",
-            resource_costs: [
-                ("Iron", 33.0),
-                ("Silicates", 17.0),
-            ],
-            maintenance_resources: [
-                ("Iron", 0.005),
-                ("Copper", 0.001),
-                ("Polymers", 0.0005),
-                ("Water", 0.01),
-                ("Sulfur", 0.0005),
-            ],
-            modifiers: [
-                // 2026 reference: world recycled-metal supply ~500 Mt/yr (BIR 2024).
-                (modifier_type: "MiningEfficiency", value: 500.0),
-            ],
-            power_demand_mw: 150.0,
-        ),
-
         // ========================================
         // ADVANCED AGRICULTURE
         // ========================================
         (
             id: "Greenhouse",
             display_name: "Greenhouse Complex",
-            description: "Climate-controlled crop production (5 Gt/yr specialty foods share)",
-            icon: "🌿",
+            description: "Climate-controlled crop production (specialty foods). 200 Mt/yr per build (v3.5: 10 Greenhouses × 200 = 2,000 Mt/yr = 22% of world food; 10 GreenhouseComplex = 1.8B people fed).",
+            icon: "textures/ui/buildings/greenhouse.png",
             category: "Population",
             build_points: 400.0,
             workforce: 2000,
@@ -1384,22 +3016,28 @@
             maintenance_resources: [
                 ("Water", 2.0),
                 ("Phosphorus", 0.001),
-                ("Sulfur", 0.001),
                 ("Polymers", 0.005),
                 ("Nitrogen", 0.05),
+                // v3.8.13: ammonia fertilizer + CO₂ enrichment.
+                // 20 Mt/yr NH₃ × 1 = 20 (intensive fertilizer);
+                // 80 Mt/yr CO₂ × 1 = 80 (real greenhouse CO₂
+                // enrichment boosts yield ~30%; at 1 build = 200 Mt/yr
+                // food, ~0.4 t CO₂/t food is the field ratio).
+                ("Ammonia", 20.0),
+                ("CarbonDioxide", 80.0),
             ],
             modifiers: [
                 // 2026 reference: greenhouse/vertical-farm share ~50% of food total.
-                (modifier_type: "FoodProduction", value: 5000.0),
+                (modifier_type: "FoodProduction", value: 200),
             ],
             available_atmospheres: [Breathable],
-            power_demand_mw: 100.0,
+            power_demand_mw: 150,
         ),
         (
             id: "AquacultureFacility",
             display_name: "Aquaculture Complex",
-            description: "Planetary aquatic protein farming (1.5 Gt/yr seafood share)",
-            icon: "🐟",
+            description: "Planetary aquatic protein farming. 200 Mt/yr per build (v3.5: 10 Aquaculture × 200 = 2,000 Mt/yr = 22% of world food; FAO 2024 world aquaculture target 1.5 Gt/yr).",
+            icon: "textures/ui/buildings/aquaculture-facility.png",
             category: "Population",
             build_points: 500.0,
             workforce: 1500,
@@ -1414,14 +3052,17 @@
                 ("Phosphorus", 0.0005),
                 ("Nitrogen", 0.05),
                 ("Polymers", 0.001),
-                ("Sulfur", 0.0005),
+                ("Sulfur", 0.00023333),
+                // v3.8.13: ammonia fertilizer for aquatic protein
+                // (15 Mt/yr × 1 build).
+                ("Ammonia", 15.0),
             ],
             modifiers: [
                 // 2026 reference: world aquaculture production ~180 Mt/yr
                 // (FAO 2024); game-unlock scope 1,500 Mt/yr (1.5 Gt mature sector).
-                (modifier_type: "FoodProduction", value: 1500.0),
+                (modifier_type: "FoodProduction", value: 200),
             ],
-            power_demand_mw: 180.0,
+            power_demand_mw: 270,
         ),
 
         // ========================================
@@ -1431,7 +3072,7 @@
             id: "DataCenter",
             display_name: "Computation Hub",
             description: "Planetary-scale computation and AI processing (4× research, 3× engineering)",
-            icon: "🖥️",
+            icon: "textures/ui/buildings/data-center.png",
             category: "Research",
             build_points: 2000.0,
             workforce: 1000,
@@ -1443,19 +3084,23 @@
                 ("RareEarths", 33.0),
             ],
             maintenance_resources: [
-                ("Copper", 0.02),
+                ("Copper", 0.007766),
                 ("RareEarths", 0.0005),
-                ("Lithium", 0.0003),
-                ("Polymers", 0.001),
-                ("Water", 0.1),
-                ("Cobalt", 0.0001),
+                ("Lithium", 0.00011554),
+                // v3.8.13: precious metals for electronics (gold
+                // contacts, silver solder, platinum capacitors).
+                // 100 hubs × per-build = the world electronics share
+                // (Au ~0.001, Ag ~0.01, Pt ~0.0001 Mt/yr).
+                ("Gold", 1e-05),
+                ("Silver", 0.0001),
+                ("Platinum", 1e-06),
             ],
             modifiers: [
                 // 1 hub ≈ 4× research + 3× engineering sector contribution.
                 (modifier_type: "ResearchSpeed", value: 400.0),
                 (modifier_type: "EngineeringSpeed", value: 300.0),
             ],
-            power_demand_mw: 500.0,
+            power_demand_mw: 800,
         ),
 
         // ========================================
@@ -1465,7 +3110,7 @@
             id: "SpacePort",
             display_name: "Space Port",
             description: "High-throughput orbital launch complex with multiple pads",
-            icon: "🚀",
+            icon: "textures/ui/buildings/space-port.png",
             category: "Military",
             build_points: 4000.0,
             workforce: 20000,
@@ -1478,19 +3123,26 @@
             ],
             maintenance_resources: [
                 ("Iron", 1.0),
-                ("Aluminum", 0.01),
-                ("Magnesium", 0.004),
                 ("Polymers", 0.005),
                 ("Water", 0.05),
+                // v3.8.13: H₂/CH₄ propellant + argon welding shield
+                // (H₂ 0.2 × 50 = 10 Mt/yr; Ar 0.008 × 50 = 0.4 Mt/yr).
+                ("Hydrogen", 0.2),
+                ("Argon", 0.008),
+                // v3.8.14: magnesium alloy hull/launch-vehicle frames
+                // (0.0025 × 50 = 0.125 Mt/yr — restored after the
+                // v3.8.13 consolidation dropped it and left magnesium
+                // with a 1.6× over-supply).
+                ("Magnesium", 0.0025),
             ],
             modifiers: [],
-            power_demand_mw: 1000.0,
+            power_demand_mw: 1500,
         ),
         (
             id: "GroundDefenseBattery",
             display_name: "Ground Defense Battery",
             description: "Anti-orbital and anti-missile ground defense installation",
-            icon: "🛡️",
+            icon: "textures/ui/buildings/ground-defense-battery.png",
             category: "Military",
             build_points: 2500.0,
             workforce: 3000,
@@ -1503,13 +3155,13 @@
             ],
             maintenance_resources: [
                 ("Iron", 0.3),
-                ("Copper", 0.01),
+                ("Copper", 0.003883),
                 ("Titanium", 0.005),
                 ("Tungsten", 0.001),
                 ("Polymers", 0.001),
             ],
             modifiers: [],
-            power_demand_mw: 300.0,
+            power_demand_mw: 450,
         ),
 
         // ========================================
@@ -1518,8 +3170,8 @@
         (
             id: "Warehouse",
             display_name: "Resource Depot",
-            description: "Bulk storage depot expanding global stockpile capacity by 10% per depot",
-            icon: "🏗",
+            description: "Bulk storage depot. +25% to ALL global stockpile caps per depot (v3.8.16: raised from +10%; the four starting depots give a 2.0× multiplier, so a handful of depots makes storage a real strategic lever instead of a depot farm).",
+            icon: "textures/ui/buildings/warehouse.png",
             category: "Logistics",
             build_points: 300.0,
             workforce: 1000,
@@ -1531,15 +3183,18 @@
             maintenance_resources: [
                 ("Iron", 0.005),
                 ("Polymers", 0.001),
-                ("Copper", 0.001),
+                ("Copper", 0.0003883),
                 ("Water", 0.01),
-                ("Sulfur", 0.0005),
+                ("Sulfur", 0.00023333),
             ],
             modifiers: [
-                // 1 depot adds 10% to base cap for every resource type globally.
-                // (Coder 22b will recompute the exact cap formula; this is the
-                // per-build StorageCapacity contribution.)
-                (modifier_type: "StorageCapacity", value: 0.10),
+                // v3.8.16: raised from 0.10 → 0.25 (+25% per depot).
+                // At +10% the player needed ten depots to double
+                // storage; at +25% the four starting depots give a
+                // 2.0× multiplier. `update_storage_capacity` sums
+                // these across all colonies into
+                // `GlobalBudget.storage_multiplier`.
+                (modifier_type: "StorageCapacity", value: 0.25),
             ],
             power_demand_mw: 30.0,
         ),
@@ -1558,7 +3213,7 @@
             id: "OrbitalSurveyStation",
             display_name: "Orbital Survey Station",
             description: "Permanent orbital installation that continuously surveys the host body and grants a local mining yield bonus. Per-body: effect does not transfer to moons or parent planets.",
-            icon: "🛰",
+            icon: "textures/ui/buildings/orbital-survey-station.png",
             category: "Research",
             build_points: 1200.0,
             workforce: 500,
@@ -1572,7 +3227,7 @@
             maintenance_resources: [
                 ("Iron", 0.002),
                 ("Polymers", 0.001),
-                ("Copper", 0.0005),
+                ("Copper", 0.00019415),
                 ("Water", 0.005),
             ],
             modifiers: [],

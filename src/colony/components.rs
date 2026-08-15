@@ -2,7 +2,7 @@ use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use super::types::BuildingType;
+use super::types::{BuildingCategory, BuildingType};
 
 /// Default yield multipliers for each [`ColonyTier`].
 ///
@@ -187,6 +187,28 @@ impl Colony {
         }
     }
 
+    /// v0.5.2: decrement the count of `building_type` by `n` (clamped
+    /// to current count, no underflow).  Used by the Mining tab's
+    /// [-] buttons for direct inventory-style edits.
+    /// Returns the actual number removed.
+    pub fn remove_buildings(&mut self, building_type: BuildingType, n: u32) -> u32 {
+        if n == 0 {
+            return 0;
+        }
+        match self.buildings.entry(building_type) {
+            std::collections::hash_map::Entry::Occupied(mut o) => {
+                let v = o.get_mut();
+                let actual = (*v).min(n);
+                *v = v.saturating_sub(actual);
+                if *v == 0 {
+                    o.remove();
+                }
+                actual
+            }
+            std::collections::hash_map::Entry::Vacant(_) => 0,
+        }
+    }
+
     /// Get total number of buildings
     pub fn total_buildings(&self) -> u32 {
         self.buildings.values().sum()
@@ -195,38 +217,54 @@ impl Colony {
     /// Calculate the logistics capacity of this colony.
     ///
     /// Each logistics building contributes a set amount of capacity:
-    /// - Mass Driver: 5,000 units
-    /// - Orbital Lift: 20,000 units
-    /// - Cargo Terminal: 2,000 units
+    /// v3.6: per-build `LogisticsCapacity` values are read from the RON
+    /// `LogisticsCapacity` modifier on each logistics building.
+    /// Hard-coded values removed.
+    /// - MassDriver:    5,000 t/yr  (Earth-to-orbit bulk cargo)
+    /// - OrbitalLift:  20,000 t/yr  (space elevator; 4× MassDriver)
+    /// - CargoTerminal: 2,000 t/yr  (ground distribution; 0.4× MassDriver)
     ///
-    /// The starting colony (Earth) has effectively infinite logistics capacity
-    /// as it represents a fully developed planetary economy that doesn't
-    /// primarily rely on space-based logistics for surface operations.
-    pub fn logistics_capacity(&self) -> f64 {
+    /// The starting colony (Earth) has effectively infinite logistics
+    /// capacity as it represents a fully developed planetary economy.
+    pub fn logistics_capacity(&self, data: &super::data::BuildingsData) -> f64 {
         if self.name == "Earth" {
             return 1_000_000_000.0;
         }
 
-        let mass_drivers = self.building_count(BuildingType::MassDriver) as f64;
-        let orbital_lifts = self.building_count(BuildingType::OrbitalLift) as f64;
-        let cargo_terminals = self.building_count(BuildingType::CargoTerminal) as f64;
-
-        mass_drivers * 5_000.0 + orbital_lifts * 20_000.0 + cargo_terminals * 2_000.0
+        [
+            BuildingType::MassDriver,
+            BuildingType::OrbitalLift,
+            BuildingType::CargoTerminal,
+        ]
+        .iter()
+        .map(|bt| self.building_count(*bt) as f64 * data.logistics_capacity_for(*bt))
+        .sum()
     }
 
     /// Calculate the logistics demand based on colony industry.
     ///
-    /// Demand scales with total industrial buildings (mines, refineries, factories,
-    /// deep drills, laser drills, strip mines).
-    /// A colony with no industry has zero logistics demand and thus no penalty.
+    /// Demand scales with total industrial buildings (mines,
+    /// refineries, factories, chemical plants, etc.). A colony with
+    /// no industry has zero logistics demand and thus no penalty.
+    ///
+    /// v0.5.2: the canary's `Mining` split (24 base + 25 Auto) put
+    /// mines in their own category separate from `Industry`. But
+    /// mines still consume logistics in the game world (they
+    /// produce materials that need to be shipped off-body, and they
+    /// draw power from the industrial grid), so they still count
+    /// toward logistics demand. The function now counts buildings
+    /// in **both** `Mining` and `Industry` — the union of the two
+    /// categories covers every "industrial" structure on the body.
     pub fn logistics_demand(&self) -> f64 {
-        let industrial_buildings = (self.building_count(BuildingType::Mine)
-            + self.building_count(BuildingType::Refinery)
-            + self.building_count(BuildingType::Factory)
-            + self.building_count(BuildingType::DeepDrill)
-            + self.building_count(BuildingType::LaserDrill)
-            + self.building_count(BuildingType::StripMine))
-            as f64;
+        let industrial_buildings: f64 = self
+            .buildings
+            .iter()
+            .filter(|(bt, _)| {
+                let cat = bt.category();
+                cat == BuildingCategory::Mining || cat == BuildingCategory::Industry
+            })
+            .map(|(_, count)| *count as f64)
+            .sum();
 
         // 1,000 units of logistics demand per industrial building
         industrial_buildings * 1_000.0
@@ -239,58 +277,168 @@ impl Colony {
     /// research speed and population growth.
     ///
     /// A colony with no demand has 1.0 efficiency (no penalty needed).
-    pub fn logistics_efficiency(&self) -> f64 {
+    pub fn logistics_efficiency(&self, data: &super::data::BuildingsData) -> f64 {
         let demand = self.logistics_demand();
         if demand <= 0.0 {
             return 1.0;
         }
-        let capacity = self.logistics_capacity();
+        let capacity = self.logistics_capacity(data);
         (capacity / demand).min(1.0)
     }
 
     /// Calculate housing capacity from habitat buildings.
     ///
-    /// Each building represents a district-level installation:
-    /// - Housing Complex:      25,000,000 residents  (scaled for meaningful per-build impact)
-    /// - Habitat Dome:         50,000,000 residents  (pressurised premium dome)
-    /// - Underground Habitat:  30,000,000 residents  (buried habitat, airless worlds)
+    /// Five tiers, from starter (1k) to metropolitan (50M):
+    /// - Habitat Tent:           1,000 residents  (v3.2 starter — first building on a new colony)
+    /// - Habitat Module:        10,000 residents  (v3.2 starter — second-tier for growing colonies)
+    /// - Housing Complex:    25,000,000 residents  (metropolitan workhorse)
+    /// - Habitat Dome:       50,000,000 residents  (pressurised premium dome)
+    /// - Underground Habitat: 30,000,000 residents  (buried habitat, airless worlds)
     ///
-    /// At this scale Earth needs ~335 Housing Complexes (not 33,500), so
-    /// each newly-built complex is a visible +0.3% capacity improvement.
-    pub fn housing_capacity(&self) -> f64 {
-        let domes = self.building_count(BuildingType::HabitatDome) as f64;
-        let housing_complexes = self.building_count(BuildingType::Housing) as f64;
-        let underground = self.building_count(BuildingType::UndergroundHabitat) as f64;
-
-        domes * 50_000_000.0 + housing_complexes * 25_000_000.0 + underground * 30_000_000.0
+    /// At metropolitan scale Earth needs ~164 Habitat Domes + 164
+    /// Housing Complexes (not 32,800 or 16,400), so each newly-built
+    /// metropolitan complex is a visible ~0.3% capacity improvement.
+    /// At starter scale a fresh 100k-population outpost needs ~10
+    /// Habitat Tents + 5 Habitat Modules — within the v2
+    /// manageable-count band (10–50).
+    ///
+    /// v3.6: per-build `HousingCapacity` values are now read from the
+    /// RON `HousingCapacity` modifier on each building, not hard-coded.
+    /// The RON is the single source of truth.
+    /// Calibration: docs/design/BALANCE_PATCHES_v0.5.md §0.I.2.
+    pub fn housing_capacity(&self, data: &super::data::BuildingsData) -> f64 {
+        [
+            BuildingType::HabitatTent,
+            BuildingType::HabitatModule,
+            BuildingType::HabitatDome,
+            BuildingType::Housing,
+            BuildingType::UndergroundHabitat,
+        ]
+        .iter()
+        .map(|bt| self.building_count(*bt) as f64 * data.housing_capacity_for(*bt))
+        .sum()
     }
 
-    /// Calculate food production rate (Mt/year) from agricultural buildings.
-    ///
-    /// Each building is scaled for civilisation-level throughput:
-    /// - Farm:                1,000 Mt/yr  → feeds ~10M people
-    /// - AgriDome:              4   Mt/yr  → feeds ~40K people (enclosed)
-    /// - Greenhouse:          500   Mt/yr  → feeds ~5M people (controlled-env)
-    /// - AquacultureFacility: 750   Mt/yr  → feeds ~7.5M people
-    ///
-    /// Per-capita food consumption: 0.0001 Mt/person/yr (100 t/person/yr).
-    pub fn food_production_per_year(&self) -> f64 {
-        let farm_count = self.building_count(BuildingType::Farm) as f64;
-        let agri_count = self.building_count(BuildingType::AgriDome) as f64;
-        let greenhouse_count = self.building_count(BuildingType::Greenhouse) as f64;
-        let aquaculture_count = self.building_count(BuildingType::AquacultureFacility) as f64;
-        farm_count * 1_000.0
-            + agri_count * 4.0
-            + greenhouse_count * 500.0
-            + aquaculture_count * 750.0
+    /// v3.6: per-build `FoodProduction` values are read from the RON
+    /// `FoodProduction` modifier on each food building. Hard-coded
+    /// values removed (they were 25× wrong in the RON documentation
+    /// but the Rust code was correct at 360/200/200/4 Mt/yr per build).
+    pub fn food_production_per_year(&self, data: &super::data::BuildingsData) -> f64 {
+        [
+            BuildingType::Farm,
+            BuildingType::AgriDome,
+            BuildingType::Greenhouse,
+            BuildingType::AquacultureFacility,
+        ]
+        .iter()
+        .map(|bt| self.building_count(*bt) as f64 * data.food_production_for(*bt))
+        .sum()
     }
 
-    /// Calculate food consumption rate (Mt/year) based on population.
+    /// v3.6: per-capita food consumption is read from the RON
+    /// `colony_constants.food_consumption_per_capita_mt_per_year`.
+    /// FAO 2024 SOFA: 1,100 kg/person/yr = 0.0000011 Mt/person/yr.
+    pub fn food_consumption_per_year(&self, data: &super::data::BuildingsData) -> f64 {
+        self.population
+            * data
+                .colony_constants
+                .food_consumption_per_capita_mt_per_year
+    }
+
+    /// v3.7: per-capita consumer consumption as a HashMap of
+    /// (ResourceType, Mt/yr) so the maintenance system can deduct
+    /// it from the local stockpile / global budget. Each value is
+    /// `population × per_capita` from the RON `colony_constants.
+    /// per_capita_consumption` block.
     ///
-    /// Per-capita consumption: 0.0001 Mt/person/year (100 tonnes/person/year).
-    /// At this scale 1 Farm (1,000 Mt/yr) feeds ~10M people.
-    pub fn food_consumption_per_year(&self) -> f64 {
-        self.population * 0.0001
+    /// Calibrated so 8.2B people consume ~70% of USGS 2024 /
+    /// worldsteel 2024 / OECD 2024 / WNA 2024 / IFA 2024 / NMA 2024
+    /// world demand; the remaining ~30% goes to industry,
+    /// maintenance, feedstock, and power generation.
+    pub fn per_capita_consumption_per_year(
+        &self,
+        data: &super::data::BuildingsData,
+    ) -> std::collections::HashMap<crate::economy::ResourceType, f64> {
+        use crate::economy::ResourceType;
+        use std::collections::HashMap;
+        let pcc = &data.colony_constants.per_capita_consumption;
+        let pop = self.population;
+        let mut out = HashMap::new();
+        out.insert(ResourceType::Iron, pop * pcc.iron_mt_per_year);
+        out.insert(ResourceType::Copper, pop * pcc.copper_mt_per_year);
+        out.insert(ResourceType::Aluminum, pop * pcc.aluminum_mt_per_year);
+        out.insert(ResourceType::Silicates, pop * pcc.silicates_mt_per_year);
+        out.insert(ResourceType::Titanium, pop * pcc.titanium_mt_per_year);
+        out.insert(ResourceType::Polymers, pop * pcc.polymers_mt_per_year);
+        out.insert(ResourceType::Phosphorus, pop * pcc.phosphorus_mt_per_year);
+        out.insert(ResourceType::Sulfur, pop * pcc.sulfur_mt_per_year);
+        out.insert(ResourceType::Nitrogen, pop * pcc.nitrogen_mt_per_year);
+        out.insert(ResourceType::Methane, pop * pcc.methane_mt_per_year);
+        out.insert(ResourceType::Uranium, pop * pcc.uranium_mt_per_year);
+        out.insert(ResourceType::Carbon, pop * pcc.carbon_mt_per_year);
+        out
+    }
+
+    /// v3.8: per-body annual consumption of a single resource, summing
+    /// the per-capita biological draw and the yield-scaled building
+    /// maintenance draw. Used by `economy::mining::throttle_production`
+    /// to compute the "consumption floor" that a body always produces
+    /// to keep itself supplied, even when the local stockpile is at cap.
+    ///
+    /// Industrial process *inputs* (e.g. Iron consumed by SteelMill)
+    /// are intentionally excluded: those are downstream of the
+    /// `feasible_output_amount` input-availability throttle and would
+    /// create a circular reference (the input draw depends on the
+    /// output rate, which is itself throttled by the output cap).
+    ///
+    /// Returns Mt/yr.
+    pub fn annual_resource_consumption(
+        &self,
+        resource: crate::economy::ResourceType,
+        data: &super::data::BuildingsData,
+    ) -> f64 {
+        let pcc = &data.colony_constants.per_capita_consumption;
+        let pop = self.population;
+        let yield_mult = self.effective_yield_multiplier();
+
+        // Per-capita (biological) draw — same per-resource map the
+        // per-capita HashMap uses, just looked up by enum so we don't
+        // have to allocate per call.
+        let per_capita = match resource {
+            crate::economy::ResourceType::Iron => pcc.iron_mt_per_year,
+            crate::economy::ResourceType::Copper => pcc.copper_mt_per_year,
+            crate::economy::ResourceType::Aluminum => pcc.aluminum_mt_per_year,
+            crate::economy::ResourceType::Silicates => pcc.silicates_mt_per_year,
+            crate::economy::ResourceType::Titanium => pcc.titanium_mt_per_year,
+            crate::economy::ResourceType::Polymers => pcc.polymers_mt_per_year,
+            crate::economy::ResourceType::Phosphorus => pcc.phosphorus_mt_per_year,
+            crate::economy::ResourceType::Sulfur => pcc.sulfur_mt_per_year,
+            crate::economy::ResourceType::Nitrogen => pcc.nitrogen_mt_per_year,
+            crate::economy::ResourceType::Methane => pcc.methane_mt_per_year,
+            crate::economy::ResourceType::Uranium => pcc.uranium_mt_per_year,
+            crate::economy::ResourceType::Carbon => pcc.carbon_mt_per_year,
+            _ => 0.0,
+        };
+        let population_draw = pop * per_capita;
+
+        // Maintenance draw (yield-scaled per GRA-22 §4.7 — matches the
+        // loop in `deduct_maintenance_resources`).
+        let mut maintenance_draw = 0.0;
+        for (bt, count) in &self.buildings {
+            if *count == 0 {
+                continue;
+            }
+            let maintenance = data.maintenance_resources(bt);
+            for (res_name, amt) in maintenance {
+                if let Some(rt) = super::data::parse_resource_type(res_name) {
+                    if rt == resource {
+                        maintenance_draw += amt * (*count as f64) * yield_mult;
+                    }
+                }
+            }
+        }
+
+        population_draw + maintenance_draw
     }
 
     /// Calculate base population growth rate per year.
@@ -299,56 +447,98 @@ impl Colony {
     /// Medical centres add up to +0.9% bonus (capped).
     /// Growth slows as housing fills. Logistics also applies.
     ///
+    /// v3.6: base growth, medical bonus, and housing-utilisation penalty
+    /// are read from `colony_constants` (v3.5 had them as `const`s in
+    /// this file).
+    ///
+    /// v3.7 (steeper curve, v3.7.1): food growth factor is
+    /// `(2*ratio - 1)^1.5` clamped to [0, 1] for ratio in [0.5, 1.0].
+    /// Below 0.5 the factor is 0 (no growth). Mortality kicks in
+    /// when ratio < `food_decline_threshold` (default 0.95) and
+    /// scales linearly to `food_decline_max_mortality` (default 3%/yr)
+    /// at ratio=0. The earlier threshold + steeper curve + higher
+    /// max mortality reflect real-world famine data (IPC levels,
+    /// Ó Gráda 2009, Sen 1981): IPC level 2 (Stressed) at 0.95,
+    /// level 3 (Crisis) at 0.85, level 4 (Emergency) at 0.7, level 5
+    /// (Famine) at 0.5. The player should never see <0.5 because
+    /// the game gives clear feedback from 0.95 downward.
+    ///
     /// # Arguments
-    /// * `food_factor` - Food adequacy ratio (0.5 = ship supply only, 1.0 = fully fed).
-    ///   Derived from the Food resource stockpile by the growth system.
-    pub fn population_growth_per_year(&self, food_factor: f64) -> f64 {
+    /// * `food_ratio` - Food production / consumption ratio. Pass
+    ///   `1.0` for "fully fed" and `< 1.0` for deficit.
+    /// * `data` - The colony-tuning parameters and building definitions.
+    pub fn population_growth_per_year(
+        &self,
+        food_ratio: f64,
+        data: &super::data::BuildingsData,
+    ) -> f64 {
         if self.population <= 0.0 {
             return 0.0;
         }
 
-        let housing = self.housing_capacity();
+        let housing = self.housing_capacity(data);
         if housing <= 0.0 {
             return 0.0;
         }
 
-        // Base growth rate: 0.9%/yr — matches Earth's 2026 demographic rate.
-        // Medical centres can double this for well-served colonies.
-        const BASE_GROWTH_RATE: f64 = 0.009;
-
-        // Medical centres add 0.03% per centre, capped at +0.9% total.
-        // 30 centres → full bonus.
-        const MEDICAL_GROWTH_PER_CENTER: f64 = 0.0003;
-        const MAX_MEDICAL_GROWTH_BONUS: f64 = 0.009;
+        let cc = &data.colony_constants;
         let medical_bonus = (self.building_count(BuildingType::MedicalCenter) as f64
-            * MEDICAL_GROWTH_PER_CENTER)
-            .min(MAX_MEDICAL_GROWTH_BONUS);
+            * cc.medical_growth_per_center)
+            .min(cc.max_medical_growth_bonus);
 
         // Housing utilisation factor – growth slows as housing fills
         let utilisation = (self.population / housing).min(1.0);
-        let housing_factor = 1.0 - utilisation * 0.8; // at 100% full → 0.2× growth
+        let housing_factor = 1.0 - utilisation * cc.housing_utilization_penalty;
 
         // Logistics efficiency penalty
-        let logistics = self.logistics_efficiency();
+        let logistics = self.logistics_efficiency(data);
 
-        let effective_rate = (BASE_GROWTH_RATE + medical_bonus)
-            * food_factor
+        // v3.7.1 (steeper) food-driven growth.
+        // Growth factor: power-1.5 curve so the player feels
+        // pressure EARLY (at 0.95 ratio the factor is already 0.85)
+        // and the curve steepens sharply as famine approaches.
+        let food_ratio_clamped = food_ratio.max(0.0);
+        let food_growth_factor = if food_ratio_clamped >= 1.0 {
+            1.0
+        } else if food_ratio_clamped >= 0.5 {
+            // (2 * ratio - 1)^1.5
+            let t = 2.0 * food_ratio_clamped - 1.0;
+            (t * t * t.sqrt()).min(1.0)
+        } else {
+            0.0
+        };
+        // Mortality: linear from 0 at threshold (default 0.95) to
+        // max_mortality (default 3%/yr) at ratio=0. Threshold is
+        // high so the player gets feedback from any deficit, not
+        // just severe famine.
+        let mortality_rate = if food_ratio_clamped < cc.food_decline_threshold {
+            let deficit_frac =
+                (cc.food_decline_threshold - food_ratio_clamped) / cc.food_decline_threshold;
+            cc.food_decline_max_mortality * deficit_frac
+        } else {
+            0.0
+        };
+
+        let gross_growth_rate = (cc.base_growth_rate + medical_bonus)
+            * food_growth_factor
             * housing_factor
             * logistics
             * self.growth_rate_modifier;
 
-        self.population * effective_rate
+        let net_growth_rate = gross_growth_rate - mortality_rate;
+
+        self.population * net_growth_rate
     }
 
     /// Calculate mining output multiplier (affected by logistics)
-    pub fn mining_output_multiplier(&self) -> f64 {
-        self.logistics_efficiency()
+    pub fn mining_output_multiplier(&self, data: &super::data::BuildingsData) -> f64 {
+        self.logistics_efficiency(data)
     }
 
     /// Calculate research output multiplier (affected by logistics)
-    pub fn research_output_multiplier(&self) -> f64 {
+    pub fn research_output_multiplier(&self, data: &super::data::BuildingsData) -> f64 {
         // Research is less affected by logistics than mining (minimum 50%)
-        let efficiency = self.logistics_efficiency();
+        let efficiency = self.logistics_efficiency(data);
         0.5 + 0.5 * efficiency
     }
 
@@ -362,9 +552,12 @@ impl Colony {
 
     /// Available workforce from population.
     ///
-    /// Roughly 40% of the population is of working age and willing to work.
-    pub fn available_workforce(&self) -> u32 {
-        (self.population * 0.4) as u32
+    /// v3.6: the working-age fraction is read from
+    /// `colony_constants.available_workforce_fraction` instead of
+    /// being hard-coded at 0.4. (v3.5 default = 0.4 = 40% of
+    /// population is working-age and willing to work.)
+    pub fn available_workforce(&self, data: &super::data::BuildingsData) -> u32 {
+        (self.population * data.colony_constants.available_workforce_fraction) as u32
     }
 
     /// Workforce efficiency factor (0.0 to 1.0).
@@ -372,40 +565,49 @@ impl Colony {
     /// When available workers >= demand, all buildings operate at full efficiency.
     /// When understaffed, output scales proportionally.
     /// A colony with zero demand has 1.0 efficiency.
-    pub fn workforce_efficiency(&self) -> f64 {
+    pub fn workforce_efficiency(&self, data: &super::data::BuildingsData) -> f64 {
         let demand = self.total_workforce_demand() as f64;
         if demand <= 0.0 {
             return 1.0;
         }
-        let available = self.available_workforce() as f64;
+        let available = self.available_workforce(data) as f64;
         (available / demand).min(1.0)
     }
 
     /// Wealth generated per year by financial/commercial buildings.
     ///
-    /// - CommercialHub: 500 MC/year per building (local economy)
-    /// - FinancialCenter: 2,000 MC/year per building (investment returns)
-    /// - TradePort: 5,000 MC/year per building (interplanetary trade)
-    /// - Factories also generate 100 MC/year each (manufactured goods)
+    /// v3.6: per-build `WealthGeneration` values are read from the RON
+    /// `WealthGeneration` modifier on each building. Hard-coded values
+    /// removed.
+    /// - CommercialHub:    500 MC/yr  (local economy)
+    /// - FinancialCenter: 2,000 MC/yr  (investment returns)
+    /// - TradePort:       5,000 MC/yr  (interplanetary trade)
+    /// - Factory:           100 MC/yr  (manufactured-goods revenue)
     ///
     /// Scaled by workforce efficiency (understaffed buildings produce less).
-    pub fn wealth_generation_per_year(&self) -> f64 {
-        let commercial = self.building_count(BuildingType::CommercialHub) as f64 * 500.0;
-        let financial = self.building_count(BuildingType::FinancialCenter) as f64 * 2_000.0;
-        let trade = self.building_count(BuildingType::TradePort) as f64 * 5_000.0;
-        let factories = self.building_count(BuildingType::Factory) as f64 * 100.0;
-
-        (commercial + financial + trade + factories) * self.workforce_efficiency()
+    pub fn wealth_generation_per_year(&self, data: &super::data::BuildingsData) -> f64 {
+        let sum: f64 = [
+            BuildingType::CommercialHub,
+            BuildingType::FinancialCenter,
+            BuildingType::TradePort,
+            BuildingType::Factory,
+        ]
+        .iter()
+        .map(|bt| self.building_count(*bt) as f64 * data.wealth_generation_for(*bt))
+        .sum();
+        sum * self.workforce_efficiency(data)
     }
 
     /// Operating cost per year for all buildings.
     ///
-    /// Each building has a maintenance cost proportional to its build cost.
-    /// Base rate: 5% of build cost per year.
-    pub fn operating_cost_per_year(&self) -> f64 {
+    /// v3.6: the per-year cost fraction (5%) is read from
+    /// `colony_constants.operating_cost_fraction` instead of being
+    /// hard-coded.
+    pub fn operating_cost_per_year(&self, data: &super::data::BuildingsData) -> f64 {
+        let rate = data.colony_constants.operating_cost_fraction;
         self.buildings
             .iter()
-            .map(|(bt, count)| bt.build_cost() * 0.05 * (*count as f64))
+            .map(|(bt, count)| bt.build_cost() * rate * (*count as f64))
             .sum()
     }
 
@@ -480,6 +682,12 @@ impl ConstructionProject {
 pub struct PendingConstructionActions {
     /// (colony_entity, building_type) pairs to start constructing
     pub start_construction: Vec<(Entity, BuildingType)>,
+    /// v0.5.2: (colony_entity, building_type, delta) tuples for the
+    /// Mining tab's direct inventory edits (positive = add, negative
+    /// = remove).  Processed in the same system as `start_construction`
+    /// but applied immediately (no BP / build-time), so the UI
+    /// shows the new count on the next frame.
+    pub mining_edits: Vec<(Entity, BuildingType, i32)>,
     /// Construction project entities to cancel
     pub cancel_construction: Vec<Entity>,
     /// Requests to establish a new outpost colony on a body.
@@ -515,6 +723,15 @@ pub struct ColonyEnvironmentCosts {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::colony::data::BuildingsData;
+
+    /// v3.6: every test in this module calls a Colony method that takes
+    /// `&BuildingsData`. Loading the RON file once keeps the tests in
+    /// sync with the actual per-build values (Farm=360, HabitatDome=50M,
+    /// etc.) and surfaces any RON-data regressions as a test failure.
+    fn data() -> BuildingsData {
+        BuildingsData::load_for_tests()
+    }
 
     #[test]
     fn test_colony_creation() {
@@ -527,29 +744,29 @@ mod tests {
     #[test]
     fn test_colony_add_building() {
         let mut colony = Colony::new("Test".to_string(), 100.0);
-        colony.add_building(BuildingType::Mine);
-        colony.add_building(BuildingType::Mine);
+        colony.add_building(BuildingType::IronMine);
+        colony.add_building(BuildingType::IronMine);
         colony.add_building(BuildingType::Factory);
 
-        assert_eq!(colony.building_count(BuildingType::Mine), 2);
+        assert_eq!(colony.building_count(BuildingType::IronMine), 2);
         assert_eq!(colony.building_count(BuildingType::Factory), 1);
-        assert_eq!(colony.building_count(BuildingType::Refinery), 0);
+        assert_eq!(colony.building_count(BuildingType::CopperMine), 0);
         assert_eq!(colony.total_buildings(), 3);
     }
 
     #[test]
     fn test_logistics_capacity() {
         let mut colony = Colony::new("Test".to_string(), 100.0);
-        assert_eq!(colony.logistics_capacity(), 0.0);
+        assert_eq!(colony.logistics_capacity(&data()), 0.0);
 
         colony.add_building(BuildingType::MassDriver);
-        assert_eq!(colony.logistics_capacity(), 5_000.0);
+        assert_eq!(colony.logistics_capacity(&data()), 5_000.0);
 
         colony.add_building(BuildingType::OrbitalLift);
-        assert_eq!(colony.logistics_capacity(), 25_000.0);
+        assert_eq!(colony.logistics_capacity(&data()), 25_000.0);
 
         colony.add_building(BuildingType::CargoTerminal);
-        assert_eq!(colony.logistics_capacity(), 27_000.0);
+        assert_eq!(colony.logistics_capacity(&data()), 27_000.0);
     }
 
     #[test]
@@ -558,7 +775,7 @@ mod tests {
         // No industrial buildings → zero demand
         assert_eq!(colony.logistics_demand(), 0.0);
 
-        colony.add_building(BuildingType::Mine);
+        colony.add_building(BuildingType::IronMine);
         // 1 mine × 1000 = 1000
         assert!((colony.logistics_demand() - 1_000.0).abs() < 0.001);
     }
@@ -566,16 +783,16 @@ mod tests {
     #[test]
     fn test_logistics_efficiency_no_demand() {
         let colony = Colony::new("Test".to_string(), 0.0);
-        assert_eq!(colony.logistics_efficiency(), 1.0);
+        assert_eq!(colony.logistics_efficiency(&data()), 1.0);
     }
 
     #[test]
     fn test_logistics_efficiency_sufficient() {
         let mut colony = Colony::new("Test".to_string(), 1_000_000.0);
-        colony.add_building(BuildingType::Mine); // demand: 1000
+        colony.add_building(BuildingType::IronMine); // demand: 1000
         colony.add_building(BuildingType::MassDriver); // capacity: 5000
                                                        // 5000 / 1000 > 1.0 → clamped to 1.0
-        assert_eq!(colony.logistics_efficiency(), 1.0);
+        assert_eq!(colony.logistics_efficiency(&data()), 1.0);
     }
 
     #[test]
@@ -583,28 +800,28 @@ mod tests {
         let mut colony = Colony::new("Test".to_string(), 10_000_000.0);
         // Add many mines without logistics
         for _ in 0..10 {
-            colony.add_building(BuildingType::Mine);
+            colony.add_building(BuildingType::IronMine);
         }
         // demand: 10*1000 = 10000, capacity: 0
-        assert_eq!(colony.logistics_efficiency(), 0.0);
+        assert_eq!(colony.logistics_efficiency(&data()), 0.0);
     }
 
     #[test]
     fn test_housing_capacity() {
         let mut colony = Colony::new("Test".to_string(), 100.0);
-        assert_eq!(colony.housing_capacity(), 0.0);
+        assert_eq!(colony.housing_capacity(&data()), 0.0);
 
         colony.add_building(BuildingType::HabitatDome);
-        assert_eq!(colony.housing_capacity(), 50_000_000.0);
+        assert_eq!(colony.housing_capacity(&data()), 50_000_000.0);
 
         colony.add_building(BuildingType::UndergroundHabitat);
-        assert_eq!(colony.housing_capacity(), 80_000_000.0);
+        assert_eq!(colony.housing_capacity(&data()), 80_000_000.0);
     }
 
     #[test]
     fn test_population_growth_no_housing() {
         let colony = Colony::new("Test".to_string(), 1000.0);
-        assert_eq!(colony.population_growth_per_year(1.0), 0.0);
+        assert_eq!(colony.population_growth_per_year(1.0, &data()), 0.0);
     }
 
     #[test]
@@ -613,7 +830,7 @@ mod tests {
         colony.add_building(BuildingType::HabitatDome); // 50,000,000 capacity
         colony.add_building(BuildingType::AgriDome); // food for ~40K people
 
-        let growth = colony.population_growth_per_year(1.0);
+        let growth = colony.population_growth_per_year(1.0, &data());
         // Should be positive with housing and food
         assert!(growth > 0.0, "Growth should be positive: {}", growth);
     }
@@ -621,10 +838,10 @@ mod tests {
     #[test]
     fn test_mining_output_multiplier() {
         let mut colony = Colony::new("Test".to_string(), 1_000_000.0);
-        colony.add_building(BuildingType::Mine);
+        colony.add_building(BuildingType::IronMine);
         colony.add_building(BuildingType::MassDriver);
 
-        let multiplier = colony.mining_output_multiplier();
+        let multiplier = colony.mining_output_multiplier(&data());
         assert!(multiplier > 0.0 && multiplier <= 1.0);
     }
 
@@ -632,10 +849,10 @@ mod tests {
     fn test_research_output_multiplier_minimum() {
         let mut colony = Colony::new("Test".to_string(), 10_000_000.0);
         for _ in 0..10 {
-            colony.add_building(BuildingType::Mine);
+            colony.add_building(BuildingType::IronMine);
         }
         // No logistics → efficiency = 0 → research multiplier = 0.5 (minimum)
-        assert!((colony.research_output_multiplier() - 0.5).abs() < 0.001);
+        assert!((colony.research_output_multiplier(&data()) - 0.5).abs() < 0.001);
     }
 
     #[test]
@@ -649,11 +866,11 @@ mod tests {
     #[test]
     fn test_construction_project() {
         let entity = Entity::from_raw_u32(1).unwrap();
-        let project = ConstructionProject::new(BuildingType::Mine, entity);
+        let project = ConstructionProject::new(BuildingType::IronMine, entity);
 
-        assert_eq!(project.building_type, BuildingType::Mine);
+        assert_eq!(project.building_type, BuildingType::IronMine);
         assert_eq!(project.progress, 0.0);
-        assert_eq!(project.required, BuildingType::Mine.build_cost());
+        assert_eq!(project.required, BuildingType::IronMine.build_cost());
         assert!(!project.is_complete());
         assert_eq!(project.progress_percent(), 0.0);
     }
@@ -661,7 +878,7 @@ mod tests {
     #[test]
     fn test_construction_project_completion() {
         let entity = Entity::from_raw_u32(1).unwrap();
-        let mut project = ConstructionProject::new(BuildingType::Mine, entity);
+        let mut project = ConstructionProject::new(BuildingType::IronMine, entity);
 
         project.progress = project.required;
         assert!(project.is_complete());
@@ -673,7 +890,7 @@ mod tests {
         let mut colony = Colony::new("Test".to_string(), 10_000_000.0);
         assert_eq!(colony.total_workforce_demand(), 0);
 
-        colony.add_building(BuildingType::Mine); // 5,000 workers
+        colony.add_building(BuildingType::IronMine); // 5,000 workers
         assert_eq!(colony.total_workforce_demand(), 5_000);
 
         colony.add_building(BuildingType::Factory); // 12,000 workers
@@ -684,41 +901,42 @@ mod tests {
     fn test_workforce_efficiency() {
         // Large population, few buildings → full efficiency
         let mut colony = Colony::new("Test".to_string(), 10_000_000.0);
-        colony.add_building(BuildingType::Mine);
-        assert_eq!(colony.workforce_efficiency(), 1.0);
+        colony.add_building(BuildingType::IronMine);
+        assert_eq!(colony.workforce_efficiency(&data()), 1.0);
 
         // Small population, many buildings → understaffed
         let mut colony2 = Colony::new("Test".to_string(), 10_000.0);
         colony2.add_building(BuildingType::Factory); // needs 12,000 workers, has 4,000
-        assert!(colony2.workforce_efficiency() < 1.0);
+        assert!(colony2.workforce_efficiency(&data()) < 1.0);
     }
 
     #[test]
     fn test_workforce_efficiency_no_buildings() {
         let colony = Colony::new("Test".to_string(), 1000.0);
-        assert_eq!(colony.workforce_efficiency(), 1.0);
+        assert_eq!(colony.workforce_efficiency(&data()), 1.0);
     }
 
     #[test]
     fn test_wealth_generation() {
         let mut colony = Colony::new("Test".to_string(), 10_000_000.0);
-        assert_eq!(colony.wealth_generation_per_year(), 0.0);
+        assert_eq!(colony.wealth_generation_per_year(&data()), 0.0);
 
         colony.add_building(BuildingType::CommercialHub); // 500 MC/year
-        assert!(colony.wealth_generation_per_year() > 0.0);
+        assert!(colony.wealth_generation_per_year(&data()) > 0.0);
 
         colony.add_building(BuildingType::FinancialCenter); // 2,000 MC/year
-        let wealth = colony.wealth_generation_per_year();
+        let wealth = colony.wealth_generation_per_year(&data());
         assert!(wealth > 500.0, "Should have substantial wealth: {}", wealth);
     }
 
     #[test]
     fn test_operating_cost() {
         let mut colony = Colony::new("Test".to_string(), 1_000_000.0);
-        assert_eq!(colony.operating_cost_per_year(), 0.0);
+        assert_eq!(colony.operating_cost_per_year(&data()), 0.0);
 
-        colony.add_building(BuildingType::Mine); // cost 400, maint = 400*0.05 = 20
-        assert!((colony.operating_cost_per_year() - 20.0).abs() < 0.001);
+        // v0.5.2: IronMine build cost is 1500 BP, so 5%/yr = 75 MC/yr.
+        colony.add_building(BuildingType::IronMine);
+        assert!((colony.operating_cost_per_year(&data()) - 75.0).abs() < 0.001);
     }
 
     // ── ColonyDevelopment / yield-multiplier helpers ───────────────────
@@ -798,8 +1016,9 @@ mod tests {
         earth.add_building(BuildingType::Farm);
 
         let outpost_food =
-            outpost.food_production_per_year() * outpost.effective_yield_multiplier();
-        let earth_food = earth.food_production_per_year() * earth.effective_yield_multiplier();
+            outpost.food_production_per_year(&data()) * outpost.effective_yield_multiplier();
+        let earth_food =
+            earth.food_production_per_year(&data()) * earth.effective_yield_multiplier();
         assert!(
             (earth_food / outpost_food - 10.0).abs() < 1e-6,
             "Earth food / Outpost food should be 10×, got {:.4}×",
@@ -811,20 +1030,23 @@ mod tests {
         outpost.add_building(BuildingType::CommercialHub);
         earth.add_building(BuildingType::CommercialHub);
         let outpost_wealth =
-            outpost.wealth_generation_per_year() * outpost.effective_yield_multiplier();
-        let earth_wealth = earth.wealth_generation_per_year() * earth.effective_yield_multiplier();
+            outpost.wealth_generation_per_year(&data()) * outpost.effective_yield_multiplier();
+        let earth_wealth =
+            earth.wealth_generation_per_year(&data()) * earth.effective_yield_multiplier();
         assert!(
             (earth_wealth / outpost_wealth - 10.0).abs() < 1e-6,
             "Earth wealth / Outpost wealth should be 10×, got {:.4}×",
             earth_wealth / outpost_wealth,
         );
 
-        // Operating cost has the same relationship.  The Mine build cost
-        // is 400 BP, so 5%/yr = 20 MC/yr base.  Earth: 20 × 1.0; Outpost: 20 × 0.10.
-        outpost.add_building(BuildingType::Mine);
-        earth.add_building(BuildingType::Mine);
-        let outpost_op = outpost.operating_cost_per_year() * outpost.effective_yield_multiplier();
-        let earth_op = earth.operating_cost_per_year() * earth.effective_yield_multiplier();
+        // Operating cost has the same relationship.  The IronMine build
+        // cost is 1500 BP (v0.5.2), so 5%/yr = 75 MC/yr base.
+        // Earth: 75 × 1.0; Outpost: 75 × 0.10.
+        outpost.add_building(BuildingType::IronMine);
+        earth.add_building(BuildingType::IronMine);
+        let outpost_op =
+            outpost.operating_cost_per_year(&data()) * outpost.effective_yield_multiplier();
+        let earth_op = earth.operating_cost_per_year(&data()) * earth.effective_yield_multiplier();
         assert!(
             (earth_op / outpost_op - 10.0).abs() < 1e-6,
             "Earth op-cost / Outpost op-cost should be 10×, got {:.4}×",
@@ -839,15 +1061,62 @@ mod tests {
         // totals as today's calibration.  The yield multiplier is
         // multiplied at the system call site, not inside the helper, so
         // the helper itself stays at × 1.00.
+        //
+        // v0.5.1: Farm per-build was 1,000 Mt/yr, calibrated against the
+        // 0.0001 Mt/p/yr per-capita (which was 91× over real-world 1,100 kg
+        // = 0.0000011 Mt). v0.5.1 corrects both: per-capita → 0.0000011,
+        // per-build → 360. 25 Farms × 360 = 9,000 Mt/yr ≈ 8.2B ×
+        // 0.0000011 = 9,020 Mt/yr (FAO 2024 SOFA, balanced).
+        // Reference: docs/design/BALANCE_PATCHES_v0.5.md §4.1 + §8.1.
         let mut earth = Colony::new_civilisation("Earth".to_string(), 8.2e9);
-        earth.add_building(BuildingType::Farm); // 1,000 Mt/yr at × 1.00
+        earth.add_building(BuildingType::Farm); // 360 Mt/yr at × 1.00 (v0.5.1)
         assert!(
-            (earth.food_production_per_year() - 1_000.0).abs() < 0.001,
-            "Earth × 1.0 must keep today's Farm output (1,000 Mt/yr)",
+            (earth.food_production_per_year(&data()) - 360.0).abs() < 0.001,
+            "Earth × 1.0 must keep today's Farm output (360 Mt/yr in v0.5.1)",
         );
         assert!(
             (earth.effective_yield_multiplier() - 1.0).abs() < 1e-9,
             "Earth's effective yield must be 1.00",
         );
+    }
+
+    // ============================================================
+    // v3.8: per-resource annual-consumption helper (used by
+    // economy::mining::throttle_production as the "consumption
+    // floor" at cap).
+    // ============================================================
+
+    #[test]
+    fn test_annual_resource_consumption_zero_for_empty_colony() {
+        // No population, no buildings → no draw.
+        let colony = Colony::new("Luna".to_string(), 0.0);
+        let draw = colony.annual_resource_consumption(crate::economy::ResourceType::Iron, &data());
+        assert_eq!(draw, 0.0);
+    }
+
+    #[test]
+    fn test_annual_resource_consumption_per_capita_scales_with_pop() {
+        // 8.2B people × iron_mt_per_year (default 0.000000213 Mt/p/yr
+        // = 213 kg/p/yr per worldsteel 2024 finished-steel demand) =
+        // 1,747 Mt/yr. Sanity check: ~70% of USGS 2024 world iron-ore
+        // demand (~2,500 Mt/yr finished-steel equivalent).
+        let colony = Colony::new_civilisation("Earth".to_string(), 8.2e9);
+        let draw = colony.annual_resource_consumption(crate::economy::ResourceType::Iron, &data());
+        // 0.000000213 Mt/p/yr × 8.2e9 = 1,746.6 Mt/yr
+        assert!(
+            (draw - 1_746.6).abs() < 5.0,
+            "8.2B × 213 kg/p/yr should be ~1,747 Mt/yr, got {draw}",
+        );
+    }
+
+    #[test]
+    fn test_annual_resource_consumption_zero_for_unmet_resource() {
+        // Tungsten is NOT in the per-capita block, so population
+        // contributes 0. (Industrial maintenance is the only path
+        // for non-per-capita resources.)
+        let colony = Colony::new_civilisation("Earth".to_string(), 8.2e9);
+        let draw =
+            colony.annual_resource_consumption(crate::economy::ResourceType::Tungsten, &data());
+        assert_eq!(draw, 0.0);
     }
 }

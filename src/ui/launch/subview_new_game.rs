@@ -218,7 +218,7 @@ pub fn ui_new_game_subview(
                 ui.label(
                     egui::RichText::new(&seed_copy.new_game_subview.title)
                         .font(theme::title())
-                        .color(theme::ACCENT)
+                        .color(theme::CYAN)
                         .size(28.0),
                 );
                 ui.add_space(theme::Spacing::lg);
@@ -230,7 +230,7 @@ pub fn ui_new_game_subview(
                     // ── Difficulty preset selector ─────────────────
                     ui.label(
                         egui::RichText::new(&seed_copy.new_game_subview.preset_section_label)
-                            .color(theme::ACCENT)
+                            .color(theme::CYAN)
                             .strong(),
                     );
                     ui.add_space(theme::Spacing::xs);
@@ -271,7 +271,7 @@ pub fn ui_new_game_subview(
                     if show_seed_field {
                         ui.label(
                             egui::RichText::new(&seed_copy.new_game_subview.seed_section_label)
-                                .color(theme::ACCENT)
+                                .color(theme::CYAN)
                                 .strong(),
                         );
                         ui.add_space(theme::Spacing::xs);
@@ -365,7 +365,7 @@ pub fn ui_new_game_subview(
                     // `NewGameRequest::params` without a second copy.
                     ui.label(
                         egui::RichText::new("World parameters")
-                            .color(theme::ACCENT)
+                            .color(theme::CYAN)
                             .strong(),
                     );
                     ui.add_space(theme::Spacing::xs);

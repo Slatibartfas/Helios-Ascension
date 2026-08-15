@@ -319,7 +319,7 @@ fn draw_panel_header(ui: &mut egui::Ui, ui_state: &mut PersonnelUiState) {
             ui.label(
                 egui::RichText::new("PERSONNEL")
                     .font(theme::title())
-                    .color(theme::ACCENT),
+                    .color(theme::CYAN),
             );
             ui.label(
                 egui::RichText::new("Scientist roster, assignments, and payroll.")
@@ -336,7 +336,7 @@ fn draw_panel_header(ui: &mut egui::Ui, ui_state: &mut PersonnelUiState) {
                     egui::Button::new(
                         egui::RichText::new("⚙")
                             .font(theme::heading())
-                            .color(theme::ACCENT),
+                            .color(theme::CYAN),
                     )
                     .frame(true),
                 )
@@ -375,7 +375,7 @@ fn draw_panel_header(ui: &mut egui::Ui, ui_state: &mut PersonnelUiState) {
                     egui::Button::new(
                         egui::RichText::new("Hire")
                             .font(theme::heading())
-                            .color(theme::ACCENT),
+                            .color(theme::CYAN),
                     )
                     .frame(true),
                 )
@@ -425,7 +425,7 @@ fn draw_summary(ui: &mut egui::Ui, roster: &[ScientistSnapshot]) {
             ui.label(
                 egui::RichText::new("ROSTER SUMMARY")
                     .font(theme::heading())
-                    .color(theme::ACCENT),
+                    .color(theme::CYAN),
             );
             ui.add_space(theme::Spacing::xs);
 
@@ -461,7 +461,7 @@ fn draw_roster_table(
     ui.label(
         egui::RichText::new("ROSTER")
             .font(theme::heading())
-            .color(theme::ACCENT),
+            .color(theme::CYAN),
     );
 
     // Sort. Sorting mutates the snapshot vec in place.
@@ -594,7 +594,7 @@ fn draw_sort_header(
     let text = egui::RichText::new(format!("{}{}", label, arrow))
         .font(theme::mono(10.0))
         .color(if is_active {
-            theme::ACCENT
+            theme::CYAN
         } else {
             theme::TEXT_DIM
         });
@@ -730,7 +730,7 @@ fn draw_assignments_block(ui: &mut egui::Ui, assignments: &[ActiveAssignment]) {
     ui.label(
         egui::RichText::new("ASSIGNMENTS")
             .font(theme::heading())
-            .color(theme::ACCENT),
+            .color(theme::CYAN),
     );
     ui.add_space(theme::Spacing::xs);
 

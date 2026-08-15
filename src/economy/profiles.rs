@@ -487,8 +487,24 @@ pub(super) fn apply_special_body_profile(
             // N₂ (highest industrial output) = 1.0 reference.
 
             // Nitrogen: 78% of atmosphere — ~130 Mt/yr industrial
+            //
+            // v3.8.12 (2026-08-09): accessibility raised from 0.78 →
+            // 1.0. The direct-production path (`extract_resources` /
+            // `update_resource_rates`) multiplies each
+            // AtmosphericProcessor's per-build `NitrogenProduction`
+            // rate by the deposit's accessibility. The pre-split
+            // share-fold consumed the mole fraction as the access
+            // scalar (N₂ 0.78, O₂ 0.21, CO₂ 0.0004, Ar 0.009), so
+            // 300 processors produced only 78%/21% of the 2026 world
+            // N₂/O₂ targets and both gases BURNED at game start.
+            // "Accessibility" here means "how easy is it to extract" —
+            // air is trivially accessible; the atmospheric composition
+            // is already encoded in `concentration` below. 300
+            // processors × 0.667 = 200 Mt/yr = the 2026 world N₂
+            // demand. Other bodies (Venus 0.6, gas giants 0.01–0.2)
+            // keep their realistic accessibility.
             {
-                let mut dep = MineralDeposit::new(4_000_000_000.0, 4_000_000.0, 0.0, 1.0, 0.78);
+                let mut dep = MineralDeposit::new(4_000_000_000.0, 4_000_000.0, 0.0, 1.0, 1.0);
                 dep.is_atmospheric = true;
                 resources.add_deposit(ResourceType::Nitrogen, dep);
             }
@@ -496,22 +512,21 @@ pub(super) fn apply_special_body_profile(
             // Oxygen: 21% of atmosphere — ~100 Mt/yr industrial
             {
                 let mut dep =
-                    MineralDeposit::new(1_100_000_000.0, 7_700_000.0, 0.0, 0.7692308, 0.21);
+                    MineralDeposit::new(1_100_000_000.0, 7_700_000.0, 0.0, 0.7692308, 1.0);
                 dep.is_atmospheric = true;
                 resources.add_deposit(ResourceType::Oxygen, dep);
             }
 
             // Carbon Dioxide: 0.04% of atmosphere — ~35 Mt/yr industrial
             {
-                let mut dep =
-                    MineralDeposit::new(2_200_000.0, 2_200_000.0, 0.0, 0.26923078, 0.0004);
+                let mut dep = MineralDeposit::new(2_200_000.0, 2_200_000.0, 0.0, 0.26923078, 1.0);
                 dep.is_atmospheric = true;
                 resources.add_deposit(ResourceType::CarbonDioxide, dep);
             }
 
             // Argon: 0.93% of atmosphere — ~4.5 Mt/yr industrial
             {
-                let mut dep = MineralDeposit::new(50_000_000.0, 0.0, 0.0, 0.034615386, 0.009);
+                let mut dep = MineralDeposit::new(50_000_000.0, 0.0, 0.0, 0.034615386, 1.0);
                 dep.is_atmospheric = true;
                 resources.add_deposit(ResourceType::Argon, dep);
             }

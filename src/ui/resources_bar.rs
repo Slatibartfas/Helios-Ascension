@@ -8,7 +8,7 @@ use super::time::{
 };
 use super::*;
 
-fn get_resource_category_icon(category: &str) -> &'static str {
+pub(super) fn get_resource_category_icon(category: &str) -> &'static str {
     match category {
         "Biological" => "\u{1F35E}",       // 🍞
         "Volatiles" => "\u{1F4A7}",        // 💧
@@ -21,6 +21,30 @@ fn get_resource_category_icon(category: &str) -> &'static str {
         "Exotic" => "\u{1F52E}",           // 🔮
         _ => "\u{1F4E6}",                  // 📦
     }
+}
+
+/// Canonical representative resource for a category. Was used to
+/// pick the PNG icon shown in the top resources-bar category tile
+/// and in the category popup header. Replaced in v0.5.2 PR-A.4 by
+/// `render_category_icon`, which draws the actual category-badge
+/// PNG (`category-construction.png`, etc.) tinted to the category
+/// color rather than the first resource's icon.
+///
+/// Kept `pub(super)` because the function is small, well-tested,
+/// and a future tooltip / category-preview UI is a likely caller
+/// (e.g. "preview which resources live in this category" hover).
+/// If no caller materialises before the next sweep, mark it
+/// `#[allow(dead_code)]` or remove.
+#[allow(dead_code)]
+pub(super) fn representative_resource_for_category(category: &str) -> ResourceType {
+    for (cat, resources) in ResourceType::by_category() {
+        if cat == category {
+            if let Some(&first) = resources.first() {
+                return first;
+            }
+        }
+    }
+    ResourceType::Food
 }
 
 /// Get the icon for a specific resource type
@@ -83,6 +107,168 @@ pub(super) fn get_resource_icon(resource: &ResourceType) -> &'static str {
         ResourceType::Metamaterials => "\u{1F52C}", // 🔬
         ResourceType::Computronium => "\u{1F9E0}",  // 🧠
     }
+}
+
+/// v0.5.2: render a resource's line-art PNG icon at the given size
+/// inside the current egui row. The icons are 256×256 dark-on-white
+/// PNGs in `assets/textures/ui/resources/`, post-processed by
+/// `super::resource_icons::load_resource_icons` (white background →
+/// transparent, dark lines → premultiplied white) and stored as
+/// `egui::TextureHandle`s. Falls back to a small cyan-tinted square
+/// (matches the Build card placeholder) if the icon hasn't loaded
+/// yet or was never authored.
+///
+/// The `size` is in egui logical pixels — call sites pass 14 for
+/// resource rows in popups, 16 for headers, etc. The texture is
+/// bilinear-filtered so it scales down cleanly to whatever the
+/// caller asks for.
+pub(super) fn render_resource_icon(
+    ui: &mut egui::Ui,
+    icons: &super::resource_icons::ResourceIcons,
+    resource: ResourceType,
+    size: f32,
+) {
+    use super::resource_icons::get_resource_icon_handle;
+    if let Some(handle) = get_resource_icon_handle(icons, resource) {
+        // Tint the white pixels to the panel's accent color so the
+        // icon reads as part of the UI.  The egui shader multiplies
+        // the texture's white by the `tint` color.
+        let tint = theme::RB_ICON_CYAN; // cyan, matches menu icons
+        ui.add(
+            egui::Image::from_texture(handle)
+                .tint(tint)
+                .fit_to_exact_size(egui::Vec2::splat(size)),
+        );
+    } else {
+        // Fallback: cyan square (same look as the Build card's
+        // icon-placeholder square so the visual language stays
+        // consistent across egui and bevy_ui).
+        let (rect, _) = ui.allocate_exact_size(egui::Vec2::splat(size), egui::Sense::hover());
+        ui.painter().rect_filled(
+            rect,
+            egui::CornerRadius::same(2),
+            theme::RB_ICON_CYAN_PLACEHOLDER,
+        );
+    }
+}
+
+/// Render a category-badge PNG icon (the `category-*.png` set in
+/// `assets/textures/ui/resources/`) at the requested size. Tinted
+/// to the category color so the tile reads as the category
+/// identity (Construction = amber, Volatiles = blue, Fissiles =
+/// red, etc.) rather than as a generic monochrome mark.
+///
+/// Falls back to the same cyan placeholder square as
+/// `render_resource_icon` when the asset hasn't loaded yet or the
+/// category has no authored slug — visually consistent with the
+/// resource-icon fallback and easy to spot in dev.
+///
+/// Used by the top resource bar tile (was: representative-resource
+/// icon at 16 px) and the category popup header (was:
+/// representative-resource icon at 18 px). The previous approach
+/// rendered the **first resource of the category** (Iron for
+/// Construction, Water for Volatiles, Nitrogen for Atmospheric
+/// Gases), which never matched the actual category identity —
+/// the category PNGs were authored but never wired up. See
+/// `super::resource_icons::category_icon_basename` for the
+/// category-name → filename mapping.
+pub(super) fn render_category_icon(
+    ui: &mut egui::Ui,
+    icons: &super::resource_icons::ResourceIcons,
+    category: &str,
+    size: f32,
+) {
+    use super::resource_icons::get_category_icon_handle;
+    if let Some(handle) = get_category_icon_handle(icons, category) {
+        // Tint to the category color so the badge reads as part
+        // of the category (amber for Construction, blue for
+        // Volatiles, red for Fissiles, etc.). `category_color`
+        // returns the canonical theme color.
+        let tint = theme::category_color(category);
+        ui.add(
+            egui::Image::from_texture(handle)
+                .tint(tint)
+                .fit_to_exact_size(egui::Vec2::splat(size)),
+        );
+    } else {
+        // Fallback: cyan square (matches the resource-icon
+        // fallback so the bar reads as a row of evenly-sized
+        // tiles even before the icons have loaded on the first
+        // frame).
+        let (rect, _) = ui.allocate_exact_size(egui::Vec2::splat(size), egui::Sense::hover());
+        ui.painter().rect_filled(
+            rect,
+            egui::CornerRadius::same(2),
+            theme::RB_ICON_CYAN_PLACEHOLDER,
+        );
+    }
+}
+
+/// Render the dedicated energy icon
+/// (`assets/textures/ui/resources/energy.png`) at the requested
+/// size, tinted to the given colour. Energy is not a `ResourceType`
+/// so it lives outside `render_resource_icon`; this is the call
+/// site for the top resource bar's power chip (green/red) and the
+/// Build/Mining card energy rows.
+///
+/// Falls back to a small tinted square (same look as the
+/// resource/category fallbacks) when the PNG hasn't been decoded
+/// yet — visually consistent with the rest of the resource bar.
+pub(super) fn render_energy_icon(
+    ui: &mut egui::Ui,
+    icons: &super::resource_icons::ResourceIcons,
+    tint: egui::Color32,
+    size: f32,
+) {
+    use super::resource_icons::get_energy_icon_handle;
+    if let Some(handle) = get_energy_icon_handle(icons) {
+        ui.add(
+            egui::Image::from_texture(handle)
+                .tint(tint)
+                .fit_to_exact_size(egui::Vec2::splat(size)),
+        );
+    } else {
+        // Fallback: tinted square, matches the resource/category
+        // icon fallbacks so the chip still reads as "energy
+        // pending" before the PNG lands on the first frame.
+        let (rect, _) = ui.allocate_exact_size(egui::Vec2::splat(size), egui::Sense::hover());
+        ui.painter().rect_filled(
+            rect,
+            egui::CornerRadius::same(2),
+            theme::rb_icon_placeholder_at(tint),
+        );
+    }
+}
+
+/// v0.5.2: render a resource row as `[icon] [name]` — the icon
+/// uses the loaded PNG via `render_resource_icon` (cyan-tinted,
+/// matching the menu icons) and the name is a normal `Label`.
+///
+/// Replaces the old `format!("{} {}", get_resource_icon(...),
+/// display_name())` pattern, which embedded the emoji glyph in
+/// `RichText` and prevented the PNG icon from ever being used.
+/// Used by the category popup grid and the forecast hover
+/// tooltip header — both contexts that already have a
+/// `&ResourceIcons` resource in scope.
+///
+/// `name_size` is the egui font size of the label (14 for the
+/// popup grid, 12 for the forecast tooltip). The icon is sized
+/// to match (`name_size + 2.0`) so it visually centers against
+/// the text baseline.
+pub(super) fn render_resource_name_row(
+    ui: &mut egui::Ui,
+    icons: &super::resource_icons::ResourceIcons,
+    resource: ResourceType,
+    name_size: f32,
+) {
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 4.0;
+        render_resource_icon(ui, icons, resource, name_size + 2.0);
+        ui.add(
+            egui::Label::new(egui::RichText::new(resource.display_name()).size(name_size))
+                .selectable(false),
+        );
+    });
 }
 
 /// Get color for resource category
@@ -199,7 +385,7 @@ impl HistoryPanelMetric {
     fn accent(self, resource: ResourceType) -> egui::Color32 {
         match self {
             Self::Kardashev => theme::CAT_STRATEGIC,
-            Self::PowerProduced => theme::ACCENT,
+            Self::PowerProduced => theme::CYAN,
             Self::Population => theme::RB_POPULATION,
             Self::Colonies => theme::RB_COLONIES,
             Self::Ships => theme::RB_SHIPS,
@@ -619,7 +805,7 @@ fn render_history_plot(
 
     if let Some(last) = series.points.last() {
         let current_pos = to_screen(last.sim_seconds, last.value);
-        painter.circle_filled(current_pos, 3.5, theme::ACCENT);
+        painter.circle_filled(current_pos, 3.5, theme::CYAN);
         painter.circle_stroke(
             current_pos,
             5.0,
@@ -645,7 +831,7 @@ fn render_history_plot(
                     egui::pos2(nearest_pos.x, plot_rect.top()),
                     egui::pos2(nearest_pos.x, plot_rect.bottom()),
                 ],
-                egui::Stroke::new(1.0_f32, theme::ACCENT),
+                egui::Stroke::new(1.0_f32, theme::CYAN),
             );
             painter.line_segment(
                 [
@@ -654,7 +840,7 @@ fn render_history_plot(
                 ],
                 egui::Stroke::new(1.0_f32, theme::ACCENT_DIM),
             );
-            painter.circle_filled(nearest_pos, 4.0, theme::ACCENT);
+            painter.circle_filled(nearest_pos, 4.0, theme::CYAN);
 
             return Some(HistoryCursorInfo {
                 sim_seconds: nearest_point.sim_seconds,
@@ -832,6 +1018,7 @@ fn render_kardashev_hover_content(
 
 fn render_kardashev_overlay(
     ctx: &egui::Context,
+    resource_icons: &super::resource_icons::ResourceIcons,
     trend_state: &mut KardashevTrendState,
     simulation_history: &crate::economy::SimulationHistory,
     current_sim_seconds: f64,
@@ -948,22 +1135,35 @@ fn render_kardashev_overlay(
                         .color(theme::TEXT_DIM),
                 );
                 egui::ComboBox::from_id_salt("history_panel_resource")
-                    .selected_text(format!(
-                        "{} {}",
-                        get_resource_icon(&trend_state.resource),
-                        trend_state.resource.display_name()
-                    ))
+                    // v0.5.2: trigger keeps the resource name only
+                    // (egui ComboBox `selected_text` takes a string,
+                    // not a closure, so the loaded PNG icon can't
+                    // be embedded inline). The dropdown options use
+                    // `selectable_label` inside `show_ui` so the
+                    // cyan-tinted PNG icon renders next to each
+                    // option name — the visual upgrade is visible
+                    // the moment the player opens the dropdown.
+                    .selected_text(trend_state.resource.display_name())
                     .show_ui(ui, |ui| {
                         for resource in ResourceType::all() {
-                            ui.selectable_value(
-                                &mut trend_state.resource,
-                                *resource,
-                                format!(
-                                    "{} {}",
-                                    get_resource_icon(resource),
-                                    resource.display_name()
-                                ),
-                            );
+                            let is_selected = *resource == trend_state.resource;
+                            // Row = [icon] [selectable label]. The
+                            // icon is a non-interactive decorator;
+                            // the click target is the label. Clicking
+                            // the label swaps `trend_state.resource`
+                            // to the chosen resource (matching the
+                            // legacy `selectable_value` behavior).
+                            ui.horizontal(|ui| {
+                                ui.spacing_mut().item_spacing.x = 4.0;
+                                render_resource_icon(ui, resource_icons, *resource, 16.0);
+                                if ui
+                                    .selectable_label(is_selected, resource.display_name())
+                                    .clicked()
+                                    && !is_selected
+                                {
+                                    trend_state.resource = *resource;
+                                }
+                            });
                         }
                     });
             }
@@ -1089,6 +1289,14 @@ pub(super) struct ResourceBarUiRuntime<'w> {
     sim_time: Res<'w, SimulationTime>,
     time: Res<'w, Time<Real>>,
     ui_prefs: Res<'w, ResearchUiPreferences>,
+    // v0.5.2: 39 line-art PNG resource icons (water.png, iron.png,
+    // …) replace the legacy emoji glyphs. Bundled into this
+    // SystemParam (instead of taking it as a separate function
+    // arg) so the host function stays under Bevy's 16-generic
+    // cap. The render side calls `render_resource_icon` which
+    // falls back to a small cyan square if the icon hasn't
+    // loaded yet.
+    resource_icons: Res<'w, super::resource_icons::ResourceIcons>,
 }
 
 /// GRA-31 PR-A: per-body / per-system resource breakdown + in-transit
@@ -1127,6 +1335,13 @@ pub(super) struct ResourceBarLocalState<'s> {
 const CONTEXT_TILE_WIDTH: f32 = 88.0;
 const CONTEXT_TILE_HEIGHT: f32 = 28.0;
 const CONTEXT_NAME_FONT_SIZE: f32 = 11.5;
+
+/// Category-badge icon size in the top resource bar. 28 px fills
+/// the available vertical space inside the 48-px panel without
+/// growing the bar itself; the previous 22 px value left a
+/// noticeable empty band above and below the icon (especially
+/// against the 13-pt total + 10-pt rate column).
+const CATEGORY_TILE_ICON_SIZE: f32 = 28.0;
 
 fn render_context_name_marquee(ui: &mut egui::Ui, text: &str) {
     let font_id = egui::FontId::proportional(CONTEXT_NAME_FONT_SIZE);
@@ -1217,7 +1432,7 @@ pub(super) fn ui_resources_bar(
     let total_population: f64 = population_query.iter().map(|(p, _, _)| p.count).sum();
 
     egui::TopBottomPanel::top("resources_bar")
-        .exact_height(40.0)
+        .exact_height(48.0)
         .show(ctx, |ui| {
             ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                 ui.add_space(4.0);
@@ -1235,7 +1450,7 @@ pub(super) fn ui_resources_bar(
                         ui.horizontal(|ui| {
                             ui.add(
                                 egui::Label::new(
-                                    egui::RichText::new("📍").size(15.0).color(theme::ACCENT),
+                                    egui::RichText::new("📍").size(15.0).color(theme::CYAN),
                                 )
                                 .selectable(false),
                             );
@@ -1269,41 +1484,144 @@ pub(super) fn ui_resources_bar(
                         .map(|r| rate_tracker.get_resource_rate(r))
                         .sum();
 
-                    let icon = get_resource_category_icon(category_name);
+                    // v3.8.1: aggregate fill ratio = total / (cap × N_bodies).
+                    // The per-body cap is `effective_stockpile_cap(r)` which
+                    // already includes the storage_multiplier; multiplying by
+                    // the number of bodies in view gives the aggregate cap.
+                    // We count bodies that have a LocalStockpile (every
+                    // surveyed body) to get the right denominator.
+                    let n_bodies = breakdown_queries.per_body_breakdown.iter().count() as f64;
+                    let category_cap: f64 = resources
+                        .iter()
+                        .map(|r| budget.effective_stockpile_cap(*r) * n_bodies)
+                        .sum();
+                    let fill_ratio = if category_cap > 0.0 {
+                        (category_total / category_cap).clamp(0.0, 1.0)
+                    } else {
+                        0.0
+                    };
+
                     let color = get_category_color(category_name);
                     let text_color = theme::TEXT;
+                    // v0.5.2 PR-A.4: use the category-badge PNG
+                    // (`category-atmospheric.png`,
+                    // `category-construction.png`, …) tinted to the
+                    // category color. The previous approach rendered
+                    // a representative-resource icon (Iron for
+                    // Construction, Water for Volatiles, …) which
+                    // never matched the actual category identity —
+                    // the category PNGs were authored but never
+                    // wired up. The fallback (cyan square) lives
+                    // inside `render_category_icon` so dev builds
+                    // without icons still read as a row of evenly
+                    // sized tiles.
 
                     let is_this_open = open_popup
                         .open
                         .as_ref()
                         .is_some_and(|(n, _)| n == category_name);
 
+                    // v3.8.1: cap-throttle indicator. Lit when any
+                    // body in this category is past the soft-knee
+                    // (fill > 0.8) so the player can see "this rate
+                    // is being reduced" at a glance. Per-body fill
+                    // is the body-stockpile / body-cap; we surface
+                    // the worst-case body.
+                    // v3.8.7 (2026-08-07): the per-category lock icon
+                    // is shown only when at least one body in the
+                    // category is *at the cap* (fill ≥ 1.0), not at
+                    // the 0.8 soft-knee.  The soft-knee is a warning
+                    // (orange fill bar) that the throttle is *starting*
+                    // to bite; the lock is a *status* that the cap is
+                    // hit and production is at the consumption floor.
+                    // Showing the lock at the soft-knee was misleading
+                    // because the player had visual signal that
+                    // production was already capped when in fact
+                    // production was still positive.
+                    let any_body_at_cap = resources.iter().any(|r| {
+                        let cap = budget.effective_stockpile_cap(*r);
+                        if cap <= 0.0 || cap >= f64::MAX {
+                            return false;
+                        }
+                        // Sample the per-body max fill across bodies
+                        // in view — only the hard cap (fill ≥ 1.0)
+                        // counts as "at the cap".
+                        breakdown_queries
+                            .per_body_breakdown
+                            .iter()
+                            .any(|(_, _, stockpile)| {
+                                let current = stockpile.get(r);
+                                current / cap >= 1.0 - 1e-9
+                            })
+                    });
+
                     // Use a Frame for the category display
                     let response = egui::Frame::NONE
                         .inner_margin(egui::Margin::symmetric(1, 2))
                         .show(ui, |ui| {
                             ui.horizontal_centered(|ui| {
-                                ui.add(
-                                    egui::Label::new(
-                                        egui::RichText::new(icon).size(16.0).color(color),
-                                    )
-                                    .selectable(false),
+                                render_category_icon(
+                                    ui,
+                                    &ui_runtime.resource_icons,
+                                    category_name,
+                                    CATEGORY_TILE_ICON_SIZE,
                                 );
-                                ui.add_space(1.0);
+                                ui.add_space(2.0);
                                 ui.vertical(|ui| {
                                     ui.set_min_width(68.0); // Fixed width to prevent wiggling
                                     ui.set_max_width(68.0);
-                                    ui.add(
-                                        egui::Label::new(
-                                            egui::RichText::new(format_mass(category_total))
-                                                .size(13.0)
-                                                .color(text_color),
-                                        )
-                                        .selectable(false),
-                                    );
+                                    // Top row: total + (optional) cap icon
+                                    ui.horizontal(|ui| {
+                                        ui.add(
+                                            egui::Label::new(
+                                                egui::RichText::new(format_mass(category_total))
+                                                    .size(13.0)
+                                                    .color(text_color),
+                                            )
+                                            .selectable(false),
+                                        );
+                                        if any_body_at_cap {
+                                            ui.add_space(2.0);
+                                            let lock_response = ui.add(
+                                                egui::Label::new(
+                                                    egui::RichText::new("🔒")
+                                                        .size(11.0)
+                                                        .color(theme::AMBER),
+                                                )
+                                                .selectable(false),
+                                            );
+                                            lock_response.on_hover_text(
+                                                "At the storage cap: at least one body in this\n\
+                                                 category is full. Production is throttled to the\n\
+                                                 per-body consumption draw (no net stockpile gain).\n\
+                                                 Build more Warehouses / Resource Depots to expand\n\
+                                                 the cap, or get a trade route set up to move\n\
+                                                 the surplus off-world.",
+                                            );
+                                        }
+                                    });
                                     let (rate_text, rate_color) =
                                         format_rate_monthly(category_rate);
-                                    ui.add(
+                                    // v3.8.11 (2026-08-07): hover tooltip
+                                    // on the category rate. Breaks the
+                                    // aggregate category rate into its
+                                    // per-resource components, then
+                                    // shows the production / per-cap /
+                                    // maint / synthesis-input split for
+                                    // each. Without this, the +X Mt/mo
+                                    // number on the bar was opaque
+                                    // (especially for "Volatiles" which
+                                    // contains Methane — a resource
+                                    // whose displayed rate was
+                                    // double-counted by the v3.8.0-v3.8.10
+                                    // synthesis-input sign bug).
+                                    let category_tooltip = build_category_rate_tooltip(
+                                        &resources,
+                                        &rate_tracker,
+                                        &breakdown_queries,
+                                        &budget,
+                                    );
+                                    let rate_label = ui.add(
                                         egui::Label::new(
                                             egui::RichText::new(rate_text)
                                                 .size(10.0)
@@ -1311,6 +1629,44 @@ pub(super) fn ui_resources_bar(
                                         )
                                         .selectable(false),
                                     );
+                                    if !category_tooltip.is_empty() {
+                                        rate_label.on_hover_text(category_tooltip);
+                                    }
+                                    // v3.8.1: tiny fill-ratio bar
+                                    // (4px tall) so the player can see
+                                    // how full the aggregate stockpile
+                                    // is at a glance. Coloured by fill
+                                    // band (green < 60%, yellow 60-80%,
+                                    // orange 80-95%, red 95%+).
+                                    let bar_color = if fill_ratio >= 0.95 {
+                                        theme::CAP_FILL_RED
+                                    } else if fill_ratio >= 0.80 {
+                                        theme::CAP_FILL_ORANGE
+                                    } else if fill_ratio >= 0.60 {
+                                        theme::CAP_FILL_YELLOW
+                                    } else {
+                                        theme::CAP_FILL_GREEN
+                                    };
+                                    let bar_rect = ui.allocate_space(egui::vec2(60.0, 4.0)).1;
+                                    ui.painter().rect_filled(
+                                        egui::Rect::from_min_size(
+                                            bar_rect.min,
+                                            egui::vec2(60.0, 4.0),
+                                        ),
+                                        1.0,
+                                        theme::FILL_TRACK_GRAY,
+                                    );
+                                    let fill_w = (60.0 * fill_ratio as f32).max(0.0);
+                                    if fill_w > 0.0 {
+                                        ui.painter().rect_filled(
+                                            egui::Rect::from_min_size(
+                                                bar_rect.min,
+                                                egui::vec2(fill_w, 4.0),
+                                            ),
+                                            1.0,
+                                            bar_color,
+                                        );
+                                    }
                                 });
                             });
                         })
@@ -1661,32 +2017,62 @@ pub(super) fn ui_resources_bar(
                     ui.separator();
 
                     // Power grid status
-                    // Color code power: Green if surplus, Red if deficit
+                    // v0.5.2 PR-A.7 (2026-08-04): three-band text
+                    // colour ladder keyed off the current grid
+                    // surplus (`net_power`, produced − consumed, in
+                    // MW):
+                    //   * ≤ 0 MW  → red    (deficit or zero — grid
+                    //                      can't cover demand)
+                    //   * 0–50 GW → yellow (low/medium surplus —
+                    //                      comfortable but not
+                    //                      abundant)
+                    //   * > 50 GW → green  (abundant surplus)
+                    // The icon itself stays `theme::GOLD` (the egui
+                    // twin of `bevy_theme::YELLOW_ENERGY`) so the
+                    // power chip reads as a distinct third category
+                    // — the gold icon is the "this is power" marker,
+                    // the text colour carries the surplus signal.
+                    // 50 GW = 50_000 MW (matches the `format_power`
+                    // SI ladder's MW→GW band at 1000×).
                     let net_power = budget.net_power();
-                    let power_color = if net_power >= 0.0 {
-                        theme::GREEN
-                    } else {
+                    const POWER_SURPLUS_YELLOW_MAX_MW: f64 = 50_000.0;
+                    let power_text_color = if net_power <= 0.0 {
                         theme::RED
+                    } else if net_power <= POWER_SURPLUS_YELLOW_MAX_MW {
+                        theme::STATUS_WARN
+                    } else {
+                        theme::GREEN
                     };
 
                     let is_power_open = open_popup.open.as_ref().is_some_and(|(n, _)| n == "Power");
 
                     // Power generation display (clickable with tooltip)
+                    // v0.5.2+: dedicated bolt-in-hex PNG (`energy.png`)
+                    // replaces the legacy ⚡ emoji glyph. Icon is
+                    // always tinted gold (the energy-chrome constant);
+                    // text colour carries the three-band surplus
+                    // signal. 16-px icon size to sit visually next to
+                    // the 14-pt bold power number.
                     let response = egui::Frame::NONE
                         .inner_margin(egui::Margin::symmetric(1, 2))
                         .show(ui, |ui| {
                             ui.horizontal_centered(|ui| {
                                 ui.set_min_width(82.0); // Fixed width to prevent wiggling
                                 ui.set_max_width(82.0);
+                                render_energy_icon(
+                                    ui,
+                                    &ui_runtime.resource_icons,
+                                    theme::GOLD,
+                                    16.0,
+                                );
                                 ui.add(
                                     egui::Label::new(
-                                        egui::RichText::new(format!(
-                                            "⚡ {}",
-                                            format_power(budget.energy_grid.produced)
+                                        egui::RichText::new(format_power(
+                                            budget.energy_grid.produced,
                                         ))
                                         .size(14.0)
                                         .strong()
-                                        .color(power_color),
+                                        .color(power_text_color),
                                     )
                                     .selectable(false),
                                 );
@@ -1700,7 +2086,7 @@ pub(super) fn ui_resources_bar(
                         ui.painter().rect_stroke(
                             interact.rect,
                             2.0,
-                            egui::Stroke::new(1.0_f32, power_color),
+                            egui::Stroke::new(1.0_f32, power_text_color),
                             egui::StrokeKind::Outside,
                         );
                         interact
@@ -1875,12 +2261,20 @@ pub(super) fn ui_resources_bar(
                 power_popup_queries.buildings_data.as_deref(),
             );
             let power_rows = super::economy_panel::collect_power_body_rows(&hierarchy);
-            // Determine color from budget - recalculate here
+            // Determine color from budget - recalculate here.
+            // v0.5.2 PR-A.7 (2026-08-04): three-band ladder
+            // matching the top-bar chip — ≤ 0 red, 0–50 GW
+            // yellow, > 50 GW green. The header title and the
+            // per-row amount share the same colour so the
+            // breakdown reads as a unified state read.
             let net_power = budget.net_power();
-            let power_color = if net_power >= 0.0 {
-                theme::GREEN
-            } else {
+            const POWER_SURPLUS_YELLOW_MAX_MW: f64 = 50_000.0;
+            let power_color = if net_power <= 0.0 {
                 theme::RED
+            } else if net_power <= POWER_SURPLUS_YELLOW_MAX_MW {
+                theme::STATUS_WARN
+            } else {
+                theme::GREEN
             };
 
             let window_response = egui::Window::new("Power Breakdown")
@@ -1894,12 +2288,20 @@ pub(super) fn ui_resources_bar(
                 .show(ctx, |ui| {
                     ui.set_min_width(300.0);
                     ui.horizontal(|ui| {
-                        ui.add(
-                            egui::Label::new(
-                                egui::RichText::new("⚡").size(18.0).color(power_color),
-                            )
-                            .selectable(false),
-                        );
+                        // v0.5.2 PR-A.7 (2026-08-04): the
+                        // dedicated bolt-in-hex PNG
+                        // (`energy.png`) replaces the
+                        // legacy ⚡ emoji glyph in the popup
+                        // header. Tinted gold
+                        // (`theme::GOLD` = the egui twin of
+                        // `bevy_theme::YELLOW_ENERGY`) so the
+                        // "this is power" marker is
+                        // consistent with the top-bar chip
+                        // and the Build/Mining card chips.
+                        // 22-px size so it reads as the
+                        // primary visual element next to the
+                        // 16-pt bold title text.
+                        render_energy_icon(ui, &ui_runtime.resource_icons, theme::GOLD, 22.0);
                         ui.add(
                             egui::Label::new(
                                 egui::RichText::new("Power Production")
@@ -2428,9 +2830,15 @@ pub(super) fn ui_resources_bar(
                             } else {
                                 "Unknown".to_string()
                             };
-                            let housing = colony_opt.map(|c| c.housing_capacity()).unwrap_or(0.0);
+                            let default_data = BuildingsData::default();
+                            let data = power_popup_queries
+                                .buildings_data
+                                .as_deref()
+                                .unwrap_or(&default_data);
+                            let housing =
+                                colony_opt.map(|c| c.housing_capacity(data)).unwrap_or(0.0);
                             let growth_yr = colony_opt
-                                .map(|c| c.population_growth_per_year(1.0))
+                                .map(|c| c.population_growth_per_year(1.0, data))
                                 .unwrap_or(0.0);
                             (name, p.count, housing, growth_yr)
                         })
@@ -2570,12 +2978,17 @@ pub(super) fn ui_resources_bar(
 
                     ui.separator();
                     // Total + aggregate growth rate
+                    let default_data = BuildingsData::default();
+                    let data = power_popup_queries
+                        .buildings_data
+                        .as_deref()
+                        .unwrap_or(&default_data);
                     let total_growth_yr: f64 = population_query
                         .iter()
                         .filter_map(|(p, _, c)| {
                             if p.count > 0.0 {
                                 Some(
-                                    c.map(|col| col.population_growth_per_year(1.0))
+                                    c.map(|col| col.population_growth_per_year(1.0, data))
                                         .unwrap_or(0.0),
                                 )
                             } else {
@@ -2641,8 +3054,12 @@ pub(super) fn ui_resources_bar(
             .into_iter()
             .find(|(name, _)| *name == cat_name.as_str())
         {
-            let icon = get_resource_category_icon(cat_name);
             let color = get_category_color(cat_name);
+            // v0.5.2 PR-A.4: category popup header gets the same
+            // category-badge PNG as the top-bar tile, sized 22 px
+            // to match the 16-pt bold heading. Falls back to the
+            // cyan square via `render_category_icon` if the asset
+            // hasn't loaded yet.
 
             let mut still_open = true;
             let window_response = egui::Window::new(cat_name.as_str())
@@ -2656,9 +3073,11 @@ pub(super) fn ui_resources_bar(
                 .show(ctx, |ui| {
                     ui.set_min_width(280.0);
                     ui.horizontal(|ui| {
-                        ui.add(
-                            egui::Label::new(egui::RichText::new(icon).size(18.0).color(color))
-                                .selectable(false),
+                        render_category_icon(
+                            ui,
+                            &ui_runtime.resource_icons,
+                            cat_name.as_str(),
+                            30.0,
                         );
                         ui.add(
                             egui::Label::new(
@@ -2711,28 +3130,30 @@ pub(super) fn ui_resources_bar(
                                 // Icon + Name in one cell — wrap in an
                                 // allocating Ui so we can capture a
                                 // Response for hover-mini-chart and click
-                                // open-popup behavior.
-                                let name_response = ui.horizontal(|ui| {
-                                    ui.add(
-                                        egui::Label::new(
-                                            egui::RichText::new(get_resource_icon(resource))
-                                                .size(14.0),
-                                        )
-                                        .selectable(false),
-                                    );
-                                    ui.add(
-                                        egui::Label::new(
-                                            egui::RichText::new(resource.display_name()).size(12.0),
-                                        )
-                                        .selectable(false),
-                                    );
-                                }).response;
+                                // open-popup behavior. v0.5.2: switches
+                                // from the legacy emoji glyph to the
+                                // loaded PNG icon via
+                                // `render_resource_name_row` (cyan-tinted
+                                // to match the menu icons). The
+                                // `ResourceIcons` resource is already in
+                                // scope via `ui_runtime`.
+                                let name_response = ui
+                                    .horizontal(|ui| {
+                                        render_resource_name_row(
+                                            ui,
+                                            &ui_runtime.resource_icons,
+                                            *resource,
+                                            12.0,
+                                        );
+                                    })
+                                    .response;
 
                                 // Hover-mini-chart: shows a compact 20-yr
                                 // forecast preview for this resource.
                                 name_response.clone().on_hover_ui(|ui| {
                                     render_resource_hover_preview(
                                         ui,
+                                        &ui_runtime.resource_icons,
                                         *resource,
                                         &contextual,
                                         &rate_tracker,
@@ -2779,6 +3200,51 @@ pub(super) fn ui_resources_bar(
                                             )
                                             .selectable(false),
                                         );
+                                        // v3.8.7 (2026-08-07): per-resource
+                                        // cap-throttle lock.  Shown only
+                                        // when at least one body in view
+                                        // is at the *hard cap* (fill ≥
+                                        // 1.0), not the 0.8 soft-knee.  The
+                                        // soft-knee is communicated by the
+                                        // orange fill bar in the per-body
+                                        // breakdown; the lock is the
+                                        // "production is at the consumption
+                                        // floor" signal.
+                                        {
+                                            let per_body_cap =
+                                                budget.effective_stockpile_cap(*resource);
+                                            let any_body_at_cap = per_body_cap > 0.0
+                                                && per_body_cap < f64::MAX
+                                                && breakdown_queries
+                                                    .per_body_breakdown
+                                                    .iter()
+                                                    .any(|(_, _, stockpile)| {
+                                                        let current = stockpile.get(resource);
+                                                        current / per_body_cap
+                                                            >= 1.0 - 1e-9
+                                                    });
+                                            if any_body_at_cap {
+                                                ui.add_space(3.0);
+                                                let lock_response = ui.add(
+                                                    egui::Label::new(
+                                                        egui::RichText::new("🔒")
+                                                            .size(10.0)
+                                                            .color(theme::AMBER),
+                                                    )
+                                                    .selectable(false),
+                                                );
+                                                lock_response.on_hover_text(format!(
+                                                    "{}: at the storage cap on at least one\n\
+                                                     body in the current view. Production is\n\
+                                                     throttled to that body's consumption\n\
+                                                     draw (no net stockpile gain).\n\n\
+                                                     Build more Warehouses / Resource Depots to\n\
+                                                     expand the cap, or set up an off-world\n\
+                                                     trade route to ship the surplus out.",
+                                                    resource.display_name(),
+                                                ));
+                                            }
+                                        }
                                         let in_transit: f64 = breakdown_queries
                                             .pending_resource_requests
                                             .requests
@@ -2844,6 +3310,7 @@ pub(super) fn ui_resources_bar(
                         &breakdown_queries.pending_resource_requests,
                         *breakdown_queries.view_mode,
                         breakdown_queries.current_star_system.0,
+                        &budget,
                     );
                 });
 
@@ -2898,14 +3365,12 @@ pub(super) fn ui_resources_bar(
             .frame(egui::Frame::popup(ctx.style().as_ref()))
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
-                    ui.add(
-                        egui::Label::new(
-                            egui::RichText::new(get_resource_icon(&resource))
-                                .size(16.0)
-                                .color(theme::forecast_series_color(resource.category())),
-                        )
-                        .selectable(false),
-                    );
+                    // v0.5.2: 16-px PNG icon for the resource
+                    // (16 px so it sits visually next to the 16-px
+                    // bold resource name; the legacy 16-pt emoji
+                    // glyph rendered at variable width depending on
+                    // the emoji codepoint).
+                    render_resource_icon(ui, &ui_runtime.resource_icons, resource, 24.0);
                     ui.add(
                         egui::Label::new(
                             egui::RichText::new(resource.display_name())
@@ -3003,8 +3468,7 @@ pub(super) fn ui_resources_bar(
         if let Some(inner_response) = window_response {
             if ctx.input(|i| i.pointer.any_pressed()) {
                 if let Some(pos) = ctx.input(|i| i.pointer.interact_pos()) {
-                    if !inner_response.response.rect.contains(pos)
-                        && !cat_anchor_rect.contains(pos)
+                    if !inner_response.response.rect.contains(pos) && !cat_anchor_rect.contains(pos)
                     {
                         open_popup.resource_open = None;
                     }
@@ -3018,6 +3482,7 @@ pub(super) fn ui_resources_bar(
 
     render_kardashev_overlay(
         ctx,
+        &ui_runtime.resource_icons,
         &mut kardashev_trend,
         &sim_history,
         current_sim_seconds,
@@ -3026,6 +3491,155 @@ pub(super) fn ui_resources_bar(
 }
 
 // ── Resource forecast preview (hover mini-chart + click popup) ──────
+
+/// v3.8.11 (2026-08-07): build a hover tooltip for the category rate
+/// on the resources bar. Shows the total production / consumption /
+/// net for the category, then a per-resource line. The per-resource
+/// line is intentionally compact (just the rate and a one-line note
+/// if the resource is consumed as a synthesis input) so the tooltip
+/// stays scannable — the dossier's compact deposit list is the
+/// place for the full per-resource breakdown.
+fn build_category_rate_tooltip(
+    resources: &[crate::economy::ResourceType],
+    rate_tracker: &ResourceRateTracker,
+    breakdown_queries: &ResourceBarBreakdownQueries,
+    budget: &GlobalBudget,
+) -> String {
+    use crate::economy::ResourceType;
+
+    // Aggregate category totals.
+    let total_prod: f64 = resources
+        .iter()
+        .map(|r| {
+            rate_tracker
+                .gross_production_rates
+                .get(r)
+                .copied()
+                .unwrap_or(0.0)
+        })
+        .sum();
+    let total_pop: f64 = resources
+        .iter()
+        .map(|r| {
+            rate_tracker
+                .population_consumption
+                .get(r)
+                .copied()
+                .unwrap_or(0.0)
+        })
+        .sum();
+    let total_synth: f64 = resources
+        .iter()
+        .map(|r| rate_tracker.synthesis_input.get(r).copied().unwrap_or(0.0))
+        .sum();
+    let total_cons: f64 = resources
+        .iter()
+        .map(|r| {
+            rate_tracker
+                .gross_consumption_rates
+                .get(r)
+                .copied()
+                .unwrap_or(0.0)
+        })
+        .sum();
+    let total_maint = (total_cons - total_pop - total_synth).max(0.0);
+    let total_net = total_prod - total_cons;
+
+    let f = format_mass;
+    let mut s = format!(
+        "Aggregate per month:\n\
+         \n\
+         ┌─ production         {:>8}\n\
+         ├─ per-capita         {:>8}\n\
+         ├─ maintenance        {:>8}\n\
+         ├─ synthesis input    {:>8}\n\
+         │\n\
+         └─ net rate           {:>+8}\n\
+         \n\
+         Per-resource:",
+        f(total_prod),
+        f(-total_pop),
+        f(-total_maint),
+        f(-total_synth),
+        f(total_net),
+    );
+
+    // Compact per-resource line. Only include resources with
+    // non-trivial rate (≥0.01 Mt/mo) so the tooltip doesn't drown
+    // the player in zeros.
+    for r in resources {
+        let prod = rate_tracker
+            .gross_production_rates
+            .get(r)
+            .copied()
+            .unwrap_or(0.0);
+        let pop = rate_tracker
+            .population_consumption
+            .get(r)
+            .copied()
+            .unwrap_or(0.0);
+        let synth = rate_tracker.synthesis_input.get(r).copied().unwrap_or(0.0);
+        let cons = rate_tracker
+            .gross_consumption_rates
+            .get(r)
+            .copied()
+            .unwrap_or(0.0);
+        let net = rate_tracker.resource_rates.get(r).copied().unwrap_or(0.0);
+
+        if prod.abs() < 0.01 && cons.abs() < 0.01 && net.abs() < 0.01 {
+            continue;
+        }
+
+        let note = if synth > 0.01 {
+            format!("  (synthesis input: {})", f(synth))
+        } else if pop > 0.01 {
+            format!("  (per-cap: {})", f(pop))
+        } else {
+            String::new()
+        };
+
+        s.push_str(&format!(
+            "\n  {:<14} prod {:>6}  cons {:>6}  net {:>+6}{}",
+            r.display_name(),
+            f(prod),
+            f(cons),
+            f(net),
+            note
+        ));
+    }
+
+    // Cap-throttle note. The category rate is being throttled if
+    // any resource in the category has at least one body at fill ≥
+    // 1.0. We surface the worst case (highest fill across bodies
+    // and resources) so the player knows the limit they're hitting.
+    let mut worst_fill = 0.0_f64;
+    let mut worst_resource: Option<ResourceType> = None;
+    for (entity, _, stockpile) in breakdown_queries.per_body_breakdown.iter() {
+        for r in resources {
+            let cap = budget.effective_stockpile_cap(*r);
+            if cap <= 0.0 || cap >= f64::MAX {
+                continue;
+            }
+            let current = stockpile.get(r);
+            let fill = current / cap;
+            if fill >= 1.0 - 1e-9 && fill > worst_fill {
+                worst_fill = fill;
+                worst_resource = Some(*r);
+            }
+        }
+        let _ = entity;
+    }
+    if let Some(r) = worst_resource {
+        s.push_str(&format!(
+            "\n\n⚠ {} at the storage cap on a body in this category —\n\
+             production is throttled to the consumption floor.\n\
+             Build Warehouses or send the surplus off-world.",
+            r.display_name()
+        ));
+    }
+
+    s
+}
 
 /// Build a single-resource forecast series for the resource popup /
 /// hover tooltip.  Lightweight wrapper that reads from the contextual
@@ -3065,11 +3679,13 @@ fn build_single_resource_forecast(
     };
     let annual_mt = monthly_mt * 12.0;
     // Per-resource, per-scope reserve upper bound is intentionally
-    // not threaded through the per-resource popup/hover path — that
+    // not threaded through the per-resource popup/hover path - that
     // mini-chart is a planning aid and the additional query wiring
     // would balloon the SystemParam surface.  See the Forecast sub-tab
-    // for the reserve-aware variant.
-    let mut series = crate::economy::project_stockpile(current_mt, annual_mt, None);
+    // for the reserve-aware variant.  v3.8.3: pass `None` for the
+    // storage cap too (this is the per-resource mini-chart, not the
+    // full forecast tab).
+    let mut series = crate::economy::project_stockpile(current_mt, annual_mt, None, None);
     series.resource = resource;
     let _ = current_sim_seconds;
     series
@@ -3080,6 +3696,7 @@ fn build_single_resource_forecast(
 /// `FORECAST_MINI_CHART_HEIGHT` painter chart + a one-line summary.
 fn render_resource_hover_preview(
     ui: &mut egui::Ui,
+    icons: &super::resource_icons::ResourceIcons,
     resource: crate::economy::ResourceType,
     contextual: &crate::economy::ContextualStockpile,
     rate_tracker: &ResourceRateTracker,
@@ -3087,15 +3704,17 @@ fn render_resource_hover_preview(
     current_sim_seconds: f64,
 ) {
     ui.set_max_width(260.0);
+    // v0.5.2: tooltip header uses the same PNG icon as the main
+    // popup grid via `render_resource_name_row` (cyan-tinted to
+    // match the menu icons). The forecast tooltip is now
+    // visually consistent with the resource row it pops up from.
+    render_resource_name_row(ui, icons, resource, 13.0);
+    ui.add_space(2.0);
     ui.label(
-        egui::RichText::new(format!(
-            "{} {}  — 20-yr forecast",
-            get_resource_icon(&resource),
-            resource.display_name()
-        ))
-        .strong()
-        .size(12.0)
-        .color(theme::forecast_series_color(resource.category())),
+        egui::RichText::new("20-yr forecast")
+            .strong()
+            .size(10.0)
+            .color(theme::forecast_series_color(resource.category())),
     );
     ui.add_space(2.0);
 
@@ -3134,13 +3753,14 @@ fn render_resource_hover_preview(
             .size(11.0),
         );
         ui.label(
-            egui::RichText::new(format!(
-                "Net {:+} /yr",
-                format_mass(annual.abs())
-            ))
-            .color(if annual < 0.0 { theme::RED } else { theme::GREEN })
-            .size(10.0)
-            .monospace(),
+            egui::RichText::new(format!("Net {:+} /yr", format_mass(annual.abs())))
+                .color(if annual < 0.0 {
+                    theme::RED
+                } else {
+                    theme::GREEN
+                })
+                .size(10.0)
+                .monospace(),
         );
     } else {
         ui.label(
@@ -3149,7 +3769,11 @@ fn render_resource_hover_preview(
             } else {
                 format!("Sustainable · net {:+} /yr", format_mass(annual.abs()))
             })
-            .color(if annual < 0.0 { theme::RED } else { theme::GREEN })
+            .color(if annual < 0.0 {
+                theme::RED
+            } else {
+                theme::GREEN
+            })
             .size(11.0),
         );
     }
@@ -3286,7 +3910,10 @@ fn render_resource_mini_chart(
     // ── "Now" vertical line (subtle, series color, full-height) ──
     let x_now = plot_rect.left();
     painter.line_segment(
-        [egui::pos2(x_now, plot_rect.top()), egui::pos2(x_now, plot_rect.bottom())],
+        [
+            egui::pos2(x_now, plot_rect.top()),
+            egui::pos2(x_now, plot_rect.bottom()),
+        ],
         egui::Stroke::new(1.0_f32, stroke_color.linear_multiply(0.6)),
     );
 
@@ -3337,10 +3964,7 @@ fn render_resource_mini_chart(
                 let next_y = (y + dash_len).min(plot_rect.bottom());
                 painter.line_segment(
                     [egui::pos2(x, y), egui::pos2(x, next_y)],
-                    egui::Stroke::new(
-                        theme::FORECAST_RUNS_OUT_STROKE_WIDTH,
-                        runs_out_color,
-                    ),
+                    egui::Stroke::new(theme::FORECAST_RUNS_OUT_STROKE_WIDTH, runs_out_color),
                 );
                 y = next_y + dash_len;
             }
@@ -3416,6 +4040,53 @@ fn in_view_context(
 /// Render the per-body / per-system breakdown table that appears in the
 /// resource category popup (GRA-31 PR-A).
 ///
+/// v3.8.1: render a single per-body fill cell in the per-body
+/// breakdown table. Shows a small progress bar (40px wide) plus
+/// the fill % as text. The bar colour matches the v0.5.2 PR-A.4
+/// fill-ratio bands so the player can see at a glance which
+/// bodies are at the soft-knee (80%+) and are being throttled.
+fn render_fill_cell(ui: &mut egui::Ui, fill_ratio: f64) {
+    ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+        let bar_color = if fill_ratio >= 0.95 {
+            theme::CAP_FILL_RED
+        } else if fill_ratio >= 0.80 {
+            theme::CAP_FILL_ORANGE // orange = soft-knee
+        } else if fill_ratio >= 0.60 {
+            theme::CAP_FILL_YELLOW
+        } else {
+            theme::CAP_FILL_GREEN
+        };
+        let bar_rect = ui.allocate_space(egui::vec2(40.0, 6.0)).1;
+        ui.painter().rect_filled(
+            egui::Rect::from_min_size(bar_rect.min, egui::vec2(40.0, 6.0)),
+            1.0,
+            theme::FILL_TRACK_GRAY,
+        );
+        let fill_w = (40.0 * fill_ratio as f32).max(0.0);
+        if fill_w > 0.0 {
+            ui.painter().rect_filled(
+                egui::Rect::from_min_size(bar_rect.min, egui::vec2(fill_w, 6.0)),
+                1.0,
+                bar_color,
+            );
+        }
+        ui.add_space(4.0);
+        ui.add(
+            egui::Label::new(
+                egui::RichText::new(format!("{:>3.0}%", fill_ratio * 100.0))
+                    .monospace()
+                    .size(10.0)
+                    .color(if fill_ratio >= 0.80 {
+                        theme::AMBER
+                    } else {
+                        theme::TEXT_DIM
+                    }),
+            )
+            .selectable(false),
+        );
+    });
+}
+
 /// - **System view** → list every body in the current system that holds
 ///   any of the resources in `resources`, sorted by total stockpile desc.
 /// - **Starmap view** → group by system, show system subtotals, list
@@ -3432,7 +4103,18 @@ fn render_per_body_breakdown(
     pending_resource_requests: &crate::economy::logistics::PendingResourceRequests,
     view_mode: ViewMode,
     current_star_id: usize,
+    budget: &GlobalBudget,
 ) {
+    // v3.8.1: per-body cap = sum of `effective_stockpile_cap(r)` across
+    // the resources in this category.  The cap is the same for every
+    // body (storage_multiplier is global), so we can compute it once
+    // outside the body loop and reuse it.
+    let body_cap: f64 = resources
+        .iter()
+        .map(|r| budget.effective_stockpile_cap(*r))
+        .sum();
+    let cap_is_meaningful = body_cap > 0.0 && body_cap < f64::MAX;
+
     // Collect (body_name, system_id, total_for_category, per_resource) rows
     // for the bodies that hold at least one of the resources in `resources`.
     let mut rows: Vec<BreakdownRow> = Vec::new();
@@ -3450,10 +4132,16 @@ fn render_per_body_breakdown(
         if total <= 0.0 {
             continue;
         }
+        let fill_ratio = if cap_is_meaningful {
+            (total / body_cap).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
         rows.push(BreakdownRow {
             body_name,
             system_id: sid.0,
             total,
+            fill_ratio,
         });
     }
     rows.sort_by(|a, b| {
@@ -3489,8 +4177,12 @@ fn render_per_body_breakdown(
         map
     };
 
+    // v3.8.1: 4 columns now — Body, Stockpile, Fill, Incoming.  The
+    // Fill column shows the per-body cap-throttle state so the
+    // player can see at a glance which bodies are past the soft
+    // knee (80% fill) and are having their production reduced.
     egui::Grid::new("res_popup_breakdown")
-        .num_columns(3)
+        .num_columns(4)
         .spacing([16.0, 2.0])
         .striped(true)
         .show(ui, |ui| {
@@ -3501,6 +4193,12 @@ fn render_per_body_breakdown(
                 egui::Label::new(egui::RichText::new("Stockpile").strong().size(10.0))
                     .selectable(false),
             );
+            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                ui.add(
+                    egui::Label::new(egui::RichText::new("Fill").strong().size(10.0))
+                        .selectable(false),
+                );
+            });
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.add(
                     egui::Label::new(egui::RichText::new("Incoming").strong().size(10.0))
@@ -3524,6 +4222,7 @@ fn render_per_body_breakdown(
                             )
                             .selectable(false),
                         );
+                        render_fill_cell(ui, row.fill_ratio);
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             // Look up incoming by walking the request list
                             // for the body name.  Bodies are not addressable
@@ -3555,7 +4254,7 @@ fn render_per_body_breakdown(
                                 egui::RichText::new(format!("System {system_id}"))
                                     .strong()
                                     .size(11.0)
-                                    .color(theme::ACCENT),
+                                    .color(theme::CYAN),
                             )
                             .selectable(false),
                         );
@@ -3591,6 +4290,7 @@ fn render_per_body_breakdown(
                                 )
                                 .selectable(false),
                             );
+                            render_fill_cell(ui, row.fill_ratio);
                             ui.with_layout(
                                 egui::Layout::right_to_left(egui::Align::Center),
                                 |ui| {
@@ -3616,6 +4316,11 @@ struct BreakdownRow {
     body_name: String,
     system_id: usize,
     total: f64,
+    /// v3.8.1: per-body CATEGORY fill ratio (0..1). The
+    /// category cap is the same for every body (storage
+    /// multiplier is global) so this is computed once per
+    /// row from `total` + the precomputed `body_cap`.
+    fill_ratio: f64,
 }
 
 pub(super) fn format_population(count: f64) -> String {

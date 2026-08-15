@@ -2,6 +2,54 @@
 
 Welcome to Helios Ascension, a 4X grand strategy game built with Rust and the Bevy game engine. These instructions help GitHub Copilot understand our project's architecture, conventions, and best practices.
 
+## Multi-Agent Worktree Safety (CRITICAL)
+
+This repository is frequently worked on by **multiple agents (Copilot sessions, Claude Code, subagents, CI bots) in parallel worktrees**, often on the same branch or on closely-related branches that share build artifacts (`target/`, `Cargo.lock`, asset caches). **Naive `git stash`, `git checkout`, `git reset`, or `git clean` commands have repeatedly destroyed concurrent work.** Treat any operation that mutates the working tree as load-bearing and read this section before running it.
+
+### Hard rules
+
+- **Never run `git stash` in a shared worktree.** It sweeps uncommitted edits (including edits made by other agents) into a stash that may not belong to you, and `git stash pop` from a parallel agent can clobber the original author's file. If you believe you need to "set the worktree back to a clean state" to test something, **do not stash** — work on a fresh worktree, or copy the specific files you need into a scratch directory and inspect them there.
+- **Never run `git stash --include-untracked` or `git stash -u`.** It silently vacuums up untracked files (logs, scratch notes, `.copilot/`, generated assets, other agents' in-flight work) that are not in git but may be in active use.
+- **Never run `git checkout -- <path>`, `git restore --source=HEAD <path>`, `git reset --hard`, or `git clean -fdx` without an explicit `--` path scope and a dry-run first.** These commands are unrecoverable and have repeatedly wiped parallel work in this repo. If you need to discard changes, restrict the scope to a single file or path that you authored, and prefer `git diff <path>` to read first.
+- **Never run `git switch` or `git checkout` to a different branch in a worktree that may be in use by another agent.** Create a new worktree (`git worktree add ../<branch>-worktree <branch>`) and work there instead.
+- **Never run `cargo clean`, `rm -rf target/`, or `rm Cargo.lock`** in a shared worktree. Other agents depend on incremental builds in `target/`. If you need a clean build, do it in a fresh clone or in your own dedicated worktree.
+- **Never assume a test failure is "pre-existing" and revert.** Re-running `cargo test` on an unchanged tree is the correct way to confirm a pre-existing failure. Do **not** stash, reset, or rebase to "check whether the failure was there before" — you will destroy the other agent's in-flight changes. See "Verifying pre-existing failures" below.
+
+### Verifying pre-existing failures (the safe way)
+
+When a test fails and you suspect it pre-dates your work:
+
+1. Note the exact failing test name and the failure output (copy/paste, don't truncate).
+2. Run `git status` and `git log -1 --oneline` in **your own worktree only** — never across worktrees.
+3. Use `git stash -k` is still unsafe on shared worktrees. Instead: copy the files you suspect of being yours (e.g., `git diff --name-only HEAD`) to a scratch directory, then re-run the test in a fresh worktree branched from `main` (or the branch's base). This proves pre-existence without touching anyone else's work.
+4. If the failure reproduces on a clean worktree of `main`, it is pre-existing. Report it; do **not** "fix" it as part of your task unless that is the assigned scope.
+5. If the failure does **not** reproduce on a clean `main` worktree, the regression is yours (or a peer agent's). Bisect by file ownership, not by `git stash`.
+
+### Why this matters here
+
+Multiple agents in this repo have run `git stash` "just to check whether a failure was pre-existing" and lost hours of unrelated edits — including data files under `assets/data/`, in-progress RON edits, generated icons, and scratch diagnostic logs. The repeated pattern is: agent sees red CI, stashes the worktree, runs the test, sees green, concludes "pre-existing", pops the stash — but another agent's untracked files or unstaged edits never made it into the stash in the first place, so when the second agent continues they find their workspace silently corrupted. **The cure is to never reach for `git stash` in a shared worktree.**
+
+### Safe alternatives (use these instead)
+
+| Want to do this… | Use this instead |
+|---|---|
+| "Is this failure pre-existing?" | Re-run the test on a fresh `main` worktree |
+| "Set the worktree to a clean state to debug" | Make a new worktree: `git worktree add ../clean main` |
+| "Stash my work and switch branches" | Commit on a branch (`git switch -c my-fix`) or use your own dedicated worktree |
+| "Discard my local changes to file X" | `git checkout HEAD -- <single-file-path>` **only** for files you authored; confirm with `git log -- <path>` first |
+| "Clean build artifacts" | `cargo clean -p <specific-package>` instead of full `cargo clean` |
+| "Run a hermetic experiment" | Copy the file(s) you need into `/tmp/<scratch>/` and inspect there |
+
+### Quick self-check before any worktree mutation
+
+Before running **any** of `git stash`, `git checkout`, `git restore`, `git reset`, `git clean`, `git switch`, `cargo clean`, `rm -rf target/`, or `rm Cargo.lock`, answer:
+
+1. Is this worktree shared with another agent (look at sibling `../<repo>-*` directories)?
+2. Could any of the files I'm about to touch belong to a peer agent?
+3. Is there a non-destructive alternative (new worktree, scoped `git checkout -- <path>`, fresh clone)?
+
+If any answer is "yes" or "unsure", **stop and use the safe alternative.** Document the choice in your final report so the user can audit it.
+
 ## Project Overview
 
 Helios Ascension is a high-performance space strategy game inspired by Aurora 4X and Terra Invicta. The project emphasizes:
@@ -93,13 +141,44 @@ helios_ascension/
 │       ├── dashboard.rs           # Main dashboard, time controls, star system panel
 │       ├── research_panel.rs      # Research/engineering UI (overview, available, bonuses, archive tabs)
 │       ├── tech_tree.rs           # Tech tree tab, edit dialog, category colors
-│       ├── construction_panel.rs  # Construction queue UI
+│       ├── construction/          # NATIVE BEVY UI Construction menu (v0.5.2 canary).
+│                             # The 11 865-LOC src/ui/construction.rs was split
+│                             # into this directory (commit 6e9e8f4) and the migration
+│                             # to native Bevy UI landed in commit 4794803.
+│                             # Sub-modules: mod.rs, state.rs, data.rs, markers.rs,
+│                             # cards.rs, mining.rs, overview.rs, buildings.rs,
+│                             # demolish.rs, queue.rs, dropdown.rs, tooltip.rs,
+│                             # scrollbar.rs, disabled.rs, setup.rs. The legacy
+│                             # src/ui/construction_panel.rs and the canary-era
+│                             # src/ui/construction.rs no longer exist.
+│       ├── widgets.rs             # Menu-agnostic native-Bevy-UI primitive library
+│                             # (v0.5.2; UiFonts, HoverElevation, KeyedList,
+│                             # TooltipRequest, Scrollbar, Marquee, ProgressFill,
+│                             # ActiveTabs<T>, six CardShell* composers). Consumed by
+│                             # Construction today and any future bevy_ui menu.
+│       ├── bevy_theme.rs          # Native-Bevy-UI palette mirror (CARD_BG, CYAN, ...)
+│                             # - coexists with the egui palette in theme.rs.
+│       ├── resource_icons.rs      # Build / mining / research icon atlas (MAX_ICONS_PER_FRAME = 2)
+│       ├── icon_cache.rs          # Hash-validated icon cache + async bake + splash progress
 │       ├── economy_panel.rs       # Economy/budget UI
 │       ├── shipbuilding_state.rs  # Shared shipbuilding UI state (selected hull, focused slot, queued builds)
-│       ├── shipbuilding_workspace.rs # Native Bevy UI shipbuilding workspace (Logistics Hub / Design Blueprint / Engineering Analytics)
-│       ├── shipbuilding_tooltip.rs # Slot hover tooltips and module compatibility hints
+│       ├── shipbuilding_workspace.rs # Native Bevy UI shipbuilding workspace (Logistics Hub /
+│                             # Design Blueprint / Engineering Analytics). Slot hover
+│                             # tooltips + module-compatibility hints were inlined here
+│                             # in commit 17472dd; the former shipbuilding_tooltip.rs
+│                             # no longer exists.
 │       ├── fleets_panel.rs        # Fleet list, detail, orbit/maneuver status, FleetUiState
 │       ├── transfer_planner.rs    # Transfer planner sub-panel (destination, options, LP transfers)
+│       ├── transfer_planner_card.rs  # Per-fleet transfer planner card UI
+│       ├── porkchop_panel.rs      # Porkchop plot planner (GRA-152)
+│       ├── notifications/         # v0.5.0 notifications (toast panel, settings, bridges)
+│       ├── launch/                # Splash, main-menu, sub-views (New Game / Load Game /
+│                             # Save Game / Settings), save index, userdata persistence
+│       ├── personnel_panel.rs     # Personnel Roster UI (v0.5.0; scientists, hiring, seniority)
+│       ├── settings.rs            # Top-menu settings + screenshot slots
+│       ├── cursors.rs             # Cursor sprite management
+│       ├── tab.rs                 # Tab-strip primitives (egui side, shared with widgets.rs)
+│       ├── screenshot.rs / screenshot_state.rs # Shift+F12 screenshot capture
 │       └── interaction.rs         # Selection management
 ├── assets/
 │   ├── audio/
@@ -526,7 +605,6 @@ canonical pattern.
   - `calculate_transfer_options_phased()` — same but after a player-chosen departure delay
   - `compute_transfer_window()` — live synodic-period countdown, phase-angle error, and phase-rate (rad/s)
   - `GravityAssistOption` — flyby bodies near the transfer arc that reduce total Δv
-- **`FleetUiState`** resource (defined in `src/ui/fleets_panel.rs`, re-exported as `crate::ui::FleetUiState`; transfer planner rendering lives in `src/ui/transfer_planner.rs`): per-frame state for the Fleet panel
   - `selected_fleet`, `target_body`, `target_lagrange`, `target_fleet`
   - `departure_offset_days` slider for phased departure timing
   - `computed_options` / `planned_transfer` / `show_transfer_popup`
@@ -677,6 +755,87 @@ canonical pattern.
 - Bevy 0.18 introduced high-level cargo feature collections: `2d`, `3d`, `ui`
 - Consider using these instead of listing individual sub-crate features for simpler `Cargo.toml` maintenance
 - Our project currently uses individual features for fine-grained control
+
+### Worktree & Build-Artifact Safety (recap)
+- See **Multi-Agent Worktree Safety** at the top of this document. The TL;DR: never `git stash`, never `cargo clean`, never `git reset --hard`, never `rm -rf target/` in a shared worktree. Use a fresh worktree (`git worktree add`) for hermetic experiments, and re-run failing tests on a clean `main` worktree to confirm pre-existence rather than stashing. This rule applies to **every agent** working in this repo.
+
+### UI Migration Status (as of v0.5.2, branch `rework-ui-design`)
+
+The Construction menu has graduated from egui to **native Bevy UI**
+(`src/ui/construction/` directory + `src/ui/widgets.rs` primitive
+library + `src/ui/bevy_theme.rs` palette). Shipbuilding was already on
+native Bevy UI (`src/ui/shipbuilding_workspace.rs`). All other panels
+remain on egui and continue to consume `src/ui/theme.rs`.
+
+**The current shared primitive library lives in `src/ui/widgets.rs`.**
+Any new bevy_ui menu (Research, Economy, Fleets, Personnel) MUST depend
+on `crate::ui::widgets` for `UiFonts`, `HoverElevation`, `KeyedList`,
+`TooltipRequest`, `Scrollbar`, `Marquee`, `ProgressFill`,
+`ActiveTabs<T>`, the six `CardShell*` composers, and the
+`tick_ui_hover_elevation` system. Do NOT re-roll hover / scrollbar /
+tooltip / chip / tab chrome inside a menu's own module — add the
+primitive to `widgets.rs` if it's missing and document it in
+`docs/UI.md` §9.3.1 + `docs/UI_LAYOUT_PATTERNS.md` §10.
+
+**The egui palette stays the egui palette.** New colors for egui
+surfaces go in `src/ui/theme.rs`; new colors for Bevy UI surfaces go in
+`src/ui/bevy_theme.rs`. The two files coexist on purpose — do not
+duplicate a token across both.
+
+**A panel migrating from egui → Bevy UI follows this recipe:**
+1. Wire the bevy_ui surface into the existing `GameMenu` enum (don't
+   add a parallel menu).
+2. Replace each bespoke chrome system with the `widgets` equivalent
+   (HoverElevation, ActiveTabs<T>, Scrollbar, TooltipRequest, etc.).
+3. Move shared palette tokens to `bevy_theme.rs`.
+4. Delete the egui `spawn_*` / `render_*` paths once the Bevy versions
+   pass parity tests.
+5. Update `docs/UI.md` (per-panel anatomy + §9.3 primitive inventory),
+   `docs/UI_LAYOUT_PATTERNS.md` (§10 + the panel-to-pattern table), and
+   `ARCHITECTURE.md` (the `src/ui/` block) in the same PR.
+
+The continuation playbook (which menus have been migrated, what's
+known-good in `widgets.rs`, the parity checklist, and the gotchas
+discovered during the Construction canary) lives in
+`memories/repo/ui-migration-2026-08-14.md`.
+
+### Splash / First-Frame Stall Prevention (CRITICAL)
+
+A ~20 s splash black-box regression was git-bisected to commit `4d4dc23`
+and fixed in commit `2d3223d` (2026-08-05). **Do not silently re-introduce
+the same pattern.** Details, the bisection method, and the canonical
+fix are in `memories/repo/splash-stall-prevention.md`. The invariant
+the repo must keep:
+
+- **Async + batch processes must cap their per-frame work**. Any system
+  that processes an unknown or large number of items in one `Update`
+  tick — and where each item's cost is O(pixels) or O(vertices) — must
+  use a per-frame budget (e.g. `MAX_ICONS_PER_FRAME = 2`) and resume
+  on later frames. The canonical example is `src/ui/resource_icons.rs`
+  (`load_resource_icons` + `post_process_resource_icons`). If you add
+  a new icon set, atlas, or asset pre-bake, follow the same pattern.
+- **No per-pixel RGBA loops on 1024×1024 buffers in a single frame.**
+  ~4.2M pixel writes × N items = measurable seconds even on a fast
+  CPU. If a transform is "free" because the output buffer is the same
+  shape, question whether it is redundant with another pass (the
+  original `process_and_downscale_bevy_icon` had a redundant full-res
+  RGB→white loop that the downscale pass already performed — it was
+  deleted).
+- **Splash / launch timer systems must clamp their per-frame dt.**
+  `Time<Real>` records the frame's full wall-clock delta, so a
+  multi-second first-frame stall (DX12 + custom-shader pipeline warm-up,
+  asset IO, etc.) instantly trips any max-duration fallback. The
+  maximum clamped dt for the splash subsystem is `MAX_SPLASH_FRAME_DT_S`
+  in `src/ui/launch/splash.rs` (0.25 s). Any new "auto-dismiss after N
+  seconds" timer in the splash / launch / menu flow must apply the
+  same clamp and ship a regression test that asserts a 20 s simulated
+  first-frame dt does not trip the max duration.
+
+**When you see a "game hangs for N seconds at startup" or "menu takes N
+seconds to appear" report, bisect by worktree-per-commit.** Do not
+reason about plugins, schedules, or renderer order. The pattern is
+purely a CPU cost on the main thread and the bisection recipe is in
+`memories/repo/splash-stall-prevention.md`.
 
 ## Getting Help
 

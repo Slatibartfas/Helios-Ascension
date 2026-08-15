@@ -120,9 +120,9 @@ The repository is ahead of the original v0.5 roadmap snapshot. The core single-s
 
 - **Comprehensive UI Panels**:
   - Dossier Panel (Survey tab + Construction tab + Resource ledger + Landing-site dossier + 8-dimension SURVEY ledger): per-body data
-  - Construction Panel: Building management and construction queues, **yield chip & depletion timeline**, atmospheric-availability filter
-  - Research Panel: Technology tree browser, project selection, **engineering unlocks**
-  - Economy Panel: Financial overview and resource tracking
+  - Construction Panel: Building management and construction queues, **yield chip & depletion timeline**, atmospheric-availability filter. **Native Bevy UI** (v0.5.2 canary) — built on the shared `src/ui/widgets.rs` primitive library and the `src/ui/bevy_theme.rs` palette mirror.
+  - Research Panel: Technology tree browser, project selection, **engineering unlocks** (egui)
+  - Economy Panel: Financial overview and resource tracking (egui)
   - **Logistics Panel** (top-level): open `ResourceRequest`s, in-transit shipments, shipping-company registry, per-colony minimum-stockpile editor
   - Starmap Panel: Interstellar navigation and system selection, **system-wide SURVEY %**
   - Fleet Panel: Full fleet management — spawn fleets, select transfer options, **porkchop plot planner**, gravity assists, **Lagrange-point routing (L1–L5 + star-approach parking-radius picker)**, refuel, abort maneuvers, and **assign a fleet to a resource request**

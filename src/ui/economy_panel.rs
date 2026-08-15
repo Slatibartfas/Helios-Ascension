@@ -1,5 +1,5 @@
 use super::dashboard::format_mass;
-use super::resources_bar::get_resource_icon;
+use super::resources_bar::{get_resource_category_icon, get_resource_icon};
 use super::tab::Tab;
 use super::*;
 use bevy::ecs::system::SystemParam;
@@ -123,7 +123,7 @@ fn draw_menu_header(ui: &mut egui::Ui, title: &str, subtitle: &str) {
     ui.label(
         egui::RichText::new(title)
             .font(theme::title())
-            .color(theme::ACCENT),
+            .color(theme::CYAN),
     );
     ui.label(
         egui::RichText::new(subtitle)
@@ -375,7 +375,7 @@ fn mining_survey_label(level: SurveyLevel) -> &'static str {
 fn mining_survey_color(level: SurveyLevel) -> egui::Color32 {
     match level {
         SurveyLevel::Unsurveyed => theme::TEXT_DIM,
-        SurveyLevel::OrbitalScan => theme::ACCENT,
+        SurveyLevel::OrbitalScan => theme::CYAN,
         SurveyLevel::SeismicSurvey => theme::EP_TEAL,
         SurveyLevel::CoreSample => theme::GREEN,
     }
@@ -593,14 +593,14 @@ fn render_mining_body_row(
         egui::Color32::TRANSPARENT
     };
     let stroke = if response.hovered() {
-        egui::Stroke::new(1.0_f32, theme::ACCENT)
+        egui::Stroke::new(1.0_f32, theme::CYAN)
     } else if selected {
         egui::Stroke::new(1.0_f32, theme::ACCENT_DIM)
     } else {
         egui::Stroke::NONE
     };
     let text_color = if response.hovered() || selected {
-        theme::ACCENT
+        theme::CYAN
     } else {
         theme::TEXT
     };
@@ -747,6 +747,13 @@ pub(super) fn calculate_building_power_profile(
         return (0.0, count as f64 * 400_000_000.0);
     };
 
+    // RON `PowerGeneration` values are in **GW per unit** (see the inline
+    // `// <value> GW` annotations next to every entry in
+    // assets/data/buildings.ron and the per-building display strings in
+    // src/colony/types.rs: "+5 GW power output", "+20 GW power output",
+    // etc.). The 1e9 factor converts GW → W, matching the canonical
+    // `calculate_colony_power_totals` in src/economy/budget.rs and the
+    // EnergyGrid units (W).
     let produced_watts = def
         .modifiers
         .iter()
@@ -756,18 +763,6 @@ pub(super) fn calculate_building_power_profile(
     let consumed_watts = def.power_demand_mw * count as f64 * 1_000_000.0;
 
     (produced_watts, consumed_watts)
-}
-
-fn format_power_gw(watts: f64) -> String {
-    let gw = watts / 1_000_000_000.0;
-    let mut formatted = format!("{gw:.3}");
-    while formatted.contains('.') && formatted.ends_with('0') {
-        formatted.pop();
-    }
-    if formatted.ends_with('.') {
-        formatted.pop();
-    }
-    format!("{formatted} GW")
 }
 
 fn body_has_resource_flows(
@@ -816,13 +811,20 @@ fn body_has_resource_flows(
         data.get(building_type)
             .map(|def| {
                 def.modifiers.iter().any(|modifier| {
-                    matches!(
+                    // v3.8.12 (2026-08-08): the legacy
+                    // `AtmosphericHarvesting` modifier was retired in
+                    // favour of per-gas `NitrogenProduction` /
+                    // `OxygenProduction` / `ArgonProduction` /
+                    // `CarbonDioxideProduction` modifiers. The
+                    // presence of ANY `<Resource>Production` modifier
+                    // now means the body has something to show in the
+                    // production breakdown, so we just check the
+                    // `*Production` suffix here.
+                    (matches!(
                         modifier.modifier_type.as_str(),
-                        "MiningEfficiency"
-                            | "DeepMiningEfficiency"
-                            | "BulkMiningEfficiency"
-                            | "AtmosphericHarvesting"
-                    ) && modifier.value > 0.0
+                        "MiningEfficiency" | "DeepMiningEfficiency" | "BulkMiningEfficiency"
+                    ) || modifier.modifier_type.ends_with("Production"))
+                        && modifier.value > 0.0
                 })
             })
             .unwrap_or(false)
@@ -1017,17 +1019,17 @@ pub(super) fn render_power_body_detail_tooltip(
                                 ui.label(row.building_type.display_name());
                                 ui.label(row.count.to_string());
                                 ui.label(
-                                    egui::RichText::new(format_power_gw(row.produced_watts))
+                                    egui::RichText::new(format_power(row.produced_watts))
                                         .color(theme::GREEN)
                                         .monospace(),
                                 );
                                 ui.label(
-                                    egui::RichText::new(format_power_gw(row.consumed_watts))
+                                    egui::RichText::new(format_power(row.consumed_watts))
                                         .color(theme::AMBER)
                                         .monospace(),
                                 );
                                 ui.label(
-                                    egui::RichText::new(format_power_gw(building_net))
+                                    egui::RichText::new(format_power(building_net))
                                         .color(building_net_color)
                                         .monospace(),
                                 );
@@ -1195,16 +1197,21 @@ pub(super) fn build_economy_hierarchy(
 
         let colony_snap = colony_opt.map(|c| {
             let power_totals = crate::economy::calculate_colony_power_totals(c, buildings_data);
+            // v3.6: Colony methods need &BuildingsData. If the data
+            // hasn't loaded yet (early frame), use a default. The
+            // power totals are unaffected (they read the same data).
+            let default_data = BuildingsData::default();
+            let data = buildings_data.unwrap_or(&default_data);
             ColonySnapshot {
                 name: c.name.clone(),
                 population: c.population,
-                growth_per_year: c.population_growth_per_year(1.0),
-                housing_capacity: c.housing_capacity(),
+                growth_per_year: c.population_growth_per_year(1.0, data),
+                housing_capacity: c.housing_capacity(data),
                 total_buildings: c.total_buildings(),
-                workforce_efficiency: c.workforce_efficiency(),
-                logistics_efficiency: c.logistics_efficiency(),
-                income_per_year: c.wealth_generation_per_year(),
-                operating_cost_per_year: c.operating_cost_per_year(),
+                workforce_efficiency: c.workforce_efficiency(data),
+                logistics_efficiency: c.logistics_efficiency(data),
+                income_per_year: c.wealth_generation_per_year(data),
+                operating_cost_per_year: c.operating_cost_per_year(data),
                 power_generation_watts: power_totals.produced_watts,
                 power_load_watts: power_totals.consumed_watts,
                 buildings: c
@@ -1284,8 +1291,12 @@ fn rate_text(rate: f64, suffix: &str) -> (String, egui::Color32) {
     if rate.abs() < 1e-9 {
         return (format!("0{}", suffix), theme::TEXT_DIM);
     }
-    let sign = if rate > 0.0 { "+" } else { "" };
-    let text = format!("{}{}{}", sign, format_mass(rate), suffix);
+    // v3.8.6 (2026-08-07): fix missing minus sign on negative
+    // rates.  Previous version returned "" for the else branch,
+    // so the rate display read "8.4 Mt/yr" for both +8.4 and -8.4
+    // (only the colour differed).  Now negative rates show "-8.4".
+    let sign = if rate > 0.0 { "+" } else { "−" };
+    let text = format!("{}{}{}", sign, format_mass(rate.abs()), suffix);
     let color = if rate > 0.0 { theme::GREEN } else { theme::RED };
     (text, color)
 }
@@ -1392,7 +1403,7 @@ pub(super) fn ui_economy_panels(
                     ui,
                     "CIV SCORE",
                     format!("{:.0}", budget.civilization_score),
-                    theme::ACCENT,
+                    theme::CYAN,
                 );
             });
 
@@ -1485,7 +1496,7 @@ fn render_econ_overview(
             ui.label(
                 egui::RichText::new("💰 Treasury & Budget")
                     .font(theme::heading())
-                    .color(theme::ACCENT),
+                    .color(theme::CYAN),
             );
             ui.separator();
 
@@ -1544,7 +1555,7 @@ fn render_econ_overview(
                 ui.label(
                     egui::RichText::new("⚡ Power Grid")
                         .font(theme::heading())
-                        .color(theme::ACCENT),
+                        .color(theme::CYAN),
                 );
                 ui.separator();
 
@@ -1597,7 +1608,7 @@ fn render_econ_overview(
                 ui.label(
                     egui::RichText::new("🧭 Civilization")
                         .font(theme::heading())
-                        .color(theme::ACCENT),
+                        .color(theme::CYAN),
                 );
                 ui.separator();
 
@@ -1645,7 +1656,7 @@ fn render_econ_overview(
             ui.label(
                 egui::RichText::new("🔻 Critical Resources")
                     .font(theme::heading())
-                    .color(theme::ACCENT),
+                    .color(theme::CYAN),
             );
             ui.separator();
 
@@ -1684,7 +1695,7 @@ fn render_econ_overview(
             ui.label(
                 egui::RichText::new("🛰 Per-System Summary")
                     .font(theme::heading())
-                    .color(theme::ACCENT),
+                    .color(theme::CYAN),
             );
             ui.separator();
 
@@ -1893,7 +1904,7 @@ fn render_econ_resources(
             ui.label(
                 egui::RichText::new("🔬 Research & Engineering Output")
                     .font(theme::heading())
-                    .color(theme::ACCENT),
+                    .color(theme::CYAN),
             );
             ui.separator();
             egui::Grid::new("econ_res_rp_ep")
@@ -1928,7 +1939,7 @@ fn render_econ_resources(
             ui.label(
                 egui::RichText::new("🌟 Production & Consumption by Location")
                     .font(theme::heading())
-                    .color(theme::ACCENT),
+                    .color(theme::CYAN),
             );
             ui.separator();
 
@@ -2008,161 +2019,109 @@ fn render_econ_resources(
 
                                     // Mining production (estimate from colony's deposits)
                                     // Show which resources the colony's mines/atmo processors extract
-                                    let mut ui_surface_rate = 0.0_f64;
-                                    let mut ui_deep_rate = 0.0_f64;
-                                    let mut ui_bulk_rate = 0.0_f64;
-                                    let mut total_atmo_rate = 0.0_f64;
                                     for (bt, count) in &colony.buildings {
                                         if *count == 0 {
                                             continue;
                                         }
                                         if let Some(def) = data.get(bt) {
                                             for modifier in &def.modifiers {
-                                                match modifier.modifier_type.as_str() {
-                                                    "MiningEfficiency" => {
-                                                        ui_surface_rate +=
-                                                            modifier.value * *count as f64
+                                                // v3.8.12
+                                                // (2026-08-08):
+                                                // per-gas /
+                                                // per-resource
+                                                // direct
+                                                // production
+                                                // modifiers
+                                                // (`NitrogenProduction`,
+                                                // `IronProduction`,
+                                                // `WaterProduction`,
+                                                // `ArgonProduction`,
+                                                // `CarbonDioxideProduction`,
+                                                // etc.) are
+                                                // dispatched
+                                                // via the
+                                                // generic
+                                                // `*Production`
+                                                // strip_suffix
+                                                // here. Replaces
+                                                // the legacy
+                                                // `AtmosphericHarvesting`
+                                                // share-fold
+                                                // (which gave
+                                                // wildly wrong
+                                                // per-gas splits
+                                                // — see
+                                                // `economy/mining.rs`
+                                                // v3.8.12
+                                                // history) and
+                                                // the legacy
+                                                // three-tier
+                                                // `MiningEfficiency` /
+                                                // `DeepMiningEfficiency` /
+                                                // `BulkMiningEfficiency`
+                                                // share-fold
+                                                // (removed in
+                                                // v0.5.2; those
+                                                // modifiers no
+                                                // longer exist
+                                                // in the RON).
+                                                if let Some(resource_name) = modifier
+                                                    .modifier_type
+                                                    .strip_suffix("Production")
+                                                {
+                                                    if let Some(target) =
+                                                        crate::colony::data::parse_resource_type(
+                                                            resource_name,
+                                                        )
+                                                    {
+                                                        production_rows.push((
+                                                            bt.display_name().to_string(),
+                                                            target,
+                                                            modifier.value * *count as f64 / 12.0,
+                                                        ));
                                                     }
-                                                    "DeepMiningEfficiency" => {
-                                                        ui_deep_rate +=
-                                                            modifier.value * *count as f64
-                                                    }
-                                                    "BulkMiningEfficiency" => {
-                                                        ui_bulk_rate +=
-                                                            modifier.value * *count as f64
-                                                    }
-                                                    "AtmosphericHarvesting" => {
-                                                        total_atmo_rate +=
-                                                            modifier.value * *count as f64
-                                                    }
-                                                    _ => {}
                                                 }
                                             }
                                         }
                                     }
 
-                                    // Solid mining production breakdown — three tiers, no overflow
-                                    if ui_surface_rate > 0.0 {
-                                        let eligible: Vec<(ResourceType, f64)> = body_entry
-                                            .deposits
-                                            .iter()
-                                            .filter(|(_, d)| {
-                                                !d.is_atmospheric
-                                                    && d.reserve.proven_crustal > 0.001
-                                            })
-                                            .map(|(rt, d)| {
-                                                (*rt, (d.reserve.concentration as f64).max(1e-10))
-                                            })
-                                            .collect();
-                                        let total_weight: f64 =
-                                            eligible.iter().map(|(_, w)| w).sum();
-                                        if total_weight > 0.0 {
-                                            let monthly = ui_surface_rate / 12.0;
-                                            for (rt, weight) in &eligible {
-                                                production_rows.push((
-                                                    "Mining".to_string(),
-                                                    *rt,
-                                                    monthly * weight / total_weight,
-                                                ));
-                                            }
-                                        }
-                                    }
-                                    if ui_deep_rate > 0.0 {
-                                        let eligible: Vec<(ResourceType, f64)> = body_entry
-                                            .deposits
-                                            .iter()
-                                            .filter(|(_, d)| {
-                                                !d.is_atmospheric && d.reserve.deep_deposits > 0.001
-                                            })
-                                            .map(|(rt, d)| {
-                                                (*rt, (d.reserve.concentration as f64).max(1e-10))
-                                            })
-                                            .collect();
-                                        let total_weight: f64 =
-                                            eligible.iter().map(|(_, w)| w).sum();
-                                        if total_weight > 0.0 {
-                                            let monthly = ui_deep_rate / 12.0;
-                                            for (rt, weight) in &eligible {
-                                                production_rows.push((
-                                                    "Deep Mining".to_string(),
-                                                    *rt,
-                                                    monthly * weight / total_weight,
-                                                ));
-                                            }
-                                        }
-                                    }
-                                    if ui_bulk_rate > 0.0 {
-                                        let eligible: Vec<(ResourceType, f64)> = body_entry
-                                            .deposits
-                                            .iter()
-                                            .filter(|(_, d)| {
-                                                !d.is_atmospheric
-                                                    && d.reserve.planetary_bulk > 0.001
-                                            })
-                                            .map(|(rt, d)| {
-                                                (*rt, (d.reserve.concentration as f64).max(1e-10))
-                                            })
-                                            .collect();
-                                        let total_weight: f64 =
-                                            eligible.iter().map(|(_, w)| w).sum();
-                                        if total_weight > 0.0 {
-                                            let monthly = ui_bulk_rate / 12.0;
-                                            for (rt, weight) in &eligible {
-                                                production_rows.push((
-                                                    "Bulk Mining".to_string(),
-                                                    *rt,
-                                                    monthly * weight / total_weight,
-                                                ));
-                                            }
-                                        }
-                                    }
-
-                                    // Atmospheric harvesting production breakdown
-                                    if total_atmo_rate > 0.0 {
-                                        let harvestable: Vec<(ResourceType, f64)> = body_entry
-                                            .deposits
-                                            .iter()
-                                            .filter(|(_, d)| {
-                                                d.is_atmospheric
-                                                    && (d.reserve.proven_crustal > 0.001
-                                                        || d.reserve.deep_deposits > 0.001)
-                                            })
-                                            .map(|(rt, d)| {
-                                                (*rt, (d.reserve.concentration as f64).max(1e-10))
-                                            })
-                                            .collect();
-                                        let total_weight: f64 =
-                                            harvestable.iter().map(|(_, w)| w).sum();
-                                        if total_weight > 0.0 {
-                                            let monthly_total = total_atmo_rate / 12.0;
-                                            for (rt, weight) in &harvestable {
-                                                let share = weight / total_weight;
-                                                production_rows.push((
-                                                    "Atmo Harvesting".to_string(),
-                                                    *rt,
-                                                    monthly_total * share,
-                                                ));
-                                            }
-                                        }
-                                    }
+                                    // v3.8.12 (2026-08-08): removed the
+                                    // `AtmosphericHarvesting` share-fold
+                                    // block that distributed a single
+                                    // harvested-gas rate across atmospheric
+                                    // deposits by concentration weight. The
+                                    // per-gas production lines now flow
+                                    // through the generic `*Production`
+                                    // branch in the dispatch loop above
+                                    // (each gas gets its own row labelled
+                                    // with the source building).
 
                                     // Food production from agricultural buildings
-                                    let farm_count: f64 = colony
-                                        .buildings
+                                    // v3.8.12: per-build values are read from
+                                    // the RON `FoodProduction` modifiers via
+                                    // `BuildingsData::food_production_for`,
+                                    // not the v0.5-era hard-codes (Farm 100
+                                    // / AgriDome 0.4 were 3.6×/10× off the
+                                    // v3.5 calibration of 360 / 4 Mt/yr).
+                                    let food_buildings = [
+                                        crate::colony::BuildingType::Farm,
+                                        crate::colony::BuildingType::AgriDome,
+                                        crate::colony::BuildingType::Greenhouse,
+                                        crate::colony::BuildingType::AquacultureFacility,
+                                    ];
+                                    let food_production_monthly = food_buildings
                                         .iter()
-                                        .find(|(bt, _)| *bt == crate::colony::BuildingType::Farm)
-                                        .map(|(_, n)| *n as f64)
-                                        .unwrap_or(0.0);
-                                    let agri_count: f64 = colony
-                                        .buildings
-                                        .iter()
-                                        .find(|(bt, _)| {
-                                            *bt == crate::colony::BuildingType::AgriDome
+                                        .map(|bt| {
+                                            let count = colony
+                                                .buildings
+                                                .iter()
+                                                .find(|(b, _)| b == bt)
+                                                .map(|(_, n)| *n as f64)
+                                                .unwrap_or(0.0);
+                                            count * data.food_production_for(*bt)
                                         })
-                                        .map(|(_, n)| *n as f64)
-                                        .unwrap_or(0.0);
-                                    let food_production_monthly =
-                                        (farm_count * 100.0 + agri_count * 0.4) / 12.0;
+                                        .sum::<f64>()
+                                        / 12.0;
                                     if food_production_monthly > 0.0 {
                                         production_rows.push((
                                             "Agriculture".to_string(),
@@ -2172,8 +2131,16 @@ fn render_econ_resources(
                                     }
 
                                     // Population food consumption
-                                    let food_consumption_monthly =
-                                        colony.population * 0.0001 / 12.0;
+                                    // v3.8.12: per-capita food is read from
+                                    // the RON `colony_constants`
+                                    // (1.1e-6 Mt/p/yr), not the v0.5-era
+                                    // 0.0001 hard-code (which was ~91× too
+                                    // high — a Mt-vs-kg unit error).
+                                    let food_consumption_monthly = colony.population
+                                        * data
+                                            .colony_constants
+                                            .food_consumption_per_capita_mt_per_year
+                                        / 12.0;
                                     if food_consumption_monthly > 0.0 {
                                         consumption_rows.push((
                                             "Population".to_string(),
@@ -2334,12 +2301,7 @@ fn render_econ_colonies(ui: &mut egui::Ui, budget: &GlobalBudget, hierarchy: &[S
     theme::elevated_frame().show(ui, |ui| {
         let sign = if net >= 0.0 { "+" } else { "" };
         ui.horizontal_wrapped(|ui| {
-            draw_status_chip(
-                ui,
-                "COLONIES",
-                all_colonies.len().to_string(),
-                theme::ACCENT,
-            );
+            draw_status_chip(ui, "COLONIES", all_colonies.len().to_string(), theme::CYAN);
             draw_status_chip(
                 ui,
                 "POPULATION",
@@ -2796,7 +2758,7 @@ fn render_mining_body_details(
             body_entry.body_name
         ))
         .font(theme::title())
-        .color(theme::ACCENT),
+        .color(theme::CYAN),
     );
     ui.label(
         egui::RichText::new(system_name)
@@ -2826,7 +2788,7 @@ fn render_mining_body_details(
                 format!("{:.0}%", avg_access * 100.0),
                 theme::EP_TEAL,
             );
-            draw_status_chip(ui, "ACTIVE OPS", active_ops.to_string(), theme::ACCENT);
+            draw_status_chip(ui, "ACTIVE OPS", active_ops.to_string(), theme::CYAN);
         });
     });
 
@@ -3023,8 +2985,19 @@ pub(super) struct ForecastInputs<'w, 's> {
     sim_time: Res<'w, SimulationTime>,
     view_mode: Res<'w, ViewMode>,
     current_star_system: Res<'w, CurrentStarSystem>,
-    local_stockpile_query:
-        Query<'w, 's, (Option<&'static SystemId>, &'static crate::economy::components::LocalStockpile)>,
+    // v3.8.3: GlobalBudget for the per-body stockpile cap
+    // (storage_multiplier × base_cap) and the StorageCaps
+    // aggregate.  The forecast plateaus at this cap, with
+    // the survey reserve as a hard geological limit below it.
+    budget: Res<'w, crate::economy::GlobalBudget>,
+    local_stockpile_query: Query<
+        'w,
+        's,
+        (
+            Option<&'static SystemId>,
+            &'static crate::economy::components::LocalStockpile,
+        ),
+    >,
     construction_project_query:
         Query<'w, 's, (Entity, &'static ConstructionProject, &'static Colony)>,
     /// Reserve-aggregation query: per-body PlanetResources +
@@ -3129,17 +3102,53 @@ fn render_econ_forecast(
     // IMPORTANT: we deliberately sum `proven_crustal + deep_deposits`
     // only.  The `planetary_bulk` tier is the entire planetary mass
     // (e.g. 1.1 Pt of oxygen from silicate mantles) and is *never*
-    // realistically mineable, even with future tech — that's why the
+    // realistically mineable, even with future tech - that's why the
     // survey module calls it "effectively inaccessible early-game".
     // Survey tier 4+ in the existing model unlocks it, but that's a
     // visualisation choice for the dossier, not a mining claim.
     // The forecast should match reality: bulk-tier resources are
     // not part of the player's 20-year extraction ceiling.
+    //
+    // v3.8.3: also aggregate the per-body STORAGE cap (the user-
+    // visible "indicated stockpile size" = per-body stockpile
+    // cap × N_bodies in view).  This is the primary plateau the
+    // forecast respects; the survey reserve acts as a hard
+    // geological limit below it.
     let mut reserve_bounds = crate::economy::ReserveBounds::new();
+    let mut storage_caps = crate::economy::StorageCaps::new();
     {
         use crate::survey::visibility::reserve_slice;
         let active_sys = forecast.current_star_system.0;
         let starmap = matches!(*forecast.view_mode, ViewMode::Starmap);
+        // v3.8.3: count bodies in view so the storage cap is
+        // scaled correctly.  The per-body cap is constant
+        // (storage_multiplier is global) so cap × N_bodies
+        // gives the aggregate cap for the view.
+        let n_bodies: f64 = forecast
+            .local_stockpile_query
+            .iter()
+            .filter(|(sid_opt, _)| match *forecast.view_mode {
+                ViewMode::Starmap => true,
+                ViewMode::System => {
+                    sid_opt.map(|s| s.0) == Some(forecast.current_star_system.0)
+                }
+            })
+            .count() as f64;
+        // Insert per-resource storage cap once (same for every
+        // body in view).
+        for rt in crate::economy::ResourceType::all() {
+            let base = crate::economy::GlobalBudget::stockpile_cap(*rt);
+            if base >= f64::MAX {
+                continue;
+            }
+            // Per-body effective cap = base × storage_multiplier.
+            // Aggregate = per-body × N_bodies.
+            let per_body = base * forecast.budget.storage_multiplier;
+            let aggregate = per_body * n_bodies;
+            if aggregate > 0.0 {
+                storage_caps.insert(*rt, aggregate);
+            }
+        }
         for (sid_opt, level_opt, state_opt, resources) in forecast.reserve_query.iter() {
             let in_scope = starmap
                 || sid_opt.is_some_and(|s| s.0 == active_sys);
@@ -3184,39 +3193,111 @@ fn render_econ_forecast(
     }
 
     // --- Build full forecast series list ---
-    let all_series = crate::economy::build_forecast(&scope_inputs, &impacts, current_sim, &reserve_bounds);
+    let all_series = crate::economy::build_forecast(
+        &scope_inputs,
+        &impacts,
+        current_sim,
+        &storage_caps,
+        &reserve_bounds,
+    );
 
-    // --- Toggle row ---
+    // --- Toggle row, grouped by category (matches the resource-bar popup) ---
+    //
+    // Each category header bar uses the category icon + color so the
+    // player can read which series belongs to which group at a glance.
+    // The chip background and foreground use the same category colors
+    // as the resource bar — see `theme::CAT_*` and `category_color`.
     ui.add_space(theme::Spacing::sm);
-    ui.horizontal_wrapped(|ui| {
-        ui.label(
-            egui::RichText::new("Show: ")
-                .size(11.0)
-                .color(theme::TEXT_DIM),
-        );
-        for (idx, resource) in ResourceType::all().iter().copied().enumerate() {
-            // Skip resources that have no projection data.
-            let has_data = all_series.iter().any(|s| s.resource == resource);
-            if !has_data {
-                continue;
-            }
-            let enabled = ui_state.is_enabled(idx);
-            let color = theme::forecast_series_color(resource.category());
-            let text = format!("{} {}", get_resource_icon(&resource), resource.display_name());
-            let response = ui.selectable_label(enabled, text);
-            if response.clicked() {
-                ui_state.toggle(idx);
-            }
-            response.on_hover_text(format!(
-                "{} ({})\nClick to {} this series.",
-                resource.display_name(),
-                resource.category(),
-                if enabled { "hide" } else { "show" }
-            ));
-            // Tint the chip color.
-            let _ = color;
+    for (category_name, resources) in ResourceType::by_category() {
+        // Skip categories that have no data in the current scope.
+        let category_has_data = resources
+            .iter()
+            .any(|r| all_series.iter().any(|s| s.resource == *r));
+        if !category_has_data {
+            continue;
         }
-    });
+        let cat_icon = get_resource_category_icon(category_name);
+        let cat_color = theme::category_color(category_name);
+
+        // Category header — icon + name in the category color, matching
+        // the resource-bar category popup header.
+        ui.horizontal(|ui| {
+            ui.add(
+                egui::Label::new(egui::RichText::new(cat_icon).size(13.0).color(cat_color))
+                    .selectable(false),
+            );
+            ui.add_space(2.0);
+            ui.add(
+                egui::Label::new(
+                    egui::RichText::new(category_name)
+                        .strong()
+                        .size(11.0)
+                        .color(cat_color),
+                )
+                .selectable(false),
+            );
+        });
+
+        // Resource chips in this category — same icon + display name
+        // format as the resource-bar popup rows, with a tinted
+        // background showing whether the series is on (full color) or
+        // off (dimmed color).
+        ui.horizontal_wrapped(|ui| {
+            ui.add_space(8.0);
+            for resource in resources.iter().copied() {
+                let has_data = all_series.iter().any(|s| s.resource == resource);
+                if !has_data {
+                    continue;
+                }
+                let idx = ResourceType::all()
+                    .iter()
+                    .position(|r| *r == resource)
+                    .unwrap_or(usize::MAX);
+                let enabled = ui_state.is_enabled(idx);
+                let res_color = theme::category_color(resource.category());
+                let chip_bg = if enabled {
+                    res_color.linear_multiply(0.25)
+                } else {
+                    theme::SURFACE.linear_multiply(0.5)
+                };
+                let chip_text_color = if enabled { res_color } else { theme::TEXT_DIM };
+                let text = format!(
+                    "{} {}",
+                    get_resource_icon(&resource),
+                    resource.display_name()
+                );
+                let response = egui::Frame::NONE
+                    .inner_margin(egui::Margin::symmetric(6, 2))
+                    .fill(chip_bg)
+                    .corner_radius(egui::CornerRadius::same(3))
+                    .stroke(egui::Stroke::new(1.0, res_color.linear_multiply(0.4)))
+                    .show(ui, |ui| {
+                        ui.add(
+                            egui::Label::new(
+                                egui::RichText::new(text)
+                                    .size(10.0)
+                                    .color(chip_text_color),
+                            )
+                            .selectable(false),
+                        );
+                    })
+                    .response;
+                let click = response.interact(egui::Sense::click());
+                if click.clicked() {
+                    ui_state.toggle(idx);
+                }
+                if click.hovered() {
+                    response.on_hover_text(format!(
+                        "{} ({})\nClick to {} this series.",
+                        resource.display_name(),
+                        resource.category(),
+                        if enabled { "hide" } else { "show" }
+                    ));
+                }
+            }
+        });
+        ui.add_space(2.0);
+    }
 
     // --- Persist the disabled set ---
     let disabled_bytes: Vec<u8> = ui_state.disabled.iter().map(|i| *i as u8).collect();
@@ -3282,41 +3363,73 @@ fn render_econ_forecast(
     if any_capped {
         theme::elevated_frame().show(ui, |ui| {
             ui.label(
-                egui::RichText::new("⛏  Survey-known reserves (cap)")
+                egui::RichText::new("⛏  Survey-known reserves on body")
                     .strong()
                     .color(theme::AMBER),
             );
             ui.add_space(2.0);
-            egui::Grid::new("forecast_reserve_cap_grid")
-                .num_columns(2)
-                .spacing([12.0, 2.0])
-                .show(ui, |ui| {
-                    for s in &enabled_series {
-                        if let Some(cap) = s.reserve_upper_bound_mt {
+            // Gather entries: enabled series with a cap, plus any
+            // resource that has a *surveyed* reserve bound but is not
+            // currently shown (so a resource whose stockpile dipped to
+            // 0 still appears in the panel instead of jumping in/out).
+            let mut cap_entries: Vec<&crate::economy::ForecastSeries> = enabled_series
+                .iter()
+                .copied()
+                .filter(|s| s.reserve_upper_bound_mt.is_some())
+                .collect();
+            for s in &all_series {
+                if s.reserve_upper_bound_mt.is_some()
+                    && !cap_entries.iter().any(|e| e.resource == s.resource)
+                {
+                    cap_entries.push(s);
+                }
+            }
+            // Multi-column layout: pack entries into as many columns
+            // as fit horizontally so the panel uses the full width
+            // instead of stacking everything into a single tall
+            // column.
+            let row_count = cap_entries.len();
+            let columns = thread_resources_columns(row_count);
+            let per_col = row_count.div_ceil(columns);
+            for chunk in cap_entries.chunks(per_col.max(1)) {
+                ui.horizontal(|ui| {
+                    for s in chunk {
+                        let cap = s.reserve_upper_bound_mt.unwrap_or(0.0);
+                        // v3.8.6 (2026-08-07): the section now shows
+                        // the survey reserve value (the "resources
+                        // left on the body") without a "(cap in Xy)"
+                        // suffix.  The previous suffix referred to
+                        // the time the forecast curve hits the
+                        // *effective* cap (which is usually the
+                        // storage cap, not the survey reserve) —
+                        // confusing because the section is labeled
+                        // "survey reserves".  The storage cap is
+                        // already shown in the top-bar resource
+                        // breakdown; this section is just "how much
+                        // is in the ground".
+                        let cap_label = format_mass(cap);
+                        let name_text = format!(
+                            "{} {}",
+                            get_resource_icon(&s.resource),
+                            s.resource.display_name()
+                        );
+                        ui.vertical(|ui| {
+                            ui.set_width(180.0);
                             ui.label(
-                                egui::RichText::new(format!(
-                                    "{} {}",
-                                    get_resource_icon(&s.resource),
-                                    s.resource.display_name()
-                                ))
-                                .color(theme::forecast_series_color(s.resource.category())),
+                                egui::RichText::new(name_text)
+                                    .color(theme::forecast_series_color(s.resource.category()))
+                                    .size(11.0),
                             );
-                            let label = if let Some(cap_at) = s.hits_reserve_cap_at_s {
-                                let cap_years = cap_at / crate::economy::SECONDS_PER_YEAR;
-                                format!("{}  (cap in {cap_years:.1}y)", format_mass(cap))
-                            } else {
-                                format_mass(cap)
-                            };
                             ui.label(
-                                egui::RichText::new(label)
+                                egui::RichText::new(cap_label)
                                     .color(theme::AMBER)
                                     .monospace()
                                     .size(11.0),
                             );
-                            ui.end_row();
-                        }
+                        });
                     }
                 });
+            }
         });
     }
 
@@ -3328,22 +3441,36 @@ fn render_econ_forecast(
                     .color(theme::forecast_runs_out_color()),
             );
             ui.add_space(2.0);
-            egui::Grid::new("forecast_runs_out_grid")
-                .num_columns(2)
-                .spacing([12.0, 2.0])
-                .show(ui, |ui| {
-                    for s in &enabled_series {
-                        if let Some(runs_out) = s.runs_out_at_s {
-                            let years = runs_out / crate::economy::SECONDS_PER_YEAR;
-                            let target_year = current_year_f + years;
-                            let color = forecast_depletion_color(years);
+            // Multi-column layout: pack entries into as many columns
+            // as fit horizontally so the panel uses the full width
+            // instead of stacking everything into a single tall
+            // column.
+            let runs_out_entries: Vec<&crate::economy::ForecastSeries> = enabled_series
+                .iter()
+                .copied()
+                .filter(|s| s.runs_out_at_s.is_some())
+                .collect();
+            let row_count = runs_out_entries.len();
+            let columns = thread_resources_columns(row_count);
+            let per_col = row_count.div_ceil(columns);
+            for chunk in runs_out_entries.chunks(per_col.max(1)) {
+                ui.horizontal(|ui| {
+                    for s in chunk {
+                        let runs_out = s.runs_out_at_s.unwrap_or(0.0);
+                        let years = runs_out / crate::economy::SECONDS_PER_YEAR;
+                        let target_year = current_year_f + years;
+                        let color = forecast_depletion_color(years);
+                        let name_text = format!(
+                            "{} {}",
+                            get_resource_icon(&s.resource),
+                            s.resource.display_name()
+                        );
+                        ui.vertical(|ui| {
+                            ui.set_width(180.0);
                             ui.label(
-                                egui::RichText::new(format!(
-                                    "{} {}",
-                                    get_resource_icon(&s.resource),
-                                    s.resource.display_name()
-                                ))
-                                .color(theme::forecast_series_color(s.resource.category())),
+                                egui::RichText::new(name_text)
+                                    .color(theme::forecast_series_color(s.resource.category()))
+                                    .size(11.0),
                             );
                             ui.label(
                                 egui::RichText::new(format!(
@@ -3351,12 +3478,14 @@ fn render_econ_forecast(
                                     format_forecast_years_remaining(years)
                                 ))
                                 .color(color)
-                                .strong(),
+                                .strong()
+                                .monospace()
+                                .size(11.0),
                             );
-                            ui.end_row();
-                        }
+                        });
                     }
                 });
+            }
         });
     } else {
         theme::elevated_frame().show(ui, |ui| {
@@ -3386,11 +3515,15 @@ fn render_econ_forecast(
                 .color(theme::TEXT_DIM),
         );
         ui.add_space(2.0);
-        egui::Grid::new("forecast_net_rate_grid")
-            .num_columns(2)
-            .spacing([12.0, 2.0])
-            .show(ui, |ui| {
-                for s in &enabled_series {
+        // Multi-column layout: pack entries into as many columns
+        // as fit horizontally so the panel uses the full width
+        // instead of stacking everything into a single tall column.
+        let row_count = enabled_series.len();
+        let columns = thread_resources_columns(row_count);
+        let per_col = row_count.div_ceil(columns);
+        for chunk in enabled_series.chunks(per_col.max(1)) {
+            ui.horizontal(|ui| {
+                for s in chunk {
                     let annual = s.annual_net_rate_mt;
                     let (rate_text_str, rate_color) = if annual.abs() < 1e-9 {
                         ("0/yr".to_string(), theme::TEXT_DIM)
@@ -3401,31 +3534,59 @@ fn render_econ_forecast(
                             if annual > 0.0 { theme::GREEN } else { theme::RED },
                         )
                     };
-                    ui.label(
-                        egui::RichText::new(format!(
-                            "{} {}",
-                            get_resource_icon(&s.resource),
-                            s.resource.display_name()
-                        ))
-                        .color(theme::forecast_series_color(s.resource.category())),
+                    let name_text = format!(
+                        "{} {}",
+                        get_resource_icon(&s.resource),
+                        s.resource.display_name()
                     );
-                    ui.label(
-                        egui::RichText::new(rate_text_str)
-                            .monospace()
-                            .color(rate_color),
-                    );
-                    ui.end_row();
+                    ui.vertical(|ui| {
+                        ui.set_width(180.0);
+                        ui.label(
+                            egui::RichText::new(name_text)
+                                .color(theme::forecast_series_color(s.resource.category()))
+                                .size(11.0),
+                        );
+                        ui.label(
+                            egui::RichText::new(rate_text_str)
+                                .monospace()
+                                .color(rate_color)
+                                .size(11.0),
+                        );
+                    });
                 }
             });
+        }
     });
 
     let _ = contextual; // explicit unused-binding silence
     }); // end ScrollArea::vertical
 }
 
+/// Choose how many columns to split a flat list of forecast entries
+/// across, so the panel fills the available horizontal width instead
+/// of stacking everything into one tall column.  Each column is
+/// ~180 px wide (see `set_width(180.0)` above); the threshold aims
+/// for roughly 6–10 rows per column.
+fn thread_resources_columns(row_count: usize) -> usize {
+    if row_count == 0 {
+        return 1;
+    }
+    if row_count <= 6 {
+        return 1;
+    }
+    if row_count <= 14 {
+        return 2;
+    }
+    if row_count <= 24 {
+        return 3;
+    }
+    if row_count <= 36 {
+        return 4;
+    }
+    5
+}
+
 /// Color a "years remaining" depletion badge by severity.
-///
-/// Mirrors the helper in `construction_panel::depletion_color`:
 /// green ≥ 10 yr, amber 5–10 yr, red < 5 yr.
 fn forecast_depletion_color(years_remaining: f64) -> egui::Color32 {
     if years_remaining < 5.0 {
@@ -3571,10 +3732,7 @@ pub(super) fn render_forecast_chart(
         while y < plot_rect.bottom() {
             let next_y = (y + dash_len).min(plot_rect.bottom());
             painter.line_segment(
-                [
-                    egui::pos2(x, y),
-                    egui::pos2(x, next_y),
-                ],
+                [egui::pos2(x, y), egui::pos2(x, next_y)],
                 egui::Stroke::new(stroke_w, runs_out_color),
             );
             y = next_y + dash_len;
@@ -3611,12 +3769,78 @@ pub(super) fn render_forecast_chart(
         painter.circle_filled(anchor_pos, 3.0, stroke_color);
     }
 
+    // v3.8.5 (2026-08-07): "Reserve runway" — for any series whose
+    // survey reserve is *larger* than the per-body cap the curve
+    // plateaus at, draw a vertical dashed extension from the curve
+    // plateau at year 20 up to the chart's top edge.  This visually
+    // communicates "your stockpile caps the line here, but the
+    // survey reserve is much larger — build more Warehouses to fill
+    // it".  Per-series labels stack at the top with a small ▲ arrow
+    // so the player can see the reserve cap value without the chart
+    // re-scaling the y-axis.
+    //
+    // The y-axis is left untouched (still based on the 99th-percentile
+    // of the sample plateau values), so a 600 Gt survey reserve can
+    // sit "above" a 30 Gt storage-cap plateau without dominating the
+    // chart.
+    let reserve_color = theme::TEXT_HINT;
+    let reserve_dash = theme::FORECAST_RUNS_OUT_DASH_LEN;
+    let reserve_stroke_w = theme::FORECAST_RUNS_OUT_STROKE_WIDTH;
+    let mut reserve_labels: Vec<(egui::Color32, String)> = Vec::new();
+    for s in series {
+        if s.samples.len() < 2 {
+            continue;
+        }
+        let Some(reserve) = s.reserve_upper_bound_mt else {
+            continue;
+        };
+        let effective = s
+            .effective_upper_bound_mt
+            .unwrap_or(s.samples.last().map(|p| p.value_mt).unwrap_or(0.0));
+        // Only show the runway when the reserve is *meaningfully*
+        // larger than the effective plateau (>= 1.5× ratio filters
+        // out near-ties where the survey cap is just a hair above
+        // the storage cap).
+        if reserve < effective * 1.5 {
+            continue;
+        }
+        // Vertical dashed line at year 20 from the plateau
+        // (effective cap) up to the chart's top edge.
+        let plateau_pos = to_screen(horizon_s, effective);
+        let x = plateau_pos.x;
+        let mut y = plateau_pos.y;
+        while y > plot_rect.top() {
+            let next_y = (y - reserve_dash).max(plot_rect.top());
+            painter.line_segment(
+                [egui::pos2(x, y), egui::pos2(x, next_y)],
+                egui::Stroke::new(reserve_stroke_w, reserve_color),
+            );
+            y = next_y - reserve_dash;
+        }
+        // Small ▲ marker at the top of the dashed line, then
+        // off-chart label with the reserve value.
+        let label = format!("▲ {} {}", s.resource.symbol(), format_mass(reserve));
+        reserve_labels.push((reserve_color, label));
+    }
+    // Stack labels from the top of the plot downward, offsetting by
+    // line height so multiple series with reserves don't overlap.
+    let mut y_cursor = plot_rect.top() + 2.0;
+    for (color, text) in &reserve_labels {
+        painter.text(
+            egui::pos2(plot_rect.right() - 4.0, y_cursor),
+            egui::Align2::RIGHT_TOP,
+            text.clone(),
+            theme::mono(9.0),
+            *color,
+        );
+        y_cursor += 12.0;
+    }
+
     // Interactive crosshair cursor.
     if interactive {
-        if let Some(pointer_pos) = response.hover_pos().filter(|pos| plot_rect.contains(*pos))
-        {
-            let fraction = ((pointer_pos.x - plot_rect.left()) / plot_rect.width())
-                .clamp(0.0, 1.0) as f64;
+        if let Some(pointer_pos) = response.hover_pos().filter(|pos| plot_rect.contains(*pos)) {
+            let fraction =
+                ((pointer_pos.x - plot_rect.left()) / plot_rect.width()).clamp(0.0, 1.0) as f64;
             let target_offset = horizon_s * fraction;
 
             // Vertical crosshair.
@@ -3625,7 +3849,7 @@ pub(super) fn render_forecast_chart(
                     egui::pos2(pointer_pos.x, plot_rect.top()),
                     egui::pos2(pointer_pos.x, plot_rect.bottom()),
                 ],
-                egui::Stroke::new(1.0_f32, theme::ACCENT),
+                egui::Stroke::new(1.0_f32, theme::CYAN),
             );
 
             // Per-series horizontal lines + value labels.
@@ -3654,7 +3878,7 @@ pub(super) fn render_forecast_chart(
                     ],
                     egui::Stroke::new(0.5_f32, theme::ACCENT_DIM),
                 );
-                painter.circle_filled(pos, 3.5, theme::ACCENT);
+                painter.circle_filled(pos, 3.5, theme::CYAN);
 
                 // Floating label.
                 let label = format!(
@@ -3797,7 +4021,7 @@ fn render_econ_mining(
                 ui,
                 "MATCHING BODIES",
                 visible_body_count.to_string(),
-                theme::ACCENT,
+                theme::CYAN,
             );
             draw_status_chip(
                 ui,
@@ -3821,7 +4045,7 @@ fn render_econ_mining(
             ui.label(
                 egui::RichText::new("FILTERS")
                     .font(theme::heading())
-                    .color(theme::ACCENT),
+                    .color(theme::CYAN),
             );
             ui.add(
                 egui::TextEdit::singleline(&mut mining_ui_state.search_text)
@@ -3936,7 +4160,7 @@ fn render_econ_mining(
             ui.label(
                 egui::RichText::new("RESOURCE LEDGER")
                     .font(theme::heading())
-                    .color(theme::ACCENT),
+                    .color(theme::CYAN),
             );
             ui.label(
                 egui::RichText::new("Grouped by system and orbital hierarchy.")
@@ -3997,7 +4221,7 @@ fn render_econ_mining(
                                 visible_bodies.len()
                             ))
                             .font(theme::heading())
-                            .color(theme::ACCENT),
+                            .color(theme::CYAN),
                         )
                         .default_open(true)
                         .show(ui, |ui| {
@@ -4019,7 +4243,7 @@ fn render_econ_mining(
             ui.label(
                 egui::RichText::new("BODY DETAILS")
                     .font(theme::heading())
-                    .color(theme::ACCENT),
+                    .color(theme::CYAN),
             );
             ui.label(
                 egui::RichText::new(
@@ -4118,7 +4342,7 @@ fn render_econ_power_grid(
                 ui.label(
                     egui::RichText::new("🔋 Production by Source Type")
                         .font(theme::heading())
-                        .color(theme::ACCENT),
+                        .color(theme::CYAN),
                 );
                 ui.separator();
 
@@ -4158,7 +4382,7 @@ fn render_econ_power_grid(
                 ui.label(
                     egui::RichText::new("🏠 Colony Power Breakdown")
                         .font(theme::heading())
-                        .color(theme::ACCENT),
+                        .color(theme::CYAN),
                 );
                 ui.separator();
 
@@ -4226,17 +4450,17 @@ fn render_econ_power_grid(
                                     ui.label(row.building_type.display_name());
                                     ui.label(row.count.to_string());
                                     ui.label(
-                                        egui::RichText::new(format_power_gw(row.produced_watts))
+                                        egui::RichText::new(format_power(row.produced_watts))
                                             .color(theme::GREEN)
                                             .monospace(),
                                     );
                                     ui.label(
-                                        egui::RichText::new(format_power_gw(row.consumed_watts))
+                                        egui::RichText::new(format_power(row.consumed_watts))
                                             .color(theme::AMBER)
                                             .monospace(),
                                     );
                                     ui.label(
-                                        egui::RichText::new(format_power_gw(building_net))
+                                        egui::RichText::new(format_power(building_net))
                                             .color(building_net_color)
                                             .monospace(),
                                     );
@@ -4284,7 +4508,7 @@ fn render_econ_power_grid(
             ui.label(
                 egui::RichText::new("🌟 Power by Location")
                     .font(theme::heading())
-                    .color(theme::ACCENT),
+                    .color(theme::CYAN),
             );
             ui.separator();
 
@@ -4448,7 +4672,7 @@ fn render_econ_logistics(
             ui.label(
                 egui::RichText::new("🚀 Shipping Companies")
                     .font(theme::heading())
-                    .color(theme::ACCENT),
+                    .color(theme::CYAN),
             );
             ui.separator();
 
@@ -4590,7 +4814,7 @@ fn render_econ_logistics(
             ui.label(
                 egui::RichText::new("💰 Logistics Expenditure")
                     .font(theme::heading())
-                    .color(theme::ACCENT),
+                    .color(theme::CYAN),
             );
             ui.separator();
             let total_paid: f64 = companies
@@ -4629,7 +4853,7 @@ fn render_econ_logistics(
             ui.label(
                 egui::RichText::new(format!("📋 Open Requests ({})", open.len()))
                     .font(theme::heading())
-                    .color(theme::ACCENT),
+                    .color(theme::CYAN),
             );
             ui.separator();
 
@@ -4665,7 +4889,7 @@ fn render_econ_logistics(
                             let priority_color = match req.priority {
                                 RequestPriority::Emergency => theme::RED,
                                 RequestPriority::Construction => theme::AMBER,
-                                RequestPriority::Maintenance => theme::ACCENT,
+                                RequestPriority::Maintenance => theme::CYAN,
                                 RequestPriority::Trade => theme::TEXT_DIM,
                             };
                             ui.label(
@@ -4698,7 +4922,7 @@ fn render_econ_logistics(
                 ui.label(
                     egui::RichText::new(format!("✅ Recent Deliveries ({})", delivered.len()))
                         .font(theme::heading())
-                        .color(theme::ACCENT),
+                        .color(theme::CYAN),
                 );
                 ui.separator();
 
@@ -5043,7 +5267,7 @@ fn render_shipping_overview(
                         // AI policy indicator.
                         let (icon, color) = match row.policy {
                             crate::economy::CompanyAIPolicy::AutoFreight => {
-                                ("🤖 Auto", theme::ACCENT)
+                                ("🤖 Auto", theme::CYAN)
                             }
                             crate::economy::CompanyAIPolicy::Manual => {
                                 ("✋ Manual", theme::TEXT_DIM)

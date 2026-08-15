@@ -65,7 +65,7 @@ src/
 - **Survey (v0.5.0)**: 8-dimension model, 17 instruments, 9-mission roster, **6 RON data files**, anomaly confidence, failure modes, recovery missions, **continuous orbital survey station**
 - **Personnel (v0.5.0)**: **Scientists with 8 specialties, 3 seniority tiers, hire & promotion** (data layer shipped; Personnel Roster UI pending)
 - **Notifications (v0.5.0)**: toast panel, **per-category settings**, **event bridges**, **2-second coalesce**, **click-to-focus**, **pause-on-event**
-- **UI**: Egui-based panels with SimulationTime-driven updates, **theme tokens (CI-linted)**, **layout primitives (Tab, focus rings, spacing scale)**
+- **UI**: Mixed egui 0.33 + native Bevy UI 0.18. **Construction** (v0.5.2 canary — `src/ui/construction/`) and **Shipbuilding** are native Bevy UI; Survey, Research, Economy, Fleets, Dossier, Personnel, Intel remain on egui. All panels share `src/ui/theme.rs` (egui palette, CI-linted); Bevy-UI panels additionally consume `src/ui/bevy_theme.rs` (palette mirror) and `src/ui/widgets.rs` (menu-agnostic primitive library: `UiFonts`, `HoverElevation`, `KeyedList`, `TooltipRequest`, `Scrollbar`, `Marquee`, `ProgressFill`, `ActiveTabs<T>`, `CardShell*` composers).
 
 ### Simulation Time (CRITICAL)
 

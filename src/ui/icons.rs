@@ -1,5 +1,27 @@
 use super::*;
 
+/// Converts dark-on-light UI artwork into a clean, tintable white icon.
+///
+/// A narrow luminance threshold removes pale background noise while keeping
+/// the main line art solid. The result is premultiplied white, matching the
+/// egui texture pipeline used by the resource and building icons.
+pub(super) fn process_line_art_pixel(chunk: &mut [u8]) {
+    let r = chunk[0] as f32 / 255.0;
+    let g = chunk[1] as f32 / 255.0;
+    let b = chunk[2] as f32 / 255.0;
+    let luminance = 0.299 * r + 0.587 * g + 0.114 * b;
+
+    // Preserve strong lines, discard faint scan/texture noise, and retain a
+    // small antialiased edge instead of using a cubic curve that exaggerates
+    // gray speckling when the icon is rendered at 14–20 px.
+    let alpha = ((0.86 - luminance) / (0.86 - 0.42)).clamp(0.0, 1.0);
+    let pa = (alpha * 255.0).round() as u8;
+    chunk[0] = pa;
+    chunk[1] = pa;
+    chunk[2] = pa;
+    chunk[3] = pa;
+}
+
 /// Loaded textures for the top menu icons
 #[derive(Resource, Default)]
 pub struct MenuIcons {
@@ -52,39 +74,13 @@ pub(super) fn process_menu_icons(
                 continue;
             }
 
-            // Iterate all pixels
-            // Assumption: Input is Dark lines on White background
-            // Goal: White/Theme lines on Transparent background
             for chunk in image
                 .data
                 .as_mut()
                 .unwrap()
                 .chunks_exact_mut(bytes_per_pixel)
             {
-                let r = chunk[0] as f32 / 255.0;
-                let g = chunk[1] as f32 / 255.0;
-                let b = chunk[2] as f32 / 255.0;
-
-                // Calculate luminance (perceptual)
-                // White (1.0) -> Luminance 1.0 -> Alpha 0.0
-                // Black (0.0) -> Luminance 0.0 -> Alpha 1.0
-                let luminance = 0.299 * r + 0.587 * g + 0.114 * b;
-
-                // Contrast stretch: make light grays fully transparent
-                // Input range 0.0 .. 1.0
-                // We want > 0.9 to be 0 alpha
-                // We want < 0.5 to be 1 alpha (or close)
-                let alpha = (1.0_f32 - luminance).powf(3.0); // Power curve to steepen the falloff
-
-                // Premultiply alpha: bevy_egui 0.39.1+ no longer premultiplies
-                // in the shader, so textures must store premultiplied values.
-                // Since base colour is pure white (1.0), premultiplied RGB = alpha.
-                let a = alpha.clamp(0.0, 1.0);
-                let pa = (a * 255.0) as u8;
-                chunk[0] = pa;
-                chunk[1] = pa;
-                chunk[2] = pa;
-                chunk[3] = pa;
+                process_line_art_pixel(chunk);
             }
 
             // Mark as processed so we only do this once per asset
@@ -164,20 +160,7 @@ pub(super) fn process_research_icons(
                 .unwrap()
                 .chunks_exact_mut(bytes_per_pixel)
             {
-                let r = chunk[0] as f32 / 255.0;
-                let g = chunk[1] as f32 / 255.0;
-                let b = chunk[2] as f32 / 255.0;
-                let luminance = 0.299 * r + 0.587 * g + 0.114 * b;
-                let alpha = (1.0_f32 - luminance).powf(3.0);
-
-                // Premultiply alpha: bevy_egui 0.39.1+ no longer premultiplies
-                // in the shader, so textures must store premultiplied values.
-                let a = alpha.clamp(0.0, 1.0);
-                let pa = (a * 255.0) as u8;
-                chunk[0] = pa;
-                chunk[1] = pa;
-                chunk[2] = pa;
-                chunk[3] = pa;
+                process_line_art_pixel(chunk);
             }
 
             icons.processed.insert(category);

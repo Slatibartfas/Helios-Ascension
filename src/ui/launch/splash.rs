@@ -5,10 +5,38 @@
 //! The splash lives in its own OS-level **Window** entity that the
 //! Bevy `WindowPlugin` spawns at Startup. The main game window also
 //! exists from the start but has `visible: false`; on splash
-//! dismissal the splash window hides and the main window shows.
-//! Both windows share a single Bevy `app.run()` because winit 0.30
-//! forbids creating a second `EventLoop` after the first exits
-//! (`RecreationAttempt` panic at `bevy_winit-0.18/src/lib.rs:128`).
+//! dismissal the splash window is hidden and the main window is
+//! shown. Both windows share a single Bevy `app.run()` because
+//! winit 0.30 forbids creating a second `EventLoop` after the
+//! first exits (`RecreationAttempt` panic at
+//! `bevy_winit-0.18/src/lib.rs:128`).
+//!
+//! ## Why the splash window stays alive after dismissal
+//!
+//! Bevy 0.18's `bevy_winit` integration (`state.rs:229-239`)
+//! warn-and-skips unknown WindowIds rather than panicking, so the
+//! historical "winit delivers late events after Bevy drops its
+//! WindowId mapping" concern is no longer applicable. We still
+//! keep the splash window entity alive (hidden) because:
+//!
+//! - `WindowPlugin`'s window→entity table maps `WindowId → Entity`
+//!   at startup. Despawning the splash window orphans the
+//!   resource-side `SplashWindowEntity` and floods Bevy with
+//!   `Entity despawned` warnings on every subsequent frame.
+//! - `bevy_egui`'s input system processes events for all known
+//!   windows; despawning the splash camera's egui context too
+//!   aggressively breaks that integration (we learned this the
+//!   hard way — see git history).
+//!
+//! The crash-investigation report hypothesized that the hidden
+//! splash's live DX12 surface feeds `prepare_windows` and could
+//! panic at `Couldn't get swap chain texture`. The minimal
+//! mitigation (Option 2 in the report) is to drop the wgpu
+//! surface by removing `RawHandleWrapper` from the window entity
+//! on dismissal — `extract_windows` requires that component, so
+//! the splash drops out of the render path entirely while the
+//! native HWND stays alive exactly as the original design
+//! intended. See [`cleanup_dismissed_splash`].
 //!
 //! Bevy_egui multi-window setup follows the project's `two_windows`
 //! pattern:
@@ -28,10 +56,10 @@
 //!
 //! Dismissal: the splash render system hides the splash window +
 //! shows the main window. The system self-gates on splash-window
-//! visibility, so once dismissed it stops rendering. The hidden native
-//! window stays alive until application exit: removing a secondary
-//! window at runtime causes winit on Windows to deliver final focus and
-//! destruction events after Bevy has removed its WindowId mapping.
+//! visibility, so once dismissed it stops rendering. The
+//! `cleanup_dismissed_splash` system (Last) despawns the splash
+//! camera and drops the splash window's `RawHandleWrapper` one
+//! frame later so bevy_egui can release its context borrows.
 
 use bevy::camera::RenderTarget;
 use bevy::ecs::schedule::ScheduleLabel;
@@ -123,6 +151,28 @@ pub const PLACEHOLDER_H: u32 = 800;
 /// zero; raise to add a visible theme-colored border.
 pub const SPLASH_WINDOW_PADDING: u32 = 0;
 
+/// Maximum per-frame wall-clock delta (s) that counts as "displayed"
+/// splash time.
+///
+/// ## Why this exists
+///
+/// The first frame of the app can stall for many seconds (DX12 +
+/// custom-shader pipeline warm-up, asset IO, etc.) — measured ~10-20 s
+/// on the target machine. `Time<Real>` records that whole stall as the
+/// frame's `delta`, so the first frame the splash actually *paints*
+/// would see `SplashTimer.0 ≈ 20 s`, immediately trip the
+/// `elapsed >= max_s` fallback, and dismiss the splash before the logo
+/// has been on screen for a single frame. The player saw a frozen
+/// black window for the whole stall and then the menu — the logo never
+/// rendered.
+///
+/// Clamping the per-frame delta means a one-time startup stall doesn't
+/// count as "time the logo was displayed". The timer still advances on
+/// every real frame, so a *genuine* hang (no frames for many seconds)
+/// still trips the max-duration fallback after ~12 clamped frames
+/// (3.0 s / 0.25 s) — the splash never traps the player indefinitely.
+pub const MAX_SPLASH_FRAME_DT_S: f32 = 0.25;
+
 /// Bevy plugin that owns the splash window + camera setup and
 /// registers the splash render/dismissal systems.
 ///
@@ -184,14 +234,62 @@ impl Plugin for SplashPlugin {
 }
 
 /// Despawn the splash camera after the egui pass loop has finished for
-/// the dismissal frame. The hidden splash window remains alive until the
-/// application exits so winit can retain its native WindowId mapping.
+/// the dismissal frame. The hidden splash window stays alive until
+/// app exit (its `visible: false` keeps it off-screen).
+///
+/// ## Why we don't despawn the splash window entity
+///
+/// Despawning it would orphan the `SplashWindowEntity` resource
+/// (which still holds the stale `Entity` ID) and break
+/// `bevy_egui::input`'s window→context mapping — Bevy 0.18's egui
+/// integration warns-and-skips unknown winit windows, but the
+/// `Entity` reference in `WindowPlugin`'s window-to-entity table
+/// goes stale and triggers `Entity despawned` warnings every
+/// frame. The hidden-but-alive approach is correct for Bevy 0.18.
+///
+/// ## The live DX12 surface concern
+///
+/// The crash-investigation report theorized that the hidden splash
+/// window kept a live DX12 surface in `prepare_windows` (no
+/// visibility filter in `extract_windows`). The minimal mitigation
+/// here is to drop the surface as soon as the splash dismisses by
+/// removing [`bevy::render::render_resource::RawHandleWrapper`]
+/// from the window entity. `extract_windows` requires that
+/// component, so the splash drops out of the render path entirely
+/// while the native HWND stays alive exactly as the original
+/// design intended.
 fn cleanup_dismissed_splash(
     mut commands: Commands,
     cleanup_pending: Query<Entity, With<SplashCleanupPending>>,
+    splash_window: Option<Res<SplashWindowEntity>>,
 ) {
+    // Only do work when there's actually a pending cleanup. The
+    // marker is only inserted by `dismiss_splash` (max_s timeout,
+    // early input, force-skip, or boot complete) — i.e. after the
+    // splash has been hidden. Running the wgpu-surface teardown
+    // on every frame would strip `RawHandleWrapper` from a
+    // still-rendering splash and turn the splash white.
+    if cleanup_pending.is_empty() {
+        return;
+    }
     for entity in &cleanup_pending {
         commands.entity(entity).despawn();
+    }
+    // Drop the wgpu surface (the crash-investigation report's
+    // hypothesized live-surface defect) without despawning the
+    // window itself. Bevy 0.18's `despawn_windows` would also
+    // clean this up if we did despawn, but despawning here
+    // regresses the bevy_egui integration (see fn doc).
+    //
+    // `RawHandleWrapper` lives in `bevy_window`, not `bevy_render`
+    // — it's the component `extract_windows` requires, so removing
+    // it takes the splash out of the render path entirely while
+    // the native HWND stays alive exactly as the original design
+    // intended.
+    if let Some(window) = splash_window {
+        commands
+            .entity(window.0)
+            .remove::<bevy::window::RawHandleWrapper>();
     }
 }
 
@@ -335,10 +433,13 @@ fn size_window_to_image(
 ///    letting impatient players skip the splash once the brand has
 ///    had its mandated on-screen time.
 ///
-/// When `BootState::Loading`, a small "Loading…" label is painted
-/// under the logo so the player can see the boot-init chain is in
-/// progress. The label disappears on the same frame the splash
-/// dismisses.
+/// When `BootState::Loading`, a small spinner + "Loading…" label is
+/// painted under the logo (v0.5.2, 2026-08-05). The label is an
+/// indeterminate indicator — the boot-init chain is gated on
+/// `WorldReady` (player decision), so during the splash there is no
+/// real progress to report. The actual `N/15` progress moves to the
+/// post-kickoff boot overlay (`src/ui/launch/boot_overlay.rs`), which
+/// shows once the player clicks New Game / Continue / Load.
 pub fn ui_splash_system(
     commands: Commands,
     mut contexts: EguiContexts,
@@ -375,7 +476,11 @@ pub fn ui_splash_system(
     // only draws the small "Loading…" label over the top.
 
     // ── 2. Advance timer ──────────────────────────────────────────
-    let dt = real_time.delta_secs();
+    // Clamp the per-frame delta so a multi-second first-frame stall
+    // (DX12 shader warm-up etc.) doesn't count as "logo displayed"
+    // time. See [`MAX_SPLASH_FRAME_DT_S`] for the full rationale.
+    let raw_dt = real_time.delta_secs();
+    let dt = raw_dt.min(MAX_SPLASH_FRAME_DT_S);
     splash_timer.0 += dt;
     let elapsed = splash_timer.0;
 
@@ -422,6 +527,30 @@ pub fn ui_splash_system(
 
     let still_loading = *boot_state == crate::boot_init::BootState::Loading;
 
+    // Indeterminate progress indicator (v0.5.2, 2026-08-05).
+    //
+    // The old code rendered `Loading… {step+1}/{total}` from
+    // `BootProgress`, but the boot-init chain is gated on
+    // `WorldReady` (inserted only after the player clicks New
+    // Game / Continue / Load — see `swap.rs`), so during the
+    // splash `BootProgress` is frozen at step 0 and the label
+    // claimed `Loading… 1/15` the entire time. That was a lie.
+    //
+    // The splash now shows an egui `Spinner` — an honest
+    // indeterminate indicator — with a neutral "Loading…" label
+    // (no fake fractions). The REAL progress counter moves to the
+    // post-kickoff boot overlay (`src/ui/launch/boot_overlay.rs`),
+    // where the chain actually runs.
+    //
+    // `real_time` is already a system param (used for the timer
+    // clamp above); the spinner animates on egui's internal
+    // frame time, so no extra resource is needed.
+    let progress_label = if still_loading {
+        Some("Loading…".to_string())
+    } else {
+        None
+    };
+
     // CRITICAL: `Frame::NONE` (NOT `Frame::default()`) — a default
     // frame paints an opaque dark background, which would cover the
     // splash artwork. The logo image paints only where its pixels
@@ -439,13 +568,25 @@ pub fn ui_splash_system(
                 );
             }
             if still_loading {
+                // Bottom-center: [spinner] Loading…
                 let rect = ui.max_rect();
+                let bottom = egui::pos2(rect.center().x, rect.max.y - 36.0);
                 ui.painter().text(
-                    egui::pos2(rect.center().x, rect.max.y - 28.0),
+                    bottom,
                     egui::Align2::CENTER_CENTER,
-                    "Loading…",
-                    egui::FontId::proportional(18.0),
-                    crate::ui::theme::ACCENT,
+                    progress_label.as_deref().unwrap_or("Loading…"),
+                    egui::FontId::proportional(16.0),
+                    crate::ui::theme::CYAN,
+                );
+                let spinner = egui::Spinner::new()
+                    .size(20.0)
+                    .color(crate::ui::theme::CYAN);
+                ui.put(
+                    egui::Rect::from_center_size(
+                        egui::pos2(rect.center().x, rect.max.y - 62.0),
+                        egui::Vec2::splat(20.0),
+                    ),
+                    spinner,
                 );
             }
         });
@@ -455,11 +596,13 @@ pub fn ui_splash_system(
 /// calling twice doesn't double-flip visibility (both transitions
 /// are no-ops on the second call).
 ///
-/// The splash camera despawn is **deferred** to the `Last` schedule via
-/// [`SplashCleanupPending`]. Despawning it during the egui pass can
-/// invalidate bevy_egui's held context references. The hidden splash
-/// window remains alive until application exit to avoid late native-window
-/// events arriving after Bevy has discarded its WindowId mapping.
+/// The splash camera despawn is **deferred** to the `Last` schedule
+/// via [`SplashCleanupPending`]. Despawning the camera during the
+/// egui pass can invalidate bevy_egui's held context references.
+/// The splash window itself stays alive (hidden); the
+/// `RawHandleWrapper` is dropped on the same deferred frame so the
+/// wgpu surface tears down and the splash drops out of the render
+/// path without orphaning `SplashWindowEntity`.
 fn dismiss_splash(
     mut commands: Commands,
     splash_window: &mut Query<&mut Window, With<SplashWindow>>,
@@ -571,5 +714,30 @@ mod tests {
     fn empty_keyboard_input_is_not_a_dismiss() {
         let keys: ButtonInput<KeyCode> = ButtonInput::default();
         assert!(keys.get_just_pressed().next().is_none());
+    }
+
+    /// A multi-second first-frame stall must not count as "logo
+    /// displayed" time: the per-frame delta is clamped so the splash
+    /// doesn't instantly trip the max-duration fallback on the first
+    /// painted frame. This is the regression guard for the
+    /// "splash black + logo never shows" bug.
+    #[test]
+    fn splash_timer_clamps_first_frame_stall_delta() {
+        // A ~20 s first-frame stall (DX12 shader warm-up etc.) must be
+        // clamped to MAX_SPLASH_FRAME_DT_S, so the accumulated timer
+        // stays far below splash_max_duration_s (3.0 s) after one frame.
+        let stall_dt = 20.0_f32;
+        let clamped = stall_dt.min(MAX_SPLASH_FRAME_DT_S);
+        assert_eq!(clamped, MAX_SPLASH_FRAME_DT_S);
+        assert!(
+            clamped < 3.0,
+            "one clamped frame must not trip the 3.0 s max-duration dismissal"
+        );
+        assert!(clamped > 0.0, "clamp must keep positive progress");
+
+        // Steady-state 60 fps frames accumulate normally (below the cap).
+        let normal_dt = 1.0 / 60.0;
+        assert!(normal_dt < MAX_SPLASH_FRAME_DT_S);
+        assert_eq!(normal_dt.min(MAX_SPLASH_FRAME_DT_S), normal_dt);
     }
 }

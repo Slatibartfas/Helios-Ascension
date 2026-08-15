@@ -197,11 +197,21 @@ pub fn kickoff_world_system(world: &mut World) {
                 source = source,
                 p = path.display()
             );
-            match restore_save(
-                world,
-                &path,
-                crate::persistence::game_setup::build_minimal_world_for_restore,
-            ) {
+            // v0.5.2 (2026-08-05): hand the boot pre-parse cache to
+            // the restore factory so `regenerate_bodies_minimal` +
+            // `populate_restored_bodies_3d` don't each re-read +
+            // re-decode `solar_system.ron` synchronously (the old
+            // restore path parsed it twice while New Game got it
+            // free via the async pre-parse). Falls back to a sync
+            // load when the cache is `None` (player clicked before
+            // the pre-parse finished).
+            let cached_solar = world
+                .get_resource::<crate::boot_init::BootPreParseState>()
+                .and_then(|p| p.solar_data.clone());
+            let factory = move || {
+                crate::persistence::game_setup::build_minimal_world_for_restore_cached(cached_solar)
+            };
+            match restore_save(world, &path, factory) {
                 Ok(()) => info!("kickoff: restore_save committed"),
                 Err(e) => {
                     // `restore_save` already wrote a

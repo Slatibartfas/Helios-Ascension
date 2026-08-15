@@ -15,6 +15,8 @@ use bevy::window::PrimaryWindow;
 use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 use std::collections::HashMap;
 
+pub mod bevy_theme;
+mod construction;
 pub mod interaction;
 
 pub use interaction::Selection;
@@ -22,12 +24,12 @@ pub use interaction::Selection;
 pub mod screenshot;
 mod screenshot_state;
 
-mod construction_panel;
 pub mod cursors;
 mod dashboard;
 mod dossier_panel;
 mod economy_panel;
 mod fleets_panel;
+mod icon_cache;
 pub mod icons;
 pub mod launch;
 pub mod notifications;
@@ -35,10 +37,10 @@ mod personnel_panel;
 mod porkchop_color_ramp;
 mod porkchop_panel;
 mod research_panel;
+mod resource_icons;
 mod resources_bar;
 mod settings;
 mod shipbuilding_state;
-mod shipbuilding_tooltip;
 mod shipbuilding_workspace;
 mod tab;
 mod tech_tree;
@@ -49,13 +51,15 @@ pub mod transfer_planner;
 // `transfer_planner` so the card module can be unit-tested without
 // pulling in the 9000-line planner body.
 pub mod transfer_planner_card;
+// Reusable native Bevy UI widgets (fonts, scrollable containers,
+// text labels). The foundation for the bevy_ui rollout to all menus.
+pub mod widgets;
 
 pub use settings::Settings;
 
 pub use icons::{MenuIcons, ResearchIcons};
 pub use time::{SimulationTime, TimeScale};
 
-use construction_panel::ui_construction_panels;
 use dashboard::{ui_dashboard, ui_intel_panel, ui_time_controls};
 use economy_panel::ui_economy_panels;
 use fleets_panel::{
@@ -65,6 +69,7 @@ use fleets_panel::{
 use icons::{load_menu_icons, load_research_icons, process_menu_icons, process_research_icons};
 use personnel_panel::ui_personnel_panel;
 use research_panel::ui_research_panels;
+use resource_icons::{load_resource_icons_bevy_ui, post_process_resource_icons};
 use resources_bar::ui_resources_bar;
 use shipbuilding_workspace::ShipbuildingWorkspacePlugin;
 use time::advance_simulation_time;
@@ -76,8 +81,8 @@ use crate::astronomy::{
     SpaceCoordinates,
 };
 use crate::colony::{
-    BuildingCategory, BuildingType, BuildingsData, Colony, ConstructionDebugSettings,
-    ConstructionProject, EstablishOutpostRequest, PendingConstructionActions,
+    BuildingCategory, BuildingType, BuildingsData, Colony, ConstructionProject,
+    EstablishOutpostRequest, PendingConstructionActions,
 };
 use crate::economy::components::{MineralDeposit, Population, SurveyLevel};
 use crate::economy::{
@@ -689,6 +694,7 @@ impl Plugin for UIPlugin {
             .add_plugins(cursors::CursorPlugin)
             .add_plugins(ShipbuildingWorkspacePlugin)
             .add_plugins(launch::LaunchPlugin)
+            .add_plugins(construction::ConstructionPlugin)
             // Resources
             .init_resource::<Selection>()
             .init_resource::<TimeScale>()
@@ -697,6 +703,12 @@ impl Plugin for UIPlugin {
             .init_resource::<Settings>()
             .init_resource::<ShippingCompanyFilter>()
             .init_resource::<FleetUiState>()
+            .init_resource::<resource_icons::ResourceIconNeeds>()
+            // v0.5.2 (2026-08-06): the three canonical bevy_ui font
+            // handles, loaded once at Startup by `init_ui_fonts`.
+            // `init_resource` gives a null-handle default so any test
+            // App that never runs Startup still has a valid resource.
+            .init_resource::<widgets::UiFonts>()
             // GRA-367-A Phase 1: planner-shaped mirror of the transfer
             // state.  Rebuilt from `FleetUiState` each frame inside
             // `render_transfer_planner` (Phase 1 keeps `FleetUiState`
@@ -705,9 +717,23 @@ impl Plugin for UIPlugin {
             .init_resource::<TransferPlan>()
             .init_resource::<ResolutionWarning>()
             .init_resource::<ExpandedLedgerGroups>()
-            .init_resource::<construction_panel::ConstructionUiState>()
+            // Construction menu state lives on the bevy_ui canary
+            // (see `src/ui/construction.rs`).
+            .init_resource::<construction::ConstructionUiState>()
             .init_resource::<shipbuilding_state::ShipbuildingUiState>()
             .init_resource::<personnel_panel::PersonnelUiState>()
+            // v0.5.2: resource icon storage is owned by
+            // `load_resource_icons_bevy_ui` (Startup) — it
+            // calls `commands.insert_resource` with both the
+            // egui `TextureHandle` map and the bevy_ui
+            // `Handle<Image>` map pre-seeded. Don't
+            // `init_resource::<ResourceIcons>()` here or the
+            // Startup loader will silently no-op the egui
+            // side. The egui-side legacy loader
+            // (`resource_icons::load_resource_icons`) still
+            // fills the `handles` field every frame, so the
+            // resource is correctly populated by the first
+            // egui frame.
             // ActiveMenu is now initialized in GameStatePlugin
             // to allow access in camera/starmap plugins
             // Load menu icons at startup
@@ -716,8 +742,24 @@ impl Plugin for UIPlugin {
                 (
                     load_menu_icons,
                     load_research_icons,
+                    // v0.5.2 PR-A.4 follow-up: load the
+                    // resource-icon PNGs through Bevy's
+                    // `AssetServer` so the build-card
+                    // resource demands (bevy_ui path) can
+                    // render them as `ImageNode`s tinted to
+                    // the resource's category color. Parallel
+                    // to the egui-side `load_resource_icons`
+                    // (Update) — see `src/ui/resource_icons.rs`
+                    // for the rationale on the two paths.
+                    load_resource_icons_bevy_ui,
                     setup_egui_fonts,
                     check_window_resolution,
+                    // v0.5.2 (2026-08-06): cache the three bevy_ui
+                    // font handles so per-frame systems read
+                    // `Res<UiFonts>` instead of re-asking
+                    // `asset_server.load` (the Construction canary
+                    // did that in five per-frame systems).
+                    widgets::init_ui_fonts,
                 ),
             )
             // UI rendering systems
@@ -770,12 +812,9 @@ impl Plugin for UIPlugin {
                     .in_set(UiSystemSet::MainPanels)
                     .run_if(in_game_chrome),
             )
-            .add_systems(
-                EguiPrimaryContextPass,
-                ui_construction_panels
-                    .in_set(UiSystemSet::MainPanels)
-                    .run_if(in_game_chrome),
-            )
+            // The Construction panel is rendered by the bevy_ui canary
+            // at `src/ui/construction.rs`; no egui system is scheduled
+            // for it.
             .add_systems(
                 EguiPrimaryContextPass,
                 ui_economy_panels
@@ -830,11 +869,41 @@ impl Plugin for UIPlugin {
                 (
                     sync_selection_with_astronomy,
                     sync_active_menu_with_view_mode,
-                    advance_simulation_time,
+                    advance_simulation_time
+                        // v0.5.2 (2026-08-05): sim time only
+                        // advances in-game. Freezing it on the menu
+                        // stops the clock from accruing while the
+                        // player reads the menu; it resumes the
+                        // moment the launch flow hands over.
+                        .run_if(in_game_chrome),
                     process_menu_icons,
                     process_research_icons,
+                    // v0.5.2 PR-A.4 follow-up: post-process
+                    // the bevy_ui resource icon PNGs in place
+                    // (white → transparent, dark → premultiplied
+                    // white) so a tinted `ImageNode` blends
+                    // cleanly onto the dark navy card. Runs
+                    // every frame until every entry has been
+                    // mutated, then early-returns.
+                    post_process_resource_icons,
+                    // v0.5.2: load resource icon PNGs from disk
+                    // and bake them into egui `TextureHandle`s
+                    // for the resources bar. Runs every frame
+                    // (cheap) so any newly-authored icon file
+                    // picks up on the next tick. Gated on
+                    // `in_game_chrome` so the main menu does
+                    // zero icon work (the resources bar only
+                    // renders in-game).
+                    resource_icons::load_resource_icons.run_if(in_game_chrome),
                     switch_anchor_on_arrival
                         .after(crate::fleets::systems::complete_fleet_maneuvers),
+                    // v0.5.3 (2026-08-10): shared hover/press styling
+                    // for bevy_ui cards (scale, border, background,
+                    // shadow, z-index lift). Menu-agnostic — the
+                    // `Changed<Interaction>` filter keeps it near-free;
+                    // any future bevy_ui menu just inserts
+                    // `widgets::HoverElevation` on its cards.
+                    widgets::tick_ui_hover_elevation,
                 ),
             )
             // Capture egui's available_rect AFTER all panels have registered themselves
@@ -1034,7 +1103,7 @@ fn ui_top_menu_bar(
                         // Tint the icon:
                         // Cyan for active, clearly visible light-grey for inactive
                         let tint = if is_active {
-                            theme::ACCENT
+                            theme::CYAN
                         } else {
                             theme::ICON_INACTIVE
                         };
@@ -1050,7 +1119,7 @@ fn ui_top_menu_bar(
                             ui.painter().rect_stroke(
                                 rect,
                                 4.0,
-                                egui::Stroke::new(2.0_f32, theme::ACCENT),
+                                egui::Stroke::new(2.0_f32, theme::CYAN),
                                 egui::StrokeKind::Outside,
                             );
                         }
@@ -1083,7 +1152,7 @@ fn ui_top_menu_bar(
                             egui::Button::new(
                                 egui::RichText::new(button_text)
                                     .size(14.0)
-                                    .color(theme::ACCENT),
+                                    .color(theme::CYAN),
                             )
                             .fill(theme::SURFACE_RAISED)
                         } else {
@@ -1118,7 +1187,7 @@ fn ui_top_menu_bar(
                         egui::Button::new(
                             egui::RichText::new(button_text)
                                 .size(14.0)
-                                .color(theme::ACCENT),
+                                .color(theme::CYAN),
                         )
                         .fill(theme::SURFACE_RAISED)
                     } else {
@@ -1169,7 +1238,7 @@ fn ui_top_menu_bar(
                     egui::Button::new(
                         egui::RichText::new(button_text)
                             .size(14.0)
-                            .color(theme::ACCENT),
+                            .color(theme::CYAN),
                     )
                     .fill(theme::SURFACE_RAISED)
                 } else {
@@ -1326,7 +1395,7 @@ fn ui_starmap_labels(
             }
 
             let color = if is_selected.is_some() {
-                theme::ACCENT
+                theme::CYAN
             } else {
                 theme::TEXT_DIM
             };
@@ -1421,7 +1490,7 @@ fn ui_hover_tooltip(
                                 ui.label(
                                     egui::RichText::new(format!("L{}", m.point))
                                         .size(16.0)
-                                        .color(theme::ACCENT)
+                                        .color(theme::CYAN)
                                         .strong(),
                                 );
                                 ui.label(
@@ -1512,7 +1581,7 @@ fn ui_hover_tooltip(
                             ui.label(
                                 egui::RichText::new(&body.name)
                                     .size(16.0)
-                                    .color(theme::ACCENT)
+                                    .color(theme::CYAN)
                                     .strong(),
                             );
                         });

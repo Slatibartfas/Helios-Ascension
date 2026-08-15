@@ -43,6 +43,83 @@ fn default_autosave_enabled() -> bool {
     true
 }
 
+/// Coder-side mirror of `bevy::window::WindowMode`.
+///
+/// Bevy 0.18's `WindowMode` is a plain enum (not a `Component`) but
+/// two of its variants carry a `MonitorSelection` / `VideoModeSelection`,
+/// none of which are `Default`. Storing those variant payloads in
+/// `settings.ron` would require persisting monitor ids, which is
+/// not portable across machines. We sidestep that by storing only
+/// the three intent-level variants here and translating to the
+/// Bevy enum at the point of use (see [`From<PersistentWindowMode>
+/// for bevy::window::WindowMode`]).
+///
+/// Order matters: `Windowed` is the default and the first variant so
+/// the `#[derive(Default)]` impl matches the player-facing default.
+#[derive(Resource, Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum PersistentWindowMode {
+    #[default]
+    Windowed,
+    Fullscreen,
+    BorderlessFullscreen,
+}
+
+impl PersistentWindowMode {
+    /// Stable id string used by the Settings subview's combo box and
+    /// in the RON migrations. `as_str` is the inverse of
+    /// [`Self::from_str`].
+    pub fn as_str(self) -> &'static str {
+        match self {
+            PersistentWindowMode::Windowed => "windowed",
+            PersistentWindowMode::Fullscreen => "fullscreen",
+            PersistentWindowMode::BorderlessFullscreen => "borderless",
+        }
+    }
+
+    /// Parse a stable id back into a [`PersistentWindowMode`]. Unknown
+    /// strings fall back to `Windowed` so a typo in the RON file
+    /// never leaves the game stuck in a mode the player can't undo.
+    /// Named `parse_str` (not `from_str`) so callers don't accidentally
+    /// invoke it through `std::str::FromStr` and bypass the
+    /// panic-on-no-Result contract.
+    pub fn parse_str(s: &str) -> Self {
+        match s {
+            "windowed" => PersistentWindowMode::Windowed,
+            "fullscreen" => PersistentWindowMode::Fullscreen,
+            "borderless" => PersistentWindowMode::BorderlessFullscreen,
+            _ => PersistentWindowMode::Windowed,
+        }
+    }
+
+    /// All variants in settings-menu order, for combo-box population.
+    pub const ALL: &'static [PersistentWindowMode] = &[
+        PersistentWindowMode::Windowed,
+        PersistentWindowMode::Fullscreen,
+        PersistentWindowMode::BorderlessFullscreen,
+    ];
+}
+
+impl From<PersistentWindowMode> for bevy::window::WindowMode {
+    fn from(value: PersistentWindowMode) -> Self {
+        use bevy::window::{MonitorSelection, VideoModeSelection, WindowMode};
+        match value {
+            PersistentWindowMode::Windowed => WindowMode::Windowed,
+            // `Current` picks the monitor the window is currently on
+            // at the moment the mode flips. Both variants below are
+            // the "newest sane choice" — fullscreen picks the
+            // current video mode, which lets the OS pick the refresh
+            // rate / resolution rather than freezing it from a stale
+            // settings file.
+            PersistentWindowMode::Fullscreen => {
+                WindowMode::Fullscreen(MonitorSelection::Current, VideoModeSelection::Current)
+            }
+            PersistentWindowMode::BorderlessFullscreen => {
+                WindowMode::BorderlessFullscreen(MonitorSelection::Current)
+            }
+        }
+    }
+}
+
 /// Player-facing settings persisted to `<userdata>/settings.ron`.
 ///
 /// Reads happen at boot after the resource is inserted as
@@ -57,7 +134,19 @@ pub struct PersistentSettings {
     pub music_volume: f32,
     #[serde(default = "default_volume")]
     pub sfx_volume: f32,
+    /// Windowed / Fullscreen / Borderless. The Settings subview's
+    /// graphics tab drives this; the `apply_window_mode_to_primary`
+    /// system in `src/plugins/window_mode_bridge.rs` pushes it to
+    /// `Window::mode` on the primary window.
     #[serde(default)]
+    pub window_mode: PersistentWindowMode,
+    /// Legacy `fullscreen: bool` field. Read on load for backward
+    /// compatibility with settings.ron files written before
+    /// `window_mode` existed; never written on save. The migration
+    /// step in [`load_persistent_settings_from`] promotes
+    /// `fullscreen: true` to `window_mode: Fullscreen` and clears
+    /// the legacy field.
+    #[serde(default, skip_serializing)]
     pub fullscreen: bool,
     #[serde(default = "default_ui_scale")]
     pub ui_scale: f32,
@@ -83,6 +172,7 @@ impl Default for PersistentSettings {
             master_volume: 1.0,
             music_volume: 1.0,
             sfx_volume: 1.0,
+            window_mode: PersistentWindowMode::default(),
             fullscreen: false,
             ui_scale: 1.0,
             tutorial_enabled: false,
@@ -165,11 +255,30 @@ pub fn settings_path_in(dir: &Path) -> PathBuf {
 /// On missing file or parse failure, returns `PersistentSettings::default()`.
 /// The function does not create the directory; the caller is responsible
 /// for `fs::create_dir_all` if creation is desired.
+///
+/// **Legacy migration**: settings files written before the
+/// `window_mode` field existed used `fullscreen: bool`. The legacy
+/// field is still accepted via `#[serde(default, skip_serializing)]`
+/// on `PersistentSettings::fullscreen`, so a file with `fullscreen:
+/// true` deserializes successfully. After deserialization this
+/// function promotes the legacy bool into the new enum (`true` →
+/// `Fullscreen`) and clears the legacy field so a subsequent save
+/// drops it. A file with `fullscreen: false` and `window_mode:
+/// Windowed` (the default) is unchanged.
 pub fn load_persistent_settings_from(dir: &Path) -> PersistentSettings {
     let path = settings_path_in(dir);
     match fs::read_to_string(&path) {
         Ok(contents) => match ron::from_str::<PersistentSettings>(&contents) {
-            Ok(s) => s,
+            Ok(mut s) => {
+                if s.fullscreen && s.window_mode == PersistentWindowMode::Windowed {
+                    info!(
+                        "settings: migrating legacy `fullscreen: true` → `window_mode: Fullscreen`"
+                    );
+                    s.window_mode = PersistentWindowMode::Fullscreen;
+                    s.fullscreen = false;
+                }
+                s
+            }
             Err(e) => {
                 warn!(
                     "Failed to parse persistent settings at {}: {}. Using defaults.",
@@ -239,7 +348,14 @@ mod tests {
             master_volume: 0.42,
             music_volume: 0.0,
             sfx_volume: 0.95,
-            fullscreen: true,
+            window_mode: PersistentWindowMode::BorderlessFullscreen,
+            // The legacy `fullscreen: true` is the "before migration"
+            // helper value — keep it true here so the
+            // `legacy_fullscreen_true_migrates_to_window_mode_fullscreen`
+            // test below doesn't double-load underneath the round-trip.
+            // The round-trip must keep `window_mode` and the legacy
+            // bool in sync.
+            fullscreen: false,
             ui_scale: 1.25,
             tutorial_enabled: true,
             autosave_enabled: false,
@@ -253,7 +369,129 @@ mod tests {
         let loaded = load_persistent_settings_from(&dir);
         assert_eq!(loaded, original, "loaded settings must equal what we wrote");
 
+        // The legacy `fullscreen: bool` field must NOT be written
+        // back to disk by `save_persistent_settings_to` because it
+        // is marked `#[serde(skip_serializing)]`. Round-tripping and
+        // re-reading the raw file proves the migration won't keep
+        // re-applying on every save.
+        let raw = fs::read_to_string(&written_path).expect("read back");
+        assert!(
+            !raw.contains("fullscreen"),
+            "legacy `fullscreen` field must not be re-serialized; got:\n{}",
+            raw
+        );
+
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn legacy_fullscreen_true_migrates_to_window_mode_fullscreen() {
+        // A settings.ron file written by the pre-window_mode build
+        // has `fullscreen: true` and no `window_mode` key. The
+        // loader must promote it to `window_mode: Fullscreen` and
+        // clear the legacy field so the next save drops the legacy
+        // key.
+        let dir = fresh_temp_dir("legacy-migrate");
+        let path = settings_path_in(&dir);
+        let legacy = r#"(
+            master_volume: 1.0,
+            music_volume: 1.0,
+            sfx_volume: 1.0,
+            fullscreen: true,
+            ui_scale: 1.0,
+            tutorial_enabled: false,
+            autosave_enabled: true,
+            autosave_interval_s: 300.0,
+        )"#;
+        fs::write(&path, legacy).expect("write legacy file");
+
+        let loaded = load_persistent_settings_from(&dir);
+        assert_eq!(
+            loaded.window_mode,
+            PersistentWindowMode::Fullscreen,
+            "legacy `fullscreen: true` must migrate to `window_mode: Fullscreen`"
+        );
+        assert!(
+            !loaded.fullscreen,
+            "legacy `fullscreen` field must be cleared after migration"
+        );
+
+        // Re-save through the canonical path and re-read the raw
+        // file. The new save must NOT contain the legacy key.
+        let _ = save_persistent_settings_to(&dir, &loaded).expect("resave");
+        let raw = fs::read_to_string(&path).expect("re-read");
+        assert!(
+            !raw.contains("fullscreen"),
+            "post-migration resave must drop the legacy `fullscreen` key; got:\n{}",
+            raw
+        );
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn legacy_fullscreen_false_does_not_override_window_mode() {
+        // A legacy file with `fullscreen: false` must not accidentally
+        // demote a freshly-set `window_mode: BorderlessFullscreen`
+        // back to `Windowed`. The migration only fires when the
+        // `window_mode` is at its default AND `fullscreen` is true.
+        let dir = fresh_temp_dir("legacy-no-migrate");
+        let path = settings_path_in(&dir);
+        let mixed = r#"(
+            master_volume: 1.0,
+            music_volume: 1.0,
+            sfx_volume: 1.0,
+            window_mode: BorderlessFullscreen,
+            fullscreen: false,
+            ui_scale: 1.0,
+            tutorial_enabled: false,
+            autosave_enabled: true,
+            autosave_interval_s: 300.0,
+        )"#;
+        fs::write(&path, mixed).expect("write mixed file");
+
+        let loaded = load_persistent_settings_from(&dir);
+        assert_eq!(
+            loaded.window_mode,
+            PersistentWindowMode::BorderlessFullscreen,
+            "mixing `fullscreen: false` with an explicit `window_mode` must not override the new field"
+        );
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn persistent_window_mode_into_bevy_window_mode() {
+        // The `From` impl is the bridge to `Window::mode`. Each
+        // variant must map to a valid `bevy::window::WindowMode`.
+        use bevy::window::{MonitorSelection, VideoModeSelection, WindowMode};
+        let from = |m: PersistentWindowMode| -> WindowMode { m.into() };
+        assert_eq!(from(PersistentWindowMode::Windowed), WindowMode::Windowed);
+        assert!(matches!(
+            from(PersistentWindowMode::Fullscreen),
+            WindowMode::Fullscreen(MonitorSelection::Current, VideoModeSelection::Current)
+        ));
+        assert!(matches!(
+            from(PersistentWindowMode::BorderlessFullscreen),
+            WindowMode::BorderlessFullscreen(MonitorSelection::Current)
+        ));
+    }
+
+    #[test]
+    fn persistent_window_mode_as_str_round_trips() {
+        for variant in PersistentWindowMode::ALL {
+            assert_eq!(
+                PersistentWindowMode::parse_str(variant.as_str()),
+                *variant,
+                "as_str / from_str must round-trip for {:?}",
+                variant
+            );
+        }
+        // Unknown strings fall back to Windowed.
+        assert_eq!(
+            PersistentWindowMode::parse_str("nope"),
+            PersistentWindowMode::Windowed
+        );
     }
 
     #[test]
@@ -320,7 +558,9 @@ mod tests {
                 }
             }
         }
-        let _env_lock = USERDATA_ENV_LOCK.lock().expect("USERDATA_ENV_LOCK poisoned");
+        let _env_lock = USERDATA_ENV_LOCK
+            .lock()
+            .expect("USERDATA_ENV_LOCK poisoned");
         let prior = std::env::var_os("HELIOS_USERDATA_DIR");
         let override_dir =
             std::env::temp_dir().join(format!("helios-userdata-override-{}", std::process::id()));

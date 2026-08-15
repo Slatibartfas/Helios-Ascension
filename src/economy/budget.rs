@@ -23,6 +23,16 @@ pub struct ResourceRateTracker {
     pub gross_consumption_rates: HashMap<ResourceType, f64>,
     /// Per-entity (body) monthly rates for resource tooltip breakdown
     pub per_entity_rates: HashMap<Entity, HashMap<ResourceType, f64>>,
+    /// v3.8.11 (2026-08-07): per-resource per-capita draw
+    /// (population × per-capita rate, in Mt/month). Used by the rate
+    /// tooltip to break down "consumption" into population vs maintenance
+    /// vs synthesis input. Prior to v3.8.11 this draw was only computed
+    /// inside `deduct_population_consumption`, so the rate display missed
+    /// the largest single component of consumer-resource draw.
+    pub population_consumption: HashMap<ResourceType, f64>,
+    /// v3.8.11: per-resource industrial-process input draw
+    /// (e.g. Methane consumed by PolymerSynthesis, in Mt/month).
+    pub synthesis_input: HashMap<ResourceType, f64>,
     /// Monthly research point generation
     pub research_rate_per_month: f64,
     /// Monthly engineering point generation
@@ -67,6 +77,15 @@ pub fn calculate_colony_power_totals(
 
         for modifier in &def.modifiers {
             if modifier.modifier_type == "PowerGeneration" {
+                // RON `PowerGeneration` values are expressed in **GW per
+                // unit** (matching the inline `// <value> GW` annotations
+                // next to every entry in assets/data/buildings.ron and the
+                // per-building display strings in src/colony/types.rs:
+                // "+5 GW power output", "+20 GW power output", etc.).
+                // The 1e9 factor converts GW → W, which lines up with the
+                // EnergyGrid units (W) and the per-building
+                // `power_demand_mw` field (converted the other way by
+                // * 1e6 in the consumption loop below).
                 produced_watts += modifier.value * count as f64 * 1_000_000_000.0;
             }
         }
@@ -115,6 +134,21 @@ impl ResourceRateTracker {
     pub fn get_category_rate(&self, resources: &[ResourceType]) -> f64 {
         resources.iter().map(|r| self.get_resource_rate(r)).sum()
     }
+
+    /// v3.8.11: per-capita (population) draw for a resource, in Mt/month.
+    /// Returns 0.0 if not tracked.
+    pub fn get_population_consumption(&self, resource: &ResourceType) -> f64 {
+        self.population_consumption
+            .get(resource)
+            .copied()
+            .unwrap_or(0.0)
+    }
+
+    /// v3.8.11: industrial-process input draw for a resource, in Mt/month.
+    /// Returns 0.0 if not tracked.
+    pub fn get_synthesis_input(&self, resource: &ResourceType) -> f64 {
+        self.synthesis_input.get(resource).copied().unwrap_or(0.0)
+    }
 }
 
 /// Global economic budget and resource management
@@ -157,57 +191,61 @@ impl GlobalBudget {
     pub fn new() -> Self {
         let mut stockpiles = HashMap::new();
 
-        // Initialize with starting resources representing roughly half a year
-        // of 2026 Earth throughput/consumption. Earth's four starting depots add
-        // +10% storage headroom, so the effective cap lands at ~1.1 years.
-        // All values are in Megatons (Mt).
+        // v3.8.4 (2026-08-07): starting stockpiles are 50% of the
+        // realistic 2026 active-storage cap (mid-cycle inventory).
+        // Previously calibrated at 6 months of world demand, which
+        // exceeded the new active-storage cap.  This matches the
+        // player's real-world mental model: the cap *is* the
+        // warehouse / port / tank, and at game start the
+        // warehouses are half-full.  The per-capita + maintenance
+        // demand drains them down to a steady-state below the cap.
 
-        // Volatiles / gases
-        stockpiles.insert(ResourceType::Water, 300.0); // 600 Mt/yr → 6 mo
-        stockpiles.insert(ResourceType::Oxygen, 50.0); // 100 Mt/yr → 6 mo
-        stockpiles.insert(ResourceType::Hydrogen, 50.0); // 100 Mt/yr → 6 mo
-        stockpiles.insert(ResourceType::Methane, 1_950.0); // 3,900 Mt/yr → 6 mo
-        stockpiles.insert(ResourceType::Nitrogen, 65.0); // 130 Mt/yr → 6 mo
-        stockpiles.insert(ResourceType::Ammonia, 95.0); // 190 Mt/yr → 6 mo
+        // Volatiles / gases (cap is industrial-tank / atmospheric storage)
+        stockpiles.insert(ResourceType::Water, 300.0); // cap 600
+        stockpiles.insert(ResourceType::Oxygen, 10.0); // cap 20
+        stockpiles.insert(ResourceType::Hydrogen, 2.5); // cap 5
+        stockpiles.insert(ResourceType::Methane, 25.0); // cap 50
+        stockpiles.insert(ResourceType::Nitrogen, 15.0); // cap 30
+        stockpiles.insert(ResourceType::Ammonia, 15.0); // cap 30
 
-        // Construction / common metals
-        stockpiles.insert(ResourceType::Iron, 1_250.0); // 2,500 Mt/yr → 6 mo
-        stockpiles.insert(ResourceType::Copper, 13.0); // 26 Mt/yr → 6 mo
-        stockpiles.insert(ResourceType::Aluminum, 35.0); // 70 Mt/yr → 6 mo
-        stockpiles.insert(ResourceType::Silicates, 25_000.0); // 50,000 Mt/yr → 6 mo
-        stockpiles.insert(ResourceType::Nickel, 1.65); // 3.3 Mt/yr → 6 mo
-        stockpiles.insert(ResourceType::Chromium, 22.0); // 44 Mt/yr → 6 mo
-        stockpiles.insert(ResourceType::Magnesium, 0.6); // 1.2 Mt/yr → 6 mo
-        stockpiles.insert(ResourceType::Cobalt, 0.105); // 0.21 Mt/yr → 6 mo
-        stockpiles.insert(ResourceType::Tungsten, 0.047); // 0.094 Mt/yr → 6 mo
-        stockpiles.insert(ResourceType::Titanium, 5.0); // 10 Mt/yr → 6 mo
+        // Construction / common metals (cap is LME / port / mine stockpile)
+        stockpiles.insert(ResourceType::Iron, 50.0); // cap 100
+        stockpiles.insert(ResourceType::Copper, 15.0); // cap 30
+        stockpiles.insert(ResourceType::Aluminum, 5.0); // cap 10
+        stockpiles.insert(ResourceType::Silicates, 2_500.0); // cap 5,000
+        stockpiles.insert(ResourceType::Nickel, 0.5); // cap 1
+        stockpiles.insert(ResourceType::Chromium, 2.5); // cap 5
+        stockpiles.insert(ResourceType::Magnesium, 0.25); // cap 0.5
+        stockpiles.insert(ResourceType::Cobalt, 0.025); // cap 0.05
+        stockpiles.insert(ResourceType::Tungsten, 0.025); // cap 0.05
+        stockpiles.insert(ResourceType::Titanium, 2.5); // cap 5
 
         // Non-metals / chemical industry
-        stockpiles.insert(ResourceType::Carbon, 2_150.0); // 4,300 Mt/yr → 6 mo
-        stockpiles.insert(ResourceType::Phosphorus, 120.0); // 240 Mt/yr → 6 mo
-        stockpiles.insert(ResourceType::Sulfur, 32.5); // 65 Mt/yr → 6 mo
-        stockpiles.insert(ResourceType::Polymers, 217.5); // 435 Mt/yr → 6 mo
-        stockpiles.insert(ResourceType::Fluorine, 1.0); // 2 Mt/yr → 6 mo
+        stockpiles.insert(ResourceType::Carbon, 100.0); // cap 200
+        stockpiles.insert(ResourceType::Phosphorus, 15.0); // cap 30
+        stockpiles.insert(ResourceType::Sulfur, 15.0); // cap 30
+        stockpiles.insert(ResourceType::Polymers, 25.0); // cap 50
+        stockpiles.insert(ResourceType::Fluorine, 0.5); // cap 1
 
         // Strategic / rare
-        stockpiles.insert(ResourceType::Lithium, 0.45); // 0.9 Mt/yr → 6 mo
-        stockpiles.insert(ResourceType::RareEarths, 0.175); // 0.35 Mt/yr → 6 mo
+        stockpiles.insert(ResourceType::Lithium, 0.1); // cap 0.2
+        stockpiles.insert(ResourceType::RareEarths, 0.05); // cap 0.1
 
         // Precious metals
-        stockpiles.insert(ResourceType::Gold, 0.0018); // 0.0036 Mt/yr → 6 mo
-        stockpiles.insert(ResourceType::Silver, 0.014); // 0.028 Mt/yr → 6 mo
-        stockpiles.insert(ResourceType::Platinum, 0.000115); // 0.00023 Mt/yr → 6 mo
+        stockpiles.insert(ResourceType::Gold, 0.0005); // cap 0.001
+        stockpiles.insert(ResourceType::Silver, 0.0025); // cap 0.005
+        stockpiles.insert(ResourceType::Platinum, 0.00005); // cap 0.0001
 
         // Fissile / fusion fuels
-        stockpiles.insert(ResourceType::Uranium, 0.029); // 0.058 Mt/yr → 6 mo
-        stockpiles.insert(ResourceType::Thorium, 0.005); // 0.01 Mt/yr → 6 mo
+        stockpiles.insert(ResourceType::Uranium, 0.025); // cap 0.05
+        stockpiles.insert(ResourceType::Thorium, 0.0025); // cap 0.005
         stockpiles.insert(ResourceType::Plutonium, 0.0); // manufactured in breeder reactors
-        stockpiles.insert(ResourceType::Deuterium, 0.005); // 0.01 Mt/yr → 6 mo
+        stockpiles.insert(ResourceType::Deuterium, 0.05); // cap 0.1
         stockpiles.insert(ResourceType::Tritium, 0.0); // bred from lithium blankets
         stockpiles.insert(ResourceType::Helium3, 0.0); // essentially none yet
 
-        // Food — game units (8.2B pop × 0.0001 Mt/yr = 820,000 Mt/yr consumption)
-        stockpiles.insert(ResourceType::Food, 450_000.0); // ~0.55yr reserve
+        // Food — 50% of cap (FAO 2024 grain reserves ~800 Mt)
+        stockpiles.insert(ResourceType::Food, 400.0); // cap 800
 
         Self {
             stockpiles,
@@ -299,48 +337,82 @@ impl GlobalBudget {
     /// Maximum stockpile capacity for a given resource *before* the storage
     /// multiplier is applied (in Megatons).
     ///
-    /// Values are calibrated at **1 year of 2026 Earth annual throughput**.
-    /// Earth's starting four Warehouses add +10% capacity, which yields the
-    /// requested one-year baseline plus a small construction margin.
+    /// v3.8.4 (2026-08-07): values are **2026 active storage estimates**
+    /// (warehouses, ports, strategic reserves, LME-bonded stocks) — not
+    /// 1 year of world demand.  Stockpile = "actual storage facilities",
+    /// not "stuff lying in the ground waiting to be mined".  Earth as a
+    /// single body holds the global 2026 stock; the per-body cap is
+    /// scaled by the storage multiplier for Warehouse/Depot buildings.
+    ///
+    /// Citations (rough active-storage estimates, 2024-2026):
+    /// - Food: FAO 2024 grain reserves ≈ 800 Mt (~30% annual consumption)
+    /// - Iron: USGS 2024 iron-ore stockpiles + LME bonded ≈ 100 Mt
+    /// - Silicates: port stocks + construction-aggregate terminals ≈ 5 Gt
+    /// - Carbon (coal): strategic reserves + port stocks ≈ 200 Mt
+    /// - Methane: gas-storage facilities (US/EU/Russia) ≈ 50 Mt
+    /// - Water: industrial reservoir / desalinated buffer ≈ 600 Mt
+    /// - Polymers: plastics-resin warehouses ≈ 50 Mt
+    /// - Copper: LME + bonded warehouses ≈ 30 Mt
+    /// - Aluminum, Nickel, etc: LME-bonded stocks
+    /// - Atmospheric gases: industrial gas-storage tanks
+    ///   (the atmosphere itself is the geological deposit; the
+    ///   storage cap reflects *tank* capacity, not air volume)
     ///
     /// Use `effective_stockpile_cap()` for the actual enforced cap which
-    /// includes the `storage_multiplier` bonus from Warehouse / Resource Depot
-    /// buildings.
+    /// includes the `storage_multiplier` bonus from Warehouse / Resource
+    /// Depot buildings.
     pub fn stockpile_cap(resource: ResourceType) -> f64 {
         match resource {
-            ResourceType::Food => 820_000.0,
-            ResourceType::Iron => 2_500.0,
-            ResourceType::Copper => 26.0,
-            ResourceType::Aluminum => 70.0,
-            ResourceType::Nickel => 3.3,
-            ResourceType::Chromium => 44.0,
-            ResourceType::Magnesium => 1.2,
-            ResourceType::Cobalt => 0.21,
-            ResourceType::Tungsten => 0.094,
-            ResourceType::Titanium => 10.0,
-            ResourceType::Silicates => 50_000.0,
-            ResourceType::Carbon => 4_300.0,
-            ResourceType::Sulfur => 65.0,
-            ResourceType::Phosphorus => 240.0,
-            ResourceType::Polymers => 435.0,
-            ResourceType::Fluorine => 2.0,
-            ResourceType::RareEarths => 0.35,
-            ResourceType::Lithium => 0.9,
-            ResourceType::Gold => 0.0036,
-            ResourceType::Silver => 0.028,
-            ResourceType::Platinum => 0.00023,
-            ResourceType::Water => 600.0,
-            ResourceType::Oxygen => 100.0,
-            ResourceType::Hydrogen => 100.0,
-            ResourceType::Nitrogen => 130.0,
-            ResourceType::Ammonia => 190.0,
-            ResourceType::Methane => 3_900.0,
-            ResourceType::Uranium => 0.058,
-            ResourceType::Thorium => 0.01,
-            ResourceType::Plutonium => 0.02,
-            ResourceType::Deuterium => 0.01,
-            ResourceType::Tritium => 0.05,
-            ResourceType::Helium3 => 10.0,
+            // Construction materials — LME-bonded + port + strategic
+            ResourceType::Iron => 100.0, // 100 Mt iron-ore stockpiles
+            ResourceType::Silicates => 5_000.0, // 5 Gt construction aggregate
+            ResourceType::Copper => 30.0, // 30 Mt LME-bonded Cu
+            ResourceType::Aluminum => 10.0, // 10 Mt LME Al
+            ResourceType::Titanium => 5.0, // 5 Mt Ti mineral stockpiles
+            ResourceType::Nickel => 1.0, // 1 Mt LME Ni
+            ResourceType::Tungsten => 0.05, // 50 kt W APT stockpiles
+            ResourceType::Chromium => 5.0, // 5 Mt chromite stockpiles
+            ResourceType::Magnesium => 0.5, // 500 kt Mg
+            ResourceType::Cobalt => 0.05, // 50 kt Co
+            // Industrial / energy
+            ResourceType::Carbon => 200.0,    // 200 Mt coal stockpiles
+            ResourceType::Methane => 50.0,    // 50 Mt gas-storage facilities
+            ResourceType::Water => 600.0,     // 600 Mt industrial reservoir
+            ResourceType::Sulfur => 30.0,     // 30 Mt elemental S stockpiles
+            ResourceType::Phosphorus => 30.0, // 30 Mt phosphate rock
+            ResourceType::Polymers => 50.0,   // 50 Mt plastics-resin tanks
+            ResourceType::Fluorine => 1.0,    // 1 Mt fluorspar
+            ResourceType::RareEarths => 0.1,  // 100 kt REO stockpiles
+            ResourceType::Lithium => 0.2,     // 200 kt Li carbonate
+            // Precious metals — small tank / vault storage
+            ResourceType::Gold => 0.001,   // 1,000 t central-bank+LBMA
+            ResourceType::Silver => 0.005, // 5,000 t silver stockpiles
+            ResourceType::Platinum => 0.0001, // 100 t Pt stockpiles
+            // Atmospheric / industrial gases — tank storage
+            ResourceType::Nitrogen => 30.0, // 30 Mt N₂ tank storage
+            ResourceType::Oxygen => 20.0,   // 20 Mt O₂ tank storage
+            ResourceType::Argon => 1.0,     // 1 Mt Ar tank storage
+            ResourceType::Hydrogen => 5.0,  // 5 Mt H₂ tank storage
+            ResourceType::Ammonia => 30.0,  // 30 Mt NH₃ refrigerated tanks
+            // v3.8.16: CarbonDioxide previously fell through to the
+            // `_ => f64::MAX` catch-all, so its stockpile grew forever
+            // (production 153 Mt/yr vs 150 cons, no throttle) and the
+            // Atmospheric Gases / Volatiles row showed an always-empty
+            // fill bar — "seemingly infinite storage". Industrial CO₂
+            // tank storage (beverage carbonation, dry ice, urea
+            // feedstock, EOR) is a few months of the game's 153 Mt/yr
+            // throughput: 50 Mt ≈ 0.33 yr, consistent with Nitrogen
+            // (30 Mt / 117 Mt/yr = 0.26 yr).
+            ResourceType::CarbonDioxide => 50.0, // 50 Mt CO₂ tank storage
+            // Fissile / fusion
+            ResourceType::Uranium => 0.05,    // 50 kt U₃O₈
+            ResourceType::Thorium => 0.005,   // 5 kt Th
+            ResourceType::Plutonium => 0.001, // 1 t Pu stockpiles
+            ResourceType::Helium3 => 0.0001,  // 100 kg He-3 strategic reserve
+            ResourceType::Deuterium => 0.1,   // 100 kt D₂O stockpiles
+            ResourceType::Tritium => 0.05,    // 50 kg T₂ reserve
+            // Food
+            ResourceType::Food => 800.0, // 800 Mt grain reserves
             // Exotic / late-game (effectively uncapped)
             _ => f64::MAX,
         }
@@ -476,18 +548,26 @@ pub fn update_civilization_score(
     }
 }
 
-/// Format power value in human-readable units (W, kW, MW, GW, TW)
+/// Format power value in human-readable units (W, kW, MW, GW, TW).
+///
+/// Handles negative values (deficits) by stripping the sign before
+/// picking the unit scale, then re-prefixing it. The previous
+/// `>=` cascade fell through to the `W` branch for every negative
+/// input, producing `"-960000000000.00 W"` instead of `"-960.00 GW"`
+/// for the body Net column in the Economy Power tab.
 pub fn format_power(watts: f64) -> String {
-    if watts >= 1e12 {
-        format!("{:.2} TW", watts / 1e12)
-    } else if watts >= 1e9 {
-        format!("{:.2} GW", watts / 1e9)
-    } else if watts >= 1e6 {
-        format!("{:.2} MW", watts / 1e6)
-    } else if watts >= 1e3 {
-        format!("{:.2} kW", watts / 1e3)
+    let sign = if watts < 0.0 { "-" } else { "" };
+    let abs = watts.abs();
+    if abs >= 1e12 {
+        format!("{}{:.2} TW", sign, abs / 1e12)
+    } else if abs >= 1e9 {
+        format!("{}{:.2} GW", sign, abs / 1e9)
+    } else if abs >= 1e6 {
+        format!("{}{:.2} MW", sign, abs / 1e6)
+    } else if abs >= 1e3 {
+        format!("{}{:.2} kW", sign, abs / 1e3)
     } else {
-        format!("{:.2} W", watts)
+        format!("{}{:.2} W", sign, abs)
     }
 }
 
@@ -593,9 +673,14 @@ pub fn update_contextual_stockpile(
 /// System that scans all colonies for `StorageCapacity` building modifiers and
 /// updates `GlobalBudget.storage_multiplier`.
 ///
-/// Each Warehouse / Resource Depot has `StorageCapacity = 0.025`, meaning it
-/// adds +2.5% to ALL per-resource stockpile caps globally.
+/// Each Warehouse / Resource Depot has `StorageCapacity = 0.25`, meaning it
+/// adds +25% to ALL per-resource stockpile caps globally.
 /// `storage_multiplier = 1.0 + Σ(modifier.value × count)`.
+///
+/// v3.8.16: raised from 0.10 → 0.25 per depot. At +10% the player needed
+/// ten depots to double storage ("gigantic storage farms"); at +25% the
+/// four starting depots already give a 2.0× multiplier and a handful more
+/// makes storage a meaningful strategic lever without spamming depots.
 pub fn update_storage_capacity(
     mut budget: ResMut<GlobalBudget>,
     colonies: Query<&Colony>,
@@ -759,6 +844,19 @@ mod tests {
     }
 
     #[test]
+    fn test_power_formatting_negative() {
+        // Negative values must pick the same unit scale as positives,
+        // not fall through to the raw-W branch.
+        assert_eq!(format_power(-500.0), "-500.00 W");
+        assert_eq!(format_power(-1500.0), "-1.50 kW");
+        assert_eq!(format_power(-2_500_000.0), "-2.50 MW");
+        assert_eq!(format_power(-3_500_000_000.0), "-3.50 GW");
+        assert_eq!(format_power(-4_500_000_000_000.0), "-4.50 TW");
+        // Exact zero stays unsigned.
+        assert_eq!(format_power(0.0), "0.00 W");
+    }
+
+    #[test]
     fn test_net_power() {
         let mut budget = GlobalBudget::new();
         budget.energy_grid.produced = 1000.0;
@@ -815,15 +913,16 @@ mod tests {
     #[test]
     fn test_add_resource_capped_respects_limit() {
         let mut budget = GlobalBudget::new();
-        // Gold base cap is 0.0036 Mt; set current stockpile just below it.
-        budget.stockpiles.insert(ResourceType::Gold, 0.002);
+        // v3.8.4: Gold base cap = 0.001 Mt (2026 vault/central-bank stock);
+        // set current stockpile just below it.
+        budget.stockpiles.insert(ResourceType::Gold, 0.0005);
         let added = budget.add_resource_capped(ResourceType::Gold, 0.005);
-        let expected_added = 0.0036 - 0.002;
+        let expected_added = 0.001 - 0.0005;
         assert!(
             (added - expected_added).abs() < 1e-9,
             "Should only add up to cap; got {added}"
         );
-        assert!((budget.get_stockpile(&ResourceType::Gold) - 0.0036).abs() < 1e-9);
+        assert!((budget.get_stockpile(&ResourceType::Gold) - 0.001).abs() < 1e-9);
     }
 
     #[test]
@@ -878,21 +977,34 @@ mod tests {
     fn test_food_stockpile_initial_stays_within_one_year_margin() {
         let budget = GlobalBudget::new();
         let food = budget.get_stockpile(&ResourceType::Food);
-        let earth_annual_consumption = 8.2e9 * 0.0001;
-        assert!(
-            food >= earth_annual_consumption * 0.5,
-            "Initial food stockpile ({food:.0} Mt) should cover at least half a year of Earth consumption ({earth_annual_consumption:.0} Mt/yr)"
-        );
+        // v3.8.4: per-capita food = 0.0000011 Mt/p/yr (FAO 2024 SOFA
+        // 1,100 kg/p/yr).  Earth (8.2B) consumes 9,020 Mt/yr.
+        // 50% of 800 Mt cap = 400 Mt ≈ 16 days of supply.
+        let earth_annual_consumption = 8.2e9 * 0.0000011;
         assert!(
             food <= GlobalBudget::stockpile_cap(ResourceType::Food),
-            "Initial food stockpile ({food:.0} Mt) should not exceed the one-year base cap"
+            "Initial food stockpile ({food:.0} Mt) should not exceed the cap"
+        );
+        // Sanity: at least 10 days of supply at the new per-capita rate.
+        let ten_days_supply = earth_annual_consumption / 36.5;
+        assert!(
+            food >= ten_days_supply,
+            "Initial food stockpile ({food:.0} Mt) should cover at least 10 days ({ten_days_supply:.0} Mt)"
         );
     }
 
     #[test]
-    fn test_stockpile_caps_are_one_year_baselines() {
-        assert_eq!(GlobalBudget::stockpile_cap(ResourceType::Iron), 2_500.0);
-        assert_eq!(GlobalBudget::stockpile_cap(ResourceType::Copper), 26.0);
-        assert_eq!(GlobalBudget::stockpile_cap(ResourceType::Carbon), 4_300.0);
+    fn test_stockpile_caps_are_realistic_2026_active_storage() {
+        // v3.8.4: stockpile caps are 2026 active storage (warehouses,
+        // ports, LME-bonded, strategic reserves), NOT 1 year of demand.
+        // These values are anchors; if they change the test catches
+        // a regression in the cap-recalibration pass.
+        assert_eq!(GlobalBudget::stockpile_cap(ResourceType::Iron), 100.0);
+        assert_eq!(GlobalBudget::stockpile_cap(ResourceType::Copper), 30.0);
+        assert_eq!(GlobalBudget::stockpile_cap(ResourceType::Carbon), 200.0);
+        assert_eq!(GlobalBudget::stockpile_cap(ResourceType::Food), 800.0);
+        // Spot-check the post-recalibration values
+        assert!(GlobalBudget::stockpile_cap(ResourceType::Silicates) > 0.0);
+        assert!(GlobalBudget::stockpile_cap(ResourceType::Methane) > 0.0);
     }
 }

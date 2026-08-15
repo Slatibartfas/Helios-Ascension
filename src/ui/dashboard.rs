@@ -17,14 +17,14 @@ fn render_selectable_label(ui: &mut egui::Ui, is_selected: bool, name: &str) -> 
         egui::Color32::TRANSPARENT
     };
     let stroke = if response.hovered() {
-        egui::Stroke::new(1.0_f32, theme::ACCENT)
+        egui::Stroke::new(1.0_f32, theme::CYAN)
     } else if is_selected {
         egui::Stroke::new(1.0_f32, theme::ACCENT_DIM)
     } else {
         egui::Stroke::NONE
     };
     let text_color = if response.hovered() || is_selected {
-        theme::ACCENT
+        theme::CYAN
     } else {
         theme::TEXT
     };
@@ -536,7 +536,7 @@ fn render_fleet_ledger_tree(
 
         // Colour scheme matching the fleet-menu panel list.
         let row_color = if is_selected {
-            theme::ACCENT
+            theme::CYAN
         } else if in_transit {
             theme::RP_BLUE
         } else {
@@ -596,7 +596,7 @@ fn render_fleet_ledger_tree(
                 ui.painter().rect_stroke(
                     rect.expand(1.0),
                     rounding,
-                    egui::Stroke::new(1.0_f32, theme::ACCENT),
+                    egui::Stroke::new(1.0_f32, theme::CYAN),
                     egui::StrokeKind::Inside,
                 );
             } else if resp.hovered() {
@@ -897,11 +897,120 @@ pub(super) fn format_rate_monthly(value: f64) -> (String, egui::Color32) {
     if value.abs() < 1e-9 {
         return ("+0/mo".to_string(), theme::TEXT_DIM);
     }
+    // v3.8.6: use Unicode minus for negative rates (the ASCII
+    // '-' was being clobbered in the format_mass path; this
+    // makes the sign consistent with the annual rate display).
     if value > 0.0 {
         (format!("+{}/mo", format_mass(value)), theme::GREEN)
     } else {
-        (format!("{}/mo", format_mass(value)), theme::RED)
+        (format!("−{}/mo", format_mass(-value)), theme::RED)
     }
+}
+
+/// v3.8.11 (2026-08-07): build a hover tooltip that shows the rate
+/// calculation in the form "Production (X) − per-cap (Y) − maintenance (Z)
+/// − synthesis input (W) = net" so the player can see why a rate is what
+/// it is, especially for resources that are also consumed as inputs to
+/// industrial processes (e.g. Methane → PolymerSynthesis, which was
+/// silently adding to the displayed rate due to a v3.8.0-v3.8.10 sign
+/// bug — see `economy::mining::update_resource_rates` for the fix).
+///
+/// The body fills are passed in so the tooltip can flag when the rate
+/// is being throttled by the storage cap or by the survey reserve. The
+/// cap note is sized to the most-binding body in the category — same
+/// semantics as the existing cap-lock icon.
+pub fn rate_tooltip(
+    resource: &crate::economy::ResourceType,
+    rate_tracker: &crate::economy::ResourceRateTracker,
+    cap: f64,
+    body_fills: &[(String, f64)],
+) -> String {
+    let prod = rate_tracker
+        .gross_production_rates
+        .get(resource)
+        .copied()
+        .unwrap_or(0.0);
+    let pop = rate_tracker
+        .population_consumption
+        .get(resource)
+        .copied()
+        .unwrap_or(0.0);
+    let synth = rate_tracker
+        .synthesis_input
+        .get(resource)
+        .copied()
+        .unwrap_or(0.0);
+    let total_cons = rate_tracker
+        .gross_consumption_rates
+        .get(resource)
+        .copied()
+        .unwrap_or(0.0);
+    // Maintenance = total consumption - per-cap - synthesis input.
+    // (Could be slightly off by floating point; clamp to >=0.)
+    let maint = (total_cons - pop - synth).max(0.0);
+    let net = rate_tracker
+        .resource_rates
+        .get(resource)
+        .copied()
+        .unwrap_or(0.0);
+
+    // The same `format_mass` used by the rate label, so the tooltip
+    // numbers line up visually with what the player is reading.
+    let f = format_mass;
+
+    let mut s = format!(
+        "{} per month:\n\
+         \n\
+         ┌─ production         {:>8}\n\
+         ├─ per-capita         {:>8}  (8.2B × rate)\n\
+         ├─ maintenance        {:>8}  (yield-scaled)\n\
+         ├─ synthesis input    {:>8}  (industrial processes)\n\
+         │\n\
+         └─ net rate           {:>+8}\n",
+        resource.display_name(),
+        f(prod),
+        f(-pop),
+        f(-maint),
+        f(-synth),
+        f(net),
+    );
+
+    // v3.8.11: cap / reserve notes. Reuse the same body-fill band
+    // logic as the cap-lock icon: any body with fill ≥ 1.0 is "at
+    // the cap" (production is throttled to the consumption floor).
+    if cap > 0.0 && cap < f64::MAX {
+        if let Some((body_name, fill)) = body_fills
+            .iter()
+            .find(|(_, f)| *f >= 1.0 - 1e-9)
+            .map(|(n, f)| (n.clone(), *f))
+        {
+            s.push_str(&format!(
+                "\n\
+                 ⚠ Capped on {body_name} ({:.0}% full): production is\n\
+                 throttled to the consumption floor. Net will not\n\
+                 improve until you build Warehouses or send the\n\
+                 surplus off-world.",
+                fill * 100.0
+            ));
+        }
+    }
+
+    // Industrial-process special note: if the resource is consumed
+    // as a synthesis input, flag it so the player doesn't think
+    // "I have plenty of Methane, why is it decreasing?" — the
+    // answer is "PolymerSynthesis is eating ~860 Mt/yr of it".
+    if synth > 0.01 {
+        s.push_str(&format!(
+            "\n\
+             \n\
+             Note: this resource is consumed as an input by industrial\n\
+             processes. {}/mo flows into factories even if you have\n\
+             no per-capita draw on it.",
+            f(synth)
+        ));
+    }
+
+    s
 }
 
 /// Main UI dashboard system
@@ -979,7 +1088,7 @@ pub(crate) fn ui_dashboard(
                     ui.label(
                         egui::RichText::new("Star Systems")
                             .font(theme::title())
-                            .color(theme::ACCENT),
+                            .color(theme::CYAN),
                     );
                     theme::divider(ui);
 
@@ -1034,7 +1143,7 @@ pub(crate) fn ui_dashboard(
                             ui.label(
                                 egui::RichText::new("Celestial Objects")
                                     .font(theme::title())
-                                    .color(theme::ACCENT),
+                                    .color(theme::CYAN),
                             );
                         });
                         ui.add_space(10.0);
@@ -1278,7 +1387,9 @@ pub(crate) fn ui_dashboard(
                             }
                         }
                         GameMenu::Construction => {
-                            // Handled by ui_construction_panels system
+                            // The Construction panel is now a bevy_ui
+                            // menu (`src/ui/construction.rs`); the F4
+                            // key opens it. No egui system here.
                             ui.label("Switch to full Construction view for details.");
                         }
                         GameMenu::Research => {
@@ -1452,10 +1563,10 @@ pub(super) fn ui_time_controls(
                     let btn = if is_active {
                         egui::Button::new(
                             egui::RichText::new(SPEED_LABELS[i])
-                                .color(theme::ACCENT)
+                                .color(theme::CYAN)
                                 .strong(),
                         )
-                        .stroke(egui::Stroke::new(1.5_f32, theme::ACCENT))
+                        .stroke(egui::Stroke::new(1.5_f32, theme::CYAN))
                         .fill(theme::SURFACE_RAISED)
                     } else {
                         egui::Button::new(
@@ -1522,12 +1633,12 @@ pub(super) fn ui_time_controls(
 
                     let play_label = if playlist.paused { "▶" } else { "⏸" };
                     let play_color = if playlist.paused {
-                        theme::ACCENT
+                        theme::CYAN
                     } else {
                         theme::TEXT_DIM
                     };
                     let play_stroke = if playlist.paused {
-                        egui::Stroke::new(1.0_f32, theme::ACCENT)
+                        egui::Stroke::new(1.0_f32, theme::CYAN)
                     } else {
                         egui::Stroke::new(0.5_f32, theme::BORDER)
                     };
@@ -1604,7 +1715,7 @@ fn render_star_system_panel(
                     ui.label(
                         egui::RichText::new(&star_icon.name)
                             .font(theme::title())
-                            .color(theme::ACCENT),
+                            .color(theme::CYAN),
                     );
                     ui.add_space(6.0);
 
@@ -1622,7 +1733,7 @@ fn render_star_system_panel(
                         ui.label(
                             egui::RichText::new("STAR PROPERTIES")
                                 .font(theme::heading())
-                                .color(theme::ACCENT),
+                                .color(theme::CYAN),
                         );
                         ui.add_space(6.0);
 
@@ -1711,7 +1822,7 @@ fn render_star_system_panel(
                     ui.label(
                         egui::RichText::new("SYSTEM BODIES")
                             .font(theme::heading())
-                            .color(theme::ACCENT),
+                            .color(theme::CYAN),
                     );
                     ui.add_space(6.0);
 
@@ -1771,7 +1882,7 @@ fn render_star_system_panel(
                     ui.label(
                         egui::RichText::new("SYSTEM RESOURCES")
                             .font(theme::heading())
-                            .color(theme::ACCENT),
+                            .color(theme::CYAN),
                     );
                     ui.add_space(6.0);
 
@@ -1923,7 +2034,7 @@ fn render_star_system_panel(
                     ui.label(
                         egui::RichText::new("POPULATION")
                             .font(theme::heading())
-                            .color(theme::ACCENT),
+                            .color(theme::CYAN),
                     );
                     ui.add_space(6.0);
                     ui.label(
@@ -2046,7 +2157,7 @@ pub(super) fn ui_intel_panel(
             ui.label(
                 egui::RichText::new("INTEL")
                     .font(theme::title())
-                    .color(theme::ACCENT),
+                    .color(theme::CYAN),
             );
             ui.label(
                 egui::RichText::new(
@@ -2105,7 +2216,7 @@ pub(super) fn ui_intel_panel(
                                 ui.label(
                                     egui::RichText::new("EARLY-GAME PROGRESS")
                                         .font(theme::heading())
-                                        .color(theme::ACCENT),
+                                        .color(theme::CYAN),
                                 );
                                 ui.label(
                                     egui::RichText::new(
@@ -2129,7 +2240,7 @@ pub(super) fn ui_intel_panel(
                                 ui.label(
                                     egui::RichText::new("FACTION INTEL")
                                         .font(theme::heading())
-                                        .color(theme::ACCENT),
+                                        .color(theme::CYAN),
                                 );
                                 theme::divider(ui);
                                 ui.add_space(4.0);
@@ -2144,7 +2255,7 @@ pub(super) fn ui_intel_panel(
                                 ui.label(
                                     egui::RichText::new("ANOMALIES")
                                         .font(theme::heading())
-                                        .color(theme::ACCENT),
+                                        .color(theme::CYAN),
                                 );
                                 theme::divider(ui);
                                 ui.add_space(4.0);

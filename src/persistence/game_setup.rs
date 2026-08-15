@@ -45,6 +45,7 @@ use super::state_store_extract::extract_state_store;
 use crate::economy::{kardashev_scale_from_watts, ResourceType, SimulationHistory};
 use crate::game_state::GameSeed;
 use crate::persistence::playtime::PlaytimeTracker;
+use crate::plugins::solar_system_data::SolarSystemData;
 use crate::ui::launch::save_index::{SaveIndex, SaveIndexState};
 use crate::ui::launch::userdata::{resolve_userdata_dir, PersistentSettings};
 use crate::ui::launch::{LaunchState, NewGameRequest};
@@ -202,6 +203,21 @@ pub fn play_new_game(world: &mut World, request: NewGameRequest) -> Result<u64, 
     // them so the boot-init chain's spawners actually fire.
     world.remove_resource::<crate::fleets::DayOneFleetSpawned>();
     world.remove_resource::<crate::fleets::DebugEarthJupiterFleetSpawned>();
+    // Same hazard for the world-spawn markers (v0.5.2,
+    // 2026-08-05): `setup_solar_system` and
+    // `populate_nearby_systems` gate on
+    // `SolarSystemSpawned` / `NearbySystemsPopulated`
+    // respectively. After a "🏠 Main Menu" → New Game
+    // cycle the swap despawns the old session's entities but
+    // these markers survive the resource pass (they're
+    // `#[reflect(Resource)]`), so without stripping them the
+    // boot-init chain's step 0 / step 3 would short-circuit
+    // and the new world would come up empty — the empty-world
+    // hazard flagged in `boot_init.rs`'s reset-path note.
+    // `play_new_game` already strips the fleet markers here;
+    // the body-spawn markers belong in the same strip list.
+    world.remove_resource::<crate::plugins::solar_system::SolarSystemSpawned>();
+    world.remove_resource::<crate::plugins::system_populator::NearbySystemsPopulated>();
 
     let fresh = build_minimal_world(seed);
 
@@ -335,6 +351,15 @@ fn build_minimal_world(seed: u64) -> World {
 /// to not set `ChildOf` on rings so the live world never has
 /// a `Children`-bearing parent after a swap).
 pub fn build_minimal_world_for_restore() -> World {
+    build_minimal_world_for_restore_cached(None)
+}
+
+/// Cache-aware variant of [`build_minimal_world_for_restore`]:
+/// when `cached` carries the boot pre-parse result (warmed during
+/// menu time by `BootPreParseState`), `regenerate_bodies_minimal`
+/// skips the synchronous `solar_system.ron` read + RON decode.
+/// See [`super::state_store_apply::regenerate_bodies_minimal_cached`].
+pub fn build_minimal_world_for_restore_cached(cached: Option<SolarSystemData>) -> World {
     let mut world = build_minimal_world(0);
     // Seed the regen-minimal body stub set so `apply_bodies`
     // can find bodies to attach divergences to. The apply
@@ -342,7 +367,7 @@ pub fn build_minimal_world_for_restore() -> World {
     // calls `regenerate_bodies_minimal`, but doing it here
     // makes the factory contract explicit: the world already
     // has the baseline bodies when `apply_state_store` runs.
-    crate::persistence::state_store_apply::regenerate_bodies_minimal(&mut world, 0);
+    crate::persistence::state_store_apply::regenerate_bodies_minimal_cached(&mut world, 0, cached);
     world
 }
 
@@ -770,6 +795,32 @@ pub fn promote_pending_world(world: &mut World) {
     // insert it so the player gets a working main menu; the
     // boot_init chain is idempotent and the toast above surfaces
     // the corruption.
+    //
+    // ── Tier 3 hook (planned, not yet implemented) ────────────────
+    // Async offload of the heaviest boot-init steps
+    // (`setup_solar_system`, `populate_nearby_systems`) should be
+    // triggered HERE — the moment the player commits to New Game /
+    // Continue / Load Save. Never at plain app launch, because the
+    // async parse must wait for a kickoff decision (GRA-358 PR-B).
+    //
+    // Concrete plan:
+    //   1. After `world.insert_resource(WorldReady)`, call
+    //      `AsyncComputeTaskPool::get().spawn(...)` for the two
+    //      heaviest steps' parsing work (the RON file reads +
+    //      entity spawn loops).
+    //   2. Hand the resulting task handles to the boot-init chain
+    //      via a `BootAsyncTasks` resource; the chain awaits the
+    //      handles on the relevant frame instead of running the
+    //      blocking body inline.
+    //   3. The splash's "Loading… N/total" counter (added in
+    //      Tier 2) ticks the same way — players still see
+    //      progress, but the egui pass paints *while* the heavy
+    //      parse runs on a worker thread instead of being blocked
+    //      by it.
+    //
+    // This file is the right anchor because it's the single
+    // chokepoint where a player kickoff decision lands; the same
+    // function handles all three (New Game, Continue, Load Save).
     if !world.contains_resource::<super::swap::WorldReady>() {
         world.insert_resource(super::swap::WorldReady);
     }
@@ -853,7 +904,9 @@ mod tests {
     }
 
     fn install_userdata_dir(tag: &str) -> UserdataDirGuard {
-        let _env_lock = USERDATA_ENV_LOCK.lock().expect("USERDATA_ENV_LOCK poisoned");
+        let _env_lock = USERDATA_ENV_LOCK
+            .lock()
+            .expect("USERDATA_ENV_LOCK poisoned");
         let dir = fresh_dir(tag);
         let prior = env::var_os("HELIOS_USERDATA_DIR");
         // SAFETY: see `Drop` impl — we restore `prior` on drop, so no

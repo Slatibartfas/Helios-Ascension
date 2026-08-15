@@ -14,26 +14,143 @@ pub enum BuildingType {
     Housing,
     /// Provides shelter on airless/hostile bodies
     UndergroundHabitat,
+    /// v3.2 canary 12 (2026-08-07): starter-tier inflatable
+    /// shelter, 1,000 residents. The smallest housing in the
+    /// catalog — first building on a new colony. Material cost:
+    /// 3 Fe + 5 Si (buildable from the new-colony bootstrap).
+    /// See `BALANCE_PATCHES_v0.5.md` §0.I (v3.2).
+    HabitatTent,
+    /// v3.2 canary 12 (2026-08-07): starter-tier prefab
+    /// habitat, 10,000 residents. Second-tier starter for
+    /// growing colonies. Material cost: 10 Fe + 15 Si + 1 Cu +
+    /// 3 Al. See `BALANCE_PATCHES_v0.5.md` §0.I (v3.2).
+    HabitatModule,
+    /// Off-world water extraction (atmospheric condenser / ice miner).
+    /// Required for non-breathable colony life support; body-restricted
+    /// to `[None]` atmospheres (see `BALANCE_PATCHES_v0.5.md` §8.2.1).
+    /// v0.5 canary 2.
+    WaterProcessor,
 
-    // Mining & Industry
-    /// Extracts minerals from the body surface
-    Mine,
-    /// Refines raw ores into usable materials
-    Refinery,
-    /// Manufactures goods and components
+    // Mining & Industry — per-resource dedicated base mines
+    // (v0.5.2: replaced the legacy generic `Mine`/`Refinery`/`DeepDrill`/
+    // `LaserDrill`/`StripMine`/`HydrocarbonExtractor`/`RecyclingCenter`
+    // buildings + `MiningEfficiency`/`DeepMiningEfficiency`/
+    // `BulkMiningEfficiency` modifier + share-fold. Each base mine below
+    // produces ONE resource at `base_yield × deposit.accessibility ×
+    // yield_mult`. The `line = "Mine"` field groups them for tier-based
+    // tech upgrades that apply to the whole line (see `data.rs`).
+    //
+    // Calibration target: 25 mines × base_yield × 0.6 (Earth accessibility)
+    // ≈ world demand (USGS 2024/2026). See BALANCE_PATCHES_v0.5.md §5.
+    //
+    // Construction materials (9):
+    /// Iron ore extraction (open-pit / underground). 120 Mt/yr per build.
+    IronMine,
+    /// Aluminum (bauxite) extraction. 5 Mt/yr per build.
+    AluminumMine,
+    /// Titanium (rutile / ilmenite) extraction. 0.02 Mt/yr per build.
+    TitaniumMine,
+    /// Silicates (granite / basalt / quartz) aggregate quarry. 700 Mt/yr per build.
+    SilicatesMine,
+    /// Nickel ore extraction. 0.2 Mt/yr per build.
+    NickelMine,
+    /// Tungsten (wolframite / scheelite) extraction. 0.005 Mt/yr per build.
+    TungstenMine,
+    /// Carbon (coal / graphite) extraction. 350 Mt/yr per build.
+    CarbonMine,
+    /// Chromium (chromite) extraction. 2 Mt/yr per build.
+    ChromiumMine,
+    /// Magnesium (magnesite / dolomite / seawater) extraction. 0.07 Mt/yr per build.
+    MagnesiumMine,
+    // Precious metals (3 — v0.5.1):
+    /// Placer / lode gold extraction (cyanidation). 0.0001 Mt/yr per build.
+    GoldMine,
+    /// Lead-zinc byproduct-style silver extraction. 0.001 Mt/yr per build.
+    SilverMine,
+    /// Platinum-group-metal extraction from layered intrusions. 0.00001 Mt/yr per build.
+    PlatinumMine,
+    // Strategic materials (6):
+    /// Copper ore extraction (chalcopyrite / porphyry). 1.5 Mt/yr per build.
+    CopperMine,
+    /// Rare-earth element extraction (bastnäsite / monazite). 0.025 Mt/yr per build.
+    RareEarthsMine,
+    /// Lithium (spodumene / brine) extraction. 0.012 Mt/yr per build.
+    LithiumMine,
+    /// Sulfur (Frasch / pyrite roasting) extraction. 5 Mt/yr per build.
+    SulfurMine,
+    /// Phosphate rock (apatite) extraction. 0.003 Mt/yr per build.
+    PhosphorusMine,
+    /// Cobalt ore extraction. 0.015 Mt/yr per build.
+    CobaltMine,
+    /// Fluorite (CaF₂) extraction / fluorospar mining. 0.2 Mt/yr per build.
+    FluorineMine,
+    // Fissile (2):
+    /// Uranium (U₃O₈) extraction. 0.003 Mt/yr per build.
+    UraniumMine,
+    /// Thorium (monazite) extraction. 0.0007 Mt/yr per build.
+    ThoriumMine,
+    // Hydrocarbons (1):
+    /// Methane (natural gas / clathrate / Titan lakes) extraction. 270 Mt/yr per build.
+    MethaneExtractor,
+    // Heavy water (1):
+    /// Deuterium (heavy water) extraction from seawater / ice. 0.5 Mt/yr per build.
+    DeuteriumExtractor,
+    // Helium-3 (canary 3, body-restricted):
+    /// Helium-3 mining from solar-wind-implanted regolith (Moon, asteroids)
+    /// or primordial gas-giant atmospheres. 0.5 Mt/yr per build. Body-restricted
+    /// to `[Moon, GasGiant, Asteroid]`; requires `lunar_colony` tech.
+    He3Mine,
+    // Manufactures goods and components
     Factory,
 
     // Atmospheric Harvesting
     /// Collects gases from a body's atmosphere
     AtmosphericProcessor,
 
-    // Advanced Mining (tech-gated)
-    /// Deep drilling into planetary crust (requires deep_drilling tech)
-    DeepDrill,
-    /// Laser-based deep mining (requires laser_drilling tech)
-    LaserDrill,
-    /// Strip mining entire surface layers (requires strip_mining tech)
-    StripMine,
+    // Advanced Mining (tech-gated) — REMOVED in v0.5.2
+    // (DeepDrill/LaserDrill/StripMine/HydrocarbonExtractor/RecyclingCenter
+    // are obsolete; their per-resource functionality is captured in the
+    // dedicated base mines above + the `tier/line` system in
+    // `BuildingDefinition` which lets future tech upgrades apply to the
+    // whole `line = "Mine"` line.)
+
+    // AutoMines — per-resource orbital / asteroidic extraction rigs
+    // (v0.5.2: dedicated asteroid-mining buildings, body-restricted to
+    // `[Asteroid, Moon, GasGiant]`, yields calibrated at ~1/10 of the
+    // surface base mine (orbital extraction is harder than surface).
+    // Each AutoMine reads the body's bulk deposit and applies its
+    // accessibility × a small flat per-build yield. They are NOT
+    // generic — one AutoMine per resource — because the operator bar
+    // demands predictable per-build numbers and ore body composition
+    // varies wildly between asteroids. A "generic" AutoMine would
+    // need a heuristic dispatcher and obscure the player's build
+    // decisions. Body restriction: see `BuildingDefinition.
+    // allowed_body_types`. Requires `asteroid_mining` tech.
+    AutoIronMine,
+    AutoAluminumMine,
+    AutoTitaniumMine,
+    AutoSilicatesMine,
+    AutoNickelMine,
+    AutoTungstenMine,
+    AutoCarbonMine,
+    AutoChromiumMine,
+    AutoMagnesiumMine,
+    AutoGoldMine,
+    AutoSilverMine,
+    AutoPlatinumMine,
+    AutoCopperMine,
+    AutoRareEarthsMine,
+    AutoLithiumMine,
+    AutoSulfurMine,
+    AutoPhosphorusMine,
+    AutoCobaltMine,
+    AutoFluorineMine,
+    AutoUraniumMine,
+    AutoThoriumMine,
+    AutoMethaneExtractor,
+    AutoDeuteriumExtractor,
+    AutoHe3Mine,
+    AutoWaterProcessor,
 
     // Logistics - Reduce logistics penalty
     /// Electromagnetic launcher for bulk cargo between bodies
@@ -94,8 +211,6 @@ pub enum BuildingType {
     // Advanced Industry
     /// Chemical plant for synthesizing volatiles and polymers
     ChemicalPlant,
-    /// Extraction facility for hydrocarbons (oil/gas)
-    HydrocarbonExtractor,
 
     // Advanced Power Generation
     /// Wind turbine farm
@@ -120,8 +235,6 @@ pub enum BuildingType {
     WaterTreatmentPlant,
     /// Extracts fresh water from oceans / brine (requires desalination tech)
     DesalinationPlant,
-    /// Recovers and re-processes waste materials
-    RecyclingCenter,
 
     // Advanced Agriculture
     /// Controlled-environment crop growing
@@ -155,22 +268,85 @@ impl BuildingType {
     pub fn all() -> &'static [BuildingType] {
         use BuildingType::*;
         &[
+            // ── Infrastructure ───────────────────────────────────────────
             Housing,
             LifeSupport,
             HabitatDome,
             UndergroundHabitat,
-            Mine,
-            Refinery,
+            // v3.2 canary 12 (2026-08-07): starter-tier housing
+            HabitatTent,
+            HabitatModule,
+            WaterProcessor,
+            WaterTreatmentPlant,
+            DesalinationPlant,
+            // ── Mining & Industry (v0.5.2: per-resource dedicated mines) ─
+            // Construction materials (9)
+            IronMine,
+            AluminumMine,
+            TitaniumMine,
+            SilicatesMine,
+            NickelMine,
+            TungstenMine,
+            CarbonMine,
+            ChromiumMine,
+            MagnesiumMine,
+            // Precious metals (3 — v0.5.1)
+            GoldMine,
+            SilverMine,
+            PlatinumMine,
+            // Strategic materials (6)
+            CopperMine,
+            RareEarthsMine,
+            LithiumMine,
+            SulfurMine,
+            PhosphorusMine,
+            CobaltMine,
+            FluorineMine,
+            // Fissile (2)
+            UraniumMine,
+            ThoriumMine,
+            // Hydrocarbons (1)
+            MethaneExtractor,
+            // Heavy water (1)
+            DeuteriumExtractor,
+            // He-3 (1 — canary 3, body-restricted to [Moon, GasGiant, Asteroid])
+            He3Mine,
+            // AutoMines (22 — orbital/asteroid mining, body-restricted)
+            AutoIronMine,
+            AutoAluminumMine,
+            AutoTitaniumMine,
+            AutoSilicatesMine,
+            AutoNickelMine,
+            AutoTungstenMine,
+            AutoCarbonMine,
+            AutoChromiumMine,
+            AutoMagnesiumMine,
+            AutoGoldMine,
+            AutoSilverMine,
+            AutoPlatinumMine,
+            AutoCopperMine,
+            AutoRareEarthsMine,
+            AutoLithiumMine,
+            AutoSulfurMine,
+            AutoPhosphorusMine,
+            AutoCobaltMine,
+            AutoFluorineMine,
+            AutoUraniumMine,
+            AutoThoriumMine,
+            AutoMethaneExtractor,
+            AutoDeuteriumExtractor,
+            AutoHe3Mine,
+            AutoWaterProcessor,
+            // Generic industry / refining
             Factory,
             AtmosphericProcessor,
             ChemicalPlant,
-            HydrocarbonExtractor,
-            DeepDrill,
-            LaserDrill,
-            StripMine,
+            // ── Logistics ────────────────────────────────────────────────
             MassDriver,
             OrbitalLift,
             CargoTerminal,
+            Warehouse,
+            // ── Power ────────────────────────────────────────────────────
             SolarPower,
             Farm,
             FissionReactor,
@@ -197,15 +373,11 @@ impl BuildingType {
             NaturalGasPlant,
             SemiconductorFab,
             PharmaceuticalPlant,
-            WaterTreatmentPlant,
-            DesalinationPlant,
-            RecyclingCenter,
             Greenhouse,
             AquacultureFacility,
             DataCenter,
             SpacePort,
             GroundDefenseBattery,
-            Warehouse,
             OrbitalSurveyStation,
         ]
     }
@@ -217,18 +389,77 @@ impl BuildingType {
             BuildingType::HabitatDome => "Habitat Dome",
             BuildingType::Housing => "Housing Complex",
             BuildingType::UndergroundHabitat => "Underground Habitat",
-            BuildingType::Mine => "Mine",
-            BuildingType::Refinery => "Refinery",
+            // v3.2 canary 12 (2026-08-07): starter-tier housing
+            BuildingType::HabitatTent => "Habitat Tent",
+            BuildingType::HabitatModule => "Habitat Module",
+            BuildingType::WaterProcessor => "Water Processor",
+            // Construction (9)
+            BuildingType::IronMine => "Iron Mine",
+            BuildingType::AluminumMine => "Aluminum Mine",
+            BuildingType::TitaniumMine => "Titanium Mine",
+            BuildingType::SilicatesMine => "Silicates Quarry",
+            BuildingType::NickelMine => "Nickel Mine",
+            BuildingType::TungstenMine => "Tungsten Mine",
+            BuildingType::CarbonMine => "Carbon Mine",
+            BuildingType::ChromiumMine => "Chromium Mine",
+            BuildingType::MagnesiumMine => "Magnesium Mine",
+            // Precious (3 — v0.5.1)
+            BuildingType::GoldMine => "Gold Mine",
+            BuildingType::SilverMine => "Silver Mine",
+            BuildingType::PlatinumMine => "Platinum Mine",
+            // Strategic (6)
+            BuildingType::CopperMine => "Copper Mine",
+            BuildingType::RareEarthsMine => "Rare Earths Mine",
+            BuildingType::LithiumMine => "Lithium Mine",
+            BuildingType::SulfurMine => "Sulfur Mine",
+            BuildingType::PhosphorusMine => "Phosphorus Mine",
+            BuildingType::CobaltMine => "Cobalt Mine",
+            BuildingType::FluorineMine => "Fluorine Mine",
+            // Fissile (2)
+            BuildingType::UraniumMine => "Uranium Mine",
+            BuildingType::ThoriumMine => "Thorium Mine",
+            // Hydrocarbons (1)
+            BuildingType::MethaneExtractor => "Methane Extractor",
+            // Heavy water (1)
+            BuildingType::DeuteriumExtractor => "Deuterium Extractor",
+            // He-3 (1 — body-restricted)
+            BuildingType::He3Mine => "Helium-3 Mine",
+            // AutoMines (22)
+            BuildingType::AutoIronMine => "Auto Iron Mine",
+            BuildingType::AutoAluminumMine => "Auto Aluminum Mine",
+            BuildingType::AutoTitaniumMine => "Auto Titanium Mine",
+            BuildingType::AutoSilicatesMine => "Auto Silicates Quarry",
+            BuildingType::AutoNickelMine => "Auto Nickel Mine",
+            BuildingType::AutoTungstenMine => "Auto Tungsten Mine",
+            BuildingType::AutoCarbonMine => "Auto Carbon Mine",
+            BuildingType::AutoChromiumMine => "Auto Chromium Mine",
+            BuildingType::AutoMagnesiumMine => "Auto Magnesium Mine",
+            BuildingType::AutoGoldMine => "Auto Gold Mine",
+            BuildingType::AutoSilverMine => "Auto Silver Mine",
+            BuildingType::AutoPlatinumMine => "Auto Platinum Mine",
+            BuildingType::AutoCopperMine => "Auto Copper Mine",
+            BuildingType::AutoRareEarthsMine => "Auto Rare Earths Mine",
+            BuildingType::AutoLithiumMine => "Auto Lithium Mine",
+            BuildingType::AutoSulfurMine => "Auto Sulfur Mine",
+            BuildingType::AutoPhosphorusMine => "Auto Phosphorus Mine",
+            BuildingType::AutoCobaltMine => "Auto Cobalt Mine",
+            BuildingType::AutoFluorineMine => "Auto Fluorine Mine",
+            BuildingType::AutoUraniumMine => "Auto Uranium Mine",
+            BuildingType::AutoThoriumMine => "Auto Thorium Mine",
+            BuildingType::AutoMethaneExtractor => "Auto Methane Extractor",
+            BuildingType::AutoDeuteriumExtractor => "Auto Deuterium Extractor",
+            BuildingType::AutoHe3Mine => "Auto He-3 Mine",
+            BuildingType::AutoWaterProcessor => "Auto Water Extractor",
+            // Generic industry / refining
             BuildingType::Factory => "Factory",
-            BuildingType::ChemicalPlant => "Chemical Plant",
-            BuildingType::HydrocarbonExtractor => "Hydrocarbon Extractor",
             BuildingType::AtmosphericProcessor => "Atmospheric Processor",
-            BuildingType::DeepDrill => "Deep Drill",
-            BuildingType::LaserDrill => "Laser Drill",
-            BuildingType::StripMine => "Strip Mine",
+            BuildingType::ChemicalPlant => "Chemical Plant",
+            // Logistics
             BuildingType::MassDriver => "Mass Driver",
             BuildingType::OrbitalLift => "Orbital Lift",
             BuildingType::CargoTerminal => "Cargo Terminal",
+            BuildingType::Warehouse => "Resource Depot",
+            // Power
             BuildingType::SolarPower => "Solar Power Plant",
             BuildingType::FissionReactor => "Fission Reactor",
             BuildingType::FusionReactor => "Fusion Reactor",
@@ -236,34 +467,36 @@ impl BuildingType {
             BuildingType::DHe3FusionReactor => "D-He3 Fusion Reactor",
             BuildingType::ThoriumReactor => "Thorium Reactor",
             BuildingType::BreederReactor => "Breeder Reactor",
+            BuildingType::WindFarm => "Wind Farm",
+            BuildingType::HydroelectricDam => "Hydroelectric Dam",
+            BuildingType::GeothermalPlant => "Geothermal Plant",
+            BuildingType::CoalPowerPlant => "Coal Power Sector",
+            BuildingType::NaturalGasPlant => "Gas Power Sector",
+            // Population / Research / Industry
             BuildingType::AgriDome => "Agricultural Dome",
             BuildingType::Farm => "Farm",
+            BuildingType::Greenhouse => "Greenhouse Complex",
+            BuildingType::AquacultureFacility => "Aquaculture Complex",
             BuildingType::MedicalCenter => "Medical Center",
             BuildingType::ResearchLab => "Research Lab",
             BuildingType::EngineeringBay => "Engineering Bay",
             BuildingType::AiCluster => "AI Cluster",
+            BuildingType::SemiconductorFab => "Electronics Industry",
+            BuildingType::PharmaceuticalPlant => "Pharmaceutical Sector",
+            BuildingType::DataCenter => "Computation Hub",
+            // Financial / Commerce / Military
             BuildingType::CommercialHub => "Commercial Hub",
             BuildingType::FinancialCenter => "Financial Center",
             BuildingType::TradePort => "Trade Port",
             BuildingType::Shipyard => "Shipyard",
             BuildingType::MissileSilo => "Missile Silo",
             BuildingType::LaunchSite => "Launch Site",
-            BuildingType::WindFarm => "Wind Farm",
-            BuildingType::HydroelectricDam => "Hydroelectric Dam",
-            BuildingType::GeothermalPlant => "Geothermal Plant",
-            BuildingType::CoalPowerPlant => "Coal Power Sector",
-            BuildingType::NaturalGasPlant => "Gas Power Sector",
-            BuildingType::SemiconductorFab => "Electronics Industry",
-            BuildingType::PharmaceuticalPlant => "Pharmaceutical Sector",
-            BuildingType::WaterTreatmentPlant => "Water Management Complex",
-            BuildingType::DesalinationPlant => "Desalination Complex",
-            BuildingType::RecyclingCenter => "Industrial Recycling Complex",
-            BuildingType::Greenhouse => "Greenhouse Complex",
-            BuildingType::AquacultureFacility => "Aquaculture Complex",
-            BuildingType::DataCenter => "Computation Hub",
             BuildingType::SpacePort => "Space Port",
             BuildingType::GroundDefenseBattery => "Ground Defense Battery",
-            BuildingType::Warehouse => "Resource Depot",
+            // Water / environment
+            BuildingType::WaterTreatmentPlant => "Water Management Complex",
+            BuildingType::DesalinationPlant => "Desalination Complex",
+            // Survey
             BuildingType::OrbitalSurveyStation => "Orbital Survey Station",
         }
     }
@@ -273,20 +506,76 @@ impl BuildingType {
             BuildingType::Housing => "Standard residential buildings for habitable worlds",
             BuildingType::HabitatDome => "Provides living and working space for colonists",
             BuildingType::UndergroundHabitat => "Shelter on airless or hostile bodies",
-            BuildingType::Mine => "Extracts minerals from the body surface",
-            BuildingType::Refinery => "Refines raw ores into usable materials",
+            // v3.2 canary 12 (2026-08-07): starter-tier housing
+            BuildingType::HabitatTent => "Inflatable emergency shelter for 1,000 residents. v3.2 starter-tier — first building on a new colony.",
+            BuildingType::HabitatModule => "Prefab habitat module for 10,000 residents. v3.2 starter-tier — second-tier for growing colonies.",
+            BuildingType::WaterProcessor => "Atmospheric condenser / regolith ice miner. Extracts 16 Mt/yr water for non-breathable colony life support; body-restricted to non-breathable atmospheres (buildable on Moon, Mars, asteroids, gas-giant moons — not on Earth-like worlds).",
+            // Construction mines (9)
+            BuildingType::IronMine => "Iron ore extraction (open-pit / underground). 120 Mt/yr per build, scaled by deposit.accessibility.",
+            BuildingType::AluminumMine => "Aluminum (bauxite) extraction. 5 Mt/yr per build, scaled by deposit.accessibility.",
+            BuildingType::TitaniumMine => "Titanium (rutile / ilmenite) extraction. 0.02 Mt/yr per build, scaled by deposit.accessibility.",
+            BuildingType::SilicatesMine => "Silicates (granite / basalt / quartz) aggregate quarry. 700 Mt/yr per build, scaled by deposit.accessibility.",
+            BuildingType::NickelMine => "Nickel ore extraction. 0.2 Mt/yr per build, scaled by deposit.accessibility.",
+            BuildingType::TungstenMine => "Tungsten (wolframite / scheelite) extraction. 0.005 Mt/yr per build, scaled by deposit.accessibility.",
+            BuildingType::CarbonMine => "Carbon (coal / graphite) extraction. 350 Mt/yr per build, scaled by deposit.accessibility.",
+            BuildingType::ChromiumMine => "Chromium (chromite) extraction. 2 Mt/yr per build, scaled by deposit.accessibility.",
+            BuildingType::MagnesiumMine => "Magnesium (magnesite / dolomite / seawater) extraction. 0.07 Mt/yr per build, scaled by deposit.accessibility.",
+            // Precious metals (3 — v0.5.1)
+            BuildingType::GoldMine => "Placer / lode gold extraction with cyanidation. 0.0001 Mt/yr Au per mine (USGS 2026 real-world scale; ~3,200 troy oz/yr — small-mine scale). Direct deposit (not via share-fold).",
+            BuildingType::SilverMine => "Lead-zinc byproduct-style silver extraction. 0.001 Mt/yr Ag per mine (USGS 2026 real-world; ~1,000 t/yr — large-mine scale). Direct deposit (not via share-fold).",
+            BuildingType::PlatinumMine => "Platinum-group-metal extraction from layered intrusions (Bushveld / Norilsk analog). 0.00001 Mt/yr Pt per mine (USGS 2026 real-world; ~10 t/yr — realistic PGM output). Direct deposit (not via share-fold).",
+            // Strategic (6)
+            BuildingType::CopperMine => "Copper ore extraction (chalcopyrite / porphyry). 1.5 Mt/yr per build, scaled by deposit.accessibility.",
+            BuildingType::RareEarthsMine => "Rare-earth element extraction (bastnäsite / monazite). 0.025 Mt/yr per build, scaled by deposit.accessibility.",
+            BuildingType::LithiumMine => "Lithium (spodumene / brine) extraction. 0.012 Mt/yr per build, scaled by deposit.accessibility.",
+            BuildingType::SulfurMine => "Sulfur (Frasch / pyrite roasting) extraction. 5 Mt/yr per build, scaled by deposit.accessibility.",
+            BuildingType::PhosphorusMine => "Phosphate rock (apatite) extraction. 0.003 Mt/yr per build, scaled by deposit.accessibility.",
+            BuildingType::CobaltMine => "Cobalt ore extraction. 0.015 Mt/yr per build, scaled by deposit.accessibility.",
+            BuildingType::FluorineMine => "Fluorite (CaF₂) extraction / fluorospar mining. 0.2 Mt/yr per build, scaled by deposit.accessibility.",
+            // Fissile (2)
+            BuildingType::UraniumMine => "Uranium (U₃O₈) extraction. 0.003 Mt/yr per build, scaled by deposit.accessibility.",
+            BuildingType::ThoriumMine => "Thorium (monazite) extraction. 0.0007 Mt/yr per build, scaled by deposit.accessibility.",
+            // Hydrocarbons (1)
+            BuildingType::MethaneExtractor => "Methane (natural gas / clathrate / Titan lakes) extraction. 270 Mt/yr per build, scaled by deposit.accessibility.",
+            // Heavy water (1)
+            BuildingType::DeuteriumExtractor => "Deuterium (heavy water) extraction from seawater / ice. 0.5 Mt/yr per build, scaled by deposit.accessibility.",
+            // He-3 (1 — body-restricted)
+            BuildingType::He3Mine => "Helium-3 mining from solar-wind-implanted regolith (Moon, asteroids) or primordial gas-giant atmospheres. 0.5 Mt/yr per build, scaled by deposit.accessibility. Body-restricted to [Moon, GasGiant, Asteroid]; requires lunar_colony tech.",
+            // AutoMines (22) — orbital/asteroid mining, body-restricted
+            BuildingType::AutoIronMine => "Orbital iron extraction rig for asteroids. 12 Mt/yr per build, scaled by deposit.accessibility. Body-restricted to [Asteroid, Moon, GasGiant]; requires asteroid_mining tech.",
+            BuildingType::AutoAluminumMine => "Orbital aluminum extraction rig for asteroids. 0.5 Mt/yr per build. Body-restricted to [Asteroid, Moon, GasGiant].",
+            BuildingType::AutoTitaniumMine => "Orbital titanium extraction rig. 0.002 Mt/yr per build. Body-restricted to [Asteroid, Moon, GasGiant].",
+            BuildingType::AutoSilicatesMine => "Orbital silicates quarry rig. 70 Mt/yr per build. Body-restricted to [Asteroid, Moon, GasGiant].",
+            BuildingType::AutoNickelMine => "Orbital nickel extraction rig (key for M-type asteroids). 0.02 Mt/yr per build. Body-restricted to [Asteroid, Moon, GasGiant].",
+            BuildingType::AutoTungstenMine => "Orbital tungsten extraction rig. 0.0005 Mt/yr per build. Body-restricted to [Asteroid, Moon, GasGiant].",
+            BuildingType::AutoCarbonMine => "Orbital carbon extraction rig (carbonaceous chondrites). 35 Mt/yr per build. Body-restricted to [Asteroid, Moon, GasGiant].",
+            BuildingType::AutoChromiumMine => "Orbital chromium extraction rig. 0.2 Mt/yr per build. Body-restricted to [Asteroid, Moon, GasGiant].",
+            BuildingType::AutoMagnesiumMine => "Orbital magnesium extraction rig. 0.007 Mt/yr per build. Body-restricted to [Asteroid, Moon, GasGiant].",
+            BuildingType::AutoGoldMine => "Orbital gold extraction rig (rare, mostly M-type asteroids). 0.00001 Mt/yr per build. Body-restricted to [Asteroid, Moon, GasGiant].",
+            BuildingType::AutoSilverMine => "Orbital silver extraction rig. 0.0001 Mt/yr per build. Body-restricted to [Asteroid, Moon, GasGiant].",
+            BuildingType::AutoPlatinumMine => "Orbital platinum-group-metal extraction rig (mostly M-type asteroids). 0.000001 Mt/yr per build. Body-restricted to [Asteroid, Moon, GasGiant].",
+            BuildingType::AutoCopperMine => "Orbital copper extraction rig. 0.15 Mt/yr per build. Body-restricted to [Asteroid, Moon, GasGiant].",
+            BuildingType::AutoRareEarthsMine => "Orbital rare-earths extraction rig. 0.0025 Mt/yr per build. Body-restricted to [Asteroid, Moon, GasGiant].",
+            BuildingType::AutoLithiumMine => "Orbital lithium extraction rig. 0.0012 Mt/yr per build. Body-restricted to [Asteroid, Moon, GasGiant].",
+            BuildingType::AutoSulfurMine => "Orbital sulfur extraction rig (carbonaceous chondrites). 0.5 Mt/yr per build. Body-restricted to [Asteroid, Moon, GasGiant].",
+            BuildingType::AutoPhosphorusMine => "Orbital phosphate extraction rig. 0.0003 Mt/yr per build. Body-restricted to [Asteroid, Moon, GasGiant].",
+            BuildingType::AutoCobaltMine => "Orbital cobalt extraction rig. 0.0015 Mt/yr per build. Body-restricted to [Asteroid, Moon, GasGiant].",
+            BuildingType::AutoFluorineMine => "Orbital fluorine extraction rig (fluorite / apatite). 0.02 Mt/yr per build. Body-restricted to [Asteroid, Moon, GasGiant].",
+            BuildingType::AutoUraniumMine => "Orbital uranium extraction rig (rare). 0.0003 Mt/yr per build. Body-restricted to [Asteroid, Moon, GasGiant].",
+            BuildingType::AutoThoriumMine => "Orbital thorium extraction rig. 0.00007 Mt/yr per build. Body-restricted to [Asteroid, Moon, GasGiant].",
+            BuildingType::AutoMethaneExtractor => "Orbital methane extraction rig (Titan lakes, gas-giant moons). 27 Mt/yr per build. Body-restricted to [Asteroid, Moon, GasGiant].",
+            BuildingType::AutoDeuteriumExtractor => "Orbital heavy-water extraction rig (carbonaceous chondrite ice). 0.05 Mt/yr per build. Body-restricted to [Asteroid, Moon, GasGiant].",
+            BuildingType::AutoHe3Mine => "Orbital He-3 sweeper for solar-wind-implanted asteroid / lunar regolith. 0.05 Mt/yr per build. Body-restricted to [Asteroid, Moon, GasGiant]; requires asteroid_mining + lunar_colony tech.",
+            BuildingType::AutoWaterProcessor => "Orbital water extractor for carbonaceous chondrites / icy moons. 1.6 Mt/yr per build. Body-restricted to [Asteroid, Moon, GasGiant].",
+            // Generic industry / refining
             BuildingType::Factory => "Manufactures goods and components",
             BuildingType::ChemicalPlant => "Processes volatiles into useful chemical products",
-            BuildingType::HydrocarbonExtractor => {
-                "Extracts hydrocarbons (oil/gas) from crustal deposits"
-            }
             BuildingType::AtmosphericProcessor => "Harvests gases from the atmosphere",
-            BuildingType::DeepDrill => "Deep drilling into planetary crust for hidden deposits",
-            BuildingType::LaserDrill => "Laser-based deep mining for maximum extraction",
-            BuildingType::StripMine => "Strip mining entire surface layers at massive scale",
+            // Logistics
             BuildingType::MassDriver => "Electromagnetic launcher for bulk cargo between bodies",
             BuildingType::OrbitalLift => "Space elevator for efficient surface-to-orbit transport",
             BuildingType::CargoTerminal => "Ground-based cargo distribution hub",
+            // Power
             BuildingType::SolarPower => "Solar panel arrays for power generation",
             BuildingType::FissionReactor => "Nuclear fission reactor for reliable power",
             BuildingType::Farm => "Open-air food production",
@@ -295,6 +584,7 @@ impl BuildingType {
             BuildingType::DHe3FusionReactor => "Premium fusion plant using deuterium and helium-3",
             BuildingType::ThoriumReactor => "Molten-salt thorium reactor for safe baseload power",
             BuildingType::BreederReactor => "Fast breeder reactor that produces plutonium from uranium",
+            // Population / Research / Industry
             BuildingType::AgriDome => "Agricultural facilities for food production",
             BuildingType::MedicalCenter => "Medical facilities to boost population growth",
             BuildingType::ResearchLab => "Scientific research laboratory",
@@ -315,16 +605,13 @@ impl BuildingType {
             BuildingType::PharmaceuticalPlant => "Civilisation-scale pharmaceutical and biomedical production",
             BuildingType::WaterTreatmentPlant => "Planetary water purification and distribution network",
             BuildingType::DesalinationPlant => "Large-scale ocean desalination infrastructure for water-scarce worlds",
-            BuildingType::RecyclingCenter => "Industrial-scale material recovery and resource reprocessing",
             BuildingType::Greenhouse => "Vast network of climate-controlled crop production facilities",
             BuildingType::AquacultureFacility => "Planetary aquatic protein farming across oceans and inland seas",
             BuildingType::DataCenter => "Planetary-scale computation, AI processing, and data storage infrastructure",
             BuildingType::SpacePort => "High-throughput orbital launch complex with multiple pads",
             BuildingType::GroundDefenseBattery => "Anti-orbital and anti-missile ground defense installation",
             BuildingType::Warehouse => "Bulk storage depot that expands global resource stockpile capacity by 2.5% per depot",
-            BuildingType::OrbitalSurveyStation => {
-                "Permanent orbital installation that continuously surveys the host body and boosts local mining yield. Place in orbit of a single body; effect does not transfer to moons or parent planets."
-            }
+            BuildingType::OrbitalSurveyStation => "Permanent orbital installation that continuously surveys the host body and boosts local mining yield. Place in orbit of a single body; effect does not transfer to moons or parent planets.",
         }
     }
 
@@ -349,26 +636,236 @@ impl BuildingType {
                 "+30M housing capacity",
                 "Buried structure; ideal for airless bodies",
             ],
-            // ── Mining & Industry ────────────────────────────────────────
-            BuildingType::Mine => &["+24.4% mining efficiency"],
-            BuildingType::Refinery => &["+13% mining efficiency"],
+            // v3.2 canary 12 (2026-08-07): starter-tier housing
+            BuildingType::HabitatTent => &[
+                "+1k housing capacity",
+                "Inflatable emergency shelter; v3.2 starter-tier",
+            ],
+            BuildingType::HabitatModule => &[
+                "+10k housing capacity",
+                "Prefab habitat; v3.2 starter-tier for growing colonies",
+            ],
+            BuildingType::WaterProcessor => &[
+                "+16 Mt/yr water per processor",
+                "Required for non-breathable colony life support",
+            ],
+            // ── Mining & Industry (v0.5.2: per-resource dedicated mines) ─
+            // Construction (9)
+            BuildingType::IronMine => {
+                &["+120 Mt/yr iron per mine", "Yield × deposit.accessibility"]
+            }
+            BuildingType::AluminumMine => &[
+                "+5 Mt/yr aluminum per mine",
+                "Yield × deposit.accessibility",
+            ],
+            BuildingType::TitaniumMine => &[
+                "+0.02 Mt/yr titanium per mine",
+                "Yield × deposit.accessibility",
+            ],
+            BuildingType::SilicatesMine => &[
+                "+700 Mt/yr silicates per quarry",
+                "Yield × deposit.accessibility",
+            ],
+            BuildingType::NickelMine => &[
+                "+0.2 Mt/yr nickel per mine",
+                "Yield × deposit.accessibility",
+            ],
+            BuildingType::TungstenMine => &[
+                "+0.005 Mt/yr tungsten per mine",
+                "Yield × deposit.accessibility",
+            ],
+            BuildingType::CarbonMine => &[
+                "+350 Mt/yr carbon per mine",
+                "Yield × deposit.accessibility",
+            ],
+            BuildingType::ChromiumMine => &[
+                "+2 Mt/yr chromium per mine",
+                "Yield × deposit.accessibility",
+            ],
+            BuildingType::MagnesiumMine => &[
+                "+0.07 Mt/yr magnesium per mine",
+                "Yield × deposit.accessibility",
+            ],
+            // Precious (3 — v0.5.1)
+            BuildingType::GoldMine => &[
+                "+0.0001 Mt/yr gold per mine",
+                "Direct deposit (not share-fold)",
+            ],
+            BuildingType::SilverMine => &[
+                "+0.001 Mt/yr silver per mine",
+                "Direct deposit (not share-fold)",
+            ],
+            BuildingType::PlatinumMine => &[
+                "+0.00001 Mt/yr platinum per mine",
+                "Direct deposit (not share-fold)",
+            ],
+            // Strategic (6)
+            BuildingType::CopperMine => &[
+                "+1.5 Mt/yr copper per mine",
+                "Yield × deposit.accessibility",
+            ],
+            BuildingType::RareEarthsMine => &[
+                "+0.025 Mt/yr rare earths per mine",
+                "Yield × deposit.accessibility",
+            ],
+            BuildingType::LithiumMine => &[
+                "+0.012 Mt/yr lithium per mine",
+                "Yield × deposit.accessibility",
+            ],
+            BuildingType::SulfurMine => {
+                &["+5 Mt/yr sulfur per mine", "Yield × deposit.accessibility"]
+            }
+            BuildingType::PhosphorusMine => &[
+                "+0.003 Mt/yr phosphorus per mine",
+                "Yield × deposit.accessibility",
+            ],
+            BuildingType::CobaltMine => &[
+                "+0.015 Mt/yr cobalt per mine",
+                "Yield × deposit.accessibility",
+            ],
+            BuildingType::FluorineMine => &[
+                "+0.2 Mt/yr fluorine per mine",
+                "Yield × deposit.accessibility",
+            ],
+            // Fissile (2)
+            BuildingType::UraniumMine => &[
+                "+0.003 Mt/yr uranium per mine",
+                "Yield × deposit.accessibility",
+            ],
+            BuildingType::ThoriumMine => &[
+                "+0.0007 Mt/yr thorium per mine",
+                "Yield × deposit.accessibility",
+            ],
+            // Hydrocarbons (1)
+            BuildingType::MethaneExtractor => &[
+                "+270 Mt/yr methane per extractor",
+                "Yield × deposit.accessibility",
+            ],
+            // Heavy water (1)
+            BuildingType::DeuteriumExtractor => &[
+                "+0.5 Mt/yr deuterium per extractor",
+                "Yield × deposit.accessibility",
+            ],
+            // He-3 (1 — body-restricted)
+            BuildingType::He3Mine => &[
+                "+0.5 Mt/yr He-3 per mine",
+                "Body-restricted: [Moon, GasGiant, Asteroid]",
+                "Requires lunar_colony tech",
+            ],
+            // AutoMines (22) — orbital/asteroid mining
+            BuildingType::AutoIronMine => &[
+                "+12 Mt/yr iron per rig (asteroid)",
+                "Body: [Asteroid, Moon, GasGiant]",
+            ],
+            BuildingType::AutoAluminumMine => &[
+                "+0.5 Mt/yr aluminum per rig",
+                "Body: [Asteroid, Moon, GasGiant]",
+            ],
+            BuildingType::AutoTitaniumMine => &[
+                "+0.002 Mt/yr titanium per rig",
+                "Body: [Asteroid, Moon, GasGiant]",
+            ],
+            BuildingType::AutoSilicatesMine => &[
+                "+70 Mt/yr silicates per rig",
+                "Body: [Asteroid, Moon, GasGiant]",
+            ],
+            BuildingType::AutoNickelMine => &[
+                "+0.02 Mt/yr nickel per rig (M-type)",
+                "Body: [Asteroid, Moon, GasGiant]",
+            ],
+            BuildingType::AutoTungstenMine => &[
+                "+0.0005 Mt/yr tungsten per rig",
+                "Body: [Asteroid, Moon, GasGiant]",
+            ],
+            BuildingType::AutoCarbonMine => &[
+                "+35 Mt/yr carbon per rig (C-type)",
+                "Body: [Asteroid, Moon, GasGiant]",
+            ],
+            BuildingType::AutoChromiumMine => &[
+                "+0.2 Mt/yr chromium per rig",
+                "Body: [Asteroid, Moon, GasGiant]",
+            ],
+            BuildingType::AutoMagnesiumMine => &[
+                "+0.007 Mt/yr magnesium per rig",
+                "Body: [Asteroid, Moon, GasGiant]",
+            ],
+            BuildingType::AutoGoldMine => &[
+                "+0.00001 Mt/yr gold per rig",
+                "Body: [Asteroid, Moon, GasGiant]",
+            ],
+            BuildingType::AutoSilverMine => &[
+                "+0.0001 Mt/yr silver per rig",
+                "Body: [Asteroid, Moon, GasGiant]",
+            ],
+            BuildingType::AutoPlatinumMine => &[
+                "+0.000001 Mt/yr platinum per rig",
+                "Body: [Asteroid, Moon, GasGiant]",
+            ],
+            BuildingType::AutoCopperMine => &[
+                "+0.15 Mt/yr copper per rig",
+                "Body: [Asteroid, Moon, GasGiant]",
+            ],
+            BuildingType::AutoRareEarthsMine => &[
+                "+0.0025 Mt/yr rare earths per rig",
+                "Body: [Asteroid, Moon, GasGiant]",
+            ],
+            BuildingType::AutoLithiumMine => &[
+                "+0.0012 Mt/yr lithium per rig",
+                "Body: [Asteroid, Moon, GasGiant]",
+            ],
+            BuildingType::AutoSulfurMine => &[
+                "+0.5 Mt/yr sulfur per rig",
+                "Body: [Asteroid, Moon, GasGiant]",
+            ],
+            BuildingType::AutoPhosphorusMine => &[
+                "+0.0003 Mt/yr phosphorus per rig",
+                "Body: [Asteroid, Moon, GasGiant]",
+            ],
+            BuildingType::AutoCobaltMine => &[
+                "+0.0015 Mt/yr cobalt per rig",
+                "Body: [Asteroid, Moon, GasGiant]",
+            ],
+            BuildingType::AutoFluorineMine => &[
+                "+0.02 Mt/yr fluorine per rig",
+                "Body: [Asteroid, Moon, GasGiant]",
+            ],
+            BuildingType::AutoUraniumMine => &[
+                "+0.0003 Mt/yr uranium per rig",
+                "Body: [Asteroid, Moon, GasGiant]",
+            ],
+            BuildingType::AutoThoriumMine => &[
+                "+0.00007 Mt/yr thorium per rig",
+                "Body: [Asteroid, Moon, GasGiant]",
+            ],
+            BuildingType::AutoMethaneExtractor => &[
+                "+27 Mt/yr methane per rig (Titan)",
+                "Body: [Asteroid, Moon, GasGiant]",
+            ],
+            BuildingType::AutoDeuteriumExtractor => &[
+                "+0.05 Mt/yr deuterium per rig",
+                "Body: [Asteroid, Moon, GasGiant]",
+            ],
+            BuildingType::AutoHe3Mine => &[
+                "+0.05 Mt/yr He-3 per rig (lunar regolith / asteroids)",
+                "Body: [Asteroid, Moon, GasGiant]",
+            ],
+            BuildingType::AutoWaterProcessor => &[
+                "+1.6 Mt/yr water per rig (C-type ice)",
+                "Body: [Asteroid, Moon, GasGiant]",
+            ],
+            // Generic industry
             BuildingType::Factory => &["+10 BP/yr construction speed", "-5% construction costs"],
             BuildingType::ChemicalPlant => &[
                 "+0.15 Mt/yr hydrogen",
                 "+0.14 Mt/yr ammonia",
                 "+0.01 Mt/yr polymers",
             ],
-            BuildingType::HydrocarbonExtractor => &["+16.2% mining efficiency"],
-            // ── Atmospheric Harvesting ───────────────────────────────────
             BuildingType::AtmosphericProcessor => &["+0.9 Mt/yr atmospheric harvest"],
-            // ── Advanced Mining ──────────────────────────────────────────
-            BuildingType::DeepDrill => &["+40.7% deep mining efficiency"],
-            BuildingType::LaserDrill => &["+81.3% deep mining efficiency"],
-            BuildingType::StripMine => &["+162.7% bulk mining efficiency"],
             // ── Logistics ────────────────────────────────────────────────
             BuildingType::MassDriver => &["+5,000 logistics capacity"],
             BuildingType::OrbitalLift => &["+20,000 logistics capacity"],
             BuildingType::CargoTerminal => &["+2,000 logistics capacity"],
+            BuildingType::Warehouse => &["+2.5% global stockpile capacity"],
             // ── Power ───────────────────────────────────────────────────
             BuildingType::SolarPower => &["+5 GW power output"],
             BuildingType::FissionReactor => &["+20 GW power output", "Fuel: Uranium"],
@@ -412,9 +909,7 @@ impl BuildingType {
             BuildingType::LaunchSite => &["Surface-to-orbit launch access"],
             BuildingType::SpacePort => &["High-throughput orbital access"],
             BuildingType::GroundDefenseBattery => &["Anti-orbital / anti-missile defense"],
-            // ── Advanced Industry ────────────────────────────────────────
-            BuildingType::RecyclingCenter => &["+3.2% mining efficiency", "Reduces waste"],
-            BuildingType::Warehouse => &["+2.5% global stockpile capacity"],
+            // ── Survey ───────────────────────────────────────────────────
             BuildingType::OrbitalSurveyStation => &[
                 "Continuous low-yield survey of the host body",
                 "+5/10/15% mining yield (tier 1/2/3) on local mines",
@@ -430,53 +925,115 @@ impl BuildingType {
             BuildingType::LifeSupport => "🌬",
             BuildingType::HabitatDome => "🏠",
             BuildingType::UndergroundHabitat => "⛏",
-            BuildingType::Mine => "⚒",
-            BuildingType::Refinery => "🏭",
-            BuildingType::ChemicalPlant => "⚗️",
-            BuildingType::HydrocarbonExtractor => "🛢️",
+            // v3.2 canary 12 (2026-08-07): starter-tier housing
+            BuildingType::HabitatTent => "⛺",
+            BuildingType::HabitatModule => "🏗",
+            BuildingType::WaterProcessor => "🧊",
+            // Construction mines (9)
+            BuildingType::IronMine => "⛓", // chain link / iron symbol
+            BuildingType::AluminumMine => "🪨", // rock
+            BuildingType::TitaniumMine => "🔩", // bolt (strong alloy)
+            BuildingType::SilicatesMine => "🪨", // stone
+            BuildingType::NickelMine => "🟘", // brown circle (nickel hue)
+            BuildingType::TungstenMine => "🟧", // orange square (wolframite)
+            BuildingType::CarbonMine => "⬛", // black square (coal)
+            BuildingType::ChromiumMine => "🟢", // green circle (chromite green hue)
+            BuildingType::MagnesiumMine => "⬜", // white square (magnesia)
+            // Precious metals (3 — v0.5.1)
+            BuildingType::GoldMine => "🥇",
+            BuildingType::SilverMine => "🥈",
+            BuildingType::PlatinumMine => "💍",
+            // Strategic (6)
+            BuildingType::CopperMine => "🟠", // orange circle (copper hue)
+            BuildingType::RareEarthsMine => "🌐", // globe (rare elements)
+            BuildingType::LithiumMine => "🔋", // battery
+            BuildingType::SulfurMine => "🟡", // yellow circle (sulfur)
+            BuildingType::PhosphorusMine => "🟣", // purple circle (phosphorus glow)
+            BuildingType::CobaltMine => "🔵", // blue circle (cobalt)
+            BuildingType::FluorineMine => "🟩", // green square (fluorite)
+            // Fissile (2)
+            BuildingType::UraniumMine => "☢",  // radioactive symbol
+            BuildingType::ThoriumMine => "🟤", // brown square (monazite)
+            // Hydrocarbons (1)
+            BuildingType::MethaneExtractor => "🔥", // flame (methane combustion)
+            // Heavy water (1)
+            BuildingType::DeuteriumExtractor => "💧", // water drop
+            // He-3 (1 — body-restricted)
+            BuildingType::He3Mine => "☀", // sun (solar-wind-implanted He-3)
+            // AutoMines (22) — orbital/asteroid mining (use '🛰' prefix to denote orbital)
+            BuildingType::AutoIronMine => "🛰⛓",
+            BuildingType::AutoAluminumMine => "🛰🪨",
+            BuildingType::AutoTitaniumMine => "🛰🔩",
+            BuildingType::AutoSilicatesMine => "🛰🪨",
+            BuildingType::AutoNickelMine => "🛰🟘",
+            BuildingType::AutoTungstenMine => "🛰🟧",
+            BuildingType::AutoCarbonMine => "🛰⬛",
+            BuildingType::AutoChromiumMine => "🛰🟢",
+            BuildingType::AutoMagnesiumMine => "🛰⬜",
+            BuildingType::AutoGoldMine => "🛰🥇",
+            BuildingType::AutoSilverMine => "🛰🥈",
+            BuildingType::AutoPlatinumMine => "🛰💍",
+            BuildingType::AutoCopperMine => "🛰🟠",
+            BuildingType::AutoRareEarthsMine => "🛰🌐",
+            BuildingType::AutoLithiumMine => "🛰🔋",
+            BuildingType::AutoSulfurMine => "🛰🟡",
+            BuildingType::AutoPhosphorusMine => "🛰🟣",
+            BuildingType::AutoCobaltMine => "🛰🔵",
+            BuildingType::AutoFluorineMine => "🛰🟩",
+            BuildingType::AutoUraniumMine => "🛰☢",
+            BuildingType::AutoThoriumMine => "🛰🟤",
+            BuildingType::AutoMethaneExtractor => "🛰🔥",
+            BuildingType::AutoDeuteriumExtractor => "🛰💧",
+            BuildingType::AutoHe3Mine => "🛰☀",
+            BuildingType::AutoWaterProcessor => "🛰🧊",
+            // Generic industry
             BuildingType::Factory => "🏭",
+            BuildingType::ChemicalPlant => "⚗️",
             BuildingType::AtmosphericProcessor => "☁️",
-            BuildingType::DeepDrill => "🕳",
-            BuildingType::LaserDrill => "🔦",
-            BuildingType::StripMine => "🗻",
+            BuildingType::SemiconductorFab => "💾",
+            BuildingType::PharmaceuticalPlant => "💊",
+            // Logistics
             BuildingType::MassDriver => "🧲",
             BuildingType::OrbitalLift => "🚡",
             BuildingType::CargoTerminal => "📦",
+            BuildingType::Warehouse => "🏗",
+            // Power
             BuildingType::SolarPower => "☀",
-            BuildingType::Farm => "🐄",
             BuildingType::FissionReactor => "☢",
             BuildingType::FusionReactor => "⚡",
             BuildingType::DTFusionReactor => "⚛",
             BuildingType::DHe3FusionReactor => "☀",
             BuildingType::ThoriumReactor => "♨️",
             BuildingType::BreederReactor => "☢️",
-            BuildingType::AgriDome => "🌾",
-            BuildingType::MedicalCenter => "🏥",
-            BuildingType::ResearchLab => "🔬",
-            BuildingType::EngineeringBay => "🔩",
-            BuildingType::AiCluster => "🤖",
-            BuildingType::CommercialHub => "🏪",
-            BuildingType::FinancialCenter => "🏦",
-            BuildingType::TradePort => "🚢",
-            BuildingType::Shipyard => "⚓",
-            BuildingType::MissileSilo => "🚀",
-            BuildingType::LaunchSite => "🛫",
             BuildingType::WindFarm => "💨",
             BuildingType::HydroelectricDam => "🌊",
             BuildingType::GeothermalPlant => "🌋",
             BuildingType::CoalPowerPlant => "🏭",
             BuildingType::NaturalGasPlant => "🔥",
-            BuildingType::SemiconductorFab => "💾",
-            BuildingType::PharmaceuticalPlant => "💊",
-            BuildingType::WaterTreatmentPlant => "💧",
-            BuildingType::DesalinationPlant => "🧂",
-            BuildingType::RecyclingCenter => "♻️",
+            // Population
+            BuildingType::AgriDome => "🌾",
+            BuildingType::Farm => "🐄",
             BuildingType::Greenhouse => "🌿",
             BuildingType::AquacultureFacility => "🐟",
+            BuildingType::MedicalCenter => "🏥",
+            BuildingType::WaterTreatmentPlant => "💧",
+            BuildingType::DesalinationPlant => "🧂",
+            // Research
+            BuildingType::ResearchLab => "🔬",
+            BuildingType::EngineeringBay => "🔩",
+            BuildingType::AiCluster => "🤖",
             BuildingType::DataCenter => "🖥️",
+            // Financial
+            BuildingType::CommercialHub => "🏪",
+            BuildingType::FinancialCenter => "🏦",
+            BuildingType::TradePort => "🚢",
+            // Military
+            BuildingType::Shipyard => "⚓",
+            BuildingType::MissileSilo => "🚀",
+            BuildingType::LaunchSite => "🛫",
             BuildingType::SpacePort => "🚀",
             BuildingType::GroundDefenseBattery => "🛡️",
-            BuildingType::Warehouse => "🏗",
+            // Survey
             BuildingType::OrbitalSurveyStation => "🛰",
         }
     }
@@ -484,27 +1041,87 @@ impl BuildingType {
     /// Category for grouping in UI
     pub fn category(&self) -> BuildingCategory {
         match self {
+            // Infrastructure
             BuildingType::LifeSupport
             | BuildingType::HabitatDome
             | BuildingType::Housing
             | BuildingType::UndergroundHabitat
+            // v3.2 canary 12 (2026-08-07): starter-tier housing
+            | BuildingType::HabitatTent
+            | BuildingType::HabitatModule
+            | BuildingType::WaterProcessor
             | BuildingType::WaterTreatmentPlant
-            | BuildingType::DesalinationPlant
-            | BuildingType::RecyclingCenter => BuildingCategory::Infrastructure,
-            BuildingType::Mine
-            | BuildingType::Refinery
-            | BuildingType::Factory
+            | BuildingType::DesalinationPlant => BuildingCategory::Infrastructure,
+            // Mining (v0.5.2: split out of Industry). 22 base mines +
+            // 25 AutoMines, all routed to the dedicated Mining
+            // category. Both surface and orbital share the same
+            // category — the orbital body-gate is enforced by
+            // `building_is_available_on` and the Mining tab UI
+            // (the AutoMine card is dimmed/disabled on Earth/Mars/
+            // Venus).
+            BuildingType::IronMine
+            | BuildingType::AluminumMine
+            | BuildingType::TitaniumMine
+            | BuildingType::SilicatesMine
+            | BuildingType::NickelMine
+            | BuildingType::TungstenMine
+            | BuildingType::CarbonMine
+            | BuildingType::ChromiumMine
+            | BuildingType::MagnesiumMine
+            | BuildingType::GoldMine
+            | BuildingType::SilverMine
+            | BuildingType::PlatinumMine
+            | BuildingType::CopperMine
+            | BuildingType::RareEarthsMine
+            | BuildingType::LithiumMine
+            | BuildingType::SulfurMine
+            | BuildingType::PhosphorusMine
+            | BuildingType::CobaltMine
+            | BuildingType::FluorineMine
+            | BuildingType::UraniumMine
+            | BuildingType::ThoriumMine
+            | BuildingType::MethaneExtractor
+            | BuildingType::DeuteriumExtractor
+            | BuildingType::He3Mine
+            | BuildingType::AutoIronMine
+            | BuildingType::AutoAluminumMine
+            | BuildingType::AutoTitaniumMine
+            | BuildingType::AutoSilicatesMine
+            | BuildingType::AutoNickelMine
+            | BuildingType::AutoTungstenMine
+            | BuildingType::AutoCarbonMine
+            | BuildingType::AutoChromiumMine
+            | BuildingType::AutoMagnesiumMine
+            | BuildingType::AutoGoldMine
+            | BuildingType::AutoSilverMine
+            | BuildingType::AutoPlatinumMine
+            | BuildingType::AutoCopperMine
+            | BuildingType::AutoRareEarthsMine
+            | BuildingType::AutoLithiumMine
+            | BuildingType::AutoSulfurMine
+            | BuildingType::AutoPhosphorusMine
+            | BuildingType::AutoCobaltMine
+            | BuildingType::AutoFluorineMine
+            | BuildingType::AutoUraniumMine
+            | BuildingType::AutoThoriumMine
+            | BuildingType::AutoMethaneExtractor
+            | BuildingType::AutoDeuteriumExtractor
+            | BuildingType::AutoHe3Mine
+            | BuildingType::AutoWaterProcessor => BuildingCategory::Mining,
+            // Industry (v0.5.2: mines moved out — this is now pure
+            // processing/manufacturing: chemical, semiconductor,
+            // pharmaceutical, atmospheric harvesting, factories).
+            BuildingType::Factory
             | BuildingType::AtmosphericProcessor
             | BuildingType::ChemicalPlant
-            | BuildingType::HydrocarbonExtractor
-            | BuildingType::DeepDrill
-            | BuildingType::LaserDrill
-            | BuildingType::StripMine
             | BuildingType::SemiconductorFab
             | BuildingType::PharmaceuticalPlant => BuildingCategory::Industry,
-            BuildingType::MassDriver | BuildingType::OrbitalLift | BuildingType::CargoTerminal => {
-                BuildingCategory::Logistics
-            }
+            // Logistics
+            BuildingType::MassDriver
+            | BuildingType::OrbitalLift
+            | BuildingType::CargoTerminal
+            | BuildingType::Warehouse => BuildingCategory::Logistics,
+            // Power
             BuildingType::SolarPower
             | BuildingType::FissionReactor
             | BuildingType::FusionReactor
@@ -517,25 +1134,28 @@ impl BuildingType {
             | BuildingType::GeothermalPlant
             | BuildingType::CoalPowerPlant
             | BuildingType::NaturalGasPlant => BuildingCategory::Power,
+            // Population
             BuildingType::AgriDome
             | BuildingType::Farm
             | BuildingType::MedicalCenter
             | BuildingType::Greenhouse
             | BuildingType::AquacultureFacility => BuildingCategory::Population,
+            // Research
             BuildingType::ResearchLab
             | BuildingType::EngineeringBay
             | BuildingType::AiCluster
-            | BuildingType::DataCenter => BuildingCategory::Research,
+            | BuildingType::DataCenter
+            | BuildingType::OrbitalSurveyStation => BuildingCategory::Research,
+            // Financial
             BuildingType::CommercialHub
             | BuildingType::FinancialCenter
             | BuildingType::TradePort => BuildingCategory::Financial,
+            // Military
             BuildingType::Shipyard
             | BuildingType::MissileSilo
             | BuildingType::LaunchSite
             | BuildingType::SpacePort
             | BuildingType::GroundDefenseBattery => BuildingCategory::Military,
-            BuildingType::Warehouse => BuildingCategory::Logistics,
-            BuildingType::OrbitalSurveyStation => BuildingCategory::Research,
         }
     }
 
@@ -546,19 +1166,79 @@ impl BuildingType {
             BuildingType::HabitatDome => 800.0,
             BuildingType::Housing => 200.0,
             BuildingType::UndergroundHabitat => 1200.0,
-            BuildingType::Mine => 400.0,
-            BuildingType::Refinery => 600.0,
+            // v3.2 canary 12 (2026-08-07): starter-tier housing
+            BuildingType::HabitatTent => 50.0,
+            BuildingType::HabitatModule => 200.0,
+            BuildingType::WaterProcessor => 600.0,
+            // Construction mines (9) — scaled to per-build yield
+            BuildingType::IronMine => 1500.0,
+            BuildingType::AluminumMine => 1200.0,
+            BuildingType::TitaniumMine => 1800.0,
+            BuildingType::SilicatesMine => 300.0,
+            BuildingType::NickelMine => 1100.0,
+            BuildingType::TungstenMine => 2200.0,
+            BuildingType::CarbonMine => 900.0,
+            BuildingType::ChromiumMine => 1300.0,
+            BuildingType::MagnesiumMine => 1400.0,
+            // Precious metals (3 — v0.5.1)
+            BuildingType::GoldMine => 1200.0,
+            BuildingType::SilverMine => 1500.0,
+            BuildingType::PlatinumMine => 2000.0,
+            // Strategic (6)
+            BuildingType::CopperMine => 1300.0,
+            BuildingType::RareEarthsMine => 2200.0,
+            BuildingType::LithiumMine => 1900.0,
+            BuildingType::SulfurMine => 1000.0,
+            BuildingType::PhosphorusMine => 1500.0,
+            BuildingType::CobaltMine => 1700.0,
+            BuildingType::FluorineMine => 1400.0,
+            // Fissile (2)
+            BuildingType::UraniumMine => 2500.0,
+            BuildingType::ThoriumMine => 2100.0,
+            // Hydrocarbons (1)
+            BuildingType::MethaneExtractor => 1100.0,
+            // Heavy water (1)
+            BuildingType::DeuteriumExtractor => 1800.0,
+            // He-3 (1)
+            BuildingType::He3Mine => 3500.0,
+            // AutoMines (22) — orbital/asteroid mining (more expensive due to space-grade hardware)
+            BuildingType::AutoIronMine => 2500.0,
+            BuildingType::AutoAluminumMine => 2200.0,
+            BuildingType::AutoTitaniumMine => 2800.0,
+            BuildingType::AutoSilicatesMine => 1500.0,
+            BuildingType::AutoNickelMine => 2400.0,
+            BuildingType::AutoTungstenMine => 3200.0,
+            BuildingType::AutoCarbonMine => 2000.0,
+            BuildingType::AutoChromiumMine => 2500.0,
+            BuildingType::AutoMagnesiumMine => 2600.0,
+            BuildingType::AutoGoldMine => 3500.0,
+            BuildingType::AutoSilverMine => 3200.0,
+            BuildingType::AutoPlatinumMine => 4000.0,
+            BuildingType::AutoCopperMine => 2400.0,
+            BuildingType::AutoRareEarthsMine => 3500.0,
+            BuildingType::AutoLithiumMine => 3200.0,
+            BuildingType::AutoSulfurMine => 2000.0,
+            BuildingType::AutoPhosphorusMine => 2700.0,
+            BuildingType::AutoCobaltMine => 2900.0,
+            BuildingType::AutoFluorineMine => 2500.0,
+            BuildingType::AutoUraniumMine => 3800.0,
+            BuildingType::AutoThoriumMine => 3500.0,
+            BuildingType::AutoMethaneExtractor => 2500.0,
+            BuildingType::AutoDeuteriumExtractor => 3000.0,
+            BuildingType::AutoHe3Mine => 5000.0,
+            BuildingType::AutoWaterProcessor => 2000.0,
+            // Generic industry
             BuildingType::Factory => 1000.0,
             BuildingType::AtmosphericProcessor => 600.0,
             BuildingType::ChemicalPlant => 800.0,
-            BuildingType::HydrocarbonExtractor => 1200.0,
-            BuildingType::DeepDrill => 2000.0,
-            BuildingType::LaserDrill => 6000.0,
-            BuildingType::StripMine => 12000.0,
+            BuildingType::SemiconductorFab => 5000.0,
+            BuildingType::PharmaceuticalPlant => 800.0,
+            // Logistics
             BuildingType::MassDriver => 2000.0,
             BuildingType::OrbitalLift => 5000.0,
-            BuildingType::Farm => 100.0,
             BuildingType::CargoTerminal => 300.0,
+            BuildingType::Warehouse => 300.0,
+            // Power
             BuildingType::SolarPower => 200.0,
             BuildingType::FissionReactor => 1500.0,
             BuildingType::FusionReactor => 5000.0,
@@ -566,33 +1246,35 @@ impl BuildingType {
             BuildingType::DHe3FusionReactor => 7000.0,
             BuildingType::ThoriumReactor => 1800.0,
             BuildingType::BreederReactor => 2600.0,
-            BuildingType::AgriDome => 600.0,
-            BuildingType::MedicalCenter => 800.0,
-            BuildingType::ResearchLab => 1000.0,
-            BuildingType::EngineeringBay => 1200.0,
-            BuildingType::AiCluster => 4000.0,
-            BuildingType::CommercialHub => 500.0,
-            BuildingType::FinancialCenter => 1500.0,
-            BuildingType::TradePort => 2500.0,
-            BuildingType::Shipyard => 10000.0,
-            BuildingType::MissileSilo => 3000.0,
-            BuildingType::LaunchSite => 2000.0,
             BuildingType::WindFarm => 300.0,
             BuildingType::HydroelectricDam => 2500.0,
             BuildingType::GeothermalPlant => 1800.0,
             BuildingType::CoalPowerPlant => 800.0,
             BuildingType::NaturalGasPlant => 600.0,
-            BuildingType::SemiconductorFab => 5000.0,
-            BuildingType::PharmaceuticalPlant => 800.0,
-            BuildingType::WaterTreatmentPlant => 400.0,
-            BuildingType::DesalinationPlant => 600.0,
-            BuildingType::RecyclingCenter => 300.0,
+            // Population
+            BuildingType::AgriDome => 600.0,
+            BuildingType::Farm => 100.0,
             BuildingType::Greenhouse => 400.0,
             BuildingType::AquacultureFacility => 500.0,
+            BuildingType::MedicalCenter => 800.0,
+            BuildingType::WaterTreatmentPlant => 400.0,
+            BuildingType::DesalinationPlant => 600.0,
+            // Research
+            BuildingType::ResearchLab => 1000.0,
+            BuildingType::EngineeringBay => 1200.0,
+            BuildingType::AiCluster => 4000.0,
             BuildingType::DataCenter => 2000.0,
+            // Financial
+            BuildingType::CommercialHub => 500.0,
+            BuildingType::FinancialCenter => 1500.0,
+            BuildingType::TradePort => 2500.0,
+            // Military
+            BuildingType::Shipyard => 10000.0,
+            BuildingType::MissileSilo => 3000.0,
+            BuildingType::LaunchSite => 2000.0,
             BuildingType::SpacePort => 4000.0,
             BuildingType::GroundDefenseBattery => 2500.0,
-            BuildingType::Warehouse => 300.0,
+            // Survey
             BuildingType::OrbitalSurveyStation => 1200.0,
         }
     }
@@ -611,20 +1293,78 @@ impl BuildingType {
             BuildingType::HabitatDome => 1_000,
             BuildingType::Housing => 500,
             BuildingType::UndergroundHabitat => 1_500,
-            // Basic industry
-            BuildingType::Mine => 5_000,
-            BuildingType::Refinery => 6_000,
+            // v3.2 canary 12 (2026-08-07): starter-tier housing.
+            // Tent is 5 workers (small inflatable, minimal crew).
+            // Module is 50 workers (prefab habitat, small staff).
+            BuildingType::HabitatTent => 5,
+            BuildingType::HabitatModule => 50,
+            BuildingType::WaterProcessor => 2_000,
+            // Construction mines (9) — surface-scale operations
+            BuildingType::IronMine => 5_000,
+            BuildingType::AluminumMine => 4_500,
+            BuildingType::TitaniumMine => 5_500,
+            BuildingType::SilicatesMine => 1_500,
+            BuildingType::NickelMine => 4_000,
+            BuildingType::TungstenMine => 6_000,
+            BuildingType::CarbonMine => 3_500,
+            BuildingType::ChromiumMine => 4_500,
+            BuildingType::MagnesiumMine => 5_000,
+            // Precious metals (3 — v0.5.1)
+            BuildingType::GoldMine => 4_000,
+            BuildingType::SilverMine => 5_000,
+            BuildingType::PlatinumMine => 6_000,
+            // Strategic (6)
+            BuildingType::CopperMine => 4_500,
+            BuildingType::RareEarthsMine => 6_000,
+            BuildingType::LithiumMine => 5_500,
+            BuildingType::SulfurMine => 3_500,
+            BuildingType::PhosphorusMine => 5_000,
+            BuildingType::CobaltMine => 5_500,
+            BuildingType::FluorineMine => 4_500,
+            // Fissile (2)
+            BuildingType::UraniumMine => 6_500,
+            BuildingType::ThoriumMine => 6_000,
+            // Hydrocarbons (1)
+            BuildingType::MethaneExtractor => 3_500,
+            // Heavy water (1)
+            BuildingType::DeuteriumExtractor => 5_500,
+            // He-3 (1)
+            BuildingType::He3Mine => 8_000,
+            // AutoMines (22) — orbital crews, smaller workforces (more automation)
+            BuildingType::AutoIronMine => 800,
+            BuildingType::AutoAluminumMine => 700,
+            BuildingType::AutoTitaniumMine => 900,
+            BuildingType::AutoSilicatesMine => 300,
+            BuildingType::AutoNickelMine => 800,
+            BuildingType::AutoTungstenMine => 1_000,
+            BuildingType::AutoCarbonMine => 600,
+            BuildingType::AutoChromiumMine => 800,
+            BuildingType::AutoMagnesiumMine => 800,
+            BuildingType::AutoGoldMine => 1_200,
+            BuildingType::AutoSilverMine => 1_000,
+            BuildingType::AutoPlatinumMine => 1_500,
+            BuildingType::AutoCopperMine => 800,
+            BuildingType::AutoRareEarthsMine => 1_200,
+            BuildingType::AutoLithiumMine => 1_000,
+            BuildingType::AutoSulfurMine => 600,
+            BuildingType::AutoPhosphorusMine => 900,
+            BuildingType::AutoCobaltMine => 1_000,
+            BuildingType::AutoFluorineMine => 800,
+            BuildingType::AutoUraniumMine => 1_300,
+            BuildingType::AutoThoriumMine => 1_200,
+            BuildingType::AutoMethaneExtractor => 800,
+            BuildingType::AutoDeuteriumExtractor => 1_000,
+            BuildingType::AutoHe3Mine => 1_500,
+            BuildingType::AutoWaterProcessor => 600,
+            // Generic industry
             BuildingType::Factory => 12_000,
             BuildingType::ChemicalPlant => 4_000,
-            BuildingType::HydrocarbonExtractor => 2_500,
-            BuildingType::AtmosphericProcessor => 3_000, // Advanced mining – mid/late game scale
-            BuildingType::DeepDrill => 10_000,
-            BuildingType::LaserDrill => 4_000,
-            BuildingType::StripMine => 50_000,
+            BuildingType::AtmosphericProcessor => 3_000,
             // Logistics
             BuildingType::MassDriver => 2_500,
             BuildingType::OrbitalLift => 6_000,
             BuildingType::CargoTerminal => 3_000,
+            BuildingType::Warehouse => 1_000,
             // Power – largely automated
             BuildingType::SolarPower => 500,
             BuildingType::FissionReactor => 4_000,
@@ -633,47 +1373,40 @@ impl BuildingType {
             BuildingType::DHe3FusionReactor => 9_500,
             BuildingType::ThoriumReactor => 4_500,
             BuildingType::BreederReactor => 5_000,
-            // Population support
-            BuildingType::AgriDome => 4_000,
-            BuildingType::Farm => 1_000,
-            BuildingType::MedicalCenter => 6_000,
-            // Research
-            BuildingType::ResearchLab => 8_000,
-            BuildingType::EngineeringBay => 10_000,
-            BuildingType::AiCluster => 2_000,
-            // Financial
-            BuildingType::CommercialHub => 8_000,
-            BuildingType::FinancialCenter => 10_000,
-            BuildingType::TradePort => 15_000,
-            // Military – large installations
-            BuildingType::Shipyard => 80_000,
-            BuildingType::MissileSilo => 5_000,
-            BuildingType::LaunchSite => 12_000,
-            // Advanced power
             BuildingType::WindFarm => 200,
             BuildingType::HydroelectricDam => 1_000,
             BuildingType::GeothermalPlant => 800,
             BuildingType::CoalPowerPlant => 2_000,
             BuildingType::NaturalGasPlant => 1_500,
-            // Advanced industry
+            // Population support
+            BuildingType::AgriDome => 4_000,
+            BuildingType::Farm => 1_000,
+            BuildingType::Greenhouse => 2_000,
+            BuildingType::AquacultureFacility => 1_500,
+            BuildingType::MedicalCenter => 6_000,
+            // Research
+            BuildingType::ResearchLab => 8_000,
+            BuildingType::EngineeringBay => 10_000,
+            BuildingType::AiCluster => 2_000,
             BuildingType::SemiconductorFab => 5_000,
-            BuildingType::PharmaceuticalPlant => 4_000,
+            BuildingType::DataCenter => 1_000,
+            // Financial
+            BuildingType::CommercialHub => 8_000,
+            BuildingType::FinancialCenter => 10_000,
+            BuildingType::TradePort => 15_000,
+            // Military
+            BuildingType::Shipyard => 80_000,
+            BuildingType::MissileSilo => 5_000,
+            BuildingType::LaunchSite => 12_000,
+            BuildingType::SpacePort => 20_000,
+            BuildingType::GroundDefenseBattery => 3_000,
+            // Survey
+            BuildingType::OrbitalSurveyStation => 500,
             // Water & environment
             BuildingType::WaterTreatmentPlant => 500,
             BuildingType::DesalinationPlant => 400,
-            BuildingType::RecyclingCenter => 1_000,
-            // Advanced agriculture
-            BuildingType::Greenhouse => 2_000,
-            BuildingType::AquacultureFacility => 1_500,
-            // Digital infrastructure
-            BuildingType::DataCenter => 1_000,
-            // Advanced space
-            BuildingType::SpacePort => 20_000,
-            BuildingType::GroundDefenseBattery => 3_000,
-            // Storage
-            BuildingType::Warehouse => 1_000,
-            // Survey (v0.5.0, GRA-83 PR-E)
-            BuildingType::OrbitalSurveyStation => 500,
+            // Advanced industry
+            BuildingType::PharmaceuticalPlant => 4_000,
         }
     }
 
@@ -682,9 +1415,6 @@ impl BuildingType {
     /// Returns `None` for base-game buildings available from the start.
     pub fn required_tech(&self) -> Option<&'static str> {
         match self {
-            BuildingType::DeepDrill => Some("deep_drilling"),
-            BuildingType::LaserDrill => Some("laser_drilling"),
-            BuildingType::StripMine => Some("strip_mining"),
             BuildingType::AtmosphericProcessor => None,
             BuildingType::FusionReactor => Some("fusion_power"),
             BuildingType::DTFusionReactor => Some("fusion_power"),
@@ -700,6 +1430,34 @@ impl BuildingType {
             BuildingType::DataCenter => Some("neural_networks"),
             BuildingType::GroundDefenseBattery => Some("missile_systems"),
             BuildingType::OrbitalSurveyStation => Some("advanced_radar"),
+            // He-3 mine: requires lunar_colony (canary 3)
+            BuildingType::He3Mine => Some("lunar_colony"),
+            // AutoMines: all require asteroid_mining
+            BuildingType::AutoIronMine
+            | BuildingType::AutoAluminumMine
+            | BuildingType::AutoTitaniumMine
+            | BuildingType::AutoSilicatesMine
+            | BuildingType::AutoNickelMine
+            | BuildingType::AutoTungstenMine
+            | BuildingType::AutoCarbonMine
+            | BuildingType::AutoChromiumMine
+            | BuildingType::AutoMagnesiumMine
+            | BuildingType::AutoGoldMine
+            | BuildingType::AutoSilverMine
+            | BuildingType::AutoPlatinumMine
+            | BuildingType::AutoCopperMine
+            | BuildingType::AutoRareEarthsMine
+            | BuildingType::AutoLithiumMine
+            | BuildingType::AutoSulfurMine
+            | BuildingType::AutoPhosphorusMine
+            | BuildingType::AutoCobaltMine
+            | BuildingType::AutoFluorineMine
+            | BuildingType::AutoUraniumMine
+            | BuildingType::AutoThoriumMine
+            | BuildingType::AutoMethaneExtractor
+            | BuildingType::AutoDeuteriumExtractor
+            | BuildingType::AutoHe3Mine
+            | BuildingType::AutoWaterProcessor => Some("asteroid_mining"),
             _ => None,
         }
     }
@@ -723,6 +1481,11 @@ impl fmt::Display for BuildingType {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Reflect)]
 pub enum BuildingCategory {
     Infrastructure,
+    /// v0.5.2: dedicated Mining category. 22 base mines (one per
+    /// mineable resource) + 25 AutoMines. Split out of `Industry` so
+    /// the player can pivot to mining management without scrolling
+    /// through the chemical/pharma/semiconductor plants.
+    Mining,
     Industry,
     Logistics,
     Power,
@@ -737,6 +1500,7 @@ impl BuildingCategory {
     pub fn all() -> &'static [BuildingCategory] {
         &[
             BuildingCategory::Infrastructure,
+            BuildingCategory::Mining,
             BuildingCategory::Industry,
             BuildingCategory::Logistics,
             BuildingCategory::Power,
@@ -751,7 +1515,8 @@ impl BuildingCategory {
     pub fn display_name(&self) -> &'static str {
         match self {
             BuildingCategory::Infrastructure => "Infrastructure",
-            BuildingCategory::Industry => "Mining & Industry",
+            BuildingCategory::Mining => "Mining",
+            BuildingCategory::Industry => "Industry",
             BuildingCategory::Logistics => "Logistics",
             BuildingCategory::Power => "Power Generation",
             BuildingCategory::Population => "Population & Growth",
@@ -784,13 +1549,26 @@ mod tests {
     #[test]
     fn test_building_type_all() {
         let all = BuildingType::all();
-        assert_eq!(all.len(), 52, "Should have exactly 52 building types");
+        // v0.5.2: 56 → 95 (added 23 base mines, 25 AutoMines; removed
+        // 7 legacy generic mines: Mine, Refinery, DeepDrill, LaserDrill,
+        // StripMine, HydrocarbonExtractor, RecyclingCenter).
+        //   56 + 23 + 25 - 7 - 2 (GoldMine/SilverMine/PlatinumMine
+        //   were already in v0.5.1; He3Mine was the v0.5.1 canary 3 that
+        //   finally lands) = 95.
+        // v3.2 canary 12 (2026-08-07): 95 → 97 (added 2 starter-tier
+        // housing: HabitatTent 1k, HabitatModule 10k).
+        assert_eq!(
+            all.len(),
+            97,
+            "Should have exactly 97 building types (v0.5.2: 95 base + v3.2: 2 starter-tier housing)"
+        );
     }
 
     #[test]
     fn test_building_categories() {
         let categories = BuildingCategory::all();
-        assert_eq!(categories.len(), 8, "Should have exactly 8 categories");
+        // v0.5.2: 8 → 9 — Mining split out of Industry.
+        assert_eq!(categories.len(), 9, "Should have exactly 9 categories");
 
         // Every building should belong to a category
         for building in BuildingType::all() {
@@ -813,14 +1591,14 @@ mod tests {
 
     #[test]
     fn test_building_display_names() {
-        assert_eq!(BuildingType::Mine.display_name(), "Mine");
+        assert_eq!(BuildingType::IronMine.display_name(), "Iron Mine");
         assert_eq!(BuildingType::MassDriver.display_name(), "Mass Driver");
         assert_eq!(BuildingType::FusionReactor.display_name(), "Fusion Reactor");
         assert_eq!(
             BuildingType::DTFusionReactor.display_name(),
             "D-T Fusion Reactor"
         );
-        assert_eq!(BuildingType::DeepDrill.display_name(), "Deep Drill");
+        assert_eq!(BuildingType::He3Mine.display_name(), "Helium-3 Mine");
         assert_eq!(BuildingType::Shipyard.display_name(), "Shipyard");
     }
 
@@ -840,7 +1618,7 @@ mod tests {
         assert!(BuildingType::MassDriver.is_logistics());
         assert!(BuildingType::OrbitalLift.is_logistics());
         assert!(BuildingType::CargoTerminal.is_logistics());
-        assert!(!BuildingType::Mine.is_logistics());
+        assert!(!BuildingType::IronMine.is_logistics());
         assert!(!BuildingType::Factory.is_logistics());
     }
 
@@ -859,13 +1637,19 @@ mod tests {
     fn test_early_colony_workforce_feasible() {
         // A starting colony (100K pop, 40K workers) should be able to run
         // several basic buildings without hitting workforce limits immediately.
+        // v0.5.2: replaced generic Mine with IronMine (5,000 workers).
+        // v3.2: replaced HabitatDome with the new starter-tier
+        // HabitatTent + HabitatModule — the actual first buildings
+        // on a new colony (the v0.5.0 50M-per-dome is "metropolitan
+        // tier" and a 100k colony can't use it).
         let early_buildings = [
-            BuildingType::LifeSupport, // 2,000
-            BuildingType::HabitatDome, // 1,000
-            BuildingType::SolarPower,  // 500
-            BuildingType::Mine,        // 5,000
-            BuildingType::Mine,        // 5,000
-            BuildingType::AgriDome,    // 4,000
+            BuildingType::LifeSupport,   // 2,000
+            BuildingType::HabitatTent,   // 5 (v3.2 starter-tier)
+            BuildingType::HabitatModule, // 50 (v3.2 starter-tier)
+            BuildingType::SolarPower,    // 500
+            BuildingType::IronMine,      // 5,000 (v0.5.2: was Mine)
+            BuildingType::Farm,          // 2,000 (v3.1 canary 9)
+            BuildingType::AgriDome,      // 3,000
         ];
         let total: u32 = early_buildings.iter().map(|b| b.workforce_required()).sum();
         assert!(
@@ -877,22 +1661,23 @@ mod tests {
 
     #[test]
     fn test_tech_gated_buildings() {
+        // v0.5.2: legacy Mine → IronMine; DeepDrill/LaserDrill/StripMine
+        // removed; He3Mine requires lunar_colony; AutoMines require
+        // asteroid_mining.
         // Base buildings have no tech requirement
-        assert!(BuildingType::Mine.required_tech().is_none());
+        assert!(BuildingType::IronMine.required_tech().is_none());
         assert!(BuildingType::Factory.required_tech().is_none());
 
         // Advanced buildings require tech
         assert_eq!(
-            BuildingType::DeepDrill.required_tech(),
-            Some("deep_drilling")
+            BuildingType::He3Mine.required_tech(),
+            Some("lunar_colony"),
+            "He3Mine must be gated by lunar_colony (canary 3)"
         );
         assert_eq!(
-            BuildingType::LaserDrill.required_tech(),
-            Some("laser_drilling")
-        );
-        assert_eq!(
-            BuildingType::StripMine.required_tech(),
-            Some("strip_mining")
+            BuildingType::AutoIronMine.required_tech(),
+            Some("asteroid_mining"),
+            "AutoIronMine must be gated by asteroid_mining (v0.5.2)"
         );
         assert_eq!(
             BuildingType::AiCluster.required_tech(),

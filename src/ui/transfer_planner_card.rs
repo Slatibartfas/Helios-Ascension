@@ -856,7 +856,7 @@ pub fn render_card(ui: &mut egui::Ui, card: &CardWidget) {
             egui::RichText::new(&card.title)
                 .strong()
                 .size(13.0)
-                .color(theme::ACCENT),
+                .color(theme::CYAN),
         );
         if let Some(sub) = &card.subtitle {
             ui.label(egui::RichText::new(sub).size(11.0).color(theme::TEXT_DIM));

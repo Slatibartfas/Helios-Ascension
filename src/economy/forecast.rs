@@ -54,15 +54,37 @@ pub struct ForecastSeries {
     /// Simulation-time offset at which the curve first hits zero.
     /// `None` when the rate is non-negative (curve never depletes).
     pub runs_out_at_s: Option<f64>,
-    /// Survey-filtered reserve upper bound (Mt) — the maximum stockpile
-    /// this projection can ever reach because no more than this can be
-    /// extracted from known deposits.  `None` means no bound was
-    /// supplied (legacy behaviour: just track the warehouse).
+    /// v3.8.3 (2026-08-07): **per-body stockpile cap (Mt).** The
+    /// maximum the storage facilities can physically hold,
+    /// aggregated across the bodies in view.  The forecast plateaus
+    /// here — a body can't stock more than its warehouses
+    /// allow, no matter how much is in the ground.  This is the
+    /// user-visible cap ("the indicated stockpile size") and the
+    /// primary bound the forecast respects.
+    pub storage_cap_mt: Option<f64>,
+    /// Survey-filtered geological reserve upper bound (Mt) — the
+    /// maximum extractable from known deposits.  Acts as a "hard
+    /// cap" below the storage cap if the storage cap is set
+    /// higher than the survey reserve.  `None` means no survey
+    /// reserve was supplied.  Retained for the "Survey-known
+    /// reserves (cap)" panel readout.
     pub reserve_upper_bound_mt: Option<f64>,
-    /// Simulation-time offset at which the curve first hits the reserve
-    /// upper bound.  `None` if no bound is set or the curve never
-    /// reaches it.  Surfaced to the UI so the player can see when
-    /// extraction physically tops out.
+    /// Effective upper bound used by the projection: the
+    /// `min(storage_cap_mt, reserve_upper_bound_mt)` when both
+    /// are set, falling back to whichever is set, or to the
+    /// 2×-annual fallback in [`project_stockpile`].
+    pub effective_upper_bound_mt: Option<f64>,
+    /// v3.8.4: `true` when `effective_upper_bound_mt` was set
+    /// from the conservative 2×-annual fallback rather than a
+    /// real storage cap or survey reserve.  Construction impacts
+    /// ignore the cap when this is set (the fallback is a
+    /// placeholder; user-built production should be allowed to
+    /// exceed it).
+    pub cap_is_fallback: bool,
+    /// Simulation-time offset at which the curve first hits the
+    /// effective upper bound.  `None` if no bound is set or the
+    /// curve never reaches it.  Surfaced to the UI so the player
+    /// can see when extraction physically tops out.
     pub hits_reserve_cap_at_s: Option<f64>,
     pub samples: Vec<ForecastSample>,
 }
@@ -85,35 +107,56 @@ pub struct ConstructionImpact {
 /// rate — call [`apply_construction_impact`] afterwards to add step
 /// changes from pending construction.
 ///
-/// `reserve_upper_bound_mt` is the survey-filtered geological reserve
-/// total (Mt).  When set, the warehouse curve is clamped at this value
-/// (a planet can't stock more than it can ever extract).  When `None`,
-/// the curve follows the net rate alone.
+/// v3.8.3 (2026-08-07): the curve is now clamped at
+/// `min(storage_cap_mt, reserve_upper_bound_mt)` — the storage
+/// cap (per-body stockpile cap × N_bodies) is the user-visible
+/// "indicated stockpile size" and the primary cap. The survey
+/// reserve acts as a hard geological limit.  Whichever is
+/// smaller wins.  When neither is set, falls back to the
+/// 2×-annual-extraction conservative cap so uncapped positive
+/// rates don't climb into teraton-scale territory.
 pub fn project_stockpile(
     current_mt: f64,
     annual_net_rate_mt: f64,
+    storage_cap_mt: Option<f64>,
     reserve_upper_bound_mt: Option<f64>,
 ) -> ForecastSeries {
     let mut samples = Vec::with_capacity(FORECAST_SAMPLES);
     let horizon_s = FORECAST_HORIZON_YEARS * SECONDS_PER_YEAR;
     let dt = horizon_s / (FORECAST_SAMPLES as f64 - 1.0);
 
+    // Effective cap = min(storage, survey) when both are set.
+    // Both clamped to >= current so a body that already
+    // exceeds the cap (e.g. legacy save with v3.7 caps) still
+    // shows a non-falling curve.
+    //
+    // v3.8.4: when neither cap is known, surface the conservative
+    // 2×-annual fallback into `effective_upper_bound_mt` so the
+    // UI's "Survey-known reserves (cap)" panel can show *some*
+    // bound for unsurveyed positive-rate resources.  This was
+    // previously a curve-only clamp, leaving the field `None` and
+    // confusing the tests.
+    let (effective_cap, cap_is_fallback) = match (storage_cap_mt, reserve_upper_bound_mt) {
+        (Some(s), Some(r)) => (Some(s.min(r).max(current_mt)), false),
+        (Some(s), None) => (Some(s.max(current_mt)), false),
+        (None, Some(r)) => (Some(r.max(current_mt)), false),
+        (None, None) => (
+            Some(current_mt + annual_net_rate_mt.max(0.0) * FORECAST_HORIZON_YEARS * 2.0),
+            true,
+        ),
+    };
+
     let mut hits_cap_at: Option<f64> = None;
 
     for i in 0..FORECAST_SAMPLES {
         let t = i as f64 * dt;
-        // Linear net-rate extrapolation, then clamped to [0, reserve_cap].
+        // Linear net-rate extrapolation, then clamped to
+        // [0, effective_cap].  effective_cap is always Some
+        // after the match above.
         let raw = (current_mt + annual_net_rate_mt * (t / SECONDS_PER_YEAR)).max(0.0);
-        let value = match reserve_upper_bound_mt {
-            Some(cap) => raw.min(cap.max(current_mt)), // never below current
-            None => raw,
-        };
-        if hits_cap_at.is_none() {
-            if let Some(cap) = reserve_upper_bound_mt {
-                if raw >= cap.max(current_mt) && annual_net_rate_mt > 0.0 {
-                    hits_cap_at = Some(t);
-                }
-            }
+        let value = raw.min(effective_cap.unwrap());
+        if hits_cap_at.is_none() && raw >= effective_cap.unwrap() && annual_net_rate_mt > 0.0 {
+            hits_cap_at = Some(t);
         }
         samples.push(ForecastSample {
             sim_seconds_offset: t,
@@ -132,7 +175,10 @@ pub fn project_stockpile(
         current_mt,
         annual_net_rate_mt,
         runs_out_at_s,
+        storage_cap_mt,
         reserve_upper_bound_mt,
+        effective_upper_bound_mt: effective_cap,
+        cap_is_fallback,
         hits_reserve_cap_at_s: hits_cap_at,
         samples,
     }
@@ -142,7 +188,9 @@ pub fn project_stockpile(
 ///
 /// The function finds the sample at or after `impact.completion_sim_seconds`,
 /// then re-extrapolates from that sample onward with the new rate
-/// `original_rate + impact.delta_mt_per_year`.  Values are clamped at zero.
+/// `original_rate + impact.delta_mt_per_year`.  Values are clamped at
+/// the `effective_upper_bound_mt` (v3.8.3) so post-construction
+/// production cannot exceed the storage cap.
 ///
 /// `current_sim_seconds` is the absolute simulation timestamp at which
 /// the curve was projected — sample offsets are relative to this.
@@ -167,14 +215,30 @@ pub fn apply_construction_impact(
     let anchor_value = series.samples[idx_at].value_mt;
     let new_rate = series.annual_net_rate_mt + impact.delta_mt_per_year;
     let new_anchor_offset = series.samples[idx_at].sim_seconds_offset;
-    let reserve_cap = series.reserve_upper_bound_mt;
+    // v3.8.3: use the effective upper bound (min of storage and
+    // survey reserve) so post-construction production respects
+    // the storage cap.
+    let upper = series.effective_upper_bound_mt;
 
     for i in idx_at..FORECAST_SAMPLES {
         let dt_from_impact = series.samples[i].sim_seconds_offset - new_anchor_offset;
         let raw = (anchor_value + new_rate * (dt_from_impact / SECONDS_PER_YEAR)).max(0.0);
-        let value = match reserve_cap {
-            Some(cap) => raw.min(cap.max(series.current_mt)),
-            None => raw,
+        // v3.8.4: only clamp growth from a *real* cap.  The
+        // effective upper bound is a ceiling (storage cap,
+        // survey reserve, or the conservative 2×-annual
+        // fallback).  We only apply it when:
+        //   - the cap came from a real source (storage or
+        //     survey — not the fallback placeholder), and
+        //   - the post-impact rate is positive (clamping a
+        //     shrinking curve would freeze it).
+        // Without these guards, the fallback cap for a
+        // previously-negative rate (`current_mt + 0 = current_mt`)
+        // would prevent any post-construction recovery.
+        let value = match upper {
+            Some(cap) if new_rate > 0.0 && !series.cap_is_fallback => {
+                raw.min(cap.max(series.current_mt))
+            }
+            _ => raw,
         };
         series.samples[i].value_mt = value;
     }
@@ -311,32 +375,51 @@ impl ReserveBounds {
     }
 }
 
+/// v3.8.3: per-resource storage cap for the active scope, in Mt.
+/// This is the user-visible "indicated stockpile size" - the
+/// sum of per-body `effective_stockpile_cap` across all bodies
+/// in the current view.  Drives the primary plateau the
+/// forecast respects; the survey reserve (`ReserveBounds`)
+/// acts as a hard geological limit below it.
+#[derive(Debug, Clone, Default)]
+pub struct StorageCaps {
+    /// `resource -> total storage cap in view (Mt)`.
+    pub resources: HashMap<ResourceType, f64>,
+}
+
+impl StorageCaps {
+    pub fn new() -> Self {
+        Self::default()
+    }
+    pub fn get(&self, resource: ResourceType) -> Option<f64> {
+        self.resources.get(&resource).copied()
+    }
+    pub fn insert(&mut self, resource: ResourceType, mass_mt: f64) {
+        self.resources.insert(resource, mass_mt);
+    }
+}
+
 /// Build a [`Vec<ForecastSeries>`] covering the resources present in
 /// the given scope inputs.
 ///
-/// The curve uses the aggregated `current_mt` and `monthly_net_rate_mt`
-/// per resource.  When `reserve_bounds` has an entry for a resource,
-/// the curve is clamped at that upper bound — the player can't stock
-/// more than the planet's geological endowment.  Pending construction
-/// impacts are folded in as piecewise-linear step changes at their
-/// expected completion times.
+/// v3.8.3 (2026-08-07): the curve plateaus at the **storage cap**
+/// (per-body stockpile cap × N_bodies) by default, with the
+/// **survey reserve** as a hard geological limit below it.  The
+/// effective cap is `min(storage, survey)`.  Previously the curve
+/// plateaued at the survey reserve alone, which let the line
+/// climb into the teraton-scale territory the user observed
+/// (e.g. Silicates projected to 180 Gt despite the body being
+/// able to store only a few Gt).
 ///
-/// For resources with **no** surveyed reserve bound (e.g. unsurveyed
-/// or class-only deposits), the curve falls back to a conservative
-/// extrapolation cap: `current + 20yr × rate × 2`.  The 2× headroom
-/// acknowledges that the player doesn't know the deposit's true size
-/// but the chart still needs a finite ceiling — otherwise an uncapped
-/// positive rate will climb into teraton-scale territory (e.g. one
-/// Earth's iron production alone would project to 4.9 Tt/yr and
-/// completely dominate the chart's y-axis).  The 2× multiplier
-/// matches "the deposit is at least twice what we can extract over
-/// 20 years", which is the conservative end of plausible given that
-/// even a 100× year-sustained rate would deplete a body-mass-scale
-/// endowment quickly.
+/// For resources with **no** cap known (e.g. unsurveyed or
+/// class-only deposits), the curve falls back to a conservative
+/// extrapolation: `current + 20yr × rate × 2` so uncapped positive
+/// rates don't dominate the chart's y-axis.
 pub fn build_forecast(
     scope: &ScopeInputs,
     pending_impacts: &[ConstructionImpact],
     current_sim_seconds: f64,
+    storage_caps: &StorageCaps,
     reserve_bounds: &ReserveBounds,
 ) -> Vec<ForecastSeries> {
     let mut out = Vec::new();
@@ -347,20 +430,9 @@ pub fn build_forecast(
         }
 
         let annual_net = monthly_rate_mt * 12.0; // Mt/month → Mt/year
+        let storage_cap = storage_caps.get(resource);
         let surveyed_cap = reserve_bounds.get(resource);
-        // If no survey reserve is known, derive a conservative
-        // fallback cap.  The 2× multiplier covers "the deposit is at
-        // least twice what we can extract over 20 years"; the
-        // additive current_mt keeps resources already stockpiled from
-        // falling off the chart's left edge if they're growing.
-        let reserve_cap = match surveyed_cap {
-            Some(c) => Some(c),
-            None if monthly_rate_mt > 0.0 => {
-                Some(current_mt + annual_net * FORECAST_HORIZON_YEARS * 2.0)
-            }
-            None => None,
-        };
-        let mut series = project_stockpile(current_mt, annual_net, reserve_cap);
+        let mut series = project_stockpile(current_mt, annual_net, storage_cap, surveyed_cap);
         series.resource = resource;
 
         // Apply pending construction impacts targeting this resource.
@@ -502,10 +574,13 @@ mod tests {
     #[test]
     fn stable_increasing_projection() {
         // 50 Mt at +10 Mt/yr → endpoint = 50 + 200 = 250 Mt
-        let series = project_stockpile(50.0, 10.0, None);
+        let series = project_stockpile(50.0, 10.0, None, None);
         let last = series.samples.last().unwrap().value_mt;
         assert!((last - 250.0).abs() < 1e-6, "endpoint was {last}");
-        assert!(series.runs_out_at_s.is_none(), "stable resources never deplete");
+        assert!(
+            series.runs_out_at_s.is_none(),
+            "stable resources never deplete"
+        );
         // Monotonic non-decreasing
         for w in series.samples.windows(2) {
             assert!(w[1].value_mt >= w[0].value_mt - 1e-9);
@@ -515,7 +590,7 @@ mod tests {
     #[test]
     fn declining_projection_hits_zero_at_correct_time() {
         // 50 Mt at -5 Mt/yr → runs out at 10 years
-        let series = project_stockpile(50.0, -5.0, None);
+        let series = project_stockpile(50.0, -5.0, None, None);
         let runs_out = series.runs_out_at_s.expect("must deplete");
         let expected = 10.0 * SECONDS_PER_YEAR;
         assert!((runs_out - expected).abs() < 1.0, "runs_out was {runs_out}");
@@ -524,7 +599,7 @@ mod tests {
     #[test]
     fn declining_below_horizon() {
         // 1 Mt at -100 Mt/yr → hits zero at 0.01 yr, stays at 0
-        let series = project_stockpile(1.0, -100.0, None);
+        let series = project_stockpile(1.0, -100.0, None, None);
         assert!(series.runs_out_at_s.is_some());
         // After the hit, samples must be 0
         let hit_at = series
@@ -539,7 +614,7 @@ mod tests {
 
     #[test]
     fn flat_zero_rate() {
-        let series = project_stockpile(50.0, 0.0, None);
+        let series = project_stockpile(50.0, 0.0, None, None);
         assert!(series.runs_out_at_s.is_none());
         for s in &series.samples {
             assert!((s.value_mt - 50.0).abs() < 1e-6);
@@ -550,11 +625,14 @@ mod tests {
     fn reserve_cap_clamps_growth() {
         // 100 Mt at +10 Mt/yr, but only 150 Mt of reserves left.
         // The curve should hit the cap at t = 5 yr and stay there.
-        let series = project_stockpile(100.0, 10.0, Some(150.0));
+        let series = project_stockpile(100.0, 10.0, None, Some(150.0));
         let hit = series.hits_reserve_cap_at_s.expect("must hit cap");
         // 5 years from t=0 in seconds.
         let expected = 5.0 * SECONDS_PER_YEAR;
-        assert!((hit - expected).abs() < SECONDS_PER_YEAR / 12.0, "hit at {hit}");
+        assert!(
+            (hit - expected).abs() < SECONDS_PER_YEAR / 12.0,
+            "hit at {hit}"
+        );
         // Samples after the cap must equal the cap (never below current).
         for s in &series.samples {
             assert!(s.value_mt <= 150.0 + 1e-6, "above cap: {}", s.value_mt);
@@ -566,7 +644,7 @@ mod tests {
     fn reserve_cap_does_not_clamp_decline() {
         // 100 Mt at -5 Mt/yr, 1000 Mt of reserves — cap is irrelevant
         // because the curve goes down, not up.
-        let series = project_stockpile(100.0, -5.0, Some(1000.0));
+        let series = project_stockpile(100.0, -5.0, None, Some(1000.0));
         assert!(series.hits_reserve_cap_at_s.is_none());
         assert!(series.runs_out_at_s.is_some());
     }
@@ -574,7 +652,7 @@ mod tests {
     #[test]
     fn construction_impact_step_change() {
         // 100 Mt at -5 Mt/yr, then +10 Mt/yr at year 5 (cancels out).
-        let mut series = project_stockpile(100.0, -5.0, None);
+        let mut series = project_stockpile(100.0, -5.0, None, None);
         let impact = ConstructionImpact {
             resource: ResourceType::Iron,
             completion_sim_seconds: 5.0 * SECONDS_PER_YEAR,
@@ -586,7 +664,9 @@ mod tests {
         let at_5 = series
             .samples
             .iter()
-            .find(|s| (s.sim_seconds_offset - 5.0 * SECONDS_PER_YEAR).abs() < SECONDS_PER_YEAR / 24.0)
+            .find(|s| {
+                (s.sim_seconds_offset - 5.0 * SECONDS_PER_YEAR).abs() < SECONDS_PER_YEAR / 24.0
+            })
             .map(|s| s.value_mt)
             .expect("near-5yr sample");
         assert!((at_5 - 75.0).abs() < 5.0, "pre-impact value at 5yr: {at_5}");
@@ -600,29 +680,29 @@ mod tests {
     fn empty_scope_yields_no_series() {
         let scope = ScopeInputs::new();
         let bounds = ReserveBounds::new();
-        let series = build_forecast(&scope, &[], 0.0, &bounds);
+        let series = build_forecast(&scope, &[], 0.0, &StorageCaps::new(), &bounds);
         assert!(series.is_empty());
     }
 
     #[test]
     fn mixed_scope_emits_per_resource_series() {
         let mut scope = ScopeInputs::new();
-        scope
-            .resources
-            .insert(ResourceType::Iron, (100.0, -5.0));
-        scope
-            .resources
-            .insert(ResourceType::Food, (50.0, 10.0));
+        scope.resources.insert(ResourceType::Iron, (100.0, -5.0));
+        scope.resources.insert(ResourceType::Food, (50.0, 10.0));
         let bounds = ReserveBounds::new();
-        let series = build_forecast(&scope, &[], 0.0, &bounds);
+        let series = build_forecast(&scope, &[], 0.0, &StorageCaps::new(), &bounds);
         assert_eq!(series.len(), 2);
-        assert!(series.iter().any(|s| s.resource == ResourceType::Iron && s.runs_out_at_s.is_some()));
-        assert!(series.iter().any(|s| s.resource == ResourceType::Food && s.runs_out_at_s.is_none()));
+        assert!(series
+            .iter()
+            .any(|s| s.resource == ResourceType::Iron && s.runs_out_at_s.is_some()));
+        assert!(series
+            .iter()
+            .any(|s| s.resource == ResourceType::Food && s.runs_out_at_s.is_none()));
     }
 
     #[test]
     fn horizon_constant_matches_samples() {
-        let series = project_stockpile(10.0, 1.0, None);
+        let series = project_stockpile(10.0, 1.0, None, None);
         assert_eq!(series.samples.len(), FORECAST_SAMPLES);
         let last = series.samples.last().unwrap();
         let expected = FORECAST_HORIZON_YEARS * SECONDS_PER_YEAR;
@@ -633,14 +713,10 @@ mod tests {
     fn flat_no_skipped_aggregation() {
         // Re-aggregation of two inputs into one series.
         let mut scope = ScopeInputs::new();
-        scope
-            .resources
-            .insert(ResourceType::Iron, (50.0, -2.5));
-        scope
-            .resources
-            .insert(ResourceType::Iron, (50.0, -2.5)); // overwrite same key
+        scope.resources.insert(ResourceType::Iron, (50.0, -2.5));
+        scope.resources.insert(ResourceType::Iron, (50.0, -2.5)); // overwrite same key
         let bounds = ReserveBounds::new();
-        let series = build_forecast(&scope, &[], 0.0, &bounds);
+        let series = build_forecast(&scope, &[], 0.0, &StorageCaps::new(), &bounds);
         assert_eq!(series.len(), 1);
         assert!((series[0].current_mt - 50.0).abs() < 1e-9);
     }
@@ -649,7 +725,7 @@ mod tests {
     fn sample_count_constant_is_241() {
         assert_eq!(FORECAST_SAMPLES, 241);
         // Avoid `flat` being flagged as unused.
-        let series = project_stockpile(1.0, 0.0, None);
+        let series = project_stockpile(1.0, 0.0, None, None);
         assert_eq!(flat(&series.samples).len(), 241);
     }
 
@@ -657,12 +733,10 @@ mod tests {
     fn reserve_bounds_propagate_to_series() {
         // 100 Mt at +5 Mt/yr, capped at 130 Mt → hits cap at t=6 yr.
         let mut scope = ScopeInputs::new();
-        scope
-            .resources
-            .insert(ResourceType::Iron, (100.0, 5.0));
+        scope.resources.insert(ResourceType::Iron, (100.0, 5.0));
         let mut bounds = ReserveBounds::new();
         bounds.insert(ResourceType::Iron, 130.0);
-        let series = build_forecast(&scope, &[], 0.0, &bounds);
+        let series = build_forecast(&scope, &[], 0.0, &StorageCaps::new(), &bounds);
         assert_eq!(series.len(), 1);
         assert!(series[0].hits_reserve_cap_at_s.is_some());
         assert!((series[0].reserve_upper_bound_mt.unwrap() - 130.0).abs() < 1e-9);
@@ -678,10 +752,18 @@ mod tests {
             .resources
             .insert(ResourceType::Iron, (0.0, 500.0 / 12.0));
         let bounds = ReserveBounds::new();
-        let series = build_forecast(&scope, &[], 0.0, &bounds);
+        let series = build_forecast(&scope, &[], 0.0, &StorageCaps::new(), &bounds);
         assert_eq!(series.len(), 1);
+        // v3.8.4: the fallback cap now lives in `effective_upper_bound_mt`
+        // (it's neither a storage cap nor a survey reserve).  The
+        // `reserve_upper_bound_mt` field remains `None` because no
+        // survey was provided.
+        assert!(
+            series[0].reserve_upper_bound_mt.is_none(),
+            "no survey was supplied, so reserve_upper_bound_mt must stay None"
+        );
         let cap = series[0]
-            .reserve_upper_bound_mt
+            .effective_upper_bound_mt
             .expect("fallback cap should be set for unsurveyed positive-rate resource");
         // annual_net = 500 Mt/yr, current = 0, horizon = 20 yr, factor = 2
         // expected cap = 0 + 500 × 20 × 2 = 20000 Mt
@@ -716,9 +798,14 @@ mod tests {
             .resources
             .insert(ResourceType::Iron, (39000.0, 1000.0 / 12.0));
         let bounds = ReserveBounds::new();
-        let series = build_forecast(&scope, &[], 0.0, &bounds);
+        let series = build_forecast(&scope, &[], 0.0, &StorageCaps::new(), &bounds);
+        // v3.8.4: fallback cap surfaces in `effective_upper_bound_mt`.
+        assert!(
+            series[0].reserve_upper_bound_mt.is_none(),
+            "no survey was supplied, so reserve_upper_bound_mt must stay None"
+        );
         let cap = series[0]
-            .reserve_upper_bound_mt
+            .effective_upper_bound_mt
             .expect("fallback cap should be set");
         // cap = 39000 + 1000 × 20 × 2 = 79000 Mt
         assert!((cap - 79000.0).abs() < 1e-6);
@@ -742,7 +829,7 @@ mod tests {
             .resources
             .insert(ResourceType::Iron, (1000.0, -50.0 / 12.0));
         let bounds = ReserveBounds::new();
-        let series = build_forecast(&scope, &[], 0.0, &bounds);
+        let series = build_forecast(&scope, &[], 0.0, &StorageCaps::new(), &bounds);
         assert_eq!(series.len(), 1);
         assert!(
             series[0].reserve_upper_bound_mt.is_none(),

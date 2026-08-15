@@ -894,4 +894,68 @@ mod texture_system_tests {
             );
         }
     }
+
+    #[test]
+    fn asteroid_rock_normal_selector_is_deterministic_and_spans_pool() {
+        use crate::plugins::solar_system::pick_asteroid_rock_normal_path;
+        use std::collections::HashSet;
+
+        // The selector must be deterministic: the same name always
+        // returns the same path across calls. Save/load relies on
+        // this to keep asteroid relief stable across runs.
+        for name in ["Ceres", "Vesta", "Psyche", "101955 Bennu", "Itokawa"] {
+            let a = pick_asteroid_rock_normal_path(name);
+            let b = pick_asteroid_rock_normal_path(name);
+            assert_eq!(a, b, "{name} should be deterministic");
+        }
+
+        // The pool has 4 variants (a, b, c, d). Across a broad
+        // sample of real asteroid names, all four must be reached
+        // at least once — otherwise one variant is dead code and
+        // the variety promise breaks.
+        let samples = [
+            "Ceres",
+            "Vesta",
+            "Pallas",
+            "Juno",
+            "Psyche",
+            "Eros",
+            "Itokawa",
+            "Bennu",
+            "Ryugu",
+            "Hygiea",
+            "Mathilde",
+            "Dawn",
+            "Davida",
+            "Interamnia",
+            "Europa",
+            "Ganymede",
+            "Kleopatra",
+            "Lutetia",
+            "Steins",
+            "Annefrank",
+        ];
+        let mut seen: HashSet<&'static str> = HashSet::new();
+        for name in samples {
+            seen.insert(pick_asteroid_rock_normal_path(name));
+        }
+        assert_eq!(
+            seen.len(),
+            4,
+            "all 4 normal-map variants should be reached across the sample, got {seen:?}"
+        );
+
+        // Every returned path must live under the asteroid texture
+        // directory. This guards against typos in the const pool.
+        for path in &seen {
+            assert!(
+                path.starts_with("textures/celestial/asteroids/"),
+                "selector returned out-of-tree path: {path}"
+            );
+            assert!(
+                path.contains("_normal_") && path.ends_with("_2k.png"),
+                "selector returned malformed path: {path}"
+            );
+        }
+    }
 }

@@ -93,7 +93,7 @@ fn draw_global_controls(ui: &mut egui::Ui, settings: &mut NotificationSettings) 
     ui.label(
         egui::RichText::new("Global")
             .font(theme::heading())
-            .color(theme::ACCENT),
+            .color(theme::CYAN),
     );
 
     ui.checkbox(&mut settings.global_enabled, "Enable notifications");
@@ -134,7 +134,7 @@ fn draw_per_category(
     ui.label(
         egui::RichText::new("Per category")
             .font(theme::heading())
-            .color(theme::ACCENT),
+            .color(theme::CYAN),
     );
 
     // Stable sort by display_name so the panel is deterministic across

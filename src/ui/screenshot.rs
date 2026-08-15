@@ -34,10 +34,9 @@
 //!
 //! ## Why `Shift+F12`
 //!
-//! F1–F11 are bound to menu switches in `src/ui/mod.rs:786-796`; bare
+//! F1–F11 are bound to menu switches in `src/ui/mod.rs`; bare
 //! F12 is the construction/research debug toggle in
-//! `src/ui/research_panel.rs:129` and
-//! `src/ui/construction_panel.rs:461`. `Shift+F12` is the only clean
+//! `src/ui/research_panel.rs`. `Shift+F12` is the only clean
 //! slot in that family.
 
 use bevy::prelude::*;
@@ -69,8 +68,16 @@ impl Plugin for ScreenshotPlugin {
         app.init_resource::<ScreenshotSlots>()
             .init_resource::<PendingScreenshotAction>()
             .init_resource::<PendingSaveThumbnail>()
-            // Live keybind runs in egui pass so the context is available.
-            .add_systems(EguiPrimaryContextPass, screenshot_keybind_system);
+            // In-game keybind (Shift+F12) — dispatches on ActiveMenu so
+            // the file lands under the active menu's slot name.
+            .add_systems(EguiPrimaryContextPass, screenshot_keybind_system)
+            // Launch / menu keybind. The main menu lives outside the
+            // in-game `GameMenu` enum, so the in-game handler cannot
+            // route a capture to `main_menu.png` on its own. The launch
+            // handler covers `LaunchState::MainMenu / NewGame /
+            // LoadGame / Settings / SaveGame` and routes them to the
+            // matching slot.
+            .add_systems(EguiPrimaryContextPass, launch_screenshot_keybind_system);
         // Capture pump is `#[cfg(not(test))]` — it spawns Bevy 0.18
         // `Screenshot` observers. Tests don't build a renderer, so
         // there is nothing to drain.
@@ -83,11 +90,16 @@ impl Plugin for ScreenshotPlugin {
 // Systems
 // ---------------------------------------------------------------------------
 
-/// Watch for `Shift+F12` and enqueue a capture targeting the current slot.
+/// Watch for `Shift+F12` and enqueue a capture targeting the active
+/// menu's slot. If the active menu has no mapped slot (e.g. an
+/// in-game subview, or a context where the main menu is hidden by a
+/// modal), fall back to the cursor's current slot so the operator
+/// still gets a file — just named whatever was next in the round-robin.
 fn screenshot_keybind_system(
     mut contexts: EguiContexts,
     mut pending: ResMut<PendingScreenshotAction>,
     mut slots: ResMut<ScreenshotSlots>,
+    active_menu: Option<Res<crate::game_state::ActiveMenu>>,
 ) {
     let Ok(ctx) = contexts.ctx_mut() else {
         return;
@@ -97,6 +109,81 @@ fn screenshot_keybind_system(
 
     if !triggered {
         return;
+    }
+
+    // Pick the slot from the active menu when one is mapped. The
+    // audit runbook documents a deterministic order, but the helper
+    // also makes ad-hoc re-shoots trivial: open the menu, press
+    // Shift+F12, the file lands under that menu's name.
+    if let Some(active_menu) = active_menu.as_deref() {
+        if let Some(slot) = ScreenshotSlots::slot_for_active_menu(active_menu.current) {
+            if let Some(idx) = slots.index_of(slot) {
+                slots.set_current(idx);
+            }
+        }
+    }
+
+    let slot_name = slots.current_name().to_owned();
+    let out_path = slots.out_dir.join(format!("{slot_name}.png"));
+    pending.enqueue(QueuedCapture {
+        slot_name,
+        out_path,
+    });
+    slots.advance();
+}
+
+/// Watch for `Shift+F12` in the launch / main-menu state machine and
+/// enqueue a capture targeting the active launch state's slot.
+///
+/// This is the launch-side counterpart of [`screenshot_keybind_system`].
+/// The in-game handler dispatches on `ActiveMenu`, but the main menu
+/// lives in the separate `LaunchState` resource, so the audit runbook
+/// needs this system to produce `main_menu.png`. The same handler also
+/// covers the NewGame / LoadGame / Settings subviews so the operator
+/// can audit subviews without leaving the launch state machine.
+///
+/// Slot mapping:
+///   `MainMenu`   → `main_menu`
+///   `NewGame`    → `new_game_subview`
+///   `LoadGame`   → `load_game_subview`
+///   `Settings`   → `settings_subview`
+///   `SaveGame`   → `save_subview`
+///   `InGame`     → no-op (in-game handler covers this)
+fn launch_screenshot_keybind_system(
+    keyboard_input: Res<ButtonInput<KeyCode>>,
+    launch_state: Res<super::launch::LaunchState>,
+    mut pending: ResMut<PendingScreenshotAction>,
+    mut slots: ResMut<ScreenshotSlots>,
+) {
+    // Raw `just_pressed(Shift+F12)` works in every launch state without
+    // needing a text-field focus check; the egui path through
+    // `EguiContexts` would be tripped by an in-flight TextField (e.g.
+    // a partially-typed save name in the Save panel).
+    let shift_held =
+        keyboard_input.pressed(KeyCode::ShiftLeft) || keyboard_input.pressed(KeyCode::ShiftRight);
+    if !shift_held || !keyboard_input.just_pressed(KeyCode::F12) {
+        return;
+    }
+
+    let slot = match *launch_state {
+        super::launch::LaunchState::MainMenu => "main_menu",
+        super::launch::LaunchState::NewGame => "new_game_subview",
+        super::launch::LaunchState::LoadGame => "load_game_subview",
+        super::launch::LaunchState::Settings => "settings_subview",
+        super::launch::LaunchState::SaveGame => "save_subview",
+        // In-game is handled by `screenshot_keybind_system`; the
+        // operator does not need a duplicate capture from this
+        // handler. Stay quiet to avoid a double-fire.
+        super::launch::LaunchState::InGame => return,
+    };
+
+    if let Some(idx) = slots.index_of(slot) {
+        slots.set_current(idx);
+    } else {
+        // Slot wasn't found in the operator's custom list — fall back
+        // to the round-robin cursor. The operator can re-shoot this
+        // subview later by editing `assets/data/ui/screenshot_slots.ron`
+        // or by re-running the audit with a fresh default.
     }
 
     let slot_name = slots.current_name().to_owned();

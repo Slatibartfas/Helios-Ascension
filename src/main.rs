@@ -31,6 +31,7 @@ use fleets::FleetPlugin;
 use game_state::GameStatePlugin;
 use persistence::{GameSetupPlugin, PersistencePlugin, SaveLoadPlugin};
 use personnel::PersonnelPlugin;
+use plugins::window_constants::{MIN_WINDOW_HEIGHT, MIN_WINDOW_WIDTH};
 use plugins::{
     atmosphere::AtmospherePlugin, camera::CameraPlugin, music::MusicPlugin,
     solar_system::SolarSystemPlugin, starmap::StarmapPlugin,
@@ -43,13 +44,6 @@ use shipbuilding::ShipbuildingPlugin;
 use survey::SurveyPlugin;
 use ui::launch::SplashPlugin;
 use ui::UIPlugin;
-
-/// Minimum supported window dimensions for the main game.
-///
-/// The UI is now responsive enough to remain usable below 1080p, which
-/// avoids forcing oversized swap chains on smaller Windows displays.
-const MIN_WINDOW_WIDTH: f32 = 1280.0;
-const MIN_WINDOW_HEIGHT: f32 = 720.0;
 
 /// Entry point: build the game app and run it. The splash lives
 /// inside the same Bevy app as the main game (see
@@ -105,10 +99,15 @@ fn build_game_app() -> App {
                     },
                     ..default()
                 }),
-                // The dismissed splash window remains hidden until shutdown so
-                // Windows can deliver its final native events while Bevy still
-                // owns the WindowId mapping. Closing the primary window should
-                // therefore end the app even though that hidden window exists.
+                // The splash window stays alive (hidden) until app
+                // exit so Bevy's WindowPlugin can retain its
+                // window→entity mapping without orphaning
+                // `SplashWindowEntity`. Closing the primary window
+                // therefore ends the app even though that hidden
+                // window exists. See `cleanup_dismissed_splash` in
+                // `src/ui/launch/splash.rs` for the live-surface
+                // mitigation that drops the splash's
+                // `RawHandleWrapper` on dismissal.
                 exit_condition: ExitCondition::OnPrimaryClosed,
                 ..default()
             })

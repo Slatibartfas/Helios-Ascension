@@ -2,12 +2,12 @@
 
 This document is the source of truth for Helios Ascension's *layout-level*
 UI patterns. It complements `docs/UI.md` (design tokens, per-panel anatomy,
-contribution rules) by codifying the four canonical *layout shells* every
+contribution rules) by codifying the five canonical *layout shells* every
 panel composes from, and mapping every current panel to one of them.
 
 > **Why a separate doc?** `docs/UI.md` §2 codifies *components* (frames,
 > tokens, builders). §3 codifies *panels* (per-domain anatomy). Neither
-> captures the *layout shells* that panels share — the four recurring
+> captures the *layout shells* that panels share — the five recurring
 > skeletons we keep re-implementing. The v1 UI harmonization chain
 > (GRA-53..GRA-59) closed clean at `32a8365a` and standardised tokens;
 > this doc standardises the *shells* so v2 work (GRA-66..GRA-72) has a
@@ -23,7 +23,7 @@ panel composes from, and mapping every current panel to one of them.
 
 Helios Ascension has a mixed UI stack (egui 0.33 for most panels, native
 Bevy UI 0.18 for the Shipbuilding workspace — see `docs/UI.md` §1).
-Every panel — egui or Bevy UI — is built from one or more of the four
+Every panel — egui or Bevy UI — is built from one or more of the five
 **canonical layout patterns** below.
 
 | # | Pattern | Stack | Reference implementation |
@@ -31,13 +31,16 @@ Every panel — egui or Bevy UI — is built from one or more of the four
 | 1 | Top menu bar | egui | `src/ui/mod.rs:610-896` (`ui_top_menu_bar`) |
 | 2 | Right-side ledger | egui | `src/ui/dossier_panel.rs` (`ui_planet_dossier`) |
 | 3 | Tabbed workspace (3 panes) | Bevy UI | `src/ui/shipbuilding_workspace.rs:1241-1296` (`populate_tab_strip`) |
-| 4 | In-panel sub-tab strip | egui | `src/ui/construction_panel.rs:760-776` (`theme::tab_strip<ConstructionTab>` call site) |
+| 4 | In-panel sub-tab strip | egui **and** Bevy UI | egui call site is the `theme::tab_strip<T>` helper (used by `src/ui/research_panel.rs` + `src/ui/economy_panel.rs`); Bevy call site is `widgets::ActiveTabs<T>` + `widgets::tick_active_tab_body_visibility` (used by Construction — see `src/ui/construction/`) |
+| 5 | Raised card grid + hover elevation | Bevy UI | `src/ui/widgets.rs` (`CardShell*`, `HoverElevation`, `tick_ui_hover_elevation`) + `src/ui/construction/cards.rs` (the six concrete spawn sites) |
 
 Panels can compose multiple patterns. The Shipbuilding workspace is
-*Pattern 3 + Pattern 4*. The Construction menu is *Pattern 4 + the
-8-`BuildingCategory` strip (a Pattern 4 sub-instance)*. The Main Menu
-is a *full-screen modal* built on `theme::central_frame()` and Pattern 2's
-ledger — it does not introduce a fifth pattern.
+*Pattern 3 + Pattern 4* (Bevy mirror). The Construction menu is
+*Pattern 4 (Bevy mirror) + Pattern 5 (the card grid) + a nested P4
+sub-instance (the 8-`BuildingCategory` strip) — all built on the
+menu-agnostic primitive library in `src/ui/widgets.rs`*. The Main Menu
+is a *full-screen modal* built on `theme::central_frame()` and
+Pattern 2's ledger — it does not introduce a pattern of its own.
 
 ## 2. Pattern 1 — Top menu bar (egui)
 
@@ -267,7 +270,7 @@ collapse bespoke implementations onto the patterns above.
 | Survey             | `src/ui/dashboard.rs` (system view) | P1 + (none) | — | mostly tokens |
 | Starmap            | `src/ui/dashboard.rs` (starmap view) | P1 + (none) | — | mostly tokens |
 | Main               | `src/ui/dashboard.rs` (main menu overlay) | P2 + modal | — | tokens; menu is a single ledger |
-| Construction       | `src/ui/construction_panel.rs:24` (`ConstructionTab` enum) | P4 + P4 (nested) | C (GRA-68) | bespoke `ConstructionTab` + `BuildFilter` |
+| Construction       | `src/ui/construction/mod.rs:1` (`ConstructionTab` enum, refactored out of the 11 865-LOC legacy `src/ui/construction.rs` in commit `6e9e8f4` — the file was split into the `construction/` directory and the migration to bevy_ui landed in `4794803`) | P4 (Bevy mirror) + P5 + nested P4 (Bevy mirror) | C (GRA-68) **+** v0.5.2 reworked canary (commit `4794803`) | v0.5.2: `widgets::ActiveTabs<ConstructionTab>` + nested `widgets::ActiveTabs<BuildingCategory>`, built entirely from the `widgets` library primitives |
 | Research           | `src/ui/research_panel.rs:1568-1574` (P4 categories strip) + `src/ui/tech_tree.rs:233-300` (Archive tab category grouping) | P4 (categories) | D (GRA-69) | PR #127 replaced the inline category loop with `theme::tab_strip<TechCategory>` and the shipbuilding `Color::srgb(...)` literals with `theme::Color` |
 | Fleets             | `src/ui/fleets_panel.rs:286` (`ui_fleets_panel`) | P1 (only) | — | flat list, no sub-tabs; company-filter chip |
 | Shipbuilding       | `src/ui/shipbuilding_workspace.rs:1241-1296` (`populate_tab_strip`, Bevy UI) | P3 + P4 (mirror) | D + E (GRA-69 + GRA-70) | PR #127 replaced the `Color::srgb(...)` literals with `theme::Color`; PR #128 (GRA-70) consolidated the 3-pane shell |
@@ -294,7 +297,7 @@ collapse bespoke implementations onto the patterns above.
 | --- | ----- | -------------------------------- | --------------- |
 | A   | GRA-66 (this doc) | (doc only) | `docs/UI_LAYOUT_PATTERNS.md` |
 | B   | GRA-67 (Coder) | `theme::tab_strip<T>`, `theme::section_h1/h2/h3`, `theme::ledger_panel<T>`, `theme::tab_strip_bevy` + `Tab` trait + `theme::Color` (Bevy mirror) | `src/ui/theme.rs` (+~200 lines), `src/ui/tab.rs` (new, ~50 lines) |
-| C   | GRA-68 (Coder) | replace `construction_panel.rs:760-776` bespoke strip with `theme::tab_strip<ConstructionTab>`; collapse `selected_build_tab: usize` + `BuildFilter` into a single primitive | `src/ui/construction_panel.rs` (-~100 lines net) |
+| C   | GRA-68 (Coder) — **superseded by v0.5.2 rework** | Original ask: replace the legacy `src/ui/construction.rs` bespoke strip with `theme::tab_strip<ConstructionTab>` and collapse `selected_build_tab: usize` + `BuildFilter` into a single primitive. The v0.5.2 rework landed in commit `4794803` and bypassed the egui route entirely — the panel was migrated to native Bevy UI with `widgets::ActiveTabs<ConstructionTab>` and the `construction.rs` monolith was split into the `src/ui/construction/` directory (commit `6e9e8f4`). | `src/ui/construction/` directory (15 files; `-11.8k` LOC versus the original monolith) |
 | D   | GRA-69 (Coder) | replace `research_panel.rs:1568-1574` category loop with `theme::tab_strip<TechCategory>`; share the strip in Archive (the Archive tab category grouping in `tech_tree.rs:233-300`); shipbuilding `Color::srgb(...)` literals at `populate_tab_strip` (L1241-1296) replaced with `theme::Color` | `src/ui/research_panel.rs` (-~50 lines), `src/ui/shipbuilding_workspace.rs` (no semantic change) |
 | E   | GRA-70 (Coder) | parameterise the 3-pane shell as `WorkspaceShell { tabs_root, library_root, canvas_root, analytics_root }`; apply `theme::section_h1` headers | `src/ui/shipbuilding_workspace.rs` (largest PR, ~1.5 d) |
 | F   | GRA-71 (Coder) | 7-way `theme::tab_strip<EconomyTab>`; `theme::ledger_panel<T>` for the Colonies tab + (demonstration) Construction Overview | `src/ui/economy_panel.rs` (~1 d) |
@@ -307,16 +310,18 @@ When a new `GameMenu` variant lands (e.g. Personnel, Intel, Diplomacy):
 1. Open the *top menu bar* slot via the `GameMenu::all()` order in
    `src/game_state.rs:75-89`. Add the icon asset under
    `assets/textures/ui/menu/<name>.png`. Pattern 1.
-2. Pick a primary pattern from the four above. Default to P2 (ledger)
+2. Pick a primary pattern from the five below. Default to P2 (ledger)
    for read-only information; default to P4 (sub-tab strip) for
    multi-view interactions; default to P3 (tabbed workspace) only if
-   the panel is a *design* surface (hull/module/template editing).
+   the panel is a *design* surface (hull/module/template editing);
+   default to P5 (raised card grid) for browse-heavy catalogues
+   (buildings, modules, ships).
 3. Use `theme::*` tokens for every colour, frame, spacing, label, and
    value. The CI lint at `scripts/audit_color32_literals.py` (added in
    GRA-58) blocks hardcoded `Color32::from_rgb` outside `theme.rs`; the
    corresponding `scripts/audit_bevy_color_literals.py` is added in
    PR-B alongside the `theme::Color` mirror.
-4. If a layout need does not fit the four patterns, propose a *fifth*
+4. If a layout need does not fit the five patterns, propose a *sixth*
    pattern in this doc first; do not introduce a one-off shell.
 5. Map the new panel into the table in §6 before opening the PR.
 
@@ -342,6 +347,83 @@ four patterns apply. Some open questions to answer before then:
 These are not blockers for the v2 chain; they are notes for the next
 chain.
 
+## 10. Pattern 5 — Raised card grid with hover elevation (Bevy UI 0.18)
+
+The card grid behind the Construction canary's Build / Mining / Buildings
+tabs (`src/ui/construction/cards.rs` + the rest of the `src/ui/construction/`
+directory), and the canonical home of the shared
+`widgets::HoverElevation` widget (v0.5.3, 2026-08-10). Any future bevy_ui
+menu with card surfaces composes this pattern instead of hand-rolling
+per-menu hover systems.
+
+### 10.1 Skeleton
+
+```text
+┌─ Overview │ Buildings │ Build │ Mining ───────┐  ← P4 sub-tab strip (Bevy mirror)
+├───────────────────────────────────────────────┤
+│  ┌─────────────────────┐ ┌───────────────────┐ │
+│  │ 320×320 raised card │ │ 320×320 card      │ │  ← flex-wrap row grid
+│  │ [icon] Title        │ │ ...               │ │     (NOT CSS Grid)
+│  │ subtitle            │ │                   │ │
+│  │ BP | COST  ───────  │ │                   │ │
+│  │ [power chip]        │ │                   │ │
+│  │ ⚙ cost rows         │ │                   │ │
+│  │ [Queue CTA]         │ │                   │ │
+│  └─────────────────────┘ └───────────────────┘ │
+└───────────────────────────────────────────────┘
+```
+
+### 10.2 Layout contract
+
+- **Grid container:** `Display::Flex` + `FlexWrap::Wrap` (NOT CSS Grid —
+  Bevy 0.18 grid sizing produced single-pixel-tall rows combined with
+  `flex_grow: 1.0` + `Overflow::scroll_y()`; see the comment at
+  `construction/cards.rs:5108` — the line-numbered note was carried
+  over from the legacy `src/ui/construction.rs` monolith before the
+  v0.5.2 split). `min_height: 0` on the grid **and** on every
+  flex wrapper between it and the scroll root — without it a tall child
+  grows the container instead of the inner scrollable overflowing (the
+  "scrollbar thumb hides / wheel dead" trap, fixed in `b20ebd0`).
+- **Cards:** fixed `width`/`height` (e.g. `320 × 320`), `flex_shrink: 0`
+  so a narrow viewport never crushes them, `Overflow::clip()` on the
+  card node, `border_radius` matching the theme.
+- **Static 3D chrome (dark-on-dark contrast rule):** the card fill must
+  be visibly *brighter* than the panel behind it — `CARD_BG`
+  `(0.045, 0.110, 0.210)` vs the construction backdrop
+  `(0.012, 0.024, 0.047)`. A black drop shadow is only visible when it
+  has a *spread* or *contact* layer: use the canonical
+  `widgets::card_shadow()` pair (tight 1-px-spread contact shadow +
+  soft wide cast). A single low-alpha `(0,0,0,0.45)` shadow with no
+  spread vanishes into a near-black panel (the pre-v0.5.3 flat-card bug).
+- **Interactive elevation:** every pickable card carries
+  `widgets::HoverElevation` (`hover_scale 1.02`, `press_scale 0.98`,
+  `border_hover` full `CYAN`, `bg_hover` `CARD_BG_HOVER`, deeper shadow,
+  `z_lift: true`). The shared `widgets::tick_ui_hover_elevation` system
+  (registered once in `UIPlugin::build`, `src/ui/mod.rs`) applies it:
+  scale + border + background + shadow + `ZIndex` lift on hover, restore
+  on mouse-out. **Ownership rule:** border/bg/shadow are only managed
+  when the base *and* hover values are both set — set the base to the
+  spawn-time rest value so restore doesn't flash.
+- **Hover scale uses `UiTransform` (Vec2), not `Transform` (Vec3).**
+  Bevy 0.18 UI scale/translation is applied through `UiTransform` (a
+  required component of `Node`); writing `Transform` on a UI node is
+  clobbered by the layout system.
+
+### 10.3 What *not* to do
+
+- Do not reintroduce CSS Grid for card grids (the `RepeatedGridTrack`
+  path) until Bevy's grid + `flex_grow` + `Overflow::scroll_y` sizing
+  is verified in this codebase.
+- Do not write a per-menu hover system — insert `HoverElevation` and let
+  the shared system run. Do not put a `Transform`-based scale on UI
+  nodes (see above).
+- Do not drop the `Overflow::clip()` + fixed-height card cap; content
+  that outgrows the card must scroll via the marquee or a clipped body,
+  not by growing the card (flex-wrap row heights take the tallest card —
+  mixed heights leave visible gaps).
+- Do not author `BoxShadow` literals with no spread at low alpha on dark
+  panels; use `widgets::card_shadow()` / `card_shadow_hover()`.
+
 ---
 
 *Document author:* CTO `d46efd74-4de0-46e6-92f9-28c2de107111`
@@ -350,7 +432,10 @@ chain.
 *Anchor refresh:* 2026-06-12 (post-v2-UI chain landing). Authored by
 LGD `8b113021-…` on branch `lgd/gra-95-96-97-ui-layout-anchor-bundle`.
 Covers issues GRA-95 (wrong-context + 4 off-by-ones), GRA-96
-(`construction_panel.rs:697-719` wrong-context), and GRA-97 (3
+(legacy `src/ui/construction.rs:697-719` wrong-context — the file was
+split into `src/ui/construction/` in commit `6e9e8f4`; the
+wrong-context code moved into `src/ui/construction/cards.rs` /
+`src/ui/construction/setup.rs` after the split), and GRA-97 (3
 additional wrong-contexts + 2 off-by-ones).
 *Supersedes:* the v1 plan's deferred layout-level work (per
 `issue_comments.id=2ed30e26-…` and `df13b1ae-…` operator answer

@@ -315,8 +315,8 @@ fn severity_palette(severity: NotificationSeverity) -> (egui::Color32, egui::Col
     // mirror module exposes `bevy::prelude::Color`. Toast panel
     // uses egui throughout, so stick with the Color32 family.
     match severity {
-        NotificationSeverity::Info => (theme::ACCENT, theme::TEXT),
-        NotificationSeverity::Notice => (theme::ACCENT, theme::TEXT),
+        NotificationSeverity::Info => (theme::CYAN, theme::TEXT),
+        NotificationSeverity::Notice => (theme::CYAN, theme::TEXT),
         NotificationSeverity::Warning => (theme::STATUS_WARN, theme::TEXT),
         NotificationSeverity::Critical => (theme::STATUS_ERROR, theme::TEXT),
     }

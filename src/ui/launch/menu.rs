@@ -213,7 +213,7 @@ fn render_menu_body(
                 ui.label(
                     egui::RichText::new("HELIOS ASCENSION")
                         .font(theme::title())
-                        .color(theme::ACCENT),
+                        .color(theme::CYAN),
                 );
                 ui.add_space(theme::Spacing::xs);
                 ui.label(theme::caption("EARTH · SECTOR SOL"));
@@ -456,7 +456,7 @@ pub fn render_glass_button(
             painter.rect_stroke(
                 painted_rect,
                 MENU_GLASS_CORNER_RADIUS,
-                egui::Stroke::new(1.5_f32, theme::ACCENT),
+                egui::Stroke::new(1.5_f32, theme::CYAN),
                 egui::StrokeKind::Inside,
             );
         } else {
@@ -471,7 +471,7 @@ pub fn render_glass_button(
 
         // ── Label (centre-left) ─────────────────────────────────────
         let label_color = if hover_t > 0.5 {
-            theme::ACCENT
+            theme::CYAN
         } else {
             theme::TEXT
         };
@@ -497,7 +497,7 @@ pub fn render_glass_button(
             egui::Align2::RIGHT_CENTER,
             shortcut,
             theme::mono(10.0),
-            theme::ACCENT,
+            theme::CYAN,
         );
     } else {
         // Disabled: opaque dim surface so the player sees why Continue

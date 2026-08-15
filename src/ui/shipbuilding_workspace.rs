@@ -7,12 +7,18 @@ use bevy::window::PrimaryWindow;
 
 use super::dashboard::format_mass_compact_tonnes;
 use super::shipbuilding_state::{ShipbuildingTab, ShipbuildingUiState};
-use super::shipbuilding_tooltip::{
+// Phase 12A: shipbuilding_tooltip.rs was deleted; types are inlined
+// in the `shipbuilding_tooltip_inlined` module at the bottom of this
+// file.
+use self::shipbuilding_tooltip_inlined::{
     build_module_tooltip, build_slot_tooltip, format_shipbuilding_resource_cost_lines,
     prettify_slot_name, ShipbuildingTooltipContent, ShipbuildingTooltipEntry,
     ShipbuildingTooltipTone,
 };
 use super::theme;
+// v0.5.2 (2026-08-06): shared bevy_ui widgets — the chrome top
+// offset const + the scrollable-container helper.
+use super::widgets::{spawn_scrollable_container_child, UI_CHROME_TOP_PX};
 use crate::colony::{BuildingType, Colony};
 use crate::economy::components::LocalStockpile;
 use crate::economy::GlobalBudget;
@@ -369,7 +375,9 @@ fn spawn_shipbuilding_workspace(mut commands: Commands) {
                 position_type: PositionType::Absolute,
                 left: Val::Px(0.0),
                 right: Val::Px(0.0),
-                top: Val::Px(126.0),
+                // v0.5.2 (2026-08-06): shared chrome-top-offset const —
+                // the Construction canary uses the same 126 px.
+                top: Val::Px(UI_CHROME_TOP_PX),
                 bottom: Val::Px(42.0),
                 display: Display::None,
                 flex_direction: FlexDirection::Column,
@@ -1316,7 +1324,7 @@ fn populate_tab_strip(commands: &mut Commands, shell: WorkspaceShell, active_tab
                     theme::Color::TAB_INACTIVE_BG
                 }),
                 BorderColor::all(if selected {
-                    theme::Color::ACCENT
+                    theme::Color::CYAN
                 } else {
                     theme::Color::TAB_INACTIVE_BORDER
                 }),
@@ -1994,7 +2002,7 @@ fn populate_analytics_panel(
                 preview.delta_v_ms,
                 gauge_capacity(summary.delta_v_ms, preview.delta_v_ms, 100.0),
                 "m/s",
-                theme::Color::ACCENT,
+                theme::Color::CYAN,
             );
             spawn_analytics_gauge(
                 parent,
@@ -2034,7 +2042,7 @@ fn populate_analytics_panel(
                 preview.power_balance_mw(),
                 gauge_capacity(summary.power_balance_mw(), preview.power_balance_mw(), 5.0),
                 "MW",
-                theme::Color::ACCENT,
+                theme::Color::CYAN,
             );
             spawn_analytics_gauge(
                 parent,
@@ -2118,7 +2126,7 @@ fn populate_analytics_panel(
                         "GEN",
                         format!("{:.1} MW", summary.power_generation_mw),
                         format_delta(preview.power_generation_mw - summary.power_generation_mw, 1),
-                        theme::Color::ACCENT,
+                        theme::Color::CYAN,
                     ),
                     (
                         "LOAD",
@@ -3419,7 +3427,7 @@ fn dropdown_toggle_button(label: String, open: bool) -> impl Bundle {
         },
         BackgroundColor(theme::Color::SURFACE_DEEP),
         BorderColor::all(if open {
-            theme::Color::ACCENT
+            theme::Color::CYAN
         } else {
             theme::Color::ACCENT_CYAN_DIM_2
         }),
@@ -3449,7 +3457,7 @@ fn hull_option_button(hull_id: String, label: String, selected: bool) -> impl Bu
             theme::Color::TAB_INACTIVE_BG
         }),
         BorderColor::all(if selected {
-            theme::Color::ACCENT
+            theme::Color::CYAN
         } else {
             theme::Color::TAB_INACTIVE_BORDER
         }),
@@ -3703,7 +3711,7 @@ fn populate_archive_tab_native(
                     theme::Color::SURFACE_SLOT_BASE
                 }),
                 BorderColor::all(if selected {
-                    theme::Color::ACCENT
+                    theme::Color::CYAN
                 } else {
                     theme::Color::MINE_BAND_NONE
                 }),
@@ -3773,7 +3781,7 @@ fn populate_archive_tab_native(
                 "Open In Designer",
                 row.template_id,
                 ShipbuildingArchiveAction::Open,
-                theme::Color::ACCENT,
+                theme::Color::CYAN,
             );
             spawn_archive_action_button(
                 row_buttons,
@@ -3847,7 +3855,7 @@ fn populate_archive_tab_native(
                     theme::Color::SURFACE_SLOT_BASE
                 }),
                 BorderColor::all(if selected {
-                    theme::Color::ACCENT
+                    theme::Color::CYAN
                 } else {
                     theme::Color::MINE_BAND_NONE
                 }),
@@ -3873,7 +3881,7 @@ fn populate_archive_tab_native(
                 row.summary.delta_v_ms,
                 gauge_capacity(row.summary.delta_v_ms, row.summary.delta_v_ms, 100.0),
                 "m/s",
-                theme::Color::ACCENT,
+                theme::Color::CYAN,
             );
             spawn_analytics_gauge(
                 parent,
@@ -4027,7 +4035,7 @@ fn populate_construction_tab_native(
                     theme::Color::SURFACE_SLOT_BASE
                 }),
                 BorderColor::all(if selected {
-                    theme::Color::ACCENT
+                    theme::Color::CYAN
                 } else {
                     theme::Color::MINE_BAND_NONE
                 }),
@@ -4066,7 +4074,7 @@ fn populate_construction_tab_native(
                 theme::Color::SURFACE_SLOT_BASE
             }),
             BorderColor::all(if ui_state.construction_target_fleet.is_none() {
-                theme::Color::ACCENT
+                theme::Color::CYAN
             } else {
                 theme::Color::MINE_BAND_NONE
             }),
@@ -4098,7 +4106,7 @@ fn populate_construction_tab_native(
                     theme::Color::SURFACE_SLOT_BASE
                 }),
                 BorderColor::all(if selected {
-                    theme::Color::ACCENT
+                    theme::Color::CYAN
                 } else {
                     theme::Color::MINE_BAND_NONE
                 }),
@@ -4145,7 +4153,7 @@ fn populate_construction_tab_native(
                     theme::Color::SURFACE_SLOT_BASE
                 }),
                 BorderColor::all(if selected {
-                    theme::Color::ACCENT
+                    theme::Color::CYAN
                 } else {
                     theme::Color::MINE_BAND_NONE
                 }),
@@ -4395,17 +4403,11 @@ fn populate_components_tab_native(
             theme::Color::CHIP_TEXT_BODY,
         ));
 
-        parent
-            .spawn((Node {
-                width: Val::Percent(100.0),
-                flex_grow: 1.0,
-                min_height: Val::Px(0.0),
-                flex_direction: FlexDirection::Column,
-                row_gap: Val::Px(4.0),
-                overflow: Overflow::scroll_y(),
-                ..default()
-            },))
-            .with_children(|list| {
+        // v0.5.2 (2026-08-06): shared scrollable-container helper
+        // (the `min_height: 0` + `flex_grow: 1` + `scroll_y` trio
+        // from `widgets::spawn_scrollable_container_child`).
+        spawn_scrollable_container_child(parent, "component_database_scroll", 4.0, ())
+            .with_children(|rows| {
                 for module in modules {
                     let selected = selected_module
                         .is_some_and(|selected_module| selected_module.id == module.id);
@@ -4429,7 +4431,7 @@ fn populate_components_tab_native(
                         theme::Color::SURFACE_BLACK
                     };
                     let row_border = if selected {
-                        theme::Color::ACCENT
+                        theme::Color::CYAN
                     } else if engineering_complete {
                         theme::Color::MINE_BAND_NONE
                     } else {
@@ -4442,7 +4444,7 @@ fn populate_components_tab_native(
                     } else {
                         theme::Color::TEXT_MEDIUM_DIM
                     };
-                    list.spawn((
+                    rows.spawn((
                         Button,
                         ShipbuildingComponentDatabaseButton {
                             module_id: module.id.clone(),
@@ -4603,7 +4605,7 @@ fn populate_components_tab_native(
                     1.0,
                 ),
                 "MW",
-                theme::Color::ACCENT,
+                theme::Color::CYAN,
             );
             spawn_analytics_chip_row(
                 parent,
@@ -5455,3 +5457,509 @@ mod keyboard_navigation_tests {
         assert_eq!(next.as_deref(), Some("drive_main"));
     }
 }
+
+// =========================================================================
+// Inlined from src/ui/shipbuilding_tooltip.rs (Phase 12A: deleted).
+// Pure relocation: no behavior change. A future refactor can re-target
+// the types to widgets::TooltipContent / TooltipTone directly.
+// =========================================================================
+
+use super::dashboard;
+
+#[allow(dead_code)]
+pub(in crate::ui) mod shipbuilding_tooltip_inlined {
+    use super::dashboard::format_mass_compact;
+    use crate::economy::ResourceType;
+    use crate::shipbuilding::{HullSlotDefinition, ShipModuleDefinition};
+
+    #[derive(Clone, Copy)]
+    pub(super) enum ShipbuildingTooltipTone {
+        Neutral,
+        Positive,
+        Warning,
+        Negative,
+        Accent,
+        Muted,
+    }
+
+    pub(super) enum ShipbuildingTooltipEntry {
+        Paragraph(String),
+        Stat {
+            label: String,
+            value: String,
+            tone: ShipbuildingTooltipTone,
+        },
+        Spacer,
+    }
+
+    pub(super) struct ShipbuildingTooltipContent {
+        pub title: String,
+        pub entries: Vec<ShipbuildingTooltipEntry>,
+    }
+
+    pub(super) fn build_module_tooltip(
+        module: &ShipModuleDefinition,
+        slot: Option<&HullSlotDefinition>,
+    ) -> ShipbuildingTooltipContent {
+        let mut entries = Vec::new();
+
+        if !module.description.is_empty() {
+            entries.push(ShipbuildingTooltipEntry::Paragraph(
+                module.description.clone(),
+            ));
+            entries.push(ShipbuildingTooltipEntry::Spacer);
+        }
+
+        push_stat(
+            &mut entries,
+            "Category",
+            module.category.display_name().to_string(),
+            ShipbuildingTooltipTone::Accent,
+        );
+        push_stat(
+            &mut entries,
+            "Size",
+            module.size.clone(),
+            ShipbuildingTooltipTone::Neutral,
+        );
+
+        if let Some(slot) = slot {
+            push_stat(
+                &mut entries,
+                "Slot",
+                format!(
+                    "{} ({})",
+                    prettify_slot_name(&slot.slot_id),
+                    if slot.required {
+                        "required"
+                    } else {
+                        "optional"
+                    }
+                ),
+                ShipbuildingTooltipTone::Muted,
+            );
+        }
+
+        entries.push(ShipbuildingTooltipEntry::Spacer);
+        entries.extend(module_stat_lines(module));
+
+        ShipbuildingTooltipContent {
+            title: module.display_name.clone(),
+            entries,
+        }
+    }
+
+    pub(super) fn build_slot_tooltip(
+        slot: &HullSlotDefinition,
+        installed_module: Option<&ShipModuleDefinition>,
+        compatible_modules: &[&ShipModuleDefinition],
+    ) -> ShipbuildingTooltipContent {
+        let mut entries = Vec::new();
+
+        push_stat(
+            &mut entries,
+            "Category",
+            slot.category.display_name().to_string(),
+            ShipbuildingTooltipTone::Accent,
+        );
+        push_stat(
+            &mut entries,
+            "Size",
+            slot.size.clone(),
+            ShipbuildingTooltipTone::Neutral,
+        );
+        push_stat(
+            &mut entries,
+            "Socket",
+            if slot.required {
+                "Required".to_string()
+            } else {
+                "Optional".to_string()
+            },
+            if slot.required {
+                ShipbuildingTooltipTone::Warning
+            } else {
+                ShipbuildingTooltipTone::Muted
+            },
+        );
+
+        if let Some(rotation_deg) = slot.rotation_deg {
+            push_stat(
+                &mut entries,
+                "Arc Rotation",
+                format!("{} deg", format_number(rotation_deg as f64)),
+                ShipbuildingTooltipTone::Neutral,
+            );
+        }
+
+        push_stat(
+            &mut entries,
+            "Current Fit",
+            installed_module
+                .map(|module| module.display_name.clone())
+                .unwrap_or_else(|| "Empty".to_string()),
+            if installed_module.is_some() {
+                ShipbuildingTooltipTone::Positive
+            } else {
+                ShipbuildingTooltipTone::Muted
+            },
+        );
+        push_stat(
+            &mut entries,
+            "Unlocked Fits",
+            compatible_modules.len().to_string(),
+            ShipbuildingTooltipTone::Neutral,
+        );
+
+        if let Some(module) = installed_module {
+            entries.push(ShipbuildingTooltipEntry::Spacer);
+            entries.extend(module_stat_lines(module));
+        } else if !compatible_modules.is_empty() {
+            let suggestions = compatible_modules
+                .iter()
+                .take(3)
+                .map(|module| module.display_name.as_str())
+                .collect::<Vec<_>>()
+                .join(", ");
+            push_stat(
+                &mut entries,
+                "Suggested Fits",
+                suggestions,
+                ShipbuildingTooltipTone::Accent,
+            );
+        }
+
+        ShipbuildingTooltipContent {
+            title: prettify_slot_name(&slot.slot_id),
+            entries,
+        }
+    }
+
+    pub(super) fn prettify_slot_name(slot_id: &str) -> String {
+        slot_id
+            .split('_')
+            .filter(|segment| !segment.is_empty())
+            .map(|segment| {
+                let mut chars = segment.chars();
+                match chars.next() {
+                    Some(first) => {
+                        let mut word = first.to_uppercase().collect::<String>();
+                        word.push_str(chars.as_str());
+                        word
+                    }
+                    None => String::new(),
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+
+    fn module_stat_lines(module: &ShipModuleDefinition) -> Vec<ShipbuildingTooltipEntry> {
+        let mut lines = Vec::new();
+
+        push_stat(
+            &mut lines,
+            "Mass",
+            format!("{} t", format_number(module.dry_mass_t)),
+            ShipbuildingTooltipTone::Neutral,
+        );
+        push_stat(
+            &mut lines,
+            "Build Points",
+            format!("{} BP", format_number(module.build_points)),
+            ShipbuildingTooltipTone::Neutral,
+        );
+
+        if module.power_generation_mw > 0.0 {
+            push_stat(
+                &mut lines,
+                "Power Generation",
+                format!("+{} MW", format_number(module.power_generation_mw)),
+                ShipbuildingTooltipTone::Positive,
+            );
+        }
+        if module.power_draw_mw > 0.0 {
+            push_stat(
+                &mut lines,
+                "Power Draw",
+                format!("-{} MW", format_number(module.power_draw_mw)),
+                ShipbuildingTooltipTone::Warning,
+            );
+        }
+        if module.power_generation_mw > 0.0 || module.power_draw_mw > 0.0 {
+            push_stat(
+                &mut lines,
+                "Net Power",
+                format!(
+                    "{} MW",
+                    format_signed_number(module.power_generation_mw - module.power_draw_mw)
+                ),
+                if module.power_generation_mw - module.power_draw_mw >= 0.0 {
+                    ShipbuildingTooltipTone::Positive
+                } else {
+                    ShipbuildingTooltipTone::Negative
+                },
+            );
+        }
+        if module.thrust_kn > 0.0 {
+            push_stat(
+                &mut lines,
+                "Thrust",
+                format!("{} kN", format_number(module.thrust_kn)),
+                ShipbuildingTooltipTone::Accent,
+            );
+        }
+        if module.isp_s > 0.0 {
+            push_stat(
+                &mut lines,
+                "Specific Impulse",
+                format!("{} s", format_number(module.isp_s)),
+                ShipbuildingTooltipTone::Accent,
+            );
+        }
+        if let Some(propulsion) = module.propulsion {
+            push_stat(
+                &mut lines,
+                "Propulsion",
+                propulsion.display_name().to_string(),
+                ShipbuildingTooltipTone::Accent,
+            );
+        }
+        if module.construction_capacity_bp_per_year > 0.0 {
+            push_stat(
+                &mut lines,
+                "Construction Capacity",
+                format!(
+                    "+{} BP/year",
+                    format_number(module.construction_capacity_bp_per_year)
+                ),
+                ShipbuildingTooltipTone::Positive,
+            );
+        }
+        if module.launch_capacity_t_per_year > 0.0 {
+            push_stat(
+                &mut lines,
+                "Launch Capacity",
+                format!(
+                    "+{} t/year",
+                    format_number(module.launch_capacity_t_per_year)
+                ),
+                ShipbuildingTooltipTone::Positive,
+            );
+        }
+
+        for (name, value) in &module.attribute_values {
+            if let Some((label, formatted, tone)) = format_attribute(name, *value) {
+                push_stat(&mut lines, &label, formatted, tone);
+            }
+        }
+
+        if !module.resource_costs.is_empty() {
+            push_stat(
+                &mut lines,
+                "Materials",
+                format_shipbuilding_resource_costs_inline(&module.resource_costs, 4),
+                ShipbuildingTooltipTone::Muted,
+            );
+        }
+
+        if let Some(required_tech) = &module.required_tech {
+            push_stat(
+                &mut lines,
+                "Tech Requirement",
+                title_case(required_tech),
+                ShipbuildingTooltipTone::Warning,
+            );
+        }
+        push_stat(
+            &mut lines,
+            "Engineering Project",
+            title_case(module.engineering_project_id()),
+            ShipbuildingTooltipTone::Warning,
+        );
+
+        lines
+    }
+
+    fn format_attribute(
+        name: &str,
+        value: f64,
+    ) -> Option<(String, String, ShipbuildingTooltipTone)> {
+        if value.abs() <= f64::EPSILON {
+            return None;
+        }
+
+        match name {
+            "crew" | "crew_capacity" => Some((
+                "Crew Capacity".to_string(),
+                format!("+{}", format_number(value)),
+                ShipbuildingTooltipTone::Neutral,
+            )),
+            "fuel_capacity_t" => Some((
+                "Fuel Storage".to_string(),
+                format!("+{} t", format_number(value)),
+                ShipbuildingTooltipTone::Positive,
+            )),
+            "cargo_capacity_t" => Some((
+                "Cargo Storage".to_string(),
+                format!("+{} t", format_number(value)),
+                ShipbuildingTooltipTone::Positive,
+            )),
+            "ordnance_capacity_t" => Some((
+                "Ordnance Payload".to_string(),
+                format!("+{} t", format_number(value)),
+                ShipbuildingTooltipTone::Accent,
+            )),
+            "magazine_capacity_t" => Some((
+                "Magazine Capacity".to_string(),
+                format!("+{} t", format_number(value)),
+                ShipbuildingTooltipTone::Accent,
+            )),
+            "sensor_range_au" => Some((
+                "Sensor Range".to_string(),
+                format!("+{} AU", format_number(value)),
+                ShipbuildingTooltipTone::Accent,
+            )),
+            "sensor_range_km" => Some((
+                "Sensor Range".to_string(),
+                format!("+{} km", format_number(value)),
+                ShipbuildingTooltipTone::Accent,
+            )),
+            "docking_ports" => Some((
+                "Docking Ports".to_string(),
+                format!("+{}", format_number(value)),
+                ShipbuildingTooltipTone::Neutral,
+            )),
+            "isru_rate_t_per_year" => Some((
+                "ISRU Rate".to_string(),
+                format!("+{} t/year", format_number(value)),
+                ShipbuildingTooltipTone::Positive,
+            )),
+            "heat_sink_capacity" => Some((
+                "Heat Sink Capacity".to_string(),
+                format!("+{}", format_number(value)),
+                ShipbuildingTooltipTone::Warning,
+            )),
+            "maintenance_rate" => Some((
+                "Maintenance Rate".to_string(),
+                format!("+{}", format_number(value)),
+                ShipbuildingTooltipTone::Warning,
+            )),
+            "orbital_build_slots" => Some((
+                "Orbital Build Slots".to_string(),
+                format!("+{}", format_number(value)),
+                ShipbuildingTooltipTone::Positive,
+            )),
+            "flex_space" => Some((
+                "Flexible Payload Space".to_string(),
+                format!("+{} bay", format_number(value)),
+                ShipbuildingTooltipTone::Accent,
+            )),
+            "mining_efficiency" => Some((
+                "Mining Efficiency".to_string(),
+                format!("+{}%", format_number(value)),
+                ShipbuildingTooltipTone::Positive,
+            )),
+            "reveal_hidden" => Some((
+                "Special".to_string(),
+                "Reveals hidden contacts".to_string(),
+                ShipbuildingTooltipTone::Accent,
+            )),
+            _ => Some((
+                title_case(name),
+                format_number(value),
+                ShipbuildingTooltipTone::Neutral,
+            )),
+        }
+    }
+
+    fn push_stat(
+        lines: &mut Vec<ShipbuildingTooltipEntry>,
+        label: &str,
+        value: String,
+        tone: ShipbuildingTooltipTone,
+    ) {
+        lines.push(ShipbuildingTooltipEntry::Stat {
+            label: label.to_string(),
+            value,
+            tone,
+        });
+    }
+
+    pub(super) fn format_shipbuilding_resource_costs_inline(
+        costs: &[(ResourceType, f64)],
+        max_items: usize,
+    ) -> String {
+        let mut parts = Vec::new();
+        for (index, (resource, amount)) in costs.iter().enumerate() {
+            if index >= max_items {
+                parts.push(format!("+{} more", costs.len() - max_items));
+                break;
+            }
+            parts.push(format_shipbuilding_resource_cost(*resource, *amount));
+        }
+        parts.join(" | ")
+    }
+
+    pub(super) fn format_shipbuilding_resource_cost_lines(
+        costs: &[(ResourceType, f64)],
+        max_items: usize,
+    ) -> Vec<String> {
+        costs
+            .iter()
+            .take(max_items)
+            .map(|(resource, amount)| format_shipbuilding_resource_cost(*resource, *amount))
+            .collect()
+    }
+
+    pub(super) fn format_shipbuilding_resource_cost(resource: ResourceType, amount: f64) -> String {
+        format!(
+            "{} {}",
+            resource.display_name(),
+            format_mass_compact(amount)
+        )
+    }
+
+    fn title_case(value: &str) -> String {
+        value
+            .split('_')
+            .filter(|segment| !segment.is_empty())
+            .map(|segment| {
+                let mut chars = segment.chars();
+                match chars.next() {
+                    Some(first) => {
+                        let mut word = first.to_uppercase().collect::<String>();
+                        word.push_str(chars.as_str());
+                        word
+                    }
+                    None => String::new(),
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+
+    fn format_number(value: f64) -> String {
+        let precision = if value.abs() >= 100.0 {
+            0
+        } else if value.abs() >= 10.0 {
+            1
+        } else {
+            2
+        };
+        let raw = match precision {
+            0 => format!("{value:.0}"),
+            1 => format!("{value:.1}"),
+            _ => format!("{value:.2}"),
+        };
+        raw.trim_end_matches('0').trim_end_matches('.').to_string()
+    }
+
+    fn format_signed_number(value: f64) -> String {
+        if value >= 0.0 {
+            format!("+{}", format_number(value))
+        } else {
+            format!("-{}", format_number(value.abs()))
+        }
+    }
+} // close mod shipbuilding_tooltip_inlined

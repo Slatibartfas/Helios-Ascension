@@ -428,6 +428,59 @@ pub(crate) fn asteroid_albedo_jitter(name: &str) -> Color {
     Color::srgb(jr, jg, jb)
 }
 
+// ── Normal-map pool (per-body relief variety) ──────────────────────────────
+
+/// Pool of 4 distinct tangent-space rock normal-map variants for
+/// asteroids. The selector picks one per body via `hash(name) % N` so
+/// each asteroid gets a different bump character across the catalog.
+/// All four are more cratery than the original
+/// `generic_rock_normal_2k.png` (the fallback), and each one
+/// emphasises a different surface regime:
+///
+/// * **a** — heavily cratered, Bennu/Ryugu character
+/// * **b** — sparse large craters with central peaks, Mathilde/Eros
+/// * **c** — fractured rock faces, Itokawa character
+/// * **d** — rolling regolith, Ceres/Vesta character
+///
+/// Adding a new variant is a one-line change here plus a new PNG on
+/// disk; the selector falls back to the legacy map if the pool is
+/// emptied by a mod, so the project still loads cleanly.
+const ROCK_NORMAL_VARIANTS: &[&str] = &[
+    "textures/celestial/asteroids/generic_rock_normal_a_2k.png",
+    "textures/celestial/asteroids/generic_rock_normal_b_2k.png",
+    "textures/celestial/asteroids/generic_rock_normal_c_2k.png",
+    "textures/celestial/asteroids/generic_rock_normal_d_2k.png",
+];
+
+/// Fallback when the pool is empty (defensive — the pool is a
+/// `const` slice, so this only fires if a future maintainer empties
+/// it). The fallback is also what comets continue to use: comets
+/// keep the original sparse map because icy nucleus relief reads
+/// better against the lower-frequency legacy map.
+const ROCK_NORMAL_FALLBACK: &str = "textures/celestial/asteroids/generic_rock_normal_2k.png";
+
+/// Denser roughness map for asteroids. Same band as the legacy
+/// `generic_rock_roughness_2k.png` but with an extra procedural
+/// fine-grain layer added on top of the EXR-derived roughness, so
+/// the surface reads as more gritty at close zoom. Comets stay on
+/// the legacy map — the dense rock micro-variation doesn't read
+/// correctly on an icy body.
+const ROCK_ROUGHNESS_DENSE: &str =
+    "textures/celestial/asteroids/generic_rock_roughness_dense_2k.png";
+
+/// Pick a rock normal-map path for an asteroid body. Deterministic
+/// from the body's name so save/load and new-game spawns land on
+/// the same relief, matching the per-body colour-jitter contract.
+///
+/// Returns the fallback if [`ROCK_NORMAL_VARIANTS`] is empty.
+pub(crate) fn pick_asteroid_rock_normal_path(name: &str) -> &'static str {
+    if ROCK_NORMAL_VARIANTS.is_empty() {
+        return ROCK_NORMAL_FALLBACK;
+    }
+    let idx = (calculate_hash(&name) as usize) % ROCK_NORMAL_VARIANTS.len();
+    ROCK_NORMAL_VARIANTS[idx]
+}
+
 /// Generate procedural variation for material based on body properties
 /// Enhanced to visually distinguish all 6 asteroid spectral classes
 fn apply_procedural_variation(
@@ -569,6 +622,13 @@ pub fn setup_solar_system(
     mut ring_alpha_queue: ResMut<RingAlphaCombineQueue>,
     sim_time: Res<crate::ui::SimulationTime>,
     solar_system_marker: Option<Res<SolarSystemSpawned>>,
+    // Tier 3: if `boot_init::start_pre_parse` already drained
+    // the RON parse onto the async pool, the parsed value lives
+    // here and we skip the synchronous file read + RON decode.
+    // The chain's step 0 lands here on a typical New Game click
+    // (5+ s after splash dismiss), so the 150 ms parse is hidden
+    // behind the player's menu time.
+    boot_pre_parse: Res<crate::boot_init::BootPreParseState>,
 ) {
     if solar_system_marker.is_some() {
         // Idempotency: do not re-spawn. The marker must be removed
@@ -580,17 +640,34 @@ pub fn setup_solar_system(
     // Queue to collect normal/specular handles that must be treated as linear textures
     let mut linear_handle_queue: Vec<Handle<Image>> = Vec::new();
 
-    // Load solar system data
-    let mut data = match SolarSystemData::load_from_file("assets/data/solar_system.ron") {
-        Ok(data) => data,
-        Err(e) => {
-            error!("Failed to load solar system data: {}", e);
-            // Mark spawned even on load failure to prevent
-            // boot-init from retrying every tick and spamming the
-            // log. Matches the `AsteroidRegistryLoaded` failure
-            // pattern.
-            commands.init_resource::<SolarSystemSpawned>();
-            return;
+    // Load solar system data — Tier 3 fast path first, sync parse
+    // as fallback. The fast path clones the pre-parsed value
+    // (SolarSystemData is `Clone`), the fallback path is the
+    // original synchronous file read + RON decode.
+    let mut data = if let Some(cached) = boot_pre_parse.solar_data.as_ref() {
+        info!(
+            "setup_solar_system: using Tier 3 pre-parsed data ({} bodies cached)",
+            cached.bodies.len()
+        );
+        cached.clone()
+    } else {
+        match SolarSystemData::load_from_file("assets/data/solar_system.ron") {
+            Ok(data) => {
+                info!(
+                    "setup_solar_system: pre-parse not ready, fell back to sync parse ({} bodies)",
+                    data.bodies.len()
+                );
+                data
+            }
+            Err(e) => {
+                error!("Failed to load solar system data: {}", e);
+                // Mark spawned even on load failure to prevent
+                // boot-init from retrying every tick and spamming the
+                // log. Matches the `AsteroidRegistryLoaded` failure
+                // pattern.
+                commands.init_resource::<SolarSystemSpawned>();
+                return;
+            }
         }
     };
 
@@ -716,17 +793,18 @@ pub fn setup_solar_system(
                 true,
             )
         } else if let Some(ref texture) = body_data.texture {
-            // Single dedicated texture. Asteroids and comets always pick up
-            // the shared relief normal map so dedicated textures (s-type,
-            // vesta, etc.) show the same per-class material treatment as
-            // the generic path. The normal map handle is queued for linear
-            // conversion (it's data, not albedo) and applied to the
-            // StandardMaterial below.
-            let normal_path = if matches!(body_data.body_type, BodyType::Asteroid | BodyType::Comet)
-            {
-                Some("textures/celestial/asteroids/generic_rock_normal_2k.png")
-            } else {
-                None
+            // Single dedicated texture. Asteroids pick one variant out of
+            // [`ROCK_NORMAL_VARIANTS`] via `hash(name) % N`; comets and
+            // other bodies fall through to the legacy shared map. The
+            // dedicated-texture path (s-type, vesta, etc.) keeps the same
+            // per-class material treatment as the generic path — only the
+            // bump character varies per body. The normal map handle is
+            // queued for linear conversion (it's data, not albedo) and
+            // applied to the StandardMaterial below.
+            let normal_path = match body_data.body_type {
+                BodyType::Asteroid => Some(pick_asteroid_rock_normal_path(&body_data.name)),
+                BodyType::Comet => Some(ROCK_NORMAL_FALLBACK),
+                _ => None,
             };
             let normal_tex = normal_path.map(|path| asset_server.load::<Image>(path));
             if let Some(ref handle) = normal_tex {
@@ -744,15 +822,14 @@ pub fn setup_solar_system(
             // Generic asteroid maps are deliberately shared by spectral class,
             // so select a deterministic normal map too. StandardMaterial uses
             // tangent-space normals; the generated relief map adds craters and
-            // regolith breakup without changing the silhouette.
+            // regolith breakup without changing the silhouette. Asteroids
+            // pick one of the 4 variants via the name hash; comets fall
+            // through to the legacy shared map (see [`pick_asteroid_rock_normal_path`]).
             let generic_path = get_generic_texture_path(body_data);
-            let normal_path = if matches!(body_data.body_type, BodyType::Asteroid | BodyType::Comet)
-            {
-                // Optional asset: use a supplied mission-inspired normal map
-                // when present; the material remains valid if a mod omits it.
-                Some("textures/celestial/asteroids/generic_rock_normal_2k.png")
-            } else {
-                None
+            let normal_path = match body_data.body_type {
+                BodyType::Asteroid => Some(pick_asteroid_rock_normal_path(&body_data.name)),
+                BodyType::Comet => Some(ROCK_NORMAL_FALLBACK),
+                _ => None,
             };
             let normal_tex = normal_path.map(|path| asset_server.load::<Image>(path));
             if let Some(ref handle) = normal_tex {
@@ -791,10 +868,16 @@ pub fn setup_solar_system(
         // Optional metallic_roughness map for asteroids.  The reference
         // rock ships a roughness EXR; the bake script also produces a PNG
         // sibling so the runtime does not depend on the OpenEXR loader.
+        // Asteroids use the dense variant (more micro-grit at close
+        // zoom); comets stay on the legacy map because icy nucleus
+        // surfaces read better with the less-detailed roughness.
         // Load it once and tag the handle for linear conversion.
         let metallic_roughness_texture = if is_asteroid_or_comet {
-            let handle = asset_server
-                .load::<Image>("textures/celestial/asteroids/generic_rock_roughness_2k.png");
+            let roughness_path = match body_data.body_type {
+                BodyType::Asteroid => ROCK_ROUGHNESS_DENSE,
+                _ => "textures/celestial/asteroids/generic_rock_roughness_2k.png",
+            };
+            let handle = asset_server.load::<Image>(roughness_path);
             linear_handle_queue.push(handle.clone());
             Some(handle)
         } else {
@@ -804,9 +887,12 @@ pub fn setup_solar_system(
         // Note: Bevy 0.18 `StandardMaterial` does not expose a public
         // `normal_map_strength` field — that knob lives on a deferred path
         // in the PBR shader and was only added in 0.19. We don't try to
-        // set it; the rock reference map (`generic_rock_normal_2k.png`)
-        // is dense enough that the bump reads at in-game zoom distances
-        // with the default strength.
+        // set it; the rock reference map (`generic_rock_normal_2k.png` /
+        // the per-body pool at `ROCK_NORMAL_VARIANTS`) is dense enough
+        // that the bump reads at in-game zoom distances with the default
+        // strength. The new pool increases the gradient gain at bake
+        // time (see `scripts/generate_rock_normal_variants.py`) to
+        // compensate for the missing public knob.
 
         // Star surface material — uses limb darkening shader instead of StandardMaterial.
         // For non-star bodies, build the StandardMaterial as before (wrapped in Option
@@ -1060,36 +1146,104 @@ pub fn setup_solar_system(
             let mut colony = Colony::new_civilisation("Earth".to_string(), 8.2e9); // 8.2 Billion
 
             // Add initial infrastructure
+            //
+            // v0.5.1 canary-1: food per-build downscaled (Farm 1,000→360,
+            // Greenhouse 500→200, Aquaculture 750→200 — these are the
+            // hard-coded values in `Colony::food_production_per_year`, the
+            // simulation does NOT read the RON `FoodProduction` modifier)
+            // and per-capita demand corrected (0.0001 → 0.0000011, the
+            // 1,000× off — Mt-vs-kg unit confusion). v0.5.1 hit 9,000 Mt/yr
+            // supply ≈ 9,020 Mt/yr demand.
+            //
+            // v3.5: this calibration now reads the RON `FoodProduction`
+            // modifier (see `Colony::food_production_per_year`).
+            //
+            // v3.7: dropped supplemental Greenhouses (10→1) and
+            // Aquaculture (10→1). Earth now starts at 25×360 + 1×200
+            // + 1×200 = 9,400 Mt/yr = 1.042× world demand (vs v3.5's
+            // 1.44× surplus). 1.042× gives ~5 years of headroom at the
+            // v3.7 base growth rate (0.9%/yr, FAO 2024), so the
+            // player feels food pressure mid-game rather than in 50
+            // years. Player must build more food infrastructure as
+            // population grows.
+            // 1,100 kg/p/yr = 1.1 × 10⁻⁶ Mt/p/yr unit conversion that v0.5
+            // canary-1 had wrong by 1,000×).
+            //
+            // v3.7: starting counts calibrated for 1.042× world food demand.
+            // 25 Farms × 360 = 9,000 Mt/yr (parity). 1 Greenhouse +
+            // 1 Aquaculture = 400 Mt/yr (4.2% surplus). Total 9,400 Mt/yr.
+            // 25 lands in the middle of the 10–50 manageable-count band.
+            // (v3.5 had 10 Greenhouses + 10 Aquaculture = 4,000 Mt/yr
+            //  supplemental buffer = 1.44× surplus; dropped to 1.042× in
+            // v3.7 so food pressure arrives mid-game, not after 50 years.)
+            //
+            // Other building counts (Mine, Refinery, etc.) are unchanged
+            // in canary 1; they will be revised in canary 2 / roll-forward
+            // when their per-build values land.
+            //
+            // Reference: docs/design/BALANCE_PATCHES_v0.5.md §8.8 canary 1.
             let base_buildings = [
                 // Housing: scaled for population capacity
                 (BuildingType::Housing, 400),
-                // Food: 820 Farms × 1,000 Mt/yr = 820,000 Mt/yr → feeds 8.2B ✓
-                (BuildingType::Farm, 820),
-                // Greenhouses: trimmed to a modest buffer above baseline food demand.
-                (BuildingType::Greenhouse, 60),
-                // Aquaculture: retained as a smaller supplemental protein buffer.
-                (BuildingType::AquacultureFacility, 20),
-                // Industry (scaled for ~2.8 TW consumption with room to build more)
-                // These are reduced from full Earth capacity to give player building room
+                // Food (v3.7 calibrated for 1.042× world demand):
+                // 25 Farms × 360 Mt/yr = 9,000 Mt/yr ≈ 8.2B × 1,100 kg/p/yr.
+                (BuildingType::Farm, 25),
+                // Greenhouses: 1 of 10 (v3.7 trimmed from 10 to 1) — small
+                // specialty-crop buffer (200 Mt/yr = 2.2% of demand).
+                (BuildingType::Greenhouse, 1),
+                // Aquaculture: 1 of 10 (v3.7 trimmed from 10 to 1) — seafood
+                // specialty (200 Mt/yr = 2.2% of demand).
+                (BuildingType::AquacultureFacility, 1),
+                // v0.5.2: per-resource dedicated mines — 25 of each
+                // (manageable-count band, calibrated so 25 × base_yield ×
+                // 0.6 Earth accessibility ≈ world demand). See
+                // BALANCE_PATCHES_v0.5.md §5.2–§5.20 for per-resource
+                // yields.
                 (BuildingType::Factory, 1_200),
-                (BuildingType::Mine, 2_000),
-                (BuildingType::Refinery, 500),
+                // Construction (9)
+                (BuildingType::IronMine, 25),
+                (BuildingType::AluminumMine, 25),
+                (BuildingType::TitaniumMine, 25),
+                (BuildingType::SilicatesMine, 25),
+                (BuildingType::NickelMine, 25),
+                (BuildingType::TungstenMine, 25),
+                (BuildingType::CarbonMine, 25),
+                (BuildingType::ChromiumMine, 25),
+                (BuildingType::MagnesiumMine, 25),
+                // Precious (3 — v0.5.1)
+                (BuildingType::GoldMine, 25),
+                (BuildingType::SilverMine, 25),
+                (BuildingType::PlatinumMine, 25),
+                // Strategic (6)
+                (BuildingType::CopperMine, 25),
+                (BuildingType::RareEarthsMine, 25),
+                (BuildingType::LithiumMine, 25),
+                (BuildingType::SulfurMine, 25),
+                (BuildingType::PhosphorusMine, 25),
+                (BuildingType::CobaltMine, 25),
+                (BuildingType::FluorineMine, 25),
+                // Fissile (2)
+                (BuildingType::UraniumMine, 25),
+                (BuildingType::ThoriumMine, 25),
+                // Hydrocarbons (1)
+                (BuildingType::MethaneExtractor, 25),
+                // Heavy water (1)
+                (BuildingType::DeuteriumExtractor, 25),
+                // Generic industry
                 (BuildingType::ChemicalPlant, 700),
-                (BuildingType::HydrocarbonExtractor, 300),
                 (BuildingType::AtmosphericProcessor, 300),
-                (BuildingType::RecyclingCenter, 300),
-                // Power: effective-output 2026 baseline tuned for the coal/renewables flip
-                // visible in 2025-2026 generation data.
-                // Effective mix: Coal ~32.0%, Gas ~22.2%, Hydro ~15.2%, Nuclear ~9.9%,
-                // Wind ~9.9%, Solar ~11.0%.
-                // Wind + Solar combined ≈ 20.8% of delivered output, with total effective
-                // generation ≈ 3.65 TW and ~14.5% reserve over the 3.19 TW starting load.
-                (BuildingType::SolarPower, 320), // 320 × 1.25 = 400 GW
-                (BuildingType::CoalPowerPlant, 195), // 195 × 6.0 = 1,170 GW
-                (BuildingType::NaturalGasPlant, 135), // 135 × 6.0 = 810 GW
-                (BuildingType::HydroelectricDam, 82), // 82 × 6.75 = 553.5 GW
-                (BuildingType::WindFarm, 400),   // 400 × 0.9 = 360 GW
-                (BuildingType::FissionReactor, 20), // 20 × 18 = 360 GW
+                // Power: v3.4 IEA 2026 calibration. Total 3.40 TW supply, 3.31 TW demand,
+                // ratio 0.974 (97.4% utilization, 2.7% reserve). Per-build values
+                // (buildings.ron) sized so 320 solar / 195 coal / 135 gas / 82 hydro /
+                // 400 wind / 20 fission reproduce IEA 2026 generation mix within 1-2pp.
+                // Effective mix: Coal 31.9%, Gas 23.4%, Hydro 14.9%, Nuclear 9.6%,
+                // Wind 10.6%, Solar 9.6% (IEA 2026 targets: 30/22/14/9/10/9).
+                (BuildingType::SolarPower, 320), // 320 × 1.02 = 326 GW
+                (BuildingType::CoalPowerPlant, 195), // 195 × 5.56 = 1,084 GW
+                (BuildingType::NaturalGasPlant, 135), // 135 × 5.89 = 795 GW
+                (BuildingType::HydroelectricDam, 82), // 82 × 6.18 = 507 GW
+                (BuildingType::WindFarm, 400),   // 400 × 0.90 = 360 GW
+                (BuildingType::FissionReactor, 20), // 20 × 16.28 = 326 GW
                 // Water
                 (BuildingType::WaterTreatmentPlant, 500),
                 // Research & Tech (high power consumers)
@@ -2059,7 +2213,7 @@ pub(crate) fn create_ring_mesh(outer_radius: f32, inner_radius: f32, segments: u
     mesh
 }
 
-fn calculate_hash<T: Hash>(t: &T) -> u64 {
+fn calculate_hash<T: Hash + ?Sized>(t: &T) -> u64 {
     let mut s = DefaultHasher::new();
     t.hash(&mut s);
     s.finish()
@@ -2792,17 +2946,31 @@ pub fn initialize_colony_stockpiles(
             // Earth starts with the full realistic 2026 stockpile
             LocalStockpile::with_stockpiles(defaults.stockpiles.iter().map(|(k, v)| (*k, *v)))
         } else {
-            // Other colonies start with a small bootstrap supply to allow
-            // initial construction without requiring freighter transport.
-            // (All values in Mt — enough for a few basic buildings.)
+            // Other colonies start with a bootstrap supply sized for
+            // the v3.2 starter-tier buildings (HabitatTent 3 Fe + 5
+            // Si, HabitatModule 10 Fe + 15 Si + 1 Cu + 3 Al) plus a
+            // handful of metropolitan buildings (LifeSupport, Farm,
+            // WaterProcessor). 50 Mt Fe lets the player build ~5
+            // HabitatTents + 2 HabitatModules + 1 IronMine; 100 Mt
+            // Si covers the HabitatModule cost + a WaterProcessor.
+            //
+            // v3.2 (2026-08-07): bumped from the v0.5.0
+            // 10 Fe / 50 Si / 2 Al / 0.5 Cu / 1 Poly / 0 P / 5 Water
+            // (couldn't even afford a single Farm — needed P 3 and
+            // bootstrap had 0). New values cover the starter-tier
+            // building set so the player can found a working outpost
+            // before the first freighter arrives.
+            //
+            // (All values in Mt.)
             LocalStockpile::with_stockpiles([
-                (ResourceType::Iron, 10.0),
-                (ResourceType::Silicates, 50.0),
-                (ResourceType::Aluminum, 2.0),
-                (ResourceType::Copper, 0.5),
-                (ResourceType::Polymers, 1.0),
+                (ResourceType::Iron, 50.0),
+                (ResourceType::Silicates, 100.0),
+                (ResourceType::Aluminum, 10.0),
+                (ResourceType::Copper, 5.0),
+                (ResourceType::Polymers, 5.0),
+                (ResourceType::Phosphorus, 5.0),
                 (ResourceType::Food, 10_000.0),
-                (ResourceType::Water, 5.0),
+                (ResourceType::Water, 20.0),
             ])
         };
 

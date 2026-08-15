@@ -24,7 +24,7 @@ use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 
 use crate::ui::launch::subview_manifests::SeedCopyManifest;
 use crate::ui::launch::userdata::{
-    resolve_userdata_dir, save_persistent_settings_to, PersistentSettings,
+    resolve_userdata_dir, save_persistent_settings_to, PersistentSettings, PersistentWindowMode,
 };
 use crate::ui::launch::{LaunchState, LaunchSystemSet};
 use crate::ui::theme;
@@ -112,7 +112,7 @@ pub fn ui_settings_subview(
                 ui.label(
                     egui::RichText::new("Settings")
                         .font(theme::title())
-                        .color(theme::ACCENT)
+                        .color(theme::CYAN)
                         .size(28.0),
                 );
                 ui.add_space(theme::Spacing::lg);
@@ -191,11 +191,7 @@ pub fn ui_settings_subview(
 /// the caller should persist.
 fn draw_audio_tab(ui: &mut egui::Ui, settings: &mut PersistentSettings) -> bool {
     let mut changed = false;
-    ui.label(
-        egui::RichText::new("Audio Mix")
-            .color(theme::ACCENT)
-            .strong(),
-    );
+    ui.label(egui::RichText::new("Audio Mix").color(theme::CYAN).strong());
     ui.add_space(theme::Spacing::xs);
 
     changed |= draw_volume_slider(ui, "Master", &mut settings.master_volume);
@@ -223,7 +219,7 @@ fn draw_audio_tab(ui: &mut egui::Ui, settings: &mut PersistentSettings) -> bool 
                 ui.add_space(theme::Spacing::xs);
                 ui.label(
                     egui::RichText::new(format!("\"{}\" by {}", MUSIC_TITLE, MUSIC_AUTHOR))
-                        .color(theme::ACCENT)
+                        .color(theme::CYAN)
                         .strong(),
                 );
                 ui.label(
@@ -249,19 +245,38 @@ fn draw_audio_tab(ui: &mut egui::Ui, settings: &mut PersistentSettings) -> bool 
 /// Draw the Graphics tab. Returns `true` on change.
 fn draw_graphics_tab(ui: &mut egui::Ui, settings: &mut PersistentSettings) -> bool {
     let mut changed = false;
-    ui.label(
-        egui::RichText::new("Graphics")
-            .color(theme::ACCENT)
-            .strong(),
-    );
+    ui.label(egui::RichText::new("Graphics").color(theme::CYAN).strong());
     ui.add_space(theme::Spacing::xs);
 
-    if ui
-        .checkbox(&mut settings.fullscreen, "Fullscreen")
-        .changed()
-    {
-        changed = true;
-    }
+    // ── Window mode combo box ─────────────────────────────────
+    // The mode is rendered as a 3-option `ComboBox` so the player
+    // sees the textual intent (Windowed / Fullscreen / Borderless)
+    // rather than a binary checkbox. The `apply_window_mode_to_primary`
+    // system in `src/plugins/window_mode_bridge.rs` reads the new
+    // value and pushes it to `Window::mode` on the primary window.
+    ui.label("Window mode");
+    let current_label = match settings.window_mode {
+        PersistentWindowMode::Windowed => "Windowed",
+        PersistentWindowMode::Fullscreen => "Fullscreen",
+        PersistentWindowMode::BorderlessFullscreen => "Borderless",
+    };
+    egui::ComboBox::from_id_salt("graphics_window_mode")
+        .selected_text(current_label)
+        .show_ui(ui, |ui| {
+            for variant in PersistentWindowMode::ALL {
+                let label = match variant {
+                    PersistentWindowMode::Windowed => "Windowed",
+                    PersistentWindowMode::Fullscreen => "Fullscreen",
+                    PersistentWindowMode::BorderlessFullscreen => "Borderless",
+                };
+                let mut selected = settings.window_mode == *variant;
+                if ui.selectable_label(selected, label).clicked() && !selected {
+                    settings.window_mode = *variant;
+                    selected = true;
+                    changed = true;
+                }
+            }
+        });
 
     ui.add_space(theme::Spacing::sm);
     ui.label("UI scale");
@@ -277,11 +292,7 @@ fn draw_graphics_tab(ui: &mut egui::Ui, settings: &mut PersistentSettings) -> bo
 /// Draw the Gameplay tab. Returns `true` on change.
 fn draw_gameplay_tab(ui: &mut egui::Ui, settings: &mut PersistentSettings) -> bool {
     let mut changed = false;
-    ui.label(
-        egui::RichText::new("Gameplay")
-            .color(theme::ACCENT)
-            .strong(),
-    );
+    ui.label(egui::RichText::new("Gameplay").color(theme::CYAN).strong());
     ui.add_space(theme::Spacing::xs);
 
     if ui
@@ -367,6 +378,10 @@ mod tests {
         assert_eq!(s.master_volume, 1.0);
         assert_eq!(s.music_volume, 1.0);
         assert_eq!(s.sfx_volume, 1.0);
+        assert_eq!(s.window_mode, PersistentWindowMode::Windowed);
+        // The legacy `fullscreen: bool` shim is read on load (for
+        // migration) but never written on save; its default is
+        // always `false` on a fresh install.
         assert!(!s.fullscreen);
         assert_eq!(s.ui_scale, 1.0);
         assert!(!s.tutorial_enabled);
@@ -385,7 +400,15 @@ mod tests {
         let settings = PersistentSettings {
             master_volume: 0.42,
             music_volume: 0.0,
-            fullscreen: true,
+            window_mode: PersistentWindowMode::BorderlessFullscreen,
+            // `fullscreen` is the legacy shim field. The round-trip
+            // in `subview_settings.rs` predates the enum; the value
+            // we set here is what the file would have ended up with
+            // after the loader's migration pass against a legacy
+            // `fullscreen: true` only file. The shim is `false`
+            // after migration; the new field is the canonical
+            // source of truth.
+            fullscreen: false,
             ui_scale: 1.3,
             tutorial_enabled: true,
             ..Default::default()

@@ -90,8 +90,116 @@ src/plugins/system_populator.rs  OrbitPath::new(Color::srgba(0.25, 0.45, 0.75, 0
 src/plugins/system_populator.rs  OrbitPath::with_fade(Color::srgba(0.42, 0.32, 0.20, 0.35), 5.0), // Dim brown, steep fade — asteroids (matches `solar_s…
 src/plugins/system_populator.rs  OrbitPath::new(Color::srgba(1.0, 0.8, 0.3, 0.65)), // Yellow — comets
 src/plugins/system_populator.rs  OrbitPath::new(Color::srgba(0.65, 0.65, 0.65, 0.5)), // Grey — moons
+src/ui/bevy_theme.rs  pub const BODY_BG: Color = Color::srgba(0.008, 0.039, 0.094, 1.0);
+src/ui/bevy_theme.rs  pub const CARD_BG: Color = Color::srgba(0.078, 0.165, 0.290, 0.92);
+src/ui/bevy_theme.rs  pub const CARD_BG_HOVER: Color = Color::srgba(0.105, 0.210, 0.345, 0.78);
+src/ui/bevy_theme.rs  pub const HAIRLINE: Color = Color::srgba(0.086, 0.188, 0.306, 1.0);
+src/ui/bevy_theme.rs  pub const CYAN: Color = Color::srgba(0.373, 0.784, 0.847, 1.0);
+src/ui/bevy_theme.rs  pub const CARD_BORDER: Color = Color::srgba(0.373, 0.784, 0.847, 0.18);
+src/ui/bevy_theme.rs  pub const CARD_BORDER_HIGHLIGHT: Color = Color::srgba(0.498, 0.804, 0.847, 0.90);
+src/ui/bevy_theme.rs  pub const CARD_BORDER_SHADOW: Color = Color::srgba(0.373, 0.784, 0.847, 0.30);
+src/ui/bevy_theme.rs  pub const CYAN_BORDER: Color = Color::srgba(0.373, 0.784, 0.847, 0.50);
+src/ui/bevy_theme.rs  pub const CYAN_BORDER_STRONG: Color = Color::srgba(0.373, 0.784, 0.847, 0.60);
+src/ui/bevy_theme.rs  pub const CYAN_RIM: Color = Color::srgba(0.373, 0.784, 0.847, 0.65);
+src/ui/bevy_theme.rs  pub const TEXT_DIM: Color = Color::srgba(0.498, 0.580, 0.659, 1.0);
+src/ui/bevy_theme.rs  pub const TEXT_BODY: Color = Color::srgba(0.831, 0.890, 0.937, 1.0);
+src/ui/bevy_theme.rs  pub const ORANGE_ORE: Color = Color::srgba(0.941, 0.627, 0.439, 1.0);
+src/ui/bevy_theme.rs  pub const GREEN_FIN: Color = Color::srgba(0.373, 0.784, 0.471, 1.0);
+src/ui/bevy_theme.rs  pub const RED: Color = Color::srgba(0.847, 0.373, 0.392, 1.0);
+src/ui/bevy_theme.rs  pub const YELLOW_ENERGY: Color = Color::srgba(1.0, 0.843, 0.0, 1.0);
+src/ui/bevy_theme.rs  pub const CTA_FILL: Color = Color::srgba(0.094, 0.298, 0.353, 0.85);
+src/ui/bevy_theme.rs  pub const CTA_FILL_HOVER: Color = Color::srgba(0.275, 0.620, 0.706, 1.0);
+src/ui/bevy_theme.rs  pub const ACTIVE_CHIP_BG: Color = Color::srgba(0.196, 0.529, 0.612, 0.78);
+src/ui/bevy_theme.rs  pub const INACTIVE_CHIP_BG: Color = Color::srgba(0.0, 0.0, 0.0, 0.0);
+src/ui/bevy_theme.rs  pub const GREEN_OK: Color = Color::srgba(0.373, 0.784, 0.471, 1.0);
+src/ui/bevy_theme.rs  pub const YELLOW_ETA: Color = Color::srgba(0.957, 0.749, 0.349, 1.0);
+src/ui/bevy_theme.rs  pub const RESOURCE_BIOLOGICAL: Color = Color::srgba(0.498, 0.812, 0.467, 1.0);
+src/ui/bevy_theme.rs  pub const RESOURCE_VOLATILES: Color = Color::srgba(0.310, 0.776, 0.831, 1.0);
+src/ui/bevy_theme.rs  pub const RESOURCE_ATMOSPHERIC: Color = Color::srgba(0.561, 0.776, 0.949, 1.0);
+src/ui/bevy_theme.rs  pub const RESOURCE_CONSTRUCTION: Color = Color::srgba(0.890, 0.580, 0.380, 1.0);
+src/ui/bevy_theme.rs  pub const RESOURCE_FUSION: Color = Color::srgba(0.957, 0.812, 0.320, 1.0);
+src/ui/bevy_theme.rs  pub const RESOURCE_FISSILE: Color = Color::srgba(0.682, 0.890, 0.388, 1.0);
+src/ui/bevy_theme.rs  pub const RESOURCE_PRECIOUS: Color = Color::srgba(0.957, 0.749, 0.349, 1.0);
+src/ui/bevy_theme.rs  pub const RESOURCE_STRATEGIC: Color = Color::srgba(0.776, 0.620, 0.949, 1.0);
+src/ui/bevy_theme.rs  pub const RESOURCE_EXOTIC: Color = Color::srgba(0.949, 0.498, 0.776, 1.0);
+src/ui/bevy_theme.rs  Color::srgba(0.0, 0.0, 0.0, 0.0)
+src/ui/bevy_theme.rs  bg: BackgroundColor(Color::srgba(0.012, 0.039, 0.078, 0.40)),
+src/ui/construction/buildings.rs  BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.0)),
+src/ui/construction/demolish.rs  let dim_red = Color::srgba(0.353, 0.157, 0.169, 0.85);
+src/ui/construction/demolish.rs  let dim_red_border = Color::srgba(0.847, 0.373, 0.392, 0.50);
+src/ui/construction/demolish.rs  let rest_fill = Color::srgba(0.353, 0.157, 0.169, 0.85);
+src/ui/construction/demolish.rs  let hover_fill = Color::srgba(0.55, 0.235, 0.255, 1.0);
+src/ui/construction/demolish.rs  let rest_border = Color::srgba(0.847, 0.373, 0.392, 0.50);
+src/ui/construction/demolish.rs  let hover_border = Color::srgba(0.95, 0.45, 0.45, 1.0);
+src/ui/construction/demolish.rs  BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.70)),
+src/ui/construction/demolish.rs  BackgroundColor(Color::srgba(0.008, 0.039, 0.094, 0.96)),
+src/ui/construction/demolish.rs  Color::srgba(0.0, 0.0, 0.0, 0.65),
+src/ui/construction/demolish.rs  BackgroundColor(Color::srgba(0.353, 0.157, 0.169, 0.85)),
+src/ui/construction/demolish.rs  BorderColor::all(Color::srgba(0.847, 0.373, 0.392, 0.50)),
+src/ui/construction/demolish.rs  BackgroundColor(Color::srgba(0.094, 0.298, 0.353, 0.85)),
+src/ui/construction/disabled.rs  *bg = BackgroundColor(Color::srgba(1.0, 1.0, 1.0, 0.04));
+src/ui/construction/disabled.rs  *border = BorderColor::all(Color::srgba(0.498, 0.580, 0.659, 0.40));
+src/ui/construction/dropdown.rs  Color::srgba(0.196, 0.529, 0.612, 0.78)
+src/ui/construction/dropdown.rs  Color::srgba(0.0, 0.0, 0.0, 0.0)
+src/ui/construction/mining.rs  BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.0)),
+src/ui/construction/overview.rs  BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.0)),
+src/ui/construction/overview.rs  BackgroundColor(Color::srgba(0.196, 0.529, 0.612, 0.30)),
+src/ui/construction/queue.rs  BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.0)),
+src/ui/construction/queue.rs  BackgroundColor(Color::srgba(0.196, 0.529, 0.612, 0.30)),
+src/ui/construction/scrollbar.rs  BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.0)),
+src/ui/construction/scrollbar.rs  BackgroundColor(Color::srgba(0.37, 0.78, 0.85, 0.85)), // CYAN.with_alpha(0.85) — visible
+src/ui/construction/setup.rs  BackgroundColor(Color::srgba(0.012, 0.024, 0.047, 0.97)),
+src/ui/construction/setup.rs  BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.0)),
+src/ui/construction/setup.rs  BackgroundColor(Color::srgba(0.196, 0.529, 0.612, 0.30)),
+src/ui/construction/setup.rs  BackgroundColor(Color::srgba(0.012, 0.039, 0.078, 0.40)),
+src/ui/construction/setup.rs  BackgroundColor(Color::srgba(0.373, 0.784, 0.847, 0.40)),
+src/ui/construction/setup.rs  BackgroundColor(Color::srgba(0.008, 0.039, 0.094, 0.96)),
+src/ui/construction/setup.rs  Color::srgba(0.0, 0.0, 0.0, 0.65),
+src/ui/construction/setup.rs  BackgroundColor(Color::srgba(0.012, 0.024, 0.047, 0.96)),
+src/ui/construction/tooltip.rs  const TOOLTIP_TITLE_FALLBACK: Color = Color::srgba(0.55, 0.95, 1.0, 1.0);
+src/ui/launch/boot_overlay.rs  BackgroundColor(Color::srgba(0.008, 0.016, 0.031, 1.0)),
+src/ui/launch/boot_overlay.rs  BackgroundColor(Color::srgba(0.008, 0.039, 0.094, 0.96)),
+src/ui/launch/boot_overlay.rs  BackgroundColor(Color::srgba(0.086, 0.188, 0.306, 0.6)),
 src/ui/launch/menu_backdrop.rs  color: Color::srgb(1.0, 0.96, 0.88),
 src/ui/launch/menu_backdrop.rs  color: Color::srgb(0.55, 0.65, 0.85),
 src/ui/launch/menu_backdrop.rs  base_color: Color::srgb(1.0, 0.95, 0.82),
 src/ui/launch/menu_backdrop.rs  color: Color::srgb(0.06, 0.10, 0.18),
 src/ui/launch/splash.rs  clear_color: ClearColorConfig::Custom(Color::srgb(0.02, 0.02, 0.03)),
+src/ui/widgets.rs  color: Color::srgba(0.0, 0.02, 0.05, 0.55),
+src/ui/widgets.rs  color: Color::srgba(0.0, 0.02, 0.05, 0.35),
+src/ui/widgets.rs  color: Color::srgba(0.373, 0.784, 0.847, 0.14),
+src/ui/widgets.rs  color: Color::srgba(0.0, 0.02, 0.05, 0.70),
+src/ui/widgets.rs  color: Color::srgba(0.0, 0.02, 0.05, 0.40),
+src/ui/widgets.rs  color: Color::srgba(0.373, 0.784, 0.847, 0.24),
+src/ui/widgets.rs  top: Color::srgba(0.9, 0.9, 0.9, 1.0),
+src/ui/widgets.rs  bottom: Color::srgba(0.1, 0.1, 0.1, 1.0),
+src/ui/widgets.rs  left: Color::srgba(0.9, 0.9, 0.9, 1.0),
+src/ui/widgets.rs  right: Color::srgba(0.1, 0.1, 0.1, 1.0),
+src/ui/widgets.rs  bg: Some(Color::srgba(0.05, 0.1, 0.2, 0.9)),
+src/ui/widgets.rs  bg_hover: Some(Color::srgba(0.2, 0.3, 0.4, 0.9)),
+src/ui/widgets.rs  BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.0)),
+src/ui/widgets.rs  Color::srgba(0.373, 0.784, 0.847, 0.35),
+src/ui/widgets.rs  TooltipTone::Neutral => Color::srgb(0.831, 0.890, 0.937), // TEXT_LIGHT-ish
+src/ui/widgets.rs  TooltipTone::Positive => Color::srgb(0.15, 1.00, 0.35),   // STATUS_SUCCESS
+src/ui/widgets.rs  TooltipTone::Warning => Color::srgb(1.00, 0.75, 0.20),    // STATUS_WARNING
+src/ui/widgets.rs  TooltipTone::Negative => Color::srgb(1.00, 0.30, 0.30),   // STATUS_DANGER
+src/ui/widgets.rs  TooltipTone::Accent => Color::srgb(0.37, 0.78, 0.85),     // CYAN
+src/ui/widgets.rs  TooltipTone::Muted => Color::srgb(0.50, 0.58, 0.66),
+src/ui/widgets.rs  BackgroundColor(Color::srgba(0.37, 0.78, 0.85, 0.85)), // CYAN.with_alpha(0.85) — visible
+src/ui/widgets.rs  *track_bg_node = BackgroundColor(Color::srgba(1.0, 1.0, 1.0, 0.06));
+src/ui/widgets.rs  *thumb_bg_node = BackgroundColor(Color::srgba(0.37, 0.78, 0.85, 0.55));
+src/ui/widgets.rs  *track_bg_node = BackgroundColor(Color::srgba(1.0, 1.0, 1.0, 0.04));
+src/ui/widgets.rs  top: Color::srgba(0.498, 0.804, 0.847, 0.90),
+src/ui/widgets.rs  bottom: Color::srgba(0.373, 0.784, 0.847, 0.30),
+src/ui/widgets.rs  left: Color::srgba(0.498, 0.804, 0.847, 0.90),
+src/ui/widgets.rs  right: Color::srgba(0.373, 0.784, 0.847, 0.30),
+src/ui/widgets.rs  border_hover: Color::srgba(0.373, 0.784, 0.847, 1.0),
+src/ui/widgets.rs  bg: Color::srgba(0.027, 0.047, 0.094, 0.96),
+src/ui/widgets.rs  bg_hover: Color::srgba(0.039, 0.071, 0.137, 0.96),
+src/ui/widgets.rs  Color::srgba(0.0, 0.0, 0.0, 0.6),
+src/ui/widgets.rs  Color::srgba(0.0, 0.0, 0.0, 0.7),
+src/ui/widgets.rs  BorderColor::all(Color::srgba(0.373, 0.784, 0.847, 0.6)),
+src/ui/widgets.rs  .insert(BackgroundColor(Color::srgba(0.373, 0.784, 0.847, 0.60)));
+src/ui/widgets.rs  BackgroundColor(Color::srgba(0.012, 0.110, 0.169, 0.95)),
+src/ui/widgets.rs  BorderColor::all(Color::srgba(0.0, 0.949, 1.0, 0.6)),
+src/ui/widgets.rs  TextColor(Color::srgba(0.373, 0.784, 0.847, 1.0)),

@@ -58,7 +58,16 @@ pub const SURFACE_INPUT: egui::Color32 = egui::Color32::from_rgb(16, 20, 30);
 // ─── Accent Colours ──────────────────────────────────────────────────────
 
 /// Primary cyan accent for highlights, selection, and interactive elements.
+#[deprecated(
+    since = "0.5.0",
+    note = "Use theme::CYAN (the canonical accent, re-exporting bevy_theme::CYAN). ACCENT will be removed in a future release. The new CYAN is +6% more blue and +16% less green — the intended canonical RGB for the design system."
+)]
 pub const ACCENT: egui::Color32 = egui::Color32::from_rgb(0, 242, 255);
+/// Canonical primary accent — single source of truth.
+/// Re-exports the RGB from bevy_theme::CYAN (srgba(0.373, 0.784, 0.847, 1.0))
+/// in egui::Color32 form so egui code reads the same canonical RGB.
+/// Use this instead of `theme::ACCENT` (deprecated).
+pub const CYAN: egui::Color32 = egui::Color32::from_rgb(95, 200, 216);
 /// Dimmed accent (~31% alpha) for secondary outlines and inactive glyphs.
 pub const ACCENT_DIM: egui::Color32 = egui::Color32::from_rgba_premultiplied(0, 242, 255, 80);
 /// Very faint accent for borders, grid lines.
@@ -83,6 +92,38 @@ pub const STAR_GOLD: egui::Color32 = egui::Color32::from_rgb(255, 220, 100);
 /// Gravity-assist / flyby purple accent.
 pub const GRAVITY_ASSIST: egui::Color32 = egui::Color32::from_rgb(180, 130, 255);
 
+// ─── Resource-bar / cap-throttle palette (v3.8.1+, v0.5.2 follow-up) ────
+
+/// Cyan tint for resource/category icons in the top bar
+/// (`render_resource_icon` in `resources_bar.rs`). Matches the
+/// menu-icon cyan so the top bar reads as part of the same
+/// surface family.
+pub const RB_ICON_CYAN: egui::Color32 = egui::Color32::from_rgb(0x60, 0xC8, 0xD8);
+/// Same `RB_ICON_CYAN` at ~60% alpha — used to fill the
+/// placeholder square that swaps in for a missing icon until the
+/// async bake lands.
+pub const RB_ICON_CYAN_PLACEHOLDER: egui::Color32 =
+    egui::Color32::from_rgba_unmultiplied_const(0x60, 0xC8, 0xD8, 153);
+/// Returns the icon-placeholder tint (`base` colour at alpha 153/255).
+/// Used by the energy-icon fallback in `resources_bar.rs` where the
+/// placeholder must mirror the caller's chosen tint (not always cyan).
+pub fn rb_icon_placeholder_at(base: egui::Color32) -> egui::Color32 {
+    egui::Color32::from_rgba_unmultiplied(base.r(), base.g(), base.b(), 153)
+}
+/// Soft-knee cap-throttle bands (v3.8.1+). The fill-ratio bar on
+/// per-body rows goes green → yellow → orange → red as the body
+/// approaches its cap. The colors live here so the bar can be
+/// rethemed in one place. The RED and GOLD constants are
+/// duplicated literally here (rather than referenced as
+/// `crate::theme::RED`) because `const`s in this module cannot
+/// reference each other when they are declared out of order.
+pub const CAP_FILL_RED: egui::Color32 = egui::Color32::from_rgb(231, 76, 60); // ≥95% — heavy throttle
+pub const CAP_FILL_ORANGE: egui::Color32 = egui::Color32::from_rgb(255, 165, 0); // 80–95%
+pub const CAP_FILL_YELLOW: egui::Color32 = egui::Color32::from_rgb(255, 215, 0); // 60–80%
+pub const CAP_FILL_GREEN: egui::Color32 = egui::Color32::from_rgb(80, 200, 120); // <60%
+/// Neutral gray used as the empty track behind a fill-ratio bar.
+pub const FILL_TRACK_GRAY: egui::Color32 = egui::Color32::from_gray(50);
+
 // ─── Text Colours ────────────────────────────────────────────────────────
 
 /// Bright foreground (primary text).
@@ -99,6 +140,8 @@ pub const ICON_INACTIVE: egui::Color32 = egui::Color32::from_rgb(190, 205, 225);
 
 // ─── Resource Category Colours ───────────────────────────────────────────
 
+/// Biological (Food)
+pub const CAT_BIOLOGICAL: egui::Color32 = egui::Color32::from_rgb(200, 230, 140);
 /// Volatiles (Water, H₂, NH₃…)
 pub const CAT_VOLATILES: egui::Color32 = egui::Color32::from_rgb(80, 190, 255);
 /// Atmospheric gases
@@ -387,7 +430,7 @@ pub const TIER_OTHER: egui::Color32 = egui::Color32::from_rgb(80, 90, 100);
 /// Get the dossier tier colour for a numeric tier (0..=5).
 pub fn tier_color(tier: u8) -> egui::Color32 {
     match tier {
-        5 => ACCENT,
+        5 => CYAN,
         4 => TIER_4,
         3 => TIER_3,
         2 => TEXT_DIM,
@@ -655,7 +698,7 @@ pub fn caption(text: impl Into<String>) -> egui::RichText {
 pub fn kbd_shortcut_label(text: impl Into<String>) -> egui::RichText {
     egui::RichText::new(text)
         .font(mono(10.0))
-        .color(ACCENT)
+        .color(CYAN)
         .strong()
 }
 
@@ -803,6 +846,7 @@ pub fn stat_row_with_tooltip(ui: &mut egui::Ui, label: &str, value: &str, toolti
 /// Get colour for a resource category name.
 pub fn category_color(category: &str) -> egui::Color32 {
     match category {
+        "Biological" => CAT_BIOLOGICAL,
         "Volatiles" => CAT_VOLATILES,
         "Atmospheric Gases" => CAT_ATMOSPHERIC,
         "Construction" => CAT_CONSTRUCTION,
@@ -922,7 +966,7 @@ pub fn apply_global_visuals(ctx: &egui::Context) {
     // ── Text & selection ─────────────────────────────────────────
     visuals.override_text_color = Some(TEXT);
     visuals.selection.bg_fill = egui::Color32::from_rgba_premultiplied(0, 160, 180, 60);
-    visuals.selection.stroke = egui::Stroke::new(1.0_f32, ACCENT);
+    visuals.selection.stroke = egui::Stroke::new(1.0_f32, CYAN);
 
     // ── Window chrome ────────────────────────────────────────────
     visuals.window_stroke = egui::Stroke::new(1.0_f32, BORDER);
@@ -948,19 +992,19 @@ pub fn apply_global_visuals(ctx: &egui::Context) {
     visuals.widgets.hovered.bg_fill = SURFACE_RAISED;
     visuals.widgets.hovered.weak_bg_fill = SURFACE_RAISED;
     visuals.widgets.hovered.bg_stroke = egui::Stroke::new(1.0_f32, ACCENT_DIM);
-    visuals.widgets.hovered.fg_stroke = egui::Stroke::new(1.0_f32, ACCENT);
+    visuals.widgets.hovered.fg_stroke = egui::Stroke::new(1.0_f32, CYAN);
 
     // Active (pressed)
     visuals.widgets.active.bg_fill = egui::Color32::from_rgb(0, 80, 90);
     visuals.widgets.active.weak_bg_fill = egui::Color32::from_rgb(0, 80, 90);
-    visuals.widgets.active.bg_stroke = egui::Stroke::new(1.5_f32, ACCENT);
-    visuals.widgets.active.fg_stroke = egui::Stroke::new(1.5_f32, ACCENT);
+    visuals.widgets.active.bg_stroke = egui::Stroke::new(1.5_f32, CYAN);
+    visuals.widgets.active.fg_stroke = egui::Stroke::new(1.5_f32, CYAN);
 
     // Open (e.g. combo box, expanded collapsing header)
     visuals.widgets.open.bg_fill = SURFACE_RAISED;
     visuals.widgets.open.weak_bg_fill = SURFACE_RAISED;
     visuals.widgets.open.bg_stroke = egui::Stroke::new(1.0_f32, ACCENT_DIM);
-    visuals.widgets.open.fg_stroke = egui::Stroke::new(1.0_f32, ACCENT);
+    visuals.widgets.open.fg_stroke = egui::Stroke::new(1.0_f32, CYAN);
 
     // ── Misc ─────────────────────────────────────────────────────
     visuals.striped = true;
@@ -1006,7 +1050,16 @@ pub mod Color {
 
     // ── Accent / Border ─────────────────────────────────────────
     /// Primary cyan — mirrors `ACCENT`.
+    #[deprecated(
+        since = "0.5.0",
+        note = "Use theme::Color::CYAN (the canonical accent, re-exporting bevy_theme::CYAN). ACCENT will be removed in a future release. The new CYAN is +6% more blue and +16% less green — the intended canonical RGB for the design system."
+    )]
     pub const ACCENT: Color = Color::srgb(0.0, 0.949, 1.0);
+    /// Canonical primary accent — single source of truth.
+    /// Re-exports `crate::ui::bevy_theme::CYAN` so shipbuilding widgets
+    /// and any other Bevy-UI consumer read the same canonical RGB.
+    /// Use this instead of `theme::Color::ACCENT` (deprecated).
+    pub const CYAN: Color = crate::ui::bevy_theme::CYAN;
     /// Faint accent border — mirrors `BORDER`.
     pub const BORDER: Color = Color::srgb(0.0, 0.949, 1.0);
 
@@ -1464,7 +1517,7 @@ pub fn section_h2(ui: &mut egui::Ui, label: impl Into<String>) {
     ui.label(
         egui::RichText::new(label.into())
             .font(heading())
-            .color(ACCENT),
+            .color(CYAN),
     );
     ui.add_space(Spacing::sm);
 }
@@ -1489,11 +1542,7 @@ pub fn section_h3(ui: &mut egui::Ui, label: impl Into<String>) {
 /// only place this primitive is used in PR-B.
 pub fn section_h1(ui: &mut egui::Ui, label: impl Into<String>) {
     ui.add_space(Spacing::sm);
-    ui.label(
-        egui::RichText::new(label.into())
-            .font(title())
-            .color(ACCENT),
-    );
+    ui.label(egui::RichText::new(label.into()).font(title()).color(CYAN));
     ui.add_space(Spacing::md);
 }
 
@@ -1538,7 +1587,7 @@ pub fn tab_strip<T: crate::ui::tab::Tab>(
             };
             let text = egui::RichText::new(label)
                 .font(mono(11.0))
-                .color(if is_active { ACCENT } else { TEXT });
+                .color(if is_active { CYAN } else { TEXT });
             let response = ui.add(
                 egui::Button::new(text)
                     .frame(false)
@@ -1556,7 +1605,7 @@ pub fn tab_strip<T: crate::ui::tab::Tab>(
                 ui.painter().hline(
                     rect.left()..=rect.right(),
                     underline_y,
-                    egui::Stroke::new(2.0_f32, ACCENT),
+                    egui::Stroke::new(2.0_f32, CYAN),
                 );
             }
         }

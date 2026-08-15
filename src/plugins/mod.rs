@@ -1,5 +1,6 @@
 pub mod atmosphere;
 pub mod camera;
+pub mod minimize_guard;
 pub mod music;
 pub mod ocean;
 pub mod solar_system;
@@ -8,4 +9,6 @@ pub mod star_materials;
 pub mod starmap;
 pub mod system_populator;
 pub mod visual_effects;
+pub mod window_constants;
 pub mod window_icon;
+pub mod window_mode_bridge;
