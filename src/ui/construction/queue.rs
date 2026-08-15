@@ -163,7 +163,7 @@ pub fn update_queue_row_eta(
     mut eta_text_query: Query<(&QueuePanelRowEta, &mut Text, &mut TextColor)>,
 ) {
     let by_entity: std::collections::HashMap<Entity, &crate::colony::ConstructionProject> =
-        projects.iter().map(|(e, p)| (e, p)).collect();
+        projects.iter().collect();
     let bp_per_sec = (output_bp_per_year.output_bp_per_year / 365.25 / 24.0 / 3600.0).max(1e-9);
     for (eta_marker, mut text, mut color) in eta_text_query.iter_mut() {
         let Some(project) = by_entity.get(&eta_marker.project_entity) else {
@@ -197,7 +197,7 @@ pub fn update_queue_row_progress(
         let Ok((_, project)) = projects.get(entity) else {
             continue;
         };
-        fill.0 = project.progress_percent().clamp(0.0, 1.0) as f32;
+        fill.0 = project.progress_percent().clamp(0.0, 1.0);
         // The actual Node.width write happens in tick_progress_fill;
         // we only set the percentage here.
     }

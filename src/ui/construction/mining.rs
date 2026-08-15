@@ -178,11 +178,16 @@ pub fn update_mining_body(
     let empty_building_icons = BuildingIcons::default();
     let building_icons_ref: &BuildingIcons = building_icons
         .as_ref()
-        .map(|r: &Res<BuildingIcons>| -> &BuildingIcons { r.as_ref() })
+        .map(|r: &Res<BuildingIcons>| -> &BuildingIcons { r })
         .unwrap_or(&empty_building_icons);
 
     for (group_id, group_label, group_buildings) in MINING_GROUPS_SURFACE {
         let group_collapsed = ui_state.mining_groups_collapsed.contains(group_id);
+        // Bevy system-param ergonomic borrowing: `&resource_icons`
+        // and `spare_power_mw` (f64) are both auto-deref'd by the
+        // scheduler. Clippy's `needless_borrow` lint flags these
+        // even though the explicit borrow is the Bevy idiom.
+        #[allow(clippy::needless_borrow)]
         let group_node = spawn_mining_group_section(
             &mut commands,
             content,

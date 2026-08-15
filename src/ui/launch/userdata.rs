@@ -79,7 +79,10 @@ impl PersistentWindowMode {
     /// Parse a stable id back into a [`PersistentWindowMode`]. Unknown
     /// strings fall back to `Windowed` so a typo in the RON file
     /// never leaves the game stuck in a mode the player can't undo.
-    pub fn from_str(s: &str) -> Self {
+    /// Named `parse_str` (not `from_str`) so callers don't accidentally
+    /// invoke it through `std::str::FromStr` and bypass the
+    /// panic-on-no-Result contract.
+    pub fn parse_str(s: &str) -> Self {
         match s {
             "windowed" => PersistentWindowMode::Windowed,
             "fullscreen" => PersistentWindowMode::Fullscreen,
@@ -478,7 +481,7 @@ mod tests {
     fn persistent_window_mode_as_str_round_trips() {
         for variant in PersistentWindowMode::ALL {
             assert_eq!(
-                PersistentWindowMode::from_str(variant.as_str()),
+                PersistentWindowMode::parse_str(variant.as_str()),
                 *variant,
                 "as_str / from_str must round-trip for {:?}",
                 variant
@@ -486,7 +489,7 @@ mod tests {
         }
         // Unknown strings fall back to Windowed.
         assert_eq!(
-            PersistentWindowMode::from_str("nope"),
+            PersistentWindowMode::parse_str("nope"),
             PersistentWindowMode::Windowed
         );
     }

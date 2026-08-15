@@ -264,8 +264,8 @@ pub fn update_buildings_body(
         .buildings
         .iter()
         .filter(|(bt, _count)| {
-            let def = buildings_data.get(*bt);
-            let cat = def.and_then(|d| parse_category(&d.category));
+            let def = buildings_data.get(bt);
+            let cat = def.and_then(|d| parse_category(d.category.as_str()));
             if cat == Some(BuildingCategory::Mining) {
                 return false;
             }

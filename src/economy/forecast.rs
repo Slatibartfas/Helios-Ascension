@@ -155,10 +155,8 @@ pub fn project_stockpile(
         // after the match above.
         let raw = (current_mt + annual_net_rate_mt * (t / SECONDS_PER_YEAR)).max(0.0);
         let value = raw.min(effective_cap.unwrap());
-        if hits_cap_at.is_none() {
-            if raw >= effective_cap.unwrap() && annual_net_rate_mt > 0.0 {
-                hits_cap_at = Some(t);
-            }
+        if hits_cap_at.is_none() && raw >= effective_cap.unwrap() && annual_net_rate_mt > 0.0 {
+            hits_cap_at = Some(t);
         }
         samples.push(ForecastSample {
             sim_seconds_offset: t,

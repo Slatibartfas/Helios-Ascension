@@ -275,6 +275,7 @@ impl Plugin for BootOverlayPlugin {
 
 #[cfg(test)]
 mod tests {
+    #[allow(unused_imports)]
     use super::*;
     use crate::boot_init::BOOT_STEP_COUNT;
 

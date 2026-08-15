@@ -930,7 +930,7 @@ mod friendly_label_tests {
 
     #[test]
     fn friendly_label_multi_output_iterates_all() {
-        let def_mods = vec![
+        let def_mods = [
             modf("IronProduction", 120.0),
             modf("HousingCapacity", 50_000_000.0),
             modf("PlutoniumBreeding", 0.23),
@@ -1040,7 +1040,7 @@ mod friendly_label_tests {
 
     #[test]
     fn friendly_label_chemical_plant_all_outputs() {
-        let def_mods = vec![
+        let def_mods = [
             modf("HydrogenSynthesis", 0.143),
             modf("AmmoniaSynthesis", 0.286),
             modf("PolymerSynthesis", 0.643),

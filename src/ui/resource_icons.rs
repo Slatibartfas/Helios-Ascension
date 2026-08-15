@@ -1479,7 +1479,7 @@ mod tests {
     fn cold_cache_bake_runs_async_not_inline() {
         // The async pool is a process global — init it if a prior
         // test/App didn't (get_or_init is idempotent).
-        let _ = bevy::tasks::AsyncComputeTaskPool::get_or_init(|| bevy::tasks::TaskPool::new());
+        let _ = bevy::tasks::AsyncComputeTaskPool::get_or_init(bevy::tasks::TaskPool::new);
 
         // Redirect the cache dir to a throwaway temp directory.
         let tag = std::time::SystemTime::now()
@@ -1574,7 +1574,7 @@ mod tests {
             !water.missing,
             "source existed — must not be marked missing"
         );
-        for (_, file_name) in &water.outputs {
+        for file_name in water.outputs.values() {
             assert!(
                 !file_name.contains(':'),
                 "output name must be sanitized, got {file_name}"

@@ -1891,7 +1891,7 @@ mod tests {
             app.world_mut().resource_mut::<SimulationTime>().elapsed += SECONDS_PER_MONTH;
             schedule.run(app.world_mut());
         }
-        app.world_mut().run_system_once(update_resource_rates);
+        let _ = app.world_mut().run_system_once(update_resource_rates);
 
         let tracker = app.world().resource::<ResourceRateTracker>();
         let mut net = std::collections::HashMap::new();
@@ -2010,7 +2010,7 @@ mod tests {
         app.world_mut()
             .resource_mut::<GlobalBudget>()
             .storage_multiplier = 1e18;
-        app.world_mut().run_system_once(update_resource_rates);
+        let _ = app.world_mut().run_system_once(update_resource_rates);
         let tracker = app.world().resource::<ResourceRateTracker>();
         tracker
             .gross_production_rates
@@ -2030,7 +2030,7 @@ mod tests {
             app.world_mut().resource_mut::<SimulationTime>().elapsed += SECONDS_PER_MONTH;
             schedule.run(app.world_mut());
         }
-        app.world_mut().run_system_once(update_resource_rates);
+        let _ = app.world_mut().run_system_once(update_resource_rates);
         let tracker = app.world().resource::<ResourceRateTracker>();
         tracker
             .gross_consumption_rates
@@ -2052,7 +2052,7 @@ mod tests {
             app.world_mut().resource_mut::<SimulationTime>().elapsed += SECONDS_PER_MONTH;
             schedule.run(app.world_mut());
         }
-        app.world_mut().run_system_once(update_resource_rates);
+        let _ = app.world_mut().run_system_once(update_resource_rates);
         let tracker = app.world().resource::<ResourceRateTracker>();
         let mut rows = Vec::new();
         for rt in ResourceType::all() {

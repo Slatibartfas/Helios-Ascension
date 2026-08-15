@@ -481,7 +481,7 @@ pub fn build_constructed_card_data(
             verb: "Produces",
             amount: super::data::format_power(total_mw),
             per_unit_mw: total_mw,
-            multiplier: count.max(1) as u32,
+            multiplier: count.max(1),
             spare_mw: None,
             insufficient: false,
             tooltip_lines: vec![
@@ -499,7 +499,7 @@ pub fn build_constructed_card_data(
             verb: "Power",
             amount: "0 W".to_string(),
             per_unit_mw: 0.0,
-            multiplier: count.max(1) as u32,
+            multiplier: count.max(1),
             spare_mw: None,
             insufficient: false,
             tooltip_lines: vec!["No grid interaction".to_string()],
@@ -511,7 +511,7 @@ pub fn build_constructed_card_data(
             verb: "Demand",
             amount: super::data::format_power(total_mw),
             per_unit_mw: -total_mw,
-            multiplier: count.max(1) as u32,
+            multiplier: count.max(1),
             spare_mw: None,
             insufficient: false,
             tooltip_lines: vec![

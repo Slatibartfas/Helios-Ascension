@@ -5465,8 +5465,6 @@ mod keyboard_navigation_tests {
 // =========================================================================
 
 use super::dashboard;
-use crate::economy::ResourceType;
-use crate::shipbuilding as shipbuilding_types;
 
 #[allow(dead_code)]
 pub(in crate::ui) mod shipbuilding_tooltip_inlined {

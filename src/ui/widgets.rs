@@ -1582,7 +1582,7 @@ impl<K: std::hash::Hash + Eq + Copy, V: Copy> KeyedList<K, V> {
 /// primitive with their own subset filters in their plugin module.
 pub fn tick_tab_body_visibility<B, F>(
     mut bodies: Query<(&B, &mut Node, &mut Visibility)>,
-    active_index: usize,
+    _active_index: usize,
     body_matches: F,
 ) where
     B: Component,
@@ -1675,34 +1675,34 @@ pub fn tick_active_tab_body_visibility<K: Hash + Eq + Copy + Send + Sync + 'stat
         };
     }
 }
+// Convenience click handler for tab buttons (RECOMMENDED PATTERN).
+// Call from a system that has ResMut<ActiveTabs<K>> and a
+// Local<HashMap<Entity, Interaction>> cache, like:
+//
+//     pub fn tick_tab_clicks<K: ...>(
+//         mut active: ResMut<ActiveTabs<&'static str>>,
+//         mut prev: Local<HashMap<Entity, Interaction>>,
+//         buttons: Query<(Entity, &Interaction, &TabButton<&'static str>), With<Button>>,
+//     ) {
+//         detect_rising_edges(&mut prev, &buttons, |_e, button| {
+//             active.set(button.group, button.index);
+//         });
+//     }
+//
+// (Documented as plain comments because Bevy's detect_rising_edges
+// helper is generic over a closure, not a callback type — wiring
+// this as a function pointer would require a trait object. There is
+// no tick_tab_clicks function in the codebase today; consumers
+// should write their own per-menu variant following the pattern
+// above.)
+// is generic over a closure, not a callback type — wiring this as
+// a function pointer would require a trait object.)
 
-/// Convenience click handler for tab buttons. Call from a system
-/// that has `ResMut<ActiveTabs<K>>` and a `Local<HashMap<Entity,
-/// Interaction>>` cache, like:
-///
-/// ```ignore
-/// pub fn tick_tab_clicks(
-///     mut active: ResMut<ActiveTabs<&'static str>>,
-///     mut prev: Local<HashMap<Entity, Interaction>>,
-///     buttons: Query<(Entity, &Interaction, &TabButton<&'static str>), With<Button>>,
-/// ) {
-///     detect_rising_edges(&mut prev, &buttons, |_e, button| {
-///         active.set(button.group, button.index);
-///     });
-/// }
-/// ```
-///
-/// (Documented inline because Bevy's `detect_rising_edges` helper
-/// is generic over a closure, not a callback type — wiring this as
-/// a function pointer would require a trait object.)
-
-// =====================================================================
 // Generic marquee primitive (Phase 10: extracted from
 // construction/disabled.rs::tick_subtitle_marquee. Animate a
 // horizontally-overflowing text track so the visible window
 // scrolls left at a constant rate when the underlying text is wider
 // than the clip container.)
-// =====================================================================
 
 /// Generic marquee track. Spawned with two copies of the text
 /// side-by-side (no gap) — the second copy seamlessly takes over
@@ -1867,7 +1867,7 @@ pub fn card_shell(commands: &mut Commands, parent: Entity, opts: CardShellOpts) 
                 ..default()
             },
             BackgroundColor(opts.bg),
-            opts.border_rest.clone(),
+            opts.border_rest,
             HoverElevation {
                 hover_scale: Vec2::splat(opts.hover_scale),
                 press_scale: Vec2::splat(opts.press_scale),

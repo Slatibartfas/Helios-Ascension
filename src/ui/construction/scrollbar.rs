@@ -38,13 +38,13 @@ use crate::ui::bevy_theme::*;
 // the panel ROOT, not of their bodies, so only the active tab's
 // track should be pickable/visible).
 pub fn tick_construction_scrollbar(
-    mut params: ParamSet<(
+    params: ParamSet<(
         Query<(&ComputedNode, &ConstructionScrollbarTrack)>,
         Query<&ComputedNode>,
         Query<&ScrollPosition>,
         Query<&mut Node, With<ConstructionScrollbarThumb>>,
     )>,
-    mut metrics: bevy::ecs::system::Local<
+    metrics: bevy::ecs::system::Local<
         std::collections::HashMap<bevy::ecs::entity::Entity, crate::ui::widgets::ScrollbarMetrics>,
     >,
 ) {

@@ -371,7 +371,7 @@ impl ChipButtonBundle {
                 // Chips inside a container are borderless; the container
                 // provides the visual frame. Tabs that need a custom
                 // border (e.g. active tab underline) pass `border_override`.
-                border: border_override.unwrap_or(UiRect::default()),
+                border: border_override.unwrap_or_default(),
                 border_radius: BorderRadius::all(Val::Px(3.0)),
                 ..default()
             },
