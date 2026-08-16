@@ -376,13 +376,22 @@ def _elevenlabs_generate(
     return response.content
 
 
-def _ffmpeg_transcode(src: Path, dst: Path) -> None:
+def _ffmpeg_transcode(src: Path, dst: Path, duration_s: float | None = None) -> None:
     """Transcode `src` to `dst` (WAV PCM 44.1 kHz mono) using ffmpeg.
 
     ElevenLabs returns `audio/mpeg`. We need WAV PCM because
     the Bevy audio backend (Phase 1) only enables the WAV codec.
     The transcode is the same one the music pipeline uses for
     `mmx music generate --out` (see `assets/audio/music/*.mp3`).
+
+    ElevenLabs pads every generation to its minimum render block
+    (~480 ms for short UI cues — see
+    https://elevenlabs.io/docs/api-reference/sound-generation),
+    so the returned MP3 is almost always longer than the cue's
+    target `duration_ms`. Pass `duration_s` to trim to the cue's
+    actual target via `-t`. Without `-t`, every UI cue ends up
+    480 ms long and rapid-fire interactions (slider ticks at 10
+    Hz) layer multiple unfinished plays.
     """
     import shutil
     import subprocess
@@ -395,7 +404,8 @@ def _ffmpeg_transcode(src: Path, dst: Path) -> None:
         )
 
     # `-y` overwrites the dst; `-ar 44100` matches the synth's
-    # sample rate; `-ac 1` mono (UI SFX doesn't need stereo).
+    # sample rate; `-ac 1` mono (UI SFX doesn't need stereo);
+    # `-t <dur>` caps the output length to the cue's target.
     cmd = [
         ffmpeg,
         "-y",
@@ -403,6 +413,10 @@ def _ffmpeg_transcode(src: Path, dst: Path) -> None:
         "-i", str(src),
         "-ar", "44100",
         "-ac", "1",
+    ]
+    if duration_s is not None:
+        cmd += ["-t", f"{duration_s:.3f}"]
+    cmd += [
         "-f", "wav",
         str(dst),
     ]
@@ -446,7 +460,7 @@ def generate_via_api(cue: dict, out_path: Path, api_key: str | None) -> None:
         )
         mp3_sidecar.write_bytes(audio_bytes)
 
-        _ffmpeg_transcode(mp3_sidecar, out_path)
+        _ffmpeg_transcode(mp3_sidecar, out_path, duration_s=duration_s)
 
         if not __import__("os").environ.get("KEEP_SFX_MP3"):
             mp3_sidecar.unlink(missing_ok=True)
