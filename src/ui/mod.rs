@@ -28,6 +28,7 @@ pub mod cursors;
 mod dashboard;
 mod dossier_panel;
 mod economy_panel;
+pub mod egui_sfx;
 mod fleets_panel;
 mod icon_cache;
 pub mod icons;
