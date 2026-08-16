@@ -13,18 +13,15 @@
 //! future ticket; for now we write on every change so the
 //! persistence round-trip is exercised end-to-end.
 //!
-//! Audio tab additionally surfaces the music-attribution overlay
-//! required by CEO HB-297 row 1 (comment `6ab37ba7`). The overlay
-//! now lists every track in the current [`crate::plugins::music::MusicPlaylist`]
-//! grouped by attribution source — the original Scott Buckley
-//! (CC-BY 4.0) entries and the MiniMax Music 3.0 (AI-generated)
-//! entries. The overlay is shown when audio is enabled
-//! (`master_volume > 0`) and hidden when muted, per the LGD spec.
+//! Audio tab surfaces the master / music / SFX mix sliders. There
+//! is no attribution overlay — every track in the playlist is
+//! AI-generated (MiniMax Music 3.0) and the in-game music controls
+//! (title + play/pause/skip/volume) are the only surface the
+//! player sees.
 
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 
-use crate::plugins::music::MusicPlaylist;
 use crate::ui::launch::subview_manifests::SeedCopyManifest;
 use crate::ui::launch::userdata::{
     resolve_userdata_dir, save_persistent_settings_to, PersistentSettings, PersistentWindowMode,
@@ -70,20 +67,6 @@ impl SettingsTabId {
     }
 }
 
-/// Music-attribution overlay text (CEO HB-297 row 1, comment
-/// `6ab37ba7`). Constants instead of `&str` so they appear in
-/// `cargo doc` and are trivial to grep for during review. These
-/// pin the *first Scott Buckley entry* in
-/// [`crate::plugins::music::MusicPlaylist`] — the overlay lists
-/// every track in the playlist grouped by attribution source, and
-/// the canonical first-track values are what the test enforces so
-/// future re-orderings of the playlist stay in sync with the
-/// overlay's headline entry.
-const MUSIC_TITLE: &str = "Starfire";
-const MUSIC_AUTHOR: &str = "Scott Buckley";
-const MUSIC_LICENSE: &str = "CC-BY 4.0";
-const MUSIC_SOURCE_URL: &str = "scottbuckley.com.au";
-
 /// Render the Settings subview. Reads [`LaunchState::Settings`]
 /// for gating; no-ops for every other variant. Lives in
 /// [`LaunchSystemSet::Menu`] so it only ticks while the menu
@@ -94,7 +77,6 @@ pub fn ui_settings_subview(
     mut settings: ResMut<PersistentSettings>,
     mut active_tab: ResMut<SettingsTabId>,
     seed_copy: Res<SeedCopyManifest>,
-    music_playlist: Res<MusicPlaylist>,
 ) {
     if *launch_state != LaunchState::Settings {
         return;
@@ -146,7 +128,7 @@ pub fn ui_settings_subview(
                 .inner_margin(egui::Margin::same(theme::Spacing::lg as i8))
                 .show(ui, |ui| match *active_tab {
                     SettingsTabId::Audio => {
-                        if draw_audio_tab(ui, &mut settings, &music_playlist) {
+                        if draw_audio_tab(ui, &mut settings) {
                             settings_dirty = true;
                         }
                     }
@@ -200,11 +182,7 @@ pub fn ui_settings_subview(
 
 /// Draw the Audio tab. Returns `true` when any setting changed and
 /// the caller should persist.
-fn draw_audio_tab(
-    ui: &mut egui::Ui,
-    settings: &mut PersistentSettings,
-    music_playlist: &MusicPlaylist,
-) -> bool {
+fn draw_audio_tab(ui: &mut egui::Ui, settings: &mut PersistentSettings) -> bool {
     let mut changed = false;
     ui.label(egui::RichText::new("Audio Mix").color(theme::CYAN).strong());
     ui.add_space(theme::Spacing::xs);
@@ -215,127 +193,19 @@ fn draw_audio_tab(
 
     ui.add_space(theme::Spacing::lg);
 
-    // ── Music attribution overlay (CEO HB-297 row 1) ─────
-    // Hidden when audio is muted so a player who has disabled
-    // all audio doesn't see a credit for music they aren't
-    // hearing (per the LGD spec — the overlay is a courtesy
-    // to players who can hear the music).
-    //
-    // Headline entry (the CEO-mandated Scott Buckley line) is
-    // rendered from the canonical `MUSIC_*` constants so it
-    // stays stable across playlist reorderings. The remaining
-    // entries are derived from `music_playlist` and grouped by
-    // attribution source (the Scott Buckley headline is skipped
-    // here so the overlay doesn't show it twice).
-    let audio_enabled = settings.master_volume > 0.0 && settings.music_volume > 0.0;
-    ui.add_enabled_ui(audio_enabled, |ui| {
-        egui::Frame::group(ui.style())
-            .fill(theme::SURFACE_INPUT)
-            .inner_margin(egui::Margin::same(theme::Spacing::md as i8))
-            .show(ui, |ui| {
-                ui.label(
-                    egui::RichText::new("Music")
-                        .color(theme::TEXT_HINT)
-                        .size(11.0),
-                );
-                ui.add_space(theme::Spacing::xs);
-
-                // ── Headline: CEO HB-297 row 1 ────────────────
-                ui.label(
-                    egui::RichText::new(format!(
-                        "\"{}\" by {} · {}",
-                        MUSIC_TITLE, MUSIC_AUTHOR, MUSIC_SOURCE_URL
-                    ))
-                    .color(theme::CYAN)
-                    .strong(),
-                );
-                ui.label(
-                    egui::RichText::new(format!("Licensed under {}", MUSIC_LICENSE))
-                        .color(theme::TEXT_DIM)
-                        .size(11.0),
-                );
-
-                // ── Remaining tracks, grouped by attribution ──
-                // The Scott Buckley headline is the first playlist
-                // entry, so its group is rendered below as "Also:
-                // <other Buckley titles>" with a single extra
-                // entry ("Adrift Among Infinite Stars" + "Passage
-                // Of Time"); AI-generated tracks each get their
-                // own attributed block.
-                let groups = group_tracks_by_attribution(music_playlist);
-                for group in groups.iter() {
-                    ui.add_space(theme::Spacing::sm);
-                    let others: Vec<String> = group
-                        .tracks
-                        .iter()
-                        .map(|t| format!("\"{}\"", t.title))
-                        .collect();
-                    let url_suffix = match group.attribution.source_url {
-                        Some(url) => format!(" · {}", url),
-                        None => String::new(),
-                    };
-                    ui.label(
-                        egui::RichText::new(format!(
-                            "{} — {} under {}{}",
-                            others.join(", "),
-                            group.attribution.author,
-                            group.attribution.license,
-                            url_suffix,
-                        ))
-                        .color(theme::TEXT_DIM)
-                        .size(11.0),
-                    );
-                }
-            });
-    });
-
-    if !audio_enabled {
-        ui.label(
-            egui::RichText::new("Music attribution hidden while audio is muted.")
-                .color(theme::TEXT_HINT)
-                .size(10.0)
-                .italics(),
-        );
-    }
+    // Brief note about the in-game music controls. The actual playback
+    // surface (title, play/pause, skip, volume) lives in the time-controls
+    // bottom panel; settings only holds the master mix.
+    ui.label(
+        egui::RichText::new(
+            "Background music plays automatically during gameplay. Use the controls in the bottom-right of the time bar to play / pause, skip, and adjust volume.",
+        )
+        .color(theme::TEXT_HINT)
+        .size(11.0)
+        .italics(),
+    );
 
     changed
-}
-
-/// One attribution source (e.g. "Scott Buckley, CC-BY 4.0") and the
-/// tracks that share it. Built by `group_tracks_by_attribution` —
-/// kept local to this file because it's only used here.
-struct AttributionGroup {
-    attribution: crate::plugins::music::TrackAttribution,
-    tracks: Vec<crate::plugins::music::TrackInfo>,
-}
-
-/// Collapse `music_playlist.tracks` into consecutive groups that
-/// share the same `TrackAttribution` (compared by pointer identity
-/// on each field, since the same `const` binding produces the same
-/// `&'static str` pointer across all instances). Preserves playlist
-/// order so the overlay reads top-to-bottom.
-fn group_tracks_by_attribution(
-    music_playlist: &MusicPlaylist,
-) -> Vec<AttributionGroup> {
-    let mut groups: Vec<AttributionGroup> = Vec::new();
-    for track in &music_playlist.tracks {
-        let same = groups.last_mut().filter(|g| {
-            std::ptr::eq(g.attribution.author, track.attribution.author)
-                && std::ptr::eq(g.attribution.license, track.attribution.license)
-                && std::ptr::eq(
-                    g.attribution.source_url.unwrap_or(""),
-                    track.attribution.source_url.unwrap_or(""),
-                )
-        });
-        match same {
-            Some(g) => g.tracks.push(track.clone()),
-            None => groups.push(AttributionGroup {
-                attribution: track.attribution.clone(),
-                tracks: vec![track.clone()],
-            }),
-        }
-    }
-    groups
 }
 
 /// Draw the Graphics tab. Returns `true` on change.
@@ -525,27 +395,5 @@ mod tests {
         assert_eq!(loaded, settings);
 
         let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn music_attribution_strings_match_hb_297_row_1() {
-        // CEO HB-297 row 1 (comment `6ab37ba7`) requires the
-        // attribution overlay to name a Scott Buckley track under
-        // CC-BY 4.0. The headline is rendered from these
-        // constants directly (see `draw_audio_tab`) and is
-        // independent of the live playlist order — but if the
-        // first playlist entry is ever changed away from
-        // "Starfire" by Scott Buckley, update these constants in
-        // the same commit so the CEO-mandated headline stays
-        // accurate. This test pins the relationship.
-        let playlist = MusicPlaylist::default();
-        let first = playlist
-            .tracks
-            .first()
-            .expect("MusicPlaylist::default() must contain at least one track");
-        assert_eq!(first.title, MUSIC_TITLE);
-        assert_eq!(first.attribution.author, MUSIC_AUTHOR);
-        assert_eq!(first.attribution.license, MUSIC_LICENSE);
-        assert_eq!(first.attribution.source_url, Some(MUSIC_SOURCE_URL));
     }
 }

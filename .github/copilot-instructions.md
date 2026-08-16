@@ -122,7 +122,7 @@ helios_ascension/
 │   │   └── mod.rs           # ShipbuildingPlugin
 │   ├── plugins/             # Game systems
 │   │   ├── camera.rs        # Camera movement, anchoring & ViewMode
-│   │   ├── music.rs         # Background music playlist & CC-BY attribution overlay
+│   │   ├── music.rs         # Background music playlist (AI-generated)
 │   │   ├── solar_system.rs  # Body spawning, atmosphere shells, rotation, mesh helpers
 │   │   ├── star_materials.rs    # Star material structs (Glow/Surface/Diffraction/Corona/Halo) + LOD systems
 │   │   ├── solar_system_data.rs # RON data loader
@@ -182,7 +182,7 @@ helios_ascension/
 │       └── interaction.rs         # Selection management
 ├── assets/
 │   ├── audio/
-│   │   └── music/           # Background music (CC-BY 4.0, Scott Buckley)
+│   │   └── music/           # Background music (AI-generated, MiniMax Music 3.0)
 │   ├── data/
 │   │   ├── buildings.ron    # 47 building definitions
 │   │   ├── ship_hulls.ron   # Hull frames and slot layouts
@@ -617,13 +617,20 @@ canonical pattern.
 #### Background Music (`src/plugins/music.rs`)
 - `MusicPlugin` plays a sequential looping playlist of ambient tracks during gameplay
 - Tracks use `PlaybackMode::Despawn` — Bevy auto-despawns the entity when a track ends; the `advance_playlist` system detects this and starts the next track
-- A non-interactive egui overlay in the bottom-right corner shows the current track title and CC-BY attribution (required by the Scott Buckley license)
-- **Current playlist** (all CC-BY 4.0, Scott Buckley — www.scottbuckley.com.au):
-  - `audio/music/starfire.mp3` — 'Starfire'
-  - `audio/music/adrift-among-infinite-stars.mp3` — 'Adrift Among Infinite Stars'
-  - `audio/music/passage-of-time.mp3` — 'Passage Of Time'
-- **Adding a track**: push a new `TrackInfo { path, title }` into the `Vec` in `MusicPlaylist::default()`. No other code changes needed.
-- **License requirement**: every track MUST include a `title` string matching the official Scott Buckley attribution so the overlay stays correct.
+- The bottom-right of the time bar shows the current track title plus play/pause, skip, and volume controls
+- **Current playlist** (all AI-generated, MiniMax Music 3.0 — see `assets/data/music_prompts.ron` for the prompt behind each):
+  - `audio/music/helios-magnetosphere.mp3` — 'Helios Magnetosphere'
+  - `audio/music/helios-drift.mp3` — 'Helios Drift'
+  - `audio/music/helios-signal-in-the-dark.mp3` — 'Helios Signal in the Dark'
+  - `audio/music/helios-jovian-rendezvous.mp3` — 'Helios Jovian Rendezvous'
+  - `audio/music/helios-subsurface.mp3` — 'Helios Subsurface'
+  - `audio/music/helios-new-horizons.mp3` — 'Helios New Horizons'
+  - `audio/music/helios-decay-orbit.mp3` — 'Helios Decay Orbit'
+  - `audio/music/helios-first-light.mp3` — 'Helios First Light'
+  - `audio/music/helios-prograde-burn.mp3` — 'Helios Prograde Burn'
+  - `audio/music/helios-long-vigil.mp3` — 'Helios Long Vigil'
+- **Adding a track**: push a new `TrackInfo { path, title }` into the `Vec` in `MusicPlaylist::default()` and append the matching prompt to `assets/data/music_prompts.ron`. No other code changes needed.
+- **Default volume**: 0.4 (linear) at game start. The in-game slider and Settings → Audio → Music control the live value.
 
 #### Window / Taskbar Icon (`src/plugins/window_icon.rs`)
 - `WindowIconPlugin` sets the OS window + taskbar icon at startup by applying a multi-resolution set of RGBA bitmaps via `winit::Window::set_window_icon` through `bevy_winit::WINIT_WINDOWS`.

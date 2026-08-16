@@ -178,4 +178,4 @@ Per-category overrides live in `NotificationSettings` (resource) and the dedicat
 - Use `bevy-inspector-egui` in debug builds for runtime inspection
 - Camera: WASD panning, right-click drag rotation, mouse wheel zoom, Home to recenter
 - Starmap view activates at ~100 AU zoom distance
-- Background music: CC-BY 4.0 (Scott Buckley), attribution overlay required
+- Background music: AI-generated ambient (MiniMax Music 3.0), prompts logged in `assets/data/music_prompts.ron`

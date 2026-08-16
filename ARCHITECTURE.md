@@ -471,7 +471,7 @@ src/
 │   ├── solar_system_data.rs # RON data loader
 │   ├── starmap.rs       # Starmap view (system icons, visibility toggle)
 │   ├── atmosphere.rs    # Atmospheric scattering shader (Rayleigh + Mie)
-│   ├── music.rs         # Background music playlist (CC-BY, Scott Buckley)
+│   ├── music.rs         # Background music playlist (AI-generated, MiniMax Music 3.0)
 │   ├── comet_vfx.rs     # Comet tails
 │   ├── ocean.rs         # Ocean material
 │   ├── star_materials.rs # Stellar materials
