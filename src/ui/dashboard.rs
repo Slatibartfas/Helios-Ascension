@@ -1467,6 +1467,7 @@ pub(super) fn ui_time_controls(
     keyboard_input: Res<ButtonInput<KeyCode>>,
     real_time: Res<Time<Real>>,
     mut playlist: ResMut<crate::plugins::music::MusicPlaylist>,
+    mut sfx_ui: MessageWriter<crate::plugins::sfx::bridges::UiSfxRequest>,
     // The early-game milestone checklist used to be a `TopBottomPanel`
     // here (GRA-787). It leaked into every menu because the bottom
     // strip is always on-screen — Economy, Shipbuilding, the dossier,
@@ -1501,6 +1502,9 @@ pub(super) fn ui_time_controls(
         for (key, &preset) in speed_keys.iter().zip(SPEED_PRESETS.iter()) {
             if keyboard_input.just_pressed(*key) {
                 time_scale.set_speed(preset);
+                sfx_ui.write(crate::plugins::sfx::bridges::UiSfxRequest(
+                    crate::plugins::sfx::SfxCueId::SliderTick,
+                ));
                 break;
             }
         }
@@ -1548,6 +1552,9 @@ pub(super) fn ui_time_controls(
                     } else {
                         time_scale.pause();
                     }
+                    sfx_ui.write(crate::plugins::sfx::bridges::UiSfxRequest(
+                        crate::plugins::sfx::SfxCueId::ModeToggle,
+                    ));
                 }
 
                 ui.separator();
@@ -1596,6 +1603,9 @@ pub(super) fn ui_time_controls(
                         .clicked()
                     {
                         time_scale.set_speed(SPEED_VALUES[i]);
+                        sfx_ui.write(crate::plugins::sfx::bridges::UiSfxRequest(
+                            crate::plugins::sfx::SfxCueId::SliderTick,
+                        ));
                     }
                 }
 

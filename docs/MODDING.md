@@ -9,7 +9,8 @@ This guide explains how to add custom textures and celestial bodies to Helios As
 4. [Adding Custom Textures](#adding-custom-textures)
 5. [Adding New Bodies](#adding-new-bodies)
 6. [Creating a Texture Pack](#creating-a-texture-pack)
-7. [Future: Multiple Solar Systems](#future-multiple-solar-systems)
+7. [Replacing Sound Effects](#replacing-sound-effects)
+8. [Future: Multiple Solar Systems](#future-multiple-solar-systems)
 
 ## Quick Start - Replace a Texture
 
@@ -297,6 +298,69 @@ my_texture_pack/
 1. Copy textures to `assets/textures/`
 2. Copy modified bodies to `assets/data/solar_system.ron`
 3. Restart game
+
+## Replacing Sound Effects
+
+Every UI click, panel toggle, and notification chime is a
+data-driven cue. You can swap any cue's audio without touching
+Rust code by dropping a new `.wav` file into `assets/audio/sfx/`.
+
+### Quick Start — Replace one cue
+
+1. Find the cue's `file` entry in
+   [`assets/data/sfx_manifest.ron`](../assets/data/sfx_manifest.ron).
+   Example: `ui.button_click` → `ui_button_click.wav`.
+2. Drop your replacement WAV at the same path:
+   `assets/audio/sfx/ui_button_click.wav`.
+3. Restart the game. The SFX plugin loads the new audio on
+   Startup and routes it through the existing `SfxCueId::ButtonClick`
+   playback path.
+
+The audio format is `.wav` (uncompressed, 44.1 kHz mono is the
+canonical target; the Bevy audio backend will resample on the
+fly if you ship a different rate). Don't ship `.mp3` —
+Phase 1 only enables the WAV codec.
+
+### Adding a brand-new cue
+
+1. **Add the variant** to the Rust `SfxCueId` enum in
+   [`src/plugins/sfx/mod.rs`](../src/plugins/sfx/mod.rs):
+   - Pick a stable name (e.g. `ConstructionBuildComplete`).
+   - Add the variant to `as_str_id` and `from_str_id`.
+   - Add it to the `ALL` constant.
+2. **Add the manifest entry** to `sfx_manifest.ron` with a new
+   `id`, `file`, `category`, `default_volume`, `cooldown_ms`,
+   and `prompt`.
+3. **Generate the WAV**:
+   ```bash
+   python3 scripts/generate_sfx.py --force
+   ```
+   This synthesizes a placeholder (real audio, just basic).
+   For a custom audio drop, replace the synthesized file.
+4. **Trigger it** from your code:
+   ```rust
+   use crate::plugins::sfx::{SfxCueId, SfxEvent};
+   sfx_events.write(SfxEvent(SfxCueId::ConstructionBuildComplete));
+   ```
+5. **Verify** with `python3 scripts/audit_sfx_manifest.py --strict`
+   — the audit fails if the Rust enum and manifest diverge.
+
+### Per-cue metadata
+
+| Field | Purpose |
+|---|---|
+| `id` | Stable string id (matches `SfxCueId::as_str_id`). |
+| `file` | Path under `assets/audio/sfx/` (e.g. `ui_button_click.wav`). |
+| `category` | `Ui`, `Construction`, `Research`, `Engineering`, `Shipbuilding`, `Fleets`, `Notifications`, `Economy`, `Colony`, `Survey`, `Camera`, `TimeControl`, `Launch`, `Persistence`, `Personnel`. |
+| `default_volume` | Linear gain 0.0–1.0. Multiplied by the player's SFX master and the category mute. |
+| `cooldown_ms` | Minimum interval between two plays (prevents saturation). |
+| `prompt` | Natural-language brief used to generate the cue. Free-form. |
+
+### See also
+
+- [`docs/SFX.md`](SFX.md) — architecture, volume composition, cooldown rules, known limitations.
+- [`docs/SFX_CREDITS.md`](SFX_CREDITS.md) — bundled cue list + attribution.
+- [`src/plugins/sfx/`](../src/plugins/sfx/) — Rust source.
 
 ## Future: Multiple Solar Systems
 

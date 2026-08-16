@@ -371,9 +371,15 @@ pub fn tick_queue_panel_row_cancel_click(
     interactions: Query<(Entity, &Interaction, &QueuePanelRowCancel), With<QueuePanelRowCancel>>,
     mut pending: ResMut<PendingConstructionActions>,
     mut prev: Local<std::collections::HashMap<Entity, Interaction>>,
+    mut sfx_ui: MessageWriter<crate::plugins::sfx::bridges::UiSfxRequest>,
 ) {
     crate::ui::widgets::detect_rising_edges(&mut prev, &interactions, |_entity, cancel| {
         pending.cancel_construction.push(cancel.project_entity);
+        // Confirmation cue — destructive but reversible, same
+        // pair as `modal_cancel` for the egui delete-save flow.
+        sfx_ui.write(crate::plugins::sfx::bridges::UiSfxRequest(
+            crate::plugins::sfx::SfxCueId::ModalCancel,
+        ));
     });
 }
 

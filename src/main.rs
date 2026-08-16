@@ -159,6 +159,12 @@ fn build_game_app() -> App {
     // the world when the Startup system runs.
     .add_plugins(WindowIconPlugin)
     .add_plugins(MusicPlugin)
+    // SFX plugin (Phase 1, GRA-SFX-1). Wires SfxPlugin which
+    // mirrors MusicPlugin's Bevy-audio dependency but for
+    // one-shot UI / event stings. Registered alongside the
+    // music plugin so both share the same AudioPlugin
+    // instance and audio thread / device.
+    .add_plugins(crate::plugins::sfx::SfxPlugin)
     // Systems
     .add_systems(Startup, setup);
     app

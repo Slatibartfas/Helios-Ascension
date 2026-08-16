@@ -1,0 +1,138 @@
+// SFX prompt archive — natural-language briefs for each cue.
+//
+// Mirrors `music_prompts.ron` (which lists the 10 background
+// tracks and their AI-generation prompts). The audio generator
+// (`scripts/generate_sfx.py`) reads both this file and
+// `sfx_manifest.ron` to produce the bundled `.wav` files.
+//
+// Each entry records:
+// - `cue_id`         — must match an `id` in `sfx_manifest.ron`.
+// - `duration_ms`    — target length (the generator writes this
+//                      exact duration; the actual delivered WAV
+//                      may be a few ms off).
+// - `intensity`      — "low" / "medium" / "high" hint passed to
+//                      the audio generator.
+// - `prompt`         — the natural-language brief used to
+//                      generate the cue. This is the
+//                      authoritative source — the `prompt`
+//                      field in `sfx_manifest.ron` is a copy
+//                      that travels with the cue's runtime
+//                      metadata; this file is the audit log.
+// - `attribution`    — license + provenance. All Phase 1 cues
+//                      are AI-generated via MiniMax Audio;
+//                      `docs/SFX_CREDITS.md` aggregates these
+//                      into a player-facing page.
+// - `notes`          — design rationale, what the cue is *for*,
+//                      and any hand-tuning done post-generation.
+
+(
+    prompts: [
+        // ── UI chrome ─────────────────────────────────────────────
+        (
+            cue_id: "ui.button_click",
+            duration_ms: 80,
+            intensity: "medium",
+            prompt: "Short futuristic UI button click. Bright, percussive, 80ms. Glass-like attack, soft tail. No reverb.",
+            attribution: "AI-generated (MiniMax Audio); bundled with permission.",
+            notes: "Most-fired cue in the game. Must be sub-100ms and never feel 'loud'. Glass-marble timbre.",
+        ),
+        (
+            cue_id: "ui.tab_switch",
+            duration_ms: 120,
+            intensity: "low",
+            prompt: "Soft tab-snap click. Quick wood-block style, 120ms. Subtle, not jarring.",
+            attribution: "AI-generated (MiniMax Audio); bundled with permission.",
+            notes: "Softer than button_click; the player switches tabs much more frequently than they click buttons, so this one needs to stay unobtrusive.",
+        ),
+        (
+            cue_id: "ui.panel_open",
+            duration_ms: 280,
+            intensity: "medium",
+            prompt: "Whoosh-up panel open. Short air-sweep, 280ms. Bright, sci-fi UI feel, no percussion.",
+            attribution: "AI-generated (MiniMax Audio); bundled with permission.",
+            notes: "Paired with ui_panel_close — same timbre, mirrored envelope. ~40ms longer than close so open feels slightly heavier.",
+        ),
+        (
+            cue_id: "ui.panel_close",
+            duration_ms: 240,
+            intensity: "medium",
+            prompt: "Whoosh-down panel close. Air-sweep descending, 240ms. Matches ui_panel_open character.",
+            attribution: "AI-generated (MiniMax Audio); bundled with permission.",
+            notes: "Mirror of ui_panel_open. Closing feels crisper / shorter than opening.",
+        ),
+        (
+            cue_id: "ui.slider_tick",
+            duration_ms: 60,
+            intensity: "low",
+            prompt: "Single detent tick. Very short, 60ms. Crisp wooden click like a clock second hand.",
+            attribution: "AI-generated (MiniMax Audio); bundled with permission.",
+            notes: "Fires on every detent of the volume sliders + speed presets. Cooldown 40ms prevents saturation if a player drags rapidly.",
+        ),
+        (
+            cue_id: "ui.dropdown_open",
+            duration_ms: 140,
+            intensity: "medium",
+            prompt: "Dropdown pop chirp. Mid-pitched, 140ms. Friendly, not aggressive.",
+            attribution: "AI-generated (MiniMax Audio); bundled with permission.",
+            notes: "Distinct from button_click — mid-range timbre so the player can tell a dropdown opened vs. a button pressed.",
+        ),
+        (
+            cue_id: "ui.row_select",
+            duration_ms: 100,
+            intensity: "low",
+            prompt: "Row-select tone. Soft confirmation ping, 100ms. Mild, ambient, like a soft chord stab.",
+            attribution: "AI-generated (MiniMax Audio); bundled with permission.",
+            notes: "Plays when the player selects a save file, a fleet row, a tech in the archive. Tonal (not percussive) so multiple selections in a row sound musical, not staccato.",
+        ),
+        (
+            cue_id: "ui.drag_drop",
+            duration_ms: 180,
+            intensity: "medium",
+            prompt: "Drop-confirm thunk. Deeper than button click, 180ms. Solid, satisfying, like a magnet snap.",
+            attribution: "AI-generated (MiniMax Audio); bundled with permission.",
+            notes: "Fires when a module is dropped on a ship hull slot, an item is dropped in a list, etc. Weightier than button_click to confirm 'committed'.",
+        ),
+        (
+            cue_id: "ui.modal_confirm",
+            duration_ms: 320,
+            intensity: "medium",
+            prompt: "Confirm chime, rising pitch. Two-note ascending major-third, 320ms. Positive, clear, decisive.",
+            attribution: "AI-generated (MiniMax Audio); bundled with permission.",
+            notes: "Destructive-action confirm (delete save, demolish building, overwrite). Rising major-third = 'yes, this is good'.",
+        ),
+        (
+            cue_id: "ui.modal_cancel",
+            duration_ms: 280,
+            intensity: "medium",
+            prompt: "Cancel chime, descending pitch. Two-note descending minor-second, 280ms. Neutral, soft, no harshness.",
+            attribution: "AI-generated (MiniMax Audio); bundled with permission.",
+            notes: "Companion to ui_modal_confirm. Minor-second descent = 'no, backing out'. Deliberately less musical than confirm — the player should hear 'I cancelled' as distinct from 'I confirmed'.",
+        ),
+        (
+            cue_id: "ui.chip_toggle",
+            duration_ms: 70,
+            intensity: "low",
+            prompt: "Filter-chip toggle. Very short bright blip, 70ms. Light, snappy, on/off symmetry.",
+            attribution: "AI-generated (MiniMax Audio); bundled with permission.",
+            notes: "Used by forecast grouping chips, search filter chips, view-mode toggles. Pitch-invariant so on/off sound identical (the visual state already conveys direction).",
+        ),
+        (
+            cue_id: "ui.mode_toggle",
+            duration_ms: 160,
+            intensity: "medium",
+            prompt: "Mode-switch thud. Deeper confirm tone, 160ms. Distinct from button click, weightier.",
+            attribution: "AI-generated (MiniMax Audio); bundled with permission.",
+            notes: "Construction menu's Construction ↔ Behaviour mode switch, time-controls' pause/resume. Heavier than button_click because it changes persistent UI state.",
+        ),
+
+        // ── Notifications ─────────────────────────────────────────
+        (
+            cue_id: "notifications.chime",
+            duration_ms: 600,
+            intensity: "medium",
+            prompt: "Space-y notification bell. Soft, ethereal, 600ms. Two-note chord with gentle synth pad. Futuristic, calm, not alarming. No vocals.",
+            attribution: "AI-generated (MiniMax Audio); bundled with permission.",
+            notes: "Universal chime for all notification severities (Phase 1). Per-severity variants (chime_warning, chime_critical) are deferred to Phase 2. Cooldown 1s prevents saturation when a system floods with events.",
+        ),
+    ],
+)

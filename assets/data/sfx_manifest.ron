@@ -1,0 +1,144 @@
+// SFX manifest — moddable surface for sound-effect cues.
+//
+// Each entry is one named cue. The runtime `SfxPlugin`
+// (src/plugins/sfx.rs) loads this on `Startup`, resolves the
+// `file` path under `assets/audio/sfx/`, and registers a
+// `Handle<AudioSource>` per cue in `SfxRegistry`.
+//
+// **Moddability**: to override an existing cue, drop a `.wav`
+// into `assets/audio/sfx/` with the same `file` name and
+// (optionally) tweak `default_volume` / `cooldown_ms` here. To
+// add a new cue, append an entry below *and* add the matching
+// `SfxCueId` variant in `src/plugins/sfx.rs` (the audit script
+// `scripts/audit_sfx_manifest.py` enforces this).
+//
+// **Schema**: `SfxCategory` is the same enum used internally
+// for per-category volume routing (mirrors the categories in
+// `assets/data/notifications.ron`). `default_volume` is a
+// linear multiplier on top of the player's `sfx_volume` master
+// slider; values are typically 0.5–1.0. `cooldown_ms` is the
+// minimum interval between successive plays of the same cue
+// (prevents button-mash saturation). `prompt` is the natural-
+// language brief fed to the MiniMax Audio generator — see
+// `assets/data/sfx_prompts.ron` for the canonical prompts used
+// to produce the bundled WAVs.
+//
+// **Phase 1 surface**: 13 UI cues + 1 universal notification
+// chime. Construction / research / shipbuilding / fleet /
+// survey / launch / time-control cues are added in later PRs
+// (see `/memories/session/plan.md` for the full roadmap).
+(
+    cues: [
+        // ── UI chrome ─────────────────────────────────────────────
+        (
+            id: "ui.button_click",
+            file: "ui_button_click.wav",
+            category: Ui,
+            default_volume: 0.7,
+            cooldown_ms: 50,
+            prompt: "Short futuristic UI button click. Bright, percussive, 80ms. Glass-like attack, soft tail. No reverb.",
+        ),
+        (
+            id: "ui.tab_switch",
+            file: "ui_tab_switch.wav",
+            category: Ui,
+            default_volume: 0.6,
+            cooldown_ms: 80,
+            prompt: "Soft tab-snap click. Quick wood-block style, 120ms. Subtle, not jarring.",
+        ),
+        (
+            id: "ui.panel_open",
+            file: "ui_panel_open.wav",
+            category: Ui,
+            default_volume: 0.65,
+            cooldown_ms: 200,
+            prompt: "Whoosh-up panel open. Short air-sweep, 280ms. Bright, sci-fi UI feel, no percussion.",
+        ),
+        (
+            id: "ui.panel_close",
+            file: "ui_panel_close.wav",
+            category: Ui,
+            default_volume: 0.65,
+            cooldown_ms: 200,
+            prompt: "Whoosh-down panel close. Air-sweep descending, 240ms. Matches ui_panel_open character.",
+        ),
+        (
+            id: "ui.slider_tick",
+            file: "ui_slider_tick.wav",
+            category: Ui,
+            default_volume: 0.5,
+            cooldown_ms: 40,
+            prompt: "Single detent tick. Very short, 60ms. Crisp wooden click like a clock second hand.",
+        ),
+        (
+            id: "ui.dropdown_open",
+            file: "ui_dropdown_open.wav",
+            category: Ui,
+            default_volume: 0.6,
+            cooldown_ms: 150,
+            prompt: "Dropdown pop chirp. Mid-pitched, 140ms. Friendly, not aggressive.",
+        ),
+        (
+            id: "ui.row_select",
+            file: "ui_row_select.wav",
+            category: Ui,
+            default_volume: 0.55,
+            cooldown_ms: 80,
+            prompt: "Row-select tone. Soft confirmation ping, 100ms. Mild, ambient, like a soft chord stab.",
+        ),
+        (
+            id: "ui.drag_drop",
+            file: "ui_drag_drop.wav",
+            category: Ui,
+            default_volume: 0.7,
+            cooldown_ms: 120,
+            prompt: "Drop-confirm thunk. Deeper than button click, 180ms. Solid, satisfying, like a magnet snap.",
+        ),
+        (
+            id: "ui.modal_confirm",
+            file: "ui_modal_confirm.wav",
+            category: Ui,
+            default_volume: 0.75,
+            cooldown_ms: 200,
+            prompt: "Confirm chime, rising pitch. Two-note ascending major-third, 320ms. Positive, clear, decisive.",
+        ),
+        (
+            id: "ui.modal_cancel",
+            file: "ui_modal_cancel.wav",
+            category: Ui,
+            default_volume: 0.75,
+            cooldown_ms: 200,
+            prompt: "Cancel chime, descending pitch. Two-note descending minor-second, 280ms. Neutral, soft, no harshness.",
+        ),
+        (
+            id: "ui.chip_toggle",
+            file: "ui_chip_toggle.wav",
+            category: Ui,
+            default_volume: 0.55,
+            cooldown_ms: 60,
+            prompt: "Filter-chip toggle. Very short bright blip, 70ms. Light, snappy, on/off symmetry.",
+        ),
+        (
+            id: "ui.mode_toggle",
+            file: "ui_mode_toggle.wav",
+            category: Ui,
+            default_volume: 0.7,
+            cooldown_ms: 150,
+            prompt: "Mode-switch thud. Deeper confirm tone, 160ms. Distinct from button click, weightier.",
+        ),
+
+        // ── Notifications (universal chime) ────────────────────────
+        // Plays once per *coalesced* toast (see
+        // src/plugins/sfx/bridges/notifications.rs). Cooldown is
+        // long enough that a burst of toasts yields at most one
+        // chime per second.
+        (
+            id: "notifications.chime",
+            file: "notifications_chime.wav",
+            category: Notifications,
+            default_volume: 0.7,
+            cooldown_ms: 1000,
+            prompt: "Space-y notification bell. Soft, ethereal, 600ms. Two-note chord with gentle synth pad. Futuristic, calm, not alarming. No vocals.",
+        ),
+    ],
+)

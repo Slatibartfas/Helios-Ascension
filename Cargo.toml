@@ -25,6 +25,9 @@ path = "src/main.rs"
 #   `bevy_image` fails the load with "feature \"jpeg\" is not enabled".
 #   GRA-368 tracking the regloss.
 # - "mp3"/"bevy_audio" retained: `plugins::music` plays MP3s from assets/audio.
+# - "wav" added for `plugins::sfx` (Phase 1 SFX system, GRA-SFX-1).
+#   Short UI stings sound cleaner uncompressed than MP3 (no codec
+#   silence-padding artifacts on sub-200ms cues).
 bevy = { version = "0.18", features = [
     "bevy_pbr",
     "bevy_render",
@@ -38,6 +41,7 @@ bevy = { version = "0.18", features = [
     "bevy_picking",
     "serialize",
     "mp3",
+    "wav",
     "jpeg",
     "png",
 ] }

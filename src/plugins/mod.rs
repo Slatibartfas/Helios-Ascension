@@ -3,6 +3,7 @@ pub mod camera;
 pub mod minimize_guard;
 pub mod music;
 pub mod ocean;
+pub mod sfx;
 pub mod solar_system;
 pub mod solar_system_data;
 pub mod star_materials;
