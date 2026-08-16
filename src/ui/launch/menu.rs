@@ -44,6 +44,8 @@ use bevy_egui::EguiContexts;
 
 use super::manifest::LaunchUiManifest;
 use super::{LaunchState, NewGameParams, NewGameRequest, PendingLaunchActions, SaveIndex};
+use crate::plugins::sfx::bridges::UiSfxRequest;
+use crate::plugins::sfx::SfxCueId;
 use crate::ui::theme;
 
 /// Shared width of every menu button in the bottom row.
@@ -88,6 +90,7 @@ pub fn main_menu_render_system(
     mut pending_actions: ResMut<PendingLaunchActions>,
     mut launch_state: ResMut<LaunchState>,
     keyboard_input: Res<ButtonInput<KeyCode>>,
+    mut sfx_ui: MessageWriter<UiSfxRequest>,
 ) {
     // Snapshot the current state for the gate check before we take
     // `ResMut<LaunchState>`. Bevy 0.18 forbids `Res<T>` + `ResMut<T>`
@@ -147,6 +150,7 @@ pub fn main_menu_render_system(
                 continue_enabled,
                 &mut pending_actions,
                 &mut launch_state,
+                &mut sfx_ui,
             );
         });
 }
@@ -191,6 +195,7 @@ fn render_menu_body(
     continue_enabled: bool,
     pending_actions: &mut PendingLaunchActions,
     next_launch_state: &mut LaunchState,
+    sfx_ui: &mut MessageWriter<UiSfxRequest>,
 ) {
     // We use `egui::Area` for absolute positioning so the button row
     // and footer land at exact screen-relative coordinates regardless
@@ -239,6 +244,7 @@ fn render_menu_body(
                     continue_enabled,
                     pending_actions,
                     next_launch_state,
+                    sfx_ui,
                 );
             });
         });
@@ -265,6 +271,7 @@ fn render_action_grid(
     continue_enabled: bool,
     pending_actions: &mut PendingLaunchActions,
     next_launch_state: &mut LaunchState,
+    sfx_ui: &mut MessageWriter<UiSfxRequest>,
 ) {
     let copy = &manifest.menu;
 
@@ -279,6 +286,7 @@ fn render_action_grid(
         && continue_enabled
         && launch_state == LaunchState::MainMenu
     {
+        sfx_ui.write(UiSfxRequest(SfxCueId::ButtonClick));
         pending_actions.continue_recent = true;
     }
 
@@ -291,6 +299,7 @@ fn render_action_grid(
         copy.resolved_new_game_label()
     };
     if render_glass_button(ui, new_game_label, copy.resolved_new_game_shortcut(), true).clicked() {
+        sfx_ui.write(UiSfxRequest(SfxCueId::PanelOpen));
         if launch_state == LaunchState::MainMenu {
             pending_actions.start_new_game = Some(NewGameRequest {
                 params: NewGameParams::default(),
@@ -318,6 +327,7 @@ fn render_action_grid(
     )
     .clicked()
     {
+        sfx_ui.write(UiSfxRequest(SfxCueId::PanelOpen));
         toggle_subview(next_launch_state, launch_state, LaunchState::LoadGame);
     }
 
@@ -330,6 +340,7 @@ fn render_action_grid(
         copy.resolved_settings_label()
     };
     if render_glass_button(ui, settings_label, copy.resolved_settings_shortcut(), true).clicked() {
+        sfx_ui.write(UiSfxRequest(SfxCueId::PanelOpen));
         toggle_subview(next_launch_state, launch_state, LaunchState::Settings);
     }
 
@@ -344,6 +355,7 @@ fn render_action_grid(
     )
     .clicked()
     {
+        sfx_ui.write(UiSfxRequest(SfxCueId::ButtonClick));
         pending_actions.quit = true;
     }
 }

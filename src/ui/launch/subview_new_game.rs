@@ -29,6 +29,8 @@
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 
+use crate::plugins::sfx::bridges::UiSfxRequest;
+use crate::plugins::sfx::SfxCueId;
 use crate::ui::launch::manifest::LaunchUiManifest;
 use crate::ui::launch::subview_manifests::{DifficultyPresetsManifest, SeedCopyManifest};
 use crate::ui::launch::{
@@ -183,6 +185,7 @@ pub fn ui_new_game_subview(
     presets: Res<DifficultyPresetsManifest>,
     manifest: Res<LaunchUiManifest>,
     params_defaults: Res<NewGameParamsDefaults>,
+    mut sfx_ui: MessageWriter<UiSfxRequest>,
 ) {
     if *launch_state != LaunchState::NewGame {
         return;
@@ -239,6 +242,7 @@ pub fn ui_new_game_subview(
                         let is_active = preset.id == active_id;
                         let response = ui.selectable_label(is_active, &preset.display_name);
                         if response.clicked() {
+                            sfx_ui.write(UiSfxRequest(SfxCueId::RowSelect));
                             subview_state.selected_preset_id = Some(preset.id.clone());
                             // Reset seed-related state when preset
                             // changes — different strategies surface
@@ -287,6 +291,7 @@ pub fn ui_new_game_subview(
                                         let selected =
                                             subview_state.curated_seed_index == Some(idx);
                                         if ui.selectable_label(selected, label).clicked() {
+                                            sfx_ui.write(UiSfxRequest(SfxCueId::RowSelect));
                                             subview_state.curated_seed_index = Some(idx);
                                             subview_state.parsed_seed = Some(*seed);
                                             subview_state.seed_input.clear();
@@ -462,6 +467,7 @@ pub fn ui_new_game_subview(
                             )
                             .clicked()
                         {
+                            sfx_ui.write(UiSfxRequest(SfxCueId::PanelClose));
                             back_clicked = true;
                         }
 
@@ -476,6 +482,7 @@ pub fn ui_new_game_subview(
                                 btn = btn.fill(theme::SURFACE_INPUT);
                             }
                             if ui.add_enabled(can_begin, btn).clicked() {
+                                sfx_ui.write(UiSfxRequest(SfxCueId::ButtonClick));
                                 begin_clicked = true;
                             }
                         });

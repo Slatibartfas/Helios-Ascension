@@ -96,6 +96,7 @@ impl Plugin for SfxPlugin {
         app.init_resource::<SfxRegistry>()
             .init_resource::<SfxBus>()
             .add_message::<SfxEvent>()
+            .add_message::<bridges::UiSfxRequest>()
             .add_systems(Startup, (manifest::load_sfx_manifest,))
             .add_systems(
                 Update,

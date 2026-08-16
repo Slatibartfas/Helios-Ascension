@@ -37,6 +37,8 @@ use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 use std::path::PathBuf;
 
 use crate::persistence::{rescan_save_index, write_save_to_path};
+use crate::plugins::sfx::bridges::UiSfxRequest;
+use crate::plugins::sfx::SfxCueId;
 use crate::ui::launch::save_index::{SaveIndex, SaveIndexState, SaveSummary, SAVES_SUBDIR};
 use crate::ui::launch::userdata::resolve_userdata_dir;
 use crate::ui::launch::{LaunchState, LaunchSystemSet};
@@ -135,6 +137,7 @@ pub fn ui_save_panel_subview(
     mut pending: ResMut<PendingSaveActions>,
     mut save_ui: ResMut<SaveGameUiState>,
     mut commands: Commands,
+    mut sfx_ui: MessageWriter<UiSfxRequest>,
 ) {
     if *launch_state != LaunchState::SaveGame {
         return;
@@ -198,6 +201,7 @@ pub fn ui_save_panel_subview(
                         )
                         .clicked()
                         {
+                            sfx_ui.write(UiSfxRequest(SfxCueId::ButtonClick));
                             save_clicked = true;
                         }
                     });
@@ -256,6 +260,7 @@ pub fn ui_save_panel_subview(
                                         );
                                     }
                                     if response.clicked() {
+                                        sfx_ui.write(UiSfxRequest(SfxCueId::RowSelect));
                                         clicked_save_index = Some(idx);
                                     }
                                 }
@@ -303,9 +308,11 @@ pub fn ui_save_panel_subview(
                 );
                 ui.horizontal(|ui| {
                     if crate::ui::launch::render_glass_button(ui, "Overwrite", "", true).clicked() {
+                        sfx_ui.write(UiSfxRequest(SfxCueId::ModalConfirm));
                         confirm_overwrite = true;
                     }
                     if crate::ui::launch::render_glass_button(ui, "Cancel", "", true).clicked() {
+                        sfx_ui.write(UiSfxRequest(SfxCueId::ModalCancel));
                         cancel_overwrite = true;
                     }
                 });
@@ -316,6 +323,7 @@ pub fn ui_save_panel_subview(
             // ── Back row (left-aligned) ─────────────────────────
             ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                 if crate::ui::launch::render_glass_button(ui, "Back", "", true).clicked() {
+                    sfx_ui.write(UiSfxRequest(SfxCueId::PanelClose));
                     back_clicked = true;
                 }
             });

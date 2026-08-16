@@ -42,6 +42,7 @@ pub fn ui_notifications_settings_panel(
     mut open: ResMut<NotificationsSettingsOpen>,
     mut settings: ResMut<NotificationSettings>,
     categories: Res<NotificationCategoriesData>,
+    mut sfx_ui: MessageWriter<crate::plugins::sfx::bridges::UiSfxRequest>,
 ) {
     if !open.0 {
         return;
@@ -64,7 +65,7 @@ pub fn ui_notifications_settings_panel(
                 return;
             }
 
-            draw_global_controls(ui, &mut settings);
+            draw_global_controls(ui, &mut settings, &mut sfx_ui);
             ui.add_space(theme::Spacing::sm);
             ui.separator();
             ui.add_space(theme::Spacing::sm);
@@ -75,32 +76,53 @@ pub fn ui_notifications_settings_panel(
                 .max_height(360.0)
                 .auto_shrink([false, false])
                 .show(ui, |ui| {
-                    draw_per_category(ui, &mut settings, &categories);
+                    draw_per_category(ui, &mut settings, &categories, &mut sfx_ui);
                 });
 
             ui.add_space(theme::Spacing::sm);
             ui.separator();
             ui.add_space(theme::Spacing::sm);
-            draw_reset_button(ui, &mut settings, &categories);
+            draw_reset_button(ui, &mut settings, &categories, &mut sfx_ui);
         });
 
     if !keep_open {
         open.0 = false;
+        sfx_ui.write(crate::plugins::sfx::bridges::UiSfxRequest(
+            crate::plugins::sfx::SfxCueId::PanelClose,
+        ));
     }
 }
 
-fn draw_global_controls(ui: &mut egui::Ui, settings: &mut NotificationSettings) {
+fn draw_global_controls(
+    ui: &mut egui::Ui,
+    settings: &mut NotificationSettings,
+    sfx_ui: &mut MessageWriter<crate::plugins::sfx::bridges::UiSfxRequest>,
+) {
     ui.label(
         egui::RichText::new("Global")
             .font(theme::heading())
             .color(theme::CYAN),
     );
 
-    ui.checkbox(&mut settings.global_enabled, "Enable notifications");
-    ui.checkbox(
-        &mut settings.show_only_in_survey,
-        "Show toasts only on the survey tab",
-    );
+    if ui
+        .checkbox(&mut settings.global_enabled, "Enable notifications")
+        .changed()
+    {
+        sfx_ui.write(crate::plugins::sfx::bridges::UiSfxRequest(
+            crate::plugins::sfx::SfxCueId::ChipToggle,
+        ));
+    }
+    if ui
+        .checkbox(
+            &mut settings.show_only_in_survey,
+            "Show toasts only on the survey tab",
+        )
+        .changed()
+    {
+        sfx_ui.write(crate::plugins::sfx::bridges::UiSfxRequest(
+            crate::plugins::sfx::SfxCueId::ChipToggle,
+        ));
+    }
 
     ui.add_space(theme::Spacing::xs);
     ui.label(format!(
@@ -130,6 +152,7 @@ fn draw_per_category(
     ui: &mut egui::Ui,
     settings: &mut NotificationSettings,
     categories: &NotificationCategoriesData,
+    sfx_ui: &mut MessageWriter<crate::plugins::sfx::bridges::UiSfxRequest>,
 ) {
     ui.label(
         egui::RichText::new("Per category")
@@ -149,7 +172,11 @@ fn draw_per_category(
             .show(ui, |ui| {
                 let mut row = settings.get_or_default(&id, cat.enabled, cat.default_dismiss_s);
 
-                ui.checkbox(&mut row.enabled, "Enabled");
+                if ui.checkbox(&mut row.enabled, "Enabled").changed() {
+                    sfx_ui.write(crate::plugins::sfx::bridges::UiSfxRequest(
+                        crate::plugins::sfx::SfxCueId::ChipToggle,
+                    ));
+                }
 
                 // `pause_on_event` is renderable but the engine-side
                 // hook lands in PR-F. Greying the label keeps the
@@ -167,7 +194,11 @@ fn draw_per_category(
                 // `sound_on` is rendered-on but inert — the audio
                 // backend is a deferred feature. The UI still flips
                 // the value so a future PR can read it.
-                ui.checkbox(&mut row.sound_on, "Sound on");
+                if ui.checkbox(&mut row.sound_on, "Sound on").changed() {
+                    sfx_ui.write(crate::plugins::sfx::bridges::UiSfxRequest(
+                        crate::plugins::sfx::SfxCueId::ChipToggle,
+                    ));
+                }
 
                 ui.add_space(theme::Spacing::xs);
                 ui.label(format!("Auto-dismiss: {:.1} s", row.auto_dismiss_s));
@@ -178,7 +209,14 @@ fn draw_per_category(
                         .show_value(false),
                 );
 
-                ui.checkbox(&mut row.sticky, "Sticky (ignore auto-dismiss)");
+                if ui
+                    .checkbox(&mut row.sticky, "Sticky (ignore auto-dismiss)")
+                    .changed()
+                {
+                    sfx_ui.write(crate::plugins::sfx::bridges::UiSfxRequest(
+                        crate::plugins::sfx::SfxCueId::ChipToggle,
+                    ));
+                }
 
                 settings.per_category.insert(id, row);
             });
@@ -189,12 +227,16 @@ fn draw_reset_button(
     ui: &mut egui::Ui,
     settings: &mut NotificationSettings,
     categories: &NotificationCategoriesData,
+    sfx_ui: &mut MessageWriter<crate::plugins::sfx::bridges::UiSfxRequest>,
 ) {
     if ui
         .add(egui::Button::new("Reset to defaults").fill(theme::SURFACE_RAISED))
         .clicked()
     {
         settings.reset_all(categories);
+        sfx_ui.write(crate::plugins::sfx::bridges::UiSfxRequest(
+            crate::plugins::sfx::SfxCueId::ButtonClick,
+        ));
     }
 }
 

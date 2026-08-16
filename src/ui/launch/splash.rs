@@ -452,6 +452,7 @@ pub fn ui_splash_system(
     keyboard_input: Res<ButtonInput<KeyCode>>,
     real_time: Res<Time<Real>>,
     mut splash_timer: ResMut<SplashTimer>,
+    mut sfx_ui: MessageWriter<crate::plugins::sfx::bridges::UiSfxRequest>,
 ) {
     // Self-gate: stop rendering once the splash is dismissed. The
     // very last paint + the visibility flip happen on the dismissal
@@ -466,6 +467,9 @@ pub fn ui_splash_system(
     // Honour the kill-switch first — saves one frame of painting.
     if manifest.force_skip_splash {
         dismiss_splash(commands, &mut splash_window, &mut main_window, &splash_cam);
+        sfx_ui.write(crate::plugins::sfx::bridges::UiSfxRequest(
+            crate::plugins::sfx::SfxCueId::PanelClose,
+        ));
         return;
     }
 
@@ -491,16 +495,25 @@ pub fn ui_splash_system(
     // Primary: boot-init done + min duration elapsed.
     if *boot_state == crate::boot_init::BootState::Ready && elapsed >= min_s {
         dismiss_splash(commands, &mut splash_window, &mut main_window, &splash_cam);
+        sfx_ui.write(crate::plugins::sfx::bridges::UiSfxRequest(
+            crate::plugins::sfx::SfxCueId::PanelClose,
+        ));
         return;
     }
     // Fallback: max duration.
     if elapsed >= max_s {
         dismiss_splash(commands, &mut splash_window, &mut main_window, &splash_cam);
+        sfx_ui.write(crate::plugins::sfx::bridges::UiSfxRequest(
+            crate::plugins::sfx::SfxCueId::PanelClose,
+        ));
         return;
     }
     // Early-dismiss on input after the min brand-display time.
     if elapsed >= min_s && first_input(&keyboard_input) {
         dismiss_splash(commands, &mut splash_window, &mut main_window, &splash_cam);
+        sfx_ui.write(crate::plugins::sfx::bridges::UiSfxRequest(
+            crate::plugins::sfx::SfxCueId::PanelClose,
+        ));
         return;
     }
 
