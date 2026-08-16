@@ -15,11 +15,20 @@ This script has two modes:
    without API credentials, regenerating after a manifest
    schema change, or producing a `git diff`-friendly baseline.
 
-2. **`--api` mode**: Calls the MiniMax Audio endpoint
-   (or whatever audio-generation API is configured via
-   environment variables) to produce production-quality
-   AI-generated cues. Requires `MMX_API_KEY` in the
-   environment (or `--api-key` on the command line).
+2. **`--api` mode**: Calls the **ElevenLabs Sound Effects API**
+   to produce production-quality AI-generated cues.
+   `mmx-cli` (the vendor the music pipeline uses) does not
+   expose a dedicated SFX endpoint as of August 2026 — TTS
+   has a `--sound-effect` flag but it's an effect on top of
+   spoken text, not a standalone SFX generator. ElevenLabs is
+   the only purpose-built option with a free tier. Requires
+   `ELEVENLABS_API_KEY` in the environment (or `--api-key`
+   on the command line). Optional `ELEVENLABS_REGION` selects
+   `us` / `eu` / `global` (default global).
+
+   The ElevenLabs response is `audio/mpeg`. The script
+   transcodes to WAV via ffmpeg (required because the Bevy
+   audio backend only enables the WAV codec in Phase 1).
 
 The script is idempotent — running it twice produces the same
 files. Add `--force` to overwrite existing WAVs even if newer
@@ -276,33 +285,183 @@ def synthesize_placeholder(cue: dict, out_path: Path) -> None:
 
 
 # ----------------------------------------------------------------------
-# API mode (--api) — stub for MiniMax audio generation
+# API mode (--api) — ElevenLabs Sound Effects
 # ----------------------------------------------------------------------
+#
+# Vendor: ElevenLabs (https://elevenlabs.io). Chosen over
+# MiniMax/mmx-cli because mmx exposes TTS (`speech synthesize`)
+# and music (`music generate`) but no dedicated sound-effects
+# endpoint as of the August 2026 skill doc.
+#
+# ElevenLabs returns raw MP3 bytes from
+# `POST https://api.elevenlabs.io/v1/sound-generation`. Our
+# runtime only enables the WAV codec (see Cargo.toml), so we
+# transcode MP3 → WAV with ffmpeg, which is in $PATH on the
+# reference Windows + Linux dev images.
+#
+# Config:
+# - `ELEVENLABS_API_KEY` env var (or `--api-key` on the CLI)
+# - Optional: `ELEVENLABS_REGION` to pick a regional endpoint
+#   (`api.us.elevenlabs.io`, `api.eu.residency.elevenlabs.io`)
+#
+# Failure modes: any HTTP / transcode error falls back to the
+# local synthesizer so the script always produces a usable file
+# (better than crashing the workflow).
+
+
+def _elevenlabs_endpoint(region: str | None) -> str:
+    """Pick the ElevenLabs endpoint URL for the configured region.
+
+    The default global endpoint is `api.elevenlabs.io`. US
+    customers can route through `api.us.elevenlabs.io`; EU
+    residency through `api.eu.residency.elevenlabs.io`. Unknown
+    regions fall back to the default.
+    """
+    region_map = {
+        "us": "https://api.us.elevenlabs.io",
+        "eu": "https://api.eu.residency.elevenlabs.io",
+        "global": "https://api.elevenlabs.io",
+        None: "https://api.elevenlabs.io",
+    }
+    base = region_map.get((region or "").lower() if region else None, "https://api.elevenlabs.io")
+    return f"{base}/v1/sound-generation"
+
+
+def _elevenlabs_generate(
+    prompt: str,
+    duration_s: float,
+    api_key: str,
+    region: str | None,
+    timeout_s: float = 60.0,
+) -> bytes:
+    """POST to ElevenLabs sound-generation and return raw audio bytes.
+
+    Raises on HTTP / network error so the caller can fall back to
+    the local synthesizer. Returns the raw `audio/mpeg` body —
+    the caller is responsible for transcoding if needed.
+    """
+    try:
+        import requests  # local import so the local-synthesis path
+                          # doesn't require `requests` to be installed
+    except ImportError as exc:
+        raise RuntimeError(
+            "elevenlabs backend requires `requests` (pip install requests); "
+            "falling back to local synthesis"
+        ) from exc
+
+    payload = {
+        "text": prompt,
+        # ElevenLabs accepts duration_seconds in 0.5..30.0;
+        # we clamp below 0.5 to avoid the API rejecting very
+        # short UI cues.
+        "duration_seconds": max(0.5, min(30.0, duration_s)),
+        # 0.0 = maximally varied, 1.0 = strict adherence to the
+        # prompt. 0.3 is the doc's "let the model improvise a
+        # little" default — better for short UI cues where the
+        # player needs a distinct *character* per cue.
+        "prompt_influence": 0.3,
+        "model_id": "eleven_text_to_sound_v2",
+    }
+    response = requests.post(
+        _elevenlabs_endpoint(region),
+        headers={
+            "xi-api-key": api_key,
+            "Content-Type": "application/json",
+            "Accept": "audio/mpeg",
+        },
+        json=payload,
+        timeout=timeout_s,
+    )
+    response.raise_for_status()
+    return response.content
+
+
+def _ffmpeg_transcode(src: Path, dst: Path) -> None:
+    """Transcode `src` to `dst` (WAV PCM 44.1 kHz mono) using ffmpeg.
+
+    ElevenLabs returns `audio/mpeg`. We need WAV PCM because
+    the Bevy audio backend (Phase 1) only enables the WAV codec.
+    The transcode is the same one the music pipeline uses for
+    `mmx music generate --out` (see `assets/audio/music/*.mp3`).
+    """
+    import shutil
+    import subprocess
+
+    ffmpeg = shutil.which("ffmpeg")
+    if ffmpeg is None:
+        raise RuntimeError(
+            "ffmpeg not on PATH — required to transcode MP3 -> WAV. "
+            "Install ffmpeg (winget install Gyan.FFmpeg) and retry."
+        )
+
+    # `-y` overwrites the dst; `-ar 44100` matches the synth's
+    # sample rate; `-ac 1` mono (UI SFX doesn't need stereo).
+    cmd = [
+        ffmpeg,
+        "-y",
+        "-loglevel", "error",
+        "-i", str(src),
+        "-ar", "44100",
+        "-ac", "1",
+        "-f", "wav",
+        str(dst),
+    ]
+    subprocess.run(cmd, check=True)
+
 
 def generate_via_api(cue: dict, out_path: Path, api_key: str | None) -> None:
-    """Generate a real WAV via the audio API.
+    """Generate a real WAV via ElevenLabs, with local-synthesis fallback.
 
-    **This is a placeholder.** The actual MiniMax audio API
-    endpoint for SFX isn't covered by the bundled `mmx-cli`
-    skill (which has TTS + music but not standalone SFX
-    generation). The plan is:
+    Flow:
+      1. POST the cue's prompt + duration to ElevenLabs.
+      2. Save the returned MP3 to `<out>.mp3` (sidecar; lets the
+         human inspect what came back if a cue sounds wrong).
+      3. Transcode MP3 -> WAV via ffmpeg to `out_path` (the file
+         the SFX plugin actually loads).
+      4. Clean up the sidecar unless `--keep-mp3` was passed.
 
-    1. Detect the configured provider via environment variables
-       (e.g. `MMX_AUDIO_API_URL`, `ELEVENLABS_API_KEY`).
-    2. POST the cue's `prompt` + `duration_ms` to the provider.
-    3. Save the returned audio bytes as a WAV (or transcode
-       from MP3/OGG with ffmpeg if the provider returns a
-       compressed format).
-
-    Until that's wired, we fall back to the placeholder
-    synthesizer so the script always produces a usable file.
+    Any failure (missing `requests`, HTTP error, ffmpeg missing,
+    transcode error) falls back to `synthesize_placeholder` so
+    the pipeline always produces a playable cue.
     """
-    sys.stderr.write(
-        f"[generate_sfx] note: --api mode is a stub; falling back to "
-        f"local synthesis for {cue['cue_id']!r}. The MiniMax Audio "
-        f"SFX endpoint will be integrated in a follow-up PR.\n"
-    )
-    synthesize_placeholder(cue, out_path)
+    if not api_key:
+        sys.stderr.write(
+            "[generate_sfx] --api requires ELEVENLABS_API_KEY (or --api-key); "
+            "falling back to local synthesis.\n"
+        )
+        synthesize_placeholder(cue, out_path)
+        return
+
+    region = __import__("os").environ.get("ELEVENLABS_REGION")
+    prompt = cue["prompt"]
+    duration_s = cue["duration_ms"] / 1000.0
+
+    mp3_sidecar = out_path.with_suffix(".mp3")
+    try:
+        audio_bytes = _elevenlabs_generate(
+            prompt=prompt,
+            duration_s=duration_s,
+            api_key=api_key,
+            region=region,
+        )
+        mp3_sidecar.write_bytes(audio_bytes)
+
+        _ffmpeg_transcode(mp3_sidecar, out_path)
+
+        if not __import__("os").environ.get("KEEP_SFX_MP3"):
+            mp3_sidecar.unlink(missing_ok=True)
+
+        print(
+            f"  elevenlabs generated {out_path.name} "
+            f"({len(audio_bytes)} bytes MP3, transcoded to WAV)"
+        )
+    except Exception as exc:
+        sys.stderr.write(
+            f"[generate_sfx] ElevenLabs call failed for {cue['cue_id']!r} "
+            f"({type(exc).__name__}: {exc}); falling back to local synthesis.\n"
+        )
+        mp3_sidecar.unlink(missing_ok=True)
+        synthesize_placeholder(cue, out_path)
 
 
 # ----------------------------------------------------------------------
@@ -319,7 +478,7 @@ def main() -> int:
     parser.add_argument(
         "--api-key",
         default=None,
-        help="API key (defaults to MMX_API_KEY environment variable).",
+        help="API key (defaults to ELEVENLABS_API_KEY environment variable).",
     )
     parser.add_argument(
         "--force",
@@ -339,9 +498,9 @@ def main() -> int:
 
     print(f"generate_sfx: {len(cues)} cue(s) parsed from {PROMPTS_PATH.name}")
 
-    api_key = args.api_key or __import__("os").environ.get("MMX_API_KEY")
+    api_key = args.api_key or __import__("os").environ.get("ELEVENLABS_API_KEY")
     if args.api and not api_key:
-        sys.exit("--api requires MMX_API_KEY or --api-key")
+        sys.exit("--api requires ELEVENLABS_API_KEY or --api-key")
 
     for cue in cues:
         filename = manifest_filename(cue["cue_id"])
