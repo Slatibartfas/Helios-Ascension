@@ -13,11 +13,11 @@
 //! future ticket; for now we write on every change so the
 //! persistence round-trip is exercised end-to-end.
 //!
-//! Audio tab additionally surfaces the music-attribution overlay
-//! required by CEO HB-297 row 1 (comment `6ab37ba7`): "Beyond the
-//! Heliopause" by Scott Buckley, CC-BY 4.0. The overlay is shown
-//! when audio is enabled (`master_volume > 0`) and hidden when
-//! muted, per the LGD spec.
+//! Audio tab surfaces the master / music / SFX mix sliders. There
+//! is no attribution overlay — every track in the playlist is
+//! AI-generated (MiniMax Music 3.0) and the in-game music controls
+//! (title + play/pause/skip/volume) are the only surface the
+//! player sees.
 
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
@@ -66,13 +66,6 @@ impl SettingsTabId {
         }
     }
 }
-
-/// Music-attribution overlay text (CEO HB-297 row 1, comment
-/// `6ab37ba7`). Constants instead of `&str` so they appear in
-/// `cargo doc` and are trivial to grep for during review.
-const MUSIC_TITLE: &str = "Beyond the Heliopause";
-const MUSIC_AUTHOR: &str = "Scott Buckley";
-const MUSIC_LICENSE: &str = "CC-BY 4.0";
 
 /// Render the Settings subview. Reads [`LaunchState::Settings`]
 /// for gating; no-ops for every other variant. Lives in
@@ -200,44 +193,17 @@ fn draw_audio_tab(ui: &mut egui::Ui, settings: &mut PersistentSettings) -> bool 
 
     ui.add_space(theme::Spacing::lg);
 
-    // ── Music attribution overlay (CEO HB-297 row 1) ─────
-    // Hidden when audio is muted so a player who has disabled
-    // all audio doesn't see a credit for music they aren't
-    // hearing (per the LGD spec — the overlay is a courtesy
-    // to players who can hear the music).
-    let audio_enabled = settings.master_volume > 0.0 && settings.music_volume > 0.0;
-    ui.add_enabled_ui(audio_enabled, |ui| {
-        egui::Frame::group(ui.style())
-            .fill(theme::SURFACE_INPUT)
-            .inner_margin(egui::Margin::same(theme::Spacing::md as i8))
-            .show(ui, |ui| {
-                ui.label(
-                    egui::RichText::new("Music")
-                        .color(theme::TEXT_HINT)
-                        .size(11.0),
-                );
-                ui.add_space(theme::Spacing::xs);
-                ui.label(
-                    egui::RichText::new(format!("\"{}\" by {}", MUSIC_TITLE, MUSIC_AUTHOR))
-                        .color(theme::CYAN)
-                        .strong(),
-                );
-                ui.label(
-                    egui::RichText::new(format!("Licensed under {}", MUSIC_LICENSE))
-                        .color(theme::TEXT_DIM)
-                        .size(11.0),
-                );
-            });
-    });
-
-    if !audio_enabled {
-        ui.label(
-            egui::RichText::new("Music attribution hidden while audio is muted.")
-                .color(theme::TEXT_HINT)
-                .size(10.0)
-                .italics(),
-        );
-    }
+    // Brief note about the in-game music controls. The actual playback
+    // surface (title, play/pause, skip, volume) lives in the time-controls
+    // bottom panel; settings only holds the master mix.
+    ui.label(
+        egui::RichText::new(
+            "Background music plays automatically during gameplay. Use the controls in the bottom-right of the time bar to play / pause, skip, and adjust volume.",
+        )
+        .color(theme::TEXT_HINT)
+        .size(11.0)
+        .italics(),
+    );
 
     changed
 }
@@ -429,18 +395,5 @@ mod tests {
         assert_eq!(loaded, settings);
 
         let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn music_attribution_strings_match_hb_297_row_1() {
-        // CEO HB-297 row 1 (comment `6ab37ba7`) requires the
-        // attribution overlay to name "Beyond the Heliopause"
-        // by Scott Buckley under CC-BY 4.0. The render code
-        // assembles these from the constants above — assert the
-        // literal values so a typo in the constants is caught
-        // by CI rather than by a manual playthrough.
-        assert_eq!(MUSIC_TITLE, "Beyond the Heliopause");
-        assert_eq!(MUSIC_AUTHOR, "Scott Buckley");
-        assert_eq!(MUSIC_LICENSE, "CC-BY 4.0");
     }
 }

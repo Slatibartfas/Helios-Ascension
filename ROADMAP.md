@@ -273,7 +273,7 @@ The Kardashev scale is the spine of the long game. Progression from K0.7 (curren
 - Mid-transit course correction and abort burns
 - Refuelling from planetary stockpiles
 - Full trajectory visualisation
-- Background music playlist (CC-BY, Scott Buckley)
+- Background music playlist (AI-generated, MiniMax Music 3.0)
 - Atmospheric scattering shader (Rayleigh + Mie)
 
 ### v0.4.0 — Building & Logistics Overhaul ✅
