@@ -77,6 +77,7 @@ pub fn ui_settings_subview(
     mut settings: ResMut<PersistentSettings>,
     mut active_tab: ResMut<SettingsTabId>,
     seed_copy: Res<SeedCopyManifest>,
+    mut commands: Commands,
 ) {
     if *launch_state != LaunchState::Settings {
         return;
@@ -94,6 +95,7 @@ pub fn ui_settings_subview(
     let mut back_clicked = false;
     let mut settings_dirty = false;
     let mut post_save = None;
+    let mut tab_switched = false;
 
     // GRA-XYZ: transparent central panel so the rotating-Earth backdrop
     // stays visible behind the settings tabs.
@@ -117,7 +119,12 @@ pub fn ui_settings_subview(
                     let id = SettingsTabId::from_id(&tab.id);
                     let is_active = *active_tab == id;
                     if ui.selectable_label(is_active, &tab.label).clicked() {
+                        // GRA-SFX-Phase3f: tab switch.
+                        commands.insert_resource(crate::plugins::sfx::PendingSfxRequests(vec![
+                            crate::plugins::sfx::SfxCueId::TabSwitch,
+                        ]));
                         *active_tab = id;
+                        tab_switched = true;
                     }
                 }
             });
@@ -175,7 +182,12 @@ pub fn ui_settings_subview(
             path.display()
         );
     }
+    // GRA-SFX-Phase3f: Back button cue (outside the closure so
+    // `commands` stays in the outer fn scope).
     if back_clicked {
+        commands.insert_resource(crate::plugins::sfx::PendingSfxRequests(vec![
+            crate::plugins::sfx::SfxCueId::PanelClose,
+        ]));
         *launch_state = LaunchState::MainMenu;
     }
 }
