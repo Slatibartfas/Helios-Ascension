@@ -197,8 +197,69 @@ patch for the pattern).
 | `src/main.rs` | Registers `SfxPlugin`. |
 | `scripts/generate_sfx.py` | Generates WAVs (local synthesis default, API stub for prod). |
 | `scripts/audit_sfx_manifest.py` | CI audit: Rust enum ↔ manifest ↔ WAV files. |
+| `scripts/audit_sfx_coverage.py` | CI audit: interactive callsites lacking SFX wiring. |
 | `docs/SFX.md` | This file. |
 | `docs/SFX_CREDITS.md` | Asset attribution. |
+
+## Phase 3 sustainable wiring (v0.5.2)
+
+The original Phase 1 + Phase 2 wiring was unsustainable: every
+new interactive widget required hand-editing the call site. Phase
+3 introduces a **4-layer defence** that catches every click
+without per-site maintenance:
+
+| Layer | Mechanism | Coverage |
+|---|---|---|
+| **L1. Explicit wrappers** | `egui_sfx_button`, `egui_sfx_selectable_label`, `egui_sfx_checkbox`, `egui_sfx_slider_opt`, `egui_sfx_combo`, `egui_sfx_tab_switch_fire`, … | New widgets opt-in. Always preferred when authoring a new panel. |
+| **L2. `commands.insert_resource(PendingSfxRequests(...))`** | System param lets a Bevy `SystemParam` inject a cue without changing the call site. Used when `Commands` is in scope. | Panels where the system fn has spare param capacity. |
+| **L3. `SfxPolicy` resource** | Routing table keyed by `(panel_id, kind, label)`. A policy-resolved wrapper (`egui_sfx_button_policy`) consults the policy at click time. | Decouples click → cue mapping from the call site so designers can swap cues without code edits. |
+| **L4. Runtime observer** | `observe_egui_clicks_system` (Update, after `play_sfx_system`) reads `egui::Memory::focused()` and detects the rising edge of focus on any widget — fires `ButtonClick` if no other layer caught the click first. | Universal safety net. Catches all clicks not handled by L1–L3. |
+
+The bridges (`src/plugins/sfx/bridges/ui.rs`) drain
+`SfxRequestCollector` + `PendingSfxRequests` and emit
+`UiSfxRequest` messages, which the playback system consumes.
+
+### Hard limits
+
+- **Bevy 0.18 IntoSystem is hard-capped at 16 params** for several
+  panel-render systems (`ui_resources_bar`, `ui_research_panels`,
+  `ui_transfer_planner_popup`). Adding a 17th `Commands` param
+  fails with E0599 in `IntoSystem`. These panels rely on L4
+  (runtime observer) exclusively.
+- **`egui::closure` capture conflict**: `commands.insert_resource(...)`
+  inside `egui::Grid::show(ui, |ui| {...})` often fails with
+  "cannot find value `commands` in this scope" because Rust can't
+  reborrow through the closure capture. **Fix**: use a
+  `let mut clicked = false;` flag and call `commands.insert_resource`
+  *after* the closure returns. (See `ui_personnel_panel` for the
+  canonical pattern in `draw_roster_table`'s pagination block.)
+
+### Phase 3 panel-by-panel coverage
+
+| Panel | Wired | Mechanism |
+|---|---|---|
+| `dashboard.rs` (top-menu, body ledger, time controls, intel submenu, music controls) | yes | L2 + L1 wrappers |
+| `dossier_panel.rs` (recover / dispatch / establish outpost) | yes | L2 (`Commands`-insert) |
+| `economy_panel.rs` (sort, reset, shipping confirm, mining sites) | yes (mostly) | L2 + L1 |
+| `personnel_panel.rs` (settings cog, auto-assign, hire, sort, pagination) | yes | L2 + L1 |
+| `fleets_panel.rs` (filter clear, spawn picker, merge, disband, role, transfer planner, abort) | yes | L2 (`Commands`-insert + helper-threading) |
+| `launch/subview_settings.rs` (tab switch, back, window mode) | yes (partial) | L2 + L4 |
+| `notifications/ui_settings.rs` (toggle, reset, per-category) | yes | L1 + `MessageWriter<UiSfxRequest>` (already present) |
+| `resources_bar.rs` (10 sites in helper fns) | no — runtime observer | L4 |
+| `transfer_planner.rs` (18 sites deep in helper) | no — runtime observer | L4 |
+| `transfer_planner_card.rs` (pure render) | n/a | L4 |
+| `porkchop_panel.rs` (pure render) | n/a | L4 |
+| `astronomy/selection.rs` (3D raycast picks) | n/a | Bevy picking fires events; observer covers them |
+
+Total sites unwired after Phase 3d+3c+3f: **119 across 36 files**
+(down from 170 at Phase 3a start). All are now under L4 coverage.
+
+### CI gate
+
+`scripts/audit_sfx_manifest.py --strict` runs in `.github/workflows/cargo.yml`
+(`ui-lint` job) and fails the build on any drift between the
+`SfxCueId` enum, `assets/data/sfx_manifest.ron`, and the WAV
+files on disk.
 
 ## Known limitations
 
