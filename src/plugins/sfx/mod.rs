@@ -52,6 +52,7 @@ use std::time::Duration;
 
 pub mod bridges;
 pub mod bus;
+pub mod egui_observe;
 pub mod manifest;
 pub mod playback;
 pub mod policy;
@@ -230,6 +231,15 @@ impl Plugin for SfxPlugin {
                     //   4. Drain UI messages → SfxEvent.
                     //   5. play_sfx_system spawns AudioPlayers.
                     .chain(),
+            )
+            .add_systems(
+                // Catch-all observer: fires for any click-on-newly-focused-widget
+                // event the explicit wrappers missed. Runs in the
+                // Update chain because egui contexts are still valid
+                // post-frame (egui retains them in the world until
+                // the next pass).
+                Update,
+                egui_observe::observe_egui_clicks_system.after(playback::play_sfx_system),
             );
     }
 }
