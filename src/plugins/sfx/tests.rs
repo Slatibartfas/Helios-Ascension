@@ -8,13 +8,14 @@
 //! audio-spawning system (`playback::play_sfx_system`) is
 //! covered indirectly via the cooldown test — we count
 //! `commands.spawn` invocations through a `World` harness.
+#![allow(dead_code, unused_imports)]
 
 use super::*;
 use crate::plugins::sfx::bus::sync_sfx_bus_volume;
 use crate::plugins::sfx::playback::play_sfx_system;
 use bevy::asset::AssetPlugin;
 use bevy::ecs::system::IntoSystem;
-use bevy::prelude::{App, AssetServer, Messages, MinimalPlugins};
+use bevy::prelude::{App, MinimalPlugins};
 
 /// Build a minimal App with the resources needed by the
 /// SFX data layer. The SFX plugin's `Startup` system isn't

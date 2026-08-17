@@ -47,6 +47,7 @@ use bevy::prelude::MessageWriter;
 use bevy_egui::egui;
 
 use crate::plugins::sfx::bridges::UiSfxRequest;
+use crate::plugins::sfx::policy::{SfxPolicy, WidgetKind};
 use crate::plugins::sfx::SfxCueId;
 
 /// Fire a cue (with cooldown deduplication handled by
@@ -499,6 +500,108 @@ pub fn egui_sfx_mode_toggle(sfx_ui: &mut MessageWriter<UiSfxRequest>) {
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
+
+#[inline]
+pub fn egui_sfx_button_policy(
+    ui: &mut egui::Ui,
+    label: impl Into<egui::WidgetText>,
+    policy: &mut SfxPolicy,
+    panel_id: &str,
+    sfx_ui: &mut MessageWriter<UiSfxRequest>,
+) -> egui::Response {
+    let s = label.into();
+    let text_str: String = s.text().to_string();
+    let response = ui.button(s);
+    if response.clicked() {
+        if let Some(cue) = policy.resolve(panel_id, WidgetKind::Button, &text_str) {
+            emit(sfx_ui, cue);
+        }
+    }
+    response
+}
+
+/// Policy-driven version of [`egui_sfx_selectable_label`].
+/// Resolves the cue via [`SfxPolicy`] based on the panel ID +
+/// the row's text. Lets the team change cue assignments
+/// without re-touching every row.
+pub fn egui_sfx_selectable_label_policy(
+    ui: &mut egui::Ui,
+    selected: bool,
+    text: impl Into<egui::WidgetText>,
+    policy: &mut SfxPolicy,
+    panel_id: &str,
+    sfx_ui: &mut MessageWriter<UiSfxRequest>,
+) -> (egui::Response, bool) {
+    let s = text.into();
+    let text_str: String = s.text().to_string();
+    let response = ui.selectable_label(selected, s);
+    let new_selected = if response.clicked() {
+        !selected
+    } else {
+        selected
+    };
+    if response.clicked() {
+        if let Some(cue) = policy.resolve(panel_id, WidgetKind::Selectable, &text_str) {
+            emit(sfx_ui, cue);
+        }
+    }
+    (response, new_selected)
+}
+
+/// Policy-driven checkbox. Resolution path identical to
+/// [`egui_sfx_button_policy`].
+pub fn egui_sfx_checkbox_policy(
+    ui: &mut egui::Ui,
+    value: &mut bool,
+    policy: &mut SfxPolicy,
+    panel_id: &str,
+    sfx_ui: &mut MessageWriter<UiSfxRequest>,
+    text: impl Into<egui::WidgetText>,
+) -> egui::Response {
+    let s = text.into();
+    let text_str: String = s.text().to_string();
+    let response = ui.checkbox(value, s);
+    if response.changed() {
+        if let Some(cue) = policy.resolve(panel_id, WidgetKind::Checkbox, &text_str) {
+            emit(sfx_ui, cue);
+        }
+    }
+    response
+}
+
+/// Policy-driven slider. Per-cue cooldown applies to the resolved
+/// cue via the standard SfxRegistry dedupe path.
+pub fn egui_sfx_slider_policy<T: egui::emath::Numeric>(
+    ui: &mut egui::Ui,
+    value: &mut T,
+    range: std::ops::RangeInclusive<T>,
+    text: impl Into<egui::WidgetText>,
+    last_tick: &mut Option<std::time::Instant>,
+    policy: &mut SfxPolicy,
+    panel_id: &str,
+    sfx_ui: &mut MessageWriter<UiSfxRequest>,
+) -> egui::Response {
+    let was = *value;
+    let response = ui.add(egui::Slider::new(value, range).text(text));
+    if !response.changed() {
+        return response;
+    }
+    let now = std::time::Instant::now();
+    let should_fire = match *last_tick {
+        None => true,
+        Some(prev) => now.duration_since(prev).as_millis() as u64 >= SLIDER_TICK_MIN_INTERVAL_MS,
+    };
+    if should_fire {
+        if let Some(cue) = policy.resolve(panel_id, WidgetKind::Slider, "") {
+            emit(sfx_ui, cue);
+            *last_tick = Some(now);
+        } else {
+            *last_tick = Some(now);
+        }
+        let _ = was;
+    }
+    response
+}
 
 #[cfg(test)]
 mod tests {

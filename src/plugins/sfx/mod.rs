@@ -54,12 +54,13 @@ pub mod bridges;
 pub mod bus;
 pub mod manifest;
 pub mod playback;
+pub mod policy;
 
-#[cfg(test)]
 mod tests;
 
 pub use bus::SfxBus;
 pub use playback::SfxRegistry;
+pub use policy::SfxPolicy;
 
 use bevy::ecs::resource::Resource;
 
@@ -207,6 +208,7 @@ impl Plugin for SfxPlugin {
 
         app.init_resource::<SfxRegistry>()
             .init_resource::<SfxBus>()
+            .init_resource::<SfxPolicy>()
             .init_resource::<SfxRequestCollector>()
             .add_message::<SfxEvent>()
             .add_message::<bridges::UiSfxRequest>()
