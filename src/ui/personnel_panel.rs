@@ -220,11 +220,11 @@ pub(super) fn ui_personnel_panel(
     egui::CentralPanel::default()
         .frame(theme::central_frame())
         .show(ctx, |ui| {
-            draw_panel_header(ui, &mut ui_state);
+            draw_panel_header(ui, &mut ui_state, &mut commands);
             theme::divider(ui);
             draw_summary(ui, &roster);
             theme::divider(ui);
-            draw_roster_table(ui, &mut ui_state, &mut roster);
+            draw_roster_table(ui, &mut ui_state, &mut roster, &mut commands);
             theme::divider(ui);
             draw_assignments_block(ui, &active_assignments);
         });
@@ -313,7 +313,7 @@ fn short_name_for(full_name: &str) -> String {
 
 // ─── Header ──────────────────────────────────────────────────────────────
 
-fn draw_panel_header(ui: &mut egui::Ui, ui_state: &mut PersonnelUiState) {
+fn draw_panel_header(ui: &mut egui::Ui, ui_state: &mut PersonnelUiState, commands: &mut Commands) {
     ui.horizontal(|ui| {
         ui.vertical(|ui| {
             ui.label(
@@ -343,6 +343,14 @@ fn draw_panel_header(ui: &mut egui::Ui, ui_state: &mut PersonnelUiState) {
                 .on_hover_text("Roster settings (filters, auto-assign)")
                 .clicked()
             {
+                // GRA-SFX-Phase3d: settings toggle.
+                commands.insert_resource(crate::plugins::sfx::PendingSfxRequests(vec![
+                    if ui_state.settings_open {
+                        crate::plugins::sfx::SfxCueId::PanelClose
+                    } else {
+                        crate::plugins::sfx::SfxCueId::PanelOpen
+                    },
+                ]));
                 ui_state.settings_open = !ui_state.settings_open;
             }
             ui.add_space(theme::Spacing::sm);
@@ -366,6 +374,10 @@ fn draw_panel_header(ui: &mut egui::Ui, ui_state: &mut PersonnelUiState) {
                 )
                 .clicked()
             {
+                // GRA-SFX-Phase3d: auto-assign toggle.
+                commands.insert_resource(crate::plugins::sfx::PendingSfxRequests(vec![
+                    crate::plugins::sfx::SfxCueId::ModeToggle,
+                ]));
                 ui_state.auto_assign_enabled = !ui_state.auto_assign_enabled;
             }
             ui.add_space(theme::Spacing::sm);
@@ -382,6 +394,14 @@ fn draw_panel_header(ui: &mut egui::Ui, ui_state: &mut PersonnelUiState) {
                 .on_hover_text("Open the hire dialog and append a new scientist to the roster.")
                 .clicked()
             {
+                // GRA-SFX-Phase3d: hire dialog toggle.
+                commands.insert_resource(crate::plugins::sfx::PendingSfxRequests(vec![
+                    if ui_state.hire_dialog_open {
+                        crate::plugins::sfx::SfxCueId::PanelClose
+                    } else {
+                        crate::plugins::sfx::SfxCueId::PanelOpen
+                    },
+                ]));
                 ui_state.hire_dialog_open = !ui_state.hire_dialog_open;
             }
         });
@@ -457,6 +477,7 @@ fn draw_roster_table(
     ui: &mut egui::Ui,
     ui_state: &mut PersonnelUiState,
     roster: &mut [ScientistSnapshot],
+    commands: &mut Commands,
 ) {
     ui.label(
         egui::RichText::new("ROSTER")
@@ -505,10 +526,22 @@ fn draw_roster_table(
                 .spacing([theme::Spacing::md, theme::Spacing::xs])
                 .min_col_width(60.0)
                 .show(ui, |ui| {
-                    draw_sort_header(ui, "NAME", RosterSortField::Name, ui_state);
-                    draw_sort_header(ui, "SPECIALTY", RosterSortField::Specialty, ui_state);
-                    draw_sort_header(ui, "SENIORITY", RosterSortField::Seniority, ui_state);
-                    draw_sort_header(ui, "STATUS", RosterSortField::Status, ui_state);
+                    draw_sort_header(ui, "NAME", RosterSortField::Name, ui_state, commands);
+                    draw_sort_header(
+                        ui,
+                        "SPECIALTY",
+                        RosterSortField::Specialty,
+                        ui_state,
+                        commands,
+                    );
+                    draw_sort_header(
+                        ui,
+                        "SENIORITY",
+                        RosterSortField::Seniority,
+                        ui_state,
+                        commands,
+                    );
+                    draw_sort_header(ui, "STATUS", RosterSortField::Status, ui_state, commands);
                     ui.label(
                         egui::RichText::new("ASSIGN")
                             .font(theme::mono(10.0))
@@ -544,7 +577,11 @@ fn draw_roster_table(
         });
 
     // Pagination controls. Always shown so the page indicator is
-    // stable; the buttons disable at the edges.
+    // stable; the buttons disable at the edges. We capture click
+    // intent inside the closure, then apply the SFX + state mutation
+    // *outside* it so `commands` stays in the outer scope.
+    let mut prev_clicked = false;
+    let mut next_clicked = false;
     ui.horizontal(|ui| {
         ui.add_space(theme::Spacing::sm);
         let prev_enabled = ui_state.page > 0;
@@ -552,7 +589,7 @@ fn draw_roster_table(
             .add_enabled(prev_enabled, egui::Button::new("◀ Prev"))
             .clicked()
         {
-            ui_state.page = ui_state.page.saturating_sub(1);
+            prev_clicked = true;
         }
         ui.label(
             egui::RichText::new(format!(
@@ -570,9 +607,24 @@ fn draw_roster_table(
             .add_enabled(next_enabled, egui::Button::new("Next ▶"))
             .clicked()
         {
-            ui_state.page = (ui_state.page + 1).min(total_pages.saturating_sub(1));
+            next_clicked = true;
         }
     });
+    // GRA-SFX-Phase3d: pagination cues fire here so `commands` lives
+    // in the outer fn scope (rustc-closure capture conflict inside
+    // the egui closure otherwise).
+    if prev_clicked {
+        commands.insert_resource(crate::plugins::sfx::PendingSfxRequests(vec![
+            crate::plugins::sfx::SfxCueId::ButtonClick,
+        ]));
+        ui_state.page = ui_state.page.saturating_sub(1);
+    }
+    if next_clicked {
+        commands.insert_resource(crate::plugins::sfx::PendingSfxRequests(vec![
+            crate::plugins::sfx::SfxCueId::ButtonClick,
+        ]));
+        ui_state.page = (ui_state.page + 1).min(total_pages.saturating_sub(1));
+    }
 }
 
 fn draw_sort_header(
@@ -580,6 +632,7 @@ fn draw_sort_header(
     label: &str,
     field: RosterSortField,
     ui_state: &mut PersonnelUiState,
+    commands: &mut Commands,
 ) {
     let is_active = ui_state.sort_field == field;
     let arrow = if is_active {
@@ -606,6 +659,10 @@ fn draw_sort_header(
         )
         .clicked()
     {
+        // GRA-SFX-Phase3d: roster column sort.
+        commands.insert_resource(crate::plugins::sfx::PendingSfxRequests(vec![
+            crate::plugins::sfx::SfxCueId::ButtonClick,
+        ]));
         if is_active {
             ui_state.sort_descending = !ui_state.sort_descending;
         } else {
@@ -867,10 +924,18 @@ fn draw_hire_dialog(
                     .add_enabled(can_submit, egui::Button::new("Commit"))
                     .clicked()
                 {
+                    // GRA-SFX-Phase3d: hire confirm.
+                    commands.insert_resource(crate::plugins::sfx::PendingSfxRequests(vec![
+                        crate::plugins::sfx::SfxCueId::ModalConfirm,
+                    ]));
                     spawn_scientist(commands, ui_state, trimmed.to_string(), sim_time);
                     close_after_submit = true;
                 }
                 if ui.button("Cancel").clicked() {
+                    // GRA-SFX-Phase3d: hire cancel.
+                    commands.insert_resource(crate::plugins::sfx::PendingSfxRequests(vec![
+                        crate::plugins::sfx::SfxCueId::ModalCancel,
+                    ]));
                     close_after_submit = true;
                 }
             });
