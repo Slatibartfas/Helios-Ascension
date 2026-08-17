@@ -185,6 +185,14 @@ fn render_body_row(
 
         // Single click: select only
         if response.clicked() {
+            // Fire RowSelect on every body selection (single click).
+            // The PendingSfxRequests resource is drained by
+            // `drain_collector_into_ui_sfx` next frame; queued from
+            // the existing `commands` param so this system stays at
+            // its 16-param InSet-system cap.
+            commands.insert_resource(crate::plugins::sfx::PendingSfxRequests(vec![
+                crate::plugins::sfx::SfxCueId::RowSelect,
+            ]));
             for e in selected_query.iter() {
                 commands.entity(e).remove::<Selected>();
             }
@@ -194,6 +202,11 @@ fn render_body_row(
 
         // Double click: select AND anchor
         if response.double_clicked() {
+            // Use ModalConfirm (the louder of the modal cues) to
+            // signal "this body is now the anchor".
+            commands.insert_resource(crate::plugins::sfx::PendingSfxRequests(vec![
+                crate::plugins::sfx::SfxCueId::ModalConfirm,
+            ]));
             // First select
             for e in selected_query.iter() {
                 commands.entity(e).remove::<Selected>();
@@ -241,6 +254,16 @@ fn render_grouped_children(
             render_group_header(ui, group_name, children.len(), is_open, theme::TEXT_DIM).clicked();
     });
     if row_clicked {
+        // GRA-SFX-3b: group toggle in body ledger. The expand /
+        // collapse is a discrete visual transition, so the
+        // PanelOpen / PanelClose pair fits. Pick based on the
+        // pre-toggle state (stored at the top of this function
+        // as `is_open`).
+        commands.insert_resource(crate::plugins::sfx::PendingSfxRequests(vec![if is_open {
+            crate::plugins::sfx::SfxCueId::PanelClose
+        } else {
+            crate::plugins::sfx::SfxCueId::PanelOpen
+        }]));
         header.toggle();
     }
     header.body(|ui| {
@@ -348,6 +371,12 @@ fn render_body_tree(
 
                 // Single click: select only
                 if response.clicked() {
+                    // GRA-SFX-3b: row selection in nested body tree.
+                    // Same RowSelect cue as the flat render_body_row
+                    // sibling for consistency.
+                    commands.insert_resource(crate::plugins::sfx::PendingSfxRequests(vec![
+                        crate::plugins::sfx::SfxCueId::RowSelect,
+                    ]));
                     for e in selected_query.iter() {
                         commands.entity(e).remove::<Selected>();
                     }
@@ -357,6 +386,12 @@ fn render_body_tree(
 
                 // Double click: select AND anchor
                 if response.double_clicked() {
+                    // GRA-SFX-3b: anchor switch from nested-tree
+                    // double-click. Same ModalConfirm cue as the
+                    // flat-row path for player consistency.
+                    commands.insert_resource(crate::plugins::sfx::PendingSfxRequests(vec![
+                        crate::plugins::sfx::SfxCueId::ModalConfirm,
+                    ]));
                     // First select
                     for e in selected_query.iter() {
                         commands.entity(e).remove::<Selected>();
@@ -642,6 +677,13 @@ fn render_fleet_ledger_tree(
 
             // Click handling.
             if resp.clicked() {
+                // GRA-SFX-3b: fleet-row click selects/deselects a
+                // fleet. Use RowSelect because the action is
+                // parallel to a body-row click — both are
+                // "select this object in the ledger".
+                commands.insert_resource(crate::plugins::sfx::PendingSfxRequests(vec![
+                    crate::plugins::sfx::SfxCueId::RowSelect,
+                ]));
                 if is_selected {
                     fleet_ui_state.selected_fleet = None;
                 } else {
@@ -1048,9 +1090,15 @@ pub(crate) fn ui_dashboard(
     sim_time: Res<SimulationTime>,
     mut orbit_query: Query<&mut OrbitCamera, With<GameCamera>>,
     mut expanded_groups: ResMut<crate::ui::ExpandedLedgerGroups>,
-    // Intel menu rendering is delegated to `ui_intel_panel` (see the
-    // dedicated system below) so this function stays under Bevy 0.18's
-    // 16-parameter fn-item `IntoSystem` limit.
+    // GRA-SFX-3b: SFX wiring cannot use a 17th parameter here
+    // (`IntoSystem` fn-item cap is 16 in Bevy 0.18). Callsites
+    // that need to fire a cue route through the same Commands
+    // escape-hatch the Quit / Save / Load buttons use (see
+    // `src/ui/dashboard.rs` ~line 1357): insert a one-shot
+    // `PendingSfxRequests` resource via `commands`, then the
+    // dedicated `drain_pending_sfx_requests` system (registered
+    // alongside `ui_dashboard` in `src/ui/mod.rs`) writes one
+    // `UiSfxRequest` per cue and removes the resource.
 ) {
     let ctx = match contexts.ctx_mut() {
         Ok(ctx) => ctx,
@@ -1113,6 +1161,16 @@ pub(crate) fn ui_dashboard(
                                     render_selectable_label(ui, is_selected.is_some(), &icon.name);
 
                                 if response.clicked() {
+                                    // GRA-SFX-3b: starmap row click selects
+                                    // + anchors a star system. Anchor is the
+                                    // heavier action (single click does two
+                                    // things), so use ModalConfirm rather than
+                                    // RowSelect.
+                                    commands.insert_resource(
+                                        crate::plugins::sfx::PendingSfxRequests(vec![
+                                            crate::plugins::sfx::SfxCueId::ModalConfirm,
+                                        ]),
+                                    );
                                     // Single click: select the star system and anchor camera
                                     // Clear previous selections first
                                     for (e, _, sel) in star_system_query.iter() {
@@ -1152,6 +1210,13 @@ pub(crate) fn ui_dashboard(
                             .on_hover_text("Recenter Camera (also: Home key)")
                             .clicked()
                         {
+                            // GRA-SFX-3b: Recenter Camera is a
+                            // Modifier-style action. Use ButtonClick.
+                            commands.insert_resource(
+                                crate::plugins::sfx::PendingSfxRequests(vec![
+                                    crate::plugins::sfx::SfxCueId::ButtonClick,
+                                ]),
+                            );
                             if let Ok(mut orbit) = orbit_query.single_mut() {
                                 orbit.pan_offset = Vec3::ZERO;
                             }
@@ -1337,7 +1402,19 @@ pub(crate) fn ui_dashboard(
                                 // dedicated `MessageWriter` parameter so
                                 // the function stays under Bevy 0.18's
                                 // `IntoSystem` parameter cap (~16).
+                                //
+                                // GRA-SFX-3b: same `Commands` channel
+                                // is the documented escape hatch for
+                                // firing SFX from saturated systems —
+                                // insert a one-shot PendingSfxRequests
+                                // resource that `drain_collector_into_ui_sfx`
+                                // picks up next frame.
                                 info!("Quit clicked — sending AppExit");
+                                commands.insert_resource(
+                                    crate::plugins::sfx::PendingSfxRequests(vec![
+                                        crate::plugins::sfx::SfxCueId::ButtonClick,
+                                    ]),
+                                );
                                 commands.write_message(bevy::app::AppExit::Success);
                             }
                             // GRA-358 PR-C: Save Game routes through
@@ -1357,11 +1434,21 @@ pub(crate) fn ui_dashboard(
                                 commands.insert_resource(
                                     crate::ui::launch::PendingInGameSaveRequest { open_panel: true },
                                 );
+                                commands.insert_resource(
+                                    crate::plugins::sfx::PendingSfxRequests(vec![
+                                        crate::plugins::sfx::SfxCueId::PanelOpen,
+                                    ]),
+                                );
                             }
                             if ui.button("📂 Load Game").clicked() {
                                 info!("Load clicked — opening Load Game subview");
                                 commands.insert_resource(
                                     crate::ui::launch::PendingInGameLoadRequest { open_panel: true },
+                                );
+                                commands.insert_resource(
+                                    crate::plugins::sfx::PendingSfxRequests(vec![
+                                        crate::plugins::sfx::SfxCueId::PanelOpen,
+                                    ]),
                                 );
                             }
                             // GRA-358 PR-F: "🏠 Main Menu" returns the
@@ -1381,9 +1468,19 @@ pub(crate) fn ui_dashboard(
                                 commands.insert_resource(
                                     crate::ui::launch::PendingReturnToMenu { requested: true },
                                 );
+                                commands.insert_resource(
+                                    crate::plugins::sfx::PendingSfxRequests(vec![
+                                        crate::plugins::sfx::SfxCueId::PanelClose,
+                                    ]),
+                                );
                             }
                             if ui.button("⚙ Options").clicked() {
                                 info!("Options clicked");
+                                commands.insert_resource(
+                                    crate::plugins::sfx::PendingSfxRequests(vec![
+                                        crate::plugins::sfx::SfxCueId::ButtonClick,
+                                    ]),
+                                );
                             }
                         }
                         GameMenu::Construction => {
@@ -1468,6 +1565,11 @@ pub(super) fn ui_time_controls(
     real_time: Res<Time<Real>>,
     mut playlist: ResMut<crate::plugins::music::MusicPlaylist>,
     mut sfx_ui: MessageWriter<crate::plugins::sfx::bridges::UiSfxRequest>,
+    // `Instant` has no `Default` impl, so Local requires an
+    // Option wrapper. The first tick sees `None` (always
+    // pass the throttle gap) and subsequent ticks see the
+    // last-tick stamp.
+    mut slider_tick_gate: Local<Option<std::time::Instant>>,
     // The early-game milestone checklist used to be a `TopBottomPanel`
     // here (GRA-787). It leaked into every menu because the bottom
     // strip is always on-screen — Economy, Shipbuilding, the dossier,
@@ -1627,9 +1729,18 @@ pub(super) fn ui_time_controls(
                 // ── Music controls (right-aligned, inline with time controls) ──
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     // RTL: items added right-to-left, so volume → skip → pause → sep → title
-                    ui.add_sized(
-                        [64.0, 36.0],
-                        egui::Slider::new(&mut playlist.volume, 0.0..=1.0).show_value(false),
+                    // GRA-SFX-3b: volume slider. Fire SliderTick via
+                    // the wrapper so it stays throttle-safe even
+                    // during rapid drags. Use the `_opt` flavour
+                    // because `Instant` lacks `Default` and we
+                    // store the gate in a `Local<Option<Instant>>`.
+                    super::egui_sfx::egui_sfx_slider_opt(
+                        ui,
+                        &mut playlist.volume,
+                        0.0..=1.0,
+                        "",
+                        &mut slider_tick_gate,
+                        &mut sfx_ui,
                     );
 
                     let skip_btn = egui::Button::new(
@@ -1638,6 +1749,13 @@ pub(super) fn ui_time_controls(
                     .stroke(egui::Stroke::new(0.5_f32, theme::BORDER))
                     .fill(theme::SURFACE);
                     if ui.add_sized([36.0, 36.0], skip_btn).clicked() {
+                        // GRA-SFX-3b: music skip. Pair with ButtonClick
+                        // since the speed-preset row already uses
+                        // SliderTick for the same player-action
+                        // surface.
+                        sfx_ui.write(crate::plugins::sfx::bridges::UiSfxRequest(
+                            crate::plugins::sfx::SfxCueId::ButtonClick,
+                        ));
                         playlist.skip_requested = true;
                     }
 
@@ -1658,6 +1776,12 @@ pub(super) fn ui_time_controls(
                     .stroke(play_stroke)
                     .fill(theme::SURFACE);
                     if ui.add_sized([36.0, 36.0], play_btn).clicked() {
+                        // GRA-SFX-3b: music play/pause toggle.
+                        // ModeToggle is the canonical cue for
+                        // play/pause-style state flips.
+                        sfx_ui.write(crate::plugins::sfx::bridges::UiSfxRequest(
+                            crate::plugins::sfx::SfxCueId::ModeToggle,
+                        ));
                         playlist.paused = !playlist.paused;
                     }
 
@@ -2136,6 +2260,7 @@ pub(crate) fn draw_milestones_section(
 /// past the cap).
 pub(super) fn ui_intel_panel(
     mut contexts: EguiContexts,
+    mut commands: Commands,
     active_menu: Res<ActiveMenu>,
     mut selected_intel: ResMut<SelectedIntelSubmenu>,
     milestones: Res<crate::survey::EarlyGameMilestones>,
@@ -2191,6 +2316,15 @@ pub(super) fn ui_intel_panel(
                                 &format!("{} {}", sub.icon(), sub.label()),
                             );
                             if response.clicked() {
+                                // GRA-SFX-3b: intel submenu switch.
+                                // TabSwitch is the canonical cue for
+                                // changing the visible view inside a
+                                // picker.
+                                commands.insert_resource(
+                                    crate::plugins::sfx::PendingSfxRequests(vec![
+                                        crate::plugins::sfx::SfxCueId::TabSwitch,
+                                    ]),
+                                );
                                 selected_intel.current = *sub;
                             }
                             theme::paint_focus_ring(

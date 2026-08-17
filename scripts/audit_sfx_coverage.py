@@ -193,6 +193,7 @@ WIRED_MARKERS = (
     "UiSfxRequest(",
     "egui_sfx_",
     "crate::plugins::sfx::bridges::UiSfxRequest",
+    "crate::plugins::sfx::PendingSfxRequests",  # Commands-insert escape hatch (Phase 3b)
     "crate::ui::egui_sfx::",  # fully-qualified wrapper path
     "use crate::plugins::sfx",  # importing the bus at all = intent to wire
 )

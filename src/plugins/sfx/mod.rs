@@ -61,11 +61,123 @@ mod tests;
 pub use bus::SfxBus;
 pub use playback::SfxRegistry;
 
+use bevy::ecs::resource::Resource;
+
 // `SfxCue` and `SfxManifest` are defined in this module
 // (the manifest schema lives next to the `SfxCueId` +
 // `SfxCategory` enums for compile-time locality with
 // `SfxCueId::ALL`). They are reachable via
 // `crate::plugins::sfx::SfxCue` and `crate::plugins::sfx::SfxManifest`.
+
+// ---------------------------------------------------------------------------
+// SfxRequestCollector — escape hatch for systems at the
+// `IntoSystem` 16-arg ceiling.
+// ---------------------------------------------------------------------------
+
+/// Per-frame accumulator for UI systems that can't carry a
+/// `MessageWriter<UiSfxRequest>` directly because they're already
+/// at the 16-parameter fn-item limit (see `src/ui/dashboard.rs`'s
+/// `ui_dashboard` for the canonical example).
+///
+/// Systems that hit the limit push cues into this resource via
+/// `ResMut<SfxRequestCollector>::push(cue)`. A two-line bridge
+/// system ([`bridges::ui::drain_collector_into_ui_sfx`]) consumes
+/// the queue each frame and writes the matching `UiSfxRequest`
+/// messages — which then flow through `ui_sfx_bridge` exactly
+/// like any other UI write.
+///
+/// **Why a Resource, not a `Local<MessageWriter>`**: a `Local<>`
+/// parameter cannot hold a `MessageWriter` because `MessageWriter`
+/// is owned by Bevy's executor; only system params can produce
+/// one. A Resource is the standard workaround documented in the
+/// codebase already (`commands.insert_resource(PendingQuit)`
+/// followed by `consume_quit_request_system` is the same
+/// pattern).
+///
+/// **Cost**: O(n) in the number of cues collected that frame —
+/// typically 0–3 in the common case. The collector auto-clears
+/// after drain.
+#[derive(Resource, Debug, Default, Clone)]
+pub struct SfxRequestCollector {
+    cues: Vec<SfxCueId>,
+}
+
+impl SfxRequestCollector {
+    /// Push a single cue into the collector. Cheap (single
+    /// `Vec::push`); the bridge drains on the next frame.
+    pub fn push(&mut self, cue: SfxCueId) {
+        self.cues.push(cue);
+    }
+
+    /// Push multiple cues. Useful for panels that detect a few
+    /// clicks in the same render path before the bridge runs.
+    pub fn push_many<I: IntoIterator<Item = SfxCueId>>(&mut self, cues: I) {
+        self.cues.extend(cues);
+    }
+
+    /// Number of pending cues. Debug / test hook.
+    pub fn len(&self) -> usize {
+        self.cues.len()
+    }
+
+    /// Whether the collector is empty. Standard clippy
+    /// `len_without_is_empty` companion.
+    pub fn is_empty(&self) -> bool {
+        self.cues.is_empty()
+    }
+
+    /// Drain the cues (returning the inner `Vec`) — used by the
+    /// bridge system.
+    pub(crate) fn drain(&mut self) -> std::vec::Drain<'_, SfxCueId> {
+        self.cues.drain(..)
+    }
+}
+
+/// Per-frame one-shot queue for SFX cues fired from systems at
+/// the 16-parameter `IntoSystem` limit (e.g. `ui_dashboard`,
+/// `ui_research_panels`).
+///
+/// **Why a separate `Resource` and not `SfxRequestCollector`?**
+/// Because `SfxRequestCollector` is read by `drain_collector_into_ui_sfx`,
+/// which expects persistent cumulative pushes throughout a frame;
+/// `PendingSfxRequests` is *replaced* on every insert, intended
+/// for systems that can't carry `ResMut<SfxRequestCollector>` as
+/// a 17th param and instead have to go through `Commands`.
+///
+/// **Use the existing Quit/Save/Load precedent**:
+/// ```ignore
+/// if ui.button("Save").clicked() {
+///     // The `Commands::insert_resource` call replaces the
+///     // resource; the drain system reads + removes it.
+///     commands.insert_resource(PendingSfxRequests(vec![
+///         SfxCueId::ButtonClick,
+///     ]));
+///     // ...the real work, e.g.
+///     // commands.insert_resource(PendingInGameSaveRequest { ... });
+/// }
+/// ```
+///
+/// **Multiple clicks per frame**: each insert replaces; this is
+/// intentional. If two click sites in the same system race,
+/// the last writer wins for *that frame*'s queue — for SFX
+/// purposes the missing cue is a UI-coverage issue, not a
+/// silent failure, because [`scripts/audit_sfx_coverage.py`]
+/// catches the unwired site in CI.
+///
+/// **Cost**: O(1) per click (Vec clone of typically 1–3 cues).
+#[derive(Resource, Debug, Default, Clone)]
+pub struct PendingSfxRequests(pub Vec<SfxCueId>);
+
+impl PendingSfxRequests {
+    /// Append-only helper for callers that want to merge into an
+    /// existing resource rather than replace it. Most callers
+    /// use `commands.insert_resource(PendingSfxRequests(vec![..]))`
+    /// which replaces; this is for the rare system that wants to
+    /// read-modify-write.
+    pub fn push(&mut self, cue: SfxCueId) {
+        self.0.push(cue);
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Plugin
@@ -95,6 +207,7 @@ impl Plugin for SfxPlugin {
 
         app.init_resource::<SfxRegistry>()
             .init_resource::<SfxBus>()
+            .init_resource::<SfxRequestCollector>()
             .add_message::<SfxEvent>()
             .add_message::<bridges::UiSfxRequest>()
             .add_systems(Startup, (manifest::load_sfx_manifest,))
@@ -102,17 +215,18 @@ impl Plugin for SfxPlugin {
                 Update,
                 (
                     bus::sync_sfx_bus_volume,
+                    bridges::ui::drain_collector_into_ui_sfx,
                     bridges::notifications::notification_sfx_bridge,
                     bridges::ui::ui_sfx_bridge,
                     playback::play_sfx_system,
                 )
                     // Run order:
                     //   1. Sync volumes from settings (cheap, runs every frame).
-                    //   2. Drain notification events → SfxEvent (one chime per
-                    //      *coalesced* toast; the cooldown in SfxBus makes this
-                    //      safe even if coalesce produced 10 toasts in a frame).
-                    //   3. Drain UI writers (cheap, in-line at the call sites).
-                    //   4. play_sfx_system spawns AudioPlayers.
+                    //   2. Drain collector → UiSfxRequest messages (one
+                    //      message per cue pushed that frame).
+                    //   3. Drain notification events → SfxEvent.
+                    //   4. Drain UI messages → SfxEvent.
+                    //   5. play_sfx_system spawns AudioPlayers.
                     .chain(),
             );
     }

@@ -264,6 +264,37 @@ pub fn egui_sfx_slider<T: egui::emath::Numeric>(
     response
 }
 
+/// `Local<Option<Instant>>`-flavoured [`egui_sfx_slider`] for
+/// Bevy systems that can't carry `Local<Instant>` because
+/// `Instant` doesn't implement `Default`. The first call sees
+/// `None` (always passed; instant + Interval > threshold), and
+/// subsequent calls stamp the latest tick.
+pub fn egui_sfx_slider_opt<T: egui::emath::Numeric>(
+    ui: &mut egui::Ui,
+    value: &mut T,
+    range: std::ops::RangeInclusive<T>,
+    text: impl Into<egui::WidgetText>,
+    last_tick: &mut Option<std::time::Instant>,
+    sfx_ui: &mut MessageWriter<UiSfxRequest>,
+) -> egui::Response {
+    let was = *value;
+    let response = ui.add(egui::Slider::new(value, range).text(text));
+    if !response.changed() {
+        return response;
+    }
+    let now = std::time::Instant::now();
+    let should_fire = match *last_tick {
+        None => true,
+        Some(prev) => now.duration_since(prev).as_millis() as u64 >= SLIDER_TICK_MIN_INTERVAL_MS,
+    };
+    if should_fire {
+        *last_tick = Some(now);
+        emit(sfx_ui, SfxCueId::SliderTick);
+        let _ = was;
+    }
+    response
+}
+
 // ===========================================================================
 // Category 3 — COMBOBOX (rising-edge `DropdownOpen`)
 // ===========================================================================
