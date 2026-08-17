@@ -314,6 +314,7 @@ pub(super) fn ui_fleets_panel(
     coords_query: Query<&SpaceCoordinates, Without<Fleet>>,
     shipping_companies: Res<crate::economy::ShippingCompanies>,
     mut shipping_company_filter: ResMut<ShippingCompanyFilter>,
+    mut commands: Commands,
 ) {
     if active_menu.current != GameMenu::Fleets {
         return;
@@ -379,6 +380,10 @@ pub(super) fn ui_fleets_panel(
                         )
                         .clicked()
                     {
+                        // GRA-SFX-Phase3c: clear filter.
+                        commands.insert_resource(crate::plugins::sfx::PendingSfxRequests(vec![
+                            crate::plugins::sfx::SfxCueId::ButtonClick,
+                        ]));
                         shipping_company_filter.0 = None;
                     }
                 });
@@ -470,6 +475,7 @@ pub(super) fn ui_fleets_panel(
                                         elapsed,
                                         &settings,
                                         &company_filter_set,
+                                        &mut commands,
                                     );
                                 });
 
@@ -577,6 +583,14 @@ pub(super) fn ui_fleets_panel(
                                                         )
                                                         .clicked()
                                                     {
+                                                        // GRA-SFX-Phase3c: spawn location pick.
+                                                        commands.insert_resource(
+                                                            crate::plugins::sfx::PendingSfxRequests(
+                                                                vec![
+                            crate::plugins::sfx::SfxCueId::ModeToggle,
+                        ],
+                                                            ),
+                                                        );
                                                         fleet_ui_state.spawn_location_body =
                                                             Some(*e);
                                                     }
@@ -643,6 +657,7 @@ pub(super) fn ui_fleets_panel(
                                                 &pending_resource_requests,
                                                 &stockpiles,
                                                 &coords_query,
+                                                &mut commands,
                                             );
                                         });
                                 } else {
@@ -726,6 +741,10 @@ pub(super) fn ui_fleets_panel(
                     ui.add_space(4.0);
                 });
             if do_disband {
+                // GRA-SFX-Phase3c: disband confirm.
+                commands.insert_resource(crate::plugins::sfx::PendingSfxRequests(vec![
+                    crate::plugins::sfx::SfxCueId::ModalConfirm,
+                ]));
                 pending_actions.disband_fleets.push(fleet_to_disband);
                 if fleet_ui_state.selected_fleet == Some(fleet_to_disband) {
                     fleet_ui_state.selected_fleet = None;
@@ -736,6 +755,10 @@ pub(super) fn ui_fleets_panel(
                 fleet_ui_state.disband_confirm_fleet = None;
             }
             if cancel {
+                // GRA-SFX-Phase3c: disband cancel.
+                commands.insert_resource(crate::plugins::sfx::PendingSfxRequests(vec![
+                    crate::plugins::sfx::SfxCueId::ModalCancel,
+                ]));
                 fleet_ui_state.disband_confirm_fleet = None;
             }
         } else {
@@ -819,10 +842,18 @@ pub(super) fn ui_fleets_panel(
                     ui.add_space(4.0);
                 });
             if do_scrap {
+                // GRA-SFX-Phase3c: scrap confirm.
+                commands.insert_resource(crate::plugins::sfx::PendingSfxRequests(vec![
+                    crate::plugins::sfx::SfxCueId::ModalConfirm,
+                ]));
                 pending_actions.scrap_ships.push((fleet_entity, ship_idx));
                 fleet_ui_state.scrap_confirm_ship = None;
             }
             if cancel {
+                // GRA-SFX-Phase3c: scrap cancel.
+                commands.insert_resource(crate::plugins::sfx::PendingSfxRequests(vec![
+                    crate::plugins::sfx::SfxCueId::ModalCancel,
+                ]));
                 fleet_ui_state.scrap_confirm_ship = None;
             }
         } else {
@@ -882,6 +913,7 @@ fn render_fleet_list(
     elapsed: f64,
     settings: &Settings,
     company_filter_set: &std::collections::HashSet<Entity>,
+    commands: &mut Commands,
 ) {
     struct FEntry {
         entity: Entity,
@@ -1208,6 +1240,10 @@ fn render_fleet_list(
                 .on_hover_text(merge_tooltip)
                 .clicked()
             {
+                // GRA-SFX-Phase3c: merge fleets.
+                commands.insert_resource(crate::plugins::sfx::PendingSfxRequests(vec![
+                    crate::plugins::sfx::SfxCueId::ModalConfirm,
+                ]));
                 let target_fleet =
                     fleet_ui_state
                         .selected_fleets
@@ -1239,6 +1275,10 @@ fn render_fleet_list(
                 .button(egui::RichText::new("✕ Clear").size(12.0))
                 .clicked()
             {
+                // GRA-SFX-Phase3c: clear multi-selection.
+                commands.insert_resource(crate::plugins::sfx::PendingSfxRequests(vec![
+                    crate::plugins::sfx::SfxCueId::ButtonClick,
+                ]));
                 fleet_ui_state.clear_multi_selection();
             }
         });
@@ -1424,6 +1464,7 @@ fn render_logistics_section(
         Option<&KeplerOrbit>,
         Option<&LogicalParent>,
     )>,
+    commands: &mut Commands,
 ) {
     ui.group(|ui| {
         ui.horizontal(|ui| {
@@ -1534,6 +1575,10 @@ fn render_logistics_section(
                         ))
                         .clicked()
                     {
+                        // GRA-SFX-Phase3c: logistics assign.
+                        commands.insert_resource(crate::plugins::sfx::PendingSfxRequests(vec![
+                            crate::plugins::sfx::SfxCueId::ButtonClick,
+                        ]));
                         pending_actions.assign_logistics_requests.push(
                             crate::fleets::components::AssignLogisticsRequestAction {
                                 fleet: fleet_entity,
@@ -1568,6 +1613,7 @@ fn render_fleet_detail(
     pending_resource_requests: &PendingResourceRequests,
     stockpiles: &Query<(Entity, &LocalStockpile)>,
     coords_query: &Query<&SpaceCoordinates, Without<Fleet>>,
+    commands: &mut Commands,
 ) {
     // ── Fleet header ─────────────────────────────────────────────────────────
     // Row 1: fleet name + ✏ button (full width, no competing right-side controls)
@@ -1634,6 +1680,10 @@ fn render_fleet_detail(
                 })
                 .clicked()
             {
+                // GRA-SFX-Phase3c: disband confirm-open.
+                commands.insert_resource(crate::plugins::sfx::PendingSfxRequests(vec![
+                    crate::plugins::sfx::SfxCueId::PanelOpen,
+                ]));
                 fleet_ui_state.disband_confirm_fleet = Some(fleet_entity);
             }
             egui::ComboBox::from_id_salt("fleet_role_combo")
@@ -1656,6 +1706,10 @@ fn render_fleet_detail(
                             )
                             .clicked()
                         {
+                            // GRA-SFX-Phase3c: role change.
+                            commands.insert_resource(crate::plugins::sfx::PendingSfxRequests(
+                                vec![crate::plugins::sfx::SfxCueId::ModeToggle],
+                            ));
                             pending_actions
                                 .change_fleet_roles
                                 .push((fleet_entity, role));
@@ -1678,6 +1732,7 @@ fn render_fleet_detail(
             pending_actions,
             elapsed,
             fleet_ui_state.waiting_orbit_count,
+            commands,
         );
     } else if let Some(orbit) = maybe_orbit {
         render_orbit_status(ui, orbit, fleet, body_query);
@@ -1754,6 +1809,10 @@ fn render_fleet_detail(
             .on_hover_text("Open the orbital transfer planner in a floating window")
             .clicked()
         {
+            // GRA-SFX-Phase3c: open transfer planner.
+            commands.insert_resource(crate::plugins::sfx::PendingSfxRequests(vec![
+                crate::plugins::sfx::SfxCueId::PanelOpen,
+            ]));
             fleet_ui_state.show_transfer_popup = true;
         }
     }
@@ -1774,6 +1833,7 @@ fn render_fleet_detail(
             coords_query,
             pending_actions,
             body_query,
+            commands,
         );
     }
 }
@@ -1796,6 +1856,7 @@ fn render_active_maneuver_status(
     pending_actions: &mut PendingFleetActions,
     elapsed: f64,
     waiting_orbit_count: u32,
+    commands: &mut Commands,
 ) {
     let dest_name = body_query
         .get(maneuver.destination_body)
@@ -1839,6 +1900,10 @@ fn render_active_maneuver_status(
                 .button(egui::RichText::new("🛑 Abort Mission").size(12.0))
                 .clicked()
             {
+                // GRA-SFX-Phase3c: abort maneuver.
+                commands.insert_resource(crate::plugins::sfx::PendingSfxRequests(vec![
+                    crate::plugins::sfx::SfxCueId::ModalCancel,
+                ]));
                 pending_actions.cancel_maneuvers.push(fleet_entity);
             }
         });
