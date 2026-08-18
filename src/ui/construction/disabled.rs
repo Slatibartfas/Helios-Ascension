@@ -17,6 +17,14 @@ use crate::ui::bevy_theme::*;
 use crate::ui::widgets::UiFonts;
 
 // Hover / click effect system for the Queue CTAs.
+//
+// v3.9 (GRA-22c Phase 1.5): the `Or<...>` that decides which CTAs
+// dim now also matches `ConstructionCtaCapped` so cap-reached
+// CTAs render the same greyed-out affordance (no hover scale,
+// no colour change). The tooltip layer is responsible for the
+// distinct "Population-growth cap reached" message; visually
+// the three "permanent" or "transient" disabled markers behave
+// identically to keep the UI predictable.
 pub fn tick_construction_cta_hover(
     mut params: ParamSet<(
         Query<
@@ -34,6 +42,7 @@ pub fn tick_construction_cta_hover(
             Or<(
                 With<ConstructionCtaDisabled>,
                 With<ConstructionCtaBodyBlocked>,
+                With<ConstructionCtaCapped>,
             )>,
         >,
     )>,
@@ -94,13 +103,28 @@ pub fn tick_subtitle_marquee(
 
 // Per-frame sweep that toggles the `ConstructionCtaDisabled` marker
 // on every CTA based on the player's `ContextualStockpile` × multiplier.
+//
+// v3.9 (GRA-22c Phase 1.5): also toggles `ConstructionCtaCapped` for
+// buildings that carry a `PopulationGrowth` modifier (MedicalCenter /
+// PharmaceuticalPlant / WaterTreatmentPlant / DesalinationPlant) once
+// the colony's per-build raw-growth sum already meets or exceeds
+// `max_medical_growth_bonus`. Building another copy would be pure
+// waste (the `population_growth_per_year` clamp pins the bonus at
+// the cap), so we grey-out the Queue button with a dedicated
+// "Population-growth cap reached" tooltip.
 pub fn tick_construction_cta_disabled(
     mut commands: Commands,
     buildings_data: Res<BuildingsData>,
     contextual: Res<crate::economy::ContextualStockpile>,
     ui_state: Res<ConstructionUiState>,
+    colonies: Query<&crate::colony::Colony>,
     ctas: Query<
-        (Entity, &ConstructionCta, Has<ConstructionCtaDisabled>),
+        (
+            Entity,
+            &ConstructionCta,
+            Has<ConstructionCtaDisabled>,
+            Has<ConstructionCtaCapped>,
+        ),
         Without<ConstructionCtaBodyBlocked>,
     >,
     local_stockpiles: Query<&crate::economy::LocalStockpile>,
@@ -108,7 +132,23 @@ pub fn tick_construction_cta_disabled(
     let multiplier = ui_state.build_multiplier.max(1);
     let active_colony = ui_state.selected_colony;
     let local = active_colony.and_then(|e| local_stockpiles.get(e).ok());
-    for (entity, cta, already_disabled) in ctas.iter() {
+
+    // The cap condition depends on the active colony's existing
+    // building mix, so we evaluate it once per colony. Buildings
+    // without a `PopulationGrowth` modifier return 0 per-build, so
+    // they're harmless to sum.
+    let cap = buildings_data.colony_constants.max_medical_growth_bonus;
+    let pop_growth_raw: f64 = match active_colony.and_then(|e| colonies.get(e).ok()) {
+        Some(colony) => colony
+            .buildings
+            .iter()
+            .map(|(bt, count)| buildings_data.population_growth_for(*bt) * *count as f64)
+            .sum(),
+        None => 0.0,
+    };
+    let cap_saturated = pop_growth_raw >= cap;
+
+    for (entity, cta, already_disabled, already_capped) in ctas.iter() {
         let costs = buildings_data.resource_costs(&cta.building_type);
         let typed_costs: Vec<(ResourceType, f64)> = costs
             .iter()
@@ -128,6 +168,19 @@ pub fn tick_construction_cta_disabled(
             commands.entity(entity).queue_silenced(InsertCtaDisabled);
         } else if !should_disable && already_disabled {
             commands.entity(entity).queue_silenced(RemoveCtaDisabled);
+        }
+
+        // Cap gate only applies to buildings that carry a
+        // PopulationGrowth modifier. We check the per-build value
+        // > 0 rather than hard-coding the four building ids, so
+        // a future RON addition of another PopGrowth building is
+        // automatically gated without code changes here.
+        let per_build_pg = buildings_data.population_growth_for(cta.building_type);
+        let should_cap = cap_saturated && per_build_pg > 0.0;
+        if should_cap && !already_capped {
+            commands.entity(entity).queue_silenced(InsertCtaCapped);
+        } else if !should_cap && already_capped {
+            commands.entity(entity).queue_silenced(RemoveCtaCapped);
         }
     }
 }
@@ -150,14 +203,40 @@ impl bevy::ecs::system::EntityCommand for RemoveCtaDisabled {
     }
 }
 
+// `EntityCommand` that inserts `ConstructionCtaCapped`. Mirrors
+// `InsertCtaDisabled` but for the pop-growth cap gate (GRA-22c
+// Phase 1.5).
+struct InsertCtaCapped;
+
+impl bevy::ecs::system::EntityCommand for InsertCtaCapped {
+    fn apply(self, mut entity: bevy::ecs::world::EntityWorldMut) {
+        entity.insert(ConstructionCtaCapped);
+    }
+}
+
+// `EntityCommand` that removes `ConstructionCtaCapped`.
+struct RemoveCtaCapped;
+
+impl bevy::ecs::system::EntityCommand for RemoveCtaCapped {
+    fn apply(self, mut entity: bevy::ecs::world::EntityWorldMut) {
+        entity.remove::<ConstructionCtaCapped>();
+    }
+}
+
 // Per-frame pass that dims the Queue CTA label when the CTA is
 // disabled.
+//
+// v3.9 (GRA-22c Phase 1.5): also matches `ConstructionCtaCapped`
+// so cap-gated CTAs dim identically to affordability / body
+// gates. The tooltip layer is responsible for the distinct
+// "Population-growth cap reached" message.
 pub fn tick_construction_cta_label_dim(
     cta_q: Query<
         Entity,
         Or<(
             With<ConstructionCtaDisabled>,
             With<ConstructionCtaBodyBlocked>,
+            With<ConstructionCtaCapped>,
         )>,
     >,
     mut label_q: Query<(&ChildOf, &mut TextColor), With<ConstructionCtaLabelMarker>>,
@@ -248,6 +327,11 @@ pub fn refresh_card_grid(
 // Click handler: when the player presses the Queue button on a build
 // card, push `(selected_colony, building_type)` to
 // `PendingConstructionActions::start_construction`.
+//
+// v3.9 (GRA-22c Phase 1.5): also matches `ConstructionCtaCapped`
+// so the cap gate is enforced at the click. Without this the player
+// could still queue a MedicalCenter whose marginal growth is 0
+// even though the button is dimmed.
 pub fn tick_construction_cta_click(
     interactions: Query<(Entity, &Interaction, &ConstructionCta), With<ConstructionCta>>,
     disabled: Query<
@@ -255,6 +339,7 @@ pub fn tick_construction_cta_click(
         Or<(
             With<ConstructionCtaDisabled>,
             With<ConstructionCtaBodyBlocked>,
+            With<ConstructionCtaCapped>,
         )>,
     >,
     ui_state: Res<ConstructionUiState>,

@@ -61,13 +61,21 @@ impl SynergyState {
 
 /// System that advances construction projects based on factory output.
 ///
-/// Each factory on the colony contributes 10 build points per year of
-/// simulation time. Projects are advanced in queue order (oldest first).
+/// Each colony earns `BuildPointsRate` per build per year summed across
+/// all of its buildings (currently only `Factory` carries that modifier,
+/// `+10 BP/yr` per build). The 1 BP/yr base rate is preserved for ship-
+/// supplied colonies. Projects advance in queue order (oldest first).
+///
+/// v3.9 (GRA-22c Phase 1.2): the previous `1.0 + factories * 10.0` was
+/// hard-coded at this line; now reads the modifier generically from
+/// `BuildingsData`, matching the Factory RON `BuildPointsProduction: 10.0`.
+/// At today's RON values the result is identical (no-op for Earth).
 pub fn advance_construction(
     mut commands: Commands,
     mut colonies: Query<&mut Colony>,
     mut projects: Query<(Entity, &mut ConstructionProject)>,
     sim_time: Res<SimulationTime>,
+    buildings_data: Option<Res<crate::colony::data::BuildingsData>>,
     mut last_elapsed: Local<f64>,
     mut construction_events: MessageWriter<ConstructionEvent>,
 ) {
@@ -84,6 +92,16 @@ pub fn advance_construction(
         return;
     }
 
+    // Pre-compute the per-build BP-rate contribution while we have
+    // exclusive access to `buildings_data`. Capturing it here avoids a
+    // second `Query<&Colony>` (B0001) inside the colony-BP loop.
+    // Fallback to the historical `10.0` per Factory rate if the
+    // BuildingsData resource isn't registered (e.g. some unit tests).
+    let per_build_bp_rate: f64 = buildings_data
+        .as_deref()
+        .map(|data| data.per_build_value(BuildingType::Factory, "BuildPointsProduction"))
+        .unwrap_or(10.0);
+
     // Gather per-colony build points
     // Factory count determines build rate; minimum 1 BP/year for ship-supplied colonies
     let mut colony_bp: Vec<(Entity, f64)> = Vec::new();
@@ -92,8 +110,10 @@ pub fn advance_construction(
         if !colony_bp.iter().any(|(e, _)| *e == colony_entity) {
             if let Ok(colony) = colonies.get(colony_entity) {
                 let factories = colony.building_count(BuildingType::Factory) as f64;
-                // Base: 1 BP/year (ship supply), + 10 per factory
-                let bp = (1.0 + factories * 10.0) * years_elapsed;
+                // Base: 1 BP/year (ship supply), + (BuildPointsProduction
+                // RON value) per factory. The RON value defaults to 10
+                // when BuildingsData is absent (existing unit tests).
+                let bp = (1.0 + factories * per_build_bp_rate) * years_elapsed;
                 colony_bp.push((colony_entity, bp));
             }
         }

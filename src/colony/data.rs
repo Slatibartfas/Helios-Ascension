@@ -313,6 +313,15 @@ impl BuildingsData {
         self.per_build_value(bt, "FoodProduction")
     }
 
+    /// Per-build `PopulationGrowth` (raw fraction per year, e.g.
+    /// `0.0003` = +0.03%/yr). Mirrors the helper pattern of the
+    /// other per-build lookups; introduced in the GRA-22c Phase 1
+    /// wiring so `Colony::population_growth_per_year` can sum every
+    /// contributor instead of hard-coding `MedicalCenter`.
+    pub fn population_growth_for(&self, bt: BuildingType) -> f64 {
+        self.per_build_value(bt, "PopulationGrowth")
+    }
+
     /// Per-build `WealthGeneration` (MC/yr).
     pub fn wealth_generation_for(&self, bt: BuildingType) -> f64 {
         self.per_build_value(bt, "WealthGeneration")

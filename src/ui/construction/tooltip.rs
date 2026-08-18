@@ -243,11 +243,15 @@ pub(super) fn collect_local_shortfalls(
 // Update the canary's hover tooltip text every frame.
 //
 // Scans every CTA's `Interaction` and `ConstructionCtaDisabled` /
-// `ConstructionCtaBodyBlocked` state. If the player is hovering a
-// disabled CTA, populates [`TooltipRequest`] with the most-binding
-// constraint (resource shortfalls + power deficit, in that order).
-// Queue-CTA body-blocked CTAs take precedence over resource
-// shortfalls so the most-blocking constraint wins.
+// `ConstructionCtaBodyBlocked` / `ConstructionCtaCapped` state.
+//
+// v3.9 (GRA-22c Phase 1.5): cap-gated CTAs (pop-growth at the
+// `max_medical_growth_bonus` ceiling) take precedence over the
+// "Missing resources" disabled branch because the player's
+// question is "why is this dim?" and "you're at the cap" is
+// the most actionable answer. Body-blocked (permanent body gate)
+// keeps its own precedence. Affordability-blocked (transient,
+// usually fixable by waiting for mining) sorts below.
 //
 // Merges the legacy "ConstructionTooltipState" (bottom-left
 // text mirror) and "QueueButtonTooltipState" (cursor-following
@@ -262,6 +266,7 @@ pub fn tick_construction_tooltip(
         &ConstructionCta,
         Has<ConstructionCtaDisabled>,
         Has<ConstructionCtaBodyBlocked>,
+        Has<ConstructionCtaCapped>,
     )>,
     buildings_data: Res<crate::colony::data::BuildingsData>,
     local_stockpiles: Query<&crate::economy::LocalStockpile>,
@@ -284,8 +289,27 @@ pub fn tick_construction_tooltip(
         .unwrap_or(0.0);
     let local = active_colony_entity.and_then(|e| local_stockpiles.get(e).ok());
 
-    let mut best: Option<Vec<String>> = None;
-    for (_entity, interaction, cta, is_disabled, is_body_blocked) in ctas.iter() {
+    // Compute once: the colony's raw pop-growth sum and the cap. Used
+    // for the cap-gated CTA tooltip's marginal-benefit detail line.
+    let pop_growth_cap = buildings_data.colony_constants.max_medical_growth_bonus;
+    let pop_growth_raw: f64 = active_colony_entity
+        .and_then(|e| colonies.get(e).ok())
+        .map(|colony| {
+            colony
+                .buildings
+                .iter()
+                .map(|(bt, count)| buildings_data.population_growth_for(*bt) * *count as f64)
+                .sum()
+        })
+        .unwrap_or(0.0);
+
+    // Three bracketed "best" payloads, ordered by precedence: cap >
+    // body > affordability. We keep three separate `Option`s to
+    // avoid tuple gymnastics in the inner loop.
+    let mut cap_best: Option<Vec<String>> = None;
+    let mut body_best: Option<Vec<String>> = None;
+    let mut afford_best: Option<Vec<String>> = None;
+    for (_entity, interaction, cta, is_disabled, is_body_blocked, is_capped) in ctas.iter() {
         if !matches!(interaction, Interaction::Hovered | Interaction::Pressed) {
             continue;
         }
@@ -293,12 +317,51 @@ pub fn tick_construction_tooltip(
             Some(d) => d,
             None => continue,
         };
+        if is_capped {
+            // The cap message is identical regardless of which
+            // PopGrowth building the player is hovering (it's the
+            // colony-wide ceiling, not the per-building delta), so
+            // we render a concise two-line body. Compute the
+            // marginal benefit ("another copy would add 0%") so
+            // the player sees the math.
+            let per_build = buildings_data.population_growth_for(cta.building_type);
+            // Project the would-be raw sum if the player pressed
+            // the button anyway (clamped at the cap). The diff
+            // vs. current `pop_growth_raw` is the marginal growth.
+            let clamped_now = pop_growth_raw.min(pop_growth_cap);
+            let projected = (pop_growth_raw + per_build).min(pop_growth_cap);
+            let marginal = projected - clamped_now;
+            let marginal_pct = (marginal * 100.0 * 100.0).max(0.0);
+            // Display as "+0.000 %/yr" — the precise current
+            // semantics. Most cases land on 0.000 because the colony
+            // is already saturated.
+            cap_best = Some(vec![
+                format!(
+                    "  Population-growth cap reached ({cap_pct:.3}%/yr)",
+                    cap_pct = pop_growth_cap * 100.0
+                ),
+                format!("  This building adds 0%/yr above the cap."),
+                format!(
+                    "  Marginal benefit: +{marg_pct:.3}%/yr",
+                    marg_pct = marginal_pct
+                ),
+                "  Demolish an existing facility to free headroom.".to_string(),
+            ]);
+            // We deliberately don't `break` here: a single CTA can
+            // carry both `ConstructionCtaCapped` AND
+            // `ConstructionCtaDisabled` (e.g. it's the cap-reached
+            // building AND the player can't afford it), but the cap
+            // is the more strategic message so we keep iterating
+            // and `cap_best` wins via precedence in the final
+            // `or()` chain below.
+            continue;
+        }
         if is_body_blocked {
-            best = Some(vec![
+            body_best = Some(vec![
                 "Missing:".to_string(),
                 "  Body unavailable".to_string(),
             ]);
-            break;
+            continue;
         }
         if !is_disabled {
             continue;
@@ -332,13 +395,26 @@ pub fn tick_construction_tooltip(
         }
 
         if lines.len() > 1 {
-            best = Some(lines);
-            break;
+            afford_best = Some(lines);
         }
     }
 
+    // Precedence: cap > body > affordability.
+    let is_cap_tooltip = cap_best.is_some();
+    let best: Option<Vec<String>> = cap_best.or(body_best).or(afford_best);
+
     if let Some(lines) = best {
-        let title = "Missing resources".to_string();
+        // Cap-gated CTAs use a dedicated title so the rendered
+        // overlay reads "Population-growth cap reached" rather than
+        // "Missing resources" — the player needs to see which
+        // constraint blocked them, and the cap is a strategic
+        // decision (demolish to free headroom) rather than a
+        // transient resource wait.
+        let title = if is_cap_tooltip {
+            "Population-growth cap reached".to_string()
+        } else {
+            "Missing resources".to_string()
+        };
         let entries: Vec<TooltipEntry> = lines
             .iter()
             .map(|line| TooltipEntry::Paragraph(line.clone()))
@@ -355,14 +431,14 @@ pub fn tick_construction_tooltip(
     } else if request
         .content
         .as_ref()
-        .map(|c| c.title == "Missing resources")
+        .map(|c| c.title == "Missing resources" || c.title == "Population-growth cap reached")
         .unwrap_or(false)
     {
         // No CTA hovered AND the previous tooltip was ours — clear it
-        // so a stale "Missing resources" doesn't linger after the
-        // cursor leaves the CTA. We DO NOT touch the request when the
-        // previous content was set by a chip hover observer (e.g.
-        // `ResourceCostChip`, `PowerChip`) because we don't own that
+        // so a stale tooltip doesn't linger after the cursor leaves
+        // the CTA. We DO NOT touch the request when the previous
+        // content was set by a chip hover observer (e.g.
+        // ResourceCostChip, PowerChip) because we don't own that
         // tooltip — the corresponding `Pointer<Out>` observer is
         // responsible for clearing it.
         request.content = None;

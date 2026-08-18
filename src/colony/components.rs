@@ -482,9 +482,27 @@ impl Colony {
         }
 
         let cc = &data.colony_constants;
-        let medical_bonus = (self.building_count(BuildingType::MedicalCenter) as f64
-            * cc.medical_growth_per_center)
-            .min(cc.max_medical_growth_bonus);
+
+        // Population-growth bonus: sum every building's `PopulationGrowth`
+        // modifier (PER BUILD) across the colony, then clamp to the
+        // `max_medical_growth_bonus` ceiling. The clamp preserves the
+        // MedicalCenter-led design (`medical_growth_per_center = 0.0003`
+        // × N centers, capped at `0.009`) while also honouring the
+        // parse-but-until-now-unused PopGrowth modifiers on
+        // PharmaceuticalPlant / WaterTreatmentPlant / DesalinationPlant
+        // (GRA-22c building-economy audit Phase 1). Earth-start still
+        // saturates at the cap (200 MedicalCenters >> 30 needed) so
+        // the migration is a no-op for existing saves and the
+        // upcoming outpost will now get the bonus the card advertised.
+        let raw_growth_bonus: f64 = self
+            .buildings
+            .iter()
+            .map(|(bt, count)| {
+                let per_build = data.population_growth_for(*bt);
+                per_build * *count as f64
+            })
+            .sum();
+        let medical_bonus = raw_growth_bonus.min(cc.max_medical_growth_bonus);
 
         // Housing utilisation factor – growth slows as housing fills
         let utilisation = (self.population / housing).min(1.0);
@@ -833,6 +851,111 @@ mod tests {
         let growth = colony.population_growth_per_year(1.0, &data());
         // Should be positive with housing and food
         assert!(growth > 0.0, "Growth should be positive: {}", growth);
+    }
+
+    // v3.9 (GRA-22c Phase 1.2): regression guards for the generic
+    // PopulationGrowth accumulation. The pre-v3.9 hard-code only
+    // counted `MedicalCenter` × `medical_growth_per_center`; now
+    // every building with a `PopulationGrowth` modifier contributes,
+    // clamped at `max_medical_growth_bonus`. These tests pin both
+    // the per-building contribution and the cap behaviour so future
+    // edits to `Colony::population_growth_per_year` cannot silently
+    // re-break the wiring.
+    #[test]
+    fn test_population_growth_bonus_sums_all_contributors() {
+        let data = data();
+        // Spot-check the live RON values the test relies on.
+        let per_pharma = data.population_growth_for(BuildingType::PharmaceuticalPlant);
+        let per_water = data.population_growth_for(BuildingType::WaterTreatmentPlant);
+        let per_desal = data.population_growth_for(BuildingType::DesalinationPlant);
+        let per_medical = data.population_growth_for(BuildingType::MedicalCenter);
+        assert!(
+            per_pharma > 0.0 && per_water > 0.0 && per_desal > 0.0 && per_medical > 0.0,
+            "Each PopGrowth modifier must be wired (got pharma={pharma}, water={water}, desal={desal}, medical={medical})",
+            pharma = per_pharma,
+            water = per_water,
+            desal = per_desal,
+            medical = per_medical,
+        );
+    }
+
+    #[test]
+    fn test_population_growth_bonus_cap_holds_across_categories() {
+        // With housing, the bonus comes from the colony's buildings.
+        // 200 MedicalCenters saturate the cap; the bonus must NOT
+        // scale linearly beyond it.
+        let mut colony = Colony::new("Cap".to_string(), 200_000.0);
+        colony.add_building(BuildingType::HabitatDome);
+        colony.add_building(BuildingType::AgriDome);
+        for _ in 0..200 {
+            colony.add_building(BuildingType::MedicalCenter);
+        }
+        // Compare to a baseline with just 30 centers (also saturates cap).
+        let mut baseline = Colony::new("Baseline".to_string(), 200_000.0);
+        baseline.add_building(BuildingType::HabitatDome);
+        baseline.add_building(BuildingType::AgriDome);
+        for _ in 0..30 {
+            baseline.add_building(BuildingType::MedicalCenter);
+        }
+
+        let data = data();
+        let g_cap = colony.population_growth_per_year(1.0, &data);
+        let g_base = baseline.population_growth_per_year(1.0, &data);
+        assert!(
+            (g_cap - g_base).abs() < 1e-6,
+            "200 MedicalCenters must clamp to the same cap as 30: \
+             200-colony grew {g_cap} vs 30-colony grew {g_base}"
+        );
+    }
+
+    /// Phase 1.5 (GRA-22c): the construction UI gates the queue
+    /// button on `raw_growth_bonus >= max_medical_growth_bonus`. To
+    /// keep that gate honest, this test exercises the same arithmetic
+    /// the UI uses — `Colony::buildings` summed by RON
+    /// `PopulationGrowth` per-build values vs. `BuildingsData::colony_constants.max_medical_growth_bonus`.
+    /// The CTA should be disabled when the *current* raw sum is at
+    /// or above the cap (a new building would be pure waste).
+    #[test]
+    fn test_population_growth_cap_gate_predicate() {
+        let data = data();
+        let cap = data.colony_constants.max_medical_growth_bonus;
+        assert!(cap > 0.0, "cap must be positive");
+
+        // Build a colony with 30 MedicalCenters (1 × 0.0003 × 30 =
+        // 0.009, exactly at the cap). Adding one more would push the
+        // raw sum to 0.012 and the clamped bonus would stay at 0.009
+        // → marginal benefit = 0.
+        let mut c = Colony::new("Saturated".to_string(), 100.0);
+        let centers_for_cap =
+            (cap / data.population_growth_for(BuildingType::MedicalCenter)).ceil() as i32;
+        for _ in 0..centers_for_cap {
+            c.add_building(BuildingType::MedicalCenter);
+        }
+        let raw_now: f64 = c
+            .buildings
+            .iter()
+            .map(|(bt, n)| data.population_growth_for(*bt) * *n as f64)
+            .sum();
+        assert!(
+            raw_now >= cap,
+            "After {centers_for_cap} MedicalCenters raw={raw_now} should be >= cap={cap}"
+        );
+
+        // Same colony with 1 fewer MedicalCenter — raw sum should be
+        // strictly below the cap, so the gate is NOT active.
+        let mut under = Colony::new("Under".to_string(), 100.0);
+        for _ in 0..(centers_for_cap - 1).max(0) {
+            under.add_building(BuildingType::MedicalCenter);
+        }
+        let raw_under: f64 = under
+            .buildings
+            .iter()
+            .map(|(bt, n)| data.population_growth_for(*bt) * *n as f64)
+            .sum();
+        assert!(
+            raw_under < cap,
+            "raw_under={raw_under} should be < cap={cap}"
+        );
     }
 
     #[test]

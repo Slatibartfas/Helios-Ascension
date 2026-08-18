@@ -119,7 +119,7 @@ pub use buildings::{BuildingsContent, BuildingsHeader};
 pub use markers::{
     BuildCard, CardGrid, ColonyDropdownMenu, ColonyDropdownOption, ColonyDropdownOptionText,
     ColonyPicker, ColonyPickerText, ConstructionCard, ConstructionCta, ConstructionCtaBodyBlocked,
-    ConstructionCtaDisabled, ConstructionCtaLabelMarker, ConstructionRoot,
+    ConstructionCtaCapped, ConstructionCtaDisabled, ConstructionCtaLabelMarker, ConstructionRoot,
     ConstructionScrollbarTab, ConstructionScrollbarThumb, ConstructionScrollbarTrack,
     ConstructionSubtitle, ConstructionTitle, DemolishButton, DemolishButtonLabel,
     DemolishConfirmDialog, DemolishConfirmNo, DemolishConfirmSubtitle, DemolishConfirmTitle,
@@ -998,10 +998,15 @@ mod friendly_label_tests {
 
     #[test]
     fn friendly_label_population_growth() {
-        let m = modf("PopulationGrowth", 50.0);
+        // v3.9 (GRA-22c Phase 1.3): the RON value is a raw fraction per
+        // build per year. `MedicalCenter`'s current RON value is 0.0003
+        // (≈ +0.03%/yr per center), matching the underlying sim rate.
+        // The previously-asserted "+0.5%/yr" was a 16.7× over-statement
+        // caused by the RON value being interpreted as basis points.
+        let m = modf("PopulationGrowth", 0.0003);
         let (tone, label) = friendly_label(&m).expect("PopulationGrowth should produce a label");
         assert_eq!(tone, EffectTone::Positive);
-        assert_eq!(label, "Population growth +0.5%/yr");
+        assert_eq!(label, "Population growth +0.030%/yr");
     }
 
     #[test]

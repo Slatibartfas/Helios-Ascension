@@ -76,6 +76,23 @@ pub struct ConstructionCtaDisabled;
 #[derive(Component)]
 pub struct ConstructionCtaBodyBlocked;
 
+// v3.9 (GRA-22c Phase 1.5): marker for Queue CTAs that are
+// **permanently** disabled because the player's pop-growth
+// contribution is already at the `max_medical_growth_bonus`
+// cap, so building another of this `PopulationGrowth`-carrying
+// building would deliver zero additional growth (the
+// `Colony::population_growth_per_year` clamp keeps the bonus
+// pinned at the ceiling). Mirrors `ConstructionCtaBodyBlocked`
+// in shape so the click handler, hover affordance, and tooltip
+// system can all treat "permanent block" uniformly; the
+// tooltip distinguishes with a distinct "cap reached" message.
+//
+// Only attached to buildings that carry a `PopulationGrowth`
+// modifier today (MedicalCenter, PharmaceuticalPlant,
+// WaterTreatmentPlant, DesalinationPlant).
+#[derive(Component)]
+pub struct ConstructionCtaCapped;
+
 // Marker component for the AppBar "OPEN QUEUE" toggle chip. The
 // `tick_open_queue_chip_click` system reads this marker to know
 // which chip's `Interaction::Pressed` should toggle `QueuePanelState`.

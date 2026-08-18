@@ -144,9 +144,14 @@ pub fn friendly_label(m: &BuildingModifierDef) -> Option<(EffectTone, String)> {
     }
 
     if ty == "PopulationGrowth" && v > 0.0 {
+        // v3.9 (GRA-22c Phase 1.3): the RON value is a raw fraction per
+        // build per year (e.g. 0.0003 = +0.030%/yr per center). This
+        // matches the `Colony::population_growth_per_year` reading path
+        // verbatim — the previously-displayed "+0.5%/yr" was a 16.7×
+        // over-statement (RON was basis-points, not a percent).
         return Some((
             EffectTone::Positive,
-            format!("Population growth +{:.1}%/yr", v / 100.0),
+            format!("Population growth +{:.3}%/yr", v * 100.0),
         ));
     }
 

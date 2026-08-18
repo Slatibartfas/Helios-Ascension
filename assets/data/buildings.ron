@@ -2427,9 +2427,11 @@
                 ("Oxygen", 0.05),
             ],
             modifiers: [
-                // Population-growth bonus per centre; calibration target
-                // ~0.5% world growth-rate boost per center.
-                (modifier_type: "PopulationGrowth", value: 50.0),
+                // v3.9 (GRA-22c Phase 1.4): PopGrowth now interpreted as a
+                // raw fraction per build. 0.0003/yr per center matches the
+                // pre-v3.9 `medical_growth_per_center = 0.0003` constant
+                // exactly (audited), so Earth-start behaviour is preserved.
+                (modifier_type: "PopulationGrowth", value: 0.0003),
             ],
             power_demand_mw: 225,
         ),
@@ -2646,9 +2648,14 @@
                 ("Argon", 0.03),
             ],
             modifiers: [
-                // -300% construction cost per shipyard (legacy percent; GRA-22c
-                // will replace with tier-2 build-cost modifier).
-                (modifier_type: "ConstructionCost", value: -300.0),
+                // v3.9 (GRA-22c Phase 1.7): removed the legacy
+                // `ConstructionCost: -300.0` modifier — it was
+                // display-only (no simulation consumer) and rendered
+                // as "Builds 300 BP/yr faster" without backing. The
+                // Shipyard's BP-rate contribution comes from
+                // `src/shipbuilding/systems.rs::SHIPYARD_BP_PER_YEAR`,
+                // which is independent of the colony's `ConstructionCost`
+                // modifier path.
             ],
             power_demand_mw: 4500,
         ),
@@ -2920,8 +2927,10 @@
                 ("Copper", 0.0007766),
             ],
             modifiers: [
-                // 1 plant ≈ 0.3% world growth-rate boost (per plant basis).
-                (modifier_type: "PopulationGrowth", value: 30.0),
+                // v3.9 (GRA-22c Phase 1.4): raw-fraction PopGrowth.
+                // 0.0003/yr per plant: 33 plants hit the cap (0.009).
+                // Earth has none → no Earth-start effect.
+                (modifier_type: "PopulationGrowth", value: 0.0003),
             ],
             power_demand_mw: 450,
         ),
@@ -2951,8 +2960,10 @@
                 ("Phosphorus", 0.0001),
             ],
             modifiers: [
-                // 1 complex ≈ 0.2% world growth-rate boost.
-                (modifier_type: "PopulationGrowth", value: 20.0),
+                // v3.9 (GRA-22c Phase 1.4): raw-fraction PopGrowth.
+                // 0.0002/yr per complex: 45 complexes hit the cap.
+                // Earth has 500 → beyond cap, no Earth-start effect.
+                (modifier_type: "PopulationGrowth", value: 0.0002),
                 // v3.8.4: added per-build water production
                 // (Earth had 500 WaterTreatmentPlant producing 0).
                 // v3.8.10 (2026-08-07): calibrated to 8.0 Mt/yr/build so
@@ -2991,8 +3002,9 @@
                 ("Sulfur", 0.00046667),
             ],
             modifiers: [
-                // 1 plant ≈ 0.1% world growth-rate boost.
-                (modifier_type: "PopulationGrowth", value: 10.0),
+                // v3.9 (GRA-22c Phase 1.4): raw-fraction PopGrowth.
+                // 0.0001/yr per plant: 90 plants hit the cap.
+                (modifier_type: "PopulationGrowth", value: 0.0001),
             ],
             power_demand_mw: 200.0,
         ),
