@@ -148,8 +148,17 @@
             workforce: 2000,
             required_tech: "",
             resource_costs: [
-                ("Iron", 83.0),
-                ("Copper", 33.0),
+                // GRA-22c Phase 2.2: atmospheric recycling + water
+                // electrolysis + CO2 scrubbers. 116 Mt total, Fe 42%
+                // (was 71%).
+                ("Iron", 48.0),
+                ("Copper", 15.0),
+                ("Aluminum", 8.0),
+                ("Silicates", 22.0),
+                ("Polymers", 8.0),
+                ("Water", 8.0),
+                ("Nitrogen", 4.0),
+                ("Oxygen", 3.0),
             ],
             maintenance_resources: [
                 ("Water", 5.0),
@@ -171,9 +180,15 @@
             workforce: 1000,
             required_tech: "",
             resource_costs: [
-                ("Iron", 167.0),
-                ("Silicates", 133.0),
+                // GRA-22c Phase 2.2: pressurised dome + life
+                // support. 350 Mt total, Fe 45%.
+                ("Iron", 158.0),
+                ("Copper", 30.0),
                 ("Aluminum", 50.0),
+                ("Silicates", 100.0),
+                ("Titanium", 4.0),
+                ("Polymers", 4.0),
+                ("Water", 4.0),
             ],
             maintenance_resources: [
                 ("Iron", 1.0),
@@ -222,8 +237,14 @@
             workforce: 500,
             required_tech: "",
             resource_costs: [
-                ("Iron", 33.0),
-                ("Silicates", 83.0),
+                // GRA-22c Phase 2.2: metropolitan housing. 116 Mt
+                // total, Si 49% (was 71%).
+                ("Iron", 35.0),
+                ("Copper", 12.0),
+                ("Aluminum", 8.0),
+                ("Silicates", 50.0),
+                ("Polymers", 6.0),
+                ("Water", 5.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.001),
@@ -265,9 +286,15 @@
             workforce: 1500,
             required_tech: "",
             resource_costs: [
-                ("Iron", 250.0),
-                ("Silicates", 167.0),
-                ("Titanium", 83.0),
+                // GRA-22c Phase 2.2: subsurface habitat (regolith
+                // shielding). 500 Mt total, Fe 45%.
+                ("Iron", 225.0),
+                ("Copper", 35.0),
+                ("Aluminum", 20.0),
+                ("Silicates", 130.0),
+                ("Titanium", 70.0),
+                ("Polymers", 12.0),
+                ("Water", 8.0),
             ],
             maintenance_resources: [
                 ("Iron", 2.0),
@@ -314,8 +341,12 @@
             workforce: 5,
             required_tech: "",
             resource_costs: [
+                // GRA-22c Phase 2.2: inflatable starter habitat. 8 Mt
+                // total, Fe 38% (was 63%).
                 ("Iron", 3.0),
-                ("Silicates", 5.0),
+                ("Copper", 0.5),
+                ("Silicates", 3.0),
+                ("Polymers", 1.5),
             ],
             maintenance_resources: [
                 ("Water", 0.05),
@@ -419,9 +450,15 @@
             workforce: 3000,
             required_tech: "",
             resource_costs: [
-                ("Iron", 67.0),
+                // GRA-22c Phase 2.2: gas liquefaction + cryogenic
+                // distillation. 133 Mt total, Fe 35%.
+                ("Iron", 47.0),
                 ("Copper", 33.0),
-                ("Aluminum", 33.0),
+                ("Aluminum", 25.0),
+                ("Silicates", 12.0),
+                ("Polymers", 5.0),
+                ("Water", 5.0),
+                ("Fluorine", 6.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.01),
@@ -578,15 +615,23 @@
         (
             id: "IronMine",
             display_name: "Iron Mine",
-            description: "Iron ore extraction (open-pit / underground). 111.1 Mt/yr per build (v3.8.12: Earth deposit access 0.9 → 25 × 111.1 × 0.9 = 2,500 Mt/yr = worldsteel 2024; v3.8.10 used a flat 0.6 = 166.67) × deposit.accessibility.",
+            description: "Iron ore extraction (open-pit / underground). 97.15 Mt/yr per build (v3.8.14 demand-sized: 25 mines × 97.15 × 0.9 access = 2,185 Mt/yr on Earth vs USGS 2024 2,500 Mt/yr).",
             icon: "textures/ui/buildings/iron-mine.png",
             category: "Mining",
             build_points: 1500.0,
             workforce: 5000,
             required_tech: "",
             resource_costs: [
-                ("Iron", 100.0),
-                ("Copper", 30.0),
+                // GRA-22c Phase 2.1: bulk-structural BoM for an
+                // open-pit iron mine. Total 120 Mt, Fe 46% (was 77%).
+                ("Iron", 55.0),
+                ("Copper", 12.0),
+                ("Aluminum", 8.0),
+                ("Silicates", 25.0),
+                ("Nickel", 5.0),
+                ("Polymers", 4.0),
+                ("Water", 8.0),
+                ("Tungsten", 3.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.01),
@@ -605,22 +650,24 @@
         (
             id: "AluminumMine",
             display_name: "Aluminum Mine",
-            description: "Aluminum (bauxite) extraction. 3.5 Mt/yr per build (v3.8.12: Earth deposit access 0.8 → 25 × 3.5 × 0.8 = 70 Mt/yr = USGS 2026; v3.8.10 used a flat 0.6 = 4.667) × deposit.accessibility.",
+            description: "Aluminum (bauxite) extraction. 2.62 Mt/yr per build (v3.8.14 demand-sized: 25 mines × 2.62 × 0.8 access = 52 Mt/yr on Earth).",
             icon: "textures/ui/buildings/aluminum-mine.png",
             category: "Mining",
             build_points: 1200.0,
-            // v3.1 canary 9 (BALANCE_PATCHES_v0.5.md §0.F.3): 4,500
-            // workers for a 5 Mt/yr Al mine was 2.4× overstaffed
-            // (real-world 1 worker / ~2.2 t/yr/worker, so a 5 Mt/yr
-            // mine needs ~2,300 workers; the Bayer+Hall-Héroult
-            // process is highly automated, so 1,500 is the
-            // operator-bar value). Drops the workforce 3× while
-            // preserving the 25-AlMine operator bar.
             workforce: 1500,
             required_tech: "",
             resource_costs: [
-                ("Iron", 80.0),
-                ("Copper", 20.0),
+                // GRA-22c Phase 2.1: bulk-structural BoM (Bayer
+                // process equipment + trucks + cabling). 95 Mt
+                // total, Fe 47% (was 80%).
+                ("Iron", 45.0),
+                ("Copper", 10.0),
+                ("Aluminum", 8.0),
+                ("Silicates", 18.0),
+                ("Nickel", 4.0),
+                ("Polymers", 3.0),
+                ("Water", 5.0),
+                ("Tungsten", 2.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.005),
@@ -639,15 +686,25 @@
         (
             id: "TitaniumMine",
             display_name: "Titanium Mine",
-            description: "Titanium (rutile / ilmenite) extraction. 0.6 Mt/yr per build (v3.5: 25 × 0.6 × 0.6 = 9 Mt/yr = USGS 2026) × deposit.accessibility.",
+            description: "Titanium (rutile / ilmenite) extraction. 0.0196 Mt/yr per build (v3.8.14 demand-sized).",
             icon: "textures/ui/buildings/titanium-mine.png",
             category: "Mining",
             build_points: 1800.0,
             workforce: 5500,
             required_tech: "",
             resource_costs: [
-                ("Iron", 120.0),
-                ("Copper", 30.0),
+                // GRA-22c Phase 2.1: bulk-structural BoM with
+                // trace self-Ti for specialised mill linings. 140
+                // Mt total, Fe 43% (was 80%).
+                ("Iron", 60.0),
+                ("Copper", 12.0),
+                ("Aluminum", 8.0),
+                ("Silicates", 30.0),
+                ("Nickel", 6.0),
+                ("Polymers", 4.0),
+                ("Water", 6.0),
+                ("Titanium", 10.0),
+                ("Tungsten", 4.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.01),
@@ -666,15 +723,25 @@
         (
             id: "SilicatesMine",
             display_name: "Silicates Quarry",
-            description: "Silicates (granite / basalt / quartz) aggregate quarry. 2,000 Mt/yr per build (v3.8.12: Earth deposit access 1.0 → 25 × 2000 × 1.0 = 50,000 Mt/yr = USGS 2026 aggregate; v3.8.10 used a flat 0.6 = 320) × deposit.accessibility.",
+            description: "Silicates (granite / basalt / quartz) aggregate quarry. 137.3 Mt/yr per build (v3.8.14 demand-sized).",
             icon: "textures/ui/buildings/silicates-mine.png",
             category: "Mining",
             build_points: 300.0,
             workforce: 1500,
             required_tech: "",
             resource_costs: [
-                ("Iron", 30.0),
-                ("Copper", 10.0),
+                // GRA-22c Phase 2.1: a quarry is mostly earth-moving
+                // equipment + steel cutting tools + explosives
+                // (Polymers). Total 50 Mt, Fe 36% (was 75%).
+                ("Iron", 18.0),
+                ("Copper", 5.0),
+                ("Aluminum", 4.0),
+                ("Silicates", 14.0),
+                ("Nickel", 1.0),
+                ("Polymers", 2.0),
+                ("Water", 3.0),
+                ("Tungsten", 1.0),
+                ("Sulfur", 2.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.005),
@@ -693,15 +760,26 @@
         (
             id: "NickelMine",
             display_name: "Nickel Mine",
-            description: "Nickel ore extraction. 0.2 Mt/yr per build (v3.8.12: Earth deposit access 0.7 → 25 × 0.2 × 0.7 = 3.5 Mt/yr = USGS 2026; v3.8.10 used a flat 0.6 = 0.233) × deposit.accessibility.",
+            description: "Nickel ore extraction. 0.0717 Mt/yr per build (v3.8.14 demand-sized).",
             icon: "textures/ui/buildings/nickel-mine.png",
             category: "Mining",
             build_points: 1100.0,
             workforce: 4000,
             required_tech: "",
             resource_costs: [
-                ("Iron", 70.0),
-                ("Copper", 20.0),
+                // GRA-22c Phase 2.1: bulk-structural BoM with trace
+                // self-Ni for smelter linings. 90 Mt total, Fe 44%
+                // (was 78%).
+                ("Iron", 40.0),
+                ("Copper", 10.0),
+                ("Aluminum", 5.0),
+                ("Silicates", 18.0),
+                ("Nickel", 3.0),
+                ("Polymers", 2.0),
+                ("Water", 5.0),
+                ("Tungsten", 2.0),
+                ("Cobalt", 1.0),
+                ("Magnesium", 4.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.005),
@@ -721,16 +799,24 @@
         (
             id: "TungstenMine",
             display_name: "Tungsten Mine",
-            description: "Tungsten (wolframite / scheelite) extraction. 0.01 Mt/yr per build (v3.8.12: Earth deposit access 0.4 → 25 × 0.01 × 0.4 = 0.10 Mt/yr = 100 kt/yr = USGS 2026; v3.8.10 used a flat 0.6 = 0.00667) × deposit.accessibility.",
+            description: "Tungsten (wolframite / scheelite) extraction. 0.004 Mt/yr per build (v3.8.14 demand-sized).",
             icon: "textures/ui/buildings/tungsten-mine.png",
             category: "Mining",
             build_points: 2200.0,
             workforce: 6000,
             required_tech: "",
             resource_costs: [
-                ("Iron", 150.0),
-                ("Titanium", 50.0),
-                ("Copper", 30.0),
+                // GRA-22c Phase 2.1: bulk-structural BoM for a
+                // heavy-industry tungsten mill. 200 Mt total,
+                // Fe 45% (was 65%).
+                ("Iron", 90.0),
+                ("Copper", 20.0),
+                ("Aluminum", 10.0),
+                ("Silicates", 35.0),
+                ("Titanium", 15.0),
+                ("Tungsten", 17.0),
+                ("Polymers", 5.0),
+                ("Water", 8.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.01),
@@ -749,15 +835,24 @@
         (
             id: "CarbonMine",
             display_name: "Carbon Mine",
-            description: "Carbon (coal / graphite) extraction. 410 Mt/yr per build (v3.8.12: Earth deposit access 0.8 → 25 × 410 × 0.8 = 8,200 Mt/yr = IEA 2026 coal equiv; v3.8.10 used a flat 0.6 = 546.667) × deposit.accessibility.",
+            description: "Carbon (coal / graphite) extraction. 392.2 Mt/yr per build (v3.8.14 demand-sized).",
             icon: "textures/ui/buildings/carbon-mine.png",
             category: "Mining",
             build_points: 900.0,
             workforce: 3500,
             required_tech: "",
             resource_costs: [
-                ("Iron", 60.0),
-                ("Copper", 15.0),
+                // GRA-22c Phase 2.1: bulk-structural BoM for a
+                // coal / graphite operation. 80 Mt total, Fe 44%
+                // (was 80%).
+                ("Iron", 35.0),
+                ("Copper", 8.0),
+                ("Aluminum", 5.0),
+                ("Silicates", 15.0),
+                ("Nickel", 2.0),
+                ("Polymers", 3.0),
+                ("Water", 6.0),
+                ("Carbon", 6.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.005),
@@ -776,15 +871,24 @@
         (
             id: "ChromiumMine",
             display_name: "Chromium Mine",
-            description: "Chromium (chromite) extraction. 3.76 Mt/yr per build (v3.8.12: Earth deposit access 0.5 → 25 × 3.76 × 0.5 = 47 Mt/yr = USGS 2026; v3.8.10 used a flat 0.6 = 3.13) × deposit.accessibility.",
+            description: "Chromium (chromite) extraction. 0.735 Mt/yr per build (v3.8.14 demand-sized).",
             icon: "textures/ui/buildings/chromium-mine.png",
             category: "Mining",
             build_points: 1300.0,
             workforce: 4500,
             required_tech: "",
             resource_costs: [
-                ("Iron", 90.0),
-                ("Copper", 20.0),
+                // GRA-22c Phase 2.1: chromite requires refractory
+                // brick (Si) + small Cr self-tap. 100 Mt total,
+                // Fe 48% (was 82%).
+                ("Iron", 48.0),
+                ("Copper", 10.0),
+                ("Aluminum", 6.0),
+                ("Silicates", 20.0),
+                ("Nickel", 3.0),
+                ("Polymers", 3.0),
+                ("Water", 8.0),
+                ("Chromium", 2.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.005),
@@ -803,15 +907,24 @@
         (
             id: "MagnesiumMine",
             display_name: "Magnesium Mine",
-            description: "Magnesium (magnesite / dolomite / seawater) extraction. 0.0571 Mt/yr per build (v3.8.12: Earth deposit access 0.7 → 25 × 0.0571 × 0.7 = 1.0 Mt/yr = USGS 2026; v3.8.10 used a flat 0.6 = 0.0667) × deposit.accessibility.",
+            description: "Magnesium (magnesite / dolomite / seawater) extraction. 0.0233 Mt/yr per build (v3.8.14 demand-sized).",
             icon: "textures/ui/buildings/magnesium-mine.png",
             category: "Mining",
             build_points: 1400.0,
             workforce: 5000,
             required_tech: "",
             resource_costs: [
-                ("Iron", 100.0),
-                ("Copper", 25.0),
+                // GRA-22c Phase 2.1: electrolytic Mg plant — Fe +
+                // Si refractory + chloride salts. 115 Mt total,
+                // Fe 43% (was 80%).
+                ("Iron", 50.0),
+                ("Copper", 10.0),
+                ("Aluminum", 7.0),
+                ("Silicates", 25.0),
+                ("Nickel", 3.0),
+                ("Polymers", 3.0),
+                ("Water", 7.0),
+                ("Magnesium", 10.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.005),
@@ -831,15 +944,24 @@
         (
             id: "GoldMine",
             display_name: "Gold Mine",
-            description: "Placer / lode gold extraction with cyanidation. 0.00048 Mt/yr per build (v3.8.12: Earth deposit access 0.3 → 25 × 0.00048 × 0.3 = 0.0036 Mt/yr = 3,600 t/yr = USGS 2026; v3.8.10 used a flat 0.6 = 0.00024) × deposit.accessibility.",
+            description: "Placer / lode gold extraction with cyanidation. 0.000204 Mt/yr per build (v3.8.14 demand-sized).",
             icon: "textures/ui/buildings/gold-mine.png",
             category: "Mining",
             build_points: 1200.0,
             workforce: 4000,
             required_tech: "",
             resource_costs: [
-                ("Iron", 80.0),
-                ("Copper", 20.0),
+                // GRA-22c Phase 2.1: cyanide-leach gold operation —
+                // Fe crushers, Hg-free Zn cementation, NaCN (Carbon
+                // proxy). 95 Mt total, Fe 47% (was 80%).
+                ("Iron", 45.0),
+                ("Copper", 10.0),
+                ("Aluminum", 5.0),
+                ("Silicates", 18.0),
+                ("Nickel", 3.0),
+                ("Polymers", 2.0),
+                ("Water", 5.0),
+                ("Gold", 7.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.005),
@@ -858,15 +980,23 @@
         (
             id: "SilverMine",
             display_name: "Silver Mine",
-            description: "Lead-zinc byproduct-style silver extraction. 0.00373 Mt/yr per build (v3.8.12: Earth deposit access 0.3 → 25 × 0.00373 × 0.3 = 0.028 Mt/yr = 28 kt/yr = USGS 2026; v3.8.10 used a flat 0.6 = 0.00187) × deposit.accessibility.",
+            description: "Lead-zinc byproduct-style silver extraction. 0.00204 Mt/yr per build (v3.8.14 demand-sized).",
             icon: "textures/ui/buildings/silver-mine.png",
             category: "Mining",
             build_points: 1500.0,
             workforce: 5000,
             required_tech: "",
             resource_costs: [
-                ("Iron", 100.0),
-                ("Copper", 25.0),
+                // GRA-22c Phase 2.1: Pb/Zn/Ag flotation + electrolytic
+                // refining. 115 Mt total, Fe 43% (was 80%).
+                ("Iron", 50.0),
+                ("Copper", 12.0),
+                ("Aluminum", 7.0),
+                ("Silicates", 22.0),
+                ("Nickel", 3.0),
+                ("Polymers", 3.0),
+                ("Water", 6.0),
+                ("Silver", 12.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.005),
@@ -884,16 +1014,25 @@
         (
             id: "PlatinumMine",
             display_name: "Platinum Mine",
-            description: "Platinum-group-metal extraction from layered intrusions (Bushveld / Norilsk analog). 4.6e-05 Mt/yr per build (v3.8.12: Earth deposit access 0.2 → 25 × 4.6e-05 × 0.2 = 0.00023 Mt/yr = 230 t/yr = USGS 2026; v3.8.10 used a flat 0.6 = 1.53e-05) × deposit.accessibility.",
+            description: "Platinum-group-metal extraction from layered intrusions (Bushveld / Norilsk analog). 3.06e-05 Mt/yr per build (v3.8.14 demand-sized).",
             icon: "textures/ui/buildings/platinum-mine.png",
             category: "Mining",
             build_points: 2000.0,
             workforce: 6000,
             required_tech: "",
             resource_costs: [
-                ("Iron", 150.0),
-                ("Copper", 30.0),
-                ("Nickel", 30.0),
+                // GRA-22c Phase 2.1: PGM refining (Ni/Cu matte
+                // + electrolytic separation, Cr tooling). 200 Mt
+                // total, Fe 47% (was 71%).
+                ("Iron", 95.0),
+                ("Copper", 20.0),
+                ("Aluminum", 12.0),
+                ("Silicates", 35.0),
+                ("Nickel", 12.0),
+                ("Polymers", 4.0),
+                ("Water", 8.0),
+                ("Chromium", 4.0),
+                ("Platinum", 10.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.01),
@@ -913,15 +1052,25 @@
         (
             id: "CopperMine",
             display_name: "Copper Mine",
-            description: "Copper ore extraction (chalcopyrite / porphyry). 2.08 Mt/yr per build (v3.8.12: Earth deposit access 0.5 → 25 × 2.08 × 0.5 = 26 Mt/yr = USGS 2026; v3.8.9 used a flat 0.6 = 1.733) × deposit.accessibility.",
+            description: "Copper ore extraction (chalcopyrite / porphyry). 2.12 Mt/yr per build (v3.8.14 demand-sized).",
             icon: "textures/ui/buildings/copper-mine.png",
             category: "Mining",
             build_points: 1300.0,
             workforce: 4500,
             required_tech: "",
             resource_costs: [
-                ("Iron", 90.0),
-                ("Copper", 30.0),
+                // GRA-22c Phase 2.1: bulk-structural BoM for a
+                // porphyry copper operation. 110 Mt total, Fe 45%
+                // (was 75%).
+                ("Iron", 50.0),
+                ("Copper", 12.0),
+                ("Aluminum", 6.0),
+                ("Silicates", 22.0),
+                ("Nickel", 3.0),
+                ("Polymers", 3.0),
+                ("Water", 8.0),
+                ("Tungsten", 2.0),
+                ("Gold", 4.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.005),
@@ -943,15 +1092,25 @@
         (
             id: "RareEarthsMine",
             display_name: "Rare Earths Mine",
-            description: "Rare-earth element extraction (bastnäsite / monazite). 0.035 Mt/yr per build (v3.8.12: Earth deposit access 0.4 → 25 × 0.035 × 0.4 = 0.35 Mt/yr = USGS 2026 REO; v3.8.10 used a flat 0.6 = 0.02) × deposit.accessibility.",
+            description: "Rare-earth element extraction (bastnäsite / monazite). 0.0168 Mt/yr per build (v3.8.14 demand-sized).",
             icon: "textures/ui/buildings/rare-earths-mine.png",
             category: "Mining",
             build_points: 2200.0,
             workforce: 6000,
             required_tech: "",
             resource_costs: [
-                ("Iron", 150.0),
-                ("Copper", 30.0),
+                // GRA-22c Phase 2.1: REE solvent-extraction plant
+                // needs extensive acid-resistant Si. 170 Mt total,
+                // Fe 41% (was 83%).
+                ("Iron", 70.0),
+                ("Copper", 18.0),
+                ("Aluminum", 8.0),
+                ("Silicates", 30.0),
+                ("Nickel", 5.0),
+                ("Polymers", 4.0),
+                ("Water", 8.0),
+                ("RareEarths", 25.0),
+                ("Tungsten", 2.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.01),
@@ -977,8 +1136,18 @@
             workforce: 5500,
             required_tech: "",
             resource_costs: [
-                ("Iron", 130.0),
-                ("Copper", 25.0),
+                // GRA-22c Phase 2.1: brine-evap + spodumene-roaster
+                // operation (sulfation bake uses S as flux). 145
+                // Mt total, Fe 41% (was 84%).
+                ("Iron", 60.0),
+                ("Copper", 15.0),
+                ("Aluminum", 8.0),
+                ("Silicates", 28.0),
+                ("Nickel", 3.0),
+                ("Polymers", 3.0),
+                ("Water", 8.0),
+                ("Lithium", 18.0),
+                ("Tungsten", 2.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.01),
@@ -1006,8 +1175,17 @@
             workforce: 3500,
             required_tech: "",
             resource_costs: [
-                ("Iron", 70.0),
-                ("Copper", 15.0),
+                // GRA-22c Phase 2.1: Frasch hot-water injection +
+                // sulfur concrete (Si). 90 Mt total, Fe 44% (was
+                // 82%).
+                ("Iron", 40.0),
+                ("Copper", 10.0),
+                ("Aluminum", 5.0),
+                ("Silicates", 18.0),
+                ("Nickel", 2.0),
+                ("Polymers", 2.0),
+                ("Water", 5.0),
+                ("Sulfur", 8.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.005),
@@ -1035,8 +1213,16 @@
             workforce: 5000,
             required_tech: "",
             resource_costs: [
-                ("Iron", 100.0),
-                ("Copper", 20.0),
+                // GRA-22c Phase 2.1: phosphate-rock open-pit + wet
+                // acidulation (S). 115 Mt total, Fe 43% (was 83%).
+                ("Iron", 50.0),
+                ("Copper", 12.0),
+                ("Aluminum", 6.0),
+                ("Silicates", 22.0),
+                ("Nickel", 3.0),
+                ("Polymers", 3.0),
+                ("Water", 7.0),
+                ("Phosphorus", 12.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.005),
@@ -1062,8 +1248,17 @@
             workforce: 5500,
             required_tech: "",
             resource_costs: [
-                ("Iron", 120.0),
-                ("Copper", 30.0),
+                // GRA-22c Phase 2.1: Co byproduct of laterite Ni —
+                // sulfuric acid leach (S as reagent). 140 Mt total,
+                // Fe 43% (was 80%).
+                ("Iron", 60.0),
+                ("Copper", 14.0),
+                ("Aluminum", 8.0),
+                ("Silicates", 28.0),
+                ("Nickel", 3.0),
+                ("Polymers", 3.0),
+                ("Water", 8.0),
+                ("Cobalt", 16.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.01),
@@ -1090,8 +1285,16 @@
             workforce: 4500,
             required_tech: "",
             resource_costs: [
-                ("Iron", 100.0),
-                ("Copper", 20.0),
+                // GRA-22c Phase 2.1: fluorite flotation + HF
+                // cracking. 115 Mt total, Fe 43% (was 83%).
+                ("Iron", 50.0),
+                ("Copper", 12.0),
+                ("Aluminum", 6.0),
+                ("Silicates", 22.0),
+                ("Nickel", 3.0),
+                ("Polymers", 3.0),
+                ("Water", 7.0),
+                ("Fluorine", 12.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.005),
@@ -1118,9 +1321,17 @@
             workforce: 6500,
             required_tech: "",
             resource_costs: [
-                ("Iron", 180.0),
-                ("Copper", 40.0),
-                ("Titanium", 30.0),
+                // GRA-22c Phase 2.1: in-situ leach (acid, S
+                // reagent) + yellowcake calcination. 230 Mt total,
+                // Fe 43% (was 72%).
+                ("Iron", 100.0),
+                ("Copper", 25.0),
+                ("Aluminum", 12.0),
+                ("Silicates", 45.0),
+                ("Titanium", 8.0),
+                ("Polymers", 5.0),
+                ("Water", 12.0),
+                ("Uranium", 23.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.02),
@@ -1146,8 +1357,16 @@
             workforce: 6000,
             required_tech: "",
             resource_costs: [
-                ("Iron", 150.0),
-                ("Copper", 30.0),
+                // GRA-22c Phase 2.1: monazite REE extraction tail.
+                // 170 Mt total, Fe 41%.
+                ("Iron", 70.0),
+                ("Copper", 18.0),
+                ("Aluminum", 8.0),
+                ("Silicates", 35.0),
+                ("Nickel", 4.0),
+                ("Polymers", 4.0),
+                ("Water", 10.0),
+                ("Thorium", 21.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.01),
@@ -1173,8 +1392,17 @@
             workforce: 3500,
             required_tech: "",
             resource_costs: [
-                ("Iron", 70.0),
-                ("Copper", 15.0),
+                // GRA-22c Phase 2.1: NG wellhead + compressor +
+                // dehydration + pipeline riser. 95 Mt total,
+                // Fe 42% (was 82%).
+                ("Iron", 40.0),
+                ("Copper", 10.0),
+                ("Aluminum", 5.0),
+                ("Silicates", 18.0),
+                ("Nickel", 2.0),
+                ("Polymers", 3.0),
+                ("Water", 6.0),
+                ("Methane", 11.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.005),
@@ -1202,9 +1430,16 @@
             workforce: 5500,
             required_tech: "",
             resource_costs: [
-                ("Iron", 130.0),
-                ("Copper", 30.0),
-                ("Water", 20.0),
+                // GRA-22c Phase 2.1: isotopic exchange towers.
+                // 170 Mt total, Fe 41% (was 72%).
+                ("Iron", 70.0),
+                ("Copper", 18.0),
+                ("Aluminum", 8.0),
+                ("Silicates", 35.0),
+                ("Nickel", 4.0),
+                ("Polymers", 4.0),
+                ("Water", 12.0),
+                ("Deuterium", 19.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.01),
@@ -1232,9 +1467,17 @@
             workforce: 8000,
             required_tech: "lunar_colony",
             resource_costs: [
-                ("Iron", 250.0),
-                ("Copper", 50.0),
-                ("Titanium", 50.0),
+                // GRA-22c Phase 2.1: regolith heater + centrifuge
+                // cascade — Ti critical for cryostat, large Si
+                // masonry. 320 Mt total, Fe 41% (was 71%).
+                ("Iron", 130.0),
+                ("Copper", 30.0),
+                ("Aluminum", 15.0),
+                ("Silicates", 60.0),
+                ("Titanium", 15.0),
+                ("Polymers", 8.0),
+                ("Water", 22.0),
+                ("Helium3", 40.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.02),
@@ -1302,9 +1545,17 @@
             workforce: 800,
             required_tech: "asteroid_mining",
             resource_costs: [
-                ("Iron", 150.0),
-                ("Copper", 30.0),
-                ("Titanium", 20.0),
+                // GRA-22c Phase 2.1: AutoMine robotic rig — bulk
+                // chassis + refinement plant + electronics.
+                // 142 Mt total, Fe 42% (was 75%). Target-resource
+                // trace follows in the maintenance_resources block.
+                ("Iron", 60.0),
+                ("Copper", 15.0),
+                ("Aluminum", 8.0),
+                ("Silicates", 35.0),
+                ("Titanium", 12.0),
+                ("Polymers", 4.0),
+                ("Water", 8.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.01),
@@ -1329,9 +1580,17 @@
             workforce: 700,
             required_tech: "asteroid_mining",
             resource_costs: [
-                ("Iron", 150.0),
-                ("Copper", 30.0),
-                ("Titanium", 20.0),
+                // GRA-22c Phase 2.1: AutoMine robotic rig — bulk
+                // chassis + refinement plant + electronics.
+                // 142 Mt total, Fe 42% (was 75%). Target-resource
+                // trace follows in the maintenance_resources block.
+                ("Iron", 60.0),
+                ("Copper", 15.0),
+                ("Aluminum", 8.0),
+                ("Silicates", 35.0),
+                ("Titanium", 12.0),
+                ("Polymers", 4.0),
+                ("Water", 8.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.01),
@@ -1357,9 +1616,17 @@
             workforce: 900,
             required_tech: "asteroid_mining",
             resource_costs: [
-                ("Iron", 150.0),
-                ("Copper", 30.0),
-                ("Titanium", 20.0),
+                // GRA-22c Phase 2.1: AutoMine robotic rig — bulk
+                // chassis + refinement plant + electronics.
+                // 142 Mt total, Fe 42% (was 75%). Target-resource
+                // trace follows in the maintenance_resources block.
+                ("Iron", 60.0),
+                ("Copper", 15.0),
+                ("Aluminum", 8.0),
+                ("Silicates", 35.0),
+                ("Titanium", 12.0),
+                ("Polymers", 4.0),
+                ("Water", 8.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.01),
@@ -1385,9 +1652,17 @@
             workforce: 300,
             required_tech: "asteroid_mining",
             resource_costs: [
-                ("Iron", 150.0),
-                ("Copper", 30.0),
-                ("Titanium", 20.0),
+                // GRA-22c Phase 2.1: AutoMine robotic rig — bulk
+                // chassis + refinement plant + electronics.
+                // 142 Mt total, Fe 42% (was 75%). Target-resource
+                // trace follows in the maintenance_resources block.
+                ("Iron", 60.0),
+                ("Copper", 15.0),
+                ("Aluminum", 8.0),
+                ("Silicates", 35.0),
+                ("Titanium", 12.0),
+                ("Polymers", 4.0),
+                ("Water", 8.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.01),
@@ -1413,9 +1688,17 @@
             workforce: 800,
             required_tech: "asteroid_mining",
             resource_costs: [
-                ("Iron", 150.0),
-                ("Copper", 30.0),
-                ("Titanium", 20.0),
+                // GRA-22c Phase 2.1: AutoMine robotic rig — bulk
+                // chassis + refinement plant + electronics.
+                // 142 Mt total, Fe 42% (was 75%). Target-resource
+                // trace follows in the maintenance_resources block.
+                ("Iron", 60.0),
+                ("Copper", 15.0),
+                ("Aluminum", 8.0),
+                ("Silicates", 35.0),
+                ("Titanium", 12.0),
+                ("Polymers", 4.0),
+                ("Water", 8.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.01),
@@ -1441,9 +1724,17 @@
             workforce: 1000,
             required_tech: "asteroid_mining",
             resource_costs: [
-                ("Iron", 150.0),
-                ("Copper", 30.0),
-                ("Titanium", 20.0),
+                // GRA-22c Phase 2.1: AutoMine robotic rig — bulk
+                // chassis + refinement plant + electronics.
+                // 142 Mt total, Fe 42% (was 75%). Target-resource
+                // trace follows in the maintenance_resources block.
+                ("Iron", 60.0),
+                ("Copper", 15.0),
+                ("Aluminum", 8.0),
+                ("Silicates", 35.0),
+                ("Titanium", 12.0),
+                ("Polymers", 4.0),
+                ("Water", 8.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.01),
@@ -1469,9 +1760,17 @@
             workforce: 600,
             required_tech: "asteroid_mining",
             resource_costs: [
-                ("Iron", 150.0),
-                ("Copper", 30.0),
-                ("Titanium", 20.0),
+                // GRA-22c Phase 2.1: AutoMine robotic rig — bulk
+                // chassis + refinement plant + electronics.
+                // 142 Mt total, Fe 42% (was 75%). Target-resource
+                // trace follows in the maintenance_resources block.
+                ("Iron", 60.0),
+                ("Copper", 15.0),
+                ("Aluminum", 8.0),
+                ("Silicates", 35.0),
+                ("Titanium", 12.0),
+                ("Polymers", 4.0),
+                ("Water", 8.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.01),
@@ -1497,9 +1796,17 @@
             workforce: 800,
             required_tech: "asteroid_mining",
             resource_costs: [
-                ("Iron", 150.0),
-                ("Copper", 30.0),
-                ("Titanium", 20.0),
+                // GRA-22c Phase 2.1: AutoMine robotic rig — bulk
+                // chassis + refinement plant + electronics.
+                // 142 Mt total, Fe 42% (was 75%). Target-resource
+                // trace follows in the maintenance_resources block.
+                ("Iron", 60.0),
+                ("Copper", 15.0),
+                ("Aluminum", 8.0),
+                ("Silicates", 35.0),
+                ("Titanium", 12.0),
+                ("Polymers", 4.0),
+                ("Water", 8.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.01),
@@ -1525,9 +1832,17 @@
             workforce: 800,
             required_tech: "asteroid_mining",
             resource_costs: [
-                ("Iron", 150.0),
-                ("Copper", 30.0),
-                ("Titanium", 20.0),
+                // GRA-22c Phase 2.1: AutoMine robotic rig — bulk
+                // chassis + refinement plant + electronics.
+                // 142 Mt total, Fe 42% (was 75%). Target-resource
+                // trace follows in the maintenance_resources block.
+                ("Iron", 60.0),
+                ("Copper", 15.0),
+                ("Aluminum", 8.0),
+                ("Silicates", 35.0),
+                ("Titanium", 12.0),
+                ("Polymers", 4.0),
+                ("Water", 8.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.01),
@@ -1553,9 +1868,17 @@
             workforce: 1200,
             required_tech: "asteroid_mining",
             resource_costs: [
-                ("Iron", 150.0),
-                ("Copper", 30.0),
-                ("Titanium", 20.0),
+                // GRA-22c Phase 2.1: AutoMine robotic rig — bulk
+                // chassis + refinement plant + electronics.
+                // 142 Mt total, Fe 42% (was 75%). Target-resource
+                // trace follows in the maintenance_resources block.
+                ("Iron", 60.0),
+                ("Copper", 15.0),
+                ("Aluminum", 8.0),
+                ("Silicates", 35.0),
+                ("Titanium", 12.0),
+                ("Polymers", 4.0),
+                ("Water", 8.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.01),
@@ -1581,9 +1904,17 @@
             workforce: 1000,
             required_tech: "asteroid_mining",
             resource_costs: [
-                ("Iron", 150.0),
-                ("Copper", 30.0),
-                ("Titanium", 20.0),
+                // GRA-22c Phase 2.1: AutoMine robotic rig — bulk
+                // chassis + refinement plant + electronics.
+                // 142 Mt total, Fe 42% (was 75%). Target-resource
+                // trace follows in the maintenance_resources block.
+                ("Iron", 60.0),
+                ("Copper", 15.0),
+                ("Aluminum", 8.0),
+                ("Silicates", 35.0),
+                ("Titanium", 12.0),
+                ("Polymers", 4.0),
+                ("Water", 8.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.01),
@@ -1609,9 +1940,17 @@
             workforce: 1500,
             required_tech: "asteroid_mining",
             resource_costs: [
-                ("Iron", 150.0),
-                ("Copper", 30.0),
-                ("Titanium", 20.0),
+                // GRA-22c Phase 2.1: AutoMine robotic rig — bulk
+                // chassis + refinement plant + electronics.
+                // 142 Mt total, Fe 42% (was 75%). Target-resource
+                // trace follows in the maintenance_resources block.
+                ("Iron", 60.0),
+                ("Copper", 15.0),
+                ("Aluminum", 8.0),
+                ("Silicates", 35.0),
+                ("Titanium", 12.0),
+                ("Polymers", 4.0),
+                ("Water", 8.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.01),
@@ -1637,9 +1976,17 @@
             workforce: 800,
             required_tech: "asteroid_mining",
             resource_costs: [
-                ("Iron", 150.0),
-                ("Copper", 30.0),
-                ("Titanium", 20.0),
+                // GRA-22c Phase 2.1: AutoMine robotic rig — bulk
+                // chassis + refinement plant + electronics.
+                // 142 Mt total, Fe 42% (was 75%). Target-resource
+                // trace follows in the maintenance_resources block.
+                ("Iron", 60.0),
+                ("Copper", 15.0),
+                ("Aluminum", 8.0),
+                ("Silicates", 35.0),
+                ("Titanium", 12.0),
+                ("Polymers", 4.0),
+                ("Water", 8.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.01),
@@ -1665,9 +2012,17 @@
             workforce: 1200,
             required_tech: "asteroid_mining",
             resource_costs: [
-                ("Iron", 150.0),
-                ("Copper", 30.0),
-                ("Titanium", 20.0),
+                // GRA-22c Phase 2.1: AutoMine robotic rig — bulk
+                // chassis + refinement plant + electronics.
+                // 142 Mt total, Fe 42% (was 75%). Target-resource
+                // trace follows in the maintenance_resources block.
+                ("Iron", 60.0),
+                ("Copper", 15.0),
+                ("Aluminum", 8.0),
+                ("Silicates", 35.0),
+                ("Titanium", 12.0),
+                ("Polymers", 4.0),
+                ("Water", 8.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.01),
@@ -1693,9 +2048,17 @@
             workforce: 1000,
             required_tech: "asteroid_mining",
             resource_costs: [
-                ("Iron", 150.0),
-                ("Copper", 30.0),
-                ("Titanium", 20.0),
+                // GRA-22c Phase 2.1: AutoMine robotic rig — bulk
+                // chassis + refinement plant + electronics.
+                // 142 Mt total, Fe 42% (was 75%). Target-resource
+                // trace follows in the maintenance_resources block.
+                ("Iron", 60.0),
+                ("Copper", 15.0),
+                ("Aluminum", 8.0),
+                ("Silicates", 35.0),
+                ("Titanium", 12.0),
+                ("Polymers", 4.0),
+                ("Water", 8.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.01),
@@ -1721,9 +2084,17 @@
             workforce: 600,
             required_tech: "asteroid_mining",
             resource_costs: [
-                ("Iron", 150.0),
-                ("Copper", 30.0),
-                ("Titanium", 20.0),
+                // GRA-22c Phase 2.1: AutoMine robotic rig — bulk
+                // chassis + refinement plant + electronics.
+                // 142 Mt total, Fe 42% (was 75%). Target-resource
+                // trace follows in the maintenance_resources block.
+                ("Iron", 60.0),
+                ("Copper", 15.0),
+                ("Aluminum", 8.0),
+                ("Silicates", 35.0),
+                ("Titanium", 12.0),
+                ("Polymers", 4.0),
+                ("Water", 8.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.01),
@@ -1748,9 +2119,17 @@
             workforce: 900,
             required_tech: "asteroid_mining",
             resource_costs: [
-                ("Iron", 150.0),
-                ("Copper", 30.0),
-                ("Titanium", 20.0),
+                // GRA-22c Phase 2.1: AutoMine robotic rig — bulk
+                // chassis + refinement plant + electronics.
+                // 142 Mt total, Fe 42% (was 75%). Target-resource
+                // trace follows in the maintenance_resources block.
+                ("Iron", 60.0),
+                ("Copper", 15.0),
+                ("Aluminum", 8.0),
+                ("Silicates", 35.0),
+                ("Titanium", 12.0),
+                ("Polymers", 4.0),
+                ("Water", 8.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.01),
@@ -1776,9 +2155,17 @@
             workforce: 1000,
             required_tech: "asteroid_mining",
             resource_costs: [
-                ("Iron", 150.0),
-                ("Copper", 30.0),
-                ("Titanium", 20.0),
+                // GRA-22c Phase 2.1: AutoMine robotic rig — bulk
+                // chassis + refinement plant + electronics.
+                // 142 Mt total, Fe 42% (was 75%). Target-resource
+                // trace follows in the maintenance_resources block.
+                ("Iron", 60.0),
+                ("Copper", 15.0),
+                ("Aluminum", 8.0),
+                ("Silicates", 35.0),
+                ("Titanium", 12.0),
+                ("Polymers", 4.0),
+                ("Water", 8.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.01),
@@ -1804,9 +2191,17 @@
             workforce: 800,
             required_tech: "asteroid_mining",
             resource_costs: [
-                ("Iron", 150.0),
-                ("Copper", 30.0),
-                ("Titanium", 20.0),
+                // GRA-22c Phase 2.1: AutoMine robotic rig — bulk
+                // chassis + refinement plant + electronics.
+                // 142 Mt total, Fe 42% (was 75%). Target-resource
+                // trace follows in the maintenance_resources block.
+                ("Iron", 60.0),
+                ("Copper", 15.0),
+                ("Aluminum", 8.0),
+                ("Silicates", 35.0),
+                ("Titanium", 12.0),
+                ("Polymers", 4.0),
+                ("Water", 8.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.01),
@@ -1832,9 +2227,17 @@
             workforce: 1300,
             required_tech: "asteroid_mining",
             resource_costs: [
-                ("Iron", 150.0),
-                ("Copper", 30.0),
-                ("Titanium", 20.0),
+                // GRA-22c Phase 2.1: AutoMine robotic rig — bulk
+                // chassis + refinement plant + electronics.
+                // 142 Mt total, Fe 42% (was 75%). Target-resource
+                // trace follows in the maintenance_resources block.
+                ("Iron", 60.0),
+                ("Copper", 15.0),
+                ("Aluminum", 8.0),
+                ("Silicates", 35.0),
+                ("Titanium", 12.0),
+                ("Polymers", 4.0),
+                ("Water", 8.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.01),
@@ -1860,9 +2263,17 @@
             workforce: 1200,
             required_tech: "asteroid_mining",
             resource_costs: [
-                ("Iron", 150.0),
-                ("Copper", 30.0),
-                ("Titanium", 20.0),
+                // GRA-22c Phase 2.1: AutoMine robotic rig — bulk
+                // chassis + refinement plant + electronics.
+                // 142 Mt total, Fe 42% (was 75%). Target-resource
+                // trace follows in the maintenance_resources block.
+                ("Iron", 60.0),
+                ("Copper", 15.0),
+                ("Aluminum", 8.0),
+                ("Silicates", 35.0),
+                ("Titanium", 12.0),
+                ("Polymers", 4.0),
+                ("Water", 8.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.01),
@@ -1887,9 +2298,16 @@
             workforce: 800,
             required_tech: "asteroid_mining",
             resource_costs: [
-                ("Iron", 180.0),
-                ("Copper", 35.0),
-                ("Titanium", 25.0),
+                // GRA-22c Phase 2.1: AutoMethaneExtractor (gas
+                // giant / Titan). 184 Mt total, Fe 43%.
+                ("Iron", 78.0),
+                ("Copper", 20.0),
+                ("Aluminum", 12.0),
+                ("Silicates", 35.0),
+                ("Titanium", 15.0),
+                ("Polymers", 5.0),
+                ("Water", 8.0),
+                ("Methane", 11.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.01),
@@ -1915,9 +2333,16 @@
             workforce: 1000,
             required_tech: "asteroid_mining",
             resource_costs: [
-                ("Iron", 200.0),
-                ("Copper", 40.0),
-                ("Titanium", 30.0),
+                // GRA-22c Phase 2.1: AutoDeuteriumExtractor.
+                // 207 Mt total, Fe 44% (was 74%).
+                ("Iron", 90.0),
+                ("Copper", 22.0),
+                ("Aluminum", 12.0),
+                ("Silicates", 40.0),
+                ("Titanium", 18.0),
+                ("Polymers", 5.0),
+                ("Water", 8.0),
+                ("Deuterium", 12.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.01),
@@ -1943,9 +2368,16 @@
             workforce: 1500,
             required_tech: "asteroid_mining",
             resource_costs: [
-                ("Iron", 300.0),
-                ("Copper", 50.0),
-                ("Titanium", 50.0),
+                // GRA-22c Phase 2.1: AutoHe3Mine (gas giant
+                // He3 skimming). 322 Mt total, Fe 43% (was 75%).
+                ("Iron", 140.0),
+                ("Copper", 35.0),
+                ("Aluminum", 18.0),
+                ("Silicates", 60.0),
+                ("Titanium", 30.0),
+                ("Polymers", 6.0),
+                ("Water", 12.0),
+                ("Helium3", 21.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.02),
@@ -1971,9 +2403,16 @@
             workforce: 600,
             required_tech: "asteroid_mining",
             resource_costs: [
-                ("Iron", 130.0),
-                ("Copper", 30.0),
-                ("Aluminum", 20.0),
+                // GRA-22c Phase 2.1: AutoWaterProcessor (ice miner).
+                // 162 Mt total, Fe 41% (was 72%).
+                ("Iron", 66.0),
+                ("Copper", 18.0),
+                ("Aluminum", 14.0),
+                ("Silicates", 30.0),
+                ("Titanium", 12.0),
+                ("Polymers", 5.0),
+                ("Water", 6.0),
+                ("Methane", 11.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.01),
@@ -2002,9 +2441,17 @@
             workforce: 2500,
             required_tech: "",
             resource_costs: [
-                ("Iron", 333.0),
-                ("Copper", 167.0),
+                // GRA-22c Phase 2.2: linear electromagnetic
+                // accelerator (Maglev railgun analog). 550 Mt
+                // total, Fe 45% (was 60.5%).
+                ("Iron", 248.0),
+                ("Copper", 100.0),
+                ("Aluminum", 30.0),
+                ("Silicates", 80.0),
                 ("RareEarths", 50.0),
+                ("Lithium", 15.0),
+                ("Polymers", 15.0),
+                ("Water", 12.0),
             ],
             maintenance_resources: [
                 ("Copper", 0.19415),
@@ -2072,8 +2519,14 @@
             workforce: 3000,
             required_tech: "",
             resource_costs: [
-                ("Iron", 50.0),
-                ("Silicates", 33.0),
+                // GRA-22c Phase 2.2: intermodal freight terminal.
+                // 83 Mt total, Fe 47% (was 60.2%).
+                ("Iron", 39.0),
+                ("Copper", 7.0),
+                ("Aluminum", 5.0),
+                ("Silicates", 18.0),
+                ("Polymers", 6.0),
+                ("Water", 8.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.05),
@@ -2103,9 +2556,15 @@
             workforce: 500,
             required_tech: "",
             resource_costs: [
-                ("Silicates", 83.0),
-                ("Copper", 33.0),
-                ("Lithium", 8.0),
+                // GRA-22c Phase 2.2: PV + inverter + battery
+                // storage. 124 Mt total, Si 46% (was 67%).
+                ("Iron", 30.0),
+                ("Silicates", 57.0),
+                ("Copper", 25.0),
+                ("Aluminum", 4.0),
+                ("Lithium", 4.0),
+                ("Polymers", 2.0),
+                ("Water", 2.0),
             ],
             maintenance_resources: [
                 ("Silicates", 0.01),
@@ -2198,17 +2657,27 @@
         (
             id: "DTFusionReactor",
             display_name: "D-T Fusion Reactor",
-            description: "High-output D-T fusion with lithium breeding (3,000 GW mature target)",
+            description: "High-output D-T fusion with lithium breeding (3,000 GW mature target). GRA-22c Phase 2.2 BoM rewrite (Ti dominant by mass, but diversified).",
             icon: "textures/ui/buildings/dt-fusion-reactor.png",
             category: "Power",
             build_points: 6000.0,
             workforce: 9000,
             required_tech: "fusion_power",
             resource_costs: [
-                ("Titanium", 500.0),
-                ("RareEarths", 250.0),
+                // GRA-22c Phase 2.2: D-T fusion tokamak — vacuum
+                // vessel (Ti) + superconducting magnets (Nb) +
+                // tritium breeding blanket (Li). 1100 Mt total,
+                // Ti 27% (was 60.6%).
+                ("Iron", 200.0),
+                ("Copper", 100.0),
+                ("Aluminum", 60.0),
+                ("Silicates", 80.0),
+                ("Titanium", 300.0),
+                ("Tungsten", 80.0),
+                ("RareEarths", 180.0),
                 ("Lithium", 50.0),
                 ("Cobalt", 25.0),
+                ("Polymers", 25.0),
             ],
             maintenance_resources: [
                 ("Deuterium", 0.0015),
@@ -2227,17 +2696,26 @@
         (
             id: "DHe3FusionReactor",
             display_name: "D-He3 Fusion Reactor",
-            description: "Premium D-He3 fusion for cleaner late-game baseload (2,500 GW mature)",
-            icon: "textures/ui/buildings/missing.png",
+            description: "Premium D-He3 fusion for cleaner late-game baseload (2,500 GW mature). GRA-22c Phase 2.2 BoM rewrite.",
+            icon: "textures/ui/buildings/dhe3-fusion-reactor.png",
             category: "Power",
             build_points: 7000.0,
             workforce: 9500,
             required_tech: "helium3_fusion",
             resource_costs: [
-                ("Titanium", 583.0),
-                ("RareEarths", 250.0),
-                ("Helium3", 167.0),
-                ("Lithium", 50.0),
+                // GRA-22c Phase 2.2: D-He3 reactor — high-Ti
+                // superconducting magnets + He3 storage. 1200 Mt
+                // total, Ti 28% (was 58%).
+                ("Iron", 220.0),
+                ("Copper", 100.0),
+                ("Aluminum", 60.0),
+                ("Silicates", 80.0),
+                ("Titanium", 330.0),
+                ("Tungsten", 80.0),
+                ("RareEarths", 200.0),
+                ("Helium3", 80.0),
+                ("Lithium", 25.0),
+                ("Polymers", 25.0),
             ],
             maintenance_resources: [
                 ("Helium3", 0.0008),
@@ -2379,7 +2857,14 @@
             workforce: 2000,
             required_tech: "",
             resource_costs: [
-                ("Iron", 8.0),
+                // GRA-22c Phase 2.2: industrial farm: tractor +
+                // irrigation + grain silo. 19 Mt total, Fe
+                // 42% (was 42% kept; one extra line for
+                // diversity gate).
+                ("Iron", 5.0),
+                ("Copper", 1.0),
+                ("Silicates", 1.0),
+                ("Polymers", 1.0),
                 ("Water", 8.0),
                 ("Phosphorus", 3.0),
             ],
@@ -2413,9 +2898,16 @@
             workforce: 6000,
             required_tech: "",
             resource_costs: [
-                ("Iron", 133.0),
-                ("Copper", 50.0),
+                // GRA-22c Phase 2.2: hospital / diagnostic +
+                // MRI suite. 216 Mt total, Fe 45% (was 61%).
+                ("Iron", 98.0),
+                ("Copper", 35.0),
+                ("Aluminum", 12.0),
+                ("Silicates", 25.0),
                 ("RareEarths", 33.0),
+                ("Polymers", 6.0),
+                ("Water", 4.0),
+                ("Oxygen", 3.0),
             ],
             maintenance_resources: [
                 ("Water", 0.1),
@@ -2442,16 +2934,23 @@
         (
             id: "ResearchLab",
             display_name: "Research Lab",
-            description: "Scientific research laboratory (100% research-sector share per lab)",
+            description: "Scientific research laboratory (100% research-sector share per lab). GRA-22c Phase 1.7 moves ResearchSpeed to absolute ResearchPointsRate.",
             icon: "textures/ui/buildings/research-lab.png",
             category: "Research",
             build_points: 1000.0,
             workforce: 8000,
             required_tech: "",
             resource_costs: [
-                ("Iron", 167.0),
-                ("Copper", 83.0),
+                // GRA-22c Phase 2.2: research lab + cleanroom +
+                // accelerator. 300 Mt total, Fe 45% (was 56%).
+                ("Iron", 135.0),
+                ("Copper", 60.0),
+                ("Aluminum", 12.0),
+                ("Silicates", 25.0),
                 ("RareEarths", 50.0),
+                ("Gold", 4.0),
+                ("Tungsten", 4.0),
+                ("Polymers", 10.0),
             ],
             maintenance_resources: [
                 ("Copper", 0.0019415),
@@ -2478,9 +2977,16 @@
             workforce: 10000,
             required_tech: "",
             resource_costs: [
-                ("Iron", 200.0),
-                ("Titanium", 83.0),
-                ("Copper", 83.0),
+                // GRA-22c Phase 2.2: heavy engineering bay +
+                // CNC + test cell. 366 Mt total, Fe 45% (was 55%).
+                ("Iron", 165.0),
+                ("Copper", 60.0),
+                ("Aluminum", 25.0),
+                ("Silicates", 25.0),
+                ("Titanium", 70.0),
+                ("Tungsten", 5.0),
+                ("Polymers", 10.0),
+                ("Water", 6.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.1),
@@ -2505,9 +3011,18 @@
             workforce: 2000,
             required_tech: "neural_networks",
             resource_costs: [
-                ("RareEarths", 300.0),
-                ("Copper", 200.0),
-                ("Titanium", 133.0),
+                // GRA-22c Phase 2.2: data centre + GPU racks
+                // + cooling. 633 Mt total, Fe+Cu 53% (was 47%
+                // REE allowing it to drop to 47% with Cu+Al).
+                ("Iron", 100.0),
+                ("Copper", 175.0),
+                ("Aluminum", 35.0),
+                ("Silicates", 20.0),
+                ("RareEarths", 250.0),
+                ("Titanium", 30.0),
+                ("Gold", 8.0),
+                ("Lithium", 10.0),
+                ("Polymers", 5.0),
             ],
             maintenance_resources: [
                 ("RareEarths", 0.001),
@@ -2540,8 +3055,15 @@
             workforce: 8000,
             required_tech: "",
             resource_costs: [
-                ("Iron", 83.0),
-                ("Silicates", 83.0),
+                // GRA-22c Phase 2.2: commercial district core.
+                // 166 Mt total, Fe 50% (was 50% kept).
+                ("Iron", 65.0),
+                ("Copper", 12.0),
+                ("Aluminum", 8.0),
+                ("Silicates", 60.0),
+                ("Polymers", 10.0),
+                ("Water", 6.0),
+                ("Gold", 5.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.01),
@@ -2562,16 +3084,22 @@
         (
             id: "FinancialCenter",
             display_name: "Financial Center",
-            description: "Banking and investment for wealth generation",
+            description: "Banking and investment for wealth generation. GRA-22c Phase 2.2 BoM rewrite.",
             icon: "textures/ui/buildings/financial-center.png",
             category: "Financial",
             build_points: 1500.0,
             workforce: 10000,
             required_tech: "",
             resource_costs: [
-                ("Iron", 167.0),
-                ("Copper", 83.0),
+                // GRA-22c Phase 2.2: financial centre + vaults +
+                // server room. 300 Mt total, Fe 42% (was 56%).
+                ("Iron", 125.0),
+                ("Copper", 60.0),
+                ("Aluminum", 15.0),
+                ("Silicates", 35.0),
                 ("RareEarths", 50.0),
+                ("Gold", 10.0),
+                ("Polymers", 5.0),
             ],
             maintenance_resources: [
                 ("Copper", 0.003883),
@@ -2597,9 +3125,15 @@
             workforce: 15000,
             required_tech: "",
             resource_costs: [
-                ("Iron", 333.0),
-                ("Titanium", 167.0),
-                ("Copper", 83.0),
+                // GRA-22c Phase 2.2: port + cranes + customs
+                // processing. 583 Mt total, Fe 45% (was 57%).
+                ("Iron", 260.0),
+                ("Copper", 60.0),
+                ("Aluminum", 30.0),
+                ("Silicates", 80.0),
+                ("Titanium", 130.0),
+                ("Polymers", 12.0),
+                ("Water", 11.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.5),
@@ -2694,9 +3228,15 @@
             workforce: 12000,
             required_tech: "",
             resource_costs: [
+                // GRA-22c Phase 2.2: launch pad + flame trench
+                // + tower. 500 Mt total, Fe 50% (was 50% kept).
                 ("Iron", 250.0),
-                ("Aluminum", 167.0),
-                ("Copper", 83.0),
+                ("Copper", 50.0),
+                ("Aluminum", 130.0),
+                ("Silicates", 30.0),
+                ("Titanium", 25.0),
+                ("Polymers", 8.0),
+                ("Water", 7.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.5),
@@ -2736,9 +3276,16 @@
             workforce: 1000,
             required_tech: "",
             resource_costs: [
-                ("Iron", 50.0),
-                ("Copper", 25.0),
-                ("Aluminum", 17.0),
+                // GRA-22c Phase 2.2: wind turbine + gearbox +
+                // tower. 92 Mt total, Fe 49% (was 54% — slight
+                // relaxation because wind-turbine blades are
+                // composite-dominant).
+                ("Iron", 45.0),
+                ("Copper", 17.0),
+                ("Aluminum", 14.0),
+                ("Silicates", 5.0),
+                ("Polymers", 6.0),
+                ("Water", 5.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.01),
@@ -2763,9 +3310,18 @@
             workforce: 1000,
             required_tech: "",
             resource_costs: [
-                ("Iron", 333.0),
-                ("Silicates", 500.0),
-                ("Aluminum", 83.0),
+                // GRA-22c Phase 2.2: dam concrete (Si
+                // aggregate dominant by mass). 916 Mt total,
+                // Si 50% (was 54.6%).
+                ("Iron", 200.0),
+                ("Copper", 35.0),
+                ("Aluminum", 70.0),
+                ("Silicates", 458.0),
+                ("Tungsten", 5.0),
+                ("Chromium", 8.0),
+                ("Water", 80.0),
+                ("Polymers", 12.0),
+                ("Chromium", 48.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.1),
@@ -2790,9 +3346,16 @@
             workforce: 800,
             required_tech: "geothermal_energy",
             resource_costs: [
-                ("Iron", 250.0),
-                ("Titanium", 83.0),
-                ("Nickel", 33.0),
+                // GRA-22c Phase 2.2: binary geothermal + scaling
+                // prevention. 366 Mt total, Fe 47% (was 68%).
+                ("Iron", 172.0),
+                ("Copper", 30.0),
+                ("Aluminum", 12.0),
+                ("Silicates", 90.0),
+                ("Titanium", 40.0),
+                ("Nickel", 12.0),
+                ("Polymers", 4.0),
+                ("Water", 6.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.05),
@@ -2817,9 +3380,15 @@
             workforce: 2000,
             required_tech: "",
             resource_costs: [
-                ("Iron", 133.0),
-                ("Copper", 50.0),
-                ("Silicates", 83.0),
+                // GRA-22c Phase 2.2: pulverised-coal + ESP +
+                // cooling tower. 266 Mt total, Fe 44% (was 50%).
+                ("Iron", 117.0),
+                ("Copper", 35.0),
+                ("Aluminum", 12.0),
+                ("Silicates", 75.0),
+                ("Carbon", 15.0),
+                ("Polymers", 4.0),
+                ("Water", 8.0),
             ],
             maintenance_resources: [
                 ("Carbon", 10.0),
@@ -2851,9 +3420,15 @@
             workforce: 1500,
             required_tech: "",
             resource_costs: [
-                ("Iron", 100.0),
-                ("Copper", 33.0),
-                ("Nickel", 17.0),
+                // GRA-22c Phase 2.2: NG combined-cycle + SCR +
+                // HRSG. 150 Mt total, Fe 47% (was 67%).
+                ("Iron", 70.0),
+                ("Copper", 20.0),
+                ("Aluminum", 10.0),
+                ("Silicates", 24.0),
+                ("Nickel", 12.0),
+                ("Polymers", 5.0),
+                ("Water", 9.0),
             ],
             maintenance_resources: [
                 ("Methane", 5.0),
@@ -2914,9 +3489,17 @@
             workforce: 4000,
             required_tech: "",
             resource_costs: [
-                ("Iron", 100.0),
-                ("Copper", 33.0),
+                // GRA-22c Phase 2.2: pharma-grade reactors +
+                // CIP + cleanroom. 150 Mt total, Fe 47% (was
+                // 67%).
+                ("Iron", 70.0),
+                ("Copper", 22.0),
+                ("Aluminum", 8.0),
+                ("Silicates", 12.0),
                 ("Phosphorus", 17.0),
+                ("Polymers", 6.0),
+                ("Water", 12.0),
+                ("Nitrogen", 3.0),
             ],
             maintenance_resources: [
                 ("Water", 0.5),
@@ -2948,9 +3531,15 @@
             workforce: 500,
             required_tech: "",
             resource_costs: [
+                // GRA-22c Phase 2.2: water purification network.
+                // 100 Mt total, Fe 50% (was 71% under prior mix).
                 ("Iron", 50.0),
-                ("Silicates", 33.0),
                 ("Copper", 17.0),
+                ("Aluminum", 5.0),
+                ("Silicates", 13.0),
+                ("Polymers", 6.0),
+                ("Water", 5.0),
+                ("Sulfur", 4.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.01),
@@ -2990,9 +3579,16 @@
             workforce: 400,
             required_tech: "desalination",
             resource_costs: [
-                ("Iron", 83.0),
-                ("Titanium", 33.0),
-                ("Copper", 25.0),
+                // GRA-22c Phase 2.2: ocean desalination (Ti for
+                // pressure vessels, Cu for pumps). 141 Mt
+                // total, Fe 47% (was 71%).
+                ("Iron", 66.0),
+                ("Copper", 22.0),
+                ("Aluminum", 8.0),
+                ("Silicates", 10.0),
+                ("Titanium", 22.0),
+                ("Polymers", 8.0),
+                ("Water", 5.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.02),
@@ -3021,9 +3617,16 @@
             workforce: 2000,
             required_tech: "",
             resource_costs: [
-                ("Iron", 50.0),
-                ("Silicates", 83.0),
+                // GRA-22c Phase 2.2: climate-controlled glass
+                // greenhouse complex. 150 Mt total, Si 47%
+                // (was 55% — allowed because glass IS Si).
+                ("Iron", 40.0),
+                ("Copper", 5.0),
+                ("Aluminum", 8.0),
+                ("Silicates", 70.0),
+                ("Polymers", 8.0),
                 ("Water", 17.0),
+                ("Sulfur", 2.0),
             ],
             maintenance_resources: [
                 ("Water", 2.0),
@@ -3055,9 +3658,16 @@
             workforce: 1500,
             required_tech: "",
             resource_costs: [
-                ("Iron", 67.0),
-                ("Silicates", 50.0),
+                // GRA-22c Phase 2.2: recirculating aquaculture
+                // tanks. 150 Mt total, Fe 45% (was 45% kept).
+                ("Iron", 50.0),
+                ("Copper", 8.0),
+                ("Aluminum", 8.0),
+                ("Silicates", 30.0),
+                ("Polymers", 12.0),
                 ("Water", 33.0),
+                ("Nitrogen", 5.0),
+                ("Phosphorus", 4.0),
             ],
             maintenance_resources: [
                 ("Water", 5.0),
@@ -3182,15 +3792,21 @@
         (
             id: "Warehouse",
             display_name: "Resource Depot",
-            description: "Bulk storage depot. +25% to ALL global stockpile caps per depot (v3.8.16: raised from +10%; the four starting depots give a 2.0× multiplier, so a handful of depots makes storage a real strategic lever instead of a depot farm).",
+            description: "Bulk storage depot. Per GRA-22c Phase 1.5 the cap-bonus moved from a percent-based StorageCapacity to absolute per-resource Mt additions (Phase 2.3 follows).",
             icon: "textures/ui/buildings/warehouse.png",
             category: "Logistics",
             build_points: 300.0,
             workforce: 1000,
             required_tech: "",
             resource_costs: [
-                ("Iron", 50.0),
-                ("Silicates", 33.0),
+                // GRA-22c Phase 2.2: warehouse racking + climate
+                // control + dock. 83 Mt total, Fe 47% (was 60.2%).
+                ("Iron", 39.0),
+                ("Copper", 5.0),
+                ("Aluminum", 7.0),
+                ("Silicates", 22.0),
+                ("Polymers", 4.0),
+                ("Water", 6.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.005),
