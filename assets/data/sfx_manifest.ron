@@ -36,7 +36,7 @@
             category: Ui,
             default_volume: 0.7,
             cooldown_ms: 50,
-            prompt: "Short futuristic UI button click. Bright, percussive, 80ms. Glass-like attack, soft tail. No reverb.",
+            prompt: "Cold metallic pushbutton click, 80ms. Brushed steel actuator — sharp mechanical snap, dry close-mic'd transients, zero reverb. Like a recessed avionics key in a vacuum-rated console.",
         ),
         (
             id: "ui.tab_switch",
@@ -44,7 +44,7 @@
             category: Ui,
             default_volume: 0.6,
             cooldown_ms: 80,
-            prompt: "Soft tab-snap click. Quick wood-block style, 120ms. Subtle, not jarring.",
+            prompt: "Industrial relay throw, 120ms. Heavy-duty latching solenoid in a sealed enclosure — clunk of a magnetic contact closing. Lower, drier, more mechanical than ui_button_click.",
         ),
         (
             id: "ui.panel_open",
@@ -52,7 +52,7 @@
             category: Ui,
             default_volume: 0.65,
             cooldown_ms: 200,
-            prompt: "Whoosh-up panel open. Short air-sweep, 280ms. Bright, sci-fi UI feel, no percussion.",
+            prompt: "Hydraulic actuator extending, 280ms. A heavy blast door cycling open — pressurised hiss bleeding into a mechanical servo lock. Mid-frequency, no whoosh, no air-sweep fantasy. Just mass and force.",
         ),
         (
             id: "ui.panel_close",
@@ -60,7 +60,7 @@
             category: Ui,
             default_volume: 0.65,
             cooldown_ms: 200,
-            prompt: "Whoosh-down panel close. Air-sweep descending, 240ms. Matches ui_panel_open character.",
+            prompt: "Hydraulic actuator retracting, 240ms. Blast door sealing shut — servo lock engaging with a definitive mechanical thud. Mirror character of ui_panel_open, faster decay.",
         ),
         (
             id: "ui.slider_tick",
@@ -68,7 +68,7 @@
             category: Ui,
             default_volume: 0.5,
             cooldown_ms: 40,
-            prompt: "Single detent tick. Very short, 60ms. Crisp wooden click like a clock second hand.",
+            prompt: "Encoder detent pulse, 60ms. A precise notched-wheel click under a metal stylus. Mechanical, mid-high, dry. Like a detented rotary encoder on a spacecraft instrument panel.",
         ),
         (
             id: "ui.dropdown_open",
@@ -76,7 +76,7 @@
             category: Ui,
             default_volume: 0.6,
             cooldown_ms: 150,
-            prompt: "Dropdown pop chirp. Mid-pitched, 140ms. Friendly, not aggressive.",
+            prompt: "Mechanical detent popup, 140ms. A hinged metal cover flipping open with a spring-loaded snap — like a flip-up guarded switch on a military radio. Mid-pitched, decisive, no chirp.",
         ),
         (
             id: "ui.row_select",
@@ -84,7 +84,7 @@
             category: Ui,
             default_volume: 0.55,
             cooldown_ms: 80,
-            prompt: "Row-select tone. Soft confirmation ping, 100ms. Mild, ambient, like a soft chord stab.",
+            prompt: "Targeting computer lock tone, 100ms. A muted two-tone metallic ping — like a weapons console acknowledging target selection. Tonal (not percussive), brief sustain, no melodic sweetness.",
         ),
         (
             id: "ui.drag_drop",
@@ -92,7 +92,7 @@
             category: Ui,
             default_volume: 0.7,
             cooldown_ms: 120,
-            prompt: "Drop-confirm thunk. Deeper than button click, 180ms. Solid, satisfying, like a magnet snap.",
+            prompt: "Magnetic coupling engagement, 180ms. A heavy industrial bolt-latch snapping into its receiver — steel shoe locking into a hard mount. Solid low-mid, satisfying weight.",
         ),
         (
             id: "ui.modal_confirm",
@@ -100,7 +100,7 @@
             category: Ui,
             default_volume: 0.75,
             cooldown_ms: 200,
-            prompt: "Confirm chime, rising pitch. Two-note ascending major-third, 320ms. Positive, clear, decisive.",
+            prompt: "Armed detonator confirmation, 320ms. Two descending tones in a tight interval — like an arming switch throwing + a solenoid latching into 'READY'. Authoritative, decisive, slightly ominous.",
         ),
         (
             id: "ui.modal_cancel",
@@ -108,7 +108,7 @@
             category: Ui,
             default_volume: 0.75,
             cooldown_ms: 200,
-            prompt: "Cancel chime, descending pitch. Two-note descending minor-second, 280ms. Neutral, soft, no harshness.",
+            prompt: "Disarm confirmation, 280ms. A muted descending two-tone, lower and softer than ui_modal_confirm. Like a safety cover snapping back over an arming switch. No musical sweetness.",
         ),
         (
             id: "ui.chip_toggle",
@@ -116,7 +116,7 @@
             category: Ui,
             default_volume: 0.55,
             cooldown_ms: 60,
-            prompt: "Filter-chip toggle. Very short bright blip, 70ms. Light, snappy, on/off symmetry.",
+            prompt: "Toggle switch throw, 70ms. A guarded micro-switch clicking on/off — military-spec toggle, dry, mid-high. Symmetric: on and off sound identical (state is conveyed visually).",
         ),
         (
             id: "ui.mode_toggle",
@@ -124,7 +124,7 @@
             category: Ui,
             default_volume: 0.7,
             cooldown_ms: 150,
-            prompt: "Mode-switch thud. Deeper confirm tone, 160ms. Distinct from button click, weightier.",
+            prompt: "Mode-selector detent, 160ms. A heavy rotary knob clicking into a new detent position — like a 4-position weapons-selector switch on a hard-mounted console.",
         ),
 
         // ── Notifications (universal chime) ────────────────────────
@@ -138,7 +138,7 @@
             category: Notifications,
             default_volume: 0.7,
             cooldown_ms: 1000,
-            prompt: "Space-y notification bell. Soft, ethereal, 600ms. Two-note chord with gentle synth pad. Futuristic, calm, not alarming. No vocals.",
+            prompt: "Comms-channel incoming alert, 600ms. A two-tone metallic ping over a low hum — like an intercom opening on a ship's bridge, or a comms officer's headset registering an incoming transmission. Not a bell, not an arpeggio — a station hailing you.",
         ),
     ],
 )

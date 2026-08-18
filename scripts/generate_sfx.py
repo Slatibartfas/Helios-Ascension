@@ -424,7 +424,7 @@ def _ffmpeg_transcode(src: Path, dst: Path, duration_s: float | None = None) -> 
 
 
 def generate_via_api(cue: dict, out_path: Path, api_key: str | None) -> None:
-    """Generate a real WAV via ElevenLabs, with local-synthesis fallback.
+    """Generate a real WAV via ElevenLabs.
 
     Flow:
       1. POST the cue's prompt + duration to ElevenLabs.
@@ -435,47 +435,42 @@ def generate_via_api(cue: dict, out_path: Path, api_key: str | None) -> None:
       4. Clean up the sidecar unless `--keep-mp3` was passed.
 
     Any failure (missing `requests`, HTTP error, ffmpeg missing,
-    transcode error) falls back to `synthesize_placeholder` so
-    the pipeline always produces a playable cue.
+    transcode error) raises — Phase 1/2 silently fell back to
+    `synthesize_placeholder`, which shipped boring sine-wave
+    WAVs under the wrong assumption they were AI-generated.
+    Callers can `try/except` and decide whether to fall back.
+    The CLI default behaviour (`main()`) is to **raise** so the
+    build fails loudly rather than shipping a synth WAV.
     """
     if not api_key:
-        sys.stderr.write(
-            "[generate_sfx] --api requires ELEVENLABS_API_KEY (or --api-key); "
-            "falling back to local synthesis.\n"
+        raise RuntimeError(
+            "--api requires ELEVENLABS_API_KEY (or --api-key); "
+            "no API key found, refusing to silently fall back to "
+            "local synthesis (would ship placeholder WAVs)."
         )
-        synthesize_placeholder(cue, out_path)
-        return
 
     region = __import__("os").environ.get("ELEVENLABS_REGION")
     prompt = cue["prompt"]
     duration_s = cue["duration_ms"] / 1000.0
 
     mp3_sidecar = out_path.with_suffix(".mp3")
-    try:
-        audio_bytes = _elevenlabs_generate(
-            prompt=prompt,
-            duration_s=duration_s,
-            api_key=api_key,
-            region=region,
-        )
-        mp3_sidecar.write_bytes(audio_bytes)
+    audio_bytes = _elevenlabs_generate(
+        prompt=prompt,
+        duration_s=duration_s,
+        api_key=api_key,
+        region=region,
+    )
+    mp3_sidecar.write_bytes(audio_bytes)
 
-        _ffmpeg_transcode(mp3_sidecar, out_path, duration_s=duration_s)
+    _ffmpeg_transcode(mp3_sidecar, out_path, duration_s=duration_s)
 
-        if not __import__("os").environ.get("KEEP_SFX_MP3"):
-            mp3_sidecar.unlink(missing_ok=True)
-
-        print(
-            f"  elevenlabs generated {out_path.name} "
-            f"({len(audio_bytes)} bytes MP3, transcoded to WAV)"
-        )
-    except Exception as exc:
-        sys.stderr.write(
-            f"[generate_sfx] ElevenLabs call failed for {cue['cue_id']!r} "
-            f"({type(exc).__name__}: {exc}); falling back to local synthesis.\n"
-        )
+    if not __import__("os").environ.get("KEEP_SFX_MP3"):
         mp3_sidecar.unlink(missing_ok=True)
-        synthesize_placeholder(cue, out_path)
+
+    print(
+        f"  elevenlabs generated {out_path.name} "
+        f"({len(audio_bytes)} bytes MP3, transcoded to WAV)"
+    )
 
 
 # ----------------------------------------------------------------------
