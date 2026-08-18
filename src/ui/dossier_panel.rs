@@ -451,6 +451,7 @@ pub(super) fn ui_planet_dossier(mut params: DossierUiParams) {
                             surface_temp,
                             ocean_props,
                             &mut params.pending_actions,
+                            &mut params.commands,
                             params
                                 .buildings_data
                                 .as_deref()
@@ -2371,6 +2372,10 @@ fn draw_in_progress_mission_row(
                     )
                     .clicked()
             {
+                // GRA-SFX-Phase3d: survey mission abort.
+                commands.insert_resource(crate::plugins::sfx::PendingSfxRequests(vec![
+                    crate::plugins::sfx::SfxCueId::ModalCancel,
+                ]));
                 commands.write_message(AbortSurveyMission {
                     body,
                     mission_id: mission.id,
@@ -2421,6 +2426,10 @@ fn draw_completed_mission_row(
                     )
                     .clicked()
                 {
+                    // GRA-SFX-Phase3d: dismiss successful mission.
+                    commands.insert_resource(crate::plugins::sfx::PendingSfxRequests(vec![
+                        crate::plugins::sfx::SfxCueId::ButtonClick,
+                    ]));
                     commands.write_message(DismissSurveyMission {
                         body,
                         mission_id: mission.id,
@@ -2574,6 +2583,10 @@ fn draw_failed_missions_list(
                     )
                     .clicked()
                 {
+                    // GRA-SFX-Phase3d: acknowledging a failed mission.
+                    commands.insert_resource(crate::plugins::sfx::PendingSfxRequests(vec![
+                        crate::plugins::sfx::SfxCueId::ModalCancel,
+                    ]));
                     commands.write_message(DismissFailedMission {
                         body,
                         mission_id: rec.mission_id,
@@ -2615,6 +2628,12 @@ fn draw_failed_missions_list(
                         )
                         .clicked()
                     {
+                        // GRA-SFX-Phase3d: dispatching a recovery
+                        // mission is a "commit an action" — use
+                        // ModalConfirm.
+                        commands.insert_resource(crate::plugins::sfx::PendingSfxRequests(vec![
+                            crate::plugins::sfx::SfxCueId::ModalConfirm,
+                        ]));
                         let name = format!("{} Recovery", rec.display_name);
                         commands.write_message(DispatchSurveyMission {
                             body,
@@ -2703,6 +2722,10 @@ fn draw_dispatch_mission_picker(
         )
         .clicked()
     {
+        // GRA-SFX-Phase3d: dispatching a new survey mission.
+        commands.insert_resource(crate::plugins::sfx::PendingSfxRequests(vec![
+            crate::plugins::sfx::SfxCueId::ModalConfirm,
+        ]));
         let name = format!("{body_name} Mission {counter}");
         commands.write_message(DispatchSurveyMission {
             body,
@@ -3390,6 +3413,7 @@ fn draw_colony_section(
     surface_temp: Option<&SurfaceTemperature>,
     ocean: Option<&OceanProperties>,
     pending_actions: &mut PendingConstructionActions,
+    commands: &mut Commands,
     buildings_data: &crate::colony::data::BuildingsData,
 ) {
     if let Some(colony) = existing_colony {
@@ -3632,6 +3656,10 @@ fn draw_colony_section(
         .min_size(egui::Vec2::new(200.0, 28.0)),
     );
     if btn_response.clicked() {
+        // GRA-SFX-Phase3d: outposting is heavy — ModalConfirm.
+        commands.insert_resource(crate::plugins::sfx::PendingSfxRequests(vec![
+            crate::plugins::sfx::SfxCueId::ModalConfirm,
+        ]));
         pending_actions
             .establish_outpost
             .push(EstablishOutpostRequest {

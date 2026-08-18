@@ -25,6 +25,8 @@ use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 
 use crate::persistence::{delete_save_files, rescan_save_index};
+use crate::plugins::sfx::bridges::UiSfxRequest;
+use crate::plugins::sfx::SfxCueId;
 use crate::ui::launch::save_index::{SaveHeader, SaveIndex, SaveSummary};
 use crate::ui::launch::{LaunchState, LaunchSystemSet, PendingLaunchActions};
 use crate::ui::theme;
@@ -63,6 +65,7 @@ pub fn ui_load_game_subview(
     mut selection: ResMut<LoadGameSelection>,
     mut delete: ResMut<PendingDeleteSave>,
     mut thumbnail: Local<Option<(std::path::PathBuf, egui::TextureHandle)>>,
+    mut sfx_ui: MessageWriter<UiSfxRequest>,
 ) {
     if *launch_state != LaunchState::LoadGame {
         return;
@@ -118,6 +121,7 @@ pub fn ui_load_game_subview(
                                 &save_index,
                                 &selection,
                                 &mut selected_path,
+                                &mut sfx_ui,
                             );
                             if let Some((path, header)) = selected_save(&save_index, &selection) {
                                 render_save_preview(
@@ -138,7 +142,13 @@ pub fn ui_load_game_subview(
                             }
                         });
                     } else {
-                        render_save_list(ui, &save_index, &selection, &mut selected_path);
+                        render_save_list(
+                            ui,
+                            &save_index,
+                            &selection,
+                            &mut selected_path,
+                            &mut sfx_ui,
+                        );
                         if let Some((path, header)) = selected_save(&save_index, &selection) {
                             ui.add_space(theme::Spacing::lg);
                             render_save_preview(ui, ctx, path, header, &mut thumbnail);
@@ -156,6 +166,7 @@ pub fn ui_load_game_subview(
             // ── Action row ──────────────────────────────────────
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if crate::ui::launch::render_glass_button(ui, "Back", "", true).clicked() {
+                    sfx_ui.write(UiSfxRequest(SfxCueId::PanelClose));
                     back_clicked = true;
                 }
                 if crate::ui::launch::render_glass_button(
@@ -166,6 +177,7 @@ pub fn ui_load_game_subview(
                 )
                 .clicked()
                 {
+                    sfx_ui.write(UiSfxRequest(SfxCueId::ButtonClick));
                     delete.path = selection.selected_path.clone();
                 }
                 if crate::ui::launch::render_glass_button(
@@ -176,6 +188,7 @@ pub fn ui_load_game_subview(
                 )
                 .clicked()
                 {
+                    sfx_ui.write(UiSfxRequest(SfxCueId::ModalConfirm));
                     load_clicked = true;
                 }
             });
@@ -201,9 +214,11 @@ pub fn ui_load_game_subview(
                                 .button(egui::RichText::new("Delete save").color(theme::RED))
                                 .clicked()
                             {
+                                sfx_ui.write(UiSfxRequest(SfxCueId::ModalConfirm));
                                 delete.confirmed = true;
                             }
                             if ui.button("Cancel").clicked() {
+                                sfx_ui.write(UiSfxRequest(SfxCueId::ModalCancel));
                                 delete.path = None;
                             }
                         });
@@ -246,6 +261,7 @@ fn render_save_list(
     save_index: &SaveIndex,
     selection: &LoadGameSelection,
     selected_path: &mut Option<std::path::PathBuf>,
+    sfx_ui: &mut MessageWriter<UiSfxRequest>,
 ) {
     if save_index.entries.is_empty() {
         ui.label(egui::RichText::new("No saved missions yet.").color(theme::TEXT_HINT));
@@ -287,6 +303,7 @@ fn render_save_list(
                             );
                         }
                         if response.clicked() {
+                            sfx_ui.write(UiSfxRequest(SfxCueId::RowSelect));
                             *selected_path = Some(path.clone());
                         }
                     }

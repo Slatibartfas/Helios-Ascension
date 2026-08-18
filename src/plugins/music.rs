@@ -78,22 +78,22 @@ impl Default for MusicPlaylist {
         // so the playlist flows from vast and slow to brighter and back
         // down again. Prompts and generation parameters are recorded in
         // `assets/data/music_prompts.ron` so each track is reproducible.
-    // All ten tracks use the same cinematic-space-orchestral template
-    // (gentle piano + soft synth pads + distant strings; no vocals;
-    // 75-100 BPM; mention "4X space strategy game" in the prompt) so
-    // the playlist reads as one cohesive score.
-    //
-    // Anti-vocal stack: every prompt is a short ambient brief (mood +
-    // 2-3 instrument cues + use case + BPM) with the literal "no vocals"
-    // clause. We deliberately do NOT add Stellaris / Homeworld /
-    // Terra Invicta / Mass Effect style references — those are OST
-    // references and tip the model into "song with vocals" mode even
-    // when the prompt explicitly forbids it. We also do NOT add
-    // song-structure tags ("intro-verse-chorus-verse-outro"); "chorus"
-    // especially nudges the model toward vocal hooks. The matching
-    // `mmx music generate` invocations also pass `--instrumental` and
-    // `--avoid "vocals, choir, singing, vocal pads, harmony, voice"`
-    // for a second anti-vocal layer.
+        // All ten tracks use the same cinematic-space-orchestral template
+        // (gentle piano + soft synth pads + distant strings; no vocals;
+        // 75-100 BPM; mention "4X space strategy game" in the prompt) so
+        // the playlist reads as one cohesive score.
+        //
+        // Anti-vocal stack: every prompt is a short ambient brief (mood +
+        // 2-3 instrument cues + use case + BPM) with the literal "no vocals"
+        // clause. We deliberately do NOT add Stellaris / Homeworld /
+        // Terra Invicta / Mass Effect style references — those are OST
+        // references and tip the model into "song with vocals" mode even
+        // when the prompt explicitly forbids it. We also do NOT add
+        // song-structure tags ("intro-verse-chorus-verse-outro"); "chorus"
+        // especially nudges the model toward vocal hooks. The matching
+        // `mmx music generate` invocations also pass `--instrumental` and
+        // `--avoid "vocals, choir, singing, vocal pads, harmony, voice"`
+        // for a second anti-vocal layer.
         // Order (BPM / key):
         //   1. Helios Magnetosphere      (75 / A minor)   vast, expansive
         //   2. Helios Drift              (80 / D minor)   contemplative

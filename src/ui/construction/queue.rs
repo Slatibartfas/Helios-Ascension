@@ -371,9 +371,22 @@ pub fn tick_queue_panel_row_cancel_click(
     interactions: Query<(Entity, &Interaction, &QueuePanelRowCancel), With<QueuePanelRowCancel>>,
     mut pending: ResMut<PendingConstructionActions>,
     mut prev: Local<std::collections::HashMap<Entity, Interaction>>,
+    mut sfx_ui: MessageWriter<crate::plugins::sfx::bridges::UiSfxRequest>,
+    mut sfx_policy: ResMut<crate::plugins::sfx::SfxPolicy>,
 ) {
     crate::ui::widgets::detect_rising_edges(&mut prev, &interactions, |_entity, cancel| {
         pending.cancel_construction.push(cancel.project_entity);
+        // GRA-SFX-3a-iii: route through SfxPolicy rather than
+        // hard-coding the cue. The construction panel can
+        // re-tune the cue for cancel-clicks via policy without
+        // re-touching this file.
+        if let Some(cue) = sfx_policy.resolve(
+            "construction",
+            crate::plugins::sfx::policy::WidgetKind::Button,
+            "Cancel",
+        ) {
+            sfx_ui.write(crate::plugins::sfx::bridges::UiSfxRequest(cue));
+        }
     });
 }
 

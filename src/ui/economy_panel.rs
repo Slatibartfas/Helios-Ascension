@@ -3,6 +3,7 @@ use super::resources_bar::{get_resource_category_icon, get_resource_icon};
 use super::tab::Tab;
 use super::*;
 use bevy::ecs::system::SystemParam;
+use bevy::prelude::Commands;
 use std::borrow::Cow;
 
 /// Persisted state for the economy panel's selected tab.
@@ -1347,6 +1348,16 @@ pub(super) fn ui_economy_panels(
     mut shipping_company_filter: ResMut<super::fleets_panel::ShippingCompanyFilter>,
     settings: Res<Settings>,
     forecast: ForecastInputs,
+    // GRA-SFX-Phase3d: param 17. Bevy 0.18's IntoSystem
+    // fn-item impls cover tuples up to a fixed count; for
+    // ui_economy_panels the cap is 17 (this function
+    // already exceeds the 16 that saturated ui_dashboard).
+    // Used by the click-handler stubs below to fire
+    // PendingSfxRequests without going through the
+    // egui_sfx wrappers (those helpers can't reach this
+    // scope; the runtime observer in SfxPlugin catches
+    // any clicks they miss).
+    mut commands: Commands,
 ) {
     if active_menu.current != GameMenu::Economy {
         return;
@@ -1450,7 +1461,9 @@ pub(super) fn ui_economy_panels(
                     &forecast,
                     buildings_data.as_deref(),
                 ),
-                EconomyTab::Mining => render_econ_mining(ui, &hierarchy, &mut mining_ui_state),
+                EconomyTab::Mining => {
+                    render_econ_mining(ui, &hierarchy, &mut mining_ui_state, &mut commands)
+                }
                 EconomyTab::PowerGrid => {
                     render_econ_power_grid(ui, &budget, &hierarchy, buildings_data.as_deref())
                 }
@@ -1466,6 +1479,12 @@ pub(super) fn ui_economy_panels(
                         settings.show_freighters_in_transit,
                     );
                     if let Some(company_idx) = clicked {
+                        // GRA-SFX-Phase3d: shipping company click-through.
+                        // Switching to the Fleets panel is the heavier
+                        // action; ModalConfirm cues fit.
+                        commands.insert_resource(crate::plugins::sfx::PendingSfxRequests(vec![
+                            crate::plugins::sfx::SfxCueId::ModalConfirm,
+                        ]));
                         // AC#3 click-through: filter the Fleets panel
                         // and switch the active menu.  Both happen in
                         // the same frame; the Fleets panel reads the
@@ -3940,6 +3959,7 @@ fn render_econ_mining(
     ui: &mut egui::Ui,
     hierarchy: &[StarSystemGroup],
     mining_ui_state: &mut MiningTabUiState,
+    commands: &mut Commands,
 ) {
     draw_tab_h1(
         ui,
@@ -4122,10 +4142,18 @@ fn render_econ_mining(
                 .on_hover_text("Toggle sort direction")
                 .clicked()
             {
+                // GRA-SFX-Phase3d: sort direction toggle.
+                commands.insert_resource(crate::plugins::sfx::PendingSfxRequests(vec![
+                    crate::plugins::sfx::SfxCueId::ModeToggle,
+                ]));
                 mining_ui_state.sort_descending = !mining_ui_state.sort_descending;
             }
 
             if ui.button("Reset").clicked() {
+                // GRA-SFX-Phase3d: reset filter / expansion state.
+                commands.insert_resource(crate::plugins::sfx::PendingSfxRequests(vec![
+                    crate::plugins::sfx::SfxCueId::ButtonClick,
+                ]));
                 *mining_ui_state = MiningTabUiState::default();
             }
         });

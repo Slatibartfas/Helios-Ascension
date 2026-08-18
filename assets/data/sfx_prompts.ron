@@ -1,0 +1,145 @@
+// SFX prompt archive — natural-language briefs for each cue.
+//
+// Mirrors `music_prompts.ron` (which lists the 10 background
+// tracks and their AI-generation prompts). The audio generator
+// (`scripts/generate_sfx.py`) reads both this file and
+// `sfx_manifest.ron` to produce the bundled `.wav` files.
+//
+// Each entry records:
+// - `cue_id`         — must match an `id` in `sfx_manifest.ron`.
+// - `duration_ms`    — target length (the generator writes this
+//                      exact duration; the actual delivered WAV
+//                      may be a few ms off).
+// - `intensity`      — "low" / "medium" / "high" hint passed to
+//                      the audio generator.
+// - `prompt`         — the natural-language brief used to
+//                      generate the cue. This is the
+//                      authoritative source — the `prompt`
+//                      field in `sfx_manifest.ron` is a copy
+//                      that travels with the cue's runtime
+//                      metadata; this file is the audit log.
+// - `attribution`    — license + provenance. All Phase 1 cues
+//                      are AI-generated via MiniMax Audio;
+//                      `docs/SFX_CREDITS.md` aggregates these
+//                      into a player-facing page.
+// - `notes`          — design rationale, what the cue is *for*,
+//                      and any hand-tuning done post-generation.
+
+(
+    prompts: [
+        // ── UI chrome ─────────────────────────────────────────────
+        // Aesthetic brief (all cues below): **industrial hard sci-fi** —
+        // cold metal, vacuum-sealed relay, military avionics. No glass
+        // marbles, no woodblocks, no friendly chirps. Inspired by
+        // *Alien* (Nostromo console), *The Expanse* (MCRN Roci cockpit),
+        // *Blade Runner 2049* (Wallace Corp terminals), and Apollo-era
+        // DSKY pushbuttons. Dry, close-mic'd, no reverb tail; aggressive
+        // transients over tonal warmth.
+        (
+            cue_id: "ui.button_click",
+            duration_ms: 80,
+            intensity: "medium",
+            prompt: "Sharp metallic pushbutton click, 80ms. A single hard transient — like a small metal striker hitting a steel anvil once, then absolute silence. NO drum head, NO body sustain, NO resonance, NO reverb tail. Just the crack of metal on metal and then nothing. Pure impulse, sub-15ms attack, immediate silence. Reads as a tactile click, not a musical percussion hit.",
+            attribution: "AI-generated (ElevenLabs); bundled with permission.",
+            notes: "Most-fired cue. Must stay under 100ms and never feel friendly. Steel-on-steel, not glass-on-glass.",
+        ),
+        (
+            cue_id: "ui.tab_switch",
+            duration_ms: 110,
+            intensity: "low",
+            prompt: "Pure mechanical switch click, 110ms. A single mid-frequency clack — like a sealed micro-switch closing inside a metal enclosure. Completely DRY, no reverb, no tail, no sustain. Sharp attack and immediate silence. Reads as 'click happened', not as a musical note. Lower pitch and duller timbre than ui_button_click — distinctly different character.",
+            attribution: "AI-generated (ElevenLabs); bundled with permission.",
+            notes: "Softer than button_click because the player fires it 10x more often. Still metal, still dry — just quieter.",
+        ),
+        (
+            cue_id: "ui.panel_open",
+            duration_ms: 220,
+            intensity: "medium",
+            prompt: "Mechanical latch releasing, 220ms. A heavy panel door unlatching — a single decisive mechanical unlock thunk followed by an immediate short slide. No alarm, no siren, no whoosh. Completely dry, no reverb tail. Reads as a metal lid popping open, finishing cleanly within the duration.",
+            attribution: "AI-generated (ElevenLabs); bundled with permission.",
+            notes: "Paired with ui_panel_close — same hydraulic character, mirrored envelope.",
+        ),
+        (
+            cue_id: "ui.panel_close",
+            duration_ms: 180,
+            intensity: "high",
+            prompt: "Massive metallic slam, 180ms. A heavy steel blast door slammed hard shut with full force — a LOUD, explosive metallic impact with high-amplitude transient, then absolute silence. Reads as a thick iron plate locking closed with real mass behind it. NO reverb, NO decay, NO tail. The sound must be as loud as a slammed car door in a quiet garage — visceral, weighty, decisive.",
+            attribution: "AI-generated (ElevenLabs); bundled with permission.",
+            notes: "Crisper / shorter than open; the closing seal feels heavier than the opening release.",
+        ),
+        (
+            cue_id: "ui.slider_tick",
+            duration_ms: 60,
+            intensity: "low",
+            prompt: "Encoder detent pulse, 60ms. A precise notched-wheel click under a metal stylus. Mechanical, mid-high, dry. Like a detented rotary encoder on a spacecraft instrument panel.",
+            attribution: "AI-generated (ElevenLabs); bundled with permission.",
+            notes: "Fires on every slider detent. Cooldown 40ms prevents saturation.",
+        ),
+        (
+            cue_id: "ui.dropdown_open",
+            duration_ms: 140,
+            intensity: "medium",
+            prompt: "Mechanical detent popup, 140ms. A hinged metal cover flipping open with a spring-loaded snap — like a flip-up guarded switch on a military radio. Mid-pitched, decisive, no chirp.",
+            attribution: "AI-generated (ElevenLabs); bundled with permission.",
+            notes: "Distinct from button_click — lower in pitch, longer envelope.",
+        ),
+        (
+            cue_id: "ui.row_select",
+            duration_ms: 100,
+            intensity: "low",
+            prompt: "Targeting computer lock tone, 100ms. A muted two-tone metallic ping — like a weapons console acknowledging target selection. Tonal (not percussive), brief sustain, no melodic sweetness.",
+            attribution: "AI-generated (ElevenLabs); bundled with permission.",
+            notes: "Plays on save-file selection, fleet row, tech archive entry. Tonal so rapid selections sound like a scanner sweep, not a snare roll.",
+        ),
+        (
+            cue_id: "ui.drag_drop",
+            duration_ms: 180,
+            intensity: "medium",
+            prompt: "Magnetic coupling engagement, 180ms. A heavy industrial bolt-latch snapping into its receiver — steel shoe locking into a hard mount. Solid low-mid, satisfying weight.",
+            attribution: "AI-generated (ElevenLabs); bundled with permission.",
+            notes: "Fires when a module drops on a hull slot, an item drops in a list. Weightier than button_click.",
+        ),
+        (
+            cue_id: "ui.modal_confirm",
+            duration_ms: 280,
+            intensity: "medium",
+            prompt: "Metallic confirmation impact, 280ms. A single low-mid metallic thud followed by one short descending metallic ping — like a heavy solenoid latching into 'READY'. NO flute, NO woodwind, NO sustained tonal note. Pure metal — percussive, dry, no reverb. Aggressive transient at the start, immediate silence at the end. Must NOT sound musical or sweet.",
+            attribution: "AI-generated (ElevenLabs); bundled with permission.",
+            notes: "Destructive-action confirm (delete save, demolish building, overwrite). The descending interval reads as 'arming', not 'cheering' — appropriate for irreversible actions.",
+        ),
+        (
+            cue_id: "ui.modal_cancel",
+            duration_ms: 280,
+            intensity: "medium",
+            prompt: "Disarm confirmation, 280ms. A muted descending two-tone, lower and softer than ui_modal_confirm. Like a safety cover snapping back over an arming switch. No musical sweetness.",
+            attribution: "AI-generated (ElevenLabs); bundled with permission.",
+            notes: "Companion to ui_modal_confirm. Player should hear 'I backed out' as clearly as 'I committed'.",
+        ),
+        (
+            cue_id: "ui.chip_toggle",
+            duration_ms: 70,
+            intensity: "low",
+            prompt: "Toggle switch throw, 70ms. A guarded micro-switch clicking on/off — military-spec toggle, dry, mid-high. Symmetric: on and off sound identical (state is conveyed visually).",
+            attribution: "AI-generated (ElevenLabs); bundled with permission.",
+            notes: "Used by forecast grouping chips, search filter chips, view-mode toggles.",
+        ),
+        (
+            cue_id: "ui.mode_toggle",
+            duration_ms: 160,
+            intensity: "medium",
+            prompt: "Mode-selector detent, 160ms. A heavy rotary knob clicking into a new detent position — like a 4-position weapons-selector switch on a hard-mounted console.",
+            attribution: "AI-generated (ElevenLabs); bundled with permission.",
+            notes: "Construction menu Construction ↔ Behaviour, time-controls pause/resume. Weightier than button_click because it changes persistent UI state.",
+        ),
+
+        // ── Notifications ─────────────────────────────────────────
+        (
+            cue_id: "notifications.chime",
+            duration_ms: 600,
+            intensity: "medium",
+            prompt: "Comms-channel incoming alert, 600ms. A two-tone metallic ping over a low hum — like an intercom opening on a ship's bridge, or a comms officer's headset registering an incoming transmission. Not a bell, not an arpeggio — a station hailing you.",
+            attribution: "AI-generated (ElevenLabs); bundled with permission.",
+            notes: "Universal chime for all notification severities (Phase 1). Per-severity variants (chime_warning, chime_critical) are deferred to Phase 2.",
+        ),
+    ],
+)

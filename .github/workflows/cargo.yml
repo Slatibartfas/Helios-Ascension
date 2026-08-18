@@ -146,3 +146,16 @@ jobs:
           # Non-blocking while PR-D migrates shipbuilding_workspace.rs.
           python3 scripts/audit_bevy_color_literals.py --strict \
             --baseline scripts/audit_bevy_color_literals_baseline.txt src
+
+      - name: Audit SFX manifest
+        run: |
+          # GRA-SFX Phase 3: enforces 3-way sync between the Rust
+          # `SfxCueId` enum, the data-driven
+          # `assets/data/sfx_manifest.ron`, and the actual WAV files
+          # under `assets/audio/sfx/`. The runtime silently drops
+          # manifests that don't match the enum (HashMap keyed by
+          # id, mismatches override), so a sync failure surfaces here
+          # instead of as a missing cue at runtime. See
+          # `docs/SFX.md` "Manifest ↔ enum ↔ files" and the script's
+          # docstring for the contract.
+          python3 scripts/audit_sfx_manifest.py --strict
