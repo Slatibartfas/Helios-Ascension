@@ -195,7 +195,7 @@ patch for the pattern).
 | `assets/data/sfx_prompts.ron` | Natural-language prompts used to generate each cue. |
 | `src/plugins/sfx/` | Plugin, loader, bus, playback, bridges, tests. |
 | `src/main.rs` | Registers `SfxPlugin`. |
-| `scripts/generate_sfx.py` | Generates WAVs (local synthesis default, API stub for prod). |
+| `scripts/generate_sfx.py` | Generates WAVs via ElevenLabs Sound Effects API (fail-loud: exits non-zero if `--api` is requested but unavailable). |
 | `scripts/audit_sfx_manifest.py` | CI audit: Rust enum ↔ manifest ↔ WAV files. |
 | `scripts/audit_sfx_coverage.py` | CI audit: interactive callsites lacking SFX wiring. |
 | `docs/SFX.md` | This file. |
@@ -261,14 +261,36 @@ Total sites unwired after Phase 3d+3c+3f: **119 across 36 files**
 `SfxCueId` enum, `assets/data/sfx_manifest.ron`, and the WAV
 files on disk.
 
+## Regenerating cues
+
+```bash
+# Local re-bake (uses placeholder synth — useful only for
+# offline iteration when no API key is available):
+python scripts/generate_sfx.py --force
+
+# Real audio via ElevenLabs Sound Effects:
+export ELEVENLABS_API_KEY=...   # required
+python scripts/generate_sfx.py --api --force
+```
+
+The `--api` path is **fail-loud**: it raises (and the script
+exits non-zero) on any HTTP error, missing key, or ffmpeg
+transcode failure. There is **no silent fallback** to
+`synthesize_placeholder` — Phase 1/2 shipped sine-wave WAVs
+under the misleading "AI-generated" attribution because the
+generator silently fell back when no API key was set. That
+behaviour is removed; the build now fails loudly instead of
+shipping a placeholder.
+
+Prompts live in `assets/data/sfx_prompts.ron` (the audit log)
+and are mirrored in `assets/data/sfx_manifest.ron` (the
+runtime metadata that travels with each cue). Both files
+must be edited together — `parse_prompts()` strips `//` and
+`/* */` comments before walking the tuple list, so comment
+blocks containing parenthetical references are safe.
+
 ## Known limitations
 
-- **API mode is a stub.** `scripts/generate_sfx.py --api` falls
-  back to local synthesis — the actual MiniMax Audio (or
-  alternative SFX) API call lands in a follow-up PR. The local
-  synthesis produces real, audible placeholder WAVs so the
-  audio backend is functional out of the box; production audio
-  arrives when the API integration ships.
 - **No severity-tier chimes.** All four notification severities
   (Info / Notice / Warning / Critical) play the same chime.
   Splitting them is a Phase 2 follow-up.
