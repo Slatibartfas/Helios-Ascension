@@ -1028,6 +1028,7 @@ fn ui_top_menu_bar(
     mut camera_query: Query<(&mut OrbitCamera, &mut CameraAnchor), With<GameCamera>>,
     star_icon_query: Query<(Entity, Option<&SelectedStarSystem>), With<StarSystemIcon>>,
     mut notifications_open: ResMut<notifications::NotificationsSettingsOpen>,
+    mut commands: Commands,
 ) {
     // Convert loaded handles to egui TextureIds before creating the UI context.
     // We cache the TextureIds in a Local<HashMap> so that `add_image` is called
@@ -1068,6 +1069,13 @@ fn ui_top_menu_bar(
     {
         active_menu.current = GameMenu::Research;
     }
+
+    // Capture click intent inside the egui closures, then apply
+    // `commands.insert_resource(...)` *after* `.show(...)` returns
+    // (rustc closure-capture conflict inside egui's `FnOnce` closures
+    // otherwise).
+    let mut menu_clicked: Option<GameMenu> = None;
+    let mut notifications_clicked = false;
 
     egui::TopBottomPanel::top("top_menu_bar").show(ctx, |ui| {
         ui.horizontal(|ui| {
@@ -1130,21 +1138,7 @@ fn ui_top_menu_bar(
 
                         let resp = resp.on_hover_ui(render_tooltip);
                         if resp.clicked() {
-                            active_menu.current = menu;
-                            match menu {
-                                GameMenu::Starmap => switch_to_starmap_menu(
-                                    &mut view_mode,
-                                    &mut camera_query,
-                                    starmap_radius,
-                                ),
-                                GameMenu::Survey => switch_to_survey_menu(
-                                    &mut view_mode,
-                                    &mut camera_query,
-                                    &star_icon_query,
-                                    survey_radius,
-                                ),
-                                _ => {}
-                            }
+                            menu_clicked = Some(menu);
                         }
                     } else {
                         // Fallback to text button when the texture is not available
@@ -1164,21 +1158,7 @@ fn ui_top_menu_bar(
                         let resp = ui.add(button).on_hover_ui(render_tooltip);
                         theme::paint_focus_ring(ui.painter(), resp.rect, resp.has_focus());
                         if resp.clicked() {
-                            active_menu.current = menu;
-                            match menu {
-                                GameMenu::Starmap => switch_to_starmap_menu(
-                                    &mut view_mode,
-                                    &mut camera_query,
-                                    starmap_radius,
-                                ),
-                                GameMenu::Survey => switch_to_survey_menu(
-                                    &mut view_mode,
-                                    &mut camera_query,
-                                    &star_icon_query,
-                                    survey_radius,
-                                ),
-                                _ => {}
-                            }
+                            menu_clicked = Some(menu);
                         }
                     }
                 } else {
@@ -1199,21 +1179,7 @@ fn ui_top_menu_bar(
                     let resp = ui.add(button).on_hover_ui(render_tooltip);
                     theme::paint_focus_ring(ui.painter(), resp.rect, resp.has_focus());
                     if resp.clicked() {
-                        active_menu.current = menu;
-                        match menu {
-                            GameMenu::Starmap => switch_to_starmap_menu(
-                                &mut view_mode,
-                                &mut camera_query,
-                                starmap_radius,
-                            ),
-                            GameMenu::Survey => switch_to_survey_menu(
-                                &mut view_mode,
-                                &mut camera_query,
-                                &star_icon_query,
-                                survey_radius,
-                            ),
-                            _ => {}
-                        }
+                        menu_clicked = Some(menu);
                     }
                 }
 
@@ -1250,11 +1216,44 @@ fn ui_top_menu_bar(
                 theme::paint_focus_ring(ui.painter(), resp.rect, resp.has_focus());
                 if resp.clicked() {
                     settings_open = !settings_open;
+                    notifications_clicked = true;
                 }
                 notifications_open.0 = settings_open;
             });
         });
     });
+
+    // ── Apply captured clicks (after the egui closure returns so
+    // `commands` stays in scope and avoids the closure-capture
+    // conflict).
+    if notifications_clicked {
+        commands.insert_resource(crate::plugins::sfx::PendingSfxRequests(vec![
+            if notifications_open.0 {
+                crate::plugins::sfx::SfxCueId::PanelOpen
+            } else {
+                crate::plugins::sfx::SfxCueId::PanelClose
+            },
+        ]));
+    }
+    if let Some(menu) = menu_clicked {
+        active_menu.current = menu;
+        match menu {
+            GameMenu::Starmap => {
+                switch_to_starmap_menu(&mut view_mode, &mut camera_query, starmap_radius)
+            }
+            GameMenu::Survey => switch_to_survey_menu(
+                &mut view_mode,
+                &mut camera_query,
+                &star_icon_query,
+                survey_radius,
+            ),
+            _ => {}
+        }
+        // GRA-SFX-Phase3g: top-menu tab switch.
+        commands.insert_resource(crate::plugins::sfx::PendingSfxRequests(vec![
+            crate::plugins::sfx::SfxCueId::TabSwitch,
+        ]));
+    }
 
     // ── Keyboard hotkeys ──────────────────────────────────────────────────────
     // Skip hotkeys while a text widget has focus (e.g. fleet-name editor).
