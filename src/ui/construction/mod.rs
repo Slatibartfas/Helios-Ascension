@@ -982,18 +982,22 @@ mod friendly_label_tests {
 
     #[test]
     fn friendly_label_research_speed() {
+        // v3.10 (GRA-22c Phase 4A): RON value is RP/month per build,
+        // not a percent. Old test asserted "Research speed +100%".
         let m = modf("ResearchSpeed", 100.0);
         let (tone, label) = friendly_label(&m).expect("ResearchSpeed should produce a label");
         assert_eq!(tone, EffectTone::Positive);
-        assert_eq!(label, "Research speed +100%");
+        assert_eq!(label, "+100 RP/month");
     }
 
     #[test]
     fn friendly_label_engineering_speed() {
+        // v3.10 (GRA-22c Phase 4A): RON value is EP/month per build,
+        // not a percent. Old test asserted "Engineering speed +200%".
         let m = modf("EngineeringSpeed", 200.0);
         let (tone, label) = friendly_label(&m).expect("EngineeringSpeed should produce a label");
         assert_eq!(tone, EffectTone::Positive);
-        assert_eq!(label, "Engineering speed +200%");
+        assert_eq!(label, "+200 EP/month");
     }
 
     #[test]

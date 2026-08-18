@@ -110,6 +110,23 @@ pub fn friendly_label(m: &BuildingModifierDef) -> Option<(EffectTone, String)> {
         return None;
     }
 
+    // v3.10 (GRA-22c Phase 4A): dedicated labels for the
+    // post-Fab modifiers that don't fit the generic `<X>Production`
+    // format. The Fab is now the planet's electronics-production
+    // source; surface the absolute Mt/yr contribution with a
+    // built-in unit ask so the player reads "Produces 1 Mt/yr".
+    // Sub-inventory: consumers of `ElectronicsProduction` are
+    // pinned to a future "Electronics" economic resource
+    // (logging + data-centres + spacecraft avionics). The label
+    // here is cosmetic until the resource is wired up in a later
+    // phase.
+    if ty == "ElectronicsProduction" && v > 0.0 {
+        return Some((
+            EffectTone::Positive,
+            format!("Produces {:.2} Mt/yr electronics", v),
+        ));
+    }
+
     if let Some(elem) = ty.strip_suffix("Breeding") {
         if v > 0.0 {
             return Some((
@@ -130,17 +147,21 @@ pub fn friendly_label(m: &BuildingModifierDef) -> Option<(EffectTone, String)> {
         return None;
     }
 
+    // v3.10 (GRA-22c Phase 4A): the RON value is **RP/month per build**
+    // (see `src/research/systems.rs::update_research_points`, which
+    // divides `value` by `SECONDS_PER_YEAR / 12` to land in RP/sec).
+    // The earlier `+100%` label was a regression — it conflated the
+    // building's contribution with the percent-multiplier
+    // `ResearchSpeed` modifier tracked by `ResearchState` (a separate
+    // path that scales ALL research). The two paths today share a
+    // string key but different units; the canary label surfaces the
+    // building's absolute RP/month contribution. 100 RP/month per
+    // ResearchLab matches the Phase 1.7 calibration.
     if ty == "ResearchSpeed" && v > 0.0 {
-        return Some((
-            EffectTone::Positive,
-            format!("Research speed +{}%", v as i64),
-        ));
+        return Some((EffectTone::Positive, format!("+{:.0} RP/month", v)));
     }
     if ty == "EngineeringSpeed" && v > 0.0 {
-        return Some((
-            EffectTone::Positive,
-            format!("Engineering speed +{}%", v as i64),
-        ));
+        return Some((EffectTone::Positive, format!("+{:.0} EP/month", v)));
     }
 
     if ty == "PopulationGrowth" && v > 0.0 {

@@ -288,19 +288,24 @@ impl Colony {
 
     /// Calculate housing capacity from habitat buildings.
     ///
-    /// Five tiers, from starter (1k) to metropolitan (50M):
+    /// Five tiers, from starter (1k) to metropolitan (25M):
     /// - Habitat Tent:           1,000 residents  (v3.2 starter — first building on a new colony)
     /// - Habitat Module:        10,000 residents  (v3.2 starter — second-tier for growing colonies)
-    /// - Housing Complex:    25,000,000 residents  (metropolitan workhorse)
-    /// - Habitat Dome:       50,000,000 residents  (pressurised premium dome)
-    /// - Underground Habitat: 30,000,000 residents  (buried habitat, airless worlds)
+    /// - Habitat Dome:        5,000,000 residents  (v3.10 — small dome, post-starter)
+    /// - Underground Habitat: 8,000,000 residents  (v3.10 — buried habitat, airless worlds)
+    /// - Housing Complex:    25,000,000 residents  (metropolitan workhorse, requires terraforming)
     ///
-    /// At metropolitan scale Earth needs ~164 Habitat Domes + 164
-    /// Housing Complexes (not 32,800 or 16,400), so each newly-built
-    /// metropolitan complex is a visible ~0.3% capacity improvement.
-    /// At starter scale a fresh 100k-population outpost needs ~10
-    /// Habitat Tents + 5 Habitat Modules — within the v2
-    /// manageable-count band (10–50).
+    /// v3.10 (GRA-22c Phase 4A): the gradient was Tent 1k → Module
+    /// 10k → 50M (5,000× jump) → 30M (other branch). Now: 1k → 10k
+    /// → 5M / 8M → 25M. The 10k → 5M step is 500×, manageable;
+    /// the 5M → 25M step is 5× once the colony has city-scale
+    /// infrastructure to warrant housing districts.
+    ///
+    /// At metropolitan scale Earth needs ~328 Housing Complexes to
+    /// reach its 8.2B seed. At post-starter scale a 5M colony
+    /// needs ~1 HabitatDome; at starter scale a fresh 100k-population
+    /// outpost needs ~10 Habitat Tents + 5 Habitat Modules — within
+    /// the v2 manageable-count band (10–50).
     ///
     /// v3.6: per-build `HousingCapacity` values are now read from the
     /// RON `HousingCapacity` modifier on each building, not hard-coded.
@@ -826,14 +831,16 @@ mod tests {
 
     #[test]
     fn test_housing_capacity() {
+        // v3.10 (GRA-22c Phase 4A): HabitatDome 50M → 5M,
+        // UndergroundHabitat 30M → 8M. Asserts updated.
         let mut colony = Colony::new("Test".to_string(), 100.0);
         assert_eq!(colony.housing_capacity(&data()), 0.0);
 
         colony.add_building(BuildingType::HabitatDome);
-        assert_eq!(colony.housing_capacity(&data()), 50_000_000.0);
+        assert_eq!(colony.housing_capacity(&data()), 5_000_000.0);
 
         colony.add_building(BuildingType::UndergroundHabitat);
-        assert_eq!(colony.housing_capacity(&data()), 80_000_000.0);
+        assert_eq!(colony.housing_capacity(&data()), 13_000_000.0);
     }
 
     #[test]

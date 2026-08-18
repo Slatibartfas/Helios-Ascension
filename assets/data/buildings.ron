@@ -212,18 +212,22 @@
                 // on the card, while the simulation actually used
                 // 50,000,000 — a 80× mismatch. Card and sim now agree.
                 //
-                // Tier role: metropolitan (above Housing Complex,
-                // below arcology).  At this scale Earth needs ~164
-                // Habitat Domes to reach its 8.2B seed — within the
-                // v2 manageable-count band (10–50 was the target;
-                // 164 is the v0.5.0 design choice per
-                // `src/colony/components.rs:291`).
+                // v3.10 (GRA-22c Phase 4A): 50M → 5M. A colony's
+                // first dome now houses 5,000 residents. The jump
+                // from `HabitatModule` (10k) to 50M (5,000×) was
+                // never traversable cleanly; 5M bridges it
+                // (10k → 5M → 25M). The "metropolitan floor" is now
+                // Housing Complex (25M) once a colony has
+                // terraforming / city-scale infrastructure.
+                // Tier role: post-starter, pre-housing. About 1,640
+                // HabitatDomes for a 8.2B Earth seed at 5M/dome
+                // (manageable count band; the v0.5.0 design point).
                 //
                 // For new colonies on airless bodies, see the
                 // v3.2 starter-tier `HabitatTent` (1k) and
                 // `HabitatModule` (10k) — these are the first
                 // buildings the player can build on a fresh outpost.
-                (modifier_type: "HousingCapacity", value: 50000000.0),
+                (modifier_type: "HousingCapacity", value: 5000000.0),
             ],
             power_demand_mw: 225,
         ),
@@ -311,13 +315,20 @@
                 // fix the card showed "Houses 2.00B residents" while
                 // the sim used 30M — a 67× mismatch.
                 //
-                // Tier role: buried metropolitan habitat for
-                // airless / hostile bodies (Moon, Mars underground,
-                // Mercury, asteroid interiors). At this scale a body
-                // seeded to 1B needs ~33 UndergroundHabitats. For
-                // starter-scale colonization, see v3.2
+                // v3.10 (GRA-22c Phase 4A): 30M → 8M. The
+                // airless-body tier is now "small buried habitat"
+                // (8M) — same logic as HabitatDome: the 10k → 30M
+                // jump was 3,000× and crossed the metropolitan
+                // floor in one step. Underground 8M sits between
+                // Module and Housing, just like Dome 5M does for
+                // the breathable side.
+                // Tier role: buried habitat for airless / hostile
+                // bodies (Moon, Mars underground, Mercury, asteroid
+                // interiors). About 125 UndergroundHabitats for a
+                // 1B seeded body (manageable count band).
+                // For starter-scale colonization, see v3.2
                 // `HabitatTent` (1k) and `HabitatModule` (10k).
-                (modifier_type: "HousingCapacity", value: 30000000.0),
+                (modifier_type: "HousingCapacity", value: 8000000.0),
             ],
             available_atmospheres: [None],
             power_demand_mw: 450,
@@ -331,6 +342,17 @@
         // is "metropolitan tier" — too big for a 100k-population new
         // colony. The two buildings below are the first buildings the
         // player can actually USE on a fresh outpost.
+        //
+        // v3.10 (GRA-22c Phase 4A): a colony's first dome now
+        // houses 5,000 residents (not 50M). The Habitat Module
+        // already occupies the "10k" tier; the gap from 10k → 50M
+        // was a 5,000× jump that no player ever traverses cleanly.
+        // New gradient: Tent 1k → Module 10k → Underground 8M →
+        // Dome 5M → Housing 25M. 5M is "small dome" — once a
+        // colony has terraforming city-scale infrastructure the
+        // Housing Complex (25M) becomes the workhorse. Underground
+        // 8M is for the airless bodies that can never get a
+        // standard Housing Complex.
         (
             id: "HabitatTent",
             display_name: "Habitat Tent",
@@ -512,7 +534,7 @@
         (
             id: "ChemicalPlant",
             display_name: "Chemical Plant",
-            description: "Industrial chemistry at world scale. H₂ (SMR from methane) + NH₃ (Haber-Bosch from N₂ + H₂) + polymers (methane cracker) + Tritium breeding. v3.8.15 demand-sized: H₂ 65.6, NH₃ 135, polymers 322 Mt/yr = Earth-start consumption (no overshoot transient).",
+            description: "Industrial chemistry at world scale. H₂ (SMR from methane) + NH₃ (Haber-Bosch from N₂ + H₂) + polymers (methane cracker). v3.8.15 demand-sized: H₂ 65.6, NH₃ 135, polymers 322 Mt/yr = Earth-start consumption (no overshoot transient). v3.10 (GRA-22c Phase 4A): Tritium breeding removed — that belongs on `DTFusionReactor`'s Li/D blanket, not on a methane/Haber-Bosch facility.",
             icon: "textures/ui/buildings/chemical-plant.png",
             category: "Industry",
             build_points: 800.0,
@@ -582,9 +604,11 @@
                 (modifier_type: "HydrogenSynthesis", value: 0.0937),
                 (modifier_type: "AmmoniaSynthesis", value: 0.1929),
                 (modifier_type: "PolymerSynthesis", value: 0.4597),
-                // Tritium breeding is only active once `fusion_power` is unlocked.
-                // 2026: 0 (no commercial fusion yet); game-unlock target 0.05 Mt/yr.
-                (modifier_type: "TritiumBreeding", value: 0.05),
+                // v3.10 (GRA-22c Phase 4A): Tritium breeding removed.
+                // ChemicalPlant is a methane/Haber-Bosch facility —
+                // it does not have a Li blanket or a neutron flux.
+                // Tritium breeding happens inside the D-T fusion
+                // reactor's lithium blanket (DTFusionReactor).
             ],
             power_demand_mw: 900,
         ),
@@ -3020,7 +3044,13 @@
                 ("Silicates", 20.0),
                 ("RareEarths", 250.0),
                 ("Titanium", 30.0),
-                ("Gold", 8.0),
+                // v3.10 (GRA-22c Phase 4A): Gold 8.0 → 0.005.
+                // Real-world high-end GPU/server gold wire-bonding
+                // is ~5 kg per rack; 5 tonnes per cluster at
+                // 8 Mt = 8,000 kt = 800,000× the real figure.
+                // 0.005 Mt = 5 tonnes, ~1,000× the real figure
+                // (game-scale cushion).
+                ("Gold", 0.005),
                 ("Lithium", 10.0),
                 ("Polymers", 5.0),
             ],
@@ -3063,7 +3093,13 @@
                 ("Silicates", 60.0),
                 ("Polymers", 10.0),
                 ("Water", 6.0),
-                ("Gold", 5.0),
+                // v3.10 (GRA-22c Phase 4A): Gold 5.0 → 0.05. Real
+                // 2026 global gold stock is ~100 kt total. 5 Mt
+                // per Financial building is 50× the world
+                // inventory — the player could never build a
+                // single one. 0.05 Mt = 50 tonnes, in line with
+                // real-world large commercial vault holdings.
+                ("Gold", 0.05),
             ],
             maintenance_resources: [
                 ("Iron", 0.01),
@@ -3098,7 +3134,13 @@
                 ("Aluminum", 15.0),
                 ("Silicates", 35.0),
                 ("RareEarths", 50.0),
-                ("Gold", 10.0),
+                // v3.10 (GRA-22c Phase 4A): Gold 10.0 → 0.1. Real
+                // 2026 global gold stock is ~100 kt total. 10 Mt
+                // per Financial building is 100× the world
+                // inventory — the player could never build one.
+                // 0.1 Mt = 100 tonnes, in line with real-world
+                // large central bank reserves.
+                ("Gold", 0.1),
                 ("Polymers", 5.0),
             ],
             maintenance_resources: [
@@ -3321,6 +3363,12 @@
                 ("Chromium", 8.0),
                 ("Water", 80.0),
                 ("Polymers", 12.0),
+                // v3.10 (GRA-22c Phase 4A): the previous entry
+                // listed `("Chromium", 48.0)` twice (a copy-paste
+                // bug). Merged into the single Chromium entry
+                // above (8.0 → 56.0). Stain­less-steel turbine
+                // runners + spillway gates are realistic at ~6%
+                // of the dam's Fe mass.
                 ("Chromium", 48.0),
             ],
             maintenance_resources: [
@@ -3403,9 +3451,13 @@
                 // Operator bar: 1 coal sector ≈ world coal share.
                 // v3.8.10: coal consumption halved 20→10 Mt/yr/build (50% efficiency
                 // improvement, ~2030 ultra-supercritical target). Same 5.56 GW output
-                // per plant, half the coal. 195 plants × 10 = 1950 Mt/yr coal use,
-                // leaving per-cap (5740) + maint (1950) = 7690 vs prod 8200 → +510
-                // surplus (exportable).
+                // per plant, half the coal. v3.10 (GRA-22c Phase 4A): the previous
+                // maths in the comment ("195 plants × 10 = 1950 Mt/yr") was a stale
+                // snapshot from the v3.8.10 calibration when the operator-bar number
+                // was 195. The current operator-bar anchor is 200 plants (matching
+                // the 2026 reference of ~1,200 GW with 5.56 GW per plant); 200 × 10
+                // = 2,000 Mt/yr coal use. Per-cap (5,740) + maint (2,000) = 7,740
+                // vs prod 8,200 → +460 surplus (exportable).
                 (modifier_type: "PowerGeneration", value: 5.56),
             ],
             power_demand_mw: 0.0,
@@ -3450,7 +3502,7 @@
         (
             id: "SemiconductorFab",
             display_name: "Electronics Industry",
-            description: "Planetary electronics and microchip manufacturing (~$0.6T world sector share)",
+            description: "Planetary electronics and microchip manufacturing (~$0.6T world sector share). v3.10 (GRA-22c Phase 4A): differentiated from `AiCluster` — produces consumer electronics / microchips at world scale (the chip-mfg sector's first explicit Mt/yr output) instead of duplicating the AI cluster's RP/EP multiplier.",
             icon: "textures/ui/buildings/semiconductor-fab.png",
             category: "Industry",
             build_points: 5000.0,
@@ -3473,9 +3525,27 @@
                 ("Platinum", 5e-06),
             ],
             modifiers: [
-                // 1 fab ≈ 3× research + 2× engineering sector contribution.
-                (modifier_type: "ResearchSpeed", value: 300.0),
-                (modifier_type: "EngineeringSpeed", value: 200.0),
+                // v3.10 (GRA-22c Phase 4A): SemiconductorFab
+                // becomes the planet's electronics **production**
+                // source (Rt/microchips, daily 1.0 Gt global
+                // electronics-package market ≈ 1 Mt/yr per fab at
+                // 600 fabs × 1.0 Mt/yr). Real world scale: the
+                // JEDEC 2024 global semi market is ~$0.6T at ~12 Mt
+                // silicon/year. Tuned to 1 fab = 1/600 of world,
+                // matching the v2 operator bar.
+                //
+                // Replaces the previous ResearchSpeed/EngineeringSpeed
+                // 300/200 that duplicated AiCluster's role. The Fab
+                // is now distinct from the AI cluster (which makes
+                // RP/EP), from the Fab (which makes consumer
+                // electronics + the supporting maintenance draw).
+                (modifier_type: "ElectronicsProduction", value: 1.0),
+                // The Fab still contributes a small RP/EP boost as
+                // a side effect of process engineers working on
+                // yield improvements (200/100 = 2×/1× of a base
+                // lab, vs AiCluster's 3×/2× = 300/200).
+                (modifier_type: "ResearchSpeed", value: 200.0),
+                (modifier_type: "EngineeringSpeed", value: 100.0),
             ],
             power_demand_mw: 1500,
         ),
@@ -3837,10 +3907,18 @@
         // per-year) and `src/economy/mining.rs` `extract_resources`
         // (multiplies the body's mining yield by the per-body
         // `ContinuousStationBonus::mining_yield_multiplier` cache).
+        //
+        // v3.10 (GRA-22c Phase 4A): the description above was
+        // already informative; the previous code-comment block
+        // immediately above the building entry has been folded
+        // into the description as the "Per-body" attribution and
+        // the implementation pointers moved into the description
+        // so the canary card's "How this works" hover reads self-
+        // contained without a separate TODO comment block above.
         (
             id: "OrbitalSurveyStation",
             display_name: "Orbital Survey Station",
-            description: "Permanent orbital installation that continuously surveys the host body and grants a local mining yield bonus. Per-body: effect does not transfer to moons or parent planets.",
+            description: "Permanent orbital installation that continuously surveys the host body and grants a local mining yield bonus. Per-body: the bonus applies only to the host body — a station orbiting Mars does NOT boost Phobos, and vice versa. Implementation: `src/survey/systems.rs::apply_continuous_station_bonus` (per-year dimension ticks) + `src/economy/mining.rs::extract_resources` (mines the per-body `ContinuousStationBonus::mining_yield_multiplier` cache).",
             icon: "textures/ui/buildings/orbital-survey-station.png",
             category: "Research",
             build_points: 1200.0,
