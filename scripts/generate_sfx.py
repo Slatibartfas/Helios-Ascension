@@ -84,6 +84,11 @@ def parse_prompts(path: Path) -> list[dict]:
         sys.exit(f"could not find `prompts: [...]` block in {path}")
     body = prompts_match.group(1)
 
+    # Strip RON comments so their parens don't get parsed as cue
+    # tuples. `//` lines and `/* ... */` blocks both count.
+    body = re.sub(r"//[^\n]*", "", body)
+    body = re.sub(r"/\*.*?\*/", "", body, flags=re.DOTALL)
+
     cues: list[dict] = []
     depth = 0
     start: int | None = None
