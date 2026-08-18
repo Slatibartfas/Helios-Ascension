@@ -3575,25 +3575,31 @@ fn draw_colony_section(
                 .strong()
                 .color(TEXT_VALUE),
         );
+        // v3.9 (GRA-22c Phase 3.3): lightweight starter so the
+        // queue completes in ≈11 sim days at the default 3,600×
+        // time scale rather than the prior 5-month LifeSupport +
+        // Housing + Fission×2 + AgriDome×2 package.
         ui.label(
-            egui::RichText::new("• Life Support ×1")
+            egui::RichText::new("• Habitat Tent ×1  (capacity: 1K residents)")
                 .font(mono_font(10.0))
                 .color(TEXT_DIM),
         );
         ui.label(
-            egui::RichText::new("• Housing Complex ×1  (capacity: 25M residents)")
+            egui::RichText::new("• Habitat Module ×1  (capacity: 10K residents)")
                 .font(mono_font(10.0))
                 .color(TEXT_DIM),
         );
         ui.label(
-            egui::RichText::new("• Fission Reactor ×2  (Uranium-powered)")
+            egui::RichText::new("• Farm ×1  (360 Mt/yr food, breathable bodies only)")
                 .font(mono_font(10.0))
                 .color(TEXT_DIM),
         );
         ui.label(
-            egui::RichText::new("• Agricultural Dome ×2  (food for ~80,000 ppl)")
-                .font(mono_font(10.0))
-                .color(TEXT_DIM),
+            egui::RichText::new(
+                "Full power + life-support infrastructure arrives in subsequent projects.",
+            )
+            .font(mono_font(10.0))
+            .color(TEXT_DIM),
         );
         ui.add_space(4.0);
 

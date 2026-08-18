@@ -67,10 +67,17 @@ Every new outpost receives a starter set of buildings **automatically queued**:
 
 | Building | Qty | Notes |
 |----------|-----|-------|
-| Life Support | ×1 | Required on bodies without a breathable atmosphere |
-| Housing Complex | ×1 | +25M housing capacity |
-| Fission Reactor | ×2 | ~40 GW power; fuelled by Uranium |
-| Agricultural Dome | ×2 | +8 Mt/yr food (~80K people) |
+| Habitat Tent | ×1 | +1K housing capacity (v3.9 / GRA-22c Phase 3.3) |
+| Habitat Module | ×1 | +10K housing capacity |
+| Farm | ×1 | +360 Mt/yr food (breathable bodies only) |
+
+> **v3.9 (GRA-22c Phase 3.3):** the previous starter package was
+> 5,200 BP (LifeSupport + Housing + FissionReactor×2 + AgriDome×2 ≈
+> 5 sim months at default 12,000 BP/yr). The lightweight starter
+> above is 350 BP ≈ 11 sim days, so a new outpost's queue clears
+> quickly and the player can drive the next phase of construction
+> (power / life-support / expansion) on their own timeline rather
+> than waiting on a freight round.
 
 ### Step 4 — Check ongoing environmental costs
 

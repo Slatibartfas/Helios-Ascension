@@ -151,14 +151,14 @@
                 // GRA-22c Phase 2.2: atmospheric recycling + water
                 // electrolysis + CO2 scrubbers. 116 Mt total, Fe 42%
                 // (was 71%).
-                ("Iron", 48.0),
-                ("Copper", 15.0),
-                ("Aluminum", 8.0),
-                ("Silicates", 22.0),
-                ("Polymers", 8.0),
-                ("Water", 8.0),
-                ("Nitrogen", 4.0),
-                ("Oxygen", 3.0),
+                ("Iron", 24),
+                ("Copper", 7.5),
+                ("Aluminum", 4),
+                ("Silicates", 11),
+                ("Polymers", 4),
+                ("Water", 4),
+                ("Nitrogen", 2),
+                ("Oxygen", 1.5),
             ],
             maintenance_resources: [
                 ("Water", 5.0),
@@ -182,13 +182,13 @@
             resource_costs: [
                 // GRA-22c Phase 2.2: pressurised dome + life
                 // support. 350 Mt total, Fe 45%.
-                ("Iron", 158.0),
-                ("Copper", 30.0),
-                ("Aluminum", 50.0),
-                ("Silicates", 100.0),
-                ("Titanium", 4.0),
-                ("Polymers", 4.0),
-                ("Water", 4.0),
+                ("Iron", 79),
+                ("Copper", 15),
+                ("Aluminum", 25),
+                ("Silicates", 50),
+                ("Titanium", 2),
+                ("Polymers", 2),
+                ("Water", 2),
             ],
             maintenance_resources: [
                 ("Iron", 1.0),
@@ -239,12 +239,12 @@
             resource_costs: [
                 // GRA-22c Phase 2.2: metropolitan housing. 116 Mt
                 // total, Si 49% (was 71%).
-                ("Iron", 35.0),
-                ("Copper", 12.0),
-                ("Aluminum", 8.0),
-                ("Silicates", 50.0),
-                ("Polymers", 6.0),
-                ("Water", 5.0),
+                ("Iron", 17.5),
+                ("Copper", 6),
+                ("Aluminum", 4),
+                ("Silicates", 25),
+                ("Polymers", 3),
+                ("Water", 2.5),
             ],
             maintenance_resources: [
                 ("Iron", 0.001),
@@ -343,10 +343,10 @@
             resource_costs: [
                 // GRA-22c Phase 2.2: inflatable starter habitat. 8 Mt
                 // total, Fe 38% (was 63%).
-                ("Iron", 3.0),
-                ("Copper", 0.5),
-                ("Silicates", 3.0),
-                ("Polymers", 1.5),
+                ("Iron", 1.5),
+                ("Copper", 0.25),
+                ("Silicates", 1.5),
+                ("Polymers", 0.75),
             ],
             maintenance_resources: [
                 ("Water", 0.05),
@@ -369,10 +369,10 @@
             workforce: 50,
             required_tech: "",
             resource_costs: [
-                ("Iron", 10.0),
-                ("Silicates", 15.0),
-                ("Copper", 1.0),
-                ("Aluminum", 3.0),
+                ("Iron", 5),
+                ("Silicates", 7.5),
+                ("Copper", 0.5),
+                ("Aluminum", 1.5),
             ],
             maintenance_resources: [
                 ("Water", 0.5),
@@ -452,13 +452,13 @@
             resource_costs: [
                 // GRA-22c Phase 2.2: gas liquefaction + cryogenic
                 // distillation. 133 Mt total, Fe 35%.
-                ("Iron", 47.0),
-                ("Copper", 33.0),
-                ("Aluminum", 25.0),
-                ("Silicates", 12.0),
-                ("Polymers", 5.0),
-                ("Water", 5.0),
-                ("Fluorine", 6.0),
+                ("Iron", 23.5),
+                ("Copper", 16.5),
+                ("Aluminum", 12.5),
+                ("Silicates", 6),
+                ("Polymers", 2.5),
+                ("Water", 2.5),
+                ("Fluorine", 3),
             ],
             maintenance_resources: [
                 ("Iron", 0.01),
@@ -733,15 +733,15 @@
                 // GRA-22c Phase 2.1: a quarry is mostly earth-moving
                 // equipment + steel cutting tools + explosives
                 // (Polymers). Total 50 Mt, Fe 36% (was 75%).
-                ("Iron", 18.0),
-                ("Copper", 5.0),
-                ("Aluminum", 4.0),
-                ("Silicates", 14.0),
-                ("Nickel", 1.0),
-                ("Polymers", 2.0),
-                ("Water", 3.0),
-                ("Tungsten", 1.0),
-                ("Sulfur", 2.0),
+                ("Iron", 9),
+                ("Copper", 2.5),
+                ("Aluminum", 2),
+                ("Silicates", 7),
+                ("Nickel", 0.5),
+                ("Polymers", 1),
+                ("Water", 1.5),
+                ("Tungsten", 0.5),
+                ("Sulfur", 1),
             ],
             maintenance_resources: [
                 ("Iron", 0.005),
@@ -845,14 +845,14 @@
                 // GRA-22c Phase 2.1: bulk-structural BoM for a
                 // coal / graphite operation. 80 Mt total, Fe 44%
                 // (was 80%).
-                ("Iron", 35.0),
-                ("Copper", 8.0),
-                ("Aluminum", 5.0),
-                ("Silicates", 15.0),
-                ("Nickel", 2.0),
-                ("Polymers", 3.0),
-                ("Water", 6.0),
-                ("Carbon", 6.0),
+                ("Iron", 17.5),
+                ("Copper", 4),
+                ("Aluminum", 2.5),
+                ("Silicates", 7.5),
+                ("Nickel", 1),
+                ("Polymers", 1.5),
+                ("Water", 3),
+                ("Carbon", 3),
             ],
             maintenance_resources: [
                 ("Iron", 0.005),
@@ -1178,14 +1178,14 @@
                 // GRA-22c Phase 2.1: Frasch hot-water injection +
                 // sulfur concrete (Si). 90 Mt total, Fe 44% (was
                 // 82%).
-                ("Iron", 40.0),
-                ("Copper", 10.0),
-                ("Aluminum", 5.0),
-                ("Silicates", 18.0),
-                ("Nickel", 2.0),
-                ("Polymers", 2.0),
-                ("Water", 5.0),
-                ("Sulfur", 8.0),
+                ("Iron", 20),
+                ("Copper", 5),
+                ("Aluminum", 2.5),
+                ("Silicates", 9),
+                ("Nickel", 1),
+                ("Polymers", 1),
+                ("Water", 2.5),
+                ("Sulfur", 4),
             ],
             maintenance_resources: [
                 ("Iron", 0.005),
@@ -2521,12 +2521,12 @@
             resource_costs: [
                 // GRA-22c Phase 2.2: intermodal freight terminal.
                 // 83 Mt total, Fe 47% (was 60.2%).
-                ("Iron", 39.0),
-                ("Copper", 7.0),
-                ("Aluminum", 5.0),
-                ("Silicates", 18.0),
-                ("Polymers", 6.0),
-                ("Water", 8.0),
+                ("Iron", 19.5),
+                ("Copper", 3.5),
+                ("Aluminum", 2.5),
+                ("Silicates", 9),
+                ("Polymers", 3),
+                ("Water", 4),
             ],
             maintenance_resources: [
                 ("Iron", 0.05),
@@ -2558,13 +2558,13 @@
             resource_costs: [
                 // GRA-22c Phase 2.2: PV + inverter + battery
                 // storage. 124 Mt total, Si 46% (was 67%).
-                ("Iron", 30.0),
-                ("Silicates", 57.0),
-                ("Copper", 25.0),
-                ("Aluminum", 4.0),
-                ("Lithium", 4.0),
-                ("Polymers", 2.0),
-                ("Water", 2.0),
+                ("Iron", 15),
+                ("Silicates", 28.5),
+                ("Copper", 12.5),
+                ("Aluminum", 2),
+                ("Lithium", 2),
+                ("Polymers", 1),
+                ("Water", 1),
             ],
             maintenance_resources: [
                 ("Silicates", 0.01),
@@ -2810,10 +2810,10 @@
             workforce: 3000,
             required_tech: "hydroponics",
             resource_costs: [
-                ("Iron", 100.0),
-                ("Silicates", 67.0),
-                ("Water", 33.0),
-                ("Phosphorus", 17.0),
+                ("Iron", 50),
+                ("Silicates", 33.5),
+                ("Water", 16.5),
+                ("Phosphorus", 8.5),
             ],
             maintenance_resources: [
                 ("Water", 10.0),
@@ -2861,12 +2861,12 @@
                 // irrigation + grain silo. 19 Mt total, Fe
                 // 42% (was 42% kept; one extra line for
                 // diversity gate).
-                ("Iron", 5.0),
-                ("Copper", 1.0),
-                ("Silicates", 1.0),
-                ("Polymers", 1.0),
-                ("Water", 8.0),
-                ("Phosphorus", 3.0),
+                ("Iron", 2.5),
+                ("Copper", 0.5),
+                ("Silicates", 0.5),
+                ("Polymers", 0.5),
+                ("Water", 4),
+                ("Phosphorus", 1.5),
             ],
             maintenance_resources: [
                 ("Sulfur", 0.0014),
@@ -2900,14 +2900,14 @@
             resource_costs: [
                 // GRA-22c Phase 2.2: hospital / diagnostic +
                 // MRI suite. 216 Mt total, Fe 45% (was 61%).
-                ("Iron", 98.0),
-                ("Copper", 35.0),
-                ("Aluminum", 12.0),
-                ("Silicates", 25.0),
-                ("RareEarths", 33.0),
-                ("Polymers", 6.0),
-                ("Water", 4.0),
-                ("Oxygen", 3.0),
+                ("Iron", 49),
+                ("Copper", 17.5),
+                ("Aluminum", 6),
+                ("Silicates", 12.5),
+                ("RareEarths", 16.5),
+                ("Polymers", 3),
+                ("Water", 2),
+                ("Oxygen", 1.5),
             ],
             maintenance_resources: [
                 ("Water", 0.1),
@@ -3280,12 +3280,12 @@
                 // tower. 92 Mt total, Fe 49% (was 54% — slight
                 // relaxation because wind-turbine blades are
                 // composite-dominant).
-                ("Iron", 45.0),
-                ("Copper", 17.0),
-                ("Aluminum", 14.0),
-                ("Silicates", 5.0),
-                ("Polymers", 6.0),
-                ("Water", 5.0),
+                ("Iron", 22.5),
+                ("Copper", 8.5),
+                ("Aluminum", 7),
+                ("Silicates", 2.5),
+                ("Polymers", 3),
+                ("Water", 2.5),
             ],
             maintenance_resources: [
                 ("Iron", 0.01),
@@ -3422,13 +3422,13 @@
             resource_costs: [
                 // GRA-22c Phase 2.2: NG combined-cycle + SCR +
                 // HRSG. 150 Mt total, Fe 47% (was 67%).
-                ("Iron", 70.0),
-                ("Copper", 20.0),
-                ("Aluminum", 10.0),
-                ("Silicates", 24.0),
-                ("Nickel", 12.0),
-                ("Polymers", 5.0),
-                ("Water", 9.0),
+                ("Iron", 35),
+                ("Copper", 10),
+                ("Aluminum", 5),
+                ("Silicates", 12),
+                ("Nickel", 6),
+                ("Polymers", 2.5),
+                ("Water", 4.5),
             ],
             maintenance_resources: [
                 ("Methane", 5.0),
@@ -3492,14 +3492,14 @@
                 // GRA-22c Phase 2.2: pharma-grade reactors +
                 // CIP + cleanroom. 150 Mt total, Fe 47% (was
                 // 67%).
-                ("Iron", 70.0),
-                ("Copper", 22.0),
-                ("Aluminum", 8.0),
-                ("Silicates", 12.0),
-                ("Phosphorus", 17.0),
-                ("Polymers", 6.0),
-                ("Water", 12.0),
-                ("Nitrogen", 3.0),
+                ("Iron", 35),
+                ("Copper", 11),
+                ("Aluminum", 4),
+                ("Silicates", 6),
+                ("Phosphorus", 8.5),
+                ("Polymers", 3),
+                ("Water", 6),
+                ("Nitrogen", 1.5),
             ],
             maintenance_resources: [
                 ("Water", 0.5),
@@ -3533,13 +3533,13 @@
             resource_costs: [
                 // GRA-22c Phase 2.2: water purification network.
                 // 100 Mt total, Fe 50% (was 71% under prior mix).
-                ("Iron", 50.0),
-                ("Copper", 17.0),
-                ("Aluminum", 5.0),
-                ("Silicates", 13.0),
-                ("Polymers", 6.0),
-                ("Water", 5.0),
-                ("Sulfur", 4.0),
+                ("Iron", 25),
+                ("Copper", 8.5),
+                ("Aluminum", 2.5),
+                ("Silicates", 6.5),
+                ("Polymers", 3),
+                ("Water", 2.5),
+                ("Sulfur", 2),
             ],
             maintenance_resources: [
                 ("Iron", 0.01),
@@ -3582,13 +3582,13 @@
                 // GRA-22c Phase 2.2: ocean desalination (Ti for
                 // pressure vessels, Cu for pumps). 141 Mt
                 // total, Fe 47% (was 71%).
-                ("Iron", 66.0),
-                ("Copper", 22.0),
-                ("Aluminum", 8.0),
-                ("Silicates", 10.0),
-                ("Titanium", 22.0),
-                ("Polymers", 8.0),
-                ("Water", 5.0),
+                ("Iron", 33),
+                ("Copper", 11),
+                ("Aluminum", 4),
+                ("Silicates", 5),
+                ("Titanium", 11),
+                ("Polymers", 4),
+                ("Water", 2.5),
             ],
             maintenance_resources: [
                 ("Iron", 0.02),
@@ -3620,13 +3620,13 @@
                 // GRA-22c Phase 2.2: climate-controlled glass
                 // greenhouse complex. 150 Mt total, Si 47%
                 // (was 55% — allowed because glass IS Si).
-                ("Iron", 40.0),
-                ("Copper", 5.0),
-                ("Aluminum", 8.0),
-                ("Silicates", 70.0),
-                ("Polymers", 8.0),
-                ("Water", 17.0),
-                ("Sulfur", 2.0),
+                ("Iron", 20),
+                ("Copper", 2.5),
+                ("Aluminum", 4),
+                ("Silicates", 35),
+                ("Polymers", 4),
+                ("Water", 8.5),
+                ("Sulfur", 1),
             ],
             maintenance_resources: [
                 ("Water", 2.0),
@@ -3660,14 +3660,14 @@
             resource_costs: [
                 // GRA-22c Phase 2.2: recirculating aquaculture
                 // tanks. 150 Mt total, Fe 45% (was 45% kept).
-                ("Iron", 50.0),
-                ("Copper", 8.0),
-                ("Aluminum", 8.0),
-                ("Silicates", 30.0),
-                ("Polymers", 12.0),
-                ("Water", 33.0),
-                ("Nitrogen", 5.0),
-                ("Phosphorus", 4.0),
+                ("Iron", 25),
+                ("Copper", 4),
+                ("Aluminum", 4),
+                ("Silicates", 15),
+                ("Polymers", 6),
+                ("Water", 16.5),
+                ("Nitrogen", 2.5),
+                ("Phosphorus", 2),
             ],
             maintenance_resources: [
                 ("Water", 5.0),
@@ -3801,12 +3801,12 @@
             resource_costs: [
                 // GRA-22c Phase 2.2: warehouse racking + climate
                 // control + dock. 83 Mt total, Fe 47% (was 60.2%).
-                ("Iron", 39.0),
-                ("Copper", 5.0),
-                ("Aluminum", 7.0),
-                ("Silicates", 22.0),
-                ("Polymers", 4.0),
-                ("Water", 6.0),
+                ("Iron", 19.5),
+                ("Copper", 2.5),
+                ("Aluminum", 3.5),
+                ("Silicates", 11),
+                ("Polymers", 2),
+                ("Water", 3),
             ],
             maintenance_resources: [
                 ("Iron", 0.005),

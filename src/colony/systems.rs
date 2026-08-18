@@ -476,18 +476,26 @@ pub fn process_construction_actions(
                 water_per_person_per_year: 0.00005,
             });
 
-        // Queue the starter building package:
-        //   - LifeSupport × 1      : basic air/water recycling
-        //   - Housing × 1          : sleeping quarters for up to 250 K (outpost uses ~5 K)
-        //   - FissionReactor × 2   : power from uranium (baseline + redundancy)
-        //   - AgriDome × 2         : food for up to 8 K people (>5 K cap)
+        // Queue the starter building package (v3.9 / GRA-22c
+        // Phase 3.3):
+        //   - HabitatTent × 1   : 50 BP, 1K residents
+        //   - HabitatModule × 1  : 200 BP, 10K residents
+        //   - Farm × 1           : 100 BP, 360 Mt/yr food
+        // Total: 350 BP ~ 11 days at the default 12,000 BP/yr
+        // factory output; full power + life-support + housing
+        // infrastructure is queued in subsequent player-driven
+        // projects.
         const OUTPOST_BUILDINGS: &[BuildingType] = &[
-            BuildingType::LifeSupport,
-            BuildingType::Housing,
-            BuildingType::FissionReactor,
-            BuildingType::FissionReactor,
-            BuildingType::AgriDome,
-            BuildingType::AgriDome,
+            // v3.9 (GRA-22c Phase 3.3): lightweight starter package
+            // (350 BP total) so the queue completes in ~11 sim days
+            // at default 3,600× time scale (≈24 sim hours); old
+            // package was 5,200 BP / ~5 sim months. Farm replaces
+            // AgriDome for habitables (AgriDome is off-world only);
+            // Housing/LifeSupport/FissionReactor follow in subsequent
+            // player-driven builds.
+            BuildingType::HabitatTent,
+            BuildingType::HabitatModule,
+            BuildingType::Farm,
         ];
         for &btype in OUTPOST_BUILDINGS {
             // Queue through the normal construction action pipeline so that
