@@ -1486,8 +1486,9 @@ pub(super) fn ui_resources_bar(
 
                     // v3.8.1: aggregate fill ratio = total / (cap × N_bodies).
                     // The per-body cap is `effective_stockpile_cap(r)` which
-                    // already includes the storage_multiplier; multiplying by
-                    // the number of bodies in view gives the aggregate cap.
+                    // already includes the storage_bonus_mt (additive since
+                    // v3.10 GRA-22c Phase 4B); multiplying by the number of
+                    // bodies in view gives the aggregate cap.
                     // We count bodies that have a LocalStockpile (every
                     // surveyed body) to get the right denominator.
                     let n_bodies = breakdown_queries.per_body_breakdown.iter().count() as f64;

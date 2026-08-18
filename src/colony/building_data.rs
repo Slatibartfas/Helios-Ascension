@@ -188,9 +188,16 @@ pub fn friendly_label(m: &BuildingModifierDef) -> Option<(EffectTone, String)> {
     }
 
     if ty == "StorageCapacity" && v > 0.0 {
+        // v3.10 (GRA-22c Phase 4B): the modifier value is now
+        // an absolute Mt amount per resource per depot
+        // (additive), not a percent. The canary label reads
+        // "+5,000 Mt to stockpile caps (all resources)" rather
+        // than the legacy "+25%". The actor's reading is the
+        // same shape as the LifeSupport scrubber output:
+        // absolute Mt contribution, not a percent.
         return Some((
             EffectTone::Positive,
-            format!("Stockpile capacity +{:.0}% (all resources)", v * 100.0),
+            format!("+{:.0} Mt to stockpile caps (all resources)", v),
         ));
     }
 
@@ -198,6 +205,20 @@ pub fn friendly_label(m: &BuildingModifierDef) -> Option<(EffectTone, String)> {
         return Some((
             EffectTone::Positive,
             format!("Harvests {} Mt/yr N\u{2082}", format_mining_rate(v)),
+        ));
+    }
+
+    // v3.10 (GRA-22c Phase 4B): LifeSupport scrubber output.
+    // Distinct from the generic `*Production` because the player
+    // sees "scrubs" rather than "produces" — CO₂ is a
+    // waste-stream to remove, not a product to stock. The label
+    // reads "Scrubs 30 Mt/yr CO₂ (exportable)" so the player knows
+    // the CO₂ is recoverable (Terra Invicta-style atmospheric
+    // export).
+    if ty == "CarbonDioxideScrubbing" && v > 0.0 {
+        return Some((
+            EffectTone::Positive,
+            format!("Scrubs {:.0} Mt/yr CO\u{2082} (exportable)", v),
         ));
     }
 

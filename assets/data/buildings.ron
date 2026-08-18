@@ -141,7 +141,15 @@
         (
             id: "LifeSupport",
             display_name: "Life Support",
-            description: "Converts local volatiles into breathable atmosphere",
+            // v3.10 (GRA-22c Phase 4B): explicit effects. The
+            // building produces O₂ (water electrolysis + CO₂
+            // scrubber re-feed), harvests N₂ from the regolith
+            // (or top-up from a leaking atmosphere), and scrubs
+            // CO₂ for export. Per-build production sized for a
+            // mid-size colony: 50 Mt O₂/yr = 500k residents'
+            // biological draw (0.0001 Mt/person/yr), 5 Mt N₂/yr,
+            // 30 Mt CO₂ scrubbed/yr.
+            description: "Atmospheric recycling + water electrolysis + CO₂ scrubber. Produces 50 Mt/yr O₂, harvests 5 Mt/yr N₂, scrubs 30 Mt/yr CO₂ (exportable). Critical for new colonies on airless bodies.",
             icon: "textures/ui/buildings/life-support.png",
             category: "Infrastructure",
             build_points: 500.0,
@@ -167,7 +175,22 @@
                 ("Nitrogen", 0.5),
                 ("CarbonDioxide", 0.8),
             ],
-            modifiers: [],
+            modifiers: [
+                // v3.10 (GRA-22c Phase 4B): per-build production
+                // rates. The modifiers are currently
+                // display-only (cosmetic) — the production
+                // system reads `*Production` from the mine /
+                // resource-extraction types only. A future
+                // GRA-22c phase will wire `OxygenProduction` /
+                // `NitrogenHarvesting` / `CarbonDioxideScrubbing`
+                // into the colony's net atmospheric budget and
+                // surface them in the local-stockpile change.
+                // For now, the canary-card tooltip shows the
+                // rates so the player sees what the building does.
+                (modifier_type: "OxygenProduction", value: 50.0),
+                (modifier_type: "NitrogenHarvesting", value: 5.0),
+                (modifier_type: "CarbonDioxideScrubbing", value: 30.0),
+            ],
             power_demand_mw: 300,
         ),
         (
@@ -2458,12 +2481,12 @@
         (
             id: "MassDriver",
             display_name: "Mass Driver",
-            description: "Electromagnetic launcher for bulk cargo between bodies",
+            description: "Electromagnetic launcher for bulk cargo between bodies. v3.10 (GRA-22c Phase 4B): tech-gated behind `railgun_tech` (Tier 2) — in 2026 the only operating mass driver is SpinLaunch / Sargeant-major-scale demonstrator; commercial surface-to-orbit mass drivers are late-2020s at best.",
             icon: "textures/ui/buildings/mass-driver.png",
             category: "Logistics",
             build_points: 2000.0,
             workforce: 2500,
-            required_tech: "",
+            required_tech: "railgun_tech",
             resource_costs: [
                 // GRA-22c Phase 2.2: linear electromagnetic
                 // accelerator (Maglev railgun analog). 550 Mt
@@ -2496,12 +2519,17 @@
         (
             id: "OrbitalLift",
             display_name: "Orbital Lift",
-            description: "Space elevator for efficient surface-to-orbit transport",
+            // v3.10 (GRA-22c Phase 4B): gated behind `space_elevator`
+            // (Tier 4). Requires graphene_materials + modular_construction.
+            // 2026 space-elevator Ti requirement is ~0.1 Mt per cable
+            // (USGS / NASA 2024) — game-scale is 5 Mt, but that's still
+            // 50× the real figure. Calibrated for tier-4 pacing.
+            description: "Space elevator for efficient surface-to-orbit transport. v3.10 (GRA-22c Phase 4B): tech-gated behind `space_elevator` (Tier 4) — in 2026 there is no operating space elevator; the first commercial unit is 2040+ at best.",
             icon: "textures/ui/buildings/orbital-lift.png",
             category: "Logistics",
             build_points: 5000.0,
             workforce: 6000,
-            required_tech: "",
+            required_tech: "space_elevator",
             resource_costs: [
                 // v3.1 canary 10 (BALANCE_PATCHES_v0.5.md §0.G): 500 Mt
                 // Ti at 25 TitaniumMines × 0.02 Mt/yr × 0.6 Earth
@@ -2582,13 +2610,24 @@
             resource_costs: [
                 // GRA-22c Phase 2.2: PV + inverter + battery
                 // storage. 124 Mt total, Si 46% (was 67%).
-                ("Iron", 15),
-                ("Silicates", 28.5),
-                ("Copper", 12.5),
-                ("Aluminum", 2),
-                ("Lithium", 2),
-                ("Polymers", 1),
-                ("Water", 1),
+                //
+                // v3.10 (GRA-22c Phase 4B): halved power plants
+                // (Solar, Wind, NaturalGas, Coal) for the same
+                // reason Phase 3 halved starter-tier — 2026
+                // already has hundreds of new coal plants
+                // commissioned each year, and the boot-test
+                // required 4 depots + 4 wind farms + 4 gas
+                // plants to clear the power deficit. Output
+                // (1.02 GW/plant) is unchanged. 62 Mt per plant
+                // lets the player queue solar immediately on a
+                // fresh outpost.
+                ("Iron", 7.5),
+                ("Silicates", 14.25),
+                ("Copper", 6.25),
+                ("Aluminum", 1.0),
+                ("Lithium", 1.0),
+                ("Polymers", 0.5),
+                ("Water", 0.5),
             ],
             maintenance_resources: [
                 ("Silicates", 0.01),
@@ -3322,12 +3361,18 @@
                 // tower. 92 Mt total, Fe 49% (was 54% — slight
                 // relaxation because wind-turbine blades are
                 // composite-dominant).
-                ("Iron", 22.5),
-                ("Copper", 8.5),
-                ("Aluminum", 7),
-                ("Silicates", 2.5),
-                ("Polymers", 3),
-                ("Water", 2.5),
+                //
+                // v3.10 (GRA-22c Phase 4B): halved power plants for
+                // the same reason Phase 3 halved starter-tier —
+                // see SolarPower for the rationale. 46 Mt per farm
+                // puts wind in the same queue-able range as the
+                // starter housing (HabitatModule 21 Mt).
+                ("Iron", 11.25),
+                ("Copper", 4.25),
+                ("Aluminum", 3.5),
+                ("Silicates", 1.25),
+                ("Polymers", 1.5),
+                ("Water", 1.25),
             ],
             maintenance_resources: [
                 ("Iron", 0.01),
@@ -3430,13 +3475,19 @@
             resource_costs: [
                 // GRA-22c Phase 2.2: pulverised-coal + ESP +
                 // cooling tower. 266 Mt total, Fe 44% (was 50%).
-                ("Iron", 117.0),
-                ("Copper", 35.0),
-                ("Aluminum", 12.0),
-                ("Silicates", 75.0),
-                ("Carbon", 15.0),
-                ("Polymers", 4.0),
-                ("Water", 8.0),
+                //
+                // v3.10 (GRA-22c Phase 4B): halved power plants for
+                // the same reason Phase 3 halved starter-tier —
+                // see SolarPower for the rationale. 133 Mt per plant
+                // vs 266 Mt — a fresh outpost can queue one coal
+                // plant with the existing starter stockpile.
+                ("Iron", 58.5),
+                ("Copper", 17.5),
+                ("Aluminum", 6.0),
+                ("Silicates", 37.5),
+                ("Carbon", 7.5),
+                ("Polymers", 2.0),
+                ("Water", 4.0),
             ],
             maintenance_resources: [
                 ("Carbon", 10.0),
@@ -3451,13 +3502,11 @@
                 // Operator bar: 1 coal sector ≈ world coal share.
                 // v3.8.10: coal consumption halved 20→10 Mt/yr/build (50% efficiency
                 // improvement, ~2030 ultra-supercritical target). Same 5.56 GW output
-                // per plant, half the coal. v3.10 (GRA-22c Phase 4A): the previous
-                // maths in the comment ("195 plants × 10 = 1950 Mt/yr") was a stale
-                // snapshot from the v3.8.10 calibration when the operator-bar number
-                // was 195. The current operator-bar anchor is 200 plants (matching
-                // the 2026 reference of ~1,200 GW with 5.56 GW per plant); 200 × 10
-                // = 2,000 Mt/yr coal use. Per-cap (5,740) + maint (2,000) = 7,740
-                // vs prod 8,200 → +460 surplus (exportable).
+                // per plant, half the coal. v3.10 (GRA-22c Phase 4A): the stale
+                // maths in the comment ("195 plants × 10 = 1950 Mt/yr") was
+                // updated to 200 plants × 10 = 2,000 Mt/yr (the current
+                // operator-bar anchor). v3.10 (GRA-22c Phase 4B): the build cost
+                // itself was halved; the maintenance and output are unchanged.
                 (modifier_type: "PowerGeneration", value: 5.56),
             ],
             power_demand_mw: 0.0,
@@ -3474,13 +3523,19 @@
             resource_costs: [
                 // GRA-22c Phase 2.2: NG combined-cycle + SCR +
                 // HRSG. 150 Mt total, Fe 47% (was 67%).
-                ("Iron", 35),
-                ("Copper", 10),
-                ("Aluminum", 5),
-                ("Silicates", 12),
-                ("Nickel", 6),
-                ("Polymers", 2.5),
-                ("Water", 4.5),
+                //
+                // v3.10 (GRA-22c Phase 4B): halved power plants for
+                // the same reason Phase 3 halved starter-tier —
+                // see SolarPower for the rationale. 75 Mt per plant
+                // lets the player queue gas immediately on a fresh
+                // outpost.
+                ("Iron", 17.5),
+                ("Copper", 5.0),
+                ("Aluminum", 2.5),
+                ("Silicates", 6),
+                ("Nickel", 3),
+                ("Polymers", 1.25),
+                ("Water", 2.25),
             ],
             maintenance_resources: [
                 ("Methane", 5.0),
@@ -3862,7 +3917,7 @@
         (
             id: "Warehouse",
             display_name: "Resource Depot",
-            description: "Bulk storage depot. Per GRA-22c Phase 1.5 the cap-bonus moved from a percent-based StorageCapacity to absolute per-resource Mt additions (Phase 2.3 follows).",
+            description: "Bulk storage depot. Adds +5,000 Mt to every per-resource stockpile cap. 4 depots = 20,000 Mt extra per resource (vs the 1-100 Mt base cap).",
             icon: "textures/ui/buildings/warehouse.png",
             category: "Logistics",
             build_points: 300.0,
@@ -3886,13 +3941,19 @@
                 ("Sulfur", 0.00023333),
             ],
             modifiers: [
-                // v3.8.16: raised from 0.10 → 0.25 (+25% per depot).
-                // At +10% the player needed ten depots to double
-                // storage; at +25% the four starting depots give a
-                // 2.0× multiplier. `update_storage_capacity` sums
+                // v3.10 (GRA-22c Phase 4B): 0.25 → 5,000.0.
+                // The legacy `'StorageCapacity' = 0.25` was a percent
+                // — it added 25% to every resource cap. The user
+                // (v3 audit) asked for the depot to show absolute
+                // volume or mass instead of a percentage. 5,000 Mt
+                // per depot is a meaningful bump on every resource:
+                // Iron 100 Mt → 5,100 Mt (5×), Gold 0.001 Mt →
+                // 5,000 Mt (5,000,000× — but gold is uncapped in
+                // practice anyway). `update_storage_capacity` sums
                 // these across all colonies into
-                // `GlobalBudget.storage_multiplier`.
-                (modifier_type: "StorageCapacity", value: 0.25),
+                // `GlobalBudget.storage_bonus_mt` (additive; was
+                // the multiplicative `storage_multiplier`).
+                (modifier_type: "StorageCapacity", value: 5000.0),
             ],
             power_demand_mw: 30.0,
         ),

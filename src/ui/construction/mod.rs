@@ -1031,10 +1031,13 @@ mod friendly_label_tests {
 
     #[test]
     fn friendly_label_storage_capacity() {
-        let m = modf("StorageCapacity", 0.25);
+        // v3.10 (GRA-22c Phase 4B): the modifier value is now
+        // Mt per depot (additive), not a percent. The RON
+        // currently stores 5000.0 (one depot = +5,000 Mt).
+        let m = modf("StorageCapacity", 5000.0);
         let (tone, label) = friendly_label(&m).expect("StorageCapacity should produce a label");
         assert_eq!(tone, EffectTone::Positive);
-        assert_eq!(label, "Stockpile capacity +25% (all resources)");
+        assert_eq!(label, "+5000 Mt to stockpile caps (all resources)");
     }
 
     #[test]

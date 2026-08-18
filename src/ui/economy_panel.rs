@@ -3005,9 +3005,12 @@ pub(super) struct ForecastInputs<'w, 's> {
     view_mode: Res<'w, ViewMode>,
     current_star_system: Res<'w, CurrentStarSystem>,
     // v3.8.3: GlobalBudget for the per-body stockpile cap
-    // (storage_multiplier × base_cap) and the StorageCaps
+    // (base_cap + storage_bonus_mt) and the StorageCaps
     // aggregate.  The forecast plateaus at this cap, with
     // the survey reserve as a hard geological limit below it.
+    //
+    // v3.10 (GRA-22c Phase 4B): the additive bonus replaced the
+    // legacy percent multiplier.
     budget: Res<'w, crate::economy::GlobalBudget>,
     local_stockpile_query: Query<
         'w,
@@ -3141,8 +3144,12 @@ fn render_econ_forecast(
         let starmap = matches!(*forecast.view_mode, ViewMode::Starmap);
         // v3.8.3: count bodies in view so the storage cap is
         // scaled correctly.  The per-body cap is constant
-        // (storage_multiplier is global) so cap × N_bodies
-        // gives the aggregate cap for the view.
+        // (storage_bonus_mt is global, applied additively) so
+        // cap × N_bodies gives the aggregate cap for the view.
+        //
+        // v3.10 (GRA-22c Phase 4B): the cap is now
+        // `base + storage_bonus_mt` (additive), not
+        // `base × storage_multiplier` (multiplicative).
         let n_bodies: f64 = forecast
             .local_stockpile_query
             .iter()
@@ -3160,9 +3167,9 @@ fn render_econ_forecast(
             if base >= f64::MAX {
                 continue;
             }
-            // Per-body effective cap = base × storage_multiplier.
+            // Per-body effective cap = base + storage_bonus_mt.
             // Aggregate = per-body × N_bodies.
-            let per_body = base * forecast.budget.storage_multiplier;
+            let per_body = base + forecast.budget.storage_bonus_mt;
             let aggregate = per_body * n_bodies;
             if aggregate > 0.0 {
                 storage_caps.insert(*rt, aggregate);

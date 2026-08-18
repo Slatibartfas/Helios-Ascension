@@ -2000,16 +2000,21 @@ mod tests {
     }
 
     /// Gross (uncapped) production per resource at Earth start (Mt/yr).
-    /// `storage_multiplier = 1e18` makes every stockpile cap effectively
+    /// `storage_bonus_mt = 1e18` makes every stockpile cap effectively
     /// infinite → `throttle_production` passthrough → the one-shot
     /// `update_resource_rates` reports the full per-build × count ×
     /// access rate. This is the number the "Net rate (annual)" display
     /// shows at t=0 (before the cap-throttle engages).
+    ///
+    /// v3.10 (GRA-22c Phase 4B): `storage_multiplier = 1e18` was a
+    /// percent multiplier on the cap. Now the cap is base + bonus,
+    /// so we set `storage_bonus_mt = 1e18` instead — same effect
+    /// (cap becomes infinite), different field.
     fn earth_start_gross_production() -> std::collections::HashMap<ResourceType, f64> {
         let (_, mut app) = earth_start_app();
         app.world_mut()
             .resource_mut::<GlobalBudget>()
-            .storage_multiplier = 1e18;
+            .storage_bonus_mt = 1e18;
         let _ = app.world_mut().run_system_once(update_resource_rates);
         let tracker = app.world().resource::<ResourceRateTracker>();
         tracker

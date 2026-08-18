@@ -177,13 +177,26 @@ pub struct GlobalBudget {
     /// Expenses per year from all colonies (MC/year)
     pub expenses_per_year: f64,
 
-    /// Storage multiplier applied on top of the base per-resource cap.
+    /// Storage bonus (Mt per resource) added to the base per-resource
+    /// cap.
     ///
     /// Updated each frame by `update_storage_capacity` by summing
     /// `StorageCapacity` building modifiers across all colonies.
-    /// Each Warehouse/Resource-Depot contributes +2.5%, so:
-    ///   0 depots → 1.0×, 4 depots → 1.1×, 20 depots → 1.5×.
-    pub storage_multiplier: f64,
+    /// Each Warehouse/Resource-Depot contributes +5,000 Mt per
+    /// resource to the cap (the per-resource cap is **not**
+    /// multiplied — it's just bumped by the bonus mount).
+    ///
+    /// v3.10 (GRA-22c Phase 4B): changed from a percent multiplier
+    /// (`storage_multiplier = 1.0 + n*0.25`) to an absolute Mt
+    /// bonus (`storage_bonus_mt = n * 5000`). The percent-based
+    /// version distorted the cap asymmetry: a 100 Mt Iron cap
+    /// with 4 depots (1.25×) reached 125 Mt, while a 5,000 Mt
+    /// Silicates cap with 4 depots reached 6,250 Mt — meaning
+    /// every percent of "boost" meant a different Mt amount per
+    /// resource. The new additive formula makes the cap
+    /// predictable: 4 depots = 20,000 Mt extra per resource, no
+    /// matter the base cap.
+    pub storage_bonus_mt: f64,
 }
 
 impl GlobalBudget {
@@ -255,7 +268,7 @@ impl GlobalBudget {
             treasury: 1_000_000.0, // Starting treasury: 1M MC (global industrial base)
             income_per_year: 0.0,
             expenses_per_year: 0.0,
-            storage_multiplier: 1.0,
+            storage_bonus_mt: 0.0,
         }
     }
 
@@ -314,7 +327,16 @@ impl GlobalBudget {
     /// of `add_resource` for all ongoing production (mining, food, atmospheric
     /// harvesting) so that stockpiles have finite capacity.
     ///
-    /// The effective cap = `stockpile_cap(resource) * self.storage_multiplier`.
+    /// The effective cap = `stockpile_cap(resource) + self.storage_bonus_mt`.
+    ///
+    /// v3.10 (GRA-22c Phase 4B): `storage_bonus_mt` replaced the
+    /// legacy `storage_multiplier`. The legacy multiplier distorted
+    /// the cap: a 100 Mt Iron cap with 4 depots (1.25×) reached
+    /// 125 Mt, while a 5,000 Mt Silicates cap with 4 depots
+    /// reached 6,250 Mt — every +1% boost meant a different Mt
+    /// amount per resource. The new additive formula makes the
+    /// cap predictable: 4 depots × 5,000 Mt = 20,000 Mt extra per
+    /// resource, no matter the base cap.
     ///
     /// Returns the amount actually added (may be less than `amount` if near cap).
     pub fn add_resource_capped(&mut self, resource: ResourceType, amount: f64) -> f64 {
@@ -359,7 +381,7 @@ impl GlobalBudget {
     ///   storage cap reflects *tank* capacity, not air volume)
     ///
     /// Use `effective_stockpile_cap()` for the actual enforced cap which
-    /// includes the `storage_multiplier` bonus from Warehouse / Resource
+    /// includes the `storage_bonus_mt` bonus from Warehouse / Resource
     /// Depot buildings.
     pub fn stockpile_cap(resource: ResourceType) -> f64 {
         match resource {
@@ -420,13 +442,16 @@ impl GlobalBudget {
 
     /// Effective stockpile cap for `resource`, accounting for storage buildings.
     ///
-    /// = `stockpile_cap(resource) * self.storage_multiplier`
+    /// = `stockpile_cap(resource) + self.storage_bonus_mt`
+    ///
+    /// v3.10 (GRA-22c Phase 4B): additive not multiplicative. See
+    /// the doc comment on `add_resource_capped` for the rationale.
     pub fn effective_stockpile_cap(&self, resource: ResourceType) -> f64 {
         let base = Self::stockpile_cap(resource);
         if base >= f64::MAX {
             return f64::MAX;
         }
-        base * self.storage_multiplier
+        base + self.storage_bonus_mt
     }
 
     /// Returns true if the stockpile for `resource` has reached its effective cap.
@@ -671,16 +696,21 @@ pub fn update_contextual_stockpile(
 }
 
 /// System that scans all colonies for `StorageCapacity` building modifiers and
-/// updates `GlobalBudget.storage_multiplier`.
+/// updates `GlobalBudget.storage_bonus_mt`.
 ///
-/// Each Warehouse / Resource Depot has `StorageCapacity = 0.25`, meaning it
-/// adds +25% to ALL per-resource stockpile caps globally.
-/// `storage_multiplier = 1.0 + Σ(modifier.value × count)`.
+/// Each Warehouse / Resource Depot has `StorageCapacity = 5000.0`, meaning
+/// it adds +5,000 Mt to every per-resource stockpile cap globally.
+/// `storage_bonus_mt = Σ(modifier.value × count)`.
 ///
-/// v3.8.16: raised from 0.10 → 0.25 per depot. At +10% the player needed
-/// ten depots to double storage ("gigantic storage farms"); at +25% the
-/// four starting depots already give a 2.0× multiplier and a handful more
-/// makes storage a meaningful strategic lever without spamming depots.
+/// v3.10 (GRA-22c Phase 4B): changed from a percent-multiplier
+/// (`storage_multiplier = 1.0 + n*0.25`) to an absolute Mt bonus
+/// (`storage_bonus_mt = n * 5000`). The percent-based version
+/// distorted the cap: a 100 Mt Iron cap with 4 depots (1.25×)
+/// reached 125 Mt, while a 5,000 Mt Silicates cap with 4 depots
+/// reached 6,250 Mt — every +1% boost meant a different Mt
+/// amount per resource. The new additive formula makes the cap
+/// predictable: 4 depots × 5,000 Mt = 20,000 Mt extra per
+/// resource, no matter the base cap.
 pub fn update_storage_capacity(
     mut budget: ResMut<GlobalBudget>,
     colonies: Query<&Colony>,
@@ -706,7 +736,7 @@ pub fn update_storage_capacity(
             }
         }
     }
-    budget.storage_multiplier = 1.0 + total_bonus;
+    budget.storage_bonus_mt = total_bonus;
 }
 
 /// System to aggregate power from all generators and update global budget
@@ -947,29 +977,31 @@ mod tests {
     }
 
     #[test]
-    fn test_storage_multiplier_increases_effective_cap() {
+    fn test_storage_bonus_mt_increases_effective_cap() {
+        // v3.10 (GRA-22c Phase 4B): pure additive. 4 depots ×
+        // 5,000 Mt = 20,000 Mt bonus → cap = base + 20,000.
         let mut budget = GlobalBudget::new();
-        budget.storage_multiplier = 1.5; // 20 warehouses × 2.5%
+        budget.storage_bonus_mt = 20_000.0;
         let base_cap = GlobalBudget::stockpile_cap(ResourceType::Iron);
         let eff_cap = budget.effective_stockpile_cap(ResourceType::Iron);
         assert!(
-            (eff_cap - base_cap * 1.5).abs() < 1e-6,
-            "Effective cap should be 1.5× base"
+            (eff_cap - (base_cap + 20_000.0)).abs() < 1e-6,
+            "Effective cap should be base + 20,000 Mt"
         );
     }
 
     #[test]
-    fn test_storage_multiplier_allows_adding_beyond_base_cap() {
+    fn test_storage_bonus_mt_allows_adding_beyond_base_cap() {
         let mut budget = GlobalBudget::new();
-        budget.storage_multiplier = 2.0;
+        budget.storage_bonus_mt = 5_000.0;
         let base_cap = GlobalBudget::stockpile_cap(ResourceType::Iron);
         // Fill to exactly the base cap
         budget.stockpiles.insert(ResourceType::Iron, base_cap);
-        // With 2× multiplier we should still have headroom
-        let added = budget.add_resource_capped(ResourceType::Iron, base_cap);
+        // With 5,000 Mt bonus we should still have headroom
+        let added = budget.add_resource_capped(ResourceType::Iron, 1_000.0);
         assert!(
             added > 0.0,
-            "Should be able to add beyond base cap when multiplier > 1"
+            "Should be able to add beyond base cap when storage_bonus_mt > 0"
         );
     }
 
