@@ -36,7 +36,7 @@
             category: Ui,
             default_volume: 0.7,
             cooldown_ms: 50,
-            prompt: "Heavy metallic pushbutton click, 100ms. Thick brushed-steel actuator slammed shut — bright aggressive attack with mid-low body weight, dry close-mic'd transients, zero reverb tail, no decay sustain. Like a ruggedised industrial key switch on a spacecraft cockpit console. Loud enough to be clearly audible in a busy mix.",
+            prompt: "Sharp metallic pushbutton click, 80ms. A single hard transient — like a small metal striker hitting a steel anvil once, then absolute silence. NO drum head, NO body sustain, NO resonance, NO reverb tail. Just the crack of metal on metal and then nothing. Pure impulse, sub-15ms attack, immediate silence. Reads as a tactile click, not a musical percussion hit.",
         ),
         (
             id: "ui.tab_switch",
@@ -58,9 +58,9 @@
             id: "ui.panel_close",
             file: "ui_panel_close.wav",
             category: Ui,
-            default_volume: 0.65,
+            default_volume: 0.9,
             cooldown_ms: 200,
-            prompt: "Mechanical latch sealing, 200ms. A heavy panel door slamming shut — a single solid metallic impact, then immediate silence. No reverb tail, no echo, no decay sustain. Reads as a metal lid slamming closed. Mirror of ui_panel_open but shorter and more abrupt.",
+            prompt: "Massive metallic slam, 180ms. A heavy steel blast door slammed hard shut with full force — a LOUD, explosive metallic impact with high-amplitude transient, then absolute silence. Reads as a thick iron plate locking closed with real mass behind it. NO reverb, NO decay, NO tail. The sound must be as loud as a slammed car door in a quiet garage — visceral, weighty, decisive.",
         ),
         (
             id: "ui.slider_tick",
