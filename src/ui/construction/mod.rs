@@ -578,6 +578,7 @@ mod body_blocked_tests {
             available_atmospheres: vec![AtmosphereKind::Breathable, AtmosphereKind::None],
             required_anomalies: vec![],
             allowed_body_types: vec![BodyType::Moon, BodyType::GasGiant, BodyType::Asteroid],
+            money_cost_mc_per_year: 0.0,
         }
     }
 
@@ -603,6 +604,7 @@ mod body_blocked_tests {
             available_atmospheres: vec![AtmosphereKind::Breathable, AtmosphereKind::None],
             required_anomalies: vec![],
             allowed_body_types: vec![],
+            money_cost_mc_per_year: 0.0,
         }
     }
 

@@ -1162,6 +1162,7 @@ mod tests {
                 required_anomalies: vec![],
                 allowed_body_types: vec![],
                 replaces_in_line: None,
+                money_cost_mc_per_year: 0.0,
             },
         );
         BuildingsData {
@@ -1306,6 +1307,7 @@ mod tests {
                 required_anomalies: vec![],
                 allowed_body_types: vec![],
                 replaces_in_line: None,
+                money_cost_mc_per_year: 0.0,
             },
         );
         defs.insert(
@@ -1337,6 +1339,7 @@ mod tests {
                 required_anomalies: vec![],
                 allowed_body_types: vec![],
                 replaces_in_line: None,
+                money_cost_mc_per_year: 0.0,
             },
         );
         BuildingsData {
@@ -1396,6 +1399,7 @@ mod tests {
                 required_anomalies: vec![],
                 allowed_body_types: vec![],
                 replaces_in_line: None,
+                money_cost_mc_per_year: 0.0,
             },
         );
         defs.insert(
@@ -1427,6 +1431,7 @@ mod tests {
                 required_anomalies: vec![],
                 allowed_body_types: vec![],
                 replaces_in_line: None,
+                money_cost_mc_per_year: 0.0,
             },
         );
         defs.insert(
@@ -1458,6 +1463,7 @@ mod tests {
                 required_anomalies: vec![],
                 allowed_body_types: vec![],
                 replaces_in_line: None,
+                money_cost_mc_per_year: 0.0,
             },
         );
         BuildingsData {
@@ -1721,6 +1727,7 @@ mod tests {
                 required_anomalies: vec![],
                 allowed_body_types: vec![],
                 replaces_in_line: None,
+                money_cost_mc_per_year: 0.0,
             },
         );
         BuildingsData {

@@ -626,11 +626,32 @@ impl Colony {
     /// v3.6: the per-year cost fraction (5%) is read from
     /// `colony_constants.operating_cost_fraction` instead of being
     /// hard-coded.
+    ///
+    /// v3.10 (GRA-22c Phase 4C): when a building has an explicit
+    /// `money_cost_mc_per_year` (in the RON data file), use that
+    /// directly. Otherwise fall back to the legacy
+    /// `build_cost() × operating_cost_fraction` formula. The new
+    /// path is the user-facing one — the cost is no longer
+    /// derived from the build cost in BP, but from a real MC
+    /// estimate (staff payroll + capital + maintenance
+    /// contracts). Power plants, financial centres, and shipyards
+    /// pay the most; mines and farms pay the least.
     pub fn operating_cost_per_year(&self, data: &super::data::BuildingsData) -> f64 {
         let rate = data.colony_constants.operating_cost_fraction;
         self.buildings
             .iter()
-            .map(|(bt, count)| bt.build_cost() * rate * (*count as f64))
+            .map(|(bt, count)| {
+                let per_build = data
+                    .get(bt)
+                    .map(|d| d.money_cost_mc_per_year)
+                    .unwrap_or(0.0);
+                let cost = if per_build > 0.0 {
+                    per_build
+                } else {
+                    bt.build_cost() * rate
+                };
+                cost * (*count as f64)
+            })
             .sum()
     }
 

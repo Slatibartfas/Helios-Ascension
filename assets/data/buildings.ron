@@ -3154,6 +3154,12 @@
                 // `src/colony/components.rs:wealth_generation_per_year`.
                 (modifier_type: "WealthGeneration", value: 500.0),
             ],
+            // v3.10 (GRA-22c Phase 4C): explicit money cost. A
+            // commercial district has high staff payroll (8,000
+            // workers × $50k/yr = $400M = 400 MC/yr) plus rent
+            // and marketing overhead. Net of wealth produced
+            // (500 MC/yr) the building is +100 MC/yr profitable.
+            money_cost_mc_per_year: 400.0,
             power_demand_mw: 120,
         ),
         (
@@ -3194,6 +3200,10 @@
                 // (investment returns). Authoritative value moved to RON.
                 (modifier_type: "WealthGeneration", value: 2000.0),
             ],
+            // v3.10 (GRA-22c Phase 4C): 10,000 staff × $80k/yr
+            // = $800M = 800 MC/yr. Net of wealth produced
+            // (2,000 MC/yr) the building is +1,200 MC/yr profitable.
+            money_cost_mc_per_year: 800.0,
             power_demand_mw: 150,
         ),
         (
@@ -3244,6 +3254,12 @@
             build_points: 10000.0,
             workforce: 80000,
             required_tech: "orbital_construction",
+            // v3.10 (GRA-22c Phase 4C): shipyard has the highest
+            // MC operating cost — 80,000 workers × $80k/yr
+            // = $6.4B = 6,400 MC/yr. The shipyard doesn't earn
+            // MC directly (vessels are accounted separately), but
+            // the staff cost is the largest single line item in
+            // the colony budget.
             resource_costs: [
                 ("Iron", 1000.0),
                 ("Titanium", 667.0),
@@ -3272,6 +3288,13 @@
                 // which is independent of the colony's `ConstructionCost`
                 // modifier path.
             ],
+            // v3.10 (GRA-22c Phase 4C): money cost. 80,000
+            // workers × \$80k/yr = \$6.4B = 6,400 MC/yr. The
+            // shipyard doesn't earn MC directly (vessels are
+            // accounted separately), but the staff cost is the
+            // largest single line item in the colony budget.
+            // See `src/colony/components.rs::operating_cost_per_year`.
+            money_cost_mc_per_year: 6400.0,
             power_demand_mw: 4500,
         ),
         (

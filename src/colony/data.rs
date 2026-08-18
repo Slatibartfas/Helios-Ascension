@@ -149,11 +149,59 @@ pub struct BuildingDefinition {
     /// building is added. Most buildings leave this as `None`.
     #[serde(default)]
     pub replaces_in_line: Option<String>,
+    /// v3.10 (GRA-22c Phase 4C): per-build operating cost in
+    /// MC/year (megacredits per year, NOT megatonnes). The
+    /// `operating_cost_per_year` reads this directly when `> 0`;
+    /// when `0` it falls back to the legacy `build_cost() × 5%`
+    /// formula so old buildings without an explicit value still
+    /// have a non-zero cost.
+    ///
+    /// The MC is a financial operating cost (staff, capital,
+    /// maintenance contracts) — distinct from the maintenance
+    /// resource draw (Iron, Water, etc.) which is paid in Mt.
+    /// Defaults to 0.0 so existing RON entries without the field
+    /// continue to parse (and the legacy fallback applies).
+    #[serde(default)]
+    pub money_cost_mc_per_year: f64,
 }
 
 /// Default atmosphere availability: buildable on every body kind.
 fn default_available_atmospheres() -> Vec<AtmosphereKind> {
     vec![AtmosphereKind::Breathable, AtmosphereKind::None]
+}
+
+impl Default for BuildingDefinition {
+    /// v3.10 (GRA-22c Phase 4C): a `Default` impl so tests can
+    /// use `..Default::default()` instead of explicitly listing
+    /// every field (the struct has 18 fields now and counting).
+    /// The defaults mirror `#[serde(default)]` on the struct so
+    /// a missing-field RON entry and a missing-field test
+    /// initializer both produce the same shape.
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            display_name: String::new(),
+            description: String::new(),
+            icon: String::new(),
+            category: String::new(),
+            build_points: 0.0,
+            workforce: 0,
+            required_tech: String::new(),
+            resource_costs: Vec::new(),
+            maintenance_resources: Vec::new(),
+            modifiers: Vec::new(),
+            power_demand_mw: 0.0,
+            tier: 0,
+            line: None,
+            replaces: None,
+            synergy: Vec::new(),
+            available_atmospheres: default_available_atmospheres(),
+            required_anomalies: Vec::new(),
+            allowed_body_types: Vec::new(),
+            replaces_in_line: None,
+            money_cost_mc_per_year: 0.0,
+        }
+    }
 }
 
 impl BuildingDefinition {
@@ -883,6 +931,7 @@ mod tests {
             available_atmospheres: default_available_atmospheres(),
             required_anomalies: vec![],
             allowed_body_types: vec![],
+            money_cost_mc_per_year: 0.0,
         };
         assert!(def.required_tech_opt().is_none());
 
@@ -926,6 +975,7 @@ mod tests {
                 available_atmospheres: default_available_atmospheres(),
                 required_anomalies: vec![],
                 allowed_body_types: vec![],
+                money_cost_mc_per_year: 0.0,
             },
         );
 
@@ -1073,6 +1123,7 @@ mod tests {
             available_atmospheres: default_available_atmospheres(),
             required_anomalies: vec![],
             allowed_body_types: vec![],
+            money_cost_mc_per_year: 0.0,
         }
     }
 
@@ -1345,6 +1396,7 @@ mod tests {
             available_atmospheres: atms,
             required_anomalies: vec![],
             allowed_body_types: vec![],
+            money_cost_mc_per_year: 0.0,
         }
     }
 
@@ -1392,6 +1444,7 @@ mod tests {
                     available_atmospheres: atms,
                     required_anomalies: vec![],
                     allowed_body_types: vec![],
+                    money_cost_mc_per_year: 0.0,
                 },
             );
         };
@@ -1486,6 +1539,7 @@ mod tests {
                 available_atmospheres: default_available_atmospheres(),
                 required_anomalies: vec![],
                 allowed_body_types: vec![Moon, GasGiant, Asteroid],
+                money_cost_mc_per_year: 0.0,
             },
         );
 
