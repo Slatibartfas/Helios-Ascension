@@ -411,6 +411,12 @@ def _ffmpeg_transcode(src: Path, dst: Path, duration_s: float | None = None) -> 
     # `-y` overwrites the dst; `-ar 44100` matches the synth's
     # sample rate; `-ac 1` mono (UI SFX doesn't need stereo);
     # `-t <dur>` caps the output length to the cue's target.
+    # `-af "afade=t=out:st=<X>:d=<Y>"` applies a short linear
+    # fade-out at the end so the ElevenLabs render-block padding
+    # (~480ms minimum) doesn't get clipped with a hard edge when
+    # we `-t` to a shorter target. The fade is `max(8ms, 15% of
+    # the cue length)` — short so it doesn't change the cue's
+    # perceived attack, long enough to absorb the trim click.
     cmd = [
         ffmpeg,
         "-y",
@@ -421,6 +427,9 @@ def _ffmpeg_transcode(src: Path, dst: Path, duration_s: float | None = None) -> 
     ]
     if duration_s is not None:
         cmd += ["-t", f"{duration_s:.3f}"]
+        fade_dur = max(0.008, duration_s * 0.15)
+        fade_start = max(0.0, duration_s - fade_dur)
+        cmd += ["-af", f"afade=t=out:st={fade_start:.3f}:d={fade_dur:.3f}"]
     cmd += [
         "-f", "wav",
         str(dst),
@@ -504,11 +513,29 @@ def main() -> int:
         action="store_true",
         help="Print the plan without writing any files.",
     )
+    parser.add_argument(
+        "--only",
+        action="append",
+        default=None,
+        metavar="CUE_ID",
+        help="Only regenerate the given cue_id (repeatable). Useful when iterating on a single cue without spending API quota on the rest.",
+    )
     args = parser.parse_args()
 
     cues = parse_prompts(PROMPTS_PATH)
     if not cues:
         sys.exit(f"no cues parsed from {PROMPTS_PATH}")
+
+    if args.only:
+        wanted = set(args.only)
+        before = len(cues)
+        cues = [c for c in cues if c["cue_id"] in wanted]
+        if not cues:
+            sys.exit(f"--only filtered out every cue (parsed {before})")
+        print(
+            f"generate_sfx: {len(cues)} cue(s) after --only filter "
+            f"(from {before} parsed)"
+        )
 
     print(f"generate_sfx: {len(cues)} cue(s) parsed from {PROMPTS_PATH.name}")
 

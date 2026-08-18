@@ -36,7 +36,7 @@
             category: Ui,
             default_volume: 0.7,
             cooldown_ms: 50,
-            prompt: "Cold metallic pushbutton click, 80ms. Brushed steel actuator — sharp mechanical snap, dry close-mic'd transients, zero reverb. Like a recessed avionics key in a vacuum-rated console.",
+            prompt: "Heavy metallic pushbutton click, 100ms. Thick brushed-steel actuator slammed shut — bright aggressive attack with mid-low body weight, dry close-mic'd transients, zero reverb tail, no decay sustain. Like a ruggedised industrial key switch on a spacecraft cockpit console. Loud enough to be clearly audible in a busy mix.",
         ),
         (
             id: "ui.tab_switch",
@@ -44,7 +44,7 @@
             category: Ui,
             default_volume: 0.6,
             cooldown_ms: 80,
-            prompt: "Industrial relay throw, 120ms. Heavy-duty latching solenoid in a sealed enclosure — clunk of a magnetic contact closing. Lower, drier, more mechanical than ui_button_click.",
+            prompt: "Pure mechanical switch click, 110ms. A single mid-frequency clack — like a sealed micro-switch closing inside a metal enclosure. Completely DRY, no reverb, no tail, no sustain. Sharp attack and immediate silence. Reads as 'click happened', not as a musical note. Lower pitch and duller timbre than ui_button_click — distinctly different character.",
         ),
         (
             id: "ui.panel_open",
@@ -52,7 +52,7 @@
             category: Ui,
             default_volume: 0.65,
             cooldown_ms: 200,
-            prompt: "Hydraulic actuator extending, 280ms. A heavy blast door cycling open — pressurised hiss bleeding into a mechanical servo lock. Mid-frequency, no whoosh, no air-sweep fantasy. Just mass and force.",
+            prompt: "Mechanical latch releasing, 220ms. A heavy panel door unlatching — a single decisive mechanical unlock thunk followed by an immediate short slide. No alarm, no siren, no whoosh. Completely dry, no reverb tail. Reads as a metal lid popping open, finishing cleanly within the duration.",
         ),
         (
             id: "ui.panel_close",
@@ -60,7 +60,7 @@
             category: Ui,
             default_volume: 0.65,
             cooldown_ms: 200,
-            prompt: "Hydraulic actuator retracting, 240ms. Blast door sealing shut — servo lock engaging with a definitive mechanical thud. Mirror character of ui_panel_open, faster decay.",
+            prompt: "Mechanical latch sealing, 200ms. A heavy panel door slamming shut — a single solid metallic impact, then immediate silence. No reverb tail, no echo, no decay sustain. Reads as a metal lid slamming closed. Mirror of ui_panel_open but shorter and more abrupt.",
         ),
         (
             id: "ui.slider_tick",
@@ -100,7 +100,7 @@
             category: Ui,
             default_volume: 0.75,
             cooldown_ms: 200,
-            prompt: "Armed detonator confirmation, 320ms. Two descending tones in a tight interval — like an arming switch throwing + a solenoid latching into 'READY'. Authoritative, decisive, slightly ominous.",
+            prompt: "Metallic confirmation impact, 280ms. A single low-mid metallic thud followed by one short descending metallic ping — like a heavy solenoid latching into 'READY'. NO flute, NO woodwind, NO sustained tonal note. Pure metal — percussive, dry, no reverb. Aggressive transient at the start, immediate silence at the end. Must NOT sound musical or sweet.",
         ),
         (
             id: "ui.modal_cancel",
