@@ -1257,7 +1257,13 @@ pub fn setup_solar_system(
                 // Economy
                 (BuildingType::FinancialCenter, 100),
                 (BuildingType::CommercialHub, 500),
-                (BuildingType::TradePort, 50),
+                // v3.10 (GRA-22c Phase 4C-2): TradePort entry
+                // removed. The TradePort building has no RON
+                // definition anymore (deleted in Phase 4C-2); the
+                // startup loop silently no-ops on it. Trade
+                // revenue now flows through FinancialCenter +
+                // CommercialHub + (future) LaunchSite-based
+                // transfer fees.
                 // Medical/Population
                 (BuildingType::MedicalCenter, 200),
                 (BuildingType::PharmaceuticalPlant, 100),

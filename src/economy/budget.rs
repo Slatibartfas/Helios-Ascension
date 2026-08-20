@@ -739,6 +739,95 @@ pub fn update_storage_capacity(
     budget.storage_bonus_mt = total_bonus;
 }
 
+/// System that scans every body for `LaunchSite` buildings and
+/// updates its `LaunchCapacity` component's `cap_tonnes` and
+/// `current_tonnes`.
+///
+/// Per-body model:
+///   - `cap_tonnes` = Σ `LaunchCapacityMax` × count across the
+///     body's LaunchSite buildings. The cap is global per body,
+///     not per colony.
+///   - `current_tonnes` grows each simulated tick by
+///     `LaunchCapacityProduction` × count (tonnes/yr), capped at
+///     `cap_tonnes`. We measure elapsed simulated time via
+///     `SimulationTime.elapsed_seconds()` (a `Local<f64>` persists
+///     the previous tick's elapsed time across calls).
+///
+/// v3.10 (GRA-22c Phase 4C-2): producer path only. The consumer
+/// path (per-liftoff deduction in `fleets::systems`) is pinned
+/// to a future phase. The producer is wired so existing tests
+/// pass and the canary card surfaces the live accumulator.
+pub fn update_launch_capacity(
+    mut commands: Commands,
+    bodies: Query<(
+        Entity,
+        Option<&Colony>,
+        Option<&crate::economy::components::LaunchCapacity>,
+    )>,
+    buildings_data: Option<Res<BuildingsData>>,
+    sim_time: Res<crate::ui::time::SimulationTime>,
+    mut prev_total: Local<f64>,
+) {
+    use crate::colony::BuildingType;
+
+    let data = match buildings_data {
+        Some(ref d) if !d.definitions.is_empty() => d,
+        _ => return,
+    };
+
+    let launchsite_def = match data.get(&BuildingType::LaunchSite) {
+        Some(d) => d,
+        None => return,
+    };
+    let prod_per_build: f64 = launchsite_def
+        .modifiers
+        .iter()
+        .find(|m| m.modifier_type == "LaunchCapacityProduction")
+        .map(|m| m.value)
+        .unwrap_or(0.0);
+    let cap_per_build: f64 = launchsite_def
+        .modifiers
+        .iter()
+        .find(|m| m.modifier_type == "LaunchCapacityMax")
+        .map(|m| m.value)
+        .unwrap_or(0.0);
+
+    // Compute simulated-time delta in years since the last call.
+    // `Local<f64>` is initialised to 0.0 by Bevy on the first
+    // invocation, so the first call's delta is the full elapsed
+    // since t=0 (which is fine — it just means the body starts
+    // at full capacity).
+    let now = sim_time.elapsed_seconds();
+    let dt_years = (now - *prev_total).max(0.0) / 31_557_600.0;
+    *prev_total = now;
+
+    for (entity, colony_opt, lc_opt) in bodies.iter() {
+        let count = colony_opt
+            .map(|c| c.building_count(BuildingType::LaunchSite))
+            .unwrap_or(0);
+        let cap_tonnes = count as f64 * cap_per_build;
+        let prod_per_year_tonnes = count as f64 * prod_per_build;
+
+        let mut lc = lc_opt.copied().unwrap_or_default();
+        lc.cap_tonnes = cap_tonnes;
+        if cap_tonnes > 0.0 && prod_per_year_tonnes > 0.0 && dt_years > 0.0 {
+            let delta = prod_per_year_tonnes * dt_years;
+            lc.add_capped(delta);
+        }
+
+        // Only touch the entity if the cap or current changed.
+        let changed = lc_opt
+            .map(|prev| {
+                (prev.cap_tonnes - lc.cap_tonnes).abs() > 1e-6
+                    || (prev.current_tonnes - lc.current_tonnes).abs() > 1e-6
+            })
+            .unwrap_or(true);
+        if changed {
+            commands.entity(entity).insert(lc);
+        }
+    }
+}
+
 /// System to aggregate power from all generators and update global budget
 pub fn update_power_grid(
     mut budget: ResMut<GlobalBudget>,

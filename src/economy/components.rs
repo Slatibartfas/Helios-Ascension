@@ -514,6 +514,68 @@ pub struct LocalStockpile {
     pub stockpiles: HashMap<ResourceType, f64>,
 }
 
+/// Per-body **launch capacity** accumulator (Terra Invicta-style
+/// "boosters"). A `LaunchSite` building on a body produces
+/// `LaunchCapacity` over time (modelled like `*Production`), and
+/// the per-body cap is set by `LaunchCapacityMax` (also a
+/// `LaunchSite` modifier). Orbital activities (ships lifting from
+/// this body to orbit) consume `LaunchCapacity` — the consumer
+/// path is wired in a future phase; the producer path is wired
+/// here.
+///
+/// The mechanic is identical to Terra Invicta's launch resource:
+/// the player accumulates a stockpile per body, then consumes it
+/// when ships lift off or trade vessels dock.
+///
+/// v3.10 (GRA-22c Phase 4C-2): added. The simulation is currently
+/// producer-only (the per-body cap and accumulator), so existing
+/// saves and tests are not affected. A future phase will wire
+/// consumption into `src/fleets/systems.rs` for surface-to-orbit
+/// maneuvers.
+#[derive(Component, Debug, Copy, Clone, Default, Reflect)]
+#[reflect(Component)]
+pub struct LaunchCapacity {
+    /// Current accumulated launch mass (tonnes).
+    pub current_tonnes: f64,
+    /// Maximum capacity (tonnes). Set from `LaunchCapacityMax`
+    /// building modifiers across the body's colonies.
+    pub cap_tonnes: f64,
+}
+
+impl LaunchCapacity {
+    /// Create a new launch capacity with zero current / zero cap.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Compute the **headroom** (tonnes) — the difference between
+    /// cap and current, floored at 0.
+    pub fn headroom(&self) -> f64 {
+        (self.cap_tonnes - self.current_tonnes).max(0.0)
+    }
+
+    /// Add `delta_tonnes` to the current accumulator, capped at
+    /// the cap. Returns the amount actually added (0 if at cap).
+    pub fn add_capped(&mut self, delta_tonnes: f64) -> f64 {
+        assert!(delta_tonnes >= 0.0);
+        let added = delta_tonnes.min(self.headroom());
+        self.current_tonnes += added;
+        added
+    }
+
+    /// Try to consume `delta_tonnes`. Returns `true` if the
+    /// consumption succeeded (and decrements `current_tonnes`),
+    /// `false` if there wasn't enough launch capacity.
+    pub fn try_consume(&mut self, delta_tonnes: f64) -> bool {
+        if self.current_tonnes >= delta_tonnes {
+            self.current_tonnes -= delta_tonnes;
+            true
+        } else {
+            false
+        }
+    }
+}
+
 impl LocalStockpile {
     /// Create an empty local stockpile.
     pub fn new() -> Self {

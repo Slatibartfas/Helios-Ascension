@@ -127,6 +127,38 @@ pub fn friendly_label(m: &BuildingModifierDef) -> Option<(EffectTone, String)> {
         ));
     }
 
+    // v3.10 (GRA-22c Phase 4C-2): LaunchCapacity modifier labels.
+    // The two modifiers are owned by `LaunchSite`; the resource
+    // itself (per-body accumulator) is `LaunchCapacity` in
+    // `economy::components`. The `LaunchCapacityProduction`
+    // modifier is consumed by `economy::update_launch_capacity`
+    // (the writer). `LaunchCapacityMax` sets the cap on the
+    // same component.
+    if ty == "LaunchCapacityProduction" && v > 0.0 {
+        return Some((
+            EffectTone::Positive,
+            format!("Produces {:.0} t/yr LaunchCapacity", v),
+        ));
+    }
+    if ty == "LaunchCapacityMax" && v > 0.0 {
+        return Some((
+            EffectTone::Positive,
+            format!("LaunchCapacity cap +{:.0} t", v),
+        ));
+    }
+
+    // v3.10 (GRA-22c Phase 4C-2): ControlCenter label. Each
+    // ControlCenter adds +1 fleet slot to the body (per Terra
+    // Invicta mission-control logic). The actual slot
+    // enforcement is pinned to a future phase (the
+    // `fleets::systems` consumer); this label is cosmetic.
+    if ty == "FleetCapacity" && v > 0.0 {
+        return Some((
+            EffectTone::Positive,
+            format!("+{:.0} fleet slot{}", v, if v == 1.0 { "" } else { "s" }),
+        ));
+    }
+
     if let Some(elem) = ty.strip_suffix("Breeding") {
         if v > 0.0 {
             return Some((

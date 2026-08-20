@@ -644,7 +644,7 @@ pub(super) fn parse_building_type(id: &str) -> Option<BuildingType> {
         "AiCluster" => Some(BuildingType::AiCluster),
         "CommercialHub" => Some(BuildingType::CommercialHub),
         "FinancialCenter" => Some(BuildingType::FinancialCenter),
-        "TradePort" => Some(BuildingType::TradePort),
+        // v3.10 (GRA-22c Phase 4C-2): TradePort removed.
         "Shipyard" => Some(BuildingType::Shipyard),
         "MissileSilo" => Some(BuildingType::MissileSilo),
         "LaunchSite" => Some(BuildingType::LaunchSite),
