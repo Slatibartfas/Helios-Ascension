@@ -604,15 +604,18 @@ impl Colony {
     /// removed.
     /// - CommercialHub:    500 MC/yr  (local economy)
     /// - FinancialCenter: 2,000 MC/yr  (investment returns)
-    /// - TradePort:       5,000 MC/yr  (interplanetary trade)
     /// - Factory:           100 MC/yr  (manufactured-goods revenue)
+    ///
+    /// v3.10 (GRA-22c Phase 4C-2): TradePort removed from the list
+    /// (TradePort has no RON definition anymore — the enum variant
+    /// was also removed; existing saves with `TradePort` counts
+    /// deserialize as orphan entries with no contribution).
     ///
     /// Scaled by workforce efficiency (understaffed buildings produce less).
     pub fn wealth_generation_per_year(&self, data: &super::data::BuildingsData) -> f64 {
         let sum: f64 = [
             BuildingType::CommercialHub,
             BuildingType::FinancialCenter,
-            BuildingType::TradePort,
             BuildingType::Factory,
         ]
         .iter()

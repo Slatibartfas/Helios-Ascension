@@ -3141,10 +3141,25 @@
                 ("Gold", 0.05),
             ],
             maintenance_resources: [
-                ("Iron", 0.01),
-                ("Copper", 0.0007766),
-                ("Polymers", 0.001),
-                ("Water", 0.05),
+                // v3.10 (GRA-22c Phase 4C-2): maintenance draw
+                // bumped to absorb the now-removed TradePort's
+                // per-build consumption. TradePort was 50
+                // buildings on Earth with Iron 0.5 + Cu 0.007766
+                // + Ti 0.005 + Poly 0.001 + Water 0.05 per build;
+                // 500 CommercialHubs (10× more numerous) each
+                // pick up 1/10 of that draw:
+                //   Iron   0.01  → 0.06   (+0.05)
+                //   Cu     0.0007766 → 0.0015532 (+0.0007766)
+                //   Ti     0    → 0.0005 (+0.0005)
+                //   Poly   0.001 → 0.0011 (+0.0001)
+                //   Water  0.05  → 0.055  (+0.005)
+                // Total Earth Iron draw bumps from 5 → 30 Mt/yr;
+                // matches the TradePort contribution (25 Mt/yr).
+                ("Iron", 0.06),
+                ("Copper", 0.0015532),
+                ("Titanium", 0.0005),
+                ("Polymers", 0.0011),
+                ("Water", 0.055),
                 ("Sulfur", 0.00046667),
             ],
             modifiers: [
@@ -3206,41 +3221,22 @@
             money_cost_mc_per_year: 800.0,
             power_demand_mw: 150,
         ),
-        (
-            id: "TradePort",
-            display_name: "Trade Port",
-            description: "Interplanetary trade port for import/export revenue",
-            icon: "textures/ui/buildings/trade-port.png",
-            category: "Financial",
-            build_points: 2500.0,
-            workforce: 15000,
-            required_tech: "",
-            resource_costs: [
-                // GRA-22c Phase 2.2: port + cranes + customs
-                // processing. 583 Mt total, Fe 45% (was 57%).
-                ("Iron", 260.0),
-                ("Copper", 60.0),
-                ("Aluminum", 30.0),
-                ("Silicates", 80.0),
-                ("Titanium", 130.0),
-                ("Polymers", 12.0),
-                ("Water", 11.0),
-            ],
-            maintenance_resources: [
-                ("Iron", 0.5),
-                ("Copper", 0.007766),
-                ("Titanium", 0.005),
-                ("Polymers", 0.001),
-                ("Water", 0.05),
-            ],
-            modifiers: [
-                // v3.6: WealthGeneration per TradePort = 5,000 MC/yr
-                // (interplanetary trade revenue). Authoritative value
-                // moved to RON from hard-code.
-                (modifier_type: "WealthGeneration", value: 5000.0),
-            ],
-            power_demand_mw: 300,
-        ),
+
+        // ========================================
+        // v3.10 (GRA-22c Phase 4C-2): TradePort removed
+        // (BuildingType enum variant + RON entry + maintenance
+        // draw). Per the user's v3 audit the trade mechanic
+        // (transfer of material to orbit) now lives on
+        // `LaunchSite` (a launch resource, see `LaunchCapacity`
+        // in `economy::components::LaunchCapacity`). The
+        // maintenance draw that TradePort used to carry is
+        // absorbed by `CommercialHub` — see the per-build
+        // maintenance bump in the `CommercialHub` RON entry.
+        // Existing saves with `TradePort` counts deserialize as
+        // orphan entries (the enum variant is gone; serde
+        // silently drops the count). Saves remain loadable but
+        // the TradePort counts are lost on save → load.
+        // ========================================
 
         // ========================================
         // MILITARY & SHIPBUILDING
@@ -3325,7 +3321,15 @@
         (
             id: "LaunchSite",
             display_name: "Launch Site",
-            description: "Rocket launch site for orbital access",
+            // v3.10 (GRA-22c Phase 4C-2): explicit effects.
+            // Produces 100 t/yr of LaunchCapacity per build (Terra
+            // Invicta-style launch-mass accumulator), capped at
+            // 5,000 t per build. Almost everything in orbit
+            // (ships lifting off, station resupply, trade
+            // transfers) consumes this resource. The producer
+            // path is wired in this commit; the consumer path
+            // (per-liftoff deduction) is pinned to a future phase.
+            description: "Rocket launch site for orbital access. Produces 100 t/yr LaunchCapacity per build, capped at 5,000 t. Orbital activities (ship lift-offs, station resupply) consume the LaunchCapacity pool — without a LaunchSite on the home body, you can't get to orbit.",
             icon: "textures/ui/buildings/launch-site.png",
             category: "Military",
             build_points: 2000.0,
@@ -3353,7 +3357,20 @@
                 // of the 100 Mt/yr world H₂ output).
                 ("Hydrogen", 0.15),
             ],
-            modifiers: [],
+            modifiers: [
+                // v3.10 (GRA-22c Phase 4C-2): the launch-resource
+                // system. See `economy::components::LaunchCapacity`
+                // and `economy::update_launch_capacity` for the
+                // consumer/writer. The two modifiers are
+                // currently display-only (the friendly_label
+                // surfaces both on the canary card); a future
+                // phase will wire consumption into
+                // `fleets::systems::process_fleet_actions` so
+                // surface-to-orbit liftoffs deduct
+                // LaunchCapacity.
+                (modifier_type: "LaunchCapacityProduction", value: 100.0),
+                (modifier_type: "LaunchCapacityMax", value: 5000.0),
+            ],
             power_demand_mw: 750,
         ),
 
@@ -3876,11 +3893,18 @@
         // ========================================
         // ADVANCED SPACE
         // ========================================
+        // v3.10 (GRA-22c Phase 4C-2): SpacePort → ControlCenter.
+        // Same BuildingType enum variant (rename would cascade
+        // through too many call sites); the `id`, `display_name`,
+        // and `description` change. The variant now reads as a
+        // mission-control / fleet-coordination hub rather than a
+        // launch complex (LaunchSite owns the launch resource;
+        // ControlCenter owns fleet / station hosting capacity).
         (
-            id: "SpacePort",
-            display_name: "Space Port",
-            description: "High-throughput orbital launch complex with multiple pads",
-            icon: "textures/ui/buildings/space-port.png",
+            id: "ControlCenter",
+            display_name: "Control Center",
+            description: "Mission-control hub for fleets, stations, and orbital infrastructure. Provides +1 FleetCapacity per build (max concurrent fleets the body can host).",
+            icon: "textures/ui/buildings/control-center.png",
             category: "Military",
             build_points: 4000.0,
             workforce: 20000,
@@ -3905,7 +3929,16 @@
                 // with a 1.6× over-supply).
                 ("Magnesium", 0.0025),
             ],
-            modifiers: [],
+            modifiers: [
+                // v3.10 (GRA-22c Phase 4C-2): +1 FleetCapacity per
+                // build. Each FleetCapacity allows one fleet to
+                // be hosted on the body (e.g. Earth's 50 control
+                // centers × 1 = 50 fleet slots). The
+                // FleetCapacity consumer is pinned to a future
+                // phase; the modifier is currently display-only
+                // (canary card shows "+1 fleet slot per build").
+                (modifier_type: "FleetCapacity", value: 1.0),
+            ],
             power_demand_mw: 1500,
         ),
         (

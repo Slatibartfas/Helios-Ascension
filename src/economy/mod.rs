@@ -43,9 +43,9 @@ pub use auto_freight::{
 };
 pub use budget::{
     calculate_colony_power_totals, format_currency, format_power, update_civilization_score,
-    update_contextual_stockpile, update_power_grid, update_storage_capacity, ColonyPowerTotals,
-    ContextualStockpile, EnergyGrid, GlobalBudget, ResourceRateTracker, SECONDS_PER_MONTH,
-    SECONDS_PER_YEAR,
+    update_contextual_stockpile, update_launch_capacity, update_power_grid,
+    update_storage_capacity, ColonyPowerTotals, ContextualStockpile, EnergyGrid, GlobalBudget,
+    ResourceRateTracker, SECONDS_PER_MONTH, SECONDS_PER_YEAR,
 };
 pub use company::{ShippingCompanies, ShippingCompany};
 pub use components::{
@@ -111,6 +111,14 @@ impl Plugin for EconomyPlugin {
                         // buildings × modifiers walk is skipped in
                         // the menu.
                         .run_if(in_game_only),
+                    // v3.10 (GRA-22c Phase 4C-2): LaunchCapacity
+                    // per-body accumulator writer. Same gate
+                    // (only runs in-game). The producer path
+                    // accumulates tonnes per simulated year
+                    // (LaunchCapacityProduction × count); the
+                    // consumer path is pinned to a future phase
+                    // (per-liftoff deduction in fleets::systems).
+                    update_launch_capacity.run_if(in_game_only),
                     update_power_grid,
                     update_civilization_score.after(update_power_grid),
                     extract_resources,

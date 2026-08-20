@@ -45,11 +45,37 @@ pub const COST_AUDIT_MAX_SINGLE_SHARE: f64 = 0.60;
 /// evaluated with a 1e-9 tolerance.
 pub const COST_AUDIT_EPSILON: f64 = 1e-9;
 
+/// BuildingType variants that are intentionally excluded from
+/// the cost-audit thresholds. The list tracks the
+/// "orphan variant" set — variants kept in the enum so existing
+/// saves deserialize cleanly, but with no RON definition (the
+/// RON was renamed or removed in a recent phase). Add to this
+/// list when an enum variant is intentionally orphaned; never
+/// remove entries without verifying all variants in the list
+/// are still orphans.
+pub const ORPHAN_BUILDING_VARIANTS: &[BuildingType] = &[
+    // v3.10 (GRA-22c Phase 4C-2): SpacePort. The RON entry was
+    // renamed to `ControlCenter`. The enum variant stays for
+    // save-game backward compatibility, but new builds look up
+    // `BuildingType::SpacePort` → no RON match → 0 Mt cost.
+    //
+    // TradePort: removed from this list — the enum variant was
+    // also removed in v3.10 (GRA-22c Phase 4C-2). Saves with
+    // `TradePort` counts deserialize as orphan entries
+    // (unknown enum variant → serde_json silently drops the
+    // count). The orphan-list no longer needs to exclude it
+    // because `BuildingType::all()` no longer iterates over it.
+    BuildingType::SpacePort,
+];
+
 #[test]
 fn every_building_has_at_least_four_construction_materials() {
     let data = BuildingsData::load_for_tests();
     let mut failures: Vec<String> = Vec::new();
     for &bt in BuildingType::all() {
+        if ORPHAN_BUILDING_VARIANTS.contains(&bt) {
+            continue;
+        }
         let costs = data.resource_costs(&bt);
         let distinct: std::collections::BTreeSet<&str> =
             costs.iter().map(|(name, _)| name.as_str()).collect();
@@ -110,7 +136,11 @@ fn cost_audit_thresholds_match_reference() {
     // If anyone tunes `COST_AUDIT_MIN_MATERIALS` or
     // `COST_AUDIT_MAX_SINGLE_SHARE`, this test fails to force the
     // doc update (`docs/BUILDING_BOM.md`).
+    //
+    // v3.10 (GRA-22c Phase 4C-2): catalogue size 97 → 96
+    // (TradePort removed; maintenance draw reassigned to
+    // CommercialHub).
     assert_eq!(COST_AUDIT_MIN_MATERIALS, 4);
     assert!((COST_AUDIT_MAX_SINGLE_SHARE - 0.60).abs() < COST_AUDIT_EPSILON);
-    assert_eq!(97, BuildingType::all().len(), "catalogue drift");
+    assert_eq!(96, BuildingType::all().len(), "catalogue drift");
 }

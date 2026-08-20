@@ -197,8 +197,14 @@ pub enum BuildingType {
     CommercialHub,
     /// Financial centre for banking and investment
     FinancialCenter,
-    /// Interplanetary trade port
-    TradePort,
+    // v3.10 (GRA-22c Phase 4C-2): `TradePort` removed. The
+    // trade mechanic moved to `LaunchSite` (a launch resource;
+    // see `LaunchCapacity` in `economy::components`). The
+    // maintenance draw that TradePort used to carry is now
+    // absorbed by `CommercialHub` (Iron +0.05, Cu +0.0007,
+    // Ti +0.0005, Poly +0.0001, Water +0.005 — the per-build
+    // bump that lets 500 CommercialHubs absorb the 50 TradePorts
+    // worth of maintenance on Earth-start).
 
     // Military & Shipbuilding
     /// Orbital shipyard for constructing vessels (requires orbital_construction tech)
@@ -362,7 +368,11 @@ impl BuildingType {
             AiCluster,
             CommercialHub,
             FinancialCenter,
-            TradePort,
+            // v3.10 (GRA-22c Phase 4C-2): TradePort removed —
+            // its maintenance draw is reassigned to CommercialHub
+            // and its wealth-generation role is gone (trade
+            // revenue flows through FinancialCenter +
+            // CommercialHub + future LaunchSite transfer fees).
             Shipyard,
             MissileSilo,
             LaunchSite,
@@ -487,7 +497,7 @@ impl BuildingType {
             // Financial / Commerce / Military
             BuildingType::CommercialHub => "Commercial Hub",
             BuildingType::FinancialCenter => "Financial Center",
-            BuildingType::TradePort => "Trade Port",
+            // v3.10 (GRA-22c Phase 4C-2): TradePort removed.
             BuildingType::Shipyard => "Shipyard",
             BuildingType::MissileSilo => "Missile Silo",
             BuildingType::LaunchSite => "Launch Site",
@@ -592,7 +602,7 @@ impl BuildingType {
             BuildingType::AiCluster => "AI computation cluster boosting research and engineering",
             BuildingType::CommercialHub => "Commercial centre generating wealth from trade",
             BuildingType::FinancialCenter => "Banking and investment for wealth generation",
-            BuildingType::TradePort => "Interplanetary trade port for import/export revenue",
+            // v3.10 (GRA-22c Phase 4C-2): TradePort removed.
             BuildingType::Shipyard => "Orbital shipyard for constructing vessels",
             BuildingType::MissileSilo => "Ground-based missile silo for planetary defence",
             BuildingType::LaunchSite => "Rocket launch site for orbital access",
@@ -899,7 +909,7 @@ impl BuildingType {
             // ── Financial & Commerce ─────────────────────────────────────
             BuildingType::CommercialHub => &["+credits income from trade"],
             BuildingType::FinancialCenter => &["+credits income from banking"],
-            BuildingType::TradePort => &["+credits income from import/export"],
+            // v3.10 (GRA-22c Phase 4C-2): TradePort removed.
             // ── Military & Shipbuilding ──────────────────────────────────
             BuildingType::Shipyard => &[
                 "Enables ship construction",
@@ -1026,7 +1036,7 @@ impl BuildingType {
             // Financial
             BuildingType::CommercialHub => "🏪",
             BuildingType::FinancialCenter => "🏦",
-            BuildingType::TradePort => "🚢",
+            // v3.10 (GRA-22c Phase 4C-2): TradePort removed.
             // Military
             BuildingType::Shipyard => "⚓",
             BuildingType::MissileSilo => "🚀",
@@ -1148,8 +1158,8 @@ impl BuildingType {
             | BuildingType::OrbitalSurveyStation => BuildingCategory::Research,
             // Financial
             BuildingType::CommercialHub
-            | BuildingType::FinancialCenter
-            | BuildingType::TradePort => BuildingCategory::Financial,
+            | BuildingType::FinancialCenter => BuildingCategory::Financial,
+            // v3.10 (GRA-22c Phase 4C-2): TradePort removed.
             // Military
             BuildingType::Shipyard
             | BuildingType::MissileSilo
@@ -1267,7 +1277,7 @@ impl BuildingType {
             // Financial
             BuildingType::CommercialHub => 500.0,
             BuildingType::FinancialCenter => 1500.0,
-            BuildingType::TradePort => 2500.0,
+            // v3.10 (GRA-22c Phase 4C-2): TradePort removed.
             // Military
             BuildingType::Shipyard => 10000.0,
             BuildingType::MissileSilo => 3000.0,
@@ -1393,7 +1403,7 @@ impl BuildingType {
             // Financial
             BuildingType::CommercialHub => 8_000,
             BuildingType::FinancialCenter => 10_000,
-            BuildingType::TradePort => 15_000,
+            // v3.10 (GRA-22c Phase 4C-2): TradePort removed.
             // Military
             BuildingType::Shipyard => 80_000,
             BuildingType::MissileSilo => 5_000,
@@ -1557,10 +1567,12 @@ mod tests {
         //   finally lands) = 95.
         // v3.2 canary 12 (2026-08-07): 95 → 97 (added 2 starter-tier
         // housing: HabitatTent 1k, HabitatModule 10k).
+        // v3.10 (GRA-22c Phase 4C-2): 97 → 96 (TradePort removed;
+        // maintenance draw reassigned to CommercialHub).
         assert_eq!(
             all.len(),
-            97,
-            "Should have exactly 97 building types (v0.5.2: 95 base + v3.2: 2 starter-tier housing)"
+            96,
+            "Should have exactly 96 building types (v0.5.2: 95 base + v3.2: 2 starter-tier housing − v3.10: 1 TradePort removed)"
         );
     }
 
@@ -1715,10 +1727,7 @@ mod tests {
             BuildingType::FinancialCenter.category(),
             BuildingCategory::Financial
         );
-        assert_eq!(
-            BuildingType::TradePort.category(),
-            BuildingCategory::Financial
-        );
+        // v3.10 (GRA-22c Phase 4C-2): TradePort removed.
     }
 
     #[test]
