@@ -361,6 +361,7 @@ Phase 1 only enables the WAV codec.
 - [`docs/SFX.md`](SFX.md) — architecture, volume composition, cooldown rules, known limitations.
 - [`docs/SFX_CREDITS.md`](SFX_CREDITS.md) — bundled cue list + attribution.
 - [`src/plugins/sfx/`](../src/plugins/sfx/) — Rust source.
+- [`docs/SHIPBUILDING.md`](SHIPBUILDING.md) — ship hull / module RON modding (32 hulls, 295 modules, 12 consolidated categories, six propulsion eras).
 
 ## Future: Multiple Solar Systems
 

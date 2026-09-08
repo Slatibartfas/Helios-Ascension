@@ -17,10 +17,12 @@ The gameplay data model is paired with a single native Bevy UI frontend:
 
 ## Current Data Set
 
-- **18 hull definitions** in `assets/data/ship_hulls.ron` — 17 ship frames (`*_frame`) and 1 station core (`orbital_foundry_core`)
-- **84 ship module definitions** in `assets/data/ship_modules.ron`
-- **21 `ShipModuleCategory` variants** in `src/shipbuilding/types.rs`: 12 consolidated (the canonical Aurora-style taxonomy) and 9 legacy sub-categories retained for backward compatibility with existing RON data
-- Ship progression is organized around five propulsion eras: **Chemical, Fission / NTR, Gas-Core / Early Fusion, Fusion Torch, and Antimatter**
+> **32 hulls · 295 modules · 21 categories (12 consolidated + 9 legacy)**
+
+- **32 hull definitions** in `assets/data/ship_hulls.ron` — 31 ship frames (`*_frame`) and 1 station core (`orbital_foundry_core`). The 32 ids (verbatim from the file) are: `micro_probe_frame`, `small_probe_frame`, `courier_frame`, `courier_vessel_frame`, `lander_frame`, `probe_carrier_frame`, `fighter_frame`, `patrol_frigate_frame`, `frigate_frame`, `destroyer_frame`, `freighter_frame`, `orbital_foundry_core`, `cycler_frame`, `torch_cruiser_frame`, `interstellar_precursor_frame`, `mining_barge_frame`, `cryogenic_tanker_frame`, `bulk_cargo_frame`, `outer_system_tanker_frame`, `long_range_survey_frame`, `interplanetary_hauler_frame`, `long_range_destroyer_frame`, `interdictor_destroyer_frame`, `antimatter_interceptor_frame`, `fleet_escort_frigate_frame`, `mobile_starbase_frame`, `warp_cruiser_frame`, `stellar_engineering_shipyard_frame`, `femtotech_industrial_hull`, `metric_destroyer_frame`, `conversion_dreadnought_frame`, `ringworld_spine_frame`.
+- **295 ship module definitions** in `assets/data/ship_modules.ron`. All 295 set both `required_tech` (visibility) and `required_component_design` (engineering project) — the runtime loader is not tolerant of a missing engineering key.
+- **21 `ShipModuleCategory` variants** in `src/shipbuilding/types.rs`: 12 consolidated (the canonical Aurora-style taxonomy) and 9 legacy sub-categories retained for backward compatibility with existing RON data. The 12 consolidated variants are the target vocabulary for **new** hull `slot_layout` categories and **new** module `category` fields.
+- Ship progression is organized around **six propulsion eras**: **Chemical → Fission / NTR → Gas-Core / Early Fusion → Fusion Torch → Antimatter → Interstellar / Warp**. The Warp era is the v0.6 gateway: it unlocks the closed-timelike-curve engineering targets (`warp_mechanics`, `warp_tactics`, `warp_interdiction`) and the interstellar/warp hull set described below.
 
 ## Module Categories
 
@@ -49,57 +51,98 @@ LGD balance decisions from GRA-7 keep `Medical` and `CrewSystems` as distinct ca
 
 ## Hull Summary
 
-The hull set has 18 entries. They are organized by tier (in `assets/data/ship_hulls.ron`, `tier: 1..3` for ships; stations are tagged with `is_station: true` instead of a tier):
+The hull set has 32 entries across six propulsion eras. Tiers in `assets/data/ship_hulls.ron` run from `tier: 1` (Chemical probes) through `tier: 8` (Ringworld Spine). Stations are still tagged with `is_station: true` instead of a tier where the field is omitted; tier is also set on station entries for sort order. Hull `required_tech` gates the spaceframe; module-family gates are independent on each module entry.
 
-**Tier 1 — Chemical-era probes & small craft (5 hulls, all `required_tech: chemical_spaceframes`):**
+### Chemical era (tier 1)
 
-- `micro_probe_frame` — Microsat Probe Bus (cubesat-class payloads, 0.08 t dry)
-- `small_probe_frame` — Deep Survey Probe (flybys and long-baseline surveys, 0.42 t)
-- `courier_frame` — Relay Courier Probe (long-endurance robotic comms bus, 0.8 t)
-- `lander_frame` — Planetary Lander Bus (descent / rover / sample-return, 2.2 t)
-- `probe_carrier_frame` — Survey Carrier Stage (modern upper-stage carrier, 9.5 t)
+| Hull id | Display name | Class | Required tech |
+|---|---|---|---|
+| `micro_probe_frame` | Microsat Probe Bus | ResearchVessel | `chemical_spaceframes` |
+| `small_probe_frame` | Deep Survey Probe | ResearchVessel | `chemical_spaceframes` |
+| `courier_frame` | Relay Courier Probe | ResearchVessel | `chemical_spaceframes` |
+| `courier_vessel_frame` | Orbital Courier Hull | Courier | `basic_space_tech` |
+| `lander_frame` | Planetary Lander Bus | ResearchVessel | `chemical_spaceframes` |
+| `probe_carrier_frame` | Survey Carrier Stage | ResearchVessel | `chemical_spaceframes` |
+| `patrol_frigate_frame` | Patrol Frigate Hull | Frigate | `basic_military` |
+| `freighter_frame` | Heavy Orbital Freighter | Freighter | `chemical_spaceframes` |
+| `mining_barge_frame` | Mining & Refinery Barge Hull | Freighter | `chemical_spaceframes` |
 
-**Tier 2 — Orbital-assembly combatants and short-haul logistics (3 hulls):**
+### Fission / NTR era (tier 1–2)
 
-- `fighter_frame` — Orbital Interceptor Hull (orbital_construction, 120 t)
-- `frigate_frame` — Escort Frigate Hull (orbital_construction, 1 800 t)
-- `destroyer_frame` — Combat Destroyer Hull (orbital_assembly_heavy)
+| Hull id | Display name | Class | Required tech |
+|---|---|---|---|
+| `fighter_frame` | Orbital Interceptor Hull | Frigate | `orbital_assembly_heavy` |
+| `frigate_frame` | Escort Frigate Hull | Frigate | `orbital_construction` |
+| `cryogenic_tanker_frame` | Cryogenic Tanker Hull | Freighter | `orbital_construction` |
+| `orbital_foundry_core` | Orbital Yard Core | Station | `orbital_construction` |
 
-**Logistics family (5 hulls, added in GRA-9):**
+### Gas-Core / Early Fusion era (tier 2–3)
 
-- `freighter_frame` — General-purpose freighter hull
-- `mining_barge_frame` — Mining & Refinery Barge (atmosphere mining, regolith processing)
-- `cryogenic_tanker_frame` — Cryogenic Tanker (Earth/Mars/Venus bulk propellant transfer)
-- `bulk_cargo_frame` — Industrial Bulk Cargo Hull (CNT-framed interplanetary freighter)
-- `outer_system_tanker_frame` — Outer-System Cryogenic Tanker (fusion-era, multi-month trans-Jovian)
+| Hull id | Display name | Class | Required tech |
+|---|---|---|---|
+| `destroyer_frame` | Line Destroyer Hull | Destroyer | `carbon_nanotube_frames` |
+| `cycler_frame` | Cycler Superstructure | Cruiser | `carbon_nanotube_frames` |
+| `bulk_cargo_frame` | Industrial Bulk Cargo Hull | Freighter | `carbon_nanotube_frames` |
 
-**Survey family (1 hull, added in GRA-9):**
+### Fusion Torch era (tier 3–4)
 
-- `long_range_survey_frame` — Long-Range Survey Hull (fusion-era outer-system and near-interstellar survey, plugs into `SpecialScience` slot family)
+| Hull id | Display name | Class | Required tech |
+|---|---|---|---|
+| `torch_cruiser_frame` | Torch Cruiser Hull | Cruiser | `fusion_superstructures` |
+| `outer_system_tanker_frame` | Outer-System Cryogenic Tanker | Freighter | `fusion_superstructures` |
+| `long_range_survey_frame` | Long-Range Survey Hull | ResearchVessel | `fusion_superstructures` |
 
-**Tier 3 — Capital / interstellar (3 hulls):**
+### Antimatter era (tier 4–5)
 
-- `cycler_frame` — Inner-system cycler, gas-core / early-fusion era
-- `torch_cruiser_frame` — Fusion Torch cruiser (`fusion_superstructures`)
-- `interstellar_precursor_frame` — Antimatter-era precursor (`antimatter_containment_structures`)
+| Hull id | Display name | Class | Required tech |
+|---|---|---|---|
+| `interstellar_precursor_frame` | Interstellar Precursor Keel | ResearchVessel | `antimatter_containment_structures` |
+| `interplanetary_hauler_frame` | Interplanetary Hauler Hull | Freighter | `antimatter_containment_structures` |
+| `long_range_destroyer_frame` | Long-Range Destroyer Hull | Destroyer | `antimatter_containment_structures` |
+| `interdictor_destroyer_frame` | Interdictor Destroyer Hull | Destroyer | `antimatter_containment_structures` |
+| `antimatter_interceptor_frame` | Antimatter Interceptor Hull | Frigate | `antimatter_containment_structures` |
+| `fleet_escort_frigate_frame` | Fleet-Escort Frigate Hull | Frigate | `antimatter_containment_structures` |
+| `mobile_starbase_frame` | Mobile Starbase Hub | Station | `antimatter_containment_structures` |
 
-**Stations (1 core):**
+### Interstellar / Warp era (tier 5–8)
 
-- `orbital_foundry_core` — Orbital shipyard / foundry station (constructed in place)
+The Warp era is the v0.6 gateway. It unlocks the closed-timelike-curve engineering targets (`warp_mechanics`, `warp_tactics`, `warp_interdiction`), the stellar-engineering / femtotech / metric-engineering industrial chain, and the megastructure hull class (`ringworld_spine_frame`). The era's phase-angle and ΔV envelope for cross-system Hohmann transfers is parameterised in [`assets/data/interstellar_propulsion.ron`](../assets/data/interstellar_propulsion.ron) (loaded into `InterstellarPropulsionPolicy` in `src/fleets/data.rs`) — the AI planner uses ±15° / 1.20 margin, the human player gets ±45° / 1.05 margin.
 
-Slot compatibility is enforced through `slot_layout` category and size matching in the shipbuilding data loader and UI. Hulls in the same tier share the same propulsion-era technology gate (`required_tech`) on the hull definition; module families are gated independently on each module entry.
+| Hull id | Display name | Class | Required tech |
+|---|---|---|---|
+| `warp_cruiser_frame` | Warp-Era Cruiser Hull | Cruiser | `warp_mechanics` |
+| `stellar_engineering_shipyard_frame` | Stellar Engineering Shipyard Hull | Station | `stellar_engineering` |
+| `femtotech_industrial_hull` | Femtotech Industrial Frame | Freighter | `femtotechnology` |
+| `metric_destroyer_frame` | Metric-Era Capital Destroyer Hull | Destroyer | `metric_engineering` |
+| `conversion_dreadnought_frame` | Conversion-Era Dreadnought Hull | Cruiser | `conversion_tech` |
+| `ringworld_spine_frame` | Ringworld Spine Frame | Station | `ringworld_engineering` |
+
+**Warp-era hulls of note:**
+
+- **`warp_cruiser_frame`** — the era's signature capital combatant; `warp_mechanics` is the hull-construction gate.
+- **`interstellar_precursor_frame`** — listed in the Antimatter era table above; the antimatter drive is the propulsion that *gets the hull to the warp threshold*. The Hull-construction tech on the warp side (`warp_mechanics`) and the propulsion tech on the antimatter side (`antimatter_propulsion`) are intentionally decoupled.
+- **`antimatter_interceptor_frame`** — also antimatter era; the fast escort that screen warp-era fleets during the warp-transition window.
+- **`mobile_starbase_frame`** — the deployable mobile forward base that the warp fleets operate from before they reach the target system. Antimatter-era `required_tech` because it is built on the antimatter reactor / drive family, but it is conceptually the warp fleet's forward logistics hub.
+- **`stellar_engineering_shipyard_frame`** — Station class; the in-system shipyard required to assemble femtotech / metric-engineering / conversion hulls because those structures cannot be launched from a planetary surface.
+- **`femtotech_industrial_hull`** — the freight / industrial backbone of the warp economy; built around femtometer-scale manufacturing.
+- **`ringworld_spine_frame`** — the era's megastructure-class Station hull; gates with `ringworld_engineering`.
+
+Slot compatibility is enforced through `slot_layout` category and size matching in the shipbuilding data loader and UI. Hulls in the same era share the same propulsion-era hull-construction gate (`required_tech`); module families are gated independently on each module entry.
 
 ## Propulsion Eras
 
-Five propulsion eras define the progression curve. Each era unlocks a coordinated set of hulls, drives, reactors, and slot families. The technology in `unlocks_engineering` for the era's flagship drive must remain a single shared engineering target so all module variants in that family unlock through one engineering project.
+**Six propulsion eras** define the progression curve. Each era unlocks a coordinated set of hulls, drives, reactors, and slot families. The technology in `unlocks_engineering` for the era's flagship drive must remain a single shared engineering target so all module variants in that family unlock through one engineering project.
 
 | Era | Hulls | Flagship drive tech | Sample engineering target | Hull-construction tech |
 | --- | --- | --- | --- | --- |
-| **Chemical** | `micro_probe_frame`, `small_probe_frame`, `courier_frame`, `lander_frame`, `probe_carrier_frame` | `chemical_rockets` / `advanced_chemical_rocket` | `standard_chemical_rocket` | `chemical_spaceframes` |
-| **Fission / NTR** | `fighter_frame`, `frigate_frame`, `destroyer_frame`, `freighter_frame` | `fission_power` + `nerva_drive` / `kiwi_drive` | `fission_pile`, `nerva_drive` | `orbital_construction`, `orbital_assembly_heavy` |
-| **Gas-Core / Early Fusion** | `cycler_frame`, `mining_barge_frame`, `cryogenic_tanker_frame`, `bulk_cargo_frame` | `gas_core_fission`, `ion_drive` | `gas_core_fission`, `ion_drive` | `carbon_nanotube_frames` |
+| **Chemical** | `micro_probe_frame`, `small_probe_frame`, `courier_frame`, `courier_vessel_frame`, `lander_frame`, `probe_carrier_frame`, `patrol_frigate_frame`, `freighter_frame`, `mining_barge_frame` | `chemical_rockets` / `advanced_chemical_rocket` | `standard_chemical_rocket` | `chemical_spaceframes`, `basic_space_tech`, `basic_military` |
+| **Fission / NTR** | `fighter_frame`, `frigate_frame`, `cryogenic_tanker_frame`, `orbital_foundry_core` | `fission_power` + `nerva_drive` / `kiwi_drive` | `fission_pile`, `nerva_drive` | `orbital_construction`, `orbital_assembly_heavy` |
+| **Gas-Core / Early Fusion** | `destroyer_frame`, `cycler_frame`, `bulk_cargo_frame` | `gas_core_fission`, `ion_drive` | `gas_core_fission`, `ion_drive` | `carbon_nanotube_frames` |
 | **Fusion Torch** | `torch_cruiser_frame`, `outer_system_tanker_frame`, `long_range_survey_frame` | `fusion_torch` | `fusion_torch` | `fusion_superstructures` |
-| **Antimatter** | `interstellar_precursor_frame` | `antimatter_propulsion` | `antimatter_drive` | `antimatter_containment_structures` |
+| **Antimatter** | `interstellar_precursor_frame`, `interplanetary_hauler_frame`, `long_range_destroyer_frame`, `interdictor_destroyer_frame`, `antimatter_interceptor_frame`, `fleet_escort_frigate_frame`, `mobile_starbase_frame` | `antimatter_propulsion` | `antimatter_drive` | `antimatter_containment_structures` |
+| **Interstellar / Warp** | `warp_cruiser_frame`, `stellar_engineering_shipyard_frame`, `femtotech_industrial_hull`, `metric_destroyer_frame`, `conversion_dreadnought_frame`, `ringworld_spine_frame` | `warp_mechanics` (closed-timelike-curve drive) | `warp_drive`, `femtotech_core`, `metric_drive`, `conversion_torch` | `warp_mechanics`, `stellar_engineering`, `femtotechnology`, `metric_engineering`, `conversion_tech`, `ringworld_engineering` |
+
+The Warp era is the v0.6 gateway: it unlocks the closed-timelike-curve engineering targets and the interstellar/warp hull set. The era's cross-system Hohmann policy — phase-angle tolerances and ΔV margins for transfers to non-Sol star systems — lives in [`assets/data/interstellar_propulsion.ron`](../assets/data/interstellar_propulsion.ron) and is loaded by `src/fleets/data.rs` into the `InterstellarPropulsionPolicy` resource. Modders can widen tolerances to make AI launches easier, tighten margins to make player launches stricter, or alter the AI defaults to give the planning system more slack — see the header comment in that file.
 
 Within an era, hull `required_tech` controls whether the hull class is even visible. Module `required_tech` controls module visibility, and module `required_component_design` selects the engineering project that must be completed before any module in that family can be installed. **All ship modules in the current RON set both fields** — the runtime loader is not tolerant of a missing `required_component_design`, and new module entries should follow that rule.
 
@@ -114,6 +157,22 @@ Five hulls introduced in GRA-9 are dedicated to industrial and exploration roles
 - **`long_range_survey_frame`** — gives the `SpecialScience` slot family a second hull so the category is no longer a single-purpose island on the interstellar precursor
 
 These hulls use the same `slot_layout` discipline as the existing frames; the `position` authoring rule below applies equally to them.
+
+## Interstellar / Warp Hulls (v0.6)
+
+Seven hulls make up the warp-era set. They are listed in the Hull Summary → "Interstellar / Warp era" table above; the descriptions below explain the gameplay role and how they hand off to other systems.
+
+- **`warp_cruiser_frame`** — the era's signature capital combatant; gates on `warp_mechanics`. Crewed warp-capable cruiser that transitions between Sol and the nearest 60 star systems using the policy in [`assets/data/interstellar_propulsion.ron`](../assets/data/interstellar_propulsion.ron). The hull *requires* an antimatter reactor in the engineering slot — see `interstellar_precursor_frame` below for the precursor role.
+- **`interstellar_precursor_frame`** — antimatter-era precursor keel; `antimatter_containment_structures`. The first interstellar-capable research platform, and the engineering path through which the antimatter drive family matures. It does the interstellar survey / first-arrival work that opens up the warp era's colonisation targets.
+- **`antimatter_interceptor_frame`** — antimatter-era frigate; `antimatter_containment_structures`. Fast escort that screens warp-era fleets during the warp-transition window (the high-DV cruise phase before the warp field can be established).
+- **`mobile_starbase_frame`** — antimatter-era Station class; `antimatter_containment_structures`. Deployable forward logistics hub that warp fleets operate from before they reach the target system. Conceptually bridges the antimatter era (which built it) and the warp era (which uses it).
+- **`stellar_engineering_shipyard_frame`** — Station class; `stellar_engineering`. The in-system shipyard required to assemble femtotech / metric-engineering / conversion hulls because those structures cannot be launched from a planetary surface. Must be deployed in-system before any femtotech / metric / conversion hull can begin construction.
+- **`femtotech_industrial_hull`** — Freighter class; `femtotechnology`. The freight / industrial backbone of the warp economy; built around femtometer-scale manufacturing. Required to keep metric- and conversion-era hulls supplied with raw stock.
+- **`metric_destroyer_frame`** — Destroyer class; `metric_engineering`. Metric-era capital combatant.
+- **`conversion_dreadnought_frame`** — Cruiser class; `conversion_tech`. Conversion-era super-capital combatant.
+- **`ringworld_spine_frame`** — Station class; `ringworld_engineering`. The era's megastructure hull.
+
+> Authoring rule: the era's hull-construction techs (`warp_mechanics`, `stellar_engineering`, `femtotechnology`, `metric_engineering`, `conversion_tech`, `ringworld_engineering`) all gate *spaceframes*; the propulsion-side gates (`antimatter_propulsion`, `warp_mechanics` again as the drive family, `metric_drive`, `conversion_torch`) are separate `unlocks_engineering` entries on the propulsion techs. See the Propulsion Eras table above for the era's flagship drive techs and sample engineering targets.
 
 ## Current UI Workflow
 
