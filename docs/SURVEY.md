@@ -2,9 +2,9 @@
 
 The v0.5.0 survey rework replaces the old three-level "Surveyed / Scanned / Surveyed Completely" state with a per-body **eight-dimension discovery model** backed by real instrument campaigns, an analysis queue staffed by scientists, and an anomaly system that drives research and building unlocks.
 
-This document is the player reference for the new system. For the design rationale, see `docs/design/SURVEY_REWORK.md`. For modding (adding your own dimensions, instruments, anomalies, missions), see `docs/MODDING.md`.
+This document is the player reference for the new system. The full design rationale and per-PR engineering chain (PR-A through PR-G) live in `docs/archive/SURVEY_REWORK.md` (archived — kept for historical reference; the v0.5.x player contract lives here). For modding (adding your own dimensions, instruments, anomalies, missions), see `docs/MODDING.md`.
 
-> **Status note (2026-06-12)** — this is a **pre-draft** of the v0.5.0 player manual. The eight dimensions, the method taxonomy, and the analysis queue described here are the design contract; minor wording may shift when the engineering chain (PR-A through PR-G) lands. The doc is reviewed against the actual implementation at PR-open time.
+> **Status note (2026-09-08)** — this is the **v0.5.x current** player manual. The eight-dimension model, the nine-method mission roster, the failure-mode / recovery-mission system (PR-G), the landing-site / extraction-site model (PR-D), and the continuous orbital survey station (PR-E) are all shipped. Game data lives in **seven** RON files under `assets/data/survey/` (`anomalies`, `dimensions`, `instruments`, `mining_efficiency`, `missions`, `recovery_missions`, `tiers`); each section below links to the file that owns its data.
 
 ---
 
@@ -19,9 +19,11 @@ This document is the player reference for the new system. For the design rationa
 7. [Tech Tree](#7-tech-tree)
 8. [Anomalies and Discoveries](#8-anomalies-and-discoveries)
 9. [Mining Unlocks — How Survey Gates Extraction](#9-mining-unlocks--how-survey-gates-extraction)
-10. [Failure Modes and Recovery (preview)](#10-failure-modes-and-recovery-preview)
-11. [Landing Sites (preview)](#11-landing-sites-preview)
+   - [Continuous Orbital Survey Station](#continuous-orbital-survey-station)
+10. [Failure Modes and Recovery](#10-failure-modes-and-recovery)
+11. [Landing Sites](#11-landing-sites)
 12. [See Also](#12-see-also)
+    - [Data files](#data-files)
 
 ---
 
@@ -232,48 +234,126 @@ The dossier's resource grid shows one of four tile shapes per resource: `Unknown
 
 Modders can rebalance the curve by editing `assets/data/survey/mining_efficiency.ron` directly (e.g. push `ShallowOre` to 100% at tier 3 instead of tier 4) without recompiling.
 
----
+### Continuous Orbital Survey Station
 
-## 10. Failure Modes and Recovery (preview)
+The **Orbital Survey Station** (building id `OrbitalSurveyStation`, v0.5.0 / PR-E / GRA-83) is a permanent passive survey asset placed in orbit of a single body. Unlike the missions above, it does not consume mission slots or scientist teams — it runs continuously and writes two things each tick:
 
-> **Preview** — failure modes and recovery missions land in the PR-G area of the v0.5.0 engineering chain. The summary below is the design contract; minor wording may shift at PR-G open.
+- **Per-axis confidence advancement** — the body's eight survey dimensions advance by `0.05 / 0.10 / 0.15` per sim-year at tier 1 / 2 / 3 respectively, distributed across the axes the station is configured for.
+- **Mining-yield bonus** — the body's mining yield gets a flat `+5% / +10% / +15%` multiplier at tier 1 / 2 / 3 (verified against the `mining_yield_delta_for_tier` test in `src/survey/systems.rs`). Multiple stations at the same body sum linearly on the axis-advance rate.
 
-Survey missions are not free of risk. A mission can fail in ways that cost the player assets, time, and occasionally people. The design default:
+The station's effect is **per-body and does not transfer**: a station at Mars does not bonus Phobos, and a station at Phobos does not bonus Mars. This is enforced by the `orbiting_body: Entity` field on `ContinuousSurveyStation`. Place the station in the orbit of the body you want to mine, then build your mines.
 
-| Failure | Typical rate | What happens | Recovery |
-|---------|--------------|--------------|----------|
-| **Probe loss** | 5% (flyby) | Mission slot freed, no data, probe entity destroyed. | Re-launch another probe. |
-| **Rover stuck** | 8% (rover) | Spawns a `rescue_mission` sub-mission (1 chemical survey ship, 60–180 sim-days, 10% chance unrecoverable). | Run the rescue mission or write off the rover. |
-| **Drill bit stuck** | 10% (drill) | Rig stranded. Must retrieve (1 NTR ship, ~1 sim-year) or abandon (lose rig + drilling progress). | Run the retrieval mission or abandon. |
-| **Solar storm** | 2% (orbital) | Corrupts `ResourceEstimate` and `SubsurfaceImaging` data by 0.1–0.2. | Next orbital pass recovers. |
-| **Crew injury** | 2% (ground team) | Scientist transitions to `Injured { 60–180 sim-days }`. | Wait for recovery; no permanent loss. |
-
-Recovery mission types: `equipment_recovery`, `crew_extraction`, `rig_retrieval`, and `data_recovery` (re-fly a corrupted pass). Each has its own RON template in `assets/data/survey/missions.ron` and its own cost / duration / risk profile.
+Tier upgrades are gated by the underlying survey tech line; the building's `required_tech` is `advanced_radar` for tier 1. Tier 2 / 3 require subsequent research investments.
 
 ---
 
-## 11. Landing Sites (preview)
+## 10. Failure Modes and Recovery
 
-> **Preview** — landing sites and extraction site evaluation land in the PR-D area of the v0.5.0 engineering chain. The summary below is the design contract; minor wording may shift at PR-D open.
+Survey missions are not free of risk. A mission can fail in ways that cost the player assets, time, and occasionally people. The v0.5.0 failure roll ships with **five** failure kinds, each with a hardcoded probability keyed off the mission's `SurveyMethod`. Modders can override or add per-template rates by adding entries to a mission's `failure_modes` field in `assets/data/survey/missions.ron` (PR-G / GRA-85).
 
-When a body has tier 2+ on `Surface features` and tier 2+ on `Mineral deposits`, the player can begin evaluating **landing sites** — a specific spot on the body where a mine or settlement could be placed. A landing site has:
+| Failure | Typical rate | Method(s) it fires on | What happens |
+|---------|--------------|------------------------|--------------|
+| **Probe loss** | 5% | Flyby, Orbital, RemoteSensing, AtmosphericProbe | Mission slot freed, no data returned, probe entity destroyed. |
+| **Rover stuck** | 8% | Rover | Rover is immobilised. Auto-spawns a `rover_rescue` recovery mission (60–180 sim-days). |
+| **Drill bit stuck** | 10% | Drill | Drill rig stranded at depth. Auto-spawns a `drill_retrieval` recovery mission (~1 sim-year). |
+| **Solar storm** | 2% | Every method | Corrupts recently-returned data on the targeted axes (0.1–0.2 confidence knock-down). |
+| **Crew injury** | 2% | Ground-team methods (SurfaceLander, Rover, Drill, SampleReturn) | First assigned scientist transitions to `Injured` for 60–180 sim-days; mission slot is freed. |
 
-- A **location** (latitude / longitude, or "geostationary" for orbital).
-- A **terrain rating** (slope, regolith depth, radiation — affects construction cost).
-- A **resource estimate** (the `(low, mid, high)` triplet for the resource classes within reach).
-- A **risk profile** (what failure modes are most likely at this site; affects insurance / cost).
+The 5%/8%/10%/2%/2% defaults are the engine-level rates — see the `MissionFailureReason::probability(method)` table in `src/survey/`. The implementation rolls exactly one failure per mission against a weighted sum of the applicable modes; a modder-authored `failure_modes` row on a template is folded into the same weighted pick.
 
-The dossier's **Landing Sites** sub-panel lists candidate sites for the selected body, sortable by resource estimate, terrain, and risk. Click a site to see the per-site dossier (extraction panel, buildable structures, expected yield at current survey tier).
+### Recovery missions
 
-For a full design walk-through of the landing site model and the per-site resource extraction evaluation, see `docs/design/SURVEY_REWORK.md` §[Landing Sites and Extraction Sites] (added in PR-D).
+When a failure fires, the dossier's `SURVEY` tab surfaces a `FAILED MISSIONS` row. Each row carries the failure reason, the original mission id, and (where applicable) a `recovery_mission_id` that the player can dispatch from the card.
+
+Recovery mission templates live in their own file: **`assets/data/survey/recovery_missions.ron`** (added with GRA-85 / PR-G). The four shipped templates are:
+
+| Template | `kind` | Recovers from | Cost / duration |
+|----------|--------|----------------|------------------|
+| `rover_rescue` | `equipment_recovery` | `RoverStuck` | 1 chemical survey ship, 60–180 sim-days |
+| `drill_retrieval` | `equipment_recovery` | `DrillBitStuck` | 1 NTR tug, ~1 sim-year |
+| `probe_replacement` | `data_relay_replacement` | `ProbeLoss` | Faster than the original mission (re-dispatches the template) |
+| `crew_extraction` | `crew_extraction` | `CrewInjury`, `RoverStuck`, `DrillBitStuck`, `SolarStorm` | ~60 sim-days |
+
+The three RON-side `kind` values are `equipment_recovery`, `crew_extraction`, and `data_relay_replacement`. A recovery mission runs as a regular `ActiveSurveyMission` on the same body with `recover_of: Some(original_mission_id)`; on `Succeeded` the tick system flips the original from `Failed` to `Succeeded` and any partial data it was about to deliver is credited. The player can also **abandon** a recovery (`ABORT RECOVERY` button on the dossier card) to free the slot and write off the original failure.
+
+### Failure → recovery interaction
+
+- **Probe loss** is the cheapest failure — no recovery is strictly required; the player just dispatches a fresh probe. The `probe_replacement` template exists so the dossier row has a uniform "DISPATCH RECOVERY" affordance even in the no-asset-to-recover case.
+- **Rover stuck** and **drill bit stuck** are asset-recovery failures; the auto-spawned recovery mission carries the only path to recovering the probe / rig. Skipping recovery means the asset is permanently lost.
+- **Solar storm** is data-only — no recovery mission is required; the next pass over the same axes restores confidence. The recovery templates listed for `SolarStorm` are the optional `crew_extraction` for ground crews caught outside during the storm.
+- **Crew injury** has a 60–180 sim-day built-in cooldown; a `crew_extraction` mission can shorten the recovery but the scientist is still `Injured` until the cooldown elapses.
+
+Modders / designers can extend any of this without recompiling by editing `recovery_missions.ron` (new templates) and `missions.ron` (per-template `failure_modes` overrides). See `docs/MODDING.md` for the field reference.
+
+---
+
+## 11. Landing Sites
+
+Once a body is sufficiently well-characterised, the survey system generates a list of **candidate landing sites** — specific spots where a mine, habitat, or launch facility could be placed. The model is uniform across bodies but the data shape differs between solid bodies (`LandingSite`) and asteroids (`ExtractionSite`).
+
+### When sites appear
+
+Sites are generated by the `evaluate_landing_sites` system (PR-D / GRA-82) and stored on the body's `SurveyState` component as `Vec<LandingSite>` (planets, dwarf planets, moons) or `Vec<ExtractionSite>` (asteroids). **Gas giants never get sites** — the dossier hides the section entirely for those bodies.
+
+The trigger is a coverage check on the body's eight survey dimensions:
+
+```
+landing_site_eval_coverage() ≥ LANDING_SITE_EVAL_THRESHOLD (0.6)
+```
+
+The coverage function is a weighted average dominated by `SurfaceFeatures` (50%), with `Habitability` (25%) and `Atmosphere` (15%) as supporting axes, and the remaining five dimensions sharing a 10% slice. In practice a body crosses the threshold once its surface characterisation is reasonably complete — typically mid-game for a body the player is actively surveying.
+
+Sites are generated once, **up to `MAX_SITES_PER_BODY = 5`** per body, and the list is held stable across re-evaluations: when survey improves, the composite ranking of the existing sites does not shuffle underneath the player. The system only re-rolls on a fresh body that just crossed the threshold.
+
+### What a site carries
+
+| Field | Type | Meaning |
+|-------|------|---------|
+| `id` | `u32` | Stable per-body id (not global). |
+| `name` | `String` | Display name (e.g. "Mare Imbrium Alpha", "Hellas Basin — Site 2"). |
+| `latitude`, `longitude` | `f32` (degrees) | Body-local rotating-frame coordinates. |
+| `scores` | `SiteScores` | Six 0–1 sub-scores (see below). |
+| `feasible_for` | `Vec<BuildingType>` | Buildings constructible at the site. |
+| `blockers` | `Vec<BuildingType>` | Buildings explicitly blocked here (surfaced as dossier tooltips). |
+
+The six `SiteScores` axes are `slope`, `roughness`, `radiation`, `temperature`, `regolith`, and `comm` — each in `0.0..=1.0` where 1.0 is the most favourable for the player. The composite site score is a fixed weighted average of these six (`slope 0.20`, `roughness 0.15`, `radiation 0.20`, `temperature 0.20`, `regolith 0.15`, `comm 0.10`); modders can rebalance the weighting by editing `SiteScores::WEIGHTS` in `src/survey/components.rs`.
+
+`feasible_for` defaults to the standard surface-base / habitat / launch set on a `LandingSite`, and to a mining-focused set on an `ExtractionSite`. Buildings get added to `blockers` when a site's scores fall below the threshold for that building's foundation requirements (e.g. a steep slope blocks `HeavyIndustry`; a high-radiation site blocks unshielded habitats).
+
+### How surface-lander missions consume sites
+
+A `SurveyMethod::SurfaceLander` mission (`surface_lander_v1` in `missions.ron`) lands at a site chosen by the dispatch system. The site selection is based on the active mission's `target_tiers` and the available sites' `feasible_for` list; if no site can host the mission's expected follow-up buildings, the dossier surfaces a warning before the player confirms the dispatch.
+
+`ExtractionSite` (asteroid-only) follows the same shape but with a mining-focused default `feasible_for` list (mining heads, mass-driver pads, etc.) and a less strict `blockers` policy.
+
+### Dossier surface
+
+The dossier's **Landing Sites** sub-panel lists candidate sites for the selected body. Each row shows the site name, the composite score, and a stack of the six sub-score bars. Sortable by composite score, by any single sub-score, or by name. Clicking a site opens the per-site dossier: `feasible_for`, `blockers`, the current resource tiles in range (per the survey-tier reveal matrix in §9), and the expected mining yield at the body's current survey state.
+
+For asteroids, the same panel renders `ExtractionSite` rows in place of `LandingSite` rows.
 
 ---
 
 ## 12. See Also
 
-- `docs/design/SURVEY_REWORK.md` — the design rationale, full per-dimension tier tables, the schema delta, and the migration plan.
-- `docs/MODDING.md` — how to add a new dimension, instrument, anomaly, or mission via RON edits.
-- `docs/RESEARCH_MODDING.md` — the 9 new survey / personnel / geology techs and how to edit `assets/data/technologies.ron`.
+- `docs/archive/SURVEY_REWORK.md` — the original v0.5.0 design rationale, full per-dimension tier tables, the schema delta, and the PR-A through PR-G engineering chain. **Archived.** This is the historical / engineering-reference document; the live player contract for v0.5.x is this file (`docs/SURVEY.md`).
+- `docs/MODDING.md` — how to add a new dimension, instrument, anomaly, mission, or recovery mission via RON edits.
+- `docs/RESEARCH_MODDING.md` — the 9 v0.5.0 survey / personnel / geology techs and how to edit `assets/data/technologies.ron`.
 - `docs/UI.md` — the dossier Survey tab and Personnel panel layout conventions.
 - `docs/COLONIES.md` — founding an outpost on a body you have surveyed.
 - `docs/RESOURCES.md` — the resource catalogue and per-class economic rules.
+- `src/survey/` — the implementation (components, systems, data loader, recovery-mission logic, landing-site evaluator).
+
+### Data files
+
+The v0.5.x survey subsystem reads from **seven** RON files under `assets/data/survey/`:
+
+| File | Owner of | Added by |
+|------|----------|----------|
+| `dimensions.ron` | The eight-dimension taxonomy | PR-A |
+| `tiers.ron` | Per-dimension tier descriptions | PR-A |
+| `instruments.ron` | The 17 shipped instruments | PR-A / PR-B |
+| `missions.ron` | The 9-mission roster + per-template failure-mode overrides | PR-B / PR-G (extended by GRA-117 rebalance) |
+| `recovery_missions.ron` | The 4 recovery-mission templates | PR-G (GRA-85) |
+| `anomalies.ron` | The 9 hardcoded anomaly types + modder additions | PR-C |
+| `mining_efficiency.ron` | The `(resource_class, dimension, min_tier)` gating curve | PR-A |
