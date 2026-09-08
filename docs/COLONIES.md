@@ -1,391 +1,394 @@
-# Colonies, Buildings & Resource Transport
+# Colonies, Buildings & Resources
 
-A complete player reference for founding colonies, constructing buildings, and supplying them with resources.
+Player-facing reference for founding colonies, constructing buildings, and supplying them with physical resources. Companion to `ARCHITECTURE.md` §Colony Management and `docs/design/LOGISTICS_NETWORK.md`.
 
----
+## Headline Counts (v0.5.2)
 
-## Table of Contents
+| | |
+|---|---|
+| Building types | **96** across **9** categories (`BuildingCategory` enum) |
+| Resources | **39** types (`ResourceType` enum, `src/economy/types.rs`) |
+| Celestial bodies | **713** (Sol system) + **60** nearby star systems in `assets/data/nearest_stars_raw.json` |
+| Sol-system body breakdown | 1 Star · 4 Planet · 4 GasGiant · 2 Ring · 55 DwarfPlanet · 147 Moon · 450 Asteroid · 50 Comet |
+| Earth seed population | 8.2 B |
+| Per-capita food | **0.0000011 Mt/person/yr** (1,100 kg, FAO 2024 SOFA) |
 
-1. [How Colonies Work](#how-colonies-work)
-2. [Founding a New Colony (Establish Outpost)](#founding-a-new-colony-establish-outpost)
-3. [Transporting Resources to a New Colony](#transporting-resources-to-a-new-colony)
-4. [Buildings Reference](#buildings-reference)
-   - [Infrastructure](#infrastructure)
-   - [Industry](#industry)
-   - [Logistics](#logistics)
-   - [Power](#power)
-   - [Population & Food](#population--food)
-   - [Research](#research)
-   - [Financial & Commerce](#financial--commerce)
-   - [Military & Shipbuilding](#military--shipbuilding)
-5. [Building Scale & Design Philosophy](#building-scale--design-philosophy)
-6. [Construction Workflow](#construction-workflow)
-7. [Population Growth](#population-growth)
-8. [Minimum Stockpile Settings](#minimum-stockpile-settings)
-9. [Logistics Efficiency](#logistics-efficiency)
-10. [Debug / Cheat Controls](#debug--cheat-controls)
+## 1. How Colonies Work
 
----
+A colonised body carries a `Colony` component (population, building counts, development tier) and a `LocalStockpile` component (per-body resource inventory in Mt). **Resources are physical** — there is no system-wide pool. Construction, maintenance, food production, and population consumption all draw from the body's *own* `LocalStockpile`. Other bodies' stockpiles can only be reached by transporting material via Freighter fleet (player or AI shipping company).
 
-## How Colonies Work
+`Colony` records development on a 4-tier scale (`ColonyTier`):
 
-Each colonised body has a `Colony` component that tracks:
+| Tier | Yield × | Notes |
+|---|---|---|
+| Outpost | 0.10 | Default for newly founded colonies |
+| Settlement | 0.40 | Player-driven upgrade |
+| City | 0.70 | Player-driven upgrade |
+| Civilisation | 1.00 | Earth starts here |
 
-- **Population** — number of residents (millions to billions for Earth-tier worlds)
-- **Buildings** — a list of constructed buildings by type and count
-- **Construction queue** — buildings currently being built, with build-progress in Build Points (BP)
-- **Housing capacity** — the total number of residents the colony can house
-- **Food production / consumption** — megatonnes per year; a deficit slows growth
-- **Logistics efficiency** — determines how effectively mines, labs, etc. operate
+Yield × scales production, maintenance, and population growth. It does **not** scale per-capita food consumption — a population of N always eats the same amount of food.
 
-Resource stockpiles are stored in `LocalStockpile` (a separate ECS component) and scoped to the body.  The UI aggregates stockpiles system-wide for display, but **each body has its own physical stockpile** — resources must be physically transported by ships to be used on a different body.
+The `LocalStockpile` draw model replaced the v0.3 system-pool fallback in v0.4.x (GRA-31 PR-A). Construction on body X with insufficient local stock publishes `ResourceRequest`s tagged `RequestPriority::Construction` and waits for delivery before advancing; the project carries `awaiting_resources = true` and the queue shows an `awaiting_resources` badge.
 
-> **Planned change (v0.4+):** The current implementation still draws from a system-wide pool for construction.  The logistics network redesign (see `docs/design/LOGISTICS_NETWORK.md`) will require explicit transport for all intra-system resource moves.
+## 2. Building Reference
 
----
+96 buildings across 9 categories. All values per-build unless noted. **Build Points (BP)** measures construction cost; colonies produce BP from `Factory` buildings (10 BP/yr each + 1 BP/yr base). **Workforce** must fit within population × `available_workforce_fraction` (0.40). **Power demand** is in MW.
 
-## Founding a New Colony (Establish Outpost)
+Maintenance resources per building = **4–6 distinct** items (`MAINTENANCE_AUDIT_MIN = 4`, `MAINTENANCE_AUDIT_MAX = 6` in `src/colony/data.rs`, GRA-22a audit). Disabling any one of them must noticeably weaken or shut down the building. **`money_cost_mc_per_year`** is an additional financial operating cost (MC = mega-credits/yr) distinct from the Mt-denominated resource draw.
 
-### Step 1 — Select the target body
+### Infrastructure (9)
 
-Open the **Survey** tab and click a body in the body list or directly in the 3D view.  The right-hand dossier panel will show detailed information about the selected body.
+| Building | Effect | BP | Workers | First buildable on | Notes |
+|---|---|---:|---:|---|---|
+| `LifeSupport` | 50 Mt O₂/yr, 5 Mt N₂/yr harvest, 30 Mt CO₂/yr scrubbed | 500 | 2,000 | Any | Required on non-breathable bodies |
+| `Housing` (Complex) | **+25 M** residents | 200 | 500 | Habitable worlds | 116 Mt BoM, Si 49 %; workhorse metropolitan tier |
+| `HabitatDome` | **+5 M** residents (v3.10) | 800 | 1,000 | Any | Pressurised; 350 Mt BoM, Fe 45 % |
+| `UndergroundHabitat` | **+8 M** residents (v3.10) | 1,200 | 1,500 | Vacuum/hostile | Buried, regolith-shielded; 500 Mt BoM |
+| `HabitatTent` | +1,000 residents (v3.2 starter tier 1) | 50 | 5 | Any | First buildable on a fresh outpost |
+| `HabitatModule` | +10,000 residents (v3.2 starter tier 2) | 200 | 50 | Any | Second-tier for growing colonies |
+| `WaterProcessor` | 16 Mt water/yr | varies | varies | Non-breathable bodies only | Body-restricted |
+| `WaterTreatmentPlant` | +2 % population growth | 400 | 500 | Any | |
+| `DesalinationPlant` | +1 % population growth | 600 | 400 | Any | Tech-gated: `desalination` |
 
-### Step 2 — Check habitability
+**Housing gradient** (v3.10, GRA-22c Phase 4A): Tent 1k → Module 10k → Dome 5M / Underground 8M → Housing Complex 25M. The 10k → 5M step is 500× (manageable); the 5M → 25M step is 5× once city-scale infrastructure exists.
 
-The dossier shows an **Establish Outpost** button near the bottom of the panel.  Two **hard blocks** prevent founding:
+### Mining (49)
+
+v0.5.2 split out per-resource mines (consolidated from the legacy generic Mine / Refinery / DeepDrill / LaserDrill / StripMine / HydrocarbonExtractor). Each mine produces one resource at `base_yield × deposit.accessibility × yield_multiplier`. The `line = "Mine"` field groups them for tier-based tech upgrades. **Body-restricted mines** are noted. **AutoMines** are orbital rigs calibrated at ~1/10 of surface yields and body-restricted to `[Asteroid, Moon, GasGiant]`; they require `asteroid_mining` tech.
+
+**Base mines** (24 — surface mining; build on any body with the resource):
+
+| Resource | Yield Mt/yr | Tech gate |
+|---|---:|---|
+| Iron (`IronMine`) | 97.15 | — |
+| Aluminum (`AluminumMine`) | 2.62 | — |
+| Titanium (`TitaniumMine`) | 0.0196 | — |
+| Silicates (`SilicatesMine`) | 137.3 | — |
+| Nickel (`NickelMine`) | 0.0717 | — |
+| Tungsten (`TungstenMine`) | 0.004 | — |
+| Carbon (`CarbonMine`) | 392.2 | — |
+| Chromium (`ChromiumMine`) | 0.735 | — |
+| Magnesium (`MagnesiumMine`) | 0.0233 | — |
+| Gold (`GoldMine`) | 0.000204 | — |
+| Silver (`SilverMine`) | 0.00204 | — |
+| Platinum (`PlatinumMine`) | 0.0000306 | — |
+| Copper (`CopperMine`) | 2.12 | — |
+| RareEarths (`RareEarthsMine`) | 0.0168 | — |
+| Lithium (`LithiumMine`) | 0.0119 | — |
+| Sulfur (`SulfurMine`) | 4.78 | — |
+| Phosphorus (`PhosphorusMine`) | 12.63 | — |
+| Cobalt (`CobaltMine`) | 0.00758 | — |
+| Fluorine (`FluorineMine`) | 0.0778 | — |
+| Uranium (`UraniumMine`) | 0.0101 | — |
+| Thorium (`ThoriumMine`) | 0.0000914 | — |
+| Methane (`MethaneExtractor`) | 438.8 | — |
+| Deuterium (`DeuteriumExtractor`) | 0.00088 | — |
+| Helium-3 (`He3Mine`) | 0.5 | `lunar_colony`; bodies `[Moon, GasGiant, Asteroid]` |
+
+**AutoMines** (25 — orbital/asteroidic rigs, body-restricted `[Asteroid, Moon, GasGiant]`, require `asteroid_mining`):
+
+| Resource | Yield Mt/yr |
+|---|---:|
+| Iron (`AutoIronMine`) | 12.0 |
+| Aluminum (`AutoAluminumMine`) | 0.5 |
+| Titanium (`AutoTitaniumMine`) | 0.002 |
+| Silicates (`AutoSilicatesMine`) | 70.0 |
+| Nickel (`AutoNickelMine`) | 0.02 |
+| Tungsten (`AutoTungstenMine`) | 0.0005 |
+| Carbon (`AutoCarbonMine`) | 35.0 |
+| Chromium (`AutoChromiumMine`) | 0.2 |
+| Magnesium (`AutoMagnesiumMine`) | 0.007 |
+| Gold (`AutoGoldMine`) | 0.00001 |
+| Silver (`AutoSilverMine`) | 0.0001 |
+| Platinum (`AutoPlatinumMine`) | 0.000001 |
+| Copper (`AutoCopperMine`) | 0.15 |
+| RareEarths (`AutoRareEarthsMine`) | 0.0025 |
+| Lithium (`AutoLithiumMine`) | 0.0012 |
+| Sulfur (`AutoSulfurMine`) | 0.5 |
+| Phosphorus (`AutoPhosphorusMine`) | 0.0003 |
+| Cobalt (`AutoCobaltMine`) | 0.0015 |
+| Fluorine (`AutoFluorineMine`) | 0.02 |
+| Uranium (`AutoUraniumMine`) | 0.0003 |
+| Thorium (`AutoThoriumMine`) | 0.00007 |
+| Methane (`AutoMethaneExtractor`) | 27.0 |
+| Deuterium (`AutoDeuteriumExtractor`) | 0.05 |
+| Helium-3 (`AutoHe3Mine`) | 0.05 |
+| Water (`AutoWaterProcessor`) | 1.6 |
+
+### Industry (5)
+
+| Building | Effect | BP | Workers | Tech gate |
+|---|---|---:|---:|---|
+| `Factory` | +10 BP/yr construction; 100 MC/yr wealth | 1,000 | 12,000 | — |
+| `AtmosphericProcessor` | 0.398 N₂ + 0.442 O₂ + 0.0032 Ar + 0.51 CO₂ Mt/yr | 500 | 3,000 | — |
+| `ChemicalPlant` | H₂ 0.0937 + NH₃ 0.1929 + Polymers 0.4597 Mt/yr | 800 | 4,000 | — |
+| `SemiconductorFab` | +8 % research, +5 % engineering | 5,000 | 5,000 | `semiconductor_manufacturing` |
+| `PharmaceuticalPlant` | +3 % population growth | 800 | 4,000 | — |
+
+### Logistics (4)
+
+Capacity per build (`LogisticsCapacity` modifier; sum vs. industrial-buildings demand × 1,000 → efficiency):
+
+| Building | Capacity | BP | Workers |
+|---|---:|---:|---:|
+| `MassDriver` | 5,000 t/yr | 2,000 | 2,500 |
+| `OrbitalLift` | 20,000 t/yr | 5,000 | 6,000 |
+| `CargoTerminal` | 2,000 t/yr | 300 | 3,000 |
+| `Warehouse` | +5 % global stockpile capacity | 300 | 1,000 |
+
+Earth has effectively infinite logistics capacity (1 × 10⁹).
+
+### Power Generation (12)
+
+Output in GW. Power deficit reduces output of all powered buildings.
+
+| Building | Output (GW) | Fuel | BP | Workers | Tech gate |
+|---|---:|---|---:|---:|---|
+| `SolarPower` | 5 | — | 200 | 500 | — |
+| `WindFarm` | 3 | — | 300 | 200 | — |
+| `HydroelectricDam` | 15 | — | 2,500 | 1,000 | — |
+| `GeothermalPlant` | 18 | — | 1,800 | 800 | `geothermal_energy` |
+| `CoalPowerPlant` | 10 | Coal | 800 | 2,000 | — |
+| `NaturalGasPlant` | 12 | Gas | 600 | 1,500 | — |
+| `FissionReactor` | 20 | Uranium | 1,500 | 4,000 | — |
+| `FusionReactor` | 40 | He-3 + D | 5,000 | 8,000 | `fusion_power` |
+| `DTFusionReactor` | 50 | D + T (+ Li blanket) | 6,000 | 9,000 | `fusion_power` |
+| `DHe3FusionReactor` | 45 | D + He-3 | 7,000 | 9,500 | `helium3_fusion` |
+| `ThoriumReactor` | 24 | Thorium | 1,800 | 4,500 | `molten_salt_fission` |
+| `BreederReactor` | 22 | U (+ Pu output) | 2,600 | 5,000 | `breeder_reactors` |
+
+### Population & Growth (5)
+
+Food buildings produce `FoodProduction` (Mt/yr); consumption = population × 0.0000011 Mt/p/yr.
+
+| Building | Food Mt/yr | Feeds (approx) | BP | Workers | Notes |
+|---|---:|---|---:|---:|---|
+| `Farm` | 360 | 327 M | 100 | 1,000 | Open-air; habitable worlds only |
+| `Greenhouse` (Complex) | 200 | 182 M | 400 | 2,000 | Closed environment |
+| `AquacultureFacility` (Complex) | 200 | 182 M | 500 | 1,500 | Planetary aquatic protein |
+| `AgriDome` | 4 | 3.6 M | 600 | 4,000 | Closed-env off-world; needs `Hydroponics` tech |
+| `MedicalCenter` | +0.03 % growth each, cap 0.9 % | — | 800 | 6,000 | — |
+
+### Research & Engineering (5)
+
+| Building | Effect | BP | Workers | Tech gate |
+|---|---|---:|---:|---|
+| `ResearchLab` | +5 % research speed | 1,000 | 8,000 | — |
+| `EngineeringBay` | +5 % engineering speed | 1,200 | 10,000 | — |
+| `AiCluster` | +15 % research, +10 % engineering | 4,000 | 2,000 | `neural_networks` |
+| `DataCenter` | +10 % research, +8 % engineering | 2,000 | 1,000 | — |
+| `SemiconductorFab` | See Industry | — | — | — |
+
+### Financial & Commerce (2)
+
+`TradePort` was **removed** in v3.10 (GRA-22c Phase 4C-2); the enum variant no longer exists. Saves carrying TradePort counts drop them as unknown enum. Trade revenue now flows through `CommercialHub` + `FinancialCenter` + future `LaunchSite` transfer fees.
+
+| Building | Effect | BP | Workers |
+|---|---|---:|---:|
+| `CommercialHub` | +wealth from trade | 500 | 8,000 |
+| `FinancialCenter` | +wealth from banking | 1,500 | 10,000 |
+
+### Military & Shipbuilding (5)
+
+`SpacePort` enum variant is intentionally **orphaned** in v3.10 (GRA-22c Phase 4C-2). The RON entry was renamed `ControlCenter`. Do **not** use `SpacePort` as a building id in saves or new RON.
+
+| Building | Effect | BP | Workers | Tech gate |
+|---|---|---:|---:|---|
+| `ControlCenter` | **+1 FleetCapacity per build** (max concurrent fleets hosted) | 4,000 | 20,000 | — |
+| `Shipyard` | Enables ship construction; +10 % ship efficiency; −10 % build costs | 10,000 | 80,000 | `orbital_construction` |
+| `LaunchSite` | Surface-to-orbit access | 2,000 | 12,000 | — |
+| `MissileSilo` | Planetary anti-orbital defence | 3,000 | 5,000 | `missile_systems` |
+| `GroundDefenseBattery` | Anti-orbital / anti-missile defence | 2,500 | 3,000 | — |
+
+### Survey (1)
+
+| Building | Effect | BP | Workers | Notes |
+|---|---|---:|---:|---|
+| `OrbitalSurveyStation` | Continuous orbital survey of host body; mining yield bonus to local mines | — | — | v0.5.0 (GRA-83 PR-E); per-body, no transfer |
+
+## 3. Resources (39)
+
+Grouped by `ResourceType::is_*` predicate in `src/economy/types.rs`.
+
+### Volatiles (5)
+
+Beyond the frost line (> 2.5 AU). Phase depends on body temperature and pressure (see `determine_resource_phase`).
+
+| Resource | Use | Typical source |
+|---|---|---|
+| Water | Habitat life-support, hydroponics, rocket propellant | Icy moons, carbonaceous asteroids, atmospheric condensers |
+| Hydrogen | SMR (methane reformer), rocket propellant, ammonia synthesis | Gas-giant atmospheres, icy regolith |
+| Ammonia | Fertilizer for Farm / Greenhouse / Aquaculture / AgriDome | Haber-Bosch synthesis (ChemicalPlant) |
+| Methane | Polymer feedstock (methane cracker), fuel | Gas giants, Titan lakes, clathrates |
+| Phosphorus | Hard limit on hydroponics / population growth | Phosphate rock (PhosphorusMine) |
+
+### Biological (1)
+
+| Resource | Use | Source |
+|---|---|---|
+| Food | Per-capita consumption; growth throttled if ratio < 0.95 | Farm / Greenhouse / Aquaculture / AgriDome |
+
+### Atmospheric Gases (4)
+
+| Resource | Use | Source |
+|---|---|---|
+| Nitrogen | Haber-Bosch input (via AmmoniaSynthesis); pressurisation | AtmosphericProcessor; LifeSupport harvest |
+| Oxygen | Life-support draw (0.0001 Mt/p/yr on non-breathable worlds) | AtmosphericProcessor; LifeSupport production |
+| CarbonDioxide | Urea / greenhouse enrichment / industrial chemistry | AtmosphericProcessor; LifeSupport scrubber |
+| Argon | Welding shield gas, semiconductor fab | AtmosphericProcessor |
+
+### Construction Materials (9)
+
+Inner solar system (< 2.5 AU); mined by base `*Mine` buildings or surface ore.
+
+| Resource | Use | BoM share examples |
+|---|---|---|
+| Iron | Hull steel, structures | 17–500 Mt per building |
+| Aluminum | Lightweight structures, propellant tanks | 1.5–333 Mt per building |
+| Titanium | Pressure vessels, aerospace alloys, medical implants | 2–167 Mt per building |
+| Silicates | Aggregate, dome glass, insulation | 1.5–130 Mt per building |
+| Nickel | Stainless steel, superalloys (incl. megafactory maintenance) | 0.5–70 Mt per building |
+| Tungsten | Kinetic weapons, drill bits, cutting tools | 0.5–4 Mt per building |
+| Carbon | Graphene/nanotubes, composite reinforcement | Coal / graphite |
+| Chromium | Stainless steel, corrosion-resistant alloys | Chromite ore |
+| Magnesium | Lightweight Mg-Al alloys, sacrificial anodes | Magnesite / dolomite / seawater |
+
+### Fusion Fuel (3)
+
+| Resource | Use | Source |
+|---|---|---|
+| Helium-3 | D-He3 fusion fuel | Solar-wind-implanted regolith; primordial gas-giant atmospheres |
+| Deuterium | Easier fusion than He-3; "oil of the 22nd century" | Seawater / ice (DeuteriumExtractor) |
+| Tritium | Bred from Li blankets inside `DTFusionReactor` | D-T reactor breeding (not natural) |
+
+### Fissiles (3)
+
+| Resource | Use | Source |
+|---|---|---|
+| Uranium | Fission reactor fuel | UraniumMine (U₃O₈ ore) |
+| Thorium | Molten-salt reactor fuel | ThoriumMine (monazite) |
+| Plutonium | Manufactured from fertile U in BreederReactor | Reactor output |
+
+### Precious Metals (3)
+
+| Resource | Use | Source |
+|---|---|---|
+| Gold | Electronics, currency reserve | Placer / lode extraction (cyanidation) |
+| Silver | Solar panels, antibacterial, photography | Lead-zinc byproduct |
+| Platinum | Fuel cells, catalysts, labware | Layered intrusions (Bushveld / Norilsk analog) |
+
+### Strategic Materials (7)
+
+| Resource | Use | Source |
+|---|---|---|
+| Copper | Wiring, motors, electromagnets | Chalcopyrite / porphyry |
+| RareEarths | Motors, magnets, electronics | Bastnäsite / monazite |
+| Lithium | Battery tech, fusion reactor maintenance | Spodumene / brine |
+| Sulfur | Sulfuric acid, battery electrolytes | Frasch / pyrite roasting |
+| Cobalt | Li-Co-oxide cathodes, superalloys | Cobalt ore |
+| Fluorine | FLOX oxidiser, UF₆ enrichment, semiconductor etching | Fluorite (CaF₂) |
+| Polymers | Manufactured plastics, lubricants | Methane cracker (ChemicalPlant output) |
+
+### Exotic Materials (4)
+
+Late-game; engineered, not mined.
+
+| Resource | Use |
+|---|---|
+| Antimatter | Antimatter drive fuel (1,000,000 s Isp) — particle accelerators |
+| ExoticMatter | Negative-energy-density matter for warp bubbles / wormholes |
+| Metamaterials | Engineered optical/EM composites — cloaking, perfect lenses, advanced shielding |
+| Computronium | Optimised computational substrate — post-singularity AI automation |
+
+## 4. Population & Growth
+
+Population grows at `base_growth_rate × modifiers × yield_multiplier` per year. `base_growth_rate = 0.009` (0.9 %/yr, Earth 2026 demographic baseline) lives in the `colony_constants` header of `buildings.ron`.
+
+| Modifier | Effect |
+|---|---|
+| Housing utilisation | At 100 % full → growth × 0.20 (`housing_utilization_penalty = 0.8`); empty → ×1.0 |
+| Food adequacy | `food_ratio = production / consumption`. v3.7.1 curve: `factor = (2·ratio − 1)^1.5` for ratio ∈ [0.5, 1.0], 0 below 0.5, 1 above 1.0. Power 1.5 makes the curve pressure-early: 0.95 → 0.85, 0.85 → 0.59, 0.70 → 0.25, 0.50 → 0.00 |
+| Medical centers | +0.03 % each, capped at +0.9 % (`medical_growth_per_center`, `max_medical_growth_bonus`) |
+| Logistics efficiency | Penalty if `demand > capacity` (research ≥ 50 % floor) |
+| Ocean / liquid water | `OceanProperties::habitability_modifier()` bonus on bodies with `OceanType::Water` |
+
+**Population is hard-capped** by housing capacity: `population ≤ housing_capacity`. Colonies with `housing == 0` are uncapped (gives the player time to build starter housing on fresh outposts).
+
+**Housing tiers** (per-build resident capacity):
+
+| Tier | Building | Capacity | v3.2 starter? |
+|---|---|---:|---|
+| 1 | `HabitatTent` | 1,000 | Yes — first buildable |
+| 2 | `HabitatModule` | 10,000 | Yes — second tier |
+| 3 (breathable) | `HabitatDome` | 5,000,000 | No — small dome, post-starter |
+| 3 (airless) | `UndergroundHabitat` | 8,000,000 | No — buried habitat |
+| 4 (workhorse) | `Housing` (Complex) | 25,000,000 | No — metropolitan tier |
+
+Earth seed 8.2 B → ~328 Housing Complexes (manageable-count band per GRA-22a operator bar: one colony building ≈ 1/300 of world population).
+
+## 5. Construction Pipeline
+
+1. Open the **Construction** menu (native Bevy UI, v0.5.2 — `src/ui/construction/` directory: `mod.rs`, `state.rs`, `data.rs`, `cards.rs`, `mining.rs`, `queue.rs`, `overview.rs`, `buildings.rs`, `demolish.rs`, `dropdown.rs`, `tooltip.rs`, `scrollbar.rs`, `disabled.rs`, `setup.rs`, `markers.rs`). The legacy `src/ui/construction_panel.rs` and canary-era `src/ui/construction.rs` no longer exist.
+2. Pick the target colony from the colony dropdown.
+3. Browse by category. Each card shows `need / available` for cost resources.
+4. Click **Queue** (or **Queue ×N** for batch build multipliers).
+5. `process_construction_actions` (`src/colony/systems.rs`) drains `LocalStockpile` for affordable portions. If the body cannot pay the full cost in full, the project is spawned with `awaiting_resources = true`, `ResourceRequest`s are filed at `RequestPriority::Construction`, and the project accumulates zero BP until every linked request is delivered.
+6. `advance_construction` ticks each project in queue order: `1 + factories × 10` BP/yr, oldest first.
+7. On completion, `colony.add_building(building_type)` fires a `ConstructionEvent::Completed` (consumed by the notifications bridge, GRA-137).
+
+**Queue badges**: `awaiting_resources` (red, blocks progress), build-time progress bar, per-tick BP delivery.
+
+**Tier replacement** (GRA-22c plan §4.6): when a player queues a building whose RON `replaces` field names a tier-(N-1) predecessor and the colony has at least one of it, the predecessor count drops by one *before* the project is spawned. The new building still pays its own `resource_costs` (no refund).
+
+**Direct inventory edits** (v0.5.2 Mining tab): ±N on a mine via the Mining card's [+/–] buttons — bypasses BP / build time and applies immediately. Emits a single `ConstructionEvent::Completed` per batch and marks the body dirty (`DirtyReason::Body`) so the v2 save path picks up the new production rate.
+
+**Per-building money cost** (`money_cost_mc_per_year` in `buildings.ron`, v3.7.1+): the financial operating cost (staff, capital, maintenance contracts) in MC/yr. Defaults to 0 with a 5 %-of-build-cost fallback so old RON entries remain valid. Distinct from the Mt-denominated resource draw.
+
+## 6. Maintenance & Operating Costs
+
+Every building has **4–6 distinct** `maintenance_resources` (GRA-22a audit, `MAINTENANCE_AUDIT_MIN..=MAINTENANCE_AUDIT_MAX = 4..=6` in `src/colony/data.rs`). Duplicate entries count as one. Buildings outside the range fail at load time. `audit_buildings()` in the same module returns the violation list; `tests/buildings_cost_audit.rs` enforces the rule.
+
+`deduct_maintenance_resources` ticks each building's Mt draw proportionally per simulation year, deducted from the body's `LocalStockpile`. If the local stockpile runs out, the global budget is used as fallback; if that is also empty, buildings still operate (no hard shutdown — the audit guarantee is the design pressure: disabling any one of the 4–6 resources must noticeably weaken or shut down the building).
+
+`money_cost_mc_per_year` is summed into `operating_cost_per_year` and aggregated into `GlobalBudget::expenses_per_year` by `update_treasury`. Wealth generation (`Factory`'s 100 MC/yr, etc.) is the income side.
+
+## 7. Outpost Founding
+
+`EstablishOutpostRequest` is pushed from the dossier panel by clicking **🏗 Establish Outpost**. The processing system (`src/colony/systems.rs::process_construction_actions`) inserts the `Colony`, `LocalStockpile`, `MinimumStockpile` (Food 500 / Water 100 defaults), `Population`, and `ColonyEnvironmentCosts` components, then queues the v3.9 starter package:
+
+| Building | Quantity | Cost | Notes |
+|---|---|---|---|
+| `HabitatTent` | ×1 | 50 BP | 1,000 residents |
+| `HabitatModule` | ×1 | 200 BP | 10,000 residents |
+| `Farm` | ×1 | 100 BP | 360 Mt/yr food (breathable bodies only) |
+
+Total 350 BP ≈ 11 sim days at default 12,000 BP/yr. (Old package was 5,200 BP / ~5 months — replaced in GRA-22c Phase 3.3 so the queue clears quickly and the player drives power / life-support / expansion.)
+
+**Hard blocks** (button is hidden, red ⛔ shown):
 
 | Condition | Reason |
-|-----------|--------|
-| Gas Giant | No solid surface — outpost impossible |
-| Surface gravity > 3 g | Exceeds human physiological limits |
+|---|---|
+| Body is a Gas Giant | No solid surface — outpost impossible |
+| Surface gravity > 3 g | Exceeds human physiological limits (`heavy_gravity_limit_exceeded`) |
 
-An **amber warning** (⚠) is shown if the colony-cost score is high (harsh environment), but you can still found there.
+**Amber warning** (button still works): `colony_cost_score > 7.0/10`. The dossier surfaces the score inline ("⚠ Extreme environment — significant life-support required").
 
-### Step 3 — Review the starter package
-
-Every new outpost receives a starter set of buildings **automatically queued**:
-
-| Building | Qty | Notes |
-|----------|-----|-------|
-| Habitat Tent | ×1 | +1K housing capacity (v3.9 / GRA-22c Phase 3.3) |
-| Habitat Module | ×1 | +10K housing capacity |
-| Farm | ×1 | +360 Mt/yr food (breathable bodies only) |
-
-> **v3.9 (GRA-22c Phase 3.3):** the previous starter package was
-> 5,200 BP (LifeSupport + Housing + FissionReactor×2 + AgriDome×2 ≈
-> 5 sim months at default 12,000 BP/yr). The lightweight starter
-> above is 350 BP ≈ 11 sim days, so a new outpost's queue clears
-> quickly and the player can drive the next phase of construction
-> (power / life-support / expansion) on their own timeline rather
-> than waiting on a freight round.
-
-### Step 4 — Check ongoing environmental costs
-
-The dossier lists per-person-per-year running costs *before* you click the button:
+**Ongoing environmental costs** (per person per year, attached as `ColonyEnvironmentCosts`):
 
 | Resource | Rate | When |
-|----------|------|------|
-| 💧 Water | 50 t/person/yr | Always (recycling losses) |
-| 🫁 Oxygen | 100 t/person/yr | Bodies without a breathable atmosphere |
-
-### Step 5 — Send resources first
-
-> **⚠ Important**: Resources must be physically present at the target body *before* construction can start.  
-> Starter buildings are queued immediately, but they will remain paused until the required materials arrive.
-
-When the logistics network is active (v0.4+), founding an outpost automatically **publishes resource requests** for all starter-building materials.  These requests can be fulfilled by:
-- **Your Freighter fleets** — manually assign a fleet in the Fleet panel
-- **Private shipping companies** — AI freighters pick up the request autonomously and deliver for a credit fee
-
-See [Transporting Resources to a New Colony](#transporting-resources-to-a-new-colony) for how to do this.
-
-### Step 6 — Click "🏗  Establish Outpost"
-
-The button enqueues the outpost request.  On the next simulation tick the starter buildings are queued on the new colony.  Switch to the **Construction** tab, select the new colony from the colony dropdown, and watch progress.
-
----
-
-## Transporting Resources to a New Colony
-
-New colonies start with **zero local stockpile**.  All starter-building materials (Iron, Silicates, Uranium, etc.) must be shipped in by Freighter — even if the materials exist elsewhere in the same solar system.
-
-### Within the same star system
-
-Resources are **physically located on individual bodies** and must be transported by ship.  When a construction project or outpost needs materials, a **resource request** is created.  This can be fulfilled two ways:
-
-**Option A — Player-controlled Freighter (manual)**
-1. Select a Freighter fleet in the **Fleet** panel.
-2. Open the **Transfer Planner** and set the destination body.
-3. Accept the resource request shown in the planner.
-4. Choose a transfer option (Efficient / Moderate / Fast).
-5. On arrival the cargo is automatically delivered and the request closed.
-
-**Option B — Private shipping company (automatic)**
-- Private companies operate Freighter fleets and automatically bid on open resource requests.
-- They are paid in credits from your treasury (price depends on distance and priority).
-- Companies reinvest profits to buy additional ships, increasing system-wide logistics capacity.
-- No player action needed — just ensure your treasury can cover the shipping costs.
-
-> **Tip:** Set a **minimum stockpile** for key resources on each colony so that private freighters keep your outposts topped up automatically without you needing to monitor every delivery.
-
-### From another star system (interstellar supply run)
-
-You need a **Freighter** fleet capable of interstellar transit.
-
-1. **Open the Fleet panel** and spawn or select a Freighter fleet at the origin colony.
-2. **Open the Transfer Planner** (in the Fleet panel) and set the destination body.
-3. Choose a transfer option (Efficient / Moderate / Fast); efficient Hohmann burns use the least fuel.
-4. The fleet travels along the computed Keplerian arc; use *phased departure* to align with the optimal transfer window.
-5. On arrival the fleet's cargo is automatically added to the destination body's local stockpile.
-
-### Resources needed for the starter buildings
-
-The following materials must be present at the new colony before construction begins:
-
-| Material | Purpose |
-|----------|---------|
-| Iron | Structural framework |
-| Silicates | Dome glass & insulation |
-| Aluminum | Lightweight structures |
-| Uranium | Fission reactor fuel rods |
-| Carbon | Composite reinforcement |
-
-Exact amounts are shown on each building card in the Construction panel (need / available).
-
----
-
-## Buildings Reference
-
-The game has **47 building types** across **8 categories**.  Each building card in the Construction panel shows:
-
-- 🏗 Name + icon
-- Description (what it is)
-- ▸ **Effect lines** — the actual numeric impact per building
-- BP / 👷 Workforce / ⚡ Power demand
-- ⏱ Estimated build time
-- Resource costs (current stock vs. required)
-
-Building outputs below are **per building**.
-
----
-
-### Infrastructure
-
-| Building | Effect | BP | Workers | Notes |
-|----------|--------|----|---------|-------|
-| 🏙 Housing Complex | **+25M housing capacity** | 200 | 500 | Habitable worlds only |
-| 🏠 Habitat Dome | **+50M housing capacity** | 800 | 1,000 | Pressurised; any body |
-| ⛏ Underground Habitat | **+30M housing capacity** | 1,200 | 1,500 | Buried; ideal for airless worlds |
-| 🌬 Life Support | Enables habitation on vacuum/hostile worlds; recycles air & water | 500 | 2,000 | Required on non-breathable bodies |
-| 💧 Water Treatment Plant | +2% population growth rate | 400 | 500 | |
-| 🧂 Desalination Plant | +1% population growth rate | 600 | 400 | Requires `desalination` tech |
-| ♻️ Recycling Center | +2% mining efficiency; reduces waste | 300 | 1,000 | |
-
-> **Scale note:** At 25M capacity per Housing Complex, Earth starts with ~335 complexes rather than 33,500.  Each new one you build adds a visible ~0.3% capacity boost.
-
----
-
-### Industry
-
-| Building | Effect | BP | Workers | Notes |
-|----------|--------|----|---------|-------|
-| ⚒ Mine | +15% mining efficiency | 400 | 5,000 | |
-| 🏭 Refinery | +8% mining efficiency | 600 | 6,000 | Converts raw ore |
-| 🏭 Factory | +10 BP/yr construction speed; −5% construction costs | 1,000 | 12,000 | Required for most BP output |
-| ☁️ Atmospheric Processor | +0.75 Mt/yr atmospheric harvest | 600 | 3,000 | Gas-giant moons or dense atmospheres |
-| ⚗️ Chemical Plant | +0.15 Mt/yr Hydrogen, +0.14 Mt/yr Ammonia, +0.01 Mt/yr Polymers | 800 | 4,000 | Synthesises industrial feedstocks from volatile inputs |
-| 🛢️ Hydrocarbon Extractor | +10% mining efficiency | 1,200 | 2,500 | Oil/gas from crustal deposits |
-| 🕳 Deep Drill | +25% deep mining efficiency | 2,000 | 10,000 | Requires `deep_drilling` tech |
-| 🔦 Laser Drill | +50% deep mining efficiency | 6,000 | 4,000 | Requires `laser_drilling` tech |
-| 🗻 Strip Mine | +100% bulk mining efficiency | 12,000 | 50,000 | Requires `strip_mining` tech |
-| 💾 Semiconductor Fab | +8% research speed; +5% engineering speed | 5,000 | 5,000 | Requires `semiconductor_manufacturing` tech |
-| 💊 Pharmaceutical Plant | +3% population growth rate | 800 | 4,000 | |
-
----
-
-### Logistics
-
-Logistics buildings increase the colony's **logistics capacity**.  Low capacity relative to demand causes an efficiency penalty on mines and research.
-
-| Building | Effect | BP | Workers |
-|----------|---------|----|---------|
-| 🧲 Mass Driver | +5,000 logistics capacity | 2,000 | 2,500 |
-| 🚡 Orbital Lift | +20,000 logistics capacity | 5,000 | 6,000 |
-| 📦 Cargo Terminal | +2,000 logistics capacity | 300 | 3,000 |
-| 🏗 Warehouse | +5% global stockpile capacity | 300 | 1,000 |
-
-> **Tip:** Build Cargo Terminals early; they're cheap and prevent the mining efficiency penalty while you grow.
-
----
-
-### Power
-
-Buildings require power (MW/GW).  Power deficit reduces building output.  Build power plants before adding heavy industry.
-
-| Building | Output | Fuel | BP | Workers |
-|----------|--------|------|----|---------|
-| ☀ Solar Power Plant | +5 GW | — | 200 | 500 |
-| 💨 Wind Farm | +3 GW | — | 300 | 200 |
-| 🌊 Hydroelectric Dam | +15 GW | — | 2,500 | 1,000 |
-| 🌋 Geothermal Plant | +18 GW | — | 1,800 | 800 | Requires `geothermal_energy` tech |
-| 🏭 Coal Power Plant | +10 GW | Coal | 800 | 2,000 |
-| 🔥 Natural Gas Plant | +12 GW | Gas | 600 | 1,500 |
-| ☢ Fission Reactor | +20 GW | Uranium | 1,500 | 4,000 |
-| ⚡ Fusion Reactor | +40 GW | Helium-3 + Deuterium | 5,000 | 8,000 | Requires `fusion_power` tech |
-| ⚛ D-T Fusion Reactor | +50 GW | Deuterium + Tritium | 6,000 | 9,000 | Requires `fusion_power` tech |
-| ☀ D-He3 Fusion Reactor | +45 GW | Deuterium + Helium-3 | 7,000 | 9,500 | Requires `helium3_fusion` tech |
-| ♨ Thorium Reactor | +24 GW | Thorium | 1,800 | 4,500 | Requires `molten_salt_fission` tech |
-| ☢ Breeder Reactor | +22 GW | Uranium (+Plutonium output) | 2,600 | 5,000 | Requires `breeder_reactors` tech |
-
----
-
-### Population & Food
-
-Food is measured in **megatonnes per year (Mt/yr)**.  Per-capita consumption is **0.0001 Mt/person/yr** (100 t/person/yr).
-
-| Building | Food output | Feeds | BP | Workers |
-|----------|-------------|-------|----|---------|
-| 🐄 Farm | 1,000 Mt/yr | ~10M people | 100 | 1,000 |
-| 🌿 Greenhouse | 500 Mt/yr | ~5M people | 400 | 2,000 |
-| 🐟 Aquaculture Facility | 750 Mt/yr | ~7.5M people | 500 | 1,500 |
-| 🌾 Agricultural Dome | 4 Mt/yr | ~40K people (enclosed) | 600 | 4,000 |
-| 🏥 Medical Center | +0.03% population growth rate per centre | 800 | 6,000 |
-
-> **Example:** A new colony with 500K population needs at least 50 Mt/yr food.  That's 1 Farm, or 7 Greenhouses, or 1 Aquaculture Facility.
-
----
-
-### Research
-
-| Building | Effect | BP | Workers |
-|----------|--------|----|---------|
-| 🔬 Research Lab | +5% research speed | 1,000 | 8,000 |
-| 🔩 Engineering Bay | +5% engineering speed | 1,200 | 10,000 |
-| 🤖 AI Cluster | +15% research speed; +10% engineering speed | 4,000 | 2,000 | Requires `neural_networks` tech |
-| 💾 Semiconductor Fab | +8% research speed; +5% engineering speed | 5,000 | 5,000 | See Industry |
-| 🖥️ Data Center | +10% research speed; +8% engineering speed | 2,000 | 1,000 |
-
----
-
-### Financial & Commerce
-
-| Building | Effect | BP | Workers |
-|----------|--------|----|---------|
-| 🏪 Commercial Hub | +Credits income from trade | 500 | 8,000 |
-| 🏦 Financial Center | +Credits income from banking | 1,500 | 10,000 |
-| 🚢 Trade Port | +Credits income from import/export | 2,500 | 15,000 |
-
----
-
-### Military & Shipbuilding
-
-| Building | Effect | BP | Workers | Notes |
-|----------|--------|----|---------|-------|
-| ⚓ Shipyard | Enables ship construction; +10% ship efficiency; −10% build costs | 10,000 | 80,000 | Requires `orbital_construction` tech |
-| 🚀 Missile Silo | Planetary anti-orbital defence | 3,000 | 5,000 | Requires `missile_systems` tech |
-| 🛫 Launch Site | Surface-to-orbit access | 2,000 | 12,000 | |
-| 🚀 Space Port | High-throughput orbital access | 4,000 | 20,000 | |
-| 🛡️ Ground Defense Battery | Anti-orbital / anti-missile defence | 2,500 | 3,000 | |
-
----
-
-## Building Scale & Design Philosophy
-
-Building outputs are calibrated to **civilisation level**, not individual installations.  Each building represents a district-scale complex:
-
-- **Housing Complex**: 25M residents — ~0.3% of Earth's 8.2B capacity per building
-- **Farm**: 1,000 Mt/yr — feeds ~10M people; Earth starts with ~820 farms
-- **Fission Reactor**: 20 GW — a major power plant (Earth has ~440 reactors representing ~8.8 TW)
-
-This scale means that:
-
-1. **Early colonies** are genuinely resource-limited — a 5M-person colony needs 1 Fission Reactor, 1 Farm, and 1 Housing Complex just to function.
-2. **Each new building matters** — queuing a second Farm on a young colony doubles its food production.
-3. **Earth is a reference point** — its hundreds of buildings are believable as planetary-scale infrastructure.
-
----
-
-## Construction Workflow
-
-1. Open the **Construction** tab.
-2. Select the target colony from the colony dropdown (top left).
-3. Browse buildings by category (collapsed/expanded headers).
-4. Read the **effect lines** (green ▸ lines) on each card to understand what the building does.
-5. Check resource costs (shown as `need / available`; green = OK, red = insufficient).
-6. Adjust the **build multiplier** (×1 / ×5 / ×10) to queue batches.
-7. Click **Queue** (or **Queue ×N**).
-8. The construction queue at the bottom shows active projects with progress bars.
-
-**Build Points (BP)** are produced by Factory buildings.  More Factories → faster construction across the whole colony.
-
-**Workforce** must not exceed colony population × 0.4 (roughly 40% employment rate).  If workforce demand exceeds supply, new buildings will not operate at full efficiency.
-
----
-
-## Population Growth
-
-Population grows by ~0.9% per year at baseline.  Growth is multiplied by:
-
-| Factor | Effect |
-|--------|--------|
-| Housing utilisation | Growth slows as housing fills; at 100% full → only 20% of normal growth |
-| Food adequacy | Deficit → growth penalty; full food supply → 1.0× |
-| Medical Centers | +0.03% per centre (up to +0.9% bonus) |
-| Logistics efficiency | Penalty if logistics demand > capacity |
-
-**To sustain 0.9% growth on Earth** (8.2B, ~74M net/yr) you need:
-
-- ≥1% housing headroom (≥82M spare capacity → at least 4 spare Housing Complexes)
-- Enough food: 8.2B × 0.0001 = 820,000 Mt/yr production
-- Adequate logistics infrastructure
-
----
-
-## Minimum Stockpile Settings
-
-*(Planned feature — v0.4.5)*
-
-Each colony can have a **minimum stockpile** configured per resource.  When the local stockpile drops below the threshold, a Maintenance-priority resource request is automatically created and a private freighter (or a player fleet) will be dispatched to top it up.
-
-This is the "set-and-forget" supply management approach:
-
-| Example | Configuration |
-|---------|---------------|
-| Mars always has fuel | Min Uranium = 500 Mt |
-| Moon life support stable | Min O₂ = 1,000 Mt, Min Water = 2,000 Mt |
-| Ceres construction buffer | Min Iron = 5,000 Mt, Min Silicates = 3,000 Mt |
-
-Minimums are configured in the colony dossier panel (Survey tab → select body → scroll to Resources section).
-
-Emergency defaults are applied automatically for all colonies with Life Support systems:
-- Oxygen: 200 Mt minimum
-- Water: 100 Mt minimum
-
----
-
-## Logistics Efficiency
-
-Every non-logistics building generates **logistics demand** proportional to its workforce requirement.  Logistics buildings (Mass Drivers, Orbital Lifts, Cargo Terminals) provide **logistics capacity**.
-
-```
-Efficiency = capacity / demand   (clamped 0.0 – 1.0)
-```
-
-- If efficiency < 1.0, mining output and research output are **penalised**.
-- Research has a minimum 50% output regardless of logistics.
-
-**Rule of thumb for new outposts:** Build a Cargo Terminal alongside your first Mine.  It's cheap (300 BP) and avoids immediate efficiency penalties.
-
----
-
-## Debug / Cheat Controls
-
-Press **F12** while the Construction panel is open to toggle debug mode:
-
-| Option | Effect |
-|--------|--------|
-| Free Construction | Build without resource costs |
-| Instant Build | Skip the time-based construction queue |
-| Bypass Tech | Show and build any building regardless of prerequisites |
-
-These are useful for testing layouts or quickly getting a new colony up and running in a sandbox session.
+|---|---|---|
+| Water | 0.00005 Mt/p/yr | Always (recycling losses) |
+| Oxygen | 0.0001 Mt/p/yr | Non-breathable atmospheres (`needs_oxygen = true`) |
+
+**Resources must be transported.** All starter-building materials (Fe, Si, etc.) must be in the new colony's `LocalStockpile` before construction can advance. With zero starting stock, the system fires `ResourceRequest`s on first tick; private shipping companies or player Freighter fleets fulfil them.
+
+## 8. Cross-References
+
+- `ARCHITECTURE.md` §Colony Management — engineering-level architecture and component list.
+- `docs/design/LOGISTICS_NETWORK.md` — full LocalStockpile / Request / Delivery flow, freighters, shipping-company AI.
+- `docs/RESEARCH_MODDING.md` — tech IDs that gate buildings (`orbital_construction`, `fusion_power`, `helium3_fusion`, `semiconductor_manufacturing`, `molten_salt_fission`, `breeder_reactors`, `geothermal_energy`, `desalination`, `missile_systems`, `lunar_colony`, `asteroid_mining`, `neural_networks`, `Hydroponics`).
+- `assets/data/buildings.ron` — canonical building definitions; `colony_constants` block holds `food_consumption_per_capita_mt_per_year`, `base_growth_rate`, `housing_utilization_penalty`, `available_workforce_fraction`, `food_decline_*`, and `per_capita_consumption` table.
+- `src/colony/types.rs` — `BuildingType`, `BuildingCategory` (9 variants), `ColonyTier` (4 variants).
+- `src/economy/types.rs` — `ResourceType` (39 variants) and helpers (`is_volatile`, `is_biological`, `is_atmospheric_gas`, `is_construction`, `is_fusion_fuel`, `is_fissile`, `is_precious_metal`, `is_strategic`, `is_exotic`, `is_mineable`).
+- `src/colony/data.rs` — `BuildingDefinition`, `MAINTENANCE_AUDIT_MIN/MAX`, `audit_buildings`.
+- `src/colony/systems.rs` — `process_construction_actions`, `advance_construction`, `update_colony_growth`, `deduct_maintenance_resources`, `update_treasury`.
