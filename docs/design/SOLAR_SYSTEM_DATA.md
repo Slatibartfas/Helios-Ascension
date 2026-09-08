@@ -2,286 +2,248 @@
 
 ## Overview
 
-Helios Ascension uses realistic astronomical data for all celestial bodies in the solar system. This data is stored in the `assets/data/solar_system.ron` file and loaded at runtime.
+Helios Ascension uses realistic astronomical data for all celestial bodies in the
+solar system. The primary catalog lives in `assets/data/solar_system.ron` and is
+loaded at runtime by `src/plugins/solar_system_data.rs` → `src/plugins/solar_system.rs`.
 
-**Current Status: 377 celestial bodies with comprehensive coverage!**
+**Current Status: 713 solar-system bodies** plus 60 nearby star systems loaded
+from `assets/data/nearest_stars_raw.json` and ~5,000 confirmed exoplanets staged
+in CSV for v0.6.
 
 ## Data Sources
 
-All astronomical data is based on real-world measurements from:
-- NASA JPL Horizons System
+- NASA JPL Horizons System, JPL Small-Body Database
 - International Astronomical Union (IAU)
 - Planetary and Lunar Coordinates
 - Minor Planet Center
-- Comet catalogs and databases
+- NASA Exoplanet Archive (staged, runtime loader deferred to v0.6)
 
-## Body Type Summary
+## Body Type Summary (solar_system.ron)
 
 ```
-Star:          1   (Sol)
-Planets:       8   (Mercury → Neptune)
-Dwarf Planets: 55  (including Kuiper Belt Objects)
-Moons:         148 (all major + many minor moons)
-Asteroids:     145 (main belt + Trojans + NEOs)
-Comets:        20  (periodic and long-period)
-──────────────────
-TOTAL:         377 bodies
+Star:           1   (Sol)
+Planet:         4   (Mercury, Venus, Earth, Mars)
+GasGiant:       4   (Jupiter, Saturn, Uranus, Neptune)
+Ring:           2   (Saturn main ring + Uranus ε ring)
+DwarfPlanet:   55   (Ceres, Pluto, Eris, Makemake, Haumea, Sedna, Orcus, …)
+Moon:         147   (Galilean + Titan + Europa + Ganymede + Callisto + Io
+                     + irregulars across all giants + Charon)
+Asteroid:     450   (C / S / M / V / D / P distribution per
+                     procedural generation; gameplay sidecar in
+                     `asteroids.ron`)
+Comet:         50   (inline in `solar_system.ron` — no separate sidecar)
+────────────────────
+TOTAL:        713 bodies in the active scene
 ```
+
+`BodyType` is defined in `src/plugins/solar_system_data.rs` and includes the
+`Star | Planet | GasGiant | DwarfPlanet | Moon | Asteroid | Comet | Ring`
+variants used throughout the runtime, save path, transfer planner, and UI.
 
 ## Celestial Bodies by Category
 
 ### Star (1)
-- **Sol** (The Sun)
-  - Mass: 1.9885×10³⁰ kg
-  - Radius: 695,700 km
-  - Central star of the solar system
+- **Sol** — 1.9885×10³⁰ kg, 695,700 km radius.
 
-### Planets (8)
-1. **Mercury** - Smallest planet, closest to the Sun
-2. **Venus** - Hottest planet with thick atmosphere
-3. **Earth** - Our home planet
-4. **Mars** - The Red Planet
-5. **Jupiter** - Largest gas giant
-6. **Saturn** - Ringed gas giant
-7. **Uranus** - Ice giant with extreme axial tilt
-8. **Neptune** - Outermost planet, deep blue
+### Planets (4): Mercury, Venus, Earth, Mars.
+
+### Gas Giants (4): Jupiter, Saturn, Uranus, Neptune. Jupiter hosts the
+79-moon Jovian system; Saturn's main ring is `Ring` #1.
+
+### Rings (2)
+- **Saturn main ring** — 7,000–80,000 km radial extent, particle system.
+- **Uranus ε ring** — narrow dusty ring.
 
 ### Dwarf Planets & Kuiper Belt Objects (55)
-**Main Belt:**
-1. **Ceres** - Largest object in the asteroid belt
+- **Main Belt:** Ceres.
+- **Classical KBOs:** Pluto, Eris, Makemake, Haumea, Quaoar, Sedna, Orcus,
+  Salacia, Varda, plus 45 more KBOs and scattered-disc objects.
 
-**Classical Kuiper Belt Objects:**
-2. **Pluto** - Former 9th planet, now classified as dwarf planet
-3. **Eris** - Massive trans-Neptunian object
-4. **Makemake** - Bright Kuiper belt object
-5. **Haumea** - Fast-rotating elongated dwarf planet
-6. **Quaoar** - Large classical KBO
-7. **Sedna** - Extreme outer solar system object
-8. **Orcus** - Pluto-like object
-9. **Salacia** - Large KBO
-10. **Varda** - Trans-Neptunian object
-... and 45 more KBOs and scattered disc objects
+### Moons (147 total)
+- **Earth (1):** Moon.
+- **Mars (2):** Phobos, Deimos.
+- **Jupiter (79):** Galilean (4) + Amalthea (4) + Himalia (5) + Ananke (10) +
+  Carme (7) + Pasiphae (9) + irregulars (17) + recent S/2003 discoveries.
+- **Saturn (83):** Major (7) + co-orbital (2) + inner small (15) +
+  Hyperion + Phoebe + Norse (20) + Inuit (1) + Gallic (2) + named moons.
+- **Uranus (27):** Major (5) + inner (13) + irregular (9).
+- **Neptune (14):** Triton + inner (7) + outer irregular (6).
+- **Pluto (1):** Charon.
 
-### Moons (148 total)
+### Asteroids (450)
+Main belt + Jupiter Trojans (L4/L5) + near-Earth objects (Apollo / Amor /
+Aten / Atira). Spectral classes C / S / M / V / D / P are assigned by the
+procedural generator with real taxonomic proportions (~75% C, ~17% S,
+~8% M, plus rare V/D/P).
 
-**Earth System (1):**
-- Moon - Earth's only natural satellite
+### Comets (50)
+Short-period (e.g. 1P/Halley, 2P/Encke, 9P/Tempel, 67P/Churyumov-Gerasimenko,
+109P/Swift-Tuttle), long-period (Hale-Bopp, Hyakutake, McNaught, NEOWISE, …),
+and Jupiter-family (Shoemaker-Levy 9).
 
-**Mars System (2):**
-- Phobos - Larger moon, irregular shape
-- Deimos - Smaller, outer moon
+## Sidecar Data Files
 
-**Jupiter System (79 complete!):**
-- **Galilean Moons (4):** Io, Europa, Ganymede, Callisto
-- **Amalthea Group (4):** Metis, Adrastea, Amalthea, Thebe
-- **Himalia Group (5):** Leda, Himalia, Lysithea, Elara, Dia
-- **Ananke Group (10):** Including Ananke, Carpo, Euporie
-- **Carme Group (7):** Including Carme, Taygete, Chaldene
-- **Pasiphae Group (9):** Including Pasiphae, Sinope, Callirrhoe
-- **Other Irregulars (17):** Various retrograde and prograde moons
-- Plus many S/2003 discoveries
+The catalog in `solar_system.ron` carries bodies only. Three sidecar files
+augment it with gameplay, astrometric, and archival data:
 
-**Saturn System (83 complete!):**
-- **Major Moons (7):** Mimas, Enceladus, Tethys, Dione, Titan, Rhea, Iapetus
-- **Co-orbital Moons (2):** Janus, Epimetheus
-- **Inner Small Moons (15):** Pan, Daphnis, Atlas, Prometheus, Pandora, etc.
-- **Large Irregular (2):** Hyperion, Phoebe
-- **Norse Group (20):** Ymir, Paaliaq, Siarnaq, Albiorix, etc.
-- **Inuit Group (1):** Tarqeq
-- **Gallic Group (2):** Bebhionn, Erriapus
-- Plus many more named moons
+### `assets/data/asteroids.ron` (GRA-313)
+- Per-asteroid gameplay data: `body` (joins on `solar_system.ron` name),
+  `asteroid_class` (`CType | SType | MType | VType | DType | PType | Unknown`),
+  `total_mass_kg`, `composition: { Resource → mass fraction ≤ 1.0 }`,
+  `discovery_tier` (0..=8, gates dossier entries), `delta_v_to_redirect_kms`
+  (Option), `terraforming_source: bool`.
+- Loader: `src/astronomy/asteroids.rs::AsteroidDataPlugin` joins on the body
+  name; unmatched entries warn and skip. The 450-body count above is the
+  authoritative population — `asteroids.ron` augments, never replaces it.
+- Modding: copy an existing entry. See `docs/design/ASTEROID_ENTITIES.md` §3.1.
 
-**Uranus System (27 complete!):**
-- **Major Moons (5):** Miranda, Ariel, Umbriel, Titania, Oberon
-- **Inner Moons (13):** Cordelia, Ophelia, Bianca, Cressida, Desdemona, Juliet, Portia, Rosalind, Cupid, Belinda, Perdita, Puck, Mab
-- **Irregular Moons (9):** Francisco, Caliban, Stephano, Trinculo, Sycorax, Margaret, Prospero, Setebos, Ferdinand
+### `assets/data/nearest_stars.ron` + `assets/data/nearest_stars_raw.json`
+- `nearest_stars.ron` is the **position table** of the 60 closest star systems
+  to Sol (light-year Cartesian J2000 coordinates + spectral type). Static,
+  checked in.
+- `nearest_stars_raw.json` (~45 KB) carries the **astrometric + exoplanet data**
+  for those same 60 systems: stellar mass/radius/temp/luminosity, [Fe/H]
+  metallicity, confirmed planets. Loaded once at startup into
+  `NearbyStarsData` by `src/astronomy/nearby_stars.rs`.
+- Authoritative count: 60 systems (matches the 60-entry `NEARBY_STARS_POSITIONS`
+  slice in `nearby_stars.rs`).
 
-**Neptune System (14 complete!):**
-- **Triton** - Largest moon with retrograde orbit
-- **Inner Moons (7):** Naiad, Thalassa, Despina, Galatea, Larissa, S/2004 N 1, Proteus
-- **Outer Irregular (6):** Nereid, Halimede, Sao, Laomedeia, Psamathe, Neso
+### Reference dumps (not loaded)
+- `assets/data/Exoplanets_NASA.csv` — ~5,000+ confirmed exoplanets from the
+  NASA Exoplanet Archive. **Staged only**; the CSV → `ConfirmedPlanet` loader
+  is deferred to v0.6 (see `assets/data/README.md`).
+- `assets/data/JPL_SmallBodiesList.csv`, `assets/data/JPL_CometsList.csv` —
+  JPL reference dumps kept for modders and future re-seeding; not loaded at
+  runtime.
 
-**Pluto System (1):**
-- **Charon** - Large moon relative to Pluto
+## Multi-Star System Data
 
-### Main Belt Asteroids (100+)
+The 60 nearby star systems populate the starmap view and the
+`system_populator` chain (`src/astronomy/nearby_stars.rs` + `src/plugins/system_populator.rs`):
 
-**Named Asteroids (includes):**
-- Vesta, Pallas, Hygiea, Interamnia, Davida, Cybele, 52 Europa, Sylvia, Thisbe
-- Euphrosyne, Juno, Psyche, Eunomia, Camilla, Elektra, Bamberga
-- Doris, Fortuna, Egeria, Iris, Amphitrite, Ursula, Herculina, Siwa
-- Dembowska, Loreley, Irene, Julia
-- Plus 70+ additional belt asteroids distributed across 2.2-3.6 AU
+- **Source**: `assets/data/nearest_stars_raw.json` + position table.
+- **Real data**: ~40 stars include measured [Fe/H] metallicity; the rest get
+  a procedural fallback in `[-0.5, +0.5]`.
+- **Confirmed exoplanets**: when present in the JSON, spawn with real
+  mass / radius / period. Procedural generation fills gaps to ~5 planets
+  per system + 80% asteroid-belt chance + 70% cometary cloud chance.
+- **Stellar materials**: multi-layer `src/plugins/star_materials.rs`
+  (Glow / Surface / Diffraction / Corona / Halo), LOD per Performance.
 
-### Jupiter Trojans (30)
+Historical design notes: see `docs/archive/MULTI_STAR_SYSTEMS.md`.
 
-**L4 Leading Group (15):**
-- 588 Achilles, 911 Agamemnon, 1143 Odysseus, 1172 Aneas, 1173 Anchises
-- 1208 Troilus, 1404 Ajax, 1437 Diomedes, 1583 Antilochus, 1647 Menelaus
-- 1749 Telamon, 1867 Deiphobus, 2146 Stentor, 2223 Sarpedon, 2357 Phereclos
+## Exoplanet Catalogue (deferred to v0.6)
 
-**L5 Trailing Group (15):**
-- 617 Patroclus, 624 Hektor, 659 Nestor, 884 Priamus, 1868 Thersites
-- 2920 Automedon, 3317 Paris, 3451 Mentor, 3540 Protesilaos, 3548 Eurybates
-- 3708 1974 FV1, 4007 Euryalos, 4035 1986 WD, 4348 Poulydamas, 4543 Phoinix
+`assets/data/Exoplanets_NASA.csv` is staged but **not loaded at runtime in
+v0.5.x**. The CSV → `ConfirmedPlanet` deserialiser and integration with the
+procedural gap-filler ship in v0.6. The 5,000+ entries are kept under version
+control so modders can pre-stage custom dumps in the same schema and the
+v0.6 loader can ship without re-fetching the upstream archive. See
+`assets/data/EXOPLANETS_IMPLEMENTATION.md` for the loader stub and field
+mapping.
 
-### Near-Earth Objects (17)
+## Orbital & Physical Parameters
 
-**Apollo Group (10):**
-- 433 Eros, 1862 Apollo, 1866 Sisyphus, 2062 Aten, 3200 Phaethon
-- 4179 Toutatis, 25143 Itokawa, 101955 Bennu, 162173 Ryugu, 99942 Apophis
+Each body entry includes:
 
-**Amor Group (4):**
-- 1221 Amor, 1580 Betulia, 1627 Ivar, 1980 Tezcatlipoca
-
-**Aten Group (3):**
-- 2340 Hathor, 3753 Cruithne, 163693 Atira
-
-### Comets (20)
-
-**Short-Period Comets:**
-- 1P/Halley - Famous 76-year period comet
-- 2P/Encke - Shortest period comet (3.3 years)
-- 9P/Tempel, 19P/Borrelly, 21P/Giacobini-Zinner
-- 26P/Grigg-Skjellerup, 67P/Churyumov-Gerasimenko (Rosetta mission)
-- 73P/Schwassmann-Wachmann, 81P/Wild, 103P/Hartley
-- 29P/Schwassmann-Wachmann, 109P/Swift-Tuttle (Perseids parent)
-
-**Long-Period Comets:**
-- Hale-Bopp - Great comet of 1997
-- Hyakutake - Great comet of 1996
-- McNaught - Brightest comet in decades
-- ISON, Lovejoy, NEOWISE, West
-
-**Jupiter-Family:**
-- Shoemaker-Levy 9 - Impacted Jupiter in 1994
-
-## Orbital Parameters
-
-Each celestial body includes the following orbital parameters:
-
-- **Semi-major axis**: Average orbital distance (in AU)
-- **Eccentricity**: Orbital shape (0 = circle, <1 = ellipse)
-- **Inclination**: Tilt of orbit relative to ecliptic (degrees)
-- **Orbital period**: Time to complete one orbit (Earth days)
-- **Initial angle**: Starting position in orbit (degrees)
-
-## Physical Properties
-
-Each body includes:
-
-- **Mass**: In kilograms
-- **Radius**: In kilometers
-- **Color**: RGB values for rendering (0.0 to 1.0)
-- **Emissive**: RGB emissive color (for stars)
-- **Rotation period**: In Earth days (negative = retrograde)
+- **Orbital**: `semi_major_axis` (AU), `eccentricity`, `inclination` (°),
+  `orbital_period` (Earth days), `initial_angle` (°).
+- **Physical**: `mass` (kg), `radius` (km), `color` / `emissive` (RGB 0–1),
+  `rotation_period` (Earth days; negative = retrograde).
+- **Atmospheric**: `AtmosphereComposition` (gas + mole-fraction %; drives the
+  Rayleigh/Mie scattering parameters in `src/plugins/atmosphere.rs`).
+- **Texture layers**: optional `texture` (surface), `night_lights_texture`,
+  `cloud_texture`, `atmosphere_texture`, `scattering_replaces_clouds: bool`,
+  and RON overrides for `scale_height_km`, `rayleigh_rgb`,
+  `rayleigh_strength`, `mie_strength`, `mie_g`, `haze_color`,
+  `atmosphere_intensity`. Layer ordering: surface (1.0×) → night lights
+  (1.002×) → cloud deck (1.015×) → scattering shell (1.05×).
 
 ## Visualization Scaling
 
-To make the solar system viewable in a 3D game engine, we apply scaling:
+### Distance
+- **1 AU = 50 game units.** Mercury 19.35, Earth 50, Pluto 1,974.
 
-### Distance Scaling
-- **1 AU = 50 game units**
-- Mercury: 0.387 AU → 19.35 units
-- Earth: 1.0 AU → 50 units
-- Pluto: 39.48 AU → 1,974 units
+### Radius
+- **Scale factor 0.0001**, **minimum 0.3 units** for visibility. The Sun clamps
+  to ~5 units via the minimum; Earth renders at ~0.64 units; small asteroids
+  use the minimum.
 
-### Radius Scaling
-- **Scale factor: 0.0001**
-- **Minimum radius: 0.3 game units** (for visibility)
-- Sun: 695,700 km → ~5 units (with minimum)
-- Earth: 6,371 km → ~0.64 units
-- Small asteroids: Uses minimum for visibility
-
-### Time Scaling
-- **Time multiplier: 1000x**
-- Makes orbital motion visible at game speeds
-- Earth year (365 days) takes ~31 seconds in-game
-- Jupiter orbit (12 years) takes ~6 minutes in-game
+### Time
+- **Time multiplier 1000×** for visual orbit motion. Earth year ≈ 31 s in-game;
+  Jupiter orbit ≈ 6 minutes.
 
 ## Performance Considerations
 
-### Current Implementation
-- **377 bodies** rendered simultaneously
-- Simplified circular orbits (eccentricity stored but not used)
-- 2D orbital plane (inclination partially implemented)
-- No collision detection
-- No gravitational interactions
+### Actual implementation
+- **713 solar-system bodies + 60 nearby star systems** rendered simultaneously.
+- LOD distances tiered by body class:
+  - **Stars** — full 5-layer material (`star_materials.rs`: Glow + Surface +
+    Diffraction + Corona + Halo) < 100 AU; simplified corona 100–1,000 AU;
+    billboard glow > 1,000 AU.
+  - **Planets / Gas giants / Dwarf planets** — full mesh + atmosphere shell
+    < 50 AU; sphere only 50–500 AU; billboard > 500 AU.
+  - **Moons** — full mesh < 5 AU; billboard > 5 AU.
+  - **Rings** — full particle ring < 20 AU; billboard > 20 AU.
+  - **Asteroids / Comets** — instanced billboard when distance > 10 AU; full
+    mesh within 10 AU. C-class share one dark-rock material; V/D/P tint from
+    the spectral table.
+- 2D orbital plane (inclination partial); no collisions; no N-body.
 
-### Future Optimizations
-1. **Level of Detail (LOD)**
-   - Reduce mesh complexity for distant objects
-   - Hide very small distant asteroids
-
-2. **Instancing**
-   - Use GPU instancing for similar objects
-   - Batch asteroid rendering
-
-3. **Culling**
-   - Frustum culling for off-screen objects
-   - Distance-based culling for very far objects
-
-4. **More Objects**
-   - Can easily add 100s more asteroids
-   - Kuiper belt could have 50+ objects
-   - Moon systems can be completed (200+ moons)
+Modern GPUs handle this comfortably as of v0.5.x; per-frame cost is dominated
+by the 5-layer star materials (≤ 60 stars active) and instanced asteroid
+billboards. Future work: Bevy built-in frustum culling, distance-based
+far-plane culling, swapped LOD meshes.
 
 ## Adding New Bodies
 
-To add a new celestial body:
-
-1. Open `assets/data/solar_system.ron`
-2. Add a new body entry with all required fields:
+1. Open `assets/data/solar_system.ron`.
+2. Add an entry with the schema below:
 
 ```rust
 (
     name: "NewBody",
-    body_type: Asteroid, // Star, Planet, DwarfPlanet, Moon, Asteroid, Comet
-    mass: 1.0e20,        // kg
-    radius: 100.0,       // km
-    color: (0.7, 0.7, 0.7), // RGB 0-1
-    emissive: (0.0, 0.0, 0.0), // RGB 0-1
-    parent: Some("Sol"), // Parent body name or None
+    body_type: Asteroid,        // Star | Planet | GasGiant | DwarfPlanet
+                                // | M and append an entry:
+
+```rust
+(
+    name: "NewBody",
+    body_type: Asteroid,        // Star | Planet | GasGiant | DwarfPlanet
+                                // | Moon | Asteroid | Comet | Ring
+    mass: 1.0e20,               // kg
+    radius: 100.0,              // km
+    color: (0.7, 0.7, 0.7),     // RGB 0–1
+    emissive: (0.0, 0.0, 0.0),  // RGB 0–1
+    parent: Some("Sol"),        // Parent body name or None
     orbit: Some((
-        semi_major_axis: 2.5, // AU
-        eccentricity: 0.05,
-        inclination: 5.0,      // degrees
-        orbital_period: 1000.0, // days
-        initial_angle: 0.0,     // degrees
+        semi_major_axis: 2.5, eccentricity: 0.05, inclination: 5.0,
+        orbital_period: 1000.0, initial_angle: 0.0,
     )),
-    rotation_period: 0.5, // days
+    rotation_period: 0.5,       // Earth days (negative = retrograde)
 ),
 ```
 
-3. Save and restart the game
-4. The new body will be loaded automatically
-
-## Data Accuracy
-
-The data in this simulation is:
-- ✅ Realistic masses and radii
-- ✅ Accurate semi-major axes
-- ✅ Real eccentricities
-- ✅ Correct inclinations
-- ✅ Accurate orbital periods
-- ✅ Realistic rotation periods
-- ⚠️ Simplified to 2D orbits for now
-- ⚠️ No perturbations or gravitational interactions
-- ⚠️ Circular approximation (eccentricity not fully implemented)
+2. For asteroids with custom gameplay data, add a matching entry to
+   `assets/data/asteroids.ron` keyed on the new `body` name.
+3. Save and restarto perturbations / gravitational interactions.
+- ⚠️ Eccentricity is used for orbit rendering but not for orbit propagation
+  in the gameplay sense — bodies still travel their Keplerian ellipse at the
+  analytical rate.
 
 ## Educational Value
 
-This accurate data makes the simulation useful for:
-- Learning relative sizes of planets
-- Understanding orbital speeds and periods
-- Visualizing the scale of the solar system
-- Exploring moon systems
-- Seeing asteroid belt distribution
-- Comparing dwarf planets to planets
+Accurate scale data makes the simulation useful for learning relative sizes,
+orbital speeds, the asteroid belt distribution, moon-system hierarchies,
+and dwarf-planet diversity.
 
-## References
+## References & See also
 
-1. NASA JPL Horizons: https://ssd.jpl.nasa.gov/horizons/
-2. IAU Minor Planet Center: https://minorplanetcenter.net/
-3. NASA Planetary Fact Sheets: https://nssdc.gsfc.nasa.gov/planetary/
-4. Wikipedia Planetary Data: Various planet articles
+NASA JPL Horizons (https://ssd.jpl.nasa.gov/horizons/) · IAU Minor Planet
+Center (https://minorplanetcenter.net/) · NASA Planetary Fact Sheets
+(https://nssdc.gsfc.nasa.gov/planetary/) · NASA Exoplanet Archive
+(https://exoplanetarchive.ipac.caltech.edu/) · `docs/ASTRONOMY.md`
+(procedural-generation chain, spectral classification) ·
+`docs/archive/MULTI_STAR_SYSTEMS.md` (multi-star design history, archived 2026) ·
+`docs/design/ASTEROID_ENTITIES.md` (asteroid gameplay sidecar schema) ·
+`assets/data/README.md` (sidecar inventory and CSV loader deferral note).
