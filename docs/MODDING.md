@@ -454,59 +454,10 @@ assets/textures/
 
 ## Example Mods
 
-### Simple Mars Retexture
+For complete worked examples, see:
 
-**Files**:
-- `assets/textures/celestial/planets/mars_hd_8k.jpg`
-
-**RON Edit** in `solar_system.ron`:
-```ron
-// Find Mars entry and change:
-texture: Some("textures/celestial/planets/mars_hd_8k.jpg"),
-```
-
-### Add Custom Asteroid
-
-**Files**:
-- `assets/textures/celestial/asteroids/psyche_2k.jpg`
-
-**RON Addition** in `solar_system.ron`:
-```ron
-// Add new entry in bodies array:
-(
-    name: "Psyche",
-    body_type: Asteroid,
-    mass: 2.72e19,
-    radius: 113.0,
-    color: (0.5, 0.5, 0.5),
-    emissive: (0.0, 0.0, 0.0),
-    parent: Some("Sol"),
-    orbit: Some((
-        semi_major_axis: 2.92,
-        eccentricity: 0.134,
-        inclination: 3.1,
-        longitude_ascending_node: 150.0,
-        argument_of_periapsis: 228.0,
-        orbital_period: 1826.0,
-        initial_angle: 0.0,
-    )),
-    rotation_period: 0.175,
-    texture: Some("textures/celestial/asteroids/psyche_2k.jpg"),
-    asteroid_class: Some(MType),
-)
-```
-
-### Complete Moon Texture Pack
-
-Replace all Saturnian moon textures with custom set:
-
-**Files** (7 textures):
-- `assets/textures/celestial/moons/titan_mypack_2k.jpg`
-- `assets/textures/celestial/moons/rhea_mypack_2k.jpg`
-- `assets/textures/celestial/moons/iapetus_mypack_2k.jpg`
-- ... etc for all Saturn moons
-
-**RON Edits**: Update all Saturn moon entries with new paths.
+- [docs/examples/mods/EXAMPLE_MOD_MARS.md](examples/mods/EXAMPLE_MOD_MARS.md) — retexturing Mars
+- [docs/examples/mods/EXAMPLE_MOD_NEW_BODY.md](examples/mods/EXAMPLE_MOD_NEW_BODY.md) — adding a fictional Jupiter moon
 
 ## Community Resources
 
