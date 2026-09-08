@@ -5,7 +5,7 @@ Thank you for your interest in contributing to Helios Ascension! This document p
 ## Getting Started
 
 ### Prerequisites
-- Rust 1.70+ (latest stable recommended)
+- Rust 1.94.0 (pinned in `rust-toolchain.toml`; rustup auto-fetches)
 - System dependencies (see README.md)
 - Basic understanding of Bevy ECS architecture
 
@@ -35,10 +35,48 @@ cargo test
 
 ## Development Workflow
 
+### Coding rules
+
+The full rule set lives in `AGENTS.md` and `.github/copilot-instructions.md`; the
+critical Bevy-specific rules are:
+
+- **B0001 dual-Query rule**: a system function MUST NOT declare two `Query<…>`
+  parameters that both access the same component (Bevy 0.18 runtime panic that
+  `cargo build` / `cargo test` don't catch). Fold queries into one, use a
+  `ParamSet`, or apply disjoint `With`/`Without` filters. Audit:
+  `python3 scripts/audit_b0001.py src`.
+- **SimulationTime**: never use `Time<Virtual>` for game-world calculations
+  (capped at ~15×); use `SimulationTime` from `src/ui/time.rs` instead.
+- **Egui scheduling**: egui-using systems must run in `EguiPrimaryContextPass`,
+  not `Update`.
+- **Events**: in Bevy 0.17+ use `MessageReader<T>` / `MessageWriter<T>`.
+- **UI colour tokens**: raw `Color32::from_*` and `bevy::Color::*` literals are
+  CI-gated — `src/ui/theme.rs` is the only authorised home. Add new tokens
+  there or the `audit_color32_literals.py` / `audit_bevy_color_literals.py`
+  audits will fail the build.
+
+### Worktree safety
+
+This repo is frequently worked on by **multiple agents in parallel worktrees**
+(Copilot sessions, Claude Code, subagents, CI bots), often sharing `target/`
+and `Cargo.lock`. Naive worktree mutations have repeatedly destroyed
+concurrent work. See `AGENTS.md` → "Multi-Agent Worktree Safety" for the
+full decision table. The TL;DR:
+
+- **Never** run `git stash` (any form), `git checkout -- <path>`,
+  `git reset --hard`, `git clean -fdx`, `git switch` / `git checkout`
+  to another branch, `cargo clean`, `rm -rf target/`, or `rm Cargo.lock`
+  in a shared worktree.
+- Use a fresh worktree (`git worktree add ../<branch>-worktree <branch>`)
+  for hermetic experiments.
+- Re-run failing tests on a fresh `main` worktree to confirm pre-existence
+  rather than stashing.
+- Use `cargo clean -p <specific-package>` instead of full `cargo clean`.
+
 ### Code Style
 - Follow Rust standard style guidelines (use `rustfmt`)
-- Run `cargo fmt` before committing
-- Run `cargo clippy` to catch common issues
+- Run `cargo fmt --all -- --check` before committing
+- Run `cargo clippy --all-targets --all-features -- -D warnings` to catch common issues
 - Keep line length under 100 characters where possible
 
 ### Testing
@@ -52,6 +90,32 @@ cargo test
 - Start with a verb (Add, Fix, Update, Remove, etc.)
 - Reference issue numbers when applicable
 - Example: "Add resource management plugin (#123)"
+
+### Merge gates (must be green before PR)
+
+Every PR must pass the following locally before opening it:
+
+```bash
+# Format
+cargo fmt --all -- --check
+
+# Lints (the authoritative gate)
+cargo clippy --all-targets --all-features -- -D warnings
+
+# UI colour-token audits (raw Color32 / bevy::Color literals → src/ui/theme.rs)
+python3 scripts/audit_color32_literals.py --strict --baseline scripts/audit_color32_literals_baseline.txt src
+python3 scripts/audit_bevy_color_literals.py --strict --baseline scripts/audit_bevy_color_literals_baseline.txt src
+
+# SFX manifest + coverage (each SFX must be wired to ≥1 trigger site)
+python3 scripts/audit_sfx_manifest.py
+python3 scripts/audit_sfx_coverage.py
+
+# B0001 dual-Query advisory (print-only by default; pass --strict to fail)
+python3 scripts/audit_b0001.py src
+
+# Tests (best-effort — the full Bevy test target can hit the GHA 60-min ceiling)
+cargo test --all
+```
 
 ## Architecture Guidelines
 
@@ -136,7 +200,8 @@ fn update_system(/* parameters */) {
 ## Pull Request Process
 
 1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+2. Branch from `main`; never push to it directly.
+   Create a feature branch (`git checkout -b feature/amazing-feature`).
 3. Make your changes
 4. Run tests (`cargo test`)
 5. Format code (`cargo fmt`)
@@ -144,6 +209,9 @@ fn update_system(/* parameters */) {
 7. Commit changes
 8. Push to your fork
 9. Open a Pull Request
+
+Commit messages are verb-led, imperative, and reference the GitHub issue
+or Linear key. Example: `Add resource management plugin (#123)`.
 
 ### PR Guidelines
 - Provide a clear description of changes
