@@ -3,10 +3,19 @@
 ## Installation
 
 ### Step 1: Install Rust
-If you don't have Rust installed:
+If you don't have Rust installed, use the rustup-init installer from
+<https://rustup.rs>. On Windows download and run `rustup-init.exe`; on
+macOS / Linux run:
+
 ```bash
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ```
+
+> **Toolchain pin:** `rust-toolchain.toml` pins the project to **Rust
+> 1.94.0**. `rustup` fetches that exact toolchain automatically on the
+> first `cargo` invocation — no manual `rustup toolchain install` is
+> needed. The `rust-src` and `rust-analyzer` components are also
+> auto-installed so the editor's macro expansion matches the build.
 
 ### Step 2: Install System Dependencies
 
@@ -36,6 +45,20 @@ sudo dnf install -y \
 sudo pacman -S wayland libxkbcommon vulkan-icd-loader alsa-lib systemd
 ```
 
+#### Windows
+The rustup-init installer handles the toolchain and linker. Install the
+**Microsoft C++ Build Tools** (the "Desktop development with C++"
+workload) to get the MSVC toolchain, and a Vulkan-capable GPU driver
+for rendering. The repo's `.cargo/config.toml` wires `rust-lld` to
+replace the default `link.exe` on Windows MSVC for faster incremental
+links.
+
+#### macOS
+The rustup-init installer handles the toolchain and linker. Install the
+**Xcode Command Line Tools** (`xcode-select --install`) to get the
+clang / linker toolchain, and a Vulkan-capable driver (MoltenVK is
+shipped with recent macOS).
+
 ### Step 3: Clone and Build
 
 ```bash
@@ -49,6 +72,11 @@ cargo build
 # Or build in release mode (optimized)
 cargo build --release
 ```
+
+> **Build acceleration:** `.cargo/config.toml` wires `sccache` as the
+> `rustc` wrapper (install once with `cargo install sccache --locked`)
+> and routes Windows MSVC linking through `rust-lld` for ~30–50%
+> faster incremental links.
 
 ## Running the Game
 
@@ -117,7 +145,7 @@ When you launch the game, you'll see:
 
 ### Construction Panel
 - Select a colony to manage
-- View **51 building types** across 8 categories (Infrastructure, Industry, Logistics, Power, Population, Research, Financial, Military)
+- View **96 building types** across 8 categories (Infrastructure, Industry, Logistics, Power, Population, Research, Financial, Military)
 - Each building card shows green **effect lines** (e.g. "+25M housing capacity", "+1,000 Mt/yr food") so you know exactly what you're building
 - Cards display **tier**, **synergy flags** (related buildings within range), and an **atmosphere availability** filter for cross-atmosphere buildings
 - Queue construction projects with configurable multipliers (×1 / ×5 / ×10)
@@ -131,7 +159,7 @@ When you launch the game, you'll see:
 - Track research progress with Research Points (RP)
 
 ### Economy Panel
-- Monitor 37 resource types
+- Monitor 39 resource types
 - Track production and consumption rates
 - View treasury and budget
 - Check energy grid status
@@ -283,8 +311,17 @@ cargo test
 # Build documentation
 cargo doc --open
 
-# Clean build artifacts
-cargo clean
+# Clean a single package's build artifacts (safe in a shared worktree)
+cargo clean -p <package-name>
 ```
+
+> **Don't run `cargo clean`, `rm -rf target/`, or `rm Cargo.lock` in a
+> shared worktree.** Helios is frequently edited in parallel by
+> multiple agents / humans sharing the same `target/` and `Cargo.lock`.
+> A full clean wipes incremental artifacts other agents depend on and
+> can cost minutes on the next build. Use the scoped
+> `cargo clean -p <package-name>` form above, or do the experiment in
+> a fresh `git worktree add ../clean main`. See `AGENTS.md`
+> "Multi-Agent Worktree Safety" for the full decision table.
 
 Enjoy building your galactic empire!
