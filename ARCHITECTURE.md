@@ -47,7 +47,7 @@ Simulates celestial bodies and their orbital mechanics.
 - `LogicalParent`: Tracks hierarchical parent (e.g., moons -> planet)
 
 **Systems:**
-- `setup_solar_system`: Creates 377+ celestial bodies from RON data at startup
+- `setup_solar_system`: Creates 713 celestial bodies from RON data at startup
 - `rotate_bodies`: Analytical body rotation from `SimulationTime` (angle = speed × t)
 - `update_billboards`: Keeps glow/flare quads facing the camera
 
@@ -88,19 +88,15 @@ Manages colonies, buildings, and construction.
 - `update_colony_resources`: Updates resource production/consumption
 - `population_growth`: Simulates population changes using food-factor × housing-utilisation × logistics
 
-**Buildings (52 types across 8 categories):**
-- **Infrastructure**: Housing, HabitatDome, UndergroundHabitat, LifeSupport, WaterTreatmentPlant, DesalinationPlant, RecyclingCenter
-- **Industry**: Mine, Refinery, Factory, AtmosphericProcessor, ChemicalPlant, HydrocarbonExtractor, DeepDrill, LaserDrill, StripMine, SemiconductorFab, PharmaceuticalPlant
-- **Logistics**: MassDriver, OrbitalLift, CargoTerminal, Warehouse
-- **Power**: SolarPower, WindFarm, HydroelectricDam, GeothermalPlant, CoalPowerPlant, NaturalGasPlant, FissionReactor, FusionReactor, DTFusionReactor, DHe3FusionReactor, ThoriumReactor, BreederReactor
-- **Population**: AgriDome, Farm, Greenhouse, AquacultureFacility, MedicalCenter, PharmaceuticalPlant
-- **Research**: ResearchLab, EngineeringBay, AiCluster, DataCenter, OrbitalSurveyStation
-- **Financial**: CommercialHub, FinancialCenter, TradePort
-- **Military**: Shipyard, MissileSilo, LaunchSite, SpacePort, GroundDefenseBattery
+**Buildings (96 types across 9 categories, GRA-22c v3.10):**
 
-**Building output scale** (district-level, not single structure):
-- Housing: 25M capacity/building; HabitatDome: 50M; UndergroundHabitat: 30M
-- Farm: 1,000 Mt/yr food (~10M people); AgriDome: 4 Mt/yr; Greenhouse: 500 Mt/yr; Aquaculture: 750 Mt/yr
+See `docs/COLONIES.md` for the full 96-building reference and `src/colony/types.rs::BuildingCategory` for the category enum. Note: `Mine`/`Refinery`/`DeepDrill`/`LaserDrill`/`StripMine`/`HydrocarbonExtractor`/`RecyclingCenter` generic-era buildings were replaced by per-resource dedicated mines (IronMine, AluminumMine, …, He3Mine) plus AutoMines (AutoIronMine, …, AutoThoriumMine). SpacePort RON entry was renamed to ControlCenter in v3.10; the SpacePort enum variant stays for save backward compatibility. TradePort was removed entirely.
+
+**Building output scale** (district-level, GRA-22c v3.10 calibration, 1,100 kg/p/yr FAO 2024):
+- Housing Complex: 25M capacity/building; HabitatTent: 1,000; HabitatModule: 10,000; HabitatDome: 50M; UndergroundHabitat: 30M
+- Farm: 360 Mt food/yr (1 Farm feeds 327M people; 25 Farms ≈ world food); Greenhouse Complex: 200 Mt/yr; Aquaculture Complex: 200 Mt/yr; Agricultural Dome: 4 Mt/yr (off-world closed-env)
+- Earth seed: 8.2B residents via ~335 Housing Complexes (calibration anchor)
+- Per-capita food = 0.0000011 Mt/p/yr (1,100 kg, FAO 2024 SOFA)
 - Each new building is a perceptible ~0.3% improvement so construction remains meaningful
 
 **Outpost founding flow** (`EstablishOutpostRequest`):
@@ -142,7 +138,7 @@ Handles resources, budgets, and energy systems.
 - `EnergyGrid`: Power generation and consumption
 
 **Resources:**
-- `ResourceType`: Enum defining 38 resource types (Volatiles: Water, Hydrogen, Ammonia, Methane, Phosphorus, Food; Atmospheric gases: Nitrogen, Oxygen, CarbonDioxide, Argon; Construction metals: Iron, Aluminum, Titanium, Silicates, Nickel, Tungsten, Carbon, Chromium, Magnesium; Fusion fuels: Helium3, Deuterium, Tritium; Fissiles: Uranium, Thorium, Plutonium; Precious metals: Gold, Silver, Platinum; Specialty: Copper, RareEarths, Lithium, Sulfur, Cobalt, Fluorine, Polymers; Late-game: Antimatter, ExoticMatter, Metamaterials, Computronium)
+- `ResourceType`: Enum defining 39 resource types (Volatiles: Water, Hydrogen, Ammonia, Methane, Phosphorus, Food; Atmospheric gases: Nitrogen, Oxygen, CarbonDioxide, Argon; Construction metals: Iron, Aluminum, Titanium, Silicates, Nickel, Tungsten, Carbon, Chromium, Magnesium; Fusion fuels: Helium3, Deuterium, Tritium; Fissiles: Uranium, Thorium, Plutonium; Precious metals: Gold, Silver, Platinum; Specialty: Copper, RareEarths, Lithium, Sulfur, Cobalt, Fluorine, Polymers; Late-game: Antimatter, ExoticMatter, Metamaterials, Computronium)
 
 **Systems:**
 - `generate_mineral_deposits`: Creates procedural deposits on bodies at startup
@@ -150,7 +146,7 @@ Handles resources, budgets, and energy systems.
 - `update_budget`: Tracks financial flows
 - `energy_management`: Balances power generation and consumption
 
-**Resource Types (38, defined in `economy::types::ResourceType`):**
+**Resource Types (39, defined in `economy::types::ResourceType`):**
 - Volatiles: Water, Hydrogen, Ammonia, Methane, Phosphorus, Food
 - Atmospheric Gases: Nitrogen, Oxygen, CarbonDioxide, Argon
 - Construction Materials: Iron, Aluminum, Titanium, Silicates, Nickel, Tungsten, Carbon, Chromium, Magnesium
@@ -447,6 +443,8 @@ src/
 ├── main.rs              # Entry point, app setup
 ├── lib.rs               # Library root
 ├── game_state.rs        # Top-level state machine (GameMenu, AppState, Personnel menu stub)
+├── boot_init.rs         # Boot-time initialization (idempotent marker entities, splash coordination)
+├── test_util.rs         # Shared test utilities (bootstrap_world, init_econ_resources helpers)
 ├── astronomy/           # Orbital mechanics, ephemeris, exoplanets, nearby stars, Lagrange helpers
 │   ├── components.rs    # SpaceCoordinates, KeplerOrbit, OrbitPath
 │   ├── systems.rs       # Orbit propagation, rendering, selection
@@ -465,6 +463,8 @@ src/
 ├── shipbuilding/        # Data-driven hulls, modules, projects, refit, and slipways
 ├── ships/               # Hull templates, migration shims (legacy `standard_freighter`)
 ├── survey/              # v0.5.0 survey rework: 8-dimension state, missions, anomalies, instruments
+├── persistence/         # Save/load (state_store: regen-chain + divergence overlay; swap: live-world
+│                         # cleanup; snapshot: per-save preview metadata + .ron/.png sidecars)
 ├── plugins/             # Bevy plugin modules
 │   ├── camera.rs        # Camera movement, anchoring & ViewMode
 │   ├── solar_system.rs  # Body spawning, rotation, billboards
@@ -472,6 +472,8 @@ src/
 │   ├── starmap.rs       # Starmap view (system icons, visibility toggle)
 │   ├── atmosphere.rs    # Atmospheric scattering shader (Rayleigh + Mie)
 │   ├── music.rs         # Background music playlist (AI-generated, MiniMax Music 3.0)
+│   ├── sfx/             # Sound-effects bus (mod.rs, bus.rs, manifest.rs, playback.rs,
+│   │                    #   policy.rs, egui_observe.rs, tests.rs, bridges/{notifications,ui}.rs)
 │   ├── comet_vfx.rs     # Comet tails
 │   ├── ocean.rs         # Ocean material
 │   ├── star_materials.rs # Stellar materials
