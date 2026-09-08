@@ -1,5 +1,7 @@
 # Civilization Satisfaction Model — Helios Ascension
 
+> **Status: NOT IMPLEMENTED (as of 2026-09-08).** This is a design spec only; no satisfaction/patience system exists in src/. Numbers depend on BALANCE_PATCHES (now archived) and colony_constants in buildings.ron.
+
 > **Third deliverable from the balance-expert agent.** The soft-loss
 > mechanic that turns "the player is not delivering enough of what
 > people need" into a gameplay-driven defeat path. This is a **design
@@ -34,9 +36,8 @@
   `BALANCE_PATCHES_v0.5.md`). Per-building RON entries. The
   scale-gap or production-vs-consumption arithmetic (that's
   `BALANCE_AUDIT_v0.5.md`). The scaling-strategy comparison
-  (that's `BALANCE_SCALING_STRATEGY.md` — Option C has already been
-  chosen upstream of this doc, and this design *is* the consequence
-  of that choice).
+  (Option C rebalance, GRA-22c Phases 1–4, was chosen upstream of
+  this doc, and this design *is* the consequence of that choice).
 
 ### 1.2 Three-line TL;DR
 
