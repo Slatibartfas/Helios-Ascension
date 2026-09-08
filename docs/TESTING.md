@@ -1,224 +1,351 @@
-# Testing Guide for Usability Features
+# Testing Guide
 
-This guide explains how to manually test the new usability features added to Helios Ascension.
+Authoritative testing reference for Helios Ascension: the automated gates,
+canonical regression patterns for known-buggy subsystems, and a manual
+click-through appendix that still has value as a release-build smoke test.
 
-## Prerequisites
+> **Gates at a glance**
+> - `cargo fmt --all -- --check` and
+>   `cargo clippy --all-targets --all-features -- -D warnings` — green-build.
+> - UI-lint audits + SFX audits — CI-gated `--strict`.
+> - B0001 dual-Query advisory — `audit_b0001.py`, print-only (pass `--strict` to fail).
+> - Splash / launch timers clamp per-frame dt via
+>   `MAX_SPLASH_FRAME_DT_S = 0.25 s` (`src/ui/launch/splash.rs`).
 
-1. Build the project:
-   ```bash
-   cargo build --release
-   ```
+---
 
-2. Run the game:
-   ```bash
-   cargo run --release
-   ```
+## 1. Overview
 
-## Test 1: Hover Effects
+Helios tests **automated-first**. CI (`.github/workflows/cargo.yml`) gates
+merges on four job families: `cargo fmt` → `cargo clippy` → `cargo test --all`
+(best-effort, see GRA-165) → UI-lint + SFX audits.
 
-### Expected Behavior
-When you move your mouse cursor over any celestial body:
-1. A glowing cyan ring should appear around the body
-2. A tooltip should appear in the top-left corner showing:
-   - Body name (large, bold cyan text)
-   - Body type (smaller gray text)
+`cargo test --all` is **non-authoritative**: the Bevy 0.18 + bevy_egui test
+target hits the 60-min `ubuntu-latest` GHA ceiling. The authoritative gate
+is `cargo clippy --all-targets --all-features -- -D warnings`, which
+compiles the same crate graph in ~14s and fires on real type/lint
+regressions. State-mutation guards prefer resource roundtrips over a full
+`App::new()` schedule — see `tests/state_store_v2_e2e.rs`.
 
-### How to Test
-1. Launch the game
-2. Move your mouse cursor over different celestial bodies (Sun, planets, moons)
-3. Verify the ring and tooltip appear for each body
-4. Move away - verify effects disappear
+**Per-PR workflow:** `cargo fmt` → `cargo clippy` → `cargo test <name>` for
+each new test → the `scripts/audit_*.py` for the area you touched.
 
-### Things to Check
-- ✓ Ring is visible and properly sized around small and large bodies
-- ✓ Tooltip displays correct name and type
-- ✓ Effects smoothly appear/disappear when moving cursor
-- ✓ Only one body is highlighted at a time
+---
 
-## Test 2: Selection Highlight Ring in 3D View
+## 2. Automated test suite
 
-### Expected Behavior
-When a body is selected in the ledger, a glowing cyan ring should appear around it in the 3D view.
+### 2.1 Running the suite
 
-### How to Test
-1. Look at the left sidebar (ledger)
-2. Click on "Earth" in the ledger
-3. Verify:
-   - Earth is highlighted in the ledger
-   - A glowing cyan ring appears around Earth in the 3D view
-4. Click on "Mars" in the ledger
-5. Verify:
-   - Mars is now highlighted in the ledger
-   - The ring moves from Earth to Mars in the 3D view
+```bash
+cargo test --all                # full unit + integration suite
+cargo test <test_name>          # single test (fast iteration)
+cargo test -- --nocapture       # show stdout/stderr
+cargo nextest run               # parallel, faster local feedback
+```
 
-### Things to Check
-- ✓ Ring appears around selected body in 3D view
-- ✓ Ring uses same visual style as hover effect
-- ✓ Ring persists as long as body is selected
-- ✓ Only one body shows selection ring at a time
-- ✓ Ring helps locate the selected body in the solar system
+### 2.2 The 16 integration test files (grouped by domain)
 
-## Test 3: Combined Hover and Selection
+| Domain | Test file | What it pins |
+|---|---|---|
+| **Buildings** | `tests/buildings_cost_audit.rs` | Cost balance across the 96 building types in `assets/data/buildings.ron`. |
+| **Forecast** | `tests/forecast_e2e.rs` | End-to-end mining-forecast pipeline (spectral-class resources, planet_resources generation). |
+| **Freighters** | `tests/freighter_templates_data_tests.rs` | `freighter_templates.ron` integrity (mass, thrust, Isp). |
+| **Orbital mechanics** | `tests/orbital_mechanics_margin_tests.rs` | Δv / Hohmann / synodic-period numeric tolerances. |
+| **Persistence** | `tests/state_store_v2_e2e.rs` | StateStore extract → apply roundtrip; dirty-marker coverage; regen-minimal + `init_missing_resources_for_apply` guard. |
+| **Ship hulls / research** | `tests/research_shipbuilding_startup_tests.rs`, `tests/ship_hulls_ron_data_tests.rs` | `ship_hulls.ron` slot layouts, `required_tech` linkage, startup tech/hull visibility. |
+| **Stars** | `tests/nearest_stars_ron_data_tests.rs` | `nearest_stars_raw.json` load + validation. |
+| **Survey (v0.5.0)** | `tests/survey_anomaly_tests.rs`, `tests/survey_resource_reveal_tests.rs` | Anomaly confidence + reveal pipeline. |
+| **Transfer planner** | `tests/gra_153_transfer_planner_fixes.rs`, `tests/porkchop_rotation_no_snap.rs`, `tests/planner_integration.rs`, `tests/transfer_card_unified.rs`, `tests/transfer_porkchop.rs` | GRA-153 fixes, porkchop no-snap rotation, planner e2e, transfer-card unification (goldens in `tests/golden/`). |
+| **Notifications** | `tests/notifications_e2e.rs` | Event bus, toast panel, coalesce window. |
+| **Test data** | `tests/data/interstellar_propulsion_ron_tests.rs` | Interstellar propulsion RON integrity. |
 
-### Expected Behavior
-When hovering over the selected body, only one ring should appear (no duplicate rings).
+Shared fixtures: `tests/data/`, `tests/golden/`. The transfer-card tests
+compare against five goldens (`transfer_card_cross_star.txt`,
+`..._gravity_assist.txt`, `..._interstellar.txt`, `..._porkchop.txt`,
+`..._three_option.txt`). A legitimate output change requires deliberate
+golden regeneration — never paper over a real regression.
 
-### How to Test
-1. Select "Earth" in the ledger (ring appears around Earth)
-2. Move your mouse to hover over Earth in the 3D view
-3. Verify only one ring is visible (no overlapping rings)
-4. Move your mouse away from Earth
-5. Verify the selection ring remains
+---
 
-### Things to Check
-- ✓ No visual clutter from overlapping rings
-- ✓ Hover and selection work independently
-- ✓ Selection ring persists when not hovering
+## 3. Lint-as-test
 
-## Test 4: Anchor Button Auto-Selection
+Gates, not advisories. Must be green before merge.
 
-### Expected Behavior
-Clicking the anchor button (⚓) next to a body should:
-1. Select that body
-2. Anchor the camera to it
-3. Trigger automatic zoom
+### 3.1 Format / Clippy
 
-### How to Test
-1. Find the anchor button (⚓) next to "Earth" in the ledger
-2. Click it
-3. Verify:
-   - Earth is now selected (highlighted)
-   - A glowing ring appears around Earth in 3D view
-   - Camera moves to focus on Earth
-   - Camera automatically zooms to show Earth at appropriate size
+```bash
+cargo fmt --all -- --check
+cargo clippy --all-targets --all-features -- -D warnings
+```
 
-### Things to Check
-- ✓ Body is selected after clicking anchor
-- ✓ Selection ring appears in 3D view
-- ✓ Camera is anchored (follows the body)
-- ✓ Zoom-to-fit activates when anchor button is clicked
+`rustfmt` defaults (no `rustfmt.toml`); ≤ 100 chars/line. `[lints.clippy]`
+in `Cargo.toml` allows `too_many_arguments` and `type_complexity` because
+Bevy systems/queries are dense — every other lint is on at `-D warnings`.
+Prefer a `ParamSet` refactor over adding another allow.
 
-## Test 5: Camera Zoom-to-Fit (Regular Bodies)
+### 3.2 UI-lint audits
 
-### Expected Behavior
-When anchoring to planets or moons, the camera should zoom so the body fills ~10% of the screen.
+Raw colour literals are not permitted outside the theme files.
 
-### How to Test
-1. Anchor to Earth (⚓)
-2. Note the zoom level - Earth should be clearly visible but not too large
-3. Anchor to Jupiter
-4. Jupiter should be visible and larger than Earth was
-5. Anchor to a small moon (e.g., Phobos)
-6. The moon should still be visible despite being small
+```bash
+# egui — Color32::from_* outside src/ui/theme.rs fails
+python3 scripts/audit_color32_literals.py --strict \
+    --baseline scripts/audit_color32_literals_baseline.txt src
 
-### Things to Check
-- ✓ Large bodies (Jupiter, Saturn) are appropriately sized
-- ✓ Small bodies (moons, asteroids) are visible and not too small
-- ✓ Camera distance feels natural for each body
-- ✓ Zoom level is clamped (doesn't get too close or too far)
+# Bevy UI — bevy::Color::* outside src/ui/bevy_theme.rs fails
+python3 scripts/audit_bevy_color_literals.py --strict \
+    --baseline scripts/audit_bevy_color_literals_baseline.txt src
+```
 
-## Test 6: Camera Zoom for Sun
+Tolerated violations live in the matching `_baseline.txt`; promote them
+into `theme.rs` / `bevy_theme.rs` rather than letting the baseline grow.
 
-### Expected Behavior
-When anchoring to the Sun, the camera should zoom out to show the entire solar system (~40 AU).
+### 3.3 B0001 dual-Query advisory
 
-### How to Test
-1. Expand "Sol" in the ledger if it's collapsed
-2. Click the anchor button (⚓) next to "Sol"
-3. Observe the camera zoom out dramatically
-4. Verify you can see multiple planets in view
+A Bevy 0.18 system function MUST NOT declare two `Query<…>` parameters that
+both access the same component (e.g. `Query<(Entity, &T)>` + `Query<&mut T>`).
+The error fires at runtime on the first schedule tick — `cargo build` /
+`cargo test` won't catch it, only `cargo run` does.
 
-### Things to Check
-- ✓ Camera zooms way out when Sun is selected
-- ✓ Inner planets (Mercury, Venus, Earth, Mars) are visible
-- ✓ You get a "solar system overview" view
-- ✓ Different behavior than regular bodies
+```bash
+python3 scripts/audit_b0001.py src           # print candidates
+python3 scripts/audit_b0001.py src --strict  # fail on candidates
+```
 
-## Test 7: Camera Following During Orbit
+Fix by folding into one query (`iter()` then `get_mut(entity)`), using a
+`ParamSet`, or applying disjoint `With`/`Without` filters. Canonical
+patterns: `process_company_ai`, `auto_freight_loop`, `propagate_orbits`.
 
-### Expected Behavior
-When anchored to a body, the camera should follow it as it moves through its orbit over time.
+### 3.4 SFX audits
 
-### How to Test
-1. Anchor to Earth (⚓)
-2. Speed up time using the time controls at the bottom:
-   - Click "100x" button
-3. Watch Earth move around the Sun
-4. Verify the camera follows Earth smoothly
+3-way sync: Rust `SfxCueId` enum ↔ `assets/data/sfx_manifest.ron` ↔ WAV
+files under `assets/audio/sfx/`. Runtime silently drops mismatched manifests
+(HashMap keyed by id), so sync failures surface here instead of as missing
+cues at runtime. See `docs/SFX.md` "Manifest ↔ enum ↔ files".
 
-### Things to Check
-- ✓ Camera stays focused on the anchored body
-- ✓ Body remains centered as it orbits
-- ✓ Smooth motion with no jittering
-- ✓ Works at different time speeds (1x, 10x, 100x, 1000x)
+```bash
+python3 scripts/audit_sfx_manifest.py     # enum ↔ manifest ↔ files
+python3 scripts/audit_sfx_coverage.py     # each SFX wired to a trigger
+```
 
-## Test 8: Combined Features
+---
 
-### Comprehensive Test Scenario
-1. Hover over Mars - see ring and tooltip
-2. Click on "Mars" in the ledger to select it
-3. Verify:
-   - Mars is selected and highlighted in ledger
-   - Selection ring appears around Mars in 3D view
-4. Click anchor (⚓) next to Mars
-5. Verify:
-   - Camera zooms to appropriate distance
-   - Camera follows Mars as time progresses
-   - Selection ring remains visible around Mars
-6. While still anchored, hover over Earth
-7. Verify:
-   - Earth shows hover ring and tooltip
-   - Mars still has selection ring
-   - Camera stays anchored to Mars
+## 4. Splash / first-frame regression
 
-### Things to Check
-- ✓ Selection ring helps locate body in 3D view
-- ✓ Hover and selection work independently
-- ✓ Can hover over one body while another is selected
-- ✓ Multiple features work together without conflicts
+A ~20 s splash black-box regression was git-bisected to `4d4dc23`
+(energy-icon) and fixed in `2d3223d` (2026-08-05). Bisection recipe +
+pattern catalogue: [`memories/repo/splash-stall-prevention.md`](../memories/repo/splash-stall-prevention.md).
 
-## Performance Testing
+### 4.1 The invariant
 
-### Expected Behavior
-The game should run smoothly with the new features active.
+Any "use up real time" system in splash / launch / menu must clamp its
+per-frame `dt`. Canonical clamp at `src/ui/launch/splash.rs`:
 
-### How to Test
-1. Run the game with normal time speed
-2. Move cursor around rapidly over many bodies
-3. Speed up time to 1000x
-4. Check frame rate and responsiveness
+```rust
+pub const MAX_SPLASH_FRAME_DT_S: f32 = 0.25;
+let raw_dt = real_time.delta_secs();
+let dt = raw_dt.min(MAX_SPLASH_FRAME_DT_S);
+```
 
-### Things to Check
-- ✓ No noticeable lag when hovering over bodies
-- ✓ Smooth rendering at all time speeds
-- ✓ UI remains responsive
-- ✓ No memory leaks after extended play
+Without it, `Time<Real>` records a multi-second first-frame stall (DX12 +
+custom-shader warm-up, asset IO) as the frame's `delta`, and any
+max-duration fallback trips instantly. The player sees the splash live for
+~3 s and dismiss — but the timer logged ~23 s of "served time" because it
+consumed the stall as dt.
 
-## Known Limitations
+### 4.2 The regression test pattern
 
-1. **Hover Label**: Currently displays a simple tooltip in the UI corner. A future enhancement could add 3D text labels in world space.
+```rust
+// src/ui/launch/splash.rs::tests::splash_timer_clamps_first_frame_stall_delta
+let stall_dt = Duration::from_secs_f32(20.0);
+let clamped = stall_dt.min(MAX_SPLASH_FRAME_DT_S);
+assert_eq!(clamped, MAX_SPLASH_FRAME_DT_S);   // <-- guard
+```
 
-2. **Zoom Transitions**: Zoom changes are instant. A future enhancement could add smooth interpolation.
+Any new "auto-dismiss after N seconds" timer in splash / launch / menu
+must apply the same clamp and ship a similar regression test.
 
-3. **Multiple Bodies**: Currently only one body can be hovered at a time (the closest to the cursor).
+### 4.3 The async-batch pattern
 
-## Reporting Issues
+Any system that processes an unknown/large number of items in one `Update`
+tick where each item is O(pixels) or O(vertices) must cap per-frame work
+and resume on later frames. Canonical pattern in `src/ui/resource_icons.rs`:
 
-If you encounter any issues during testing:
+```rust
+const MAX_ICONS_PER_FRAME: usize = 2;
+let mut processed_this_frame = 0usize;
+for &resource in ResourceType::all() {
+    if processed_this_frame >= MAX_ICONS_PER_FRAME { break; }
+    // ... load + process ...
+    processed_this_frame += 1;
+}
+```
 
-1. Note the exact steps to reproduce
-2. Record the expected vs actual behavior
-3. Include information about:
-   - Which body you were interacting with
-   - Current time speed
-   - Any error messages in the console
-4. Take screenshots if possible
+1024² × N full-frame RGBA = ~4.2M pixel writes × N items; at 38 items that
+exceeds the regression budget by an order of magnitude on any modern CPU.
+Rule of thumb: if a transform is "free" because output shape matches input,
+question whether it's redundant with another pass.
 
-## Success Criteria
+---
 
-All features are working correctly if:
-- ✓ All tests pass
-- ✓ No visual glitches or artifacts
-- ✓ Smooth, responsive interaction
-- ✓ Features work together without conflicts
-- ✓ Performance remains good
+## 5. Save / load regression tests
+
+Helios uses a **regenerate-from-seed + divergence overlay** save format
+(`StateStore`). The save persists only bodies whose state diverges from the
+regen chain's seed-derived output. Any per-body mutation that the regen
+chain would otherwise re-derive silently reverts on load unless the
+mutating system marks the body dirty via `ResMut<DirtyBodies>`.
+
+### 5.1 The dirty-marker rule
+
+Every system that mutates a per-body component MUST mark dirty:
+
+```rust
+fn my_mutating_system(
+    mut bodies: Query<(Entity, &mut LocalStockpile)>,
+    mut dirty: ResMut<DirtyBodies>,
+) {
+    for (entity, mut stock) in bodies.iter_mut() {
+        stock.consume(ResourceType::Iron, 1.0);
+        dirty.mark_stockpile(entity);  // <-- mandatory
+    }
+}
+```
+
+Adding a new mutating system: pick or add a `DirtyReason` variant in
+`src/economy/components.rs`; wire `dirty.mark(...)` in the system; add a
+`match` arm in `src/persistence/state_store_extract.rs::extract_bodies`;
+append the system to the catalog in `.github/copilot-instructions.md`
+"Save-game Compatibility"; add a regression test in
+`tests/state_store_v2_e2e.rs` exercising mark + extract end-to-end.
+
+### 5.2 Canonical regression test patterns
+
+Three signatures — each guards a different restore-path regression:
+
+```rust
+// 1. regen-minimal fallback — body round-trips even when the restore
+//    factory starts with zero body entities.
+let mut fresh = build_minimal_world_for_restore();
+apply_state_store(&mut fresh, &store);
+// → `regenerate_bodies_minimal` rehydrates bodies; without it
+//   per-body divergences are silently dropped.
+
+// 2. init-missing-resources fallback — non-default resources
+//    (treasury, ViewMode, research state) survive even when the restore
+//    factory hasn't seeded them.
+world.insert_resource(GlobalBudget { treasury: 12_345.0, ..Default::default() });
+let store = extract_state_store(&mut world, 0xCAFE, 0).expect("extract");
+let mut fresh = build_minimal_world_for_restore();
+apply_state_store(&mut fresh, &store);
+assert_eq!(fresh.resource::<GlobalBudget>().treasury, 12_345.0);
+// → `init_missing_resources_for_apply` seeds defaults; without it
+//   every `get_resource_mut::<T>()` is a silent no-op.
+
+// 3. Frankenstein-world guard — previous live-world session is despawned
+//    before the save's entities are swapped in.
+swap_world_into(live_world, pending_world);
+// → `swap_pending_into_target` calls
+//   `despawn_helios_simulation_entities` at the top of the swap.
+//   Regression test:
+//   `swap_world_into_despawns_helios_simulation_entities_from_target`
+```
+
+The harness helper is at the bottom of `tests/state_store_v2_e2e.rs`. Add
+new tests next to the existing `state_store_v2_*` family.
+
+---
+
+## 6. Manual smoke tests (appendix)
+
+The original click-through checklist — preserved as a release-build smoke
+test or a player-issue reproducer. **Not** a substitute for the automated
+gates above.
+
+| # | Check | Expected |
+|---|---|---|
+| 1 | Hover a body | Glowing cyan ring + top-left tooltip (name in bold cyan, type in gray); scales correctly for moons and planets; smooth fade. |
+| 2 | Click body in ledger | Selection ring around it in 3D view; persists; moves when selection changes. |
+| 3 | Hover the selected body | Single ring, no duplicate artefacts; hover and selection are independent. |
+| 4 | Click anchor (⚓) on a body | Selects + anchors + zoom-to-fit. |
+| 5 | Anchor a planet/moon | Body fills ~10 % of screen; Jupiter > Earth; small moons (Phobos) still visible; zoom clamped. |
+| 6 | Anchor the Sun | Zooms out to ~40 AU; Mercury–Mars visible (solar-system overview). |
+| 7 | Anchor + 100×/1000× time | Camera follows the body smoothly; no jitter; stays centred when paused. |
+| 8 | Combined scenario | Hover Mars → ring+tooltip; click Mars in ledger → selection ring; click anchor → zoom+follow; hover Earth → Earth ring+tooltip while Mars selection ring persists. |
+| 9 | Performance | Rapid cursor movement across many bodies at 1× and 1000×: no hover lag, smooth render, no leaks across extended sessions. |
+
+---
+
+## 7. Known limitations
+
+1. **Hover labels** — corner tooltip only; future: 3D world-space labels.
+2. **Zoom transitions** — instant snap on anchor; future: smooth interpolation.
+3. **Multi-body hover** — only the closest body to the cursor highlights.
+4. **`cargo test --all` SIGTERM cliff** — Bevy 0.18 test target hits the
+   60-min GHA ceiling on `ubuntu-latest`. Authoritative gate is `cargo
+   clippy --all-targets --all-features -- -D warnings` (GRA-165 in
+   `.github/workflows/cargo.yml`); cliff hits fall under
+   `continue-on-error: true`.
+5. **Corner tooltip edge cases** — can clip at very small window sizes.
+
+---
+
+## 8. CI pipeline
+
+`.github/workflows/cargo.yml` — two jobs on every push to `main` and every
+PR open/synchronize/reopen targeting `main`:
+
+### 8.1 `build` job
+
+- Ubuntu, `timeout-minutes: 60`, sccache + Swatinem/rust-cache.
+- Steps: `cargo fmt --check` (gate) → `cargo clippy -D warnings` (gate) →
+  `cargo test --all` (best-effort, GRA-165) → `cargo doc --no-deps`
+  (best-effort) → `audit_b0001.py src` (advisory). `RUSTFLAGS: -D warnings`
+  exported for the whole job.
+
+### 8.2 `ui-lint` job
+
+- Ubuntu, `timeout-minutes: 10`. Steps: `audit_color32_literals.py
+  --strict` (gate) → `audit_bevy_color_literals.py --strict` (gate) →
+  `audit_sfx_manifest.py --strict` (gate).
+
+### 8.3 `preflight-conflict` job
+
+`.github/workflows/preflight-conflict.yml` runs a 4-arg `git merge-tree` to
+catch stale-branch / textual-conflict cases that show "CI green but
+mergeable=CONFLICTING". On failure:
+
+```bash
+git fetch origin main && git rebase origin/main &&
+git push --force-with-lease=refs/heads/<branch>:<expected-sha>
+```
+
+### 8.4 Required local pre-PR checklist
+
+```bash
+cargo fmt --all
+cargo clippy --all-targets --all-features -- -D warnings
+cargo test <name>                                            # any new test you wrote
+python3 scripts/audit_color32_literals.py --strict \
+    --baseline scripts/audit_color32_literals_baseline.txt src
+python3 scripts/audit_bevy_color_literals.py --strict \
+    --baseline scripts/audit_bevy_color_literals_baseline.txt src
+python3 scripts/audit_b0001.py src                           # candidates, expected
+python3 scripts/audit_sfx_manifest.py && \
+    python3 scripts/audit_sfx_coverage.py                    # if SFX touched
+```
+
+---
+
+## See also
+
+- [`memories/repo/splash-stall-prevention.md`](../memories/repo/splash-stall-prevention.md)
+  — splash regression bisection recipe + invariant catalogue.
+- [`.github/copilot-instructions.md`](../.github/copilot-instructions.md)
+  "Save-game Compatibility" — `DirtyReason` catalog + per-system mark
+  contract.
+- [`CLAUDE.md`](../CLAUDE.md) "Bevy 0.18 Specifics" — B0001 dual-Query
+  rule + canonical fixes.
+- [`docs/UI.md`](./UI.md) — colour-token policy; `theme.rs` /
+  `bevy_theme.rs` are the only authorised homes for raw literals.
+- [`docs/SFX.md`](./SFX.md) — SFX manifest ↔ enum ↔ files contract.
