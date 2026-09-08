@@ -4,9 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Helios Ascension is a 4X grand strategy game built with Rust and Bevy 0.18, featuring realistic orbital mechanics, colony management, fleet operations, and a technology tree. The game simulates 377+ solar-system bodies plus 5 000+ confirmed exoplanets across 60+ nearby star systems with accurate astronomical data.
+Helios Ascension is a 4X grand strategy game built with Rust and Bevy 0.18, featuring realistic orbital mechanics, colony management, fleet operations, and a technology tree. The game simulates 713 solar-system bodies plus 5 000+ confirmed exoplanets across 60+ nearby star systems with accurate astronomical data.
 
-The current release is **v0.5.0 (Exploration & Progression, 🟡 IN FLIGHT)** — the building & logistics overhaul is shipped (52 building types, per-body resource stockpiles, private shipping companies), the survey rework is shipped (eight-dimension model, 9-mission roster, anomaly confidence, recovery missions), the notification/event system is shipped (toast panel, settings, event bridges, click-to-focus), the transfer planner is hardened (porkchop plot, Lagrange routing, star-approach parking-radius picker), and the personnel data layer is shipped (scientists with specialty & seniority). The remaining v0.5 surface is the Personnel Roster UI panel. See `ROADMAP.md` for the per-item status.
+The current release is **v0.5.0 (Exploration & Progression, 🟡 IN FLIGHT)** — the building & logistics overhaul is shipped (96 building types, per-body resource stockpiles, private shipping companies), the survey rework is shipped (eight-dimension model, 9-mission roster, anomaly confidence, recovery missions), the notification/event system is shipped (toast panel, settings, event bridges, click-to-focus), the transfer planner is hardened (porkchop plot, Lagrange routing, star-approach parking-radius picker), and the personnel data layer is shipped (scientists with specialty & seniority). The remaining v0.5 surface is the Personnel Roster UI panel. See `ROADMAP.md` for the per-item status.
 
 ## Commands
 
@@ -51,18 +51,18 @@ src/
 ├── ships/           # Hull templates, migration shims (legacy `standard_freighter`)
 ├── survey/          # v0.5.0 survey rework: 8-dimension state, missions, anomalies, instruments
 ├── plugins/         # Camera, music, solar_system, atmosphere, visual effects
-├── ui/              # All UI panels (dossier, construction, research, economy, fleets, shipbuilding, notifications, transfer_planner, porkchop)
+├── ui/              # All UI panels (dossier, construction, research, economy, fleets, shipbuilding, notifications, transfer_planner, porkchop, personnel_panel)
 └── render/          # Skybox, backdrop
 ```
 
 ### Key Systems
 
 - **Astronomy**: KeplerOrbit propagation, comet tails, Lagrange points, starmap, **exoplanet data model staged (CSV loader deferred to v0.6, see `assets/data/README.md`)**, **JPL-epoch mean-anomaly computation**
-- **Colony**: **52 building types** across 8 categories, construction queue, population
-- **Economy**: **38 resource types**, mining operations, energy grid, per-body stockpiles, **localized logistics**, **shipping-company AI**
+- **Colony**: **96 building types** across 9 categories, construction queue, population
+- **Economy**: **39 resource types**, mining operations, energy grid, per-body stockpiles, **localized logistics**, **shipping-company AI**
 - **Fleets**: 7 ship classes, 6 propulsion types, Hohmann transfers, **porkchop plot planner**, **Lagrange routing (L1–L5)**, **star-approach parking-radius picker**, gravity assists
 - **Research**: 15 technology categories, prerequisite chains, modifiers, **9 v0.5.0 survey / personnel / geology techs**, **tier-1 paid research_cost rebalance**
-- **Survey (v0.5.0)**: 8-dimension model, 17 instruments, 9-mission roster, **6 RON data files**, anomaly confidence, failure modes, recovery missions, **continuous orbital survey station**
+- **Survey (v0.5.0)**: 8-dimension model, 17 instruments, 9-mission roster, **7 RON data files** (anomalies, dimensions, instruments, mining_efficiency, missions, recovery_missions, tiers), anomaly confidence, failure modes, recovery missions, **continuous orbital survey station**
 - **Personnel (v0.5.0)**: **Scientists with 8 specialties, 3 seniority tiers, hire & promotion** (data layer shipped; Personnel Roster UI pending)
 - **Notifications (v0.5.0)**: toast panel, **per-category settings**, **event bridges**, **2-second coalesce**, **click-to-focus**, **pause-on-event**
 - **UI**: Mixed egui 0.33 + native Bevy UI 0.18. **Construction** (v0.5.2 canary — `src/ui/construction/`) and **Shipbuilding** are native Bevy UI; Survey, Research, Economy, Fleets, Dossier, Personnel, Intel remain on egui. All panels share `src/ui/theme.rs` (egui palette, CI-linted); Bevy-UI panels additionally consume `src/ui/bevy_theme.rs` (palette mirror) and `src/ui/widgets.rs` (menu-agnostic primitive library: `UiFonts`, `HoverElevation`, `KeyedList`, `TooltipRequest`, `Scrollbar`, `Marquee`, `ProgressFill`, `ActiveTabs<T>`, `CardShell*` composers).
@@ -128,10 +128,20 @@ The modding surface is intentionally broad. All gameplay surfaces are RON-driven
 - Solar system: `assets/data/solar_system.ron`
 - Stars: `assets/data/nearest_stars_raw.json`
 - Exoplanets: `assets/data/Exoplanets_NASA.csv` (untracked; planned loader in `src/astronomy/exoplanets.rs`, ships with v0.6 — see `assets/data/README.md`)
+- Asteroids: `assets/data/asteroids.ron`
+- Comets: `assets/data/JPL_CometsList.csv` + `assets/data/JPL_SmallBodiesList.csv`
+- Interstellar propulsion tuning: `assets/data/interstellar_propulsion.ron`
+- Launch UI strings: `assets/data/launch_ui.ron`
+- New-game params: `assets/data/new_game_params.ron`
+- Difficulty presets: `assets/data/difficulty_presets.ron`
+- Planet textures: `assets/data/planet_textures.ron`
+- Seed copy: `assets/data/seed_copy.ron`
 - Freighter templates: `assets/data/freighter_templates.ron`
 - Notifications: `assets/data/notifications.ron`
 - Porkchop config: `assets/data/porkchop_config.ron`
-- Survey (v0.5.0): `assets/data/survey/{dimensions,instruments,anomalies,tiers,mining_efficiency,missions,recovery_missions}.ron`
+- SFX manifest & prompts: `assets/data/sfx_manifest.ron`, `assets/data/sfx_prompts.ron`
+- Music prompts: `assets/data/music_prompts.ron`
+- Survey (v0.5.0): `assets/data/survey/{dimensions,instruments,anomalies,tiers,mining_efficiency,missions,recovery_missions}.ron` (7 files)
 
 See `docs/MODDING.md` and `docs/RESEARCH_MODDING.md` for the full surface.
 
