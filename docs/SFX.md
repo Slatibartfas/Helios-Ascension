@@ -2,7 +2,8 @@
 
 The SFX system is the player-facing audio feedback layer for
 every UI action and sim event that warrants a dedicated sound.
-It mirrors the architecture of the [music playlist](music.md)
+It mirrors the architecture of the music playlist
+(see [Background music](#background-music) below)
 but for **one-shot stings** rather than a looping background
 track.
 
@@ -160,7 +161,7 @@ cue arriving inside the cooldown window is silently dropped.
 
 The current PR ships:
 
-- **13 UI cues**: button click, tab switch, panel open/close,
+- **12 UI cues + 1 chime**: button click, tab switch, panel open/close,
   slider tick, dropdown open, row select, drag/drop, modal
   confirm/cancel, chip toggle, mode toggle.
 - **1 universal notification chime**: plays once per *coalesced*
