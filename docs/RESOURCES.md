@@ -1,401 +1,421 @@
-# Resource System
+# Resources
 
-Complete reference for the resource and economy system in Helios: Ascension.
+Reference for the 39-resource economy in Helios Ascension. All variants live in
+[`src/economy/types.rs`](../src/economy/types.rs); this doc mirrors that source
+of truth.
 
-## Table of Contents
-
-1. [Resource Types](#resource-types)
-2. [Realistic Abundances](#realistic-abundances)
-3. [Unit System](#unit-system)
-4. [Solar System Resources](#solar-system-resources)
-5. [Tiered Reserve Model](#tiered-reserve-model)
-6. [Scientific Sources](#scientific-sources)
+Cross-references: [COLONIES.md](COLONIES.md) (construction draws from per-body
+stockpile), [ARCHITECTURE.md §EconomyPlugin](ARCHITECTURE.md) (system layout),
+[RESEARCH_MODDING.md](RESEARCH_MODDING.md) (tech-gated unlocks).
 
 ---
 
-## Resource Types
+## Headline
 
-The game features **31 resource types** organized into **8 categories**:
+| Metric | Value |
+|---|---|
+| Total variants | **39** |
+| Categories | **10** |
+| Source | `src/economy/types.rs::ResourceType` |
+| Storage | per-body `LocalStockpile` (Mt) — no system-pool fallback |
+| Display | view-scoped `ContextualStockpile` (read-only aggregate) |
+| Unit | **Megatonnes (Mt)** = 10⁶ t = 10⁹ kg |
+| Calibration | USGS 2024 / worldsteel 2024 / OECD 2024 / WNA 2024 / NMA 2024 / FAO 2024 |
 
-### Volatiles
-- **Water (H2O):** Life support, terraforming
-- **Hydrogen (H2):** Fuel, industrial use
-- **Ammonia (NH3):** Terraforming, fertilizer
-- **Methane (CH4):** Fuel, chemical feedstock
-- **Phosphorus (P):** Fertilizer, biological essential (~1000 ppm in crust)
+### Category roster (10 groups)
 
-### Atmospheric Gases
-- **Nitrogen (N2):** Breathable atmospheres
-- **Oxygen (O2):** Life support, combustion
-- **Carbon Dioxide (CO2):** Terraforming greenhouse gas
-- **Argon (Ar):** Industrial inert gas
-
-### Construction Materials
-- **Iron (Fe):** Primary structural material (15-35% of rocky bodies)
-- **Aluminum (Al):** Lightweight construction (5-12% of crust)
-- **Titanium (Ti):** High-strength applications (0.3-1% of crust)
-- **Silicates (SiO2):** Glass, ceramics, major rock component (25-45%)
-- **Nickel (Ni):** Alloying metal, common in iron meteorites (~80 ppm in crust)
-- **Tungsten (W):** Refractory metal, armour, tooling (~1 ppm in crust)
-- **Carbon (C):** Structural composites, nanotubes, steel (~200 ppm in crust)
-
-### Fusion Fuel
-- **Helium-3 (He3):** Rare fusion fuel (found in gas giants, lunar regolith)
-- **Deuterium (D):** Heavy hydrogen, primary fusion fuel (~156 ppm in water)
-- **Tritium (T):** Manufactured fusion fuel bred from lithium blankets; short-lived and not naturally stockpiled
-
-### Fissiles
-- **Uranium (U):** Nuclear fission fuel (~3 ppm in crust)
-- **Thorium (Th):** Alternative nuclear fuel (~12 ppm in crust)
-- **Plutonium (Pu):** Manufactured fissile bred from uranium in fast-spectrum reactors
-
-### Precious Metals
-- **Gold (Au):** High-value applications (~0.004 ppm in crust)
-- **Silver (Ag):** Electronics, currency (~0.08 ppm in crust)
-- **Platinum (Pt):** Catalysts, high-tech (~0.005 ppb in crust)
-
-### Strategic Materials
-- **Copper (Cu):** Electronics, conductors (~60 ppm in crust)
-- **Rare Earths (REE):** Advanced technology, magnets (~200 ppm combined)
-- **Lithium (Li):** Batteries, fusion blankets (~20 ppm in crust)
-- **Sulfur (S):** Chemical industry, fertilizer (~350 ppm in crust)
-
-### Exotic Materials
-- **Antimatter (Am̄):** Produced in particle accelerators; fuel for antimatter drives
-- **Exotic Matter (Xm):** Negative-energy-density matter for warp drives and wormholes
-- **Metamaterials (Mm):** Engineered composites for cloaking, shielding, and sensors
-- **Computronium (Qb):** Optimised computational substrate for Culture-level AI minds
+| Group | Count | Subgroup / role |
+|---|---|---|
+| Volatiles | 4 | beyond the frost line (>2.5 AU) |
+| Phosphorus | 1 | hard limit on hydroponics / population |
+| Biological | 1 | colony-produced (Food aggregate) |
+| Atmospheric Gases | 4 | terraforming feedstock |
+| Construction Materials | 9 | inner solar system (<2.5 AU) |
+| Fusion Fuel | 3 | He3 / D / T |
+| Fissiles | 3 | U / Th / Pu (Pu bred) |
+| Precious Metals | 3 | Au / Ag / Pt |
+| Strategic Materials | 7 | advanced-tech enablers |
+| Exotic Materials | 4 | K2-tier, roadmap-gated |
+| **Total** | **39** | — |
 
 ---
 
-## Realistic Abundances
+## 1. Resource catalogue
 
-Resource abundances are based on real-world planetary compositions to support future mining and depletion mechanics.
+Columns: **Name** · **Symbol** · **Typical source** · **Mt-unit scale** · **Primary consumer**.
 
-### Design Principles
+### Volatiles (4)
 
-1. **Scarcity Matters:** Not all bodies have all resources - 40% of non-critical resources are randomly absent
-2. **Realistic Fractions:** Based on scientific measurements and estimates
-3. **Metallicity Bonuses:** Star metallicity ([Fe/H]) affects rare metals and fissiles by ±30%
-4. **Body Type Matters:** Composition varies by body type (rocky planet, ice moon, asteroid type)
+| Name | Symbol | Typical source | Mt scale | Primary consumer |
+|---|---|---|---|---|
+| Water | H₂O | ice moons, C-type asteroids, polar caps, comets | 10⁰–10⁹ | LifeSupport, colony maintenance, construction |
+| Hydrogen | H₂ | gas giants (atmospheric harvest), industrial SMR | 10¹–10³ | Industry (`ChemicalPlant`), refinery feedstock |
+| Ammonia | NH₃ | ice giants, Titan, atmospheric harvest | 10⁰–10² | Fertilizer maintenance (Farm / Greenhouse / Aquaculture) |
+| Methane | CH₄ | Titan, gas giants, natural-gas analogue | 10⁰–10⁴ | Polymer industry (`ChemicalPlant`), power |
 
-### Abundance by Body Type
+### Phosphorus (1)
 
-**Rocky Planets (Earth-like):**
-- Iron: 30-35% (core + mantle)
-- Silicates: 40-45% (mantle + crust)
-- Aluminum: 8-10% (crust)
-- Water: Variable (0.1-15% depending on location relative to frost line)
+| Name | Symbol | Typical source | Mt scale | Primary consumer |
+|---|---|---|---|---|
+| Phosphorus | P | C-/D-/P-type asteroids (0.05–0.3% by mass) | 10⁻¹–10⁰ | **Hard limit on hydroponics** — every Farm/Greenhouse/Aquaculture/AgriDome drains P₂O₅ fertilizer; per-capita 18.8 kg/p/yr |
 
-**Ice Moons (Europa-like):**
-- Water: 60-90% (subsurface ocean + ice shell)
-- Silicates: 10-30% (rocky core)
-- Ammonia/Methane: 1-5% (trace volatiles)
+### Biological (1)
 
-**Gas Giants (Jupiter-like):**
-- Hydrogen: 65-75% *by mass* (commonly misquoted as ~90%, which is volume fraction)
-- Helium: 20-26% by mass (not tracked as a game resource)
-- Helium-3: 20-35 ppm (He × He3/He4 × 3/4; protosolar He3/He4 ≈ 1.66×10⁻⁴)
-- Deuterium: 25-40 ppm (D/H ~2.5×10⁻⁵, scaled by H mass fraction × 2)
-- Methane: 0.05-0.3% by mass (enriched above solar C/H)
-- Ammonia: 0.01-0.05% by mass (below NH₃ cloud deck)
-- Water: 0.1-1% by mass (deep interior; supercritical fluid)
-- Nitrogen: trace (~0.001%)
-- No solid resources — atmospheric harvesting only
+| Name | Symbol | Typical source | Mt scale | Primary consumer |
+|---|---|---|---|---|
+| Food | — | colony-produced (crops + algae + cultured protein aggregate) | 10³–10⁴/yr per colony | Population (`food_consumption_per_capita_mt_per_year = 0.0000011`, FAO 2024) |
 
-**Ice Giants (Uranus/Neptune-like):**
-- Hydrogen: 12-22% by mass (thin H₂/He envelope)
-- Water: 40-60% by mass (superionic/ionic interior mantle)
-- Methane: 2-5% by mass (atmospheric + interior; source of blue/teal colour)
-- Ammonia: 2-5% by mass (interior ices)
-- Helium-3: 3-7 ppm (much less total He)
-- Deuterium: 35-55 ppm (enriched D/H ~4.4×10⁻⁵ from accreted ices)
-- Nitrogen: ~0.1-0.3% by mass
+### Atmospheric Gases (4)
 
-### Asteroid Spectral Classes
+| Name | Symbol | Typical source | Mt scale | Primary consumer |
+|---|---|---|---|---|
+| Nitrogen | N₂ | Earth / Titan / Venus atmospheres | 10⁰–10³ | Haber-Bosch input (`ChemicalPlant`), terraforming |
+| Oxygen | O₂ | Earth atmosphere, electrolysis from water | 10⁰–10³ | LifeSupport, combustion, steelmaking |
+| Carbon Dioxide | CO₂ | Venus / Mars atmospheres, industrial output | 10⁰–10² | Terraforming greenhouse gas, urea/chemicals feedstock |
+| Argon | Ar | Earth atmosphere (1.3% by mass) | 10⁻³–10⁰ | Inert shielding, welding, semiconductor |
 
-Asteroid type determines which resources are richly available versus absent. Not every asteroid of a given type has every resource — the spectral class sets probabilities and concentration ranges.
+### Construction Materials (9)
 
-**C-type (Carbonaceous) — most common in outer belt:**
-- Carbon: 3-8% (primary game source)
-- Water: 4-7% (hydrated minerals)
-- Phosphorus: 0.1-0.3%
-- Sulfur: 1-3%
-- Nickel: 1-2%
-- Deuterium: trace
+| Name | Symbol | Typical source | Mt scale | Primary consumer |
+|---|---|---|---|---|
+| Iron | Fe | M-/S-type asteroids, Earth core, Mars crust | 10⁰–10⁶ | Steel (worldsteel 2024: 214.7 kg/p/yr finished × 0.97 Fe = 208 kg Fe/p/yr), hulls |
+| Aluminum | Al | bauxite, regolith | 10⁰–10⁴ | Alloys, wiring (USGS 2024: 8.5 kg/p/yr) |
+| Titanium | Ti | ilmenite/rutile, lunar maria | 10⁻²–10¹ | D-T fusion vessel, aerospace alloys (industrial-only — per-capita = 0) |
+| Silicates | SiO₂ | quarries, regolith | 10¹–10⁵ | Aggregate, glass, ceramics (USGS NMA 2024: 410 kg/p/yr) |
+| Nickel | Ni | M-type asteroids, iron meteorites | 10⁻¹–10² | Stainless steel, superalloys (0.001 Mt/yr per build) |
+| Tungsten | W | rare-earth mines, M-type asteroids | 10⁻²–10⁰ | Railguns, carbide tooling, fusion magnets (3e-5 Mt/yr per build) |
+| Carbon | C | coal, graphite, C-/D-type asteroids | 10⁰–10⁴ | Graphene/nanotube hulls (USGS NMA 2024: 700 kg/p/yr coal) |
+| Chromium | Cr | chromite, stainless feed | 10⁻¹–10¹ | Stainless steel, corrosion-resistant alloys |
+| Magnesium | Mg | magnesite, dolomite, seawater | 10⁻¹–10¹ | Mg-Al alloys, sacrificial anodes |
 
-**S-type (Silicaceous) — common in inner belt:**
-- Silicates: 60-70%
-- Iron: 15-25%
-- Nickel: 0.5-2%
-- Sulfur: minor
-- Carbon/Tungsten: trace only
+### Fusion Fuel (3)
 
-**M-type (Metallic) — primary Nickel source:**
-- Iron: 75-90%
-- Nickel: 5-15% (highest concentration in solar system)
-- Tungsten: 0.01-0.1%
-- Platinum group metals: high concentrations
+| Name | Symbol | Typical source | Mt scale | Primary consumer |
+|---|---|---|---|---|
+| Helium-3 | He3 | lunar regolith, gas giants (atmospheric harvest) | 10⁻³–10⁰ | D-³He fusion reactors, antimatter-catalyst drives |
+| Deuterium | D | heavy-water extraction (seawater, ice) | 10⁻¹–10² | "Oil of the 22nd century" — D-T and D-D fusion |
+| Tritium | T | bred from lithium blankets in `DTFusionReactor` | 10⁻³–10⁻¹ | D-T fusion (short half-life, bred in-loop) |
 
-**V-type (Basaltic/Vestoid):**
-- Silicates: 55-65%
-- Iron: 15-20%
-- Nickel: 1-3%
-- Tungsten: trace
+### Fissiles (3)
 
-**D-type (Dark/Organic-rich) — outer solar system:**
-- Carbon: 5-12%
-- Water: 5-10%
-- Phosphorus: 0.1-0.3%
-- Sulfur: 2-5%
+| Name | Symbol | Typical source | Mt scale | Primary consumer |
+|---|---|---|---|---|
+| Uranium | U | U ore (rarite ~3 ppm crustal) | 10⁻³–10⁰ | Fission reactors (WNA 2024: 74 kt/yr world — per-capita = 0) |
+| Thorium | Th | monazite, rare-earth byproduct | 10⁻²–10¹ | MSR / breed-blanket reactors |
+| Plutonium | Pu | bred from fertile U in `BreederReactor` (0.23 Mt/yr per park) | 10⁻⁴–10⁻² | Fast-spectrum reactors, naval propulsion |
 
-**P-type (Primitive) — trans-Neptunian influenced:**
-- Carbon: 4-10%
-- Water: 3-8%
-- Phosphorus: 0.05-0.2%
-- Sulfur: 1.5-4%
+### Precious Metals (3)
+
+| Name | Symbol | Typical source | Mt scale | Primary consumer |
+|---|---|---|---|---|
+| Gold | Au | placer / lode (cyanidation) | 10⁻⁴–10⁻² | Treasury anchor, electronics |
+| Silver | Ag | Pb-Zn byproduct, lode | 10⁻³–10⁻¹ | Electronics, currency |
+| Platinum | Pt | M-type asteroids (PGM-rich), Bushveld | 10⁻⁵–10⁻³ | Catalysts, fuel cells, labware |
+
+### Strategic Materials (7)
+
+| Name | Symbol | Typical source | Mt scale | Primary consumer |
+|---|---|---|---|---|
+| Copper | Cu | porphyry, sedimentary | 10⁻¹–10² | Conductors (USGS NMA 2024: 1.9 kg/p/yr), D-T reactor coils |
+| Rare Earths | REO | monazite, bastnäsite, ion-adsorption clays | 10⁻²–10¹ | D-T superconducting magnets (Nb/REBCO), motors |
+| Lithium | Li | pegmatite, brine, seawater | 10⁻³–10⁰ | Batteries, fusion-breeding blanket (D-T reactor input) |
+| Sulfur | S | elemental / sulfide ores, Frasch | 10⁻²–10¹ | H₂SO₄, fertilizer (USGS 2024: 6 kg/p/yr) |
+| Cobalt | Li-Co oxide | sediment-hosted Cu-Co, laterite | 10⁻³–10⁻¹ | Li-ion cathodes, superalloys, turbopumps |
+| Fluorine | F | fluorspar | 10⁻²–10⁰ | UF₆ enrichment, semiconductor etch, FLOX oxidiser |
+| Polymers | — | manufactured (`ChemicalPlant`) | 10¹–10³ | Plastics, lubricants (OECD 2024: 38 kg/p/yr) |
+
+### Exotic Materials (4) — K2-tier, roadmap-gated
+
+| Name | Symbol | Typical source | Mt scale | Primary consumer |
+|---|---|---|---|---|
+| Antimatter | p̄ | particle accelerators (locked behind K2 tech) | 10⁻⁶–10⁻³ | Antimatter drives (1 000 000 s Isp) |
+| Exotic Matter | Xm | theoretical / Alcubierre-style harvest | — | Warp bubbles, wormholes |
+| Metamaterials | Mm | engineered composite (locked) | — | Cloaking, perfect lenses, EM shielding |
+| Computronium | Qb | optimised computational substrate (locked) | — | Post-singularity AI / Culture-level minds |
 
 ---
 
-## Unit System
+## 2. Real-world calibration
 
-**All resource values use Megatons (Mt) as the standard unit.**
+All building rates in `assets/data/buildings.ron` are calibrated so that one
+in-game building on Earth ≈ 2026 world production for the dominant resource
+(operator-binding criterion). Two calibration layers are documented inline in
+the RON header.
 
-### Unit Conversions
+### `colony_constants` block (`buildings.ron:34-44`)
+
+| Field | Value | Source |
+|---|---|---|
+| `food_consumption_per_capita_mt_per_year` | 0.0000011 | FAO 2024 SOFA — 1,100 kg/p/yr |
+| `base_growth_rate` | 0.009 | Earth 2026 demographic baseline (0.9%/yr) |
+| `food_decline_threshold` | 0.95 | Stressed level — feedback from any deficit |
+| `food_decline_max_mortality` | 0.03 | Real-world 0.5–3% mortality in moderate food insecurity |
+
+### `per_capita_consumption` block (`buildings.ron:79-130`)
+
+Each value is **Mt/p/yr**. Calibrated so 8.2 B people consume ~70% of world
+demand; the remaining ~30% covers industry, maintenance, feedstock, and power.
+
+| Resource | Value (Mt/p/yr) | kg/p/yr | World source |
+|---|---|---|---|
+| Iron (steel) | 2.13 × 10⁻⁷ | 208 | worldsteel 2024 (214.7 kg × 0.97 Fe) |
+| Copper | 1.9 × 10⁻⁹ | 1.9 | USGS NMA 2024 (12 lb US ≈ 5.4 kg, world ~3 kg) |
+| Aluminum | 6 × 10⁻⁹ | 6.0 | USGS 2024 (70 Mt / 8.2B = 8.5 kg) |
+| Silicates | 4.1 × 10⁻⁷ | 410 | USGS NMA 2024 (16,284 lb US; world ~410 kg) |
+| Titanium | 0 | 0 | Industrial-only (TiO₂ pigment / aerospace); was 1.1 kg/p/yr in v3.8.9 |
+| Polymers | 3.8 × 10⁻⁸ | 38 | OECD 2024 (450 Mt / 8.2B = 55 kg) |
+| Phosphorus | 1.88 × 10⁻⁸ | 18.8 | USGS 2024 (55 Mt P₂O₅ / 8.2B = 6.7 kg × 70% scale) |
+| Sulfur | 6 × 10⁻⁹ | 6 | USGS 2024 (70 Mt / 8.2B = 8.5 kg) |
+| Nitrogen | 0 | 0 | Fertilizer-N flows through Haber-Bosch chain, not direct per-capita |
+| Methane | 2.5 × 10⁻⁷ | 250 | IEA 2026 (4,100 bcm / 8.2B = 500 m³ × 50% consumer share) |
+| Uranium | 0 | 0 | Industrial-only nuclear power; was 6.3 g/p/yr in v3.8.9 |
+| Carbon (coal) | 7 × 10⁻⁷ | 700 | USGS NMA 2024 (2,414 lb US ≈ 1,095 kg; world ~700 kg) |
+
+### Demand-sized outputs (Mt/yr per build, Earth × 1.0)
+
+| Building | Mt/yr per build | Earth start × count | World target |
+|---|---|---|---|
+| Farm | 360 | 25 × 360 = 9,000 | FAO 2024 world food |
+| GreenhouseComplex | 200 | 10 × 200 = 2,000 | 22% of world food |
+| AquacultureComplex | 200 | 10 × 200 = 2,000 | FAO 2024 aquaculture target |
+| AgriDome | 4 | 5 × 4 = 20 | closed-env off-world |
+| IronMine | 97.15 | 25 × 97.15 × 0.9 = 2,185 | USGS 2024 2,500 Mt |
+| AluminumMine | 2.62 | 25 × 2.62 × 0.8 = 52 | USGS 2024 |
+| SilicatesMine | 137.3 | — | USGS NMA 2024 |
+| CarbonMine | 392.2 | — | USGS NMA 2024 coal |
+| AtmosphericProcessor | N 0.667, O 0.5, Ar 0.00333, CO₂ 0.667 | 300 × rates = world demand | USGS / OECD 2024 |
+| ChemicalPlant | H₂ 65.6, NH₃ 135, Pol 322 | Earth-start consumption | USGS / OECD 2024 |
+
+---
+
+## 3. Food production chain
+
+Food is the only colony-produced aggregate (crops + algae + cultured protein)
+in the economy. Per-capita demand sets the housing-colony bottleneck.
+
+| Building | Output (Mt/yr) | People fed @ 1,100 kg/p/yr | Use site |
+|---|---|---|---|
+| Farm | 360 | 327 M | open-air, Earth/Mars only |
+| GreenhouseComplex | 200 | 182 M | climate-controlled, specialty crops |
+| AquacultureComplex | 200 | 182 M | aquatic protein (FAO 2024 target: 1.5 Gt/yr) |
+| AgriDome | 4 | 3.6 M | closed-environment off-world (Moon, Mars, asteroids) |
+
+### Demand formula
 
 ```
-1 Megaton (Mt) = 10^6 metric tons = 10^9 kg
+demand_mt_per_year = population × food_consumption_per_capita_mt_per_year
+                   = population × 0.0000011           (FAO 2024)
 ```
 
-**Common Conversions:**
-- 1 metric ton = 10^-6 Mt
-- 1 kg = 10^-9 Mt
-- 1 km³ of water ice ≈ 920,000 Mt (at 920 kg/m³ density)
+### Growth factor (v3.7.1, steeper curve)
 
-### Critical Unit Facts
+`ratio = supply / demand`:
 
-- **Mars water ice:** 4.6 × 10^9 Mt (scientifically measured: 5 million km³)
-- **Moon water ice:** 600 Mt (scientifically measured: 600 million metric tons)
-- **Europa water:** ~4 × 10^13 Mt (calculated from mass fraction)
+| ratio | factor | outcome |
+|---|---|---|
+| ≥ 1.0 | 1.0 | nominal growth (`base_growth_rate = 0.009`) |
+| 0.95 | 0.85 | Stressed (warning) — 5% deficit → 15% slowdown |
+| 0.85 | 0.59 | Crisis — 41% slowdown |
+| 0.70 | 0.25 | Emergency — 75% slowdown |
+| 0.50 | 0.00 | Famine — 0% growth, mortality ramp to `food_decline_max_mortality` |
 
-**Functions:**
-- `create_deposit_from_absolute_mass(total_mt, proven_fraction, body_type)` - For scientifically measured values
-- `create_deposit_legacy(abundance_fraction, variability, body_mass_kg, body_type)` - For calculated abundances
-
----
-
-## Solar System Resources
-
-### Inner Planets
-
-**Mercury:**
-- Iron: Very high (60-70% metallic core)
-- Silicates: 30-40%
-- Water: None (too hot)
-- Helium-3: Trace amounts in regolith from solar wind
-
-**Venus:**
-- Silicates: 45-50%
-- Iron: 30-35%
-- CO2: Massive atmospheric reserves
-- Sulfur compounds: High
-
-**Earth:**
-- Iron: 32% (mostly in core)
-- Silicates: 45%
-- Water: 0.023% (oceans + ice)
-- Aluminum: 8%
-- All resource types present
-
-**Mars:**
-- Water: 4.6 × 10^9 Mt (polar caps + subsurface)
-- Iron: 18% (FeO in crust + core)
-- Silicates: 45%
-- CO2: Ice caps
-
-### Outer System
-
-**Jupiter:**  (mass 1.898×10²⁷ kg)
-- Hydrogen: 71% by mass (Guillot 2005, Galileo probe)
-- Helium: 24% by mass (not tracked)
-- He-3: 30 ppm (Mahaffy et al. 1998)
-- Deuterium: 37 ppm (D/H 2.6×10⁻⁵, Lellouch 2001)
-- Methane: ~0.1% by mass (4× solar C/H)
-- Ammonia: ~0.05% by mass
-- Water: ~0.5% by mass (Juno MWR deep estimate)
-- Nitrogen: trace
-- No solid deposits
-
-**Saturn:**  (mass 5.683×10²⁶ kg)
-- Hydrogen: 69% by mass
-- Helium: 25% by mass (outer atmosphere depleted by He rain-out)
-- He-3: 25 ppm (outer envelope depleted)
-- Deuterium: 29 ppm (D/H 2.1×10⁻⁵)
-- Methane: ~0.3% by mass (enriched ~10× solar)
-- Ammonia: ~0.02% by mass
-- Water: ~0.5% by mass (deep interior)
-- No solid deposits
-
-**Uranus:**  (mass 8.681×10²⁵ kg, ice giant)
-- Hydrogen: 15% by mass (thin envelope)
-- Water: 50% by mass (superionic interior mantle)
-- Methane: 3% by mass (teal colour source)
-- Ammonia: 3% by mass
-- He-3: 5 ppm
-- Deuterium: 44 ppm (enriched D/H 4.4×10⁻⁵)
-
-**Neptune:**  (mass 1.024×10²⁶ kg, ice giant)
-- Hydrogen: 18% by mass
-- Water: 50% by mass (superionic interior mantle)
-- Methane: 3% by mass (deep blue colour source)
-- Ammonia: 3% by mass
-- He-3: 5 ppm
-- Deuterium: 41 ppm (D/H 4.1×10⁻⁵)
-
-### Major Moons
-
-**Moon (Earth's):**
-- Water: 600 Mt (polar craters)
-- Helium-3: 1.1 million metric tons (regolith)
-- Silicates: 45%
-- Iron: 10-13%
-- Titanium: 4% (high in maria)
-
-**Europa (Jupiter):**
-- Water: 4.08 × 10^13 Mt (85% of mass)
-- Silicates: 15% (rocky core)
-- Excellent volatile source
-
-**Titan (Saturn):**
-- Methane: Vast liquid lakes and atmosphere
-- Nitrogen: Dense atmosphere
-- Water ice: Bedrock
-- Organics: Complex hydrocarbons
-
-**Enceladus (Saturn):**
-- Water: Active geysers
-- Ammonia: Trace
-- Silicates: Rocky core
+Reference: IPC-level feedback (Lanz 2016, Ó Gráda 2009, Sen 1981). Threshold
+0.95 (was 0.70) so the player sees feedback from any deficit.
 
 ---
 
-## Tiered Reserve Model
+## 4. Mining & extraction
 
-Resources are stored in three tiers representing different extraction difficulties:
+### Per-resource dedicated mines (in `buildings.ron`)
 
-### Tier 1: Proven Crustal (Easy)
-- Surface to 5 km depth
-- Currently known deposits
-- Easy extraction with basic technology
-- Typically 0.1-5% of total reserves
+Every mineable resource has a paired `*Mine` + `Auto*Mine` entry. Auto variants
+are crewless and scaled by `assets/data/survey/mining_efficiency.ron` (v0.5.0
+survey rework).
 
-**Extraction:**
-- Cost: Low
-- Tech requirement: Basic
-- Rate: Fast
+| Resource | Manual | Auto |
+|---|---|---|
+| Iron | IronMine | AutoIronMine |
+| Aluminum | AluminumMine | AutoAluminumMine |
+| Titanium | TitaniumMine | AutoTitaniumMine |
+| Silicates | SilicatesMine | AutoSilicatesMine |
+| Nickel | NickelMine | AutoNickelMine |
+| Tungsten | TungstenMine | AutoTungstenMine |
+| Carbon | CarbonMine | AutoCarbonMine |
+| Chromium | ChromiumMine | AutoChromiumMine |
+| Magnesium | MagnesiumMine | AutoMagnesiumMine |
+| Gold | GoldMine | AutoGoldMine |
+| Silver | SilverMine | AutoSilverMine |
+| Platinum | PlatinumMine | AutoPlatinumMine |
+| Copper | CopperMine | AutoCopperMine |
+| Rare Earths | RareEarthsMine | AutoRareEarthsMine |
+| Lithium | LithiumMine | AutoLithiumMine |
+| Sulfur | SulfurMine | AutoSulfurMine |
+| Cobalt | CobaltMine | AutoCobaltMine |
+| Fluorine | FluorineMine | AutoFluorineMine |
+| Uranium | UraniumMine | AutoUraniumMine |
+| Thorium | ThoriumMine | AutoThoriumMine |
+| Helium-3 | He3Mine (Moon / GasGiant / Asteroid) | AutoHe3Mine |
+| Deuterium | DeuteriumExtractor | AutoDeuteriumExtractor |
 
-### Tier 2: Deep Deposits (Medium)
-- 5-100 km depth
-- Estimated via geological surveys
-- Requires advanced drilling
-- Typically 5-20% of total reserves
+### Output formula
 
-**Extraction:**
-- Cost: Medium
-- Tech requirement: Advanced drilling
-- Rate: Moderate
-
-### Tier 3: Planetary Bulk (Hard)
-- 100 km to core
-- Calculated from planetary composition
-- Requires extreme technology
-- Typically 75-95% of total reserves
-
-**Extraction:**
-- Cost: Very high
-- Tech requirement: Deep mantle mining or core tapping
-- Rate: Slow
-
-### Example: Earth Iron
-
-```rust
-ResourceReserve {
-    proven_crustal: 1.0e6 Mt,      // Known ore deposits
-    deep_deposits: 1.0e7 Mt,       // Upper mantle estimates
-    planetary_bulk: 1.9e12 Mt,     // Core iron (inaccessible with current tech)
-}
+```
+output_mt_per_year = base_yield × deposit.accessibility × yield_mult
 ```
 
----
+`accessibility` is set by the survey rework's deposit tiers
+(`assets/data/survey/tiers.ron`); `yield_mult` aggregates module bonuses,
+workforce, and maintenance headroom. Survey progress in
+`assets/data/survey/dimensions.ron` unlocks higher yield multipliers.
 
-## Scientific Sources
+### Deposit tier gates
 
-### Primary Sources
+Mining availability follows the planetary-body tier model
+(`src/economy/generation.rs`):
 
-**Planetary Compositions:**
-- Lodders & Fegley (1998): "The Planetary Scientist's Companion"
-- Taylor & McLennan (2009): "Planetary Crusts"
-- Morgan & Anders (1980): "Chemical composition of Earth, Venus, and Mercury"
+| Tier | Depth | Tech gate | Share of total |
+|---|---|---|---|
+| `proven_crustal` | 0–5 km | basic | 0.1–5% |
+| `deep_deposits` | 5–100 km | advanced drilling | 5–20% |
+| `planetary_bulk` | 100 km–core | deep mantle mining | 75–95% |
 
-**Mars Water:**
-- Dundas et al. (2018): "Exposed subsurface ice sheets in the Martian mid-latitudes"
-- NASA Mars Reconnaissance Orbiter data
-- Measured: 5 million km³ = 4.6 × 10^9 Mt
-
-**Lunar Resources:**
-- Colaprete et al. (2010): "Detection of Water in the LCROSS Ejecta Plume"
-- Li et al. (2018): "Direct evidence of surface exposed water ice in the lunar polar regions"
-- Measured: 600 million metric tons = 600 Mt
-
-**Asteroid Compositions:**
-- DeMeo & Carry (2014): "Solar System evolution from compositional mapping of the asteroid belt"
-- Bus-DeMeo Taxonomy
-- Spectroscopy data from multiple surveys
-
-**Gas Giant Compositions:**
-- NASA Juno mission (Jupiter)
-- Cassini mission (Saturn)
-- Atreya et al. (2016): "Deep atmosphere composition"
-
-**Helium-3:**
-- Wittenberg et al. (1986): "Lunar source of 3He for commercial fusion power"
-- Kulcinski et al. (1989): "Fusion energy from the Moon"
-
-### Metallicity Effects
-
-- Santos et al. (2004): "The Planet-Metallicity Correlation"
-- Fischer & Valenti (2005): "The Planet-Metallicity Correlation"
-- Gonzalez (1997): "The stellar metallicity-giant planet connection"
-
-### Chemical Abundances
-
-- Lodders (2003): "Solar System Abundances and Condensation Temperatures"
-- Anders & Grevesse (1989): "Abundances of the elements"
-- Palme & O'Neill (2014): "Cosmochemical Estimates of Mantle Composition"
+Asteroid spectral classes (C / S / M / V / D / P) set which resources are
+richly present. Not every body of a given class has every resource — the class
+sets probabilities and concentration ranges; see
+[`docs/MODDING.md`](MODDING.md) for the full table.
 
 ---
 
-## Game Implementation Notes
+## 5. Fusion & Fissile fuels
 
-### Resource Generation Process
+### Helium-3
 
-1. **Body Type Determination:** Planet, moon, asteroid, or comet
-2. **Base Abundances:** Assign realistic fractions based on body type
-3. **Metallicity Bonus:** Apply star [Fe/H] multiplier to rare metals and fissiles
-4. **Variation:** 40% of non-critical resources randomly absent
-5. **Tier Distribution:** Split total into proven/deep/bulk using body type formulas
-6. **Special Cases:** Mars, Moon, Europa use absolute mass values
+- Source: **lunar regolith** (solar-wind implantation) and **gas-giant atmospheric harvest** (`AutoHe3Mine`).
+- Body whitelist: Moon, GasGiant, Asteroid.
+- Real-world estimate: ~400 kg identified lunar reserves; theoretical lunar regolith endowment ~1 Mt.
 
-### Code References
+### Deuterium
 
-- `src/economy/generation.rs` - Resource generation logic
-- `src/economy/components.rs` - ResourceReserve and deposit structures
-- `src/economy/types.rs` - ResourceType enum and categories
+- Source: **heavy-water extraction** from seawater or ice (`DeuteriumExtractor`).
+- Real-world: ~156 D per 10⁶ H (VSMOW); effectively unbounded in oceans.
 
-### Validation
+### Tritium
 
-Resource values are validated against scientific literature in integration tests:
-- Mars water: 4.6 × 10^9 Mt (±10%)
-- Moon water: 600 Mt (±50%)
-- Earth-like iron fractions: 30-35%
-- Asteroid water percentages: Match spectral classes
+- Source: **bred from lithium blankets** in `DTFusionReactor` (Li + n → T + He).
+- Not naturally stockpiled — 12.32 yr half-life.
+- World production: ~415 g/yr natural cosmic-ray spallation; reactor-bred is the only scalable path.
+
+### Uranium / Thorium
+
+- Source: U ore (~3 ppm crustal, USGS 2024 reserves ~8 Gt); Th monazite (rare-earth byproduct).
+- Buildings: `UraniumMine` / `AutoUraniumMine`, `ThoriumMine` / `AutoThoriumMine`.
+- Per-capita consumption = 0 — pure industrial nuclear-power input.
+
+### Plutonium
+
+- Source: **bred from fertile U** in `BreederReactor` (700 GW power + 0.23 Mt/yr Pu per park).
+- `BreederReactor` is the only Pu producer; maintains small Pu bleed as part of its operating cost.
+
+---
+
+## 6. Precious & Strategic
+
+### Economic role
+
+Precious metals (Au / Ag / Pt) anchor the in-game **treasury** and high-value
+trade goods; they don't run heavy industry but provide the currency
+backing and catalyst feedstocks. Real-world 2024 reference:
+
+| Resource | Identified reserves | 2024 world production |
+|---|---|---|
+| Gold | 100 kt | 3,600 t/yr |
+| Silver | 700 kt | 25 kt/yr |
+| Platinum | 21 kt | 160 t/yr |
+
+### Strategic supply scarcity
+
+Strategic materials gate **advanced tech unlocks** (D-T reactors, fusion magnets,
+batteries, semiconductor etch, superalloys). The cost of running short of any
+of these is high — D-T tokamak construction fails without Nb/REBCO (RareEarths),
+Li-ion grid storage stalls without Lithium / Cobalt, and breeder reactor
+maintenance demands Fluorine + Plutonium feedback.
+
+| Material | Why it matters |
+|---|---|
+| Copper | Conductors, D-T reactor coils |
+| Rare Earths | D-T superconducting magnets (Nb/REBCO), motors, wind turbines |
+| Lithium | Batteries, fusion-breeding blanket |
+| Sulfur | H₂SO₄, fertilizer |
+| Cobalt | Li-ion cathodes, superalloys, turbopumps |
+| Fluorine | UF₆ enrichment, semiconductor etch, FLOX oxidiser |
+| Polymers | Plastics, lubricants, chemical feedstocks |
+
+---
+
+## 7. Exotic materials
+
+All four exotic resources are **K2-tier** (roadmap-gated, post-fusion). They do
+not appear in `is_mineable()` and have no natural deposit generation — they
+require dedicated producer buildings or narrative events.
+
+| Material | Production path | Use |
+|---|---|---|
+| Antimatter | particle accelerators (K2 factory) | antimatter drives (1 000 000 s Isp) |
+| ExoticMatter | theoretical / harvest | warp bubbles, wormholes |
+| Metamaterials | engineered composite | cloaking, perfect lenses, EM shielding |
+| Computronium | post-singularity automation | Culture-level AI minds |
+
+Until each is unlocked, the corresponding column in the resource bar shows `—`.
+
+---
+
+## 8. Display vs physical storage
+
+The economy has **two** storage layers; only one is physical.
+
+### `LocalStockpile` (physical, per-body)
+
+- A `Component` on every body that produces, stores, or consumes resources.
+- `HashMap<ResourceType, f64>` in **Mt**.
+- Production (mining, atmospheric harvesting, food) **deposits** here.
+- Consumption (maintenance, food, construction materials) **deducts** here.
+- **Construction draws only from the destination body's `LocalStockpile`** —
+  no system-pool fallback. When local materials are short, the construction
+  system publishes a `ResourceRequest` and the building waits for delivery.
+  See [`docs/COLONIES.md`](COLONIES.md) and `src/colony/systems.rs`.
+
+### `ContextualStockpile` (view-scoped, display-only)
+
+- A `Resource` aggregated from `LocalStockpile`s for the **player UI**.
+- `update_contextual_stockpile` reads `ViewMode` and `CurrentStarSystem`:
+  - **System view** → sum every body in the active star system
+  - **Starmap view** → sum every body across all systems
+- The label switches between `"Sol System"` and `"All Systems"` accordingly.
+- **Construction does not read this** — display-only. Defined in
+  `src/economy/budget.rs`.
+
+### Top resource bar
+
+Reads `ContextualStockpile` for the active view; UI surfaces the running total
+per resource (`src/ui/resources_bar.rs`). Construction queues per-body in the
+dossier panel (`src/ui/construction/`) and the queue badge surfaces the
+"⏳ Awaiting resources" / "⏳ Waiting for freighter" state when local materials
+are insufficient.
+
+---
+
+## See also
+
+- [`src/economy/types.rs`](../src/economy/types.rs) — `ResourceType` enum, all
+  category predicates (`is_volatile`, `is_biological`, `is_atmospheric_gas`,
+  `is_construction`, `is_fusion_fuel`, `is_fissile`, `is_precious_metal`,
+  `is_strategic`, `is_exotic`, `is_mineable`).
+- `assets/data/buildings.ron` — building IDs, costs, outputs, `colony_constants`,
+  `per_capita_consumption`.
+- `assets/data/survey/` — `dimensions`, `instruments`, `anomalies`,
+  `mining_efficiency`, `missions`, `recovery_missions`, `tiers` (v0.5.0 survey rework).
+- [`docs/MODDING.md`](MODDING.md) — texture, body, and asteroid-spectral-class authoring.
+- [`docs/COLONIES.md`](COLONIES.md) — colony founding, construction queue, life-support.
+- [`docs/ARCHITECTURE.md` §EconomyPlugin](ARCHITECTURE.md) — system layout and data flow.
+- [`docs/RESEARCH_MODDING.md`](RESEARCH_MODDING.md) — tech-gated unlocks for mines,
+  fusion reactors, breeder reactors, and exotic factories.
