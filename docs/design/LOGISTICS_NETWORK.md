@@ -132,7 +132,7 @@ This is the *Aurora 4X*-style approach: total manual control at the cost of play
 
 Private shipping companies operate autonomously.  They are **not player-controlled** but respond to the market of resource requests.
 
-### Company attributes (planned)
+### Company attributes (shipped v0.4.x)
 
 | Attribute | Description |
 |-----------|-------------|
@@ -152,7 +152,7 @@ Every simulation tick (configurable interval, e.g. 1 in-game day):
 5. **Collect payment** — credits transferred from `GlobalBudget` to company treasury.
 6. **Expand fleet** — when treasury exceeds a threshold, purchase a new ship at a shipyard.
 
-### Payment formula (planned)
+### Payment formula (shipped v0.4.x)
 
 ```
 payment = base_rate_per_mt × amount × distance_au × priority_multiplier
@@ -183,7 +183,7 @@ This is the core "set-and-forget" feature (Distant Worlds 2 style):
 - Set Moon minimum Uranium = 500 Mt → the Moon is always topped up for its Fission Reactors.
 - Emergency thresholds: O₂ and Water get default minimums on all colonies with Life Support.
 
-### UI (planned)
+### UI (shipped v0.4.x)
 
 In the colony dossier panel, each resource row will have:
 
@@ -200,7 +200,7 @@ In the colony dossier panel, each resource row will have:
 
 ## UI Design
 
-### Logistics Panel (new tab, planned)
+### Logistics Panel (new tab, shipped v0.4.x)
 
 A new top-level panel tab **Logistics** showing:
 
