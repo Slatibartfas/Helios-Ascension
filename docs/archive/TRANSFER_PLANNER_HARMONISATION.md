@@ -1,5 +1,7 @@
 # Transfer Planner Harmonisation
 
+> **ARCHIVED 2026-09-08** — all GRA-367-A through GRA-384 transfer-planner phases and follow-ups shipped (PRs #229–#240). Pure historical implementation log.
+
 **Issue:** [GRA-367](https://github.com/Slatibartfas/Helios-Ascension/issues/367)
 **Status:** Approved by operator 2026-07-08 with Phase 3 amendment (short-hop option count must be configurable, not hard-coded to 3)
 **Scope:** UX + algorithm unification across all transfer types

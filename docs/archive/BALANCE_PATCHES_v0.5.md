@@ -1,5 +1,7 @@
 # Balance Patches v0.5 — Consolidated v3 (v3.1 EXTENDS v3)
 
+> **ARCHIVED 2026-09-08** — patch log with all ✅SHIPPED items now on main. ⏳PENDING items extracted to issues before archive: §4.14, §5.1.1, §5.1.3, §5.2, §5.3, §5.6, §5.18, §8.2.3, §8.2.4, §8.2.5, §8.2.6, §8.3.5, §8.3.6, §8.3.12, §8.3.13, §8.3.15, §8.3.16, §8.3.18, §8.6.1, §8.6.3. Living rebalance work continues in buildings.ron + colony_constants.
+>
 > **Sixth deliverable from the balance-expert agent.** v3 is a
 > **single consolidated** document that **supersedes the lean v2**.
 > It adds the energy-consumption rebalance (the bottom-up demand

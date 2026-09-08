@@ -1,5 +1,7 @@
 # Building Icon Audit — `rework-ui-design` (read-only)
 
+> **ARCHIVED 2026-09-08** — one-shot PNG coverage audit, regeneration recommendations addressed. No ongoing reference value.
+>
 > **Scope.** Read-only audit of `assets/textures/ui/buildings/*.png` (102 files)
 > against the post-processing recipe in `src/ui/construction/state.rs:341-400`
 > (`process_building_icons`, in the v0.5.2 split; the legacy

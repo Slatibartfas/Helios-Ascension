@@ -1,5 +1,7 @@
 # Balance Audit v0.5 — Helios Ascension Resource Economy
 
+> **ARCHIVED 2026-09-08** — point-in-time audit consumed by BALANCE_PATCHES_v0.5.md v3/v3.1 (now also archived). The rebalance shipped; numbers cited (Farm 9,000 Mt/yr, Mine 1,800 Mt Fe/yr, generic Mine era) no longer match current buildings.ron.
+>
 > **First deliverable from the balance-expert agent.** Per-resource calibration
 > table for the 39 `ResourceType` entries in `src/economy/types.rs`. The brief
 > cited "42" — see [§1 Scope reconciliation](#1-scope-reconciliation) for the

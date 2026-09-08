@@ -1,5 +1,7 @@
 # Expanding the Solar System Simulation
 
+> **ARCHIVED 2026-09-08** — "377 bodies" baseline is now 713 (450 Asteroid / 147 Moon / 55 DwarfPlanet / 50 Comet / 4 Planet / 4 GasGiant / 2 Ring / 1 Star). Easy-additions wishlist largely shipped via asteroids.ron + comets.ron sidecars.
+
 ## Currently Implemented (377 Bodies)
 
 The simulation currently includes:

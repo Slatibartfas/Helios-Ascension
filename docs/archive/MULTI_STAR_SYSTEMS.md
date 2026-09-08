@@ -1,5 +1,7 @@
 # Multi-Star System Support
 
+> **ARCHIVED 2026-09-08** — historical "star-system refactor" report. The API it describes (StarSystem, sun_like, from_luminosity) is live in src/economy/components.rs. **Note:** the 2.7×√L frost-line constant in this doc contradicts the shipped 4.85×√L in src/astronomy/procedural.rs:368 and docs/ASTRONOMY.md; trust the code.
+
 ## Overview
 The economic system has been refactored to support multiple star systems with different stellar properties and frost lines. This enables scaling from a single solar system to hundreds or thousands of star systems, as required for Kardashev Scale Level 2-3 civilizations.
 

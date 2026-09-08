@@ -41,7 +41,7 @@ bevy_ui menu (Research, Economy, …) both consume that library.
 > `src/ui/widgets.rs`; future menus (Research, Economy, Fleets,
 > Personnel) should plan to use the same primitives rather than
 > re-rolling shells. See
-> [`docs/design/UI_MIGRATION_PLAN.md`](design/UI_MIGRATION_PLAN.md) for
+> [`docs/archive/UI_MIGRATION_PLAN.md`](archive/UI_MIGRATION_PLAN.md) for
 > the staged rollout.
 
 ## 2. Design Tokens

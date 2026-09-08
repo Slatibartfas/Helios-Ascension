@@ -1,5 +1,7 @@
 # Building Icon Mapping — Helios Ascension
 
+> **ARCHIVED 2026-09-08** — 52-entry emoji→PNG swap plan is completed and applied to buildings.ron. The doc is frozen at 52 buildings; the live icon set is 96 buildings (see docs/COLONIES.md).
+
 52-entry swap plan that retires the Unicode emoji in
 `assets/data/buildings.ron` and replaces each one with the new
 24×24 dark-on-white PNG in `assets/textures/ui/buildings/`. The user

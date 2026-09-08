@@ -1,5 +1,7 @@
 # UI Migration Plan (egui → native Bevy UI)
 
+> **ARCHIVED 2026-09-08** — Construction graduated to native Bevy UI in v0.5.2 (src/ui/construction/) and Shipbuilding was already native. The plan doc is historical. Future migration work (Survey, Research, Economy, Fleets, Personnel to native Bevy UI) is tracked in memories/repo/ui-migration-2026-08-14.md.
+
 Status: **Construction graduated** (v0.5.2, branch `rework-ui-design`,
 2026-08-14). The Shipbuilding workspace was already on native Bevy UI.
 All other panels remain on egui today.
