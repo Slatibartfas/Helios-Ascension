@@ -1,7 +1,7 @@
 // SFX manifest — moddable surface for sound-effect cues.
 //
 // Each entry is one named cue. The runtime `SfxPlugin`
-// (src/plugins/sfx.rs) loads this on `Startup`, resolves the
+// (src/plugins/sfx/mod.rs) loads this on `Startup`, resolves the
 // `file` path under `assets/audio/sfx/`, and registers a
 // `Handle<AudioSource>` per cue in `SfxRegistry`.
 //
@@ -9,7 +9,7 @@
 // into `assets/audio/sfx/` with the same `file` name and
 // (optionally) tweak `default_volume` / `cooldown_ms` here. To
 // add a new cue, append an entry below *and* add the matching
-// `SfxCueId` variant in `src/plugins/sfx.rs` (the audit script
+// `SfxCueId` variant in `src/plugins/sfx/mod.rs` (the audit script
 // `scripts/audit_sfx_manifest.py` enforces this).
 //
 // **Schema**: `SfxCategory` is the same enum used internally
@@ -26,7 +26,7 @@
 // **Phase 1 surface**: 13 UI cues + 1 universal notification
 // chime. Construction / research / shipbuilding / fleet /
 // survey / launch / time-control cues are added in later PRs
-// (see `/memories/session/plan.md` for the full roadmap).
+// (see `docs/SFX.md` for the full roadmap).
 (
     cues: [
         // ── UI chrome ─────────────────────────────────────────────
