@@ -76,6 +76,12 @@ helios_ascension/
 │   ├── main.rs              # Application entry point
 │   ├── lib.rs               # Library root
 │   ├── game_state.rs        # Top-level game state management
+│   ├── survey/            # Survey missions, dimensions, instruments & anomalies
+│   ├── ships/              # Hull templates and legacy migration shims
+│   ├── personnel/          # Scientists, specialties and seniority
+│   ├── persistence/        # Save/load state and world swapping
+│   ├── boot_init.rs        # Boot-time initialization
+│   ├── test_util.rs        # Shared test utilities
 │   ├── astronomy/           # Orbital mechanics & coordinate systems
 │   │   ├── components.rs    # SpaceCoordinates, KeplerOrbit, OrbitPath
 │   │   ├── systems.rs       # Orbit propagation, comet tails, LOD visibility
@@ -88,17 +94,32 @@ helios_ascension/
 │   │   └── mod.rs           # AstronomyPlugin
 │   ├── colony/              # Colony management system
 │   │   ├── components.rs    # Colony, BuildingInventory, ConstructionQueue
-│   │   ├── types.rs         # BuildingType enum (29 types)
+│   │   ├── types.rs         # BuildingType enum (96 types)
 │   │   ├── data.rs          # Building data loading from RON
+│   │   ├── building_data.rs # Building definitions and data helpers
+│   │   ├── events.rs        # Colony events
 │   │   ├── systems.rs       # Construction processing, population growth
 │   │   └── mod.rs           # ColonyPlugin
-│   ├── economy/             # Resource & budget systems
+│   ├── plugins/             # Game systems
+│   │   ├── sfx/             # Sound effects bus, playback, policy and bridges
+│   │   │   ├── mod.rs
+│   │   │   ├── bus.rs
+│   │   │   ├── manifest.rs
+│   │   │   ├── playback.rs
+│   │   │   ├── policy.rs
+│   │   │   ├── egui_observe.rs
+│   │   │   ├── tests.rs
+│   │   │   └── bridges/
+│   │   │       ├── mod.rs
+│   │   │       ├── notifications.rs
+│   │   │       └── ui.rs
+│   │   ├── camera.rs        # Camera movement, anchoring & ViewMode
 │   │   ├── components.rs    # PlanetResources, MineralDeposit
 │   │   ├── budget.rs        # GlobalBudget, EnergyGrid
 │   │   ├── generation.rs    # Procedural resource generation (orchestration + helpers)
 │   │   ├── profiles.rs      # Special body profiles + spectral-class resource tables
 │   │   ├── mining.rs        # Mining operations and efficiency
-│   │   └── types.rs         # ResourceType definitions (20 types)
+│   │   └── types.rs         # ResourceType definitions (39 types)
 │   ├── fleets/              # Fleet management & orbital transfer
 │   │   ├── components.rs    # Fleet, FleetOrbit, ActiveManeuver, PlannedTransfer
 │   │   ├── orbital_mechanics.rs # Hohmann transfers, transfer windows, gravity assists
@@ -141,16 +162,11 @@ helios_ascension/
 │       ├── dashboard.rs           # Main dashboard, time controls, star system panel
 │       ├── research_panel.rs      # Research/engineering UI (overview, available, bonuses, archive tabs)
 │       ├── tech_tree.rs           # Tech tree tab, edit dialog, category colors
-│       ├── construction/          # NATIVE BEVY UI Construction menu (v0.5.2 canary).
-│                             # The 11 865-LOC src/ui/construction.rs was split
-│                             # into this directory (commit 6e9e8f4) and the migration
-│                             # to native Bevy UI landed in commit 4794803.
+│       ├── construction/          # NATIVE BEVY UI Construction menu (v0.5.2).
 │                             # Sub-modules: mod.rs, state.rs, data.rs, markers.rs,
 │                             # cards.rs, mining.rs, overview.rs, buildings.rs,
 │                             # demolish.rs, queue.rs, dropdown.rs, tooltip.rs,
-│                             # scrollbar.rs, disabled.rs, setup.rs. The legacy
-│                             # src/ui/construction_panel.rs and the canary-era
-│                             # src/ui/construction.rs no longer exist.
+│                             # scrollbar.rs, disabled.rs, setup.rs.
 │       ├── widgets.rs             # Menu-agnostic native-Bevy-UI primitive library
 │                             # (v0.5.2; UiFonts, HoverElevation, KeyedList,
 │                             # TooltipRequest, Scrollbar, Marquee, ProgressFill,
@@ -184,7 +200,7 @@ helios_ascension/
 │   ├── audio/
 │   │   └── music/           # Background music (AI-generated, MiniMax Music 3.0)
 │   ├── data/
-│   │   ├── buildings.ron    # 47 building definitions
+│   │   ├── buildings.ron    # 96 building definitions
 │   │   ├── ship_hulls.ron   # Hull frames and slot layouts
 │   │   ├── ship_modules.ron # Canonical ship module definitions
 │   │   ├── technologies.ron # Technology tree data
@@ -536,21 +552,21 @@ canonical pattern.
 ### Game Systems Overview
 
 #### Colony Management
-- **47 building types** across 8 categories (Infrastructure, Industry, Logistics, Power, Population, Research, Financial, Military)
-- Each building has district-scale output: Housing = 25M residents, Farm = 1,000 Mt/yr food (~10M people), HabitatDome = 50M, Farm/Greenhouse/Aquaculture scale ×10 vs old values
+- **96 building types** across 9 categories (Infrastructure, Industry, Logistics, Power, Population, Research, Financial, Military, Mining)
+- Each building has district-scale output: Housing = 25M residents, Farm = 360 Mt food/yr (1 Farm feeds 327M people at 1,100 kg/p/yr; 25 Farms ≈ world food), HabitatDome = 50M
 - Each new building is a perceptible improvement; Earth starts with ~335 Housing Complexes (not 33,500) — queuing one adds ~0.3% capacity
 - Construction queue system with resource costs and workforce requirements
-- Population growth mechanics with housing capacity and food requirements (food consumption: 0.0001 Mt/person/yr)
+- Population growth mechanics with housing capacity and food requirements (food consumption: 0.0000011 Mt/person/yr (1,100 kg, FAO 2024 SOFA))
 - Buildings require maintenance resources and generate various effects (see `BuildingType::effects_summary()`)
 - Tech-gated buildings unlock through research progression
 - Debug menu (F12) for free construction, instant build, and tech bypass
 - **Outpost founding** (`EstablishOutpostRequest` in `PendingConstructionActions`): dossier panel provides "🏗 Establish Outpost" button; hard blocks for gas giants and gravity > 3 g; starter package (LifeSupport, Housing ×1, FissionReactor ×2, AgriDome ×2) queued on click; `ColonyEnvironmentCosts` attached for O₂/Water drain
-- **Resource transport** (current v0.3 behaviour): construction still draws from the same-system `ContextualStockpile` pool; interstellar supply requires a Freighter fleet transfer
-- **Planned logistics network (v0.4+)**: resources will be **physically located on individual bodies** (`LocalStockpile`); construction will draw from local stockpile only; building/outpost creation publishes a `ResourceRequest`; requests fulfilled by player Freighters OR AI private shipping companies; `ContextualStockpile` retained for display-only aggregation; per-colony `MinimumStockpile` thresholds auto-create replenishment requests; see `docs/design/LOGISTICS_NETWORK.md`
-- **Private shipping companies (planned)**: `ShippingCompany` AI resource; companies bid on open requests, execute Hohmann transfers using same `orbital_mechanics.rs` code as player fleets, earn credits, buy more ships; see `docs/design/LOGISTICS_NETWORK.md`
+- **Resource transport (v0.4.x, shipped)**: construction draws from the destination body's `LocalStockpile`; an out-of-stock destination publishes a `ResourceRequest`, which is fulfilled by a player Freighter or private shipping company.
+- **Localised logistics (v0.4.x, shipped)**: resources are **physically located on individual bodies** (`LocalStockpile`); construction draws from local stockpile only; building/outpost creation publishes a `ResourceRequest`; requests are fulfilled by player Freighters OR AI private shipping companies; `ContextualStockpile` is retained for display-only aggregation; per-colony `MinimumStockpile` thresholds auto-create replenishment requests; see `docs/design/LOGISTICS_NETWORK.md`
+- **Private shipping companies (v0.4.x, shipped)**: `ShippingCompany` AI resources bid on open requests, execute Hohmann transfers using the same `orbital_mechanics.rs` code as player fleets, earn credits, and buy more ships; see `docs/design/LOGISTICS_NETWORK.md`
 
 #### Economy & Resources
-- **37 resource types** (defined in `src/economy/types.rs` as `ResourceType` enum): Volatiles (Water, Hydrogen, Ammonia, Methane, Phosphorus), Biological (Food), Atmospheric Gases (Nitrogen, Oxygen, CarbonDioxide, Argon), Construction Materials (Iron, Aluminum, Titanium, Silicates, Nickel, Tungsten, Carbon, Chromium, Magnesium), Fusion Fuel (Helium3, Deuterium), Fissiles (Uranium, Thorium), Precious Metals (Gold, Silver, Platinum), Strategic Materials (Copper, RareEarths, Lithium, Sulfur, Cobalt, Fluorine, Polymers), Exotic Materials (Antimatter, ExoticMatter, Metamaterials, Computronium)
+- **39 resource types** (defined in `src/economy/types.rs` as `ResourceType` enum): Volatiles (Water, Hydrogen, Ammonia, Methane, Phosphorus), Biological (Food), Atmospheric Gases (Nitrogen, Oxygen, CarbonDioxide, Argon), Construction Materials (Iron, Aluminum, Titanium, Silicates, Nickel, Tungsten, Carbon, Chromium, Magnesium), Fusion Fuel (Helium3, Deuterium, Tritium), Fissiles (Uranium, Thorium, Plutonium), Precious Metals (Gold, Silver, Platinum), Strategic Materials (Copper, RareEarths, Lithium, Sulfur, Cobalt, Fluorine, Polymers), Exotic Materials (Antimatter, ExoticMatter, Metamaterials, Computronium)
 - Resource stockpiles with capacity limits
 - Mining operations extract resources from mineral deposits
 - Refining and processing buildings convert raw materials
@@ -581,7 +597,7 @@ canonical pattern.
   - **Cross-file vocabulary rule:** the consolidated set is the canonical vocabulary. When new hull `slot_layout` categories or new module `category` fields are authored, use a consolidated variant. Legacy variants are kept so the loader can still deserialize existing RON but should not appear in new entries.
   - **LGD rationale (GRA-7):** `Medical` and `CrewSystems` are kept distinct — the med-bay slot is sized for sickbays / surgical / triage and is not interchangeable with general crew quarters. `ConstructionISRU` unifies mining heads, regolith processors, gantries, and habitat modules under a single industrial / in-situ umbrella.
 - **Five propulsion eras** drive ship progression: **Chemical → Fission / NTR → Gas-Core / Early Fusion → Fusion Torch → Antimatter**. Each era unlocks a coordinated set of hulls, drives, reactors, and slot families. The flagship drive tech for the era owns the era's engineering target via `unlocks_engineering`, and every module in the era's families should point at that shared target. Hull-construction techs (e.g. `chemical_spaceframes`, `orbital_assembly_heavy`, `carbon_nanotube_frames`, `fusion_superstructures`, `antimatter_containment_structures`) gate the *spaceframe*, not the propulsion.
-- **Module-family gating is two-key.** Every ship module must set **both** `required_tech` (visibility) and `required_component_design` (engineering project). The runtime loader is not tolerant of a missing `required_component_design`, and the data-rule enforcement in `docs/SHIPBUILDING.md` and `.github/agents/shipbuilding-data.md` makes this a hard author-time check. All 84 modules in the current RON set both fields; new entries must follow the same pattern.
+- **Module-family gating is two-key.** Every ship module must set **both** `required_tech` (visibility) and `required_component_design` (engineering project). The runtime loader is not tolerant of a missing `required_component_design`, and the data-rule enforcement in `docs/SHIPBUILDING.md` and `.github/agents/shipbuilding-data.md` makes this a hard author-time check. All 295 modules in the current RON set both fields; new entries must follow the same pattern.
 - The Shipbuilding menu now uses a single native backend:
   - `src/ui/shipbuilding_workspace.rs` = native Bevy UI shipbuilding workspace with blueprint canvas, module library, construction/archive tabs, and analytics panel
 - `src/ui/shipbuilding_state.rs` holds the shared shipbuilding UI state; avoid duplicating selection, preview, or hull state in backend-local resources unless there is a strong reason
