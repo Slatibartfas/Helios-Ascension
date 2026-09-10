@@ -2,7 +2,7 @@
 
 The v0.5.0 survey rework replaces the old three-level "Surveyed / Scanned / Surveyed Completely" state with a per-body **eight-dimension discovery model** backed by real instrument campaigns, an analysis queue staffed by scientists, and an anomaly system that drives research and building unlocks.
 
-This document is the player reference for the new system. The full design rationale and per-PR engineering chain (PR-A through PR-G) live in `docs/archive/SURVEY_REWORK.md` (archived — kept for historical reference; the v0.5.x player contract lives here). For modding (adding your own dimensions, instruments, anomalies, missions), see `docs/MODDING.md`.
+This document is the player reference for the new system. The full design rationale and per-PR engineering chain (PR-A through PR-G) live in `docs/design/SURVEY_REWORK.md` (the live design rationale — this file is the v0.5.x player contract). For modding (adding your own dimensions, instruments, anomalies, missions), see `docs/MODDING.md`.
 
 > **Status note (2026-09-08)** — this is the **v0.5.x current** player manual. The eight-dimension model, the nine-method mission roster, the failure-mode / recovery-mission system (PR-G), the landing-site / extraction-site model (PR-D), and the continuous orbital survey station (PR-E) are all shipped. Game data lives in **seven** RON files under `assets/data/survey/` (`anomalies`, `dimensions`, `instruments`, `mining_efficiency`, `missions`, `recovery_missions`, `tiers`); each section below links to the file that owns its data.
 
@@ -336,7 +336,7 @@ For asteroids, the same panel renders `ExtractionSite` rows in place of `Landing
 
 ## 12. See Also
 
-- `docs/archive/SURVEY_REWORK.md` — the original v0.5.0 design rationale, full per-dimension tier tables, the schema delta, and the PR-A through PR-G engineering chain. **Archived.** This is the historical / engineering-reference document; the live player contract for v0.5.x is this file (`docs/SURVEY.md`).
+- `docs/design/SURVEY_REWORK.md` — the live design-rationale reference: the original v0.5.0 design rationale, full per-dimension tier tables, the schema delta, and the PR-A through PR-G engineering chain; the live player contract for v0.5.x is this file (`docs/SURVEY.md`).
 - `docs/MODDING.md` — how to add a new dimension, instrument, anomaly, mission, or recovery mission via RON edits.
 - `docs/RESEARCH_MODDING.md` — the 9 v0.5.0 survey / personnel / geology techs and how to edit `assets/data/technologies.ron`.
 - `docs/UI.md` — the dossier Survey tab and Personnel panel layout conventions.
