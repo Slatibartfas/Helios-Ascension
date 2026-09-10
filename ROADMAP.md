@@ -21,6 +21,7 @@ The building/logistics and exploration foundations are shipped, with the project
 - ✅ 5-ship Day-1 constellation at the 2026-01-01 JPL epoch — GRA-128
 - ✅ 9 new survey / personnel / geology techs (GRA-106) + tier-1 paid `research_cost` rebalance (GRA-127)
 - ✅ SFX Phase 1 — sound effects foundation (`SfxPlugin` + `SfxBus` + `SfxRegistry` + data-driven manifest) and the **UI batch**: button click, tab switch, panel open/close, slider tick, dropdown open, row select, drag/drop, modal confirm/cancel, chip toggle, mode toggle, plus the universal notification chime (per-coalesced-toast via `Added<ActiveNotification>`). WAV codec enabled, `PersistentSettings::sfx_volume` finally wired, `NotificationSettings::sound_on` finally has a backend. Manifest → [`assets/data/sfx_manifest.ron`](assets/data/sfx_manifest.ron); architecture → [`docs/SFX.md`](docs/SFX.md).
+- ✅ SFX Phase 2–3 — policy layer (`SfxPolicy`), egui observation catch-all (`egui_observe`), `PendingSfxRequests` escape hatch, and sustainable panel-by-panel wiring (119 sites across 36 files, down from 170). See [`docs/SFX.md`](docs/SFX.md).
 
 ---
 
