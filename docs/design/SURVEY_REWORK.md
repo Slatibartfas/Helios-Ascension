@@ -431,7 +431,7 @@ The "coolness" of an anomaly (used for media coverage, fame, and player satisfac
 
 ## Data-Driven Surface: New RON Files
 
-The new design adds six RON files and modifies `technologies.ron`. The CTO/Coder can place these in the existing `assets/data/` directory or create a `survey/` subdir; the LGD recommendation is the subdir for namespace clarity.
+The new design adds seven RON files (`anomalies`, `dimensions`, `instruments`, `mining_efficiency`, `missions`, `recovery_missions`, `tiers`) and modifies `technologies.ron`. The CTO/Coder can place these in the existing `assets/data/` directory or create a `survey/` subdir; the LGD recommendation is the subdir for namespace clarity.
 
 | File | Purpose | New entries |
 |------|---------|-------------|
