@@ -563,7 +563,7 @@ This section is the visual baseline for the post-harmonization UI. Captures
 land in `docs/UI/baselines/manual/{slot}.png` when the operator runs the
 game locally and hits `Shift+F12` (see `src/ui/screenshot.rs`). The slot
 name is selected from a 5-slot rotating list — see
-[`docs/UI/baselines/manual/README.md`](baselines/manual/README.md) for
+[`docs/UI/baselines/manual/README.md`](UI/baselines/manual/README.md) for
 the slot list and the capture workflow. The operator sign-off pass
 (GRA-59) diffs these against the pre-PR-0 baseline.
 

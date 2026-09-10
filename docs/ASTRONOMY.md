@@ -264,7 +264,7 @@ For Sol and the major planets, `ephemeris.rs` uses NASA JPL-style J2000 orbital 
 
 Procedural generation also supports binary and multi-star systems. `BinaryCompanionContext` models the companion separation, eccentricity, mass fraction, and orbital inclination for S-type (circumstellar) planets. Generated planets receive secular forced-eccentricity and binary-plane inclination effects, while system generation uses the relevant stellar luminosity and stability constraints.
 
-Historical design notes: [SURVEY_REWORK.md](design/SURVEY_REWORK.md) and [MULTI_STAR_SYSTEMS.md](design/MULTI_STAR_SYSTEMS.md) are archived references, not current implementation specifications. Current behavior is defined by the Rust modules and data files described here.
+Historical design notes: [SURVEY_REWORK.md](design/SURVEY_REWORK.md) and [MULTI_STAR_SYSTEMS.md](archive/MULTI_STAR_SYSTEMS.md) are archived references, not current implementation specifications. Current behavior is defined by the Rust modules and data files described here.
 
 ---
 

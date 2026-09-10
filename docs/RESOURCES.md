@@ -5,7 +5,7 @@ Reference for the 39-resource economy in Helios Ascension. All variants live in
 of truth.
 
 Cross-references: [COLONIES.md](COLONIES.md) (construction draws from per-body
-stockpile), [ARCHITECTURE.md §EconomyPlugin](ARCHITECTURE.md) (system layout),
+stockpile), [ARCHITECTURE.md §EconomyPlugin](../ARCHITECTURE.md) (system layout),
 [RESEARCH_MODDING.md](RESEARCH_MODDING.md) (tech-gated unlocks).
 
 ---
@@ -416,6 +416,6 @@ are insufficient.
   `mining_efficiency`, `missions`, `recovery_missions`, `tiers` (v0.5.0 survey rework).
 - [`docs/MODDING.md`](MODDING.md) — texture, body, and asteroid-spectral-class authoring.
 - [`docs/COLONIES.md`](COLONIES.md) — colony founding, construction queue, life-support.
-- [`docs/ARCHITECTURE.md` §EconomyPlugin](ARCHITECTURE.md) — system layout and data flow.
+- [`docs/ARCHITECTURE.md` §EconomyPlugin](../ARCHITECTURE.md) — system layout and data flow.
 - [`docs/RESEARCH_MODDING.md`](RESEARCH_MODDING.md) — tech-gated unlocks for mines,
   fusion reactors, breeder reactors, and exotic factories.

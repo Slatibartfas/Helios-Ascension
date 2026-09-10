@@ -1,7 +1,7 @@
 # Late-Game Logistics — Design Intent (v0.4.x)
 
 Design intent for the late-game logistics follow-ups listed in
-[`ROADMAP.md`](../ROADMAP.md) under **v0.4.x — Late-Game Logistics Follow-ups**.
+[`ROADMAP.md`](../../ROADMAP.md) under **v0.4.x — Late-Game Logistics Follow-ups**.
 
 Owner: LGD. Status: design only. Rust delta scoping is CTO's job once this lands.
 
