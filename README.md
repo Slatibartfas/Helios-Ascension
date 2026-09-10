@@ -21,6 +21,9 @@ The repository is ahead of the original v0.5 roadmap snapshot. The core single-s
   - Population growth and housing systems
   - Building maintenance and operating costs (4–6 distinct resources per building, audited)
   - **Economic calibration**: values are calibrated to 2026 real-world output — per-capita food 0.0000011 Mt/person/yr (FAO 2024 SOFA), and `colony_constants` (growth rate, workforce fraction, per-capita consumption) live in `assets/data/buildings.ron` so the data file is the single source of truth (v3.6/v3.7)
+  - **Per-resource mining**: dedicated mines per resource (IronMine, AluminumMine, …, He3Mine) plus AutoMines for orbital/asteroid operations, replacing the legacy generic `Mine` / `Refinery` / `DeepDrill` chain
+  - **Control Center** (v3.10 / GRA-22c Phase 4C-2): mission-control hub giving +1 fleet capacity per build. Replaces the former `SpacePort` entry, which remains as an orphaned enum variant purely so older saves still deserialize; `TradePort` was removed outright in the same phase
+  - **Per-building money cost**: each building now carries an annual credit cost (`money_cost_mc_per_year`) in addition to its material bill
   - **Orbital Survey Station** (v0.5.0): continuous low-yield survey of the host body with tiered mining-yield bonus (5/10/15% at tier 1/2/3)
 
 - **Economy & Resources**: Deep resource management with real scarcity

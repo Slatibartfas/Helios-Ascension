@@ -67,7 +67,7 @@ Sequential exploration where you send probes first, then rovers, establish stati
 - ✅ Progressive discovery with probes — 9-mission roster in `missions.ron`, dispatched from the dossier SURVEY tab (PR #137 / GRA-80, PR #135 / GRA-82, 2026-06-08)
 - ✅ Survey teams with scientist personnel — `Scientist` component + specialty + seniority enums live (PR #137)
 - ✅ Gradually reveal resources, anomalies, landing sites — anomaly confidence model live (PR #136 / GRA-81); resource estimate tier display in Economy panel (PR #138 / GRA-84, 2026-06-08)
-- ✅ Survey data collection and analysis — 6 RON files (dimensions, instruments, anomalies, tiers, mining efficiency, missions) on `main`
+- ✅ Survey data collection and analysis — 7 RON files (dimensions, instruments, anomalies, tiers, mining efficiency, missions, recovery_missions) on `main`
 - ✅ 9 new techs from `SURVEY_REWORK.md` §[Tech Tree Integration] landed in `technologies.ron` (GRA-106, PR #151)
 - 🟡 §10/§11 reconciliation in `docs/SURVEY.md` once the failure-mode and landing-site sections are finalised (PR-D, PR-G)
 - ✅ Continuous orbital survey station with mining-yield bonus (GRA-83, PR #145)
@@ -296,7 +296,7 @@ The Kardashev scale is the spine of the long game. Progression from K0.7 (curren
 - Game-start & outpost `MinimumStockpile` defaults aligned with life-support scale — GRA-31 PR-C
 
 ### v0.5.x — Exploration, Progression & Consolidation (🟡 IN FLIGHT)
-- 8-dimension survey rework (6 RON files, 9-mission roster, anomaly confidence model, dossier SURVEY tab) — shipped 2026-06-08
+- 8-dimension survey rework (7 RON files, 9-mission roster, anomaly confidence model, recovery missions, dossier SURVEY tab) — shipped 2026-06-08
 - Scientist data layer (specialty, seniority, hiring, promotion) — shipped
 - 9 new survey / personnel / geology techs (GRA-106) — shipped
 - Notification / event system (toast, settings, bridges, coalesce, click-to-focus, pause-on-event) — shipped

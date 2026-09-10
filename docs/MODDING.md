@@ -503,9 +503,9 @@ This would allow:
 
 ## v0.5.0 Survey RON Files (Survey Rework)
 
-> **v0.5.0 status** — schema is stable on `main` (PR #140 / GRA-98, PR #137 / GRA-80, PR #136 / GRA-81). This section pre-drafts the modder walkthrough for the six new RON files in `assets/data/survey/`. It is reconciled against the Coder-authored tech tree and 9-row mission roster as the chain lands.
+> **v0.5.x status** — schema is stable on `main` (PR #140 / GRA-98, PR #137 / GRA-80, PR #136 / GRA-81). This section documents the modder walkthrough for the seven RON files in `assets/data/survey/`. It is reconciled against the tech tree and the 9-row mission roster.
 
-The v0.5.0 survey rework added six RON files to `assets/data/survey/`. The first three are the **discovery primitives** (dimensions, instruments, anomalies), the next two are the **progression tables** (tiers, mining efficiency), and the last is the **player-actionable mission roster**. Together they let a modder rebalance the entire exploration loop without touching Rust.
+The v0.5.0 survey rework added seven RON files to `assets/data/survey/`. The first three are the **discovery primitives** (dimensions, instruments, anomalies), the next two are the **progression tables** (tiers, mining efficiency), the sixth is the **player-actionable mission roster**, and the seventh is **recovery missions** (added with GRA-85). Together they let a modder rebalance the entire exploration loop without touching Rust.
 
 ### The discovery primitive trio
 

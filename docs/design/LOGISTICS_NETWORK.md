@@ -41,7 +41,7 @@ The doc below describes the design that was implemented. Section §[Resource Loc
 | **Strategic depth** | Players choose between manual control (Aurora-style) and delegation to AI companies (DW2-style) |
 | **Emergence** | Private companies grow organically, creating visible economic activity in the system |
 | **Accessibility** | New players can hand off logistics entirely to companies; veterans can micro-manage every cargo run |
-| **Scalability** | The system must work from a 2-body Sol early game to a 377-body late-game empire |
+| **Scalability** | The system must work from a 2-body Sol early game to a 713-body late-game empire |
 
 ---
 
