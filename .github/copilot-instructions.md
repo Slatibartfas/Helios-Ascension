@@ -55,7 +55,7 @@ If any answer is "yes" or "unsure", **stop and use the safe alternative.** Docum
 Helios Ascension is a high-performance space strategy game inspired by Aurora 4X and Terra Invicta. The project emphasizes:
 
 - **Performance**: Optimized compilation profiles and runtime performance
-- **Realism**: Accurate astronomical data for 377+ celestial bodies
+- **Realism**: Accurate astronomical data for 713 celestial bodies (450 asteroids, 147 moons, 55 dwarf planets, 50 comets, 4 planets, 4 gas giants, 2 rings, 1 star)
 - **Modularity**: Plugin-based architecture using Bevy's ECS
 - **Maintainability**: Clear separation of concerns and testable code
 
