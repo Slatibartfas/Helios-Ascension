@@ -336,7 +336,7 @@ Each building card shows (top to bottom):
 5. **Build time** — estimated years or months based on current Factory BP
    output.
 6. **▸ Effect lines** (green) — the actual numeric impact per building,
-   e.g. `+25M housing capacity`, `+1,000 Mt/yr food (feeds ~10M ppl)`,
+   e.g. `+25M housing capacity`, `+360 Mt/yr food (feeds ~327M ppl)`,
    `+20 GW power output`, `+15% mining efficiency`.
 7. **Resource costs** — 2 per row, coloured green (`GREEN`) when affordable
    or red (`RED`) when insufficient.
