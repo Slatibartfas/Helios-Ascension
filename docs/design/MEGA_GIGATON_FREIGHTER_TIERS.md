@@ -20,7 +20,7 @@ equaliser once the 0.5+ market layer lands.
 
 The 0.4.0 cargo ladder (light / mid / heavy) tops out around 1.5–2 kt per
 hull slot. Late-game requests routinely exceed 50 kt. The Mega/Gigaton
-tiers are the lift that makes "377 bodies" tractable.
+tiers are the lift that makes "713 bodies" tractable.
 
 ---
 

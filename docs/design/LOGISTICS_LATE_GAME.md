@@ -69,7 +69,7 @@ and resolves expired auctions. RON-only for the per-bucket price band.
 
 ### 2.2 Mega / Gigaton freighter hulls (item 3)
 
-**Why second:** this is the lift that makes "377 bodies" tractable. Even with
+**Why second:** this is the lift that makes "713 bodies" tractable. Even with
 dozens of mid freighters, the per-trip Mt-on-transit math gets ugly when a
 single asteroid mining outpost wants a 50 Mt iron top-up. A single Mega-class
 freighter per route collapses the per-body cadence back to a manageable
