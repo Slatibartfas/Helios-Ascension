@@ -35,22 +35,22 @@ Help with hulls, ship modules, slot layouts, and shipbuilding data workflow chan
 - Avoid generated or alternate `ship_modules*.ron` files; keep one source of truth.
 - For high-quality blueprint layouts, prefer authored `position` data on each `slot_layout` entry in `assets/data/ship_hulls.ron`; heuristic placement is a fallback only.
 
-## Hull Set (18 entries)
+## Hull Set (32 entries)
 
-`assets/data/ship_hulls.ron` has 18 hull definitions: 17 ship frames and 1 station core.
+`assets/data/ship_hulls.ron` has 32 hull definitions.
 
-- **Tier 1 chemical-era probes (5):** `micro_probe_frame`, `small_probe_frame`, `courier_frame`, `lander_frame`, `probe_carrier_frame`
-- **Tier 2 combatants (3):** `fighter_frame`, `frigate_frame`, `destroyer_frame`
-- **Logistics family (5):** `freighter_frame`, `mining_barge_frame`, `cryogenic_tanker_frame`, `bulk_cargo_frame`, `outer_system_tanker_frame`
-- **Survey family (1):** `long_range_survey_frame`
-- **Tier 3 capital / interstellar (3):** `cycler_frame`, `torch_cruiser_frame`, `interstellar_precursor_frame`
-- **Stations (1):** `orbital_foundry_core`
+- **Probes & small craft (6):** `micro_probe_frame`, `small_probe_frame`, `courier_frame`, `courier_vessel_frame`, `lander_frame`, `probe_carrier_frame`
+- **Combatants (10):** `fighter_frame`, `patrol_frigate_frame`, `frigate_frame`, `destroyer_frame`, `long_range_destroyer_frame`, `interdictor_destroyer_frame`, `fleet_escort_frigate_frame`, `antimatter_interceptor_frame`, `metric_destroyer_frame`, `conversion_dreadnought_frame`
+- **Logistics (6):** `freighter_frame`, `mining_barge_frame`, `cryogenic_tanker_frame`, `bulk_cargo_frame`, `outer_system_tanker_frame`, `interplanetary_hauler_frame`
+- **Survey & research (1):** `long_range_survey_frame`
+- **Interstellar / warp (5):** `cycler_frame`, `torch_cruiser_frame`, `interstellar_precursor_frame`, `warp_cruiser_frame`, `femtotech_industrial_hull`
+- **Stations & megastructures (4):** `orbital_foundry_core`, `mobile_starbase_frame`, `stellar_engineering_shipyard_frame`, `ringworld_spine_frame`
 
-The five-propulsion-era mapping (Chemical → Fission / NTR → Gas-Core / Early Fusion → Fusion Torch → Antimatter) and the technology gates per era are documented in `docs/SHIPBUILDING.md`.
+The six-propulsion-era mapping (Chemical → Fission / NTR → Gas-Core / Early Fusion → Fusion Torch → Antimatter → Interstellar / Warp) and the technology gates per era are documented in `docs/SHIPBUILDING.md`.
 
-## Module Set (84 entries)
+## Module Set (295 entries)
 
-`assets/data/ship_modules.ron` currently has 84 module definitions. Every entry sets both `required_tech` and `required_component_design`; treat this as the schema invariant.
+`assets/data/ship_modules.ron` currently has 295 module definitions. Every entry sets both `required_tech` and `required_component_design`; treat this as the schema invariant.
 
 ## How to Add a New Module Family
 
