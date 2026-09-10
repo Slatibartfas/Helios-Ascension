@@ -12,18 +12,19 @@ The repository is ahead of the original v0.5 roadmap snapshot. The core single-s
 ### Core Game Systems
 
 - **Colony Management**: Establish and manage colonies across the solar system
-  - **52 building types** across 8 categories (Infrastructure, Industry, Logistics, Power, Population, Research, Financial, Military)
-  - Each building has meaningful civilisation-scale output (e.g. Housing Complex = 25M residents, Farm = 1,000 Mt/yr food for ~10M people) — calibrated so a single Earth building ≈ the 2026 world production total for its dominant resource
+  - **96 building types** across 9 categories (Infrastructure, Industry, Logistics, Power, Population, Research, Financial, Military, Mining)
+  - Each building has meaningful civilisation-scale output (e.g. Housing Complex = 25M residents, Habitat Dome = 50M, Farm = 360 Mt/yr food ≈ 327M people's annual consumption at the FAO 2024 SOFA 1,100 kg/person/yr rate) — calibrated so a single Earth building ≈ the 2026 world production total for its dominant resource
   - **Building tiers with upgrade paths**, **synergies** between related buildings, and **atmosphere-availability** filtering for cross-atmosphere buildings
   - Construction cards show green effect lines so players know exactly what each building does
   - Construction queue system with resource costs and build times
   - Workforce allocation and efficiency management
   - Population growth and housing systems
   - Building maintenance and operating costs (4–6 distinct resources per building, audited)
+  - **Economic calibration**: values are calibrated to 2026 real-world output — per-capita food 0.0000011 Mt/person/yr (FAO 2024 SOFA), and `colony_constants` (growth rate, workforce fraction, per-capita consumption) live in `assets/data/buildings.ron` so the data file is the single source of truth (v3.6/v3.7)
   - **Orbital Survey Station** (v0.5.0): continuous low-yield survey of the host body with tiered mining-yield bonus (5/10/15% at tier 1/2/3)
 
 - **Economy & Resources**: Deep resource management with real scarcity
-  - **38 resource types**: Volatiles, atmospheric gases, construction & specialty metals, fissiles, fusion fuels, anti-matter, computronium, and metamaterials (late-game)
+  - **39 resource types**: Volatiles, atmospheric gases, construction & specialty metals, fissiles, fusion fuels, anti-matter, computronium, and metamaterials (late-game)
   - **Per-body resource stockpiles** — every colonised body, ship, and station has its own local stockpile; the UI shows aggregated system-wide totals for visibility, but construction and consumption draw locally
   - Mining operations to extract resources from celestial bodies
   - **Resource request system** with priority tiers (Emergency → Construction → Maintenance → Trade)
@@ -90,26 +91,30 @@ The repository is ahead of the original v0.5 roadmap snapshot. The core single-s
   - **Click-to-focus dispatcher** jumps the player to the relevant context (body, fleet, project)
   - **Bridges** auto-emit notifications for survey findings, construction completion, and research unlocks
 
+- **Sound Effects & Music (v0.5.2)**: Data-driven audio bus plus a ten-track ambient playlist
+  - **Sound Effects (Phase 1–3)**: data-driven SFX bus (`src/plugins/sfx/`) with a 13-cue manifest (12 UI cues + 1 notification chime) in `assets/data/sfx_manifest.ron`; UI-observation catch-all and per-panel coverage. See `docs/SFX.md`.
+  - **Background music**: 10-track AI-generated ambient playlist (MiniMax Music 3.0), prompts logged in `assets/data/music_prompts.ron`.
+
 - **Comprehensive Solar System Simulation**:
-  - **377 celestial bodies** with realistic astronomical data from NASA/IAU sources
+  - **713 celestial bodies** with realistic astronomical data from NASA/IAU sources
   - Complete planetary systems:
     - All 8 planets with accurate properties
-    - **148 moons** including all major and many minor moons
-    - Jupiter's complete 79-moon system
-    - Saturn's complete 83-moon system
+    - **147 moons** including all major and many minor moons
+    - Jupiter's 56-moon system
+    - Saturn's 46-moon system
     - All Uranus (27) and Neptune (14) moons
-  - **145 asteroids**:
+  - **450 asteroids**:
     - Main belt comprehensive catalog
-    - 30 Jupiter Trojans (L4 and L5 groups)
-    - 17 Near-Earth Objects (mission targets)
-  - **55 Kuiper Belt Objects** including Pluto, Eris, and scattered disc
-  - **20 comets** including Halley, Hale-Bopp, and other famous visitors
+    - Jupiter Trojans (L4 and L5 groups)
+    - Near-Earth Objects (mission targets)
+  - **55 dwarf planets** including Pluto, Eris, and scattered disc
+  - **50 comets** including Halley, Hale-Bopp, and other famous visitors
   - Accurate masses, radii, and orbital parameters for all bodies
   - Real orbital mechanics with time-accelerated simulation (up to 1 year/second)
   - Complete coverage from Mercury to the outer solar system
 
 - **Interstellar Navigation**: Explore nearby star systems
-  - **60+ nearest star systems** from real astronomical catalogs (NASA Exoplanet Archive)
+  - **60 nearest star systems** from real astronomical catalogs (NASA Exoplanet Archive)
   - Starmap view for interstellar navigation
   - Real star data including spectral types, masses, luminosities, and metallicities
   - **Confirmed exoplanets** module (`src/astronomy/exoplanets.rs`) — `ConfirmedPlanet` struct + `RealPlanet` marker are staged; CSV ingestion from `Exoplanets_NASA.csv` is deferred to v0.6 (see `assets/data/README.md`); procedural fallback covers systems without confirmed planets today
@@ -190,6 +195,7 @@ No additional system requirements - uses default system linkers.
 ## Building and Running
 
 The project is configured with optimizations for fast compilation:
+- **Toolchain**: pinned to **Rust 1.94.0** via `rust-toolchain.toml` — `rustup` fetches it on first build
 - **LLD linker** (Linux only): 2-5x faster linking than GNU ld
 - **Parallel compilation**: Uses all available CPU cores automatically
 - **Optimized test profile**: Faster test compilation
@@ -262,7 +268,7 @@ The game uses a modular plugin architecture built on Bevy's ECS (Entity Componen
 - **CameraPlugin**: 3D camera movement and automatic view transitions
 - **SolarSystemPlugin**: Manages celestial bodies and orbital mechanics
 - **AstronomyPlugin**: Keplerian orbital mechanics, ephemeris, nearby-stars catalog, asteroid/comet generation, Lagrange helpers, and staged exoplanet data model
-- **ColonyPlugin**: Colony management with **52 building types** (tiers, synergies, 4–6-resource maintenance, atmosphere availability)
+- **ColonyPlugin**: Colony management with **96 building types** (tiers, synergies, per-building money cost, 4–6-resource maintenance, atmosphere availability)
 - **EconomyPlugin**: Per-body resource stockpiles, production, consumption, budget tracking, **resource request lifecycle, private shipping company AI, auto-freight dispatch, per-trip cargo-cap**
 - **ResearchPlugin**: Technology tree progression plus engineering targets used by ship module families; **GRA-127 tier-1 paid research_cost**
 - **SurveyPlugin** (v0.5.0): 8-dimension `SurveyState`, 9-mission roster, anomaly confidence, failure modes, recovery missions, orbital survey station
@@ -352,9 +358,10 @@ Helios Ascension is designed to be data-driven and moddable without touching Rus
 📖 **See [docs/RESEARCH_MODDING.md](docs/RESEARCH_MODDING.md)** for the full technology modding guide, including all modifier types, component definitions, and balancing guidelines.
 
 ### Buildings
-- ✅ **Data-driven buildings**: All **52** building types defined in `assets/data/buildings.ron`
+- ✅ **Data-driven buildings**: All **96** building types defined in `assets/data/buildings.ron`
 - ✅ **Custom buildings**: Add new construction options with resource costs, maintenance resources, atmosphere requirements, tiers, and synergy flags
 - ✅ **No code change needed** for new building types — add a RON entry, restart, and the building appears in the Construction panel
+- ✅ **`colony_constants`** (growth rate, workforce fraction, per-capita food consumption, population scale) live in the `assets/data/buildings.ron` header, so the data file is the single source of truth (v3.6/v3.7)
 
 ### Survey (v0.5.0)
 - ✅ **8 RON-driven discovery dimensions** in `assets/data/survey/dimensions.ron`
@@ -363,6 +370,7 @@ Helios Ascension is designed to be data-driven and moddable without touching Rus
 - ✅ **9-mission roster** (flyby, orbital, lander, rover, seismic, drill, sample return, …) in `assets/data/survey/missions.ron`
 - ✅ **Recovery-mission templates** for failure modes in `assets/data/survey/recovery_missions.ron`
 - ✅ **Mining-efficiency curve** in `assets/data/survey/mining_efficiency.ron` — gates yield by `(resource class, dimension, tier)`
+- ✅ **7 RON files** ship in `assets/data/survey/` — the five above plus `anomalies.ron` and the tier table in `tiers.ron`
 
 ## Development
 
