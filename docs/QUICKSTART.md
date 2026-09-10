@@ -99,7 +99,7 @@ cargo run --profile fast
 
 When you launch the game, you'll see:
 
-1. **The Solar System**: A 3D view with 377+ celestial bodies including all planets, moons, asteroids, and comets
+1. **The Solar System**: A 3D view with 713 celestial bodies (450 asteroids, 147 moons, 55 dwarf planets, 50 comets, 4 planets, 4 gas giants, 2 rings, 1 star)
 2. **Dashboard UI**: Top menu bar with navigation tabs (Survey, Construction, Research, Economy, Fleet, Shipbuilding)
 3. **Time Controls**: Date display and speed controls (pause/play, speed selection)
 4. **3D Scene**: Celestial bodies orbiting with realistic orbital mechanics and time acceleration
@@ -146,7 +146,7 @@ When you launch the game, you'll see:
 ### Construction Panel
 - Select a colony to manage
 - View **96 building types** across 8 categories (Infrastructure, Industry, Logistics, Power, Population, Research, Financial, Military)
-- Each building card shows green **effect lines** (e.g. "+25M housing capacity", "+1,000 Mt/yr food") so you know exactly what you're building
+- Each building card shows green **effect lines** (e.g. "+25M housing capacity", "+360 Mt/yr food") so you know exactly what you're building
 - Cards display **tier**, **synergy flags** (related buildings within range), and an **atmosphere availability** filter for cross-atmosphere buildings
 - Queue construction projects with configurable multipliers (×1 / ×5 / ×10)
 - Monitor build progress and queue
