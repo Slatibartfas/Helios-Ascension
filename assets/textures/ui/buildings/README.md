@@ -1,6 +1,6 @@
 # Building Icons — Helios Ascension
 
-52 PNG icons, one per `BuildingType` entry in `assets/data/buildings.ron`.
+96 PNG icons, one per `BuildingType` entry in `assets/data/buildings.ron`.
 Each PNG is **dark-on-white source** (the input the runtime post-process
 expects), 256×256 px on disk, designed for a 24×24 design grid with a
 ~2-px stroke. After the existing egui tinting post-process (see
@@ -52,12 +52,12 @@ white.
 
 ```
 assets/textures/ui/buildings/
-├── <kebab-case-id>.png         # 52 source PNGs (the deliverable)
-├── _resize/<id>-24.png         # 52 24×24 previews (visual inspection)
+├── <kebab-case-id>.png         # 96 source PNGs (the deliverable)
+├── _resize/<id>-24.png         # 96 24×24 previews (visual inspection)
 ├── _normalize.py               # normalizes a generated PNG to 256×256
 │                                 dark-on-white (centers + opaque background)
 ├── _verify_tinting.py          # tinting-pipeline check on a single icon
-├── _verify_all.py              # batch tinting check on all 52
+├── _verify_all.py              # batch tinting check on all 96
 └── README.md                   # this file
 ```
 
@@ -70,7 +70,7 @@ ship. The PNGs in this directory are the source of record.
 
 Sampled every 4th pixel of each 256×256 PNG, ran the exact
 `process_*_icons` formula, and recorded the alpha curve. Headline
-numbers across all 52 icons:
+numbers across all 96 icons:
 
 | metric                     | value          |
 |----------------------------|----------------|
@@ -203,7 +203,7 @@ research icons. Treat that as a separate PR against `bevy-engine-expert`.
 - `kebab-case-id` is `BuildingType` rendered as lowercase
   `CamelCase → kebab-case` (e.g. `DeepDrill → deep-drill`,
   `DHe3FusionReactor → dhe3-fusion-reactor`).
-- The 52 filenames line up with the 52 entries in
+- The 96 filenames line up with the 96 entries in
   `assets/data/buildings.ron` (verified: one PNG per building, no
   duplicates, no orphans).
 - The 48 distinct emoji glyphs the RON currently references
@@ -248,7 +248,7 @@ python _verify_all.py
 
 ## Cross-references
 
-- `assets/data/buildings.ron` — 52 building definitions. The
+- `assets/data/buildings.ron` — 96 building definitions. The
   `icon: "🌬"` etc. strings are the current Unicode emoji and are
   the next thing to swap. **Not changed by this deliverable.**
 - `src/ui/icons.rs` — `MenuIcons` and `ResearchIcons` post-process.
@@ -256,5 +256,5 @@ python _verify_all.py
 - `src/ui/construction.rs` — bevy_ui canary. Does not yet load
   building icons (see "Load contract" above).
 - `src/ui/construction/tooltip.rs` + `src/ui/construction/state.rs` — v0.5.2 bevy_ui replacement. The legacy `src/ui/construction_panel.rs` was deleted in v0.5.2 along with the canary-era `src/ui/construction.rs`.
-- `docs/design/BUILDING_ICONS_MAPPING.md` — 52-row table mapping
+- `docs/design/BUILDING_ICONS_MAPPING.md` — 96-row table mapping
   `BuildingType` → filename → emoji-to-icon swap plan.
