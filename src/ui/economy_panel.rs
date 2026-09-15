@@ -295,6 +295,16 @@ struct MiningDepositRow {
     active_rate_mt_per_year: Option<f64>,
 }
 
+/// Deposit information captured for the Economy panel. The extractable amount
+/// is calculated once from the runtime mining policy so the UI cannot label a
+/// locked deep layer as an available reserve.
+#[derive(Clone, Copy)]
+struct MiningDepositSnapshot {
+    resource_type: ResourceType,
+    deposit: MineralDeposit,
+    extractable_mt: f64,
+}
+
 fn cmp_f64(left: f64, right: f64) -> std::cmp::Ordering {
     left.partial_cmp(&right)
         .unwrap_or(std::cmp::Ordering::Equal)
@@ -413,30 +423,34 @@ fn mining_visible_deposit_rows(
     // dossier and dashboard path so a body with a v0.5.0
     // `SurveyState` (or a legacy `SurveyLevel` whose new tier is
     // class-only) still shows its deposit rows in the mining tab.
-    let fidelity = body_entry.mineral_fidelity;
     let mut rows: Vec<_> = body_entry
         .deposits
         .iter()
-        .filter(|(resource_type, _)| {
-            resource_filter.is_none_or(|resource| *resource_type == resource)
+        .filter(|snapshot| {
+            resource_filter.is_none_or(|resource| snapshot.resource_type == resource)
         })
-        .filter_map(|(resource_type, deposit)| {
-            let estimate = crate::survey::estimate_with_fidelity(deposit, fidelity);
+        .filter_map(|snapshot| {
+            let estimate = crate::survey::estimate_with_fidelity(
+                &snapshot.deposit,
+                body_entry.mineral_fidelity,
+            );
             if !estimate.is_quantified() {
                 return None;
             }
-            let estimated_mt = estimate.mid_or_zero();
+            if snapshot.extractable_mt <= 0.001 {
+                return None;
+            }
 
             let active_rate_mt_per_year = body_entry
                 .mining_ops
                 .iter()
-                .find(|op| op.active && op.resource_type == *resource_type)
+                .find(|op| op.active && op.resource_type == snapshot.resource_type)
                 .map(|op| op.rate_mt_per_year);
 
             Some(MiningDepositRow {
-                resource_type: *resource_type,
-                deposit: *deposit,
-                estimated_mt,
+                resource_type: snapshot.resource_type,
+                deposit: snapshot.deposit,
+                estimated_mt: snapshot.extractable_mt,
                 active_rate_mt_per_year,
             })
         })
@@ -674,8 +688,9 @@ pub(super) struct BodyEconomyEntry {
     pub(super) colony: Option<ColonySnapshot>,
     /// Standalone mining operations on this body
     mining_ops: Vec<MiningOpSnapshot>,
-    /// Resource deposits on this body
-    deposits: Vec<(ResourceType, MineralDeposit)>,
+    /// Resource deposits on this body, including the current
+    /// survey-gated extractable reserve for each row.
+    deposits: Vec<MiningDepositSnapshot>,
     /// Power generators on this body
     pub(super) generators: Vec<PowerGenSnapshot>,
 }
@@ -1118,6 +1133,7 @@ pub(super) fn build_economy_hierarchy(
     )>,
     star_query: &Query<(&CelestialBody, &SystemId), With<crate::plugins::solar_system::Star>>,
     buildings_data: Option<&BuildingsData>,
+    mining_efficiency: Option<&crate::survey::MiningEfficiencyRegistry>,
 ) -> Vec<StarSystemGroup> {
     use std::collections::BTreeMap;
 
@@ -1233,8 +1249,24 @@ pub(super) fn build_economy_hierarchy(
             });
         }
 
-        let deposits: Vec<(ResourceType, MineralDeposit)> = resources_opt
-            .map(|r| r.deposits.iter().map(|(rt, d)| (*rt, *d)).collect())
+        let deposits: Vec<MiningDepositSnapshot> = resources_opt
+            .map(|resources| {
+                resources
+                    .deposits
+                    .iter()
+                    .map(|(resource_type, deposit)| MiningDepositSnapshot {
+                        resource_type: *resource_type,
+                        deposit: *deposit,
+                        extractable_mt: crate::survey::mining_policy(
+                            deposit,
+                            survey_state,
+                            survey_level.copied(),
+                            mining_efficiency,
+                        )
+                        .economic_remaining_mt,
+                    })
+                    .collect()
+            })
             .unwrap_or_default();
 
         let mut generators = Vec::new();
@@ -1343,6 +1375,7 @@ pub(super) fn ui_economy_panels(
     )>,
     star_query: Query<(&CelestialBody, &SystemId), With<crate::plugins::solar_system::Star>>,
     buildings_data: Option<Res<BuildingsData>>,
+    mining_efficiency: Option<Res<crate::survey::MiningEfficiencyRegistry>>,
     resource_requests: Res<crate::economy::PendingResourceRequests>,
     mut shipping_companies: ResMut<crate::economy::ShippingCompanies>,
     mut shipping_company_filter: ResMut<super::fleets_panel::ShippingCompanyFilter>,
@@ -1368,7 +1401,12 @@ pub(super) fn ui_economy_panels(
         Err(_) => return,
     };
 
-    let hierarchy = build_economy_hierarchy(&body_query, &star_query, buildings_data.as_deref());
+    let hierarchy = build_economy_hierarchy(
+        &body_query,
+        &star_query,
+        buildings_data.as_deref(),
+        mining_efficiency.as_deref(),
+    );
 
     egui::CentralPanel::default()
         .frame(theme::central_frame())
@@ -2815,13 +2853,10 @@ fn render_mining_body_details(
     ui.label(
         egui::RichText::new(match body_entry.survey_level {
             SurveyLevel::OrbitalScan => {
-                "Estimate includes proven crustal reserves. Deeper layers remain hidden until seismic work completes."
+                "Only currently extractable, characterized reserves are shown. Continue mineral surveying to identify mineable deposits."
             }
-            SurveyLevel::SeismicSurvey => {
-                "Estimate includes proven and deep deposits. Planetary bulk remains hidden until a core sample is completed."
-            }
-            SurveyLevel::CoreSample => {
-                "Full reserve model unlocked. Estimates now include proven, deep, and planetary bulk layers."
+            SurveyLevel::SeismicSurvey | SurveyLevel::CoreSample => {
+                "Shown quantities match currently extractable reserves. Deep deposits remain unavailable until a drill mission confirms them; planetary bulk is never treated as a mineable reserve."
             }
             SurveyLevel::Unsurveyed => {
                 "No survey data available. This body should not appear under the current mining filters."
@@ -2911,8 +2946,8 @@ fn render_mining_body_details(
     theme::elevated_frame().show(ui, |ui| {
         draw_tab_h1(
             ui,
-            "SURVEYED DEPOSITS",
-            "Known reserves filtered by the current mining view.",
+            "EXTRACTABLE SURVEYED RESERVES",
+            "Known supply available under the current survey and drill state.",
         );
 
         if visible_deposits.is_empty() {
@@ -2935,7 +2970,7 @@ fn render_mining_body_details(
                         .color(theme::TEXT_DIM),
                 );
                 ui.label(
-                    egui::RichText::new("Estimate")
+                    egui::RichText::new("Available")
                         .font(theme::mono(10.5))
                         .color(theme::TEXT_DIM),
                 );

@@ -28,6 +28,7 @@ pub mod discovery;
 pub mod forecast;
 pub mod generation;
 pub mod history;
+pub mod launch;
 pub mod logistics;
 pub mod mining;
 pub(crate) mod profiles;
@@ -43,15 +44,15 @@ pub use auto_freight::{
 };
 pub use budget::{
     calculate_colony_power_totals, format_currency, format_power, update_civilization_score,
-    update_contextual_stockpile, update_launch_capacity, update_power_grid,
-    update_storage_capacity, ColonyPowerTotals, ContextualStockpile, EnergyGrid, GlobalBudget,
-    ResourceRateTracker, SECONDS_PER_MONTH, SECONDS_PER_YEAR,
+    update_contextual_stockpile, update_power_grid, update_storage_capacity, ColonyPowerTotals,
+    ContextualStockpile, EnergyGrid, GlobalBudget, ResourceRateTracker, SECONDS_PER_MONTH,
+    SECONDS_PER_YEAR,
 };
 pub use company::{ShippingCompanies, ShippingCompany};
 pub use components::{
-    DirtyBodies, DirtyReason, LocalStockpile, MineralDeposit, OrbitsBody, PlanetResources,
-    Population, PowerGenerator, PowerSourceType, ResourceReserve, SpectralClass, StarSystem,
-    SurveyLevel,
+    DirtyBodies, DirtyReason, LaunchCapacity, LocalStockpile, MineralDeposit, OrbitsBody,
+    PlanetResources, Population, PowerGenerator, PowerSourceType, ResourceReserve, SpectralClass,
+    StarSystem, SurveyLevel, LAUNCH_CAPACITY_BOOTSTRAP_FRACTION,
 };
 pub use discovery::{
     body_aggregate_tier_breakdown, is_follow_up_only_resource, tier_breakdown_for_reserve,
@@ -69,6 +70,10 @@ pub use generation::{
 pub use history::{
     kardashev_scale_from_watts, record_simulation_history, SimulationHistory,
     SimulationHistorySample, SurveyHistoryStats, HISTORY_MAX_AGE_SECONDS, HISTORY_MAX_AGE_YEARS,
+};
+pub use launch::{
+    bootstrap, profile_for_colony, projected_available, provision_launch_capacity, reconcile,
+    seconds_until_affordable, LaunchCapacityProfile,
 };
 pub use logistics::{
     apply_default_life_support_minimums, check_minimum_stockpile_requests, complete_deliveries,
@@ -111,14 +116,13 @@ impl Plugin for EconomyPlugin {
                         // buildings × modifiers walk is skipped in
                         // the menu.
                         .run_if(in_game_only),
-                    // v3.10 (GRA-22c Phase 4C-2): LaunchCapacity
-                    // per-body accumulator writer. Same gate
-                    // (only runs in-game). The producer path
-                    // accumulates tonnes per simulated year
-                    // (LaunchCapacityProduction × count); the
-                    // consumer path is pinned to a future phase
-                    // (per-liftoff deduction in fleets::systems).
-                    update_launch_capacity.run_if(in_game_only),
+                    // Launch capacity (GRA-22c / orbital access):
+                    // provisions the 25 %-charged stockpile on each
+                    // colony that has launch infrastructure. Accrual
+                    // itself is lazy — `launch::reconcile` advances
+                    // the balance on the read/consume paths, so this
+                    // system does not walk every body every frame.
+                    provision_launch_capacity.run_if(in_game_only),
                     update_power_grid,
                     update_civilization_score.after(update_power_grid),
                     extract_resources,

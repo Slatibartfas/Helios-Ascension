@@ -28,6 +28,9 @@ use helios_ascension::persistence::state_store_extract::extract_state_store;
 use helios_ascension::persistence::write_save_to_path;
 use helios_ascension::plugins::solar_system::CelestialBody;
 use helios_ascension::plugins::solar_system_data::BodyType;
+use helios_ascension::survey::{
+    ActiveSurveyMission, AnalysisJob, SurveyDimension, SurveyMethod, SurveyState,
+};
 use std::collections::HashMap;
 
 fn minimal_world() -> World {
@@ -122,6 +125,126 @@ fn state_store_v2_save_and_load_roundtrip() {
     // Cleanup the temp file. We don't fail the test if this
     // errors (best-effort); the OS will GC /tmp eventually.
     let _ = std::fs::remove_file(&path);
+}
+
+#[test]
+fn state_store_v2_roundtrips_pending_survey_analysis() {
+    let mut world = minimal_world();
+    let mars = make_body(&mut world, "Mars", 0);
+    let mut survey = SurveyState::default();
+    survey.analysis_jobs.push(AnalysisJob {
+        id: 42,
+        source_mission: Some(7),
+        target_tiers: HashMap::from([(SurveyDimension::MineralDeposits, 4)]),
+        instrument_accuracy_tier: 3,
+        required_scientists: 2,
+        assigned_scientists: Vec::new(),
+        label: "Analyze Mars core sample".to_string(),
+        method: SurveyMethod::Drill,
+        enqueued_sim_time: 123.0,
+        completed_sim_time: None,
+        progress: 0.25,
+        work_required_days: 90.0,
+        work_completed_days: 22.5,
+        last_advanced_sim_time: 456.0,
+        anomaly_flagged: None,
+    });
+    world.entity_mut(mars).insert(survey);
+
+    let store = extract_state_store(&mut world, 0xCAFE, 0).expect("extract");
+    assert!(
+        store.surveys.contains_key(&BodyKey::sol("Mars")),
+        "a body with only pending analysis must be persisted in survey divergences"
+    );
+
+    let mut restored = minimal_world();
+    let mars_restored = make_body(&mut restored, "Mars", 0);
+    let outcome = apply_state_store(&mut restored, &store);
+    assert_eq!(
+        outcome.surveys_applied, 1,
+        "warnings: {:?}",
+        outcome.warnings
+    );
+
+    let survey = restored
+        .get::<SurveyState>(mars_restored)
+        .expect("survey state restored");
+    assert_eq!(survey.analysis_jobs.len(), 1);
+    let job = &survey.analysis_jobs[0];
+    assert_eq!(job.id, 42);
+    assert_eq!(job.target_tiers[&SurveyDimension::MineralDeposits], 4);
+    assert_eq!(job.instrument_accuracy_tier, 3);
+    assert_eq!(job.required_scientists, 2);
+    assert!((job.progress - 0.25).abs() < f32::EPSILON);
+}
+
+#[test]
+fn state_store_v2_roundtrips_fleet_bound_mission() {
+    // PR-L: a body carrying a mission bound to a specific player
+    // fleet, plus the physical-logistics metadata (collection
+    // timestamp, sample-return destination), must survive the
+    // save/load round-trip without losing the binding.
+    let mut world = minimal_world();
+    let mars = make_body(&mut world, "Mars", 0);
+    let mut survey = SurveyState::default();
+    survey.active_missions.push(ActiveSurveyMission {
+        id: 5,
+        name: "Mars Flyby".to_string(),
+        method: SurveyMethod::Flyby,
+        status: helios_ascension::survey::MissionStatus::Queued,
+        launched_sim_time: 1_000.0,
+        expected_completion_sim_time: 1_000.0 + 540.0 * 86_400.0,
+        progress: 0.0,
+        per_axis_progress: HashMap::new(),
+        axis_yield_per_day: 1.0,
+        assigned_scientists: Vec::new(),
+        recover_of: None,
+        template_id: "flyby_recon".to_string(),
+        completed_sim_time: None,
+        dismissed: false,
+        assigned_fleet_name: Some("Day-One Constellation".to_string()),
+        collection_started_sim_time: None,
+        sample_return: Some(helios_ascension::survey::SampleReturnState {
+            laboratory_body_name: "Earth".to_string(),
+            laboratory_system_id: 0,
+            collected_sim_time: None,
+            delivered_sim_time: None,
+        }),
+    });
+    world.entity_mut(mars).insert(survey);
+
+    let store = extract_state_store(&mut world, 0xCAFE, 0).expect("extract");
+    assert!(
+        store.surveys.contains_key(&BodyKey::sol("Mars")),
+        "a body with a fleet-bound mission must be persisted in survey divergences"
+    );
+
+    let mut restored = minimal_world();
+    let mars_restored = make_body(&mut restored, "Mars", 0);
+    let outcome = apply_state_store(&mut restored, &store);
+    assert_eq!(
+        outcome.surveys_applied, 1,
+        "warnings: {:?}",
+        outcome.warnings
+    );
+
+    let survey = restored
+        .get::<SurveyState>(mars_restored)
+        .expect("survey state restored");
+    let mission = &survey.active_missions[0];
+    assert_eq!(
+        mission.assigned_fleet_name.as_deref(),
+        Some("Day-One Constellation"),
+        "the fleet binding must survive the save/load round-trip"
+    );
+    assert_eq!(
+        mission
+            .sample_return
+            .as_ref()
+            .map(|s| s.laboratory_body_name.as_str()),
+        Some("Earth"),
+        "the sample-return laboratory key must survive"
+    );
 }
 
 /// Regression test for the 70 MB save bug.

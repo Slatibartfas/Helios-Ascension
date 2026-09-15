@@ -430,6 +430,16 @@ pub struct BodyDivergence {
     /// ready-made home for the divergence.
     #[serde(default)]
     pub body_override: Option<Json>,
+
+    /// Launch capacity — serialised `LaunchCapacity` component
+    /// (`current_tonnes` + `last_updated_sim_seconds`).
+    ///
+    /// Optional so pre-v0.6 saves (no launch stockpile) still
+    /// load; the apply path warns when the regen chain produced
+    /// a body with launch infrastructure but the field is `None`
+    /// for it.
+    #[serde(default)]
+    pub launch_capacity_override: Option<Json>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

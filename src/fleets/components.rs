@@ -367,6 +367,19 @@ pub struct FleetOrbit {
     pub direction: f64,
 }
 
+/// Prevents a fleet from departing while it is the deployed asset for an
+/// on-station survey mission.
+///
+/// The lock is runtime-only: the authoritative mission binding is stored in
+/// `SurveyState` using the fleet's display name and the survey lifecycle
+/// rebuilds this component whenever the fleet reaches its target.
+#[derive(Component, Debug, Clone, Copy, Reflect)]
+#[reflect(Component)]
+pub struct FleetMovementLock {
+    /// Stable within the target body's survey state.
+    pub mission_id: u64,
+}
+
 impl FleetOrbit {
     /// Create a prograde (CCW) circular orbit around `body` at `radius_au` astronomical units.
     pub fn new(body: Entity, radius_au: f64) -> Self {

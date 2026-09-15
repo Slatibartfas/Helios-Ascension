@@ -28,16 +28,17 @@ pub mod visibility;
 pub use components::{
     ActiveSurveyMission, AnalysisJob, ContinuousStationBonus, ContinuousSurveyStation,
     DetectedAnomaly, DimensionFidelity, ExtractionSite, FailedMissionRecord, LandingSite,
-    SiteScoreWeights, SiteScores, SurveyState, LANDING_SITE_EVAL_THRESHOLD, MAX_SITES_PER_BODY,
-    MIN_SITES_PER_BODY,
+    SampleReturnState, SiteScoreWeights, SiteScores, SurveyState, LANDING_SITE_EVAL_THRESHOLD,
+    MAX_SITES_PER_BODY, MIN_SITES_PER_BODY,
 };
 pub use data::{
-    load_mission_templates, load_recovery_missions, AnalysisJobRef, AnalysisQueueIndex, AnomalyDef,
-    AnomalyEffect, MiningEfficiencyRegistry, MiningEfficiencyRow, ModderAnomalyDef,
+    load_anomalies, load_dimensions, load_instruments, load_mining_efficiency,
+    load_mission_templates, load_recovery_missions, load_tiers, AnalysisJobRef, AnalysisQueueIndex,
+    AnomalyDef, AnomalyEffect, MiningEfficiencyRegistry, MiningEfficiencyRow, ModderAnomalyDef,
     ModderDimensionDef, ReasonTag, RecoveryMission, RecoveryMissionKind, RecoveryMissionRegistry,
     ScientistSummary, SurveyAnomalyRegistry, SurveyDimensionRegistry, SurveyInstrumentDef,
     SurveyInstrumentRegistry, SurveyMissionTemplate, SurveyMissionTemplates,
-    SurveyMissionTemplatesFile,
+    SurveyMissionTemplatesFile, SurveyTierDef, SurveyTierRegistry,
 };
 pub use events::{
     AbortSurveyMission, DismissFailedMission, DismissSurveyMission, DispatchSurveyMission,
@@ -52,8 +53,8 @@ pub use systems::{
     abort_survey_mission, advance_survey_missions, apply_continuous_station_bonus,
     decay_survey_confidence, dismiss_failed_mission, dismiss_survey_mission,
     dispatch_survey_mission, evaluate_landing_sites, process_analysis_queue,
-    surface_anomaly_events, update_survey_summary, SimulationTime, ARCHIVE_LINGER_DAYS,
-    INJURY_DURATION_DAYS,
+    surface_anomaly_events, sync_survey_fleet_lifecycle, update_survey_summary, SimulationTime,
+    ARCHIVE_LINGER_DAYS, INJURY_DURATION_DAYS,
 };
 pub use types::{
     axis_advance_rate_for_tier, mining_yield_delta_for_tier, AnomalyState, AnomalyType,
@@ -62,7 +63,10 @@ pub use types::{
     DEFAULT_SOLAR_STORM_PENALTY, INITIAL_CONFIDENCE, MAX_TIER, STALE_CONFIDENCE,
     SURVEY_DAYS_PER_YEAR, WARNING_CONFIDENCE,
 };
-pub use visibility::{estimate_with_fidelity, is_stale, DepositEstimate, DepositVisibility};
+pub use visibility::{
+    estimate_with_fidelity, is_stale, mining_policy, DepositEstimate, DepositVisibility,
+    MiningSurveyPolicy,
+};
 
 /// Plugin that registers the survey system with the Bevy app.
 ///
@@ -78,7 +82,20 @@ impl Plugin for SurveyPlugin {
             // PR-B; other registries (dimensions, instruments,
             // anomalies, mining efficiency) load in follow-up
             // PRs.
-            .add_systems(Startup, (load_mission_templates, load_recovery_missions))
+            .add_systems(
+                Startup,
+                ((
+                    load_dimensions,
+                    load_instruments,
+                    load_mission_templates,
+                    load_anomalies,
+                    load_tiers,
+                    load_mining_efficiency,
+                    load_recovery_missions,
+                )
+                    .chain(),)
+                    .chain(),
+            )
             // Messages — registered in PR-B. The dispatch/abort
             // handlers and the tick system read/write these.
             // Bevy 0.18's `Message` derive replaces the older
@@ -99,6 +116,7 @@ impl Plugin for SurveyPlugin {
             // binary (the eight dimensions in `SurveyDimension::ALL`,
             // the nine methods in `SurveyMethod`, etc.).
             .init_resource::<SurveyDimensionRegistry>()
+            .init_resource::<SurveyTierRegistry>()
             .init_resource::<SurveyInstrumentRegistry>()
             .init_resource::<SurveyMissionTemplates>()
             .init_resource::<SurveyAnomalyRegistry>()
@@ -140,6 +158,8 @@ impl Plugin for SurveyPlugin {
                     dismiss_failed_mission,
                     dismiss_survey_mission,
                     decay_survey_confidence,
+                    sync_survey_fleet_lifecycle
+                        .after(crate::fleets::systems::complete_fleet_maneuvers),
                     advance_survey_missions,
                     process_analysis_queue,
                     surface_anomaly_events,

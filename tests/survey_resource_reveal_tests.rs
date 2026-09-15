@@ -33,6 +33,7 @@ use helios_ascension::economy::discovery::{
 };
 use helios_ascension::economy::types::{ResourcePhase, ResourceType};
 use helios_ascension::survey::components::{DimensionFidelity, SurveyState};
+use helios_ascension::survey::estimate_with_fidelity;
 use helios_ascension::survey::types::SurveyDimension;
 use std::collections::HashMap;
 
@@ -222,6 +223,19 @@ fn helper_handles_none_state_at_full_reserve_mass() {
     // dispatch mission picker.
     let deposit = mineral_deposit(reserve_with(1.0e9, 1.0e9, 1.0e9));
     let _ = deposit.tier_breakdown(None);
+}
+
+#[test]
+fn earth_tier_four_estimate_excludes_planetary_bulk() {
+    let deposit = mineral_deposit(reserve_with(180_000.0, 900_000.0, 5.0e12));
+    let fidelity = DimensionFidelity::at_tier(4, 0.85, Some(0.0));
+    let estimate = estimate_with_fidelity(&deposit, fidelity);
+
+    assert_eq!(estimate.mid, Some(1_080_000.0));
+    assert!(
+        estimate.high.is_some_and(|high| high < 2_000_000.0),
+        "uncertainty must apply to economic reserves, not exaton-scale endowment"
+    );
 }
 
 // ── 4. Drill-completion integration ──────────────────────────────

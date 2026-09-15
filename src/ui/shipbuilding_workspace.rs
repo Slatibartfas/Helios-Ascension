@@ -19,8 +19,9 @@ use super::theme;
 // v0.5.2 (2026-08-06): shared bevy_ui widgets — the chrome top
 // offset const + the scrollable-container helper.
 use super::widgets::{spawn_scrollable_container_child, UI_CHROME_TOP_PX};
-use crate::colony::{BuildingType, Colony};
-use crate::economy::components::LocalStockpile;
+use crate::colony::{BuildingType, BuildingsData, Colony};
+use crate::economy::components::{LaunchCapacity, LocalStockpile};
+use crate::economy::launch::{profile_for_colony, projected_available};
 use crate::economy::GlobalBudget;
 use crate::fleets::{ActiveManeuver, Fleet, FleetOrbit, ShipInstance};
 use crate::game_state::{ActiveMenu, GameMenu};
@@ -30,10 +31,11 @@ use crate::research::{
 };
 use crate::shipbuilding::types::ShipModuleCategory;
 use crate::shipbuilding::{
-    HullSlotDefinition, LaunchCapacityState, PendingShipbuildingActions, QueueRefitAction,
-    QueueShipConstructionAction, RefitProject, ShipConstructionProject, ShipDesignAssignment,
+    HullSlotDefinition, PendingShipbuildingActions, QueueRefitAction, QueueShipConstructionAction,
+    RefitProject, ShipConstructionProject, ShipConstructionState, ShipDesignAssignment,
     ShipDesignDraft, ShipDesignLibrary, ShipDesignSummary, ShipModuleSelection, ShipbuildingData,
 };
+use crate::ui::SimulationTime;
 
 type WorkspaceColonyQuery<'w, 's> = Query<
     'w,
@@ -59,6 +61,19 @@ type WorkspaceFleetQuery<'w, 's> = Query<
 
 type WorkspaceShipQuery<'w, 's> =
     Query<'w, 's, (Entity, &'static ShipInstance, &'static ShipDesignAssignment)>;
+
+/// Read-only inputs the Construction tab needs for its live launch
+/// readout, bundled so `sync_shipbuilding_workspace_content` stays
+/// inside Bevy's 16-parameter system limit as the workspace grows.
+#[derive(SystemParam)]
+pub struct ShipbuildingWorkspaceInputs<'w, 's> {
+    pub refits: Query<'w, 's, (Entity, &'static RefitProject)>,
+    pub engineering_projects: Query<'w, 's, &'static EngineeringProject>,
+    pub launch_capacities: Query<'w, 's, &'static LaunchCapacity>,
+    pub buildings_data: Option<Res<'w, BuildingsData>>,
+    pub sim_time: Res<'w, SimulationTime>,
+    pub budget: Res<'w, GlobalBudget>,
+}
 
 #[derive(Clone)]
 struct WorkspaceDesignRow {
@@ -1157,10 +1172,7 @@ fn sync_shipbuilding_workspace_content(
     fleets: WorkspaceFleetQuery,
     ships: WorkspaceShipQuery,
     projects: Query<(Entity, &ShipConstructionProject)>,
-    refits: Query<(Entity, &RefitProject)>,
-    engineering_projects: Query<&EngineeringProject>,
-    launch_state: Res<LaunchCapacityState>,
-    budget: Res<GlobalBudget>,
+    inputs: ShipbuildingWorkspaceInputs,
     mut panels: ShipbuildingWorkspacePanels,
 ) {
     if active_menu.current != GameMenu::Shipbuilding {
@@ -1250,7 +1262,7 @@ fn sync_shipbuilding_workspace_content(
             shell.analytics_root,
             &colonies,
             &ships,
-            &refits,
+            &inputs.refits,
             &design_library,
             &shipbuilding_data,
             &research_state,
@@ -1268,8 +1280,10 @@ fn sync_shipbuilding_workspace_content(
             &design_library,
             &shipbuilding_data,
             &research_state,
-            &launch_state,
-            &budget,
+            &inputs.sim_time,
+            &inputs.launch_capacities,
+            inputs.buildings_data.as_deref(),
+            &inputs.budget,
             &ui_state,
         ),
         ShipbuildingTab::Components => populate_components_tab_native(
@@ -1280,7 +1294,7 @@ fn sync_shipbuilding_workspace_content(
             &shipbuilding_data,
             &technologies_data,
             &research_state,
-            &engineering_projects,
+            &inputs.engineering_projects,
             &ui_state,
         ),
     }
@@ -3956,6 +3970,35 @@ fn populate_archive_tab_native(
     });
 }
 
+/// Read a build site's live launch figures for display:
+/// `(available_tonnes, cap_tonnes, production_tonnes_per_year)`.
+///
+/// Returns `None` when the site has no launch infrastructure or the
+/// building data hasn't loaded. The available figure is *projected*
+/// (accrued to `now_seconds`) without mutating the stored component,
+/// so the workspace shows what a launch attempt would actually find.
+fn launch_capacity_readout(
+    site: Entity,
+    colony: &Colony,
+    launch_capacities: &Query<&LaunchCapacity>,
+    buildings_data: Option<&BuildingsData>,
+    now_seconds: f64,
+) -> Option<(f64, f64, f64)> {
+    let data = buildings_data?;
+    let profile = profile_for_colony(colony, data);
+    if profile.cap_tonnes <= 0.0 {
+        return None;
+    }
+    let available = match launch_capacities.get(site) {
+        Ok(capacity) => projected_available(capacity, &profile, now_seconds),
+        // A site that has infrastructure but hasn't been provisioned
+        // yet still reports its cap and rate; the balance is zero
+        // until `provision_launch_capacity` runs.
+        Err(_) => 0.0,
+    };
+    Some((available, profile.cap_tonnes, profile.production_t_per_year))
+}
+
 fn populate_construction_tab_native(
     commands: &mut Commands,
     library_root: Entity,
@@ -3968,7 +4011,9 @@ fn populate_construction_tab_native(
     design_library: &ShipDesignLibrary,
     shipbuilding_data: &ShipbuildingData,
     research_state: &ResearchState,
-    launch_state: &LaunchCapacityState,
+    sim_time: &SimulationTime,
+    launch_capacities: &Query<&LaunchCapacity>,
+    buildings_data: Option<&BuildingsData>,
     budget: &GlobalBudget,
     ui_state: &ShipbuildingUiState,
 ) {
@@ -4019,6 +4064,17 @@ fn populate_construction_tab_native(
 
         for (entity, colony, _, _) in colony_rows {
             let selected = ui_state.selected_colony == Some(entity);
+            let capacity_line = launch_capacity_readout(
+                entity,
+                colony,
+                launch_capacities,
+                buildings_data,
+                sim_time.elapsed_seconds(),
+            )
+            .map(|(available, cap, production)| {
+                format!("{available:.0} / {cap:.0} t launch | +{production:.0} t/yr")
+            })
+            .unwrap_or_else(|| "launch data unavailable".to_string());
             parent.spawn((
                 Button,
                 ShipbuildingConstructionSiteButton { site: entity },
@@ -4040,10 +4096,10 @@ fn populate_construction_tab_native(
                     theme::Color::MINE_BAND_NONE
                 }),
                 Text::new(format!(
-                    "{}\n{} shipyards | {:.0} t/yr launch",
+                    "{}\n{} shipyards | {}",
                     colony.name,
                     colony.building_count(BuildingType::Shipyard),
-                    crate::shipbuilding::systems::annual_launch_capacity_t(colony),
+                    capacity_line,
                 )),
                 TextFont {
                     font_size: 10.0,
@@ -4285,19 +4341,23 @@ fn populate_construction_tab_native(
 
         for (entity, colony, _, stockpile) in colony_rows {
             let shipyard_count = colony.building_count(BuildingType::Shipyard) as f64;
-            let available_launch = launch_state
-                .available_mass_t
-                .get(&entity)
-                .copied()
-                .unwrap_or_else(|| crate::shipbuilding::systems::annual_launch_capacity_t(colony));
-            let max_launch = crate::shipbuilding::systems::annual_launch_capacity_t(colony);
+            let capacity_line = launch_capacity_readout(
+                entity,
+                colony,
+                launch_capacities,
+                buildings_data,
+                sim_time.elapsed_seconds(),
+            )
+            .map(|(available, cap, production)| {
+                format!("{available:.0} / {cap:.0} t launch | +{production:.0} t/yr")
+            })
+            .unwrap_or_else(|| "launch data unavailable".to_string());
             parent.spawn(text_block(
                 format!(
-                    "{}\n{} shipyards | {:.0} / {:.0} t launch | selected {}",
+                    "{}\n{} shipyards | {} | selected {}",
                     colony.name,
                     colony.building_count(BuildingType::Shipyard),
-                    available_launch,
-                    max_launch,
+                    capacity_line,
                     if ui_state.selected_colony == Some(entity) {
                         "yes"
                     } else {
@@ -4321,21 +4381,47 @@ fn populate_construction_tab_native(
                 ));
             }
 
+            let site_capacity = launch_capacity_readout(
+                entity,
+                colony,
+                launch_capacities,
+                buildings_data,
+                sim_time.elapsed_seconds(),
+            );
+
             for (_, project) in projects
                 .iter()
                 .filter(|(_, project)| project.build_site == entity)
             {
+                // A surface build that has finished fabrication but is
+                // still waiting on the launch stockpile needs the
+                // reason spelled out: the player should see how much
+                // mass is required and how far short the body is.
+                let status = if project.awaiting_resources {
+                    "Awaiting Resources".to_string()
+                } else if project.state == ShipConstructionState::ReadyForLaunch {
+                    match site_capacity {
+                        Some((available, _, _))
+                            if available + f64::EPSILON < project.launch_mass_t =>
+                        {
+                            format!(
+                                "Awaiting Launch Capacity ({:.0} / {:.0} t)",
+                                available, project.launch_mass_t
+                            )
+                        }
+                        _ => project.state.label().to_string(),
+                    }
+                } else {
+                    project.state.label().to_string()
+                };
+
                 parent.spawn(text_block(
                     format!(
                         "  {} | {} | {:.0}% | {}",
                         project.design_name,
                         project.construction_mode.display_name(),
                         project.progress_percent() * 100.0,
-                        if project.awaiting_resources {
-                            "Awaiting Resources".to_string()
-                        } else {
-                            project.state.label().to_string()
-                        }
+                        status,
                     ),
                     9.8,
                     theme::Color::CHIP_TEXT_BODY,

@@ -1,6 +1,5 @@
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 use super::refit::QueueRefitAction;
 use super::types::ConstructionMode;
@@ -129,11 +128,4 @@ pub struct PendingShipbuildingActions {
     pub queue_projects: Vec<QueueShipConstructionAction>,
     pub queue_refits: Vec<QueueRefitAction>,
     pub cancel_projects: Vec<Entity>,
-}
-
-/// Rolling per-build-site launch capacity measured in tonnes to orbit.
-#[derive(Resource, Debug, Clone, Default, Reflect)]
-#[reflect(Resource)]
-pub struct LaunchCapacityState {
-    pub available_mass_t: HashMap<Entity, f64>,
 }

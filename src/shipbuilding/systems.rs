@@ -1,15 +1,16 @@
 use bevy::prelude::*;
 
 use super::components::{
-    LaunchCapacityState, PendingShipbuildingActions, QueueShipConstructionAction,
-    ShipConstructionProject, ShipConstructionState, ShipDesignAssignment,
+    PendingShipbuildingActions, QueueShipConstructionAction, ShipConstructionProject,
+    ShipConstructionState, ShipDesignAssignment,
 };
 use super::data::{ShipDesignLibrary, ShipDesignSummary, ShipHullDefinition, ShipbuildingData};
 use super::refit::{determine_refit_type, RefitProject, RefitType};
 use super::types::ConstructionMode;
-use crate::colony::{BuildingType, Colony};
+use crate::colony::{BuildingType, BuildingsData, Colony};
 use crate::economy::budget::SECONDS_PER_YEAR;
-use crate::economy::components::LocalStockpile;
+use crate::economy::components::{DirtyBodies, DirtyReason, LaunchCapacity, LocalStockpile};
+use crate::economy::launch::{profile_for_colony, reconcile};
 use crate::economy::logistics::{
     PendingResourceRequests, RequestPriority, RequestState, ResourceRequest,
 };
@@ -26,10 +27,6 @@ const FACTORY_SUPPORT_BP_PER_YEAR: f64 = 75.0;
 const FACTORIES_SUPPORTED_PER_SHIPYARD: f64 = 3.0;
 const ENGINEERING_BAY_BONUS: f64 = 0.03;
 
-const LAUNCH_SITE_CAPACITY_T_PER_YEAR: f64 = 5.0;
-const SPACE_PORT_CAPACITY_T_PER_YEAR: f64 = 40.0;
-const ORBITAL_LIFT_CAPACITY_T_PER_YEAR: f64 = 25_000.0;
-
 const BASE_LAUNCH_ALTITUDE_KM: f64 = 400.0;
 const STATION_ORBIT_ALTITUDE_KM: f64 = 1_000.0;
 
@@ -38,10 +35,33 @@ const LAUNCH_METHANE_PER_TON_MT: f64 = 0.000_000_12;
 const LAUNCH_OXYGEN_PER_TON_MT: f64 = 0.000_000_22;
 const LAUNCH_POLYMERS_PER_TON_MT: f64 = 0.000_000_01;
 
-pub fn has_surface_launch_infrastructure(colony: &Colony) -> bool {
-    colony.building_count(BuildingType::LaunchSite) > 0
-        || colony.building_count(BuildingType::SpacePort) > 0
-        || colony.building_count(BuildingType::OrbitalLift) > 0
+/// Economy inputs shared by the shipbuilding systems.
+///
+/// Bundled as a `SystemParam` (rather than declared individually) so
+/// `process_ship_launches_and_completions` stays inside Bevy's
+/// 16-parameter system limit as the launch pipeline grows.
+///
+/// `dirty` is `Option` so test apps that don't bootstrap
+/// `DirtyBodies` still compile — production apps register it in
+/// `EconomyPlugin::build`.
+#[derive(bevy::ecs::system::SystemParam)]
+pub struct ShipbuildingEconomy<'w, 's> {
+    pub buildings_data: Option<Res<'w, BuildingsData>>,
+    pub budget: ResMut<'w, GlobalBudget>,
+    pub resource_requests: ResMut<'w, PendingResourceRequests>,
+    pub dirty: Option<ResMut<'w, DirtyBodies>>,
+    pub stockpiles: Query<'w, 's, &'static mut LocalStockpile>,
+    pub launch_capacities: Query<'w, 's, &'static mut LaunchCapacity>,
+}
+
+/// True when the colony has any building that produces launch capacity.
+///
+/// Derived from the same modifier data the capacity system reads, so a
+/// new launch facility becomes valid for surface construction by
+/// declaring `LaunchCapacityProduction` — no code change here, and no
+/// dependence on the retired `SpacePort` variant.
+pub fn has_surface_launch_infrastructure(colony: &Colony, data: &BuildingsData) -> bool {
+    profile_for_colony(colony, data).cap_tonnes > 0.0
 }
 
 pub fn queue_validation_errors(
@@ -49,6 +69,21 @@ pub fn queue_validation_errors(
     hull: Option<&ShipHullDefinition>,
     summary: Option<&ShipDesignSummary>,
     mode: ConstructionMode,
+) -> Vec<String> {
+    queue_validation_errors_with_data(colony, hull, summary, mode, None)
+}
+
+/// `queue_validation_errors` variant that resolves launch infrastructure
+/// from `buildings.ron` data instead of the retired hard-coded facility
+/// list. Pass `Some(data)` where available; `None` falls back to the
+/// legacy building-count check so callers without `BuildingsData`
+/// still produce a useful error.
+pub fn queue_validation_errors_with_data(
+    colony: Option<&Colony>,
+    hull: Option<&ShipHullDefinition>,
+    summary: Option<&ShipDesignSummary>,
+    mode: ConstructionMode,
+    buildings_data: Option<&BuildingsData>,
 ) -> Vec<String> {
     let mut errors = Vec::new();
 
@@ -83,11 +118,22 @@ pub fn queue_validation_errors(
         errors.push("Selected colony needs an operational Shipyard.".to_string());
     }
 
-    if mode == ConstructionMode::SurfaceLaunch && !has_surface_launch_infrastructure(colony) {
-        errors.push(
-            "Selected colony needs a Launch Site, Space Port, or Orbital Lift for surface launches."
-                .to_string(),
-        );
+    if mode == ConstructionMode::SurfaceLaunch {
+        let has_infrastructure = match buildings_data {
+            Some(data) => has_surface_launch_infrastructure(colony, data),
+            None => {
+                colony.building_count(BuildingType::LaunchSite) > 0
+                    || colony.building_count(BuildingType::OrbitalLift) > 0
+                    || colony.building_count(BuildingType::MassDriver) > 0
+            }
+        };
+        if !has_infrastructure {
+            errors.push(
+                "Selected colony needs launch infrastructure (Launch Site, Mass Driver, or \
+                 Orbital Lift) for surface launches."
+                    .to_string(),
+            );
+        }
     }
 
     errors
@@ -200,11 +246,13 @@ pub fn process_pending_shipbuilding_actions(
     colonies: Query<&Colony>,
     mut stockpiles: Query<&mut LocalStockpile>,
     shipbuilding_data: Res<ShipbuildingData>,
+    buildings_data: Option<Res<BuildingsData>>,
     design_library: Res<ShipDesignLibrary>,
     research_state: Res<ResearchState>,
     mut resource_requests: ResMut<PendingResourceRequests>,
     sim_time: Res<SimulationTime>,
     ships: Query<(Entity, &ShipInstance, &ShipDesignAssignment)>,
+    mut dirty: Option<ResMut<DirtyBodies>>,
 ) {
     let now = sim_time.elapsed_seconds();
 
@@ -240,8 +288,13 @@ pub fn process_pending_shipbuilding_actions(
             continue;
         };
 
-        let queue_errors =
-            queue_validation_errors(Some(colony), hull, Some(&summary), design.construction_mode);
+        let queue_errors = queue_validation_errors_with_data(
+            Some(colony),
+            hull,
+            Some(&summary),
+            design.construction_mode,
+            buildings_data.as_deref(),
+        );
         if !queue_errors.is_empty() {
             warn!(
                 "Rejected ship design '{}' at {}: {}",
@@ -255,6 +308,12 @@ pub fn process_pending_shipbuilding_actions(
         let blocking_request_ids = if let Ok(mut stockpile) = stockpiles.get_mut(build_site) {
             if stockpile.can_afford(&summary.resource_costs) {
                 stockpile.deduct(&summary.resource_costs);
+                // Save-game contract: the build cost was spent out of
+                // this body's local stockpile, so the divergence must
+                // be written or the spend reverts on the next load.
+                if let Some(ref mut dirty) = dirty {
+                    dirty.mark_stockpile(build_site);
+                }
                 Vec::new()
             } else {
                 let shortfalls: Vec<_> = summary
@@ -624,13 +683,9 @@ pub fn advance_ship_construction(
 pub fn process_ship_launches_and_completions(
     mut commands: Commands,
     sim_time: Res<SimulationTime>,
-    mut last_elapsed: Local<f64>,
     colonies: Query<(Entity, &Colony, &CelestialBody)>,
     fleet_orbits: Query<&FleetOrbit, With<Fleet>>,
-    mut stockpiles: Query<&mut LocalStockpile>,
-    mut budget: ResMut<GlobalBudget>,
-    mut launch_state: ResMut<LaunchCapacityState>,
-    mut resource_requests: ResMut<PendingResourceRequests>,
+    mut economy: ShipbuildingEconomy,
     mut projects: Query<(Entity, &mut ShipConstructionProject)>,
     mut refits: Query<(Entity, &mut RefitProject)>,
     mut ship_queries: ParamSet<(
@@ -643,18 +698,6 @@ pub fn process_ship_launches_and_completions(
     freighter_registry: Res<crate::ships::templates::FreighterTemplateRegistry>,
 ) {
     let current_elapsed = sim_time.elapsed_seconds();
-    let dt = current_elapsed - *last_elapsed;
-    *last_elapsed = current_elapsed;
-    let years_elapsed = (dt / SECONDS_PER_YEAR).max(0.0);
-
-    for (site_entity, colony, _) in colonies.iter() {
-        let annual_capacity = annual_launch_capacity_t(colony);
-        let available = launch_state
-            .available_mass_t
-            .entry(site_entity)
-            .or_insert(annual_capacity.max(0.0));
-        *available = (*available + annual_capacity * years_elapsed).min(annual_capacity.max(0.0));
-    }
 
     let mut project_entities: Vec<Entity> = projects.iter().map(|(entity, _)| entity).collect();
     project_entities.sort();
@@ -665,7 +708,8 @@ pub fn process_ship_launches_and_completions(
         };
 
         if project.awaiting_resources {
-            let still_waiting = resource_requests
+            let still_waiting = economy
+                .resource_requests
                 .requests
                 .iter()
                 .any(|request| request.linked_project == Some(entity) && request.is_open());
@@ -726,28 +770,42 @@ pub fn process_ship_launches_and_completions(
                 let Ok((_, colony, body)) = colonies.get(project.build_site) else {
                     continue;
                 };
+                let Some(data) = economy.buildings_data.as_deref() else {
+                    continue;
+                };
 
-                let available_capacity = launch_state
-                    .available_mass_t
-                    .entry(project.build_site)
-                    .or_insert_with(|| annual_launch_capacity_t(colony));
-
-                if *available_capacity + f64::EPSILON < project.launch_mass_t {
+                // The authoritative surface-to-orbit charge. Reconcile
+                // first so a body that has been accruing for a while is
+                // credited before the affordability check, then reserve
+                // the mass. `try_consume` rejects non-finite and
+                // non-positive values, so a malformed project cannot
+                // mint capacity.
+                let profile = profile_for_colony(colony, data);
+                let Ok(mut capacity) = economy.launch_capacities.get_mut(project.build_site) else {
+                    continue;
+                };
+                reconcile(&mut capacity, &profile, current_elapsed);
+                if !capacity.try_consume(project.launch_mass_t) {
                     continue;
                 }
 
+                // Capacity is reserved. Now check the consumables and
+                // the treasury. If either is short the reservation is
+                // returned so the project waits with a clean slate
+                // rather than losing mass it never used.
                 let mut can_launch = false;
-                if let Ok(mut stockpile) = stockpiles.get_mut(project.build_site) {
+                if let Ok(mut stockpile) = economy.stockpiles.get_mut(project.build_site) {
                     if stockpile.can_afford(&project.launch_resource_costs)
-                        && budget.treasury >= project.launch_credit_cost_mc
+                        && economy.budget.treasury >= project.launch_credit_cost_mc
                     {
                         stockpile.deduct(&project.launch_resource_costs);
-                        budget.treasury -= project.launch_credit_cost_mc;
+                        economy.budget.treasury -= project.launch_credit_cost_mc;
                         can_launch = true;
                     } else {
-                        let existing_requests = resource_requests.requests.iter().any(|request| {
-                            request.linked_project == Some(entity) && request.is_open()
-                        });
+                        let existing_requests =
+                            economy.resource_requests.requests.iter().any(|request| {
+                                request.linked_project == Some(entity) && request.is_open()
+                            });
                         if !existing_requests {
                             let launch_costs = project.launch_resource_costs.clone();
                             for (resource, amount) in launch_costs {
@@ -755,7 +813,7 @@ pub fn process_ship_launches_and_completions(
                                 if shortfall <= 0.0 {
                                     continue;
                                 }
-                                let request_id = resource_requests.add(ResourceRequest {
+                                let request_id = economy.resource_requests.add(ResourceRequest {
                                     id: 0,
                                     destination_body: project.build_site,
                                     destination_name: colony.name.clone(),
@@ -781,10 +839,25 @@ pub fn process_ship_launches_and_completions(
                 }
 
                 if !can_launch {
+                    // Refund the reservation; nothing crossed the
+                    // boundary, so nothing should be charged.
+                    capacity.current_tonnes =
+                        (capacity.current_tonnes + project.launch_mass_t).min(profile.cap_tonnes);
                     continue;
                 }
 
-                *available_capacity -= project.launch_mass_t;
+                // Commit. Both the capacity spend and the consumable
+                // spend are durable, so mark the body dirty for both
+                // divergence fields. The mark is optional because
+                // some test apps don't bootstrap `DirtyBodies`; the
+                // in-game launch flow always has it (EconomyPlugin
+                // initialises the resource).
+                if let Some(ref mut dirty) = economy.dirty {
+                    dirty.mark(project.build_site, DirtyReason::Multiple);
+                    dirty.mark(project.build_site, DirtyReason::LaunchCapacity);
+                    dirty.mark(project.build_site, DirtyReason::Stockpile);
+                }
+
                 let integration_target = integration_target_state(
                     project.integration_target_fleet,
                     project.build_site,
@@ -836,7 +909,8 @@ pub fn process_ship_launches_and_completions(
         };
 
         if refit.awaiting_resources {
-            let still_waiting = resource_requests
+            let still_waiting = economy
+                .resource_requests
                 .requests
                 .iter()
                 .any(|request| request.linked_project == Some(entity) && request.is_open());
@@ -912,10 +986,13 @@ fn next_sort_order_for_fleet(ship_instances: &Query<&ShipInstance>, fleet_entity
         + 1
 }
 
-pub fn annual_launch_capacity_t(colony: &Colony) -> f64 {
-    colony.building_count(BuildingType::LaunchSite) as f64 * LAUNCH_SITE_CAPACITY_T_PER_YEAR
-        + colony.building_count(BuildingType::SpacePort) as f64 * SPACE_PORT_CAPACITY_T_PER_YEAR
-        + colony.building_count(BuildingType::OrbitalLift) as f64 * ORBITAL_LIFT_CAPACITY_T_PER_YEAR
+/// Annual launch throughput for a colony, read from the same
+/// `buildings.ron` modifiers the capacity stockpile uses.
+///
+/// Prefer this over the retired hard-coded per-facility table: it
+/// stays correct when launch facilities are rebalanced or added.
+pub fn annual_launch_capacity_t(colony: &Colony, data: &BuildingsData) -> f64 {
+    profile_for_colony(colony, data).production_t_per_year
 }
 
 pub fn launch_resource_costs(launch_mass_t: f64) -> Vec<(ResourceType, f64)> {

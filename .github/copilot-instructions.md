@@ -381,11 +381,14 @@ that's NOT on this list, that's a bug — extend the list and add the
 |---|---|---|
 | `extract_resources` (mining) | `src/economy/mining.rs` | `Multiple` (stockpile + body mass) |
 | `process_construction_actions` (build-queue consume) | `src/colony/systems.rs` | `Stockpile` |
+| `process_pending_shipbuilding_actions` (build-queue consume) | `src/shipbuilding/systems.rs` | `Stockpile` |
+| `process_ship_launches_and_completions` (surface launch) | `src/shipbuilding/systems.rs` | `Multiple` (LaunchCapacity + Stockpile) |
 | `update_colony_growth` (food production / population drain) | `src/colony/systems.rs` | `Multiple` |
 | `deduct_maintenance_resources` | `src/colony/systems.rs` | `Stockpile` |
 | `deduct_environment_costs` (O₂ / water) | `src/colony/systems.rs` | `Stockpile` |
 | `auto_freight_loop` (freighter pickup) | `src/economy/auto_freight.rs` | `Stockpile` |
 | `complete_deliveries` (freighter delivery) | `src/economy/logistics.rs` | `Stockpile` |
+| `provision_launch_capacity` (bootstraps `LaunchCapacity` on first launch infrastructure) | `src/economy/launch.rs` | `LaunchCapacity` |
 | **(future)** terraforming system | `src/colony/` (planned) | `Atmosphere` |
 | **(future)** asteroid redirect / orbit shift | `src/astronomy/` (planned) | `Orbit` |
 | **(future)** body-mass / radius editor | `src/astronomy/` (planned) | `Body` |

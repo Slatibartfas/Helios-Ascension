@@ -17,8 +17,8 @@
 //! | 1    | Class only ("Iron")                               | none          |
 //! | 2    | Class + low range (proven_crustal, wide band)     | proven        |
 //! | 3    | Class + mid range (proven + deep, medium band)    | proven + deep |
-//! | 4    | Class + narrow range (full reserve, narrow band)  | full          |
-//! | 5    | Precise (single number)                           | full          |
+//! | 4    | Economic reserve, narrow range                    | proven + deep |
+//! | 5    | Precise economic reserve                          | proven + deep |
 //!
 //! The band width is widened by `(1.0 - confidence)` so that
 //! stale data shows a wider interval than fresh data at the same
@@ -29,8 +29,140 @@
 use serde::{Deserialize, Serialize};
 
 use super::components::DimensionFidelity;
+use super::data::MiningEfficiencyRegistry;
 use super::types::{MAX_TIER, WARNING_CONFIDENCE};
+use super::{SurveyDimension, SurveyState};
 use crate::economy::components::{MineralDeposit, ResourceReserve, SurveyLevel};
+
+/// Survey-derived extraction limits for one deposit.
+///
+/// Efficiencies scale nominal mine output. `economic_remaining_mt` contains
+/// only identified reserves; geological `planetary_bulk` is intentionally
+/// absent from this policy.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct MiningSurveyPolicy {
+    pub shallow_efficiency: f64,
+    pub deep_efficiency: f64,
+    pub economic_remaining_mt: f64,
+}
+
+impl MiningSurveyPolicy {
+    pub const BLOCKED: Self = Self {
+        shallow_efficiency: 0.0,
+        deep_efficiency: 0.0,
+        economic_remaining_mt: 0.0,
+    };
+
+    /// Efficiency for the next economic reserve tier that can supply output.
+    pub fn active_efficiency(self, deposit: &MineralDeposit) -> f64 {
+        if deposit.reserve.proven_crustal > 0.001 {
+            self.shallow_efficiency
+        } else if deposit.reserve.deep_deposits > 0.001 {
+            self.deep_efficiency
+        } else {
+            0.0
+        }
+    }
+}
+
+/// Compute the extraction policy shared by simulation and rate previews.
+pub fn mining_policy(
+    deposit: &MineralDeposit,
+    state: Option<&SurveyState>,
+    legacy: Option<SurveyLevel>,
+    registry: Option<&MiningEfficiencyRegistry>,
+) -> MiningSurveyPolicy {
+    let migrated;
+    let state = match state {
+        Some(state) => state,
+        None => {
+            migrated = legacy.map(|level| SurveyState::from_legacy_level(level, 0.0));
+            let Some(state) = migrated.as_ref() else {
+                return MiningSurveyPolicy::BLOCKED;
+            };
+            state
+        }
+    };
+
+    if deposit.is_atmospheric {
+        let tier = state.fidelity(SurveyDimension::Atmosphere).tier;
+        let efficiency = efficiency_for("AtmosphericGas", tier, false, registry);
+        return MiningSurveyPolicy {
+            shallow_efficiency: efficiency,
+            deep_efficiency: efficiency,
+            economic_remaining_mt: if efficiency > 0.0 {
+                deposit.reserve.proven_crustal + deposit.reserve.deep_deposits
+            } else {
+                0.0
+            },
+        };
+    }
+
+    let mineral_tier = state.fidelity(SurveyDimension::MineralDeposits).tier;
+    let subsurface_tier = state.fidelity(SurveyDimension::Subsurface).tier;
+    let shallow_efficiency = efficiency_for("ShallowOre", mineral_tier, true, registry);
+    let deep_efficiency = if mineral_tier >= 2 && state.drill_missions_completed > 0 {
+        efficiency_for("DeepOre", subsurface_tier, true, registry)
+    } else {
+        0.0
+    };
+    let economic_remaining_mt = if shallow_efficiency > 0.0 {
+        deposit.reserve.proven_crustal
+    } else {
+        0.0
+    } + if deep_efficiency > 0.0 {
+        deposit.reserve.deep_deposits
+    } else {
+        0.0
+    };
+
+    MiningSurveyPolicy {
+        shallow_efficiency,
+        deep_efficiency,
+        economic_remaining_mt,
+    }
+}
+
+fn efficiency_for(
+    resource_class: &str,
+    tier: u8,
+    confirmed: bool,
+    registry: Option<&MiningEfficiencyRegistry>,
+) -> f64 {
+    let loaded = registry
+        .into_iter()
+        .flat_map(|registry| registry.rows.values())
+        .filter(|row| row.resource_class == resource_class && row.min_tier <= tier)
+        .filter(|row| !row.requires_confirmation || confirmed)
+        .map(|row| row.efficiency_pct as f64)
+        .reduce(f64::max);
+    loaded.unwrap_or_else(|| fallback_efficiency(resource_class, tier, confirmed))
+}
+
+fn fallback_efficiency(resource_class: &str, tier: u8, confirmed: bool) -> f64 {
+    match resource_class {
+        "ShallowOre" => match tier {
+            0..=1 => 0.0,
+            2 => 0.20,
+            3 => 0.45,
+            4 => 0.75,
+            _ => 1.0,
+        },
+        "DeepOre" if confirmed => match tier {
+            0..=2 => 0.0,
+            3 => 0.15,
+            4 => 0.45,
+            _ => 1.0,
+        },
+        "AtmosphericGas" => match tier {
+            0..=2 => 0.0,
+            3 => 0.35,
+            4 => 0.65,
+            _ => 1.0,
+        },
+        _ => 0.0,
+    }
+}
 
 /// What tier of detail a deposit is currently shown at.
 ///
@@ -126,9 +258,13 @@ fn visibility_for_tier(tier: u8) -> DepositVisibility {
     }
 }
 
-/// Choose the reserve slice the player is allowed to see at a given
-/// tier. Higher tiers reveal more of the deposit's
-/// (proven, deep, bulk) split.
+/// Choose the *economic reserve* slice the player is allowed to quantify.
+///
+/// `planetary_bulk` is geological endowment (mantle/core material), not an
+/// identified reserve. It is therefore deliberately excluded even at tier 5.
+/// Dedicated geology UI may describe that endowment separately, but ordinary
+/// resource totals, forecasts, and mining estimates must never present it as
+/// available inventory.
 pub fn reserve_slice(deposit: &MineralDeposit, tier: u8) -> Option<ResourceReserve> {
     let r = &deposit.reserve;
     match tier {
@@ -149,7 +285,7 @@ pub fn reserve_slice(deposit: &MineralDeposit, tier: u8) -> Option<ResourceReser
         4..=u8::MAX => Some(ResourceReserve::new(
             r.proven_crustal,
             r.deep_deposits,
-            r.planetary_bulk,
+            0.0,
             r.concentration,
         )),
     }
@@ -218,13 +354,13 @@ impl SurveyLevel {
     /// | `Unsurveyed`       | 0                    | 0.0        |
     /// | `OrbitalScan`      | 1                    | 0.5        |
     /// | `SeismicSurvey`    | 2                    | 0.7        |
-    /// | `CoreSample`       | 5                    | 0.95       |
+    /// | `CoreSample`       | 4                    | 0.90       |
     pub fn as_deposit_fidelity(self, sim_time: f64) -> DimensionFidelity {
         match self {
             SurveyLevel::Unsurveyed => DimensionFidelity::UNKNOWN,
             SurveyLevel::OrbitalScan => DimensionFidelity::at_tier(1, 0.5, Some(sim_time)),
             SurveyLevel::SeismicSurvey => DimensionFidelity::at_tier(2, 0.7, Some(sim_time)),
-            SurveyLevel::CoreSample => DimensionFidelity::at_tier(MAX_TIER, 0.95, Some(sim_time)),
+            SurveyLevel::CoreSample => DimensionFidelity::at_tier(4, 0.90, Some(sim_time)),
         }
     }
 }
@@ -295,11 +431,12 @@ mod tests {
     }
 
     #[test]
-    fn precise_at_tier_five_uses_full_reserve() {
+    fn precise_at_tier_five_excludes_geological_endowment() {
         let e = estimate(5, 0.95);
         assert_eq!(e.visibility, DepositVisibility::Precise);
-        // Full reserve: 1_000 + 5_000 + 50_000
-        assert_eq!(e.mid, Some(56_000.0));
+        // Economic reserve: proven + deep. Planetary bulk is contextual
+        // geological endowment and is never ordinary available tonnage.
+        assert_eq!(e.mid, Some(6_000.0));
         // Narrow band at high confidence.
         let band_pct = (e.high.unwrap() - e.mid.unwrap()) / e.mid.unwrap();
         assert!(band_pct < 0.15);
@@ -334,7 +471,7 @@ mod tests {
         let f = SurveyLevel::SeismicSurvey.as_deposit_fidelity(sim);
         assert_eq!(f.tier, 2);
         let f = SurveyLevel::CoreSample.as_deposit_fidelity(sim);
-        assert_eq!(f.tier, MAX_TIER);
-        assert!(f.confidence > 0.9);
+        assert_eq!(f.tier, 4);
+        assert!(f.confidence >= 0.9);
     }
 }

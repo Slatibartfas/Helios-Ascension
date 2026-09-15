@@ -8,7 +8,7 @@ pub mod systems;
 pub mod types;
 
 pub use components::{
-    LaunchCapacityState, OrbitalStation, PendingShipbuildingActions, QueueShipConstructionAction,
+    OrbitalStation, PendingShipbuildingActions, QueueShipConstructionAction,
     ShipConstructionProject, ShipConstructionState, ShipDesignAssignment, ShipDesignDraft,
     ShipModuleSelection,
 };
@@ -28,7 +28,6 @@ pub struct ShipbuildingPlugin;
 impl Plugin for ShipbuildingPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<PendingShipbuildingActions>()
-            .init_resource::<LaunchCapacityState>()
             .init_resource::<ShipDesignLibrary>()
             // GRA-40: freighter template loading must run after hull + module
             // data is loaded (the loader validates against ShipbuildingData),

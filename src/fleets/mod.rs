@@ -18,11 +18,11 @@ pub mod visuals;
 
 pub use components::{
     AbortToOriginAction, ActiveManeuver, AssignLogisticsRequestAction, AssignShipsAction,
-    CreateFleetFromShipsAction, Fleet, FleetOrbit, InterstellarPropulsionPolicy, MergeFleetAction,
-    PendingFleetActions, PlannedTransfer, PorkchopCategoryOverride, PorkchopColorStop,
-    PorkchopConfig, PorkchopGridDefaults, ResolvedPorkchopParams, SelectionSource, ShipInfo,
-    ShipInstance, SpawnFleetAction, StartTransferAction, TransferPlan, TransferReferenceFrame,
-    TransferShipsAction,
+    CreateFleetFromShipsAction, Fleet, FleetMovementLock, FleetOrbit, InterstellarPropulsionPolicy,
+    MergeFleetAction, PendingFleetActions, PlannedTransfer, PorkchopCategoryOverride,
+    PorkchopColorStop, PorkchopConfig, PorkchopGridDefaults, ResolvedPorkchopParams,
+    SelectionSource, ShipInfo, ShipInstance, SpawnFleetAction, StartTransferAction, TransferPlan,
+    TransferReferenceFrame, TransferShipsAction,
 };
 pub use orbital_mechanics::{
     apply_thrust_limits, calculate_transfer_options, calculate_transfer_options_phased,

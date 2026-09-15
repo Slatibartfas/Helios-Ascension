@@ -118,6 +118,35 @@ fn reserves_cap_for_body(resource: ResourceType, body_mass_kg: f64) -> f64 {
     scaled.max(earth_cap * 1.0e-3) // never zero
 }
 
+/// Apply the procedural generator's 2026 reserve ceiling to Earth’s hand-authored
+/// profile. The profile retains its broad geological values as design context,
+/// but ordinary mining must expose only operationally identified supply.
+fn cap_earth_operational_reserves(resources: &mut PlanetResources) {
+    const EARTH_SILICATE_OPERATIONAL_MT: f64 = 10_000_000.0;
+
+    for (resource, deposit) in &mut resources.deposits {
+        let cap = match resource {
+            ResourceType::Silicates => EARTH_SILICATE_OPERATIONAL_MT,
+            resource => identified_reserves_cap_mt(*resource),
+        };
+        if !cap.is_finite() || cap <= 0.0 {
+            continue;
+        }
+
+        let economic_total = deposit.reserve.proven_crustal + deposit.reserve.deep_deposits;
+        if economic_total > cap {
+            debug!(
+                "Capping Earth {} operational reserve from {:.3e} Mt to {:.3e} Mt",
+                resource.display_name(),
+                economic_total,
+                cap
+            );
+            deposit.reserve.proven_crustal = cap;
+            deposit.reserve.deep_deposits = 0.0;
+        }
+    }
+}
+
 /// Seeded RNG shared by all procedural resource generators.
 ///
 /// Holding the RNG as a Bevy resource makes resource generation reproducible:
@@ -341,6 +370,9 @@ pub(crate) fn generate_resources_for_body(
         super::profiles::apply_special_body_profile(body_name, body_mass, rng)
     {
         let mut result = special_resources;
+        if body_name == "Earth" {
+            cap_earth_operational_reserves(&mut result);
+        }
         normalize_resources_to_body_mass(&mut result, body_mass, body_type);
         return result;
     }
@@ -2203,22 +2235,23 @@ mod tests {
         let ammonia = resources.get_deposit(&ResourceType::Ammonia);
         assert!(ammonia.is_none(), "Earth should NOT have ammonia deposits");
 
-        // Earth should have water (oceans) - mostly surface accessible
+        // Earth exposes an operational freshwater reserve, not the whole
+        // hydrosphere as an ordinary mineable deposit.
         let water = resources.get_deposit(&ResourceType::Water);
         assert!(water.is_some(), "Earth should have water");
         if let Some(w) = water {
             let total_water = w.total_megatons();
-            // ~1.4 billion Mt (oceans + freshwater)
+            // ~15 Gt of accessible freshwater supply.
             assert!(
-                total_water > 1e9 && total_water < 2e9,
-                "Earth water should be ~1.4 billion Mt, found: {:.2e}",
+                total_water > 1e4 && total_water < 2e4,
+                "Earth water should be ~15,000 Mt, found: {:.2e}",
                 total_water
             );
-            // Water should be overwhelmingly in proven (oceans), not deep/bulk
+            // The capped reserve is immediately operational.
             let proven_fraction = w.reserve.proven_crustal / total_water;
             assert!(
                 proven_fraction > 0.95,
-                "Earth water should be >95% proven (oceans), found: {:.1}%",
+                "Earth water should be >95% proven, found: {:.1}%",
                 proven_fraction * 100.0
             );
             // Water is NOT atmospheric

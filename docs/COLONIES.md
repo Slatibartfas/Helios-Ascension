@@ -382,7 +382,35 @@ Total 350 BP ≈ 11 sim days at default 12,000 BP/yr. (Old package was 5,200 BP 
 
 **Resources must be transported.** All starter-building materials (Fe, Si, etc.) must be in the new colony's `LocalStockpile` before construction can advance. With zero starting stock, the system fires `ResourceRequest`s on first tick; private shipping companies or player Freighter fleets fulfil them.
 
-## 8. Cross-References
+## 8. Orbital Access (Launch Capacity)
+
+Every surface-to-orbit lift (a ship launching from a colony, a probe departing the surface, cargo loaded into an orbiting freighter, or colonists leaving a body) draws from a **body-local launch capacity stockpile**. The stockpile accumulates at a rate set by the body's launch facilities and caps at the sum of their storage modifiers. Capacity is **deducted exactly once at the surface/orbit boundary** — orbital construction, orbital shipyards, orbit-to-orbit transfers, and payloads released from an already-orbiting carrier do not charge capacity.
+
+### Contributors
+
+Any building can contribute by declaring two generic `buildings.ron` modifiers:
+
+| Modifier | Meaning |
+|---|---|
+| `LaunchCapacityProduction` | Tonnes per simulated year added per building. |
+| `LaunchCapacityMax` | Tonnes of stored launch mass per building. |
+
+The shipped facility roster is `LaunchSite` (100 t/yr, 5 kt cap), `MassDriver` (2 kt/yr, 20 kt cap), and `OrbitalLift` (10 kt/yr, 200 kt cap). Per-body figures are the sum of these modifiers across every colony on the body.
+
+### Lifecycle
+
+- **Bootstrap** — a body that gains launch infrastructure receives a fresh `LaunchCapacity` component at `25%` of its derived cap, anchored at the current simulation time. New campaigns and old saves without launch records start at this level.
+- **Accrual** — capacity is reconciled lazily when read or consumed: `current += production × (now − anchor)`, clamped at the cap. The anchor always advances, so a backwards clock or a save/load round trip cannot mint capacity.
+- **Reservation** — the shipbuilding surface launch path reconciles the body, attempts `try_consume(launch_mass_t)`, and only proceeds if the debit succeeds. If consumables or credits then fail, the reservation is refunded so the project waits on a clean slate.
+- **Persisted state** — `LaunchCapacity { current_tonnes, last_updated_sim_seconds }` is stored on the body and persisted through `BodyDivergence::launch_capacity_override`. `DirtyReason::LaunchCapacity` is the dedicated dirty marker; the extract path emits it whenever the body is marked or carries the component.
+
+### UI
+
+- **Top-of-tab readout** in the Shipbuilding workspace's Construction Control tab: `available / cap t launch | +production t/yr`.
+- **Per-project blocker**: a `ReadyForLaunch` project that is short on capacity shows `Awaiting Launch Capacity (available / required t)` rather than a generic state label.
+- The legacy `LaunchCapacityState` resource and the hard-coded `LAUNCH_SITE / SPACE_PORT / ORBITAL_LIFT` constants have been retired; the workspace and the shipbuilding consumer both read the canonical component.
+
+## 9. Cross-References
 
 - `ARCHITECTURE.md` §Colony Management — engineering-level architecture and component list.
 - `docs/design/LOGISTICS_NETWORK.md` — full LocalStockpile / Request / Delivery flow, freighters, shipping-company AI.

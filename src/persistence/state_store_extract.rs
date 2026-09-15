@@ -131,7 +131,7 @@ fn extract_bodies(world: &mut World) -> BTreeMap<BodyKey, BodyDivergence> {
     use crate::astronomy::components::SystemId;
     use crate::colony::components::Colony;
     use crate::economy::components::{
-        DirtyBodies, DirtyReason, LocalStockpile, PlanetResources, Population,
+        DirtyBodies, DirtyReason, LaunchCapacity, LocalStockpile, PlanetResources, Population,
     };
     use crate::plugins::solar_system::CelestialBody;
 
@@ -158,8 +158,9 @@ fn extract_bodies(world: &mut World) -> BTreeMap<BodyKey, BodyDivergence> {
         Option<&Population>,
         Option<&PlanetResources>,
         Option<&LocalStockpile>,
+        Option<&LaunchCapacity>,
     )>();
-    for (entity, body, system, colony, pop, res, stock) in q.iter(world) {
+    for (entity, body, system, colony, pop, res, stock, launch) in q.iter(world) {
         // Skip bodies whose state is the regen default — we
         // only persist *divergences*. The regen chain seeds
         // every body with a `Population { count: 0.0 }` and
@@ -194,10 +195,16 @@ fn extract_bodies(world: &mut World) -> BTreeMap<BodyKey, BodyDivergence> {
         let has_colony = colony.is_some();
         let has_pop = pop.map(|p| p.count > 0.0).unwrap_or(false);
         let has_stockpile = stock.map(|s| !s.stockpiles.is_empty()).unwrap_or(false);
+        // Any launch infrastructure on this body (the regen chain
+        // does not provision `LaunchCapacity`; only the player or a
+        // dirty mark can do so). If the player spent or charged the
+        // body, the divergence must round-trip — otherwise the next
+        // launch after a save/load silently reverts.
+        let has_launch = launch.is_some();
         let dirty_reason = dirty.get(&entity).copied();
         let is_dirty = dirty_reason.is_some();
 
-        if !(has_colony || has_pop || has_stockpile || is_dirty) {
+        if !(has_colony || has_pop || has_stockpile || has_launch || is_dirty) {
             continue;
         }
 
@@ -332,11 +339,104 @@ fn extract_bodies(world: &mut World) -> BTreeMap<BodyKey, BodyDivergence> {
             // radius from the seed on the next run.
         }
 
+        // Launch capacity divergence: any body that
+        // carries a `LaunchCapacity` component has had a
+        // player-driven spend or provisioning — without
+        // a divergence the next launch after a save/load
+        // silently reverts the spend. We always extract
+        // when the component is present; the dirty
+        // marker additionally lets us persist an
+        // intentionally-zero balance for a body the
+        // player has charged and fully consumed.
+        if has_launch
+            || matches!(
+                reason,
+                Some(DirtyReason::LaunchCapacity | DirtyReason::Multiple)
+            )
+        {
+            if let Some(capacity) = launch {
+                if let Ok(v) = serde_json::to_value(capacity) {
+                    div.launch_capacity_override = Some(v);
+                }
+            }
+        }
+
         // Suppress unused-variable lint for `res` so the
         // query tuple still compiles.
         let _ = res;
     }
     out
+}
+
+#[cfg(test)]
+mod launch_extraction_tests {
+    use super::*;
+    use crate::astronomy::components::SystemId;
+    use crate::economy::components::{DirtyBodies, DirtyReason, LaunchCapacity};
+    use crate::plugins::solar_system::CelestialBody;
+    use crate::plugins::solar_system_data::BodyType;
+
+    fn body(name: &str) -> CelestialBody {
+        CelestialBody {
+            name: name.to_string(),
+            radius: 0.0,
+            mass: 0.0,
+            body_type: BodyType::Planet,
+            visual_radius: 0.0,
+            asteroid_class: None,
+            star_approach_au: None,
+            rotation_period_s: None,
+            habitable_outer_au: None,
+        }
+    }
+
+    /// `DirtyReason::LaunchCapacity` must escalate to `Multiple`
+    /// exactly like every other reason, so the extract path
+    /// emits all applicable divergence fields when the body was
+    /// touched for more than one reason.
+    #[test]
+    fn dirty_reason_launch_capacity_escalates_to_multiple() {
+        let mut dirty = DirtyBodies::default();
+        let entity = Entity::from_raw_u32(7).expect("entity bits");
+        dirty.mark(entity, DirtyReason::LaunchCapacity);
+        assert_eq!(dirty.reason(entity), Some(DirtyReason::LaunchCapacity));
+        dirty.mark(entity, DirtyReason::Stockpile);
+        assert_eq!(dirty.reason(entity), Some(DirtyReason::Multiple));
+    }
+
+    /// Bodies that carry a `LaunchCapacity` component are
+    /// extracted even when no other divergence exists. Without
+    /// this the regen chain would re-provision the body with
+    /// its bootstrap charge on the next load and silently
+    /// refund any launches the player made in this session.
+    #[test]
+    fn extract_bodies_includes_launch_capacity_only_bodies() {
+        let mut world = World::new();
+        world.init_resource::<DirtyBodies>();
+
+        world.spawn((
+            body("Earth"),
+            SystemId(0),
+            LaunchCapacity::new(1_500.0, 1_000.0),
+        ));
+
+        let extracted = extract_bodies(&mut world);
+        let key = BodyKey::new(SystemId(0), "Earth".to_string());
+        let div = extracted
+            .get(&key)
+            .expect("launch-only body must be persisted");
+        assert_eq!(
+            div.launch_capacity_override
+                .as_ref()
+                .and_then(|v| v.get("current_tonnes"))
+                .and_then(|v| v.as_f64()),
+            Some(1_500.0)
+        );
+        assert!(
+            div.colony_override.is_none() && div.population_override.is_none(),
+            "launch-only divergence must not carry other fields"
+        );
+    }
 }
 
 // ════════════════════════════════════════════════════════════
@@ -358,6 +458,8 @@ fn extract_surveys(world: &mut World) -> BTreeMap<BodyKey, SurveyDivergence> {
         if survey.dimensions.is_empty()
             && survey.drill_missions_completed == 0
             && survey.detected_anomalies.is_empty()
+            && survey.active_missions.is_empty()
+            && survey.analysis_jobs.is_empty()
         {
             continue;
         }

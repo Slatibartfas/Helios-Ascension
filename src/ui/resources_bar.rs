@@ -1282,6 +1282,7 @@ pub(super) struct ResourceBarPowerQueries<'w, 's> {
         With<crate::plugins::solar_system::Star>,
     >,
     buildings_data: Option<Res<'w, BuildingsData>>,
+    mining_efficiency: Option<Res<'w, crate::survey::MiningEfficiencyRegistry>>,
 }
 
 #[derive(SystemParam)]
@@ -2260,6 +2261,7 @@ pub(super) fn ui_resources_bar(
                 &power_popup_queries.body_query,
                 &power_popup_queries.star_query,
                 power_popup_queries.buildings_data.as_deref(),
+                power_popup_queries.mining_efficiency.as_deref(),
             );
             let power_rows = super::economy_panel::collect_power_body_rows(&hierarchy);
             // Determine color from budget - recalculate here.

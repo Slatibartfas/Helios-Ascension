@@ -103,6 +103,24 @@ pub struct ModderDimensionDef {
     pub description: String,
 }
 
+/// Display metadata for one fixed survey dimension tier.
+#[derive(Debug, Clone, Serialize, Deserialize, Reflect)]
+pub struct SurveyTierDef {
+    pub id: String,
+    pub dimension: SurveyDimension,
+    pub tier: u8,
+    pub description: String,
+    #[serde(default)]
+    pub unlocks: Vec<String>,
+}
+
+/// Tier descriptions and unlock hints keyed by stable RON id.
+#[derive(Resource, Debug, Clone, Default, Serialize, Deserialize, Reflect)]
+#[reflect(Resource)]
+pub struct SurveyTierRegistry {
+    pub tiers: HashMap<String, SurveyTierDef>,
+}
+
 /// Registry of survey instruments. Loaded from
 /// `assets/data/survey/instruments.ron` (PR-B).
 #[derive(Resource, Debug, Clone, Default, Serialize, Deserialize, Reflect)]
@@ -481,6 +499,135 @@ struct AnomaliesFile {
     hardcoded: Vec<AnomalyDef>,
     #[serde(default)]
     modder_anomalies: Vec<ModderAnomalyDef>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct DimensionsFile {
+    #[serde(default)]
+    modder_dimensions: Vec<ModderDimensionDef>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct InstrumentsFile {
+    #[serde(default)]
+    instruments: Vec<SurveyInstrumentDef>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct TierTableFile {
+    #[serde(default)]
+    tier_table: Vec<SurveyTierDef>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct MiningEfficiencyFile {
+    #[serde(default)]
+    rows: Vec<MiningEfficiencyRow>,
+}
+
+/// Load the optional metadata for modder-defined dimensions.
+///
+/// The runtime remains intentionally keyed by the fixed
+/// [`SurveyDimension`] enum; these rows are display metadata only.
+pub fn load_dimensions(mut commands: Commands) {
+    let path = "assets/data/survey/dimensions.ron";
+    let rows = read_ron_file::<DimensionsFile>(path)
+        .map(|file| file.modder_dimensions)
+        .unwrap_or_default();
+    let mut modder_dimensions = HashMap::new();
+    for row in rows {
+        if modder_dimensions.insert(row.id.clone(), row).is_some() {
+            warn!("Duplicate survey dimension id in {path}");
+        }
+    }
+    info!(
+        "Loaded {} survey dimension metadata rows",
+        modder_dimensions.len()
+    );
+    commands.insert_resource(SurveyDimensionRegistry { modder_dimensions });
+}
+
+/// Load physical survey instrument definitions.
+pub fn load_instruments(mut commands: Commands) {
+    let path = "assets/data/survey/instruments.ron";
+    let rows = read_ron_file::<InstrumentsFile>(path)
+        .map(|file| file.instruments)
+        .unwrap_or_default();
+    let mut instruments = HashMap::new();
+    for row in rows {
+        if row.accuracy_tier > super::types::MAX_TIER {
+            warn!(
+                "Survey instrument {:?} has invalid accuracy tier {}",
+                row.id, row.accuracy_tier
+            );
+            continue;
+        }
+        if instruments.insert(row.id.clone(), row).is_some() {
+            warn!("Duplicate survey instrument id in {path}");
+        }
+    }
+    info!("Loaded {} survey instruments", instruments.len());
+    commands.insert_resource(SurveyInstrumentRegistry { instruments });
+}
+
+/// Load player-facing semantics for tiers 0 through 5.
+pub fn load_tiers(mut commands: Commands) {
+    let path = "assets/data/survey/tiers.ron";
+    let rows = read_ron_file::<TierTableFile>(path)
+        .map(|file| file.tier_table)
+        .unwrap_or_default();
+    let mut tiers = HashMap::new();
+    for row in rows {
+        if row.tier > super::types::MAX_TIER {
+            warn!(
+                "Survey tier {:?} is outside 0..={}",
+                row.id,
+                super::types::MAX_TIER
+            );
+            continue;
+        }
+        if tiers.insert(row.id.clone(), row).is_some() {
+            warn!("Duplicate survey tier id in {path}");
+        }
+    }
+    info!("Loaded {} survey tier rows", tiers.len());
+    commands.insert_resource(SurveyTierRegistry { tiers });
+}
+
+/// Load the survey-dependent extraction-efficiency table.
+pub fn load_mining_efficiency(mut commands: Commands) {
+    let path = "assets/data/survey/mining_efficiency.ron";
+    let rows = read_ron_file::<MiningEfficiencyFile>(path)
+        .map(|file| file.rows)
+        .unwrap_or_default();
+    let mut map = HashMap::new();
+    for row in rows {
+        if row.min_tier > super::types::MAX_TIER || !(0.0..=1.0).contains(&row.efficiency_pct) {
+            warn!("Ignoring invalid mining-efficiency row {:?}", row.id);
+            continue;
+        }
+        if map.insert(row.id.clone(), row).is_some() {
+            warn!("Duplicate mining-efficiency id in {path}");
+        }
+    }
+    info!("Loaded {} survey mining-efficiency rows", map.len());
+    commands.insert_resource(MiningEfficiencyRegistry { rows: map });
+}
+
+fn read_ron_file<T: for<'de> Deserialize<'de>>(path: &str) -> Option<T> {
+    match fs::read_to_string(path) {
+        Ok(contents) => match ron::from_str(&contents) {
+            Ok(file) => Some(file),
+            Err(error) => {
+                warn!("Failed to parse {path}: {error}");
+                None
+            }
+        },
+        Err(error) => {
+            warn!("Could not read {path}: {error}");
+            None
+        }
+    }
 }
 
 /// System to load anomaly definitions from `assets/data/survey/anomalies.ron`

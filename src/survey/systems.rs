@@ -38,12 +38,14 @@ use super::events::{
 };
 use super::types::{
     axis_advance_rate_for_tier, mining_yield_delta_for_tier, AnomalyType, FailureKind, FailureMode,
-    MissionFailureReason, MissionStatus, SurveyDimension, SurveyMethod, MAX_TIER,
-    SURVEY_DAYS_PER_YEAR,
+    MissionFailureReason, MissionStatus, SurveyDimension, SurveyMethod, INITIAL_CONFIDENCE,
+    MAX_TIER, SURVEY_DAYS_PER_YEAR,
 };
 use crate::colony::types::BuildingType;
 use crate::economy::components::SurveyLevel;
+use crate::fleets::{Fleet, FleetMovementLock, FleetOrbit};
 use crate::personnel::components::Scientist;
+use crate::personnel::types::ScientistId;
 use crate::plugins::solar_system::{Asteroid, CelestialBody, GasGiant};
 
 /// Default injury duration in sim-days, per
@@ -91,9 +93,248 @@ pub fn decay_survey_confidence(world: &mut World) {
     let _ = world;
 }
 
-/// Drive the analysis queue. No-op in PR-A; wired up in PR-C.
+/// Advance mission datasets through scientific analysis.
+///
+/// Field missions collect observations first; their body fidelity is changed
+/// only after enough eligible analysts interpret those observations. Jobs
+/// auto-assign idle, uninjured scientists deterministically (best specialty
+/// and seniority fit first) and remain queued when the required team is not
+/// available. This is deliberately location-agnostic until laboratories and
+/// returned sample cargo have authoritative ECS locations.
 pub fn process_analysis_queue(world: &mut World) {
-    let _ = world;
+    let sim_time = world.resource::<SimulationTime>().elapsed_seconds();
+    let body_entities: Vec<Entity> = {
+        let mut query = world.query::<(Entity, &SurveyState)>();
+        query
+            .iter(world)
+            .filter_map(|(body, state)| (!state.analysis_jobs.is_empty()).then_some(body))
+            .collect()
+    };
+
+    for body in body_entities {
+        process_analysis_jobs_on_body(body, sim_time, world);
+    }
+}
+
+fn process_analysis_jobs_on_body(body: Entity, sim_time: f64, world: &mut World) {
+    let job_ids: Vec<u64> = world
+        .get::<SurveyState>(body)
+        .map(|state| state.analysis_jobs.iter().map(|job| job.id).collect())
+        .unwrap_or_default();
+
+    for job_id in job_ids {
+        let job_snapshot = world
+            .get::<SurveyState>(body)
+            .and_then(|state| state.analysis_jobs.iter().find(|job| job.id == job_id))
+            .cloned();
+        let Some(job_snapshot) = job_snapshot else {
+            continue;
+        };
+        if job_snapshot.completed_sim_time.is_some() {
+            continue;
+        }
+
+        let assigned = select_analysis_team(world, &job_snapshot, sim_time);
+        if assigned.len() < job_snapshot.required_scientists as usize {
+            continue;
+        }
+        bind_analysis_team(world, job_id, &assigned);
+
+        let team_multiplier = analysis_team_multiplier(world, &assigned, job_snapshot.method);
+        let completed = {
+            let Some(mut state) = world.get_mut::<SurveyState>(body) else {
+                continue;
+            };
+            let Some(job) = state.analysis_jobs.iter_mut().find(|job| job.id == job_id) else {
+                continue;
+            };
+            // Assignments are best-effort persistence metadata. Rebuild them
+            // from the live roster after restore rather than trusting stale
+            // scientist IDs from a prior world.
+            job.assigned_scientists = assigned.clone();
+            let elapsed_days = ((sim_time - job.last_advanced_sim_time).max(0.0)) / 86_400.0;
+            job.work_completed_days += elapsed_days * team_multiplier as f64;
+            let required = job.work_required_days.max(1.0);
+            job.progress = (job.work_completed_days / required).clamp(0.0, 1.0) as f32;
+            job.last_advanced_sim_time = sim_time;
+            job.progress >= 1.0
+        };
+
+        if completed {
+            complete_analysis_job(body, job_id, sim_time, world);
+        }
+    }
+}
+
+fn select_analysis_team(
+    world: &mut World,
+    job: &super::components::AnalysisJob,
+    sim_time: f64,
+) -> Vec<ScientistId> {
+    if job.required_scientists == 0 {
+        return Vec::new();
+    }
+    let mut scientists: Vec<(ScientistId, bool, f32)> = {
+        let mut query = world.query::<&Scientist>();
+        query
+            .iter(world)
+            .filter(|scientist| {
+                scientist.current_analysis.is_none_or(|id| id == job.id)
+                    && scientist.current_survey_mission.is_none()
+                    && !scientist.is_injured(sim_time)
+            })
+            .map(|scientist| {
+                (
+                    scientist.id,
+                    scientist.specialty.matches_method(job.method),
+                    scientist.seniority.throughput_multiplier(),
+                )
+            })
+            .collect()
+    };
+    scientists.sort_by(|left, right| {
+        right
+            .1
+            .cmp(&left.1)
+            .then_with(|| right.2.total_cmp(&left.2))
+            .then_with(|| left.0.cmp(&right.0))
+    });
+    scientists
+        .into_iter()
+        .take(job.required_scientists as usize)
+        .map(|(id, _, _)| id)
+        .collect()
+}
+
+fn bind_analysis_team(world: &mut World, job_id: u64, scientist_ids: &[ScientistId]) {
+    if scientist_ids.is_empty() {
+        return;
+    }
+    let mut query = world.query::<&mut Scientist>();
+    for mut scientist in query.iter_mut(world) {
+        if scientist_ids.contains(&scientist.id) {
+            scientist.current_analysis = Some(job_id);
+        }
+    }
+}
+
+fn analysis_team_multiplier(
+    world: &mut World,
+    scientist_ids: &[ScientistId],
+    method: SurveyMethod,
+) -> f32 {
+    if scientist_ids.is_empty() {
+        return 1.0;
+    }
+    let mut query = world.query::<&Scientist>();
+    let mut total = 0.0;
+    let mut count = 0u32;
+    for scientist in query.iter(world) {
+        if scientist_ids.contains(&scientist.id) {
+            let specialty = if scientist.specialty.matches_method(method) {
+                scientist.specialty.match_multiplier()
+            } else {
+                scientist.specialty.mismatch_multiplier()
+            };
+            total += scientist.seniority.throughput_multiplier() * specialty;
+            count += 1;
+        }
+    }
+    if count == 0 {
+        1.0
+    } else {
+        total / count as f32
+    }
+}
+
+fn complete_analysis_job(body: Entity, job_id: u64, sim_time: f64, world: &mut World) {
+    let Some(job) = world.get_mut::<SurveyState>(body).and_then(|mut state| {
+        let index = state
+            .analysis_jobs
+            .iter()
+            .position(|job| job.id == job_id)?;
+        Some(state.analysis_jobs.remove(index))
+    }) else {
+        return;
+    };
+
+    let confidence_multiplier = analysis_confidence_multiplier(world, &job.assigned_scientists);
+    let mut completed_mission: Option<(u64, String, SurveyMethod)> = None;
+    if let Some(mut state) = world.get_mut::<SurveyState>(body) {
+        for (dimension, target_tier) in &job.target_tiers {
+            let current = state.fidelity(*dimension);
+            let tier = current.tier.max(
+                (*target_tier)
+                    .min(job.instrument_accuracy_tier)
+                    .min(MAX_TIER),
+            );
+            state.set_fidelity(
+                *dimension,
+                DimensionFidelity::at_tier(
+                    tier,
+                    (INITIAL_CONFIDENCE * confidence_multiplier).clamp(current.confidence, 1.0),
+                    Some(sim_time),
+                ),
+            );
+        }
+        if let Some(source_mission) = job.source_mission {
+            if let Some(mission) = state
+                .active_missions
+                .iter_mut()
+                .find(|mission| mission.id == source_mission)
+            {
+                mission.status = MissionStatus::Succeeded;
+                mission.completed_sim_time = Some(sim_time);
+                completed_mission = Some((mission.id, mission.name.clone(), mission.method));
+                if mission.method == SurveyMethod::Drill {
+                    state.record_drill_mission_completed();
+                }
+            }
+        }
+        state.total_science_points_invested += job.work_required_days.max(0.0);
+    }
+
+    award_analysis_xp(world, &job);
+    if let Some((mission_id, name, method)) = completed_mission {
+        world.write_message(SurveyEvent::MissionCompleted {
+            body,
+            mission_id,
+            name,
+            method,
+        });
+    }
+}
+
+fn analysis_confidence_multiplier(world: &mut World, scientist_ids: &[ScientistId]) -> f32 {
+    if scientist_ids.is_empty() {
+        return 1.0;
+    }
+    let mut query = world.query::<&Scientist>();
+    let multipliers: Vec<f32> = query
+        .iter(world)
+        .filter(|scientist| scientist_ids.contains(&scientist.id))
+        .map(|scientist| scientist.seniority.confidence_multiplier())
+        .collect();
+    if multipliers.is_empty() {
+        1.0
+    } else {
+        multipliers.iter().sum::<f32>() / multipliers.len() as f32
+    }
+}
+
+fn award_analysis_xp(world: &mut World, job: &super::components::AnalysisJob) {
+    if job.assigned_scientists.is_empty() {
+        return;
+    }
+    let data_per_scientist = (job.work_required_days.max(0.0) * DATA_PER_AXIS_DAY_MB)
+        / job.assigned_scientists.len() as f64;
+    let mut query = world.query::<&mut Scientist>();
+    for mut scientist in query.iter_mut(world) {
+        if job.assigned_scientists.contains(&scientist.id) {
+            scientist.lifetime_data_processed += data_per_scientist;
+            scientist.current_analysis = None;
+        }
+    }
 }
 
 /// Per-tick detection roll + confidence ramp + activation/refutation.
@@ -302,6 +543,224 @@ pub fn update_survey_summary(world: &mut World) {
     let _ = world;
 }
 
+/// Synchronize fleet-bound survey missions with the existing player-operated
+/// fleet transfer system.
+///
+/// Dispatch only reserves a named fleet. A mission remains `Queued` while its
+/// fleet is parked elsewhere and `Inflight` while the fleet has no stable
+/// parking orbit. Only a `FleetOrbit` at the target starts field collection.
+/// Sample-return work follows the same rule in reverse: analysis is queued
+/// only after the same fleet reaches the recorded research laboratory.
+pub fn sync_survey_fleet_lifecycle(world: &mut World) {
+    let sim_time = world.resource::<SimulationTime>().elapsed_seconds();
+    let missions: Vec<(
+        Entity,
+        u64,
+        String,
+        MissionStatus,
+        SurveyMethod,
+        Option<super::components::SampleReturnState>,
+    )> = {
+        let mut query = world.query::<(Entity, &SurveyState)>();
+        query
+            .iter(world)
+            .flat_map(|(body, state)| {
+                state.active_missions.iter().filter_map(move |mission| {
+                    mission.assigned_fleet_name.as_ref().map(|fleet_name| {
+                        (
+                            body,
+                            mission.id,
+                            fleet_name.clone(),
+                            mission.status,
+                            mission.method,
+                            mission.sample_return.clone(),
+                        )
+                    })
+                })
+            })
+            .collect()
+    };
+
+    for (body, mission_id, fleet_name, status, _method, sample_return) in missions {
+        let fleet_location = {
+            let mut query = world.query::<(Entity, &Fleet, Option<&FleetOrbit>)>();
+            query
+                .iter(world)
+                .find(|(_, fleet, _)| fleet.name == fleet_name)
+                .map(|(entity, _, orbit)| (entity, orbit.copied()))
+        };
+        let Some((fleet_entity, orbit)) = fleet_location else {
+            continue;
+        };
+
+        if status == MissionStatus::AwaitingReturn {
+            let Some(return_state) = sample_return else {
+                continue;
+            };
+            let at_laboratory = orbit
+                .filter(|orbit| {
+                    body_matches_named_system(
+                        world,
+                        orbit.body,
+                        &return_state.laboratory_body_name,
+                        return_state.laboratory_system_id,
+                    )
+                })
+                .is_some();
+            if !at_laboratory {
+                continue;
+            }
+            enqueue_returned_sample_analysis(body, mission_id, sim_time, world);
+            continue;
+        }
+
+        if !matches!(status, MissionStatus::Queued | MissionStatus::Inflight) {
+            continue;
+        }
+        let at_target = orbit.map(|orbit| orbit.body == body).unwrap_or(false);
+        if at_target {
+            if let Some(mut state) = world.get_mut::<SurveyState>(body) {
+                if let Some(mission) = state
+                    .active_missions
+                    .iter_mut()
+                    .find(|mission| mission.id == mission_id)
+                {
+                    mission.status = MissionStatus::Active;
+                    mission.collection_started_sim_time = Some(sim_time);
+                    mission.launched_sim_time = sim_time;
+                    let duration = mission.total_duration_seconds();
+                    mission.expected_completion_sim_time = sim_time + duration;
+                }
+            }
+            world
+                .entity_mut(fleet_entity)
+                .insert(FleetMovementLock { mission_id });
+        } else if orbit.is_none() && status == MissionStatus::Queued {
+            if let Some(mut state) = world.get_mut::<SurveyState>(body) {
+                if let Some(mission) = state
+                    .active_missions
+                    .iter_mut()
+                    .find(|mission| mission.id == mission_id)
+                {
+                    mission.status = MissionStatus::Inflight;
+                }
+            }
+        }
+    }
+}
+
+/// True when `body` carries the given display name in the given star system.
+fn body_matches_named_system(world: &World, body: Entity, name: &str, system_id: usize) -> bool {
+    world
+        .get_entity(body)
+        .ok()
+        .and_then(|entity| {
+            Some((
+                entity.get::<CelestialBody>()?.name == name,
+                entity.get::<crate::astronomy::components::SystemId>()?.0 == system_id,
+            ))
+        })
+        .is_some_and(|(same_name, same_system)| same_name && same_system)
+}
+
+/// Queue the lab analysis for a returned sample and hand the mission over to
+/// the ordinary analysis queue.
+fn enqueue_returned_sample_analysis(
+    body: Entity,
+    mission_id: u64,
+    sim_time: f64,
+    world: &mut World,
+) {
+    let mission = world
+        .get::<SurveyState>(body)
+        .and_then(|state| {
+            state
+                .active_missions
+                .iter()
+                .find(|mission| mission.id == mission_id)
+        })
+        .cloned();
+    let Some(mission) = mission else {
+        return;
+    };
+    if mission.status != MissionStatus::AwaitingReturn {
+        return;
+    }
+    let Some(template) = world
+        .resource::<super::data::SurveyMissionTemplates>()
+        .templates
+        .get(&mission.template_id)
+        .cloned()
+    else {
+        return;
+    };
+    // Resolve the instrument's parameters up front so the immutable
+    // registry borrow ends before `next_analysis_job_id` takes `world`.
+    let (accuracy_tier, required_scientists) = world
+        .get_resource::<super::data::SurveyInstrumentRegistry>()
+        .and_then(|registry| registry.instruments.get(&template.instrument_id))
+        .map(|entry| (entry.accuracy_tier, entry.scientist_requirement))
+        .unwrap_or((MAX_TIER, 0));
+    let job = super::components::AnalysisJob {
+        id: next_analysis_job_id(world),
+        source_mission: Some(mission.id),
+        target_tiers: template.target_tiers.clone(),
+        instrument_accuracy_tier: accuracy_tier,
+        required_scientists,
+        assigned_scientists: Vec::new(),
+        label: format!("Analyze returned sample: {}", mission.name),
+        method: mission.method,
+        enqueued_sim_time: sim_time,
+        completed_sim_time: None,
+        progress: 0.0,
+        work_required_days: (template.base_duration_days as f64 * 0.10).max(30.0),
+        work_completed_days: 0.0,
+        last_advanced_sim_time: sim_time,
+        anomaly_flagged: None,
+    };
+    if let Some(mut state) = world.get_mut::<SurveyState>(body) {
+        if let Some(mission) = state
+            .active_missions
+            .iter_mut()
+            .find(|mission| mission.id == mission_id)
+        {
+            mission.status = MissionStatus::AwaitingAnalysis;
+            if let Some(return_state) = mission.sample_return.as_mut() {
+                return_state.delivered_sim_time = Some(sim_time);
+            }
+            state.analysis_jobs.push(job);
+        }
+    }
+}
+
+/// Release the movement lock held by a mission's assigned fleet.
+pub(crate) fn release_survey_fleet_lock(world: &mut World, mission: &ActiveSurveyMission) {
+    let Some(fleet_name) = mission.assigned_fleet_name.as_ref() else {
+        return;
+    };
+    let fleet = {
+        let mut query = world.query::<(Entity, &Fleet)>();
+        query
+            .iter(world)
+            .find(|(_, fleet)| &fleet.name == fleet_name)
+            .map(|(entity, _)| entity)
+    };
+    if let Some(entity) = fleet {
+        world.entity_mut(entity).remove::<FleetMovementLock>();
+    }
+}
+
+/// Next unused analysis-job id for the body that owns `world`'s jobs.
+fn next_analysis_job_id(world: &mut World) -> u64 {
+    let mut query = world.query::<&SurveyState>();
+    let max_id = query
+        .iter(world)
+        .flat_map(|state| state.analysis_jobs.iter().map(|job| job.id))
+        .max()
+        .unwrap_or(0);
+    max_id + 1
+}
+
 /// Tick active survey missions.
 ///
 /// One Update pass per frame. For each `SurveyState`, the system:
@@ -356,6 +815,10 @@ pub fn advance_survey_missions(world: &mut World) {
                         // `Inflight` on the next pass.
                         state.active_missions[idx].status = MissionStatus::Inflight;
                     }
+                    // Field collection and sample return are
+                    // driven by `sync_survey_fleet_lifecycle`, not
+                    // by the elapsed-time tick. They stay put here.
+                    MissionStatus::AwaitingAnalysis | MissionStatus::AwaitingReturn => {}
                     MissionStatus::Inflight | MissionStatus::Active => {
                         advance_mission_progress(&mut state.active_missions[idx], sim_time);
                         if state.active_missions[idx].axes_saturated() {
@@ -663,6 +1126,11 @@ fn finalize_mission(
                 .iter()
                 .map(|dim| (*dim, promote_axis(pre_mission_tiers, *dim, sim_time)))
                 .collect();
+
+            // The deployed asset is released once collection ends; the
+            // assignment itself stays recorded on the mission so the
+            // dossier can still show which fleet flew it.
+            release_survey_fleet_lock(world, mission);
 
             // Award XP and clear the scientists' mission assignment.
             let duration_days = mission.total_duration_seconds() / 86_400.0;
@@ -1034,6 +1502,9 @@ fn dispatch_recovery_mission(
         // `dismissed` flag is reset for the fresh mission.
         completed_sim_time: None,
         dismissed: false,
+        assigned_fleet_name: None,
+        collection_started_sim_time: None,
+        sample_return: None,
     };
     let new_id = recovery.id;
     let new_name = recovery.name.clone();
@@ -1191,6 +1662,55 @@ pub fn dispatch_survey_mission(world: &mut World) {
             });
             continue;
         }
+        // Fleet-scoped gate: the player must name a real fleet, and that
+        // fleet must not already be reserved by another in-progress
+        // mission on this body. This mirrors the physical binding the
+        // mission lifecycle depends on and prevents two missions from
+        // sharing one deployed asset.
+        if let Some(fleet_entity) = ev.fleet {
+            let fleet_name = {
+                let mut query = world.query::<(Entity, &Fleet)>();
+                query
+                    .iter(world)
+                    .find(|(entity, _)| *entity == fleet_entity)
+                    .map(|(_, fleet)| fleet.name.clone())
+            };
+            match fleet_name {
+                None => {
+                    world.write_message(SurveyEvent::MissionLaunchBlocked {
+                        body: ev.body,
+                        mission_id: 0,
+                        name: ev.name.clone(),
+                        method: template.method,
+                        reason: MissionLaunchReason::NoShipAvailable,
+                    });
+                    continue;
+                }
+                Some(fleet_name) => {
+                    let already_reserved = {
+                        let mut query = world.query::<&SurveyState>();
+                        query.iter(world).any(|state| {
+                            state.active_missions.iter().any(|mission| {
+                                mission.status.is_in_progress()
+                                    && mission.assigned_fleet_name.as_deref()
+                                        == Some(fleet_name.as_str())
+                            })
+                        })
+                    };
+                    if already_reserved {
+                        world.write_message(SurveyEvent::MissionLaunchBlocked {
+                            body: ev.body,
+                            mission_id: 0,
+                            name: ev.name.clone(),
+                            method: template.method,
+                            reason: MissionLaunchReason::NoShipAvailable,
+                        });
+                        continue;
+                    }
+                }
+            }
+        }
+
         if let Some(required_hull) = template.requires_ship_class.as_deref() {
             let available = count_ships_with_hull_class(world, required_hull);
             if available < template.requires_min_ship_count {
@@ -1326,6 +1846,11 @@ pub fn dispatch_survey_mission(world: &mut World) {
             // PR-F (GRA-117): new dispatch starts in-flight.
             completed_sim_time: None,
             dismissed: false,
+            assigned_fleet_name: ev
+                .fleet
+                .and_then(|fleet| world.get::<Fleet>(fleet).map(|f| f.name.clone())),
+            collection_started_sim_time: None,
+            sample_return: None,
         };
         let mission_id = mission.id;
         let method = mission.method;
@@ -1360,44 +1885,10 @@ pub fn dispatch_survey_mission(world: &mut World) {
     }
 }
 
-/// GRA-120: Count entities at `body` whose hull class matches
-/// `hull_class_id`. The body→hull inventory is a coarse best-
-/// effort match: any ship in the world whose `ShipTemplateRef`'s
-/// `template_id` equals the requested hull id counts. Body-relative
-/// scoping (i.e. "ships at the body's starmap location") is not
-/// yet tracked in the ECS — the body location concept lives on
-/// `Fleet::orbit_body`, not on individual ship entities. The
-/// follow-on LGD RON edit that wires per-body ship inventories
-/// will tighten this check; the minimum bar for this PR is that
-/// the gate is in place and the event is emitted when the count
-/// falls short.
-///
-/// Returns `0` if the registry is empty (no `ShipTemplateRef`
-/// entities in the world), so a fresh game-state with no
-/// freighters yet reports the gate as unsatisfied rather than
-/// silently passing.
-///
-/// # TODO(follow-on to GRA-120)
-/// Tighten this to a body-scoped count: filter `ShipTemplateRef`
-/// entities by the fleet-orbit relation (`Fleet::orbit_body` for
-/// the dispatch target). The follow-on LGD RON edit that adds
-/// `requires_ship_class` per template should land in the same
-/// pass so the gate and its inputs evolve together. Until then
-/// the rustdoc on `MissionLaunchReason::NoShipAvailable` reflects
-/// the world-wide semantics.
-fn count_ships_with_hull_class(world: &mut World, hull_class_id: &str) -> u32 {
-    // Bevy 0.18: `World::query` takes `&mut self` because the
-    // query borrows the world for its lifetime. The dispatch
-    // system already runs with `&mut World`, so we thread the
-    // mutable borrow through. (See [[helios-bevy-018-world-get-vs-query]]
-    // — the same constraint applies to `QueryState::get(world, entity)`.)
-    let mut q = world.query::<&crate::ships::ShipTemplateRef>();
-    let count = q
-        .iter(world)
-        .filter(|ship_ref| ship_ref.template_id == hull_class_id)
-        .count();
-    count as u32
-}
+// GRA-120: legacy world-wide ship gate kept for diagnostic
+// compatibility but no longer wired into dispatch. The fleet-
+// scoped check in `dispatch_survey_mission` filters the player-
+// selected fleet's ships by hull id and supersedes this helper.
 
 /// Consume [`AbortSurveyMission`] events: remove the mission from
 /// the body's `active_missions`, free any assigned scientists,
@@ -2043,6 +2534,20 @@ fn generate_extraction_sites(body: &CelestialBody) -> Vec<ExtractionSite> {
         .collect()
 }
 
+fn count_ships_with_hull_class(world: &mut World, hull_class_id: &str) -> u32 {
+    // Bevy 0.18: `World::query` takes `&mut self` because the
+    // query borrows the world for its lifetime. The dispatch
+    // system already runs with `&mut World`, so we thread the
+    // mutable borrow through. (See [[helios-bevy-018-world-get-vs-query]]
+    // â€” the same constraint applies to `QueryState::get(world, entity)`.)
+    let mut q = world.query::<&crate::ships::ShipTemplateRef>();
+    let count = q
+        .iter(world)
+        .filter(|ship_ref| ship_ref.template_id == hull_class_id)
+        .count();
+    count as u32
+}
+
 #[cfg(test)]
 mod tests {
     //! Unit tests for the mission lifecycle. See
@@ -2050,8 +2555,15 @@ mod tests {
     //! rationale and the per-method failure probabilities.
 
     use super::*;
+    use crate::astronomy::components::SystemId;
+    use crate::colony::Colony;
     use crate::economy::generation::ProceduralRng;
+    use crate::fleets::ShipInfo;
     use crate::personnel::types::ScientistSpecialty;
+    use crate::plugins::solar_system_data::BodyType;
+    use crate::survey::data::{
+        SurveyInstrumentDef, SurveyInstrumentRegistry, SurveyMissionTemplates,
+    };
     use rand::SeedableRng;
 
     fn sim_time() -> f64 {
@@ -2088,6 +2600,9 @@ mod tests {
             // PR-F (GRA-117): test fixtures start in-flight.
             completed_sim_time: None,
             dismissed: false,
+            assigned_fleet_name: None,
+            collection_started_sim_time: None,
+            sample_return: None,
         }
     }
 
@@ -2315,6 +2830,7 @@ mod tests {
             template_id: "flyby_recon".to_string(),
             name: "Mare Imbrium 1".to_string(),
             scientist_ids: vec![99],
+            fleet: None,
         });
 
         // Bevy 0.18 `Messages<E>` uses a double-buffer; in
@@ -2456,6 +2972,7 @@ mod tests {
             template_id: "flyby_recon".to_string(),
             name: "Mixed Team 1".to_string(),
             scientist_ids: vec![99, 100],
+            fleet: None,
         });
 
         // Bevy 0.18 `Messages<E>` uses a double-buffer; in
@@ -2553,8 +3070,7 @@ mod tests {
     // ---- PR-D landing/extraction site evaluation tests ----
 
     use crate::colony::types::BuildingType;
-    use crate::plugins::solar_system::CelestialBody;
-    use crate::plugins::solar_system_data::{AsteroidClass, BodyType};
+    use crate::plugins::solar_system_data::AsteroidClass;
 
     fn body(name: &str, body_type: BodyType) -> CelestialBody {
         CelestialBody {
@@ -3824,6 +4340,344 @@ mod tests {
         assert_eq!(
             s.failed_mission_notifications.last().unwrap().mission_id,
             (MAX_FAILED_MISSION_NOTIFICATIONS + 2) as u64
+        );
+    }
+
+    // ─────────────────────────────────────────────────────────────────
+    // Fleet-bound survey lifecycle (PR-L / GRA-168).
+    // ─────────────────────────────────────────────────────────────────
+
+    fn make_research_fleet(world: &mut World, name: &str, home: Entity) -> Entity {
+        let mut fleet = Fleet::new(name.to_string());
+        fleet.ships.push(ShipInfo::new(
+            "Probe-1".to_string(),
+            crate::fleets::ShipClass::ResearchVessel,
+            crate::fleets::PropulsionType::Chemical,
+        ));
+        world.spawn((fleet, FleetOrbit::new(home, 0.05))).id()
+    }
+
+    fn make_body_with_colony(
+        world: &mut World,
+        name: &str,
+        system_id: usize,
+        include_research_lab: bool,
+    ) -> Entity {
+        let body = world
+            .spawn((
+                CelestialBody {
+                    name: name.to_string(),
+                    radius: 1.0,
+                    mass: 1.0,
+                    body_type: BodyType::Planet,
+                    visual_radius: 1.0,
+                    asteroid_class: None,
+                    star_approach_au: None,
+                    rotation_period_s: None,
+                    habitable_outer_au: None,
+                },
+                SystemId(system_id),
+                SurveyState::default(),
+            ))
+            .id();
+        if include_research_lab {
+            let mut colony = Colony::new_civilisation(name.to_string(), 0.0);
+            colony.add_building(BuildingType::ResearchLab);
+            world.entity_mut(body).insert(colony);
+        } else {
+            world
+                .entity_mut(body)
+                .insert(Colony::new(name.to_string(), 0.0));
+        }
+        body
+    }
+
+    fn insert_flyby_template(world: &mut World) {
+        let template = SurveyMissionTemplate {
+            id: "flyby_recon".to_string(),
+            display_name: "Flyby".to_string(),
+            method: SurveyMethod::Flyby,
+            instrument_id: "passive_sensor_array".to_string(),
+            target_tiers: HashMap::from([(SurveyDimension::OrbitalMech, 1)]),
+            base_duration_days: 365,
+            axis_yield_per_day: 1.0,
+            is_ground_team: false,
+            failure_modes: Vec::new(),
+            requires_ship_class: None,
+            requires_min_ship_count: 1,
+            min_assigned_scientists: 0,
+        };
+        world
+            .resource_mut::<SurveyMissionTemplates>()
+            .templates
+            .insert("flyby_recon".to_string(), template);
+        world
+            .resource_mut::<SurveyInstrumentRegistry>()
+            .instruments
+            .insert(
+                "passive_sensor_array".to_string(),
+                SurveyInstrumentDef {
+                    id: "passive_sensor_array".to_string(),
+                    display_name: "Passive Sensor Array".to_string(),
+                    description: String::new(),
+                    method: SurveyMethod::Flyby,
+                    required_tech: None,
+                    base_duration_days: 365,
+                    scientist_requirement: 0,
+                    accuracy_tier: 1,
+                    produces_anomalies: false,
+                },
+            );
+    }
+
+    fn insert_sample_return_template(world: &mut World) {
+        let template = SurveyMissionTemplate {
+            id: "sample_return".to_string(),
+            display_name: "Sample Return".to_string(),
+            method: SurveyMethod::SampleReturn,
+            instrument_id: "sample_return_capsule".to_string(),
+            target_tiers: HashMap::from([
+                (SurveyDimension::MineralDeposits, 5),
+                (SurveyDimension::MineralClasses, 4),
+            ]),
+            base_duration_days: 1095,
+            axis_yield_per_day: 0.5,
+            is_ground_team: true,
+            failure_modes: Vec::new(),
+            requires_ship_class: None,
+            requires_min_ship_count: 1,
+            min_assigned_scientists: 1,
+        };
+        world
+            .resource_mut::<SurveyMissionTemplates>()
+            .templates
+            .insert("sample_return".to_string(), template);
+        world
+            .resource_mut::<SurveyInstrumentRegistry>()
+            .instruments
+            .insert(
+                "sample_return_capsule".to_string(),
+                SurveyInstrumentDef {
+                    id: "sample_return_capsule".to_string(),
+                    display_name: "Sample Return Capsule".to_string(),
+                    description: String::new(),
+                    method: SurveyMethod::SampleReturn,
+                    required_tech: None,
+                    base_duration_days: 1095,
+                    scientist_requirement: 1,
+                    accuracy_tier: 5,
+                    produces_anomalies: false,
+                },
+            );
+    }
+
+    fn make_sample_return_mission(fleet_name: &str, lab_name: &str) -> ActiveSurveyMission {
+        ActiveSurveyMission {
+            id: 7,
+            name: "Mars Sample".to_string(),
+            method: SurveyMethod::SampleReturn,
+            status: MissionStatus::AwaitingReturn,
+            launched_sim_time: 0.0,
+            expected_completion_sim_time: 86_400.0,
+            progress: 0.0,
+            per_axis_progress: HashMap::new(),
+            axis_yield_per_day: 1.0,
+            assigned_scientists: Vec::new(),
+            recover_of: None,
+            template_id: "sample_return".to_string(),
+            completed_sim_time: None,
+            dismissed: false,
+            assigned_fleet_name: Some(fleet_name.to_string()),
+            collection_started_sim_time: Some(sim_time()),
+            sample_return: Some(super::super::components::SampleReturnState {
+                laboratory_body_name: lab_name.to_string(),
+                laboratory_system_id: 0,
+                collected_sim_time: Some(sim_time()),
+                delivered_sim_time: None,
+            }),
+        }
+    }
+
+    #[test]
+    fn dispatch_requires_fleet_and_reserves_it() {
+        let mut world = World::new();
+        world.init_resource::<SimulationTime>();
+        world.init_resource::<ProceduralRng>();
+        world.init_resource::<SurveyMissionTemplates>();
+        world.init_resource::<SurveyInstrumentRegistry>();
+        world.init_resource::<Messages<SurveyEvent>>();
+        world.init_resource::<Messages<DispatchSurveyMission>>();
+        insert_flyby_template(&mut world);
+        let earth = make_body_with_colony(&mut world, "Earth", 0, true);
+        let fleet_entity = make_research_fleet(&mut world, "DOC-1", earth);
+
+        // First dispatch succeeds and binds the fleet.
+        world.write_message(DispatchSurveyMission {
+            body: earth,
+            template_id: "flyby_recon".to_string(),
+            name: "Earth Mission 1".to_string(),
+            scientist_ids: vec![],
+            fleet: Some(fleet_entity),
+        });
+        world
+            .resource_mut::<Messages<DispatchSurveyMission>>()
+            .update();
+        dispatch_survey_mission(&mut world);
+        let state = world.get::<SurveyState>(earth).unwrap();
+        assert_eq!(state.active_missions.len(), 1);
+        let mission = &state.active_missions[0];
+        assert_eq!(mission.assigned_fleet_name.as_deref(), Some("DOC-1"));
+        assert_eq!(mission.status, MissionStatus::Queued);
+
+        // Second dispatch with the same fleet is rejected.
+        world.write_message(DispatchSurveyMission {
+            body: earth,
+            template_id: "flyby_recon".to_string(),
+            name: "Earth Mission 2".to_string(),
+            scientist_ids: vec![],
+            fleet: Some(fleet_entity),
+        });
+        world
+            .resource_mut::<Messages<DispatchSurveyMission>>()
+            .update();
+        dispatch_survey_mission(&mut world);
+        let state = world.get::<SurveyState>(earth).unwrap();
+        assert_eq!(state.active_missions.len(), 1);
+    }
+
+    #[test]
+    fn arrival_at_target_locks_fleet_and_starts_collection() {
+        let mut world = World::new();
+        world.init_resource::<SimulationTime>();
+        world.init_resource::<ProceduralRng>();
+        world.init_resource::<SurveyMissionTemplates>();
+        world.init_resource::<SurveyInstrumentRegistry>();
+        world.init_resource::<Messages<SurveyEvent>>();
+        world.init_resource::<Messages<DispatchSurveyMission>>();
+        insert_flyby_template(&mut world);
+        let earth = make_body_with_colony(&mut world, "Earth", 0, true);
+        let mars = make_body_with_colony(&mut world, "Mars", 0, true);
+        let fleet_entity = make_research_fleet(&mut world, "DOC-2", earth);
+
+        world.write_message(DispatchSurveyMission {
+            body: mars,
+            template_id: "flyby_recon".to_string(),
+            name: "Mars Mission 1".to_string(),
+            scientist_ids: vec![],
+            fleet: Some(fleet_entity),
+        });
+        world
+            .resource_mut::<Messages<DispatchSurveyMission>>()
+            .update();
+        dispatch_survey_mission(&mut world);
+
+        // While the fleet remains parked at Earth, the mission stays Queued.
+        sync_survey_fleet_lifecycle(&mut world);
+        let state = world.get::<SurveyState>(mars).unwrap();
+        assert_eq!(state.active_missions[0].status, MissionStatus::Queued);
+        assert!(world.get::<FleetMovementLock>(fleet_entity).is_none());
+
+        // Move the fleet to Mars — collection starts and the lock appears.
+        world
+            .entity_mut(fleet_entity)
+            .insert(FleetOrbit::new(mars, 0.05));
+        sync_survey_fleet_lifecycle(&mut world);
+        let state = world.get::<SurveyState>(mars).unwrap();
+        assert_eq!(state.active_missions[0].status, MissionStatus::Active);
+        assert!(state.active_missions[0]
+            .collection_started_sim_time
+            .is_some());
+        assert!(world.get::<FleetMovementLock>(fleet_entity).is_some());
+
+        // The lock keeps the fleet's `FleetOrbit`; while the lock is in
+        // place the player cannot legally dispatch a new transfer from the
+        // dossier UI. The fleet-scoped gate in `dispatch_survey_mission`
+        // mirrors this by rejecting fleets that are already reserved.
+        assert_eq!(
+            world
+                .get::<FleetMovementLock>(fleet_entity)
+                .map(|l| l.mission_id),
+            Some(state.active_missions[0].id)
+        );
+    }
+
+    #[test]
+    fn sample_return_delivery_creates_analysis_job_at_lab() {
+        let mut world = World::new();
+        world.init_resource::<SimulationTime>();
+        world.init_resource::<ProceduralRng>();
+        world.init_resource::<SurveyMissionTemplates>();
+        world.init_resource::<SurveyInstrumentRegistry>();
+        world.init_resource::<Messages<SurveyEvent>>();
+        insert_sample_return_template(&mut world);
+        let earth = make_body_with_colony(&mut world, "Earth", 0, true);
+        let mars = make_body_with_colony(&mut world, "Mars", 0, false);
+        let fleet_entity = make_research_fleet(&mut world, "DOC-3", mars);
+        let mission = make_sample_return_mission("DOC-3", "Earth");
+        let mut state = world.get_mut::<SurveyState>(mars).unwrap();
+        state.active_missions.push(mission);
+
+        // Fleet away from the laboratory — no analysis job yet.
+        sync_survey_fleet_lifecycle(&mut world);
+        let state = world.get::<SurveyState>(mars).unwrap();
+        assert!(state.analysis_jobs.is_empty());
+        assert_eq!(
+            state.active_missions[0].status,
+            MissionStatus::AwaitingReturn
+        );
+
+        // Return the fleet to Earth and the analysis handoff fires once.
+        world
+            .entity_mut(fleet_entity)
+            .insert(FleetOrbit::new(earth, 0.05));
+        sync_survey_fleet_lifecycle(&mut world);
+        sync_survey_fleet_lifecycle(&mut world);
+        let state = world.get::<SurveyState>(mars).unwrap();
+        assert_eq!(state.analysis_jobs.len(), 1);
+        assert_eq!(
+            state.active_missions[0].status,
+            MissionStatus::AwaitingAnalysis
+        );
+        assert!(state.active_missions[0]
+            .sample_return
+            .as_ref()
+            .and_then(|r| r.delivered_sim_time)
+            .is_some());
+
+        // The second lifecycle pass must not enqueue a duplicate analysis job.
+        sync_survey_fleet_lifecycle(&mut world);
+        let state = world.get::<SurveyState>(mars).unwrap();
+        assert_eq!(state.analysis_jobs.len(), 1);
+    }
+
+    #[test]
+    fn sample_return_dispatch_requires_research_laboratory() {
+        let mut world = World::new();
+        world.init_resource::<SimulationTime>();
+        world.init_resource::<ProceduralRng>();
+        world.init_resource::<SurveyMissionTemplates>();
+        world.init_resource::<SurveyInstrumentRegistry>();
+        world.init_resource::<Messages<SurveyEvent>>();
+        world.init_resource::<Messages<DispatchSurveyMission>>();
+        insert_sample_return_template(&mut world);
+        let earth = make_body_with_colony(&mut world, "Earth", 0, false);
+        let mars = make_body_with_colony(&mut world, "Mars", 0, true);
+        let fleet_entity = make_research_fleet(&mut world, "DOC-4", earth);
+        world.write_message(DispatchSurveyMission {
+            body: mars,
+            template_id: "sample_return".to_string(),
+            name: "Sample 1".to_string(),
+            scientist_ids: vec![1],
+            fleet: Some(fleet_entity),
+        });
+        world
+            .resource_mut::<Messages<DispatchSurveyMission>>()
+            .update();
+        dispatch_survey_mission(&mut world);
+        let state = world.get::<SurveyState>(mars).unwrap();
+        assert!(
+            state.active_missions.is_empty(),
+            "sample-return dispatch without a ResearchLab at the fleet's home must be blocked"
         );
     }
 }

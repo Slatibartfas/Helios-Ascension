@@ -119,6 +119,11 @@ pub struct SurveyState {
     /// Currently-running survey missions on this body. The
     /// `advance_survey_missions` system ticks these.
     pub active_missions: Vec<ActiveSurveyMission>,
+    /// Raw mission datasets awaiting or undergoing scientific analysis.
+    /// Jobs live on their target body so they persist without storing a
+    /// raw `Entity` reference, which would be invalid after world restore.
+    #[serde(default)]
+    pub analysis_jobs: Vec<AnalysisJob>,
     /// Sim-time of the last survey state update. Used for confidence
     /// decay bookkeeping.
     pub last_updated_sim_time: f64,
@@ -180,6 +185,7 @@ impl Default for SurveyState {
         Self {
             dimensions: HashMap::new(),
             active_missions: Vec::new(),
+            analysis_jobs: Vec::new(),
             last_updated_sim_time: 0.0,
             total_science_points_invested: 0.0,
             detected_anomalies: Vec::new(),
@@ -237,6 +243,7 @@ impl SurveyState {
         Self {
             dimensions,
             active_missions: Vec::new(),
+            analysis_jobs: Vec::new(),
             last_updated_sim_time: sim_time,
             total_science_points_invested: 0.0,
             detected_anomalies: Vec::new(),
@@ -354,13 +361,20 @@ impl SurveyState {
             "Earth" => {
                 for dim in [
                     SurveyDimension::OrbitalMech,
-                    SurveyDimension::Atmosphere,
                     SurveyDimension::SurfaceFeatures,
                     SurveyDimension::MineralClasses,
-                    SurveyDimension::MineralDeposits,
                     SurveyDimension::Habitability,
                 ] {
                     dimensions.insert(dim, DimensionFidelity::at_tier(4, 0.85, Some(sim_time)));
+                }
+                // Established terrestrial industry has precise maps of known
+                // economic deposits and atmospheric feedstocks. This does not
+                // imply knowledge of, or access to, mantle/core endowment.
+                for dim in [
+                    SurveyDimension::Atmosphere,
+                    SurveyDimension::MineralDeposits,
+                ] {
+                    dimensions.insert(dim, DimensionFidelity::at_tier(5, 0.95, Some(sim_time)));
                 }
                 dimensions.insert(
                     SurveyDimension::Subsurface,
@@ -601,6 +615,7 @@ impl SurveyState {
         Some(Self {
             dimensions,
             active_missions: Vec::new(),
+            analysis_jobs: Vec::new(),
             last_updated_sim_time: sim_time,
             total_science_points_invested: 0.0,
             detected_anomalies: Vec::new(),
@@ -627,6 +642,7 @@ impl SurveyState {
         Self {
             dimensions,
             active_missions: Vec::new(),
+            analysis_jobs: Vec::new(),
             last_updated_sim_time: sim_time,
             total_science_points_invested: 0.0,
             detected_anomalies: Vec::new(),
@@ -683,6 +699,7 @@ impl SurveyState {
         Self {
             dimensions,
             active_missions: Vec::new(),
+            analysis_jobs: Vec::new(),
             last_updated_sim_time: sim_time,
             total_science_points_invested: 0.0,
             detected_anomalies: Vec::new(),
@@ -893,6 +910,35 @@ pub struct ActiveSurveyMission {
     /// next tick).
     #[serde(default)]
     pub dismissed: bool,
+    /// Fleet selected by the player to carry this mission's survey asset.
+    /// Fleet entity IDs are intentionally not persisted: a world restore
+    /// rebuilds entities, while fleet names survive the current StateStore
+    /// fleet record format.
+    #[serde(default)]
+    pub assigned_fleet_name: Option<String>,
+    /// The instant that the assigned fleet first reached the target and the
+    /// deployed asset began collecting observations. Collection duration is
+    /// measured from this timestamp, never from dispatch.
+    #[serde(default)]
+    pub collection_started_sim_time: Option<f64>,
+    /// Present only for sample-return missions. The sample is a logical
+    /// payload until the fleet reaches this stable research-laboratory key.
+    #[serde(default)]
+    pub sample_return: Option<SampleReturnState>,
+}
+
+/// Persisted destination for a physical sample-return mission.
+///
+/// It contains stable body identity rather than an ECS [`Entity`], because
+/// `SurveyState` is serialized into StateStore divergence JSON.
+#[derive(Debug, Clone, Serialize, Deserialize, Reflect)]
+pub struct SampleReturnState {
+    pub laboratory_body_name: String,
+    pub laboratory_system_id: usize,
+    #[serde(default)]
+    pub collected_sim_time: Option<f64>,
+    #[serde(default)]
+    pub delivered_sim_time: Option<f64>,
 }
 
 fn default_axis_yield() -> f32 {
@@ -942,12 +988,28 @@ pub struct AnalysisJob {
     /// Stable id (also used by [`Scientist::current_analysis`](
     /// crate::personnel::components::Scientist::current_analysis)).
     pub id: u64,
-    /// Body the data was collected from.
-    pub body: Entity,
     /// Mission that produced the data. Optional because a job can be
     /// created from sources other than an active mission (e.g. a
     /// one-off lab analysis).
     pub source_mission: Option<u64>,
+    /// Target tier per dimension recorded at collection time. This
+    /// snapshot keeps queued data meaningful if the RON template changes.
+    #[serde(default)]
+    pub target_tiers: HashMap<SurveyDimension, u8>,
+    /// Instrument's maximum interpretation fidelity, recorded at
+    /// collection time so an upgraded or removed definition cannot alter
+    /// queued data.
+    #[serde(default)]
+    pub instrument_accuracy_tier: u8,
+    /// Scientists required before this job can begin. A zero value supports
+    /// legacy / probe-only jobs without a staffing gate.
+    #[serde(default)]
+    pub required_scientists: u32,
+    /// Scientist IDs currently processing this dataset. This is a runtime
+    /// assignment; it is persisted only as a best-effort UI hint and is
+    /// revalidated after restore before work resumes.
+    #[serde(default)]
+    pub assigned_scientists: Vec<ScientistId>,
     /// Display label for the dossier / analysis queue.
     pub label: String,
     /// Method that produced the data. Drives the specialty-match
@@ -959,10 +1021,23 @@ pub struct AnalysisJob {
     pub completed_sim_time: Option<f64>,
     /// Progress in `[0.0, 1.0]`. Reaches 1.0 on completion.
     pub progress: f32,
+    /// Total analysis labor required in sim-days, after collection.
+    #[serde(default = "default_analysis_work_days")]
+    pub work_required_days: f64,
+    /// Analysis labor completed in sim-days.
+    #[serde(default)]
+    pub work_completed_days: f64,
+    /// Last sim-time at which this job's analytical work advanced.
+    #[serde(default)]
+    pub last_advanced_sim_time: f64,
     /// Whether an anomaly was flagged by this analysis. Set by the
     /// analysis queue on completion if a discovery method affinity
     /// matches an anomaly present on the body.
     pub anomaly_flagged: Option<AnomalyType>,
+}
+
+fn default_analysis_work_days() -> f64 {
+    30.0
 }
 
 /// An anomaly that has been detected and logged on a body's dossier.

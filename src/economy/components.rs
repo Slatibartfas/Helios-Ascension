@@ -514,60 +514,129 @@ pub struct LocalStockpile {
     pub stockpiles: HashMap<ResourceType, f64>,
 }
 
-/// Per-body **launch capacity** accumulator (Terra Invicta-style
-/// "boosters"). A `LaunchSite` building on a body produces
-/// `LaunchCapacity` over time (modelled like `*Production`), and
-/// the per-body cap is set by `LaunchCapacityMax` (also a
-/// `LaunchSite` modifier). Orbital activities (ships lifting from
-/// this body to orbit) consume `LaunchCapacity` — the consumer
-/// path is wired in a future phase; the producer path is wired
-/// here.
+/// Fraction of the derived cap a body starts with when it gains
+/// launch infrastructure for the first time (new campaign, freshly
+/// built colony, or a legacy save with no `LaunchCapacity` record).
 ///
-/// The mechanic is identical to Terra Invicta's launch resource:
-/// the player accumulates a stockpile per body, then consumes it
-/// when ships lift off or trade vessels dock.
+/// A partial charge (rather than 0 % or 100 %) keeps the first
+/// orbital action available without erasing the reason to care
+/// about launch infrastructure.
+pub const LAUNCH_CAPACITY_BOOTSTRAP_FRACTION: f64 = 0.25;
+
+/// Seconds in a Julian year. Mirrors `budget::SECONDS_PER_YEAR`
+/// but kept local so this module stays dependency-free.
+const SECONDS_PER_JULIAN_YEAR: f64 = 31_557_600.0;
+
+/// Per-body **launch capacity** stockpile (Terra Invicta-style
+/// "boosters"): the mass a body can move from its surface to
+/// orbit.
 ///
-/// v3.10 (GRA-22c Phase 4C-2): added. The simulation is currently
-/// producer-only (the per-body cap and accumulator), so existing
-/// saves and tests are not affected. A future phase will wire
-/// consumption into `src/fleets/systems.rs` for surface-to-orbit
-/// maneuvers.
-#[derive(Component, Debug, Copy, Clone, Default, Reflect)]
+/// The stockpile is *derived*, not authoritative, for its rate
+/// and cap: both come from the launch modifiers on the body's
+/// buildings (see [`crate::economy::launch::LaunchCapacityProfile`]).
+/// The persisted state is only what the player has actually
+/// changed — the available balance and the simulation-time anchor
+/// of the last accrual.
+///
+/// ## Why the time anchor
+///
+/// Accrual is `production × (now − anchor)`, computed lazily
+/// whenever the balance is read or spent. Storing the anchor in
+/// the component (rather than in a `Local<f64>`) means a
+/// save → load cycle cannot accidentally treat the whole campaign
+/// as unaccrued time and refill the stockpile to its cap on the
+/// first post-restore tick.
+///
+/// ## Lifecycle
+///
+/// The component is only attached to bodies that have at least one
+/// launch-capable building. Bodies without launch infrastructure
+/// carry no component, so the UI cannot show a fictional empty
+/// pool and the persistence layer has nothing to write.
+#[derive(Component, Debug, Copy, Clone, Default, Serialize, Deserialize, Reflect)]
 #[reflect(Component)]
 pub struct LaunchCapacity {
-    /// Current accumulated launch mass (tonnes).
+    /// Available launch mass (tonnes) as of
+    /// `last_updated_sim_seconds`.
+    #[serde(default)]
     pub current_tonnes: f64,
-    /// Maximum capacity (tonnes). Set from `LaunchCapacityMax`
-    /// building modifiers across the body's colonies.
-    pub cap_tonnes: f64,
+    /// Simulation time (seconds) at which `current_tonnes` was last
+    /// reconciled. Set on bootstrap and after every reconciliation.
+    #[serde(default)]
+    pub last_updated_sim_seconds: f64,
 }
 
 impl LaunchCapacity {
-    /// Create a new launch capacity with zero current / zero cap.
-    pub fn new() -> Self {
-        Self::default()
+    /// Create a stockpile with `current_tonnes` available, anchored
+    /// at `now_seconds`.
+    pub fn new(current_tonnes: f64, now_seconds: f64) -> Self {
+        Self {
+            current_tonnes: current_tonnes.max(0.0),
+            last_updated_sim_seconds: now_seconds,
+        }
     }
 
-    /// Compute the **headroom** (tonnes) — the difference between
-    /// cap and current, floored at 0.
-    pub fn headroom(&self) -> f64 {
-        (self.cap_tonnes - self.current_tonnes).max(0.0)
+    /// Bootstrap charge for a body that just gained launch
+    /// infrastructure: [`LAUNCH_CAPACITY_BOOTSTRAP_FRACTION`] of
+    /// the derived cap, anchored at `now_seconds`.
+    pub fn bootstrapped(cap_tonnes: f64, now_seconds: f64) -> Self {
+        Self::new(
+            (cap_tonnes.max(0.0)) * LAUNCH_CAPACITY_BOOTSTRAP_FRACTION,
+            now_seconds,
+        )
     }
 
-    /// Add `delta_tonnes` to the current accumulator, capped at
-    /// the cap. Returns the amount actually added (0 if at cap).
-    pub fn add_capped(&mut self, delta_tonnes: f64) -> f64 {
-        assert!(delta_tonnes >= 0.0);
-        let added = delta_tonnes.min(self.headroom());
+    /// Clamp the available balance into `[0, cap]`. Used after a
+    /// facility is demolished or a save is loaded against a
+    /// different building roster.
+    pub fn clamp_to_cap(&mut self, cap_tonnes: f64) {
+        self.current_tonnes = self.current_tonnes.clamp(0.0, cap_tonnes.max(0.0));
+    }
+
+    /// Advance the anchor to `now_seconds` and add the mass produced
+    /// over the elapsed interval, capped at `cap_tonnes` and floored
+    /// at zero. Negative or non-finite elapsed time is treated as a
+    /// no-op so clock jumps and restores cannot mint capacity.
+    ///
+    /// Returns the amount actually added.
+    pub fn accrue(&mut self, production_t_per_year: f64, cap_tonnes: f64, now_seconds: f64) -> f64 {
+        let cap = cap_tonnes.max(0.0);
+        let elapsed = now_seconds - self.last_updated_sim_seconds;
+        // Anchor always advances: a backwards clock (or a fresh
+        // component) must not bank a negative interval for later.
+        self.last_updated_sim_seconds = now_seconds;
+        self.clamp_to_cap(cap);
+
+        if !elapsed.is_finite() || elapsed <= 0.0 || production_t_per_year <= 0.0 {
+            return 0.0;
+        }
+
+        let produced = production_t_per_year * (elapsed / SECONDS_PER_JULIAN_YEAR);
+        if !produced.is_finite() || produced <= 0.0 {
+            return 0.0;
+        }
+
+        let headroom = (cap - self.current_tonnes).max(0.0);
+        let added = produced.min(headroom);
         self.current_tonnes += added;
         added
     }
 
-    /// Try to consume `delta_tonnes`. Returns `true` if the
-    /// consumption succeeded (and decrements `current_tonnes`),
-    /// `false` if there wasn't enough launch capacity.
+    /// Headroom (tonnes) to the supplied derived cap.
+    pub fn headroom_for(&self, cap_tonnes: f64) -> f64 {
+        (cap_tonnes.max(0.0) - self.current_tonnes).max(0.0)
+    }
+
+    /// Try to consume `delta_tonnes` for a real launch operation.
+    ///
+    /// Rejects non-finite, zero, and negative mass so a malformed
+    /// project or data file cannot silently mint capacity through a
+    /// negative debit.
     pub fn try_consume(&mut self, delta_tonnes: f64) -> bool {
-        if self.current_tonnes >= delta_tonnes {
+        if !delta_tonnes.is_finite() || delta_tonnes <= 0.0 {
+            return false;
+        }
+        if self.current_tonnes + f64::EPSILON >= delta_tonnes {
             self.current_tonnes -= delta_tonnes;
             true
         } else {
@@ -763,6 +832,15 @@ pub enum DirtyReason {
     /// a colony with population > 0 needs a
     /// `population_override`.
     Population,
+    /// `LaunchCapacity` changed — a surface-to-orbit launch
+    /// reserved or spent capacity, or the body's stockpile was
+    /// provisioned/migrated to a non-default balance.
+    ///
+    /// The regen chain would otherwise re-provision the body with
+    /// its bootstrap charge, so without this mark a launch would
+    /// appear to succeed in-session and then silently refund the
+    /// spent capacity on the next load.
+    LaunchCapacity,
     /// Multiple reasons apply. The extract path
     /// populates every applicable divergence field.
     /// Useful for systems that mutate several

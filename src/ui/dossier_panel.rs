@@ -30,6 +30,7 @@ use crate::astronomy::nearby_stars::NearbyStarsData;
 use crate::economy::components::SurveyLevel;
 use crate::economy::components::{SpectralClass, StarSystem};
 use crate::economy::mining::MiningOperation;
+use crate::fleets::{Fleet, FleetMovementLock, FleetOrbit, ShipClass};
 use crate::plugins::solar_system_data::{AsteroidClass, BodyType};
 use crate::survey::components::{
     ActiveSurveyMission, ContinuousStationBonus, ContinuousSurveyStation, FailedMissionRecord,
@@ -204,6 +205,19 @@ pub(super) struct DossierUiParams<'w, 's> {
     /// compute the per-tier list for the orbited body. Immutable
     /// (we read `tier` and `orbiting_body` only).
     pub stations_query: Query<'w, 's, &'static ContinuousSurveyStation>,
+    /// Fleet locations for the physical survey-asset picker. The dossier
+    /// only dispatches to a player-selected research fleet; travel stays
+    /// owned by the existing fleet transfer planner.
+    pub survey_fleet_query: Query<
+        'w,
+        's,
+        (
+            Entity,
+            &'static Fleet,
+            Option<&'static FleetOrbit>,
+            Option<&'static FleetMovementLock>,
+        ),
+    >,
 }
 
 /// Renders the right-side "Celestial Body Dossier" panel when a body is
@@ -394,6 +408,7 @@ pub(super) fn ui_planet_dossier(mut params: DossierUiParams) {
                                 sim_now,
                                 &mut params.commands,
                                 &params.mission_templates,
+                                &params.survey_fleet_query,
                             );
                         });
                     }
@@ -1574,6 +1589,12 @@ fn draw_survey_section(
     sim_time: f64,
     commands: &mut Commands,
     mission_templates: &SurveyMissionTemplates,
+    fleets: &Query<(
+        Entity,
+        &Fleet,
+        Option<&FleetOrbit>,
+        Option<&FleetMovementLock>,
+    )>,
 ) {
     let progress_pct = (state.average_tier() * 100.0).round() as u32;
     let assigned_scientist_ids: HashSet<u64> = state
@@ -1714,7 +1735,7 @@ fn draw_survey_section(
 
     ui.add_space(theme::Spacing::xs);
     theme::section_h3(ui, "DISPATCH MISSION");
-    draw_dispatch_mission_picker(ui, body, body_name, mission_templates, commands);
+    draw_dispatch_mission_picker(ui, body, body_name, mission_templates, fleets, commands);
 }
 
 fn draw_dimension_coverage_row<'a>(
@@ -2350,6 +2371,8 @@ fn draw_in_progress_mission_row(
             MissionStatus::Inflight => (egui::Color32::LIGHT_BLUE, "INFLIGHT"),
             MissionStatus::Active => (CYAN, "ACTIVE"),
             MissionStatus::Completing => (AMBER, "COMPLETING"),
+            MissionStatus::AwaitingAnalysis => (AMBER, "ANALYZING"),
+            MissionStatus::AwaitingReturn => (AMBER, "RETURNING"),
             // Terminal states are rendered in
             // `draw_completed_mission_row`; this match arm is
             // unreachable in practice but kept exhaustive.
@@ -2640,6 +2663,7 @@ fn draw_failed_missions_list(
                             template_id: recovery_template_id.clone(),
                             name,
                             scientist_ids: vec![],
+                            fleet: None,
                         });
                     }
                 }
@@ -2671,6 +2695,12 @@ fn draw_dispatch_mission_picker(
     body: Entity,
     body_name: &str,
     mission_templates: &SurveyMissionTemplates,
+    fleets: &Query<(
+        Entity,
+        &Fleet,
+        Option<&FleetOrbit>,
+        Option<&FleetMovementLock>,
+    )>,
     commands: &mut Commands,
 ) {
     if mission_templates.templates.is_empty() {
@@ -2680,6 +2710,7 @@ fn draw_dispatch_mission_picker(
 
     let template_id_key = egui::Id::new(("dispatch_template_id", body));
     let counter_key = egui::Id::new(("dispatch_counter", body));
+    let fleet_key = egui::Id::new(("dispatch_fleet", body));
 
     // Default to the first template's id on first render per body.
     let mut selected_id: String = ui.data(|d| d.get_temp(template_id_key)).unwrap_or_else(|| {
@@ -2691,6 +2722,36 @@ fn draw_dispatch_mission_picker(
             .unwrap_or_default()
     });
     let counter: u32 = ui.data(|d| d.get_temp(counter_key)).unwrap_or(1);
+
+    // Only a free research vessel can carry a survey asset. Missions are
+    // bound to the fleet by name so the assignment survives a world
+    // restore (entity ids do not).
+    let eligible_fleets: Vec<_> = fleets
+        .iter()
+        .filter(|(_, fleet, _, lock)| {
+            lock.is_none()
+                && fleet
+                    .ships
+                    .iter()
+                    .any(|ship| ship.class == ShipClass::ResearchVessel)
+        })
+        .map(|(entity, fleet, orbit, _)| {
+            let location = match orbit {
+                Some(orbit) if orbit.body == body => "READY TO DEPLOY".to_string(),
+                Some(_) => "PLAN TRANSFER".to_string(),
+                None => "IN TRANSIT".to_string(),
+            };
+            (entity, fleet.name.clone(), location)
+        })
+        .collect();
+    let mut selected_fleet: Option<Entity> = ui.data(|d| d.get_temp(fleet_key));
+    if selected_fleet.is_none()
+        || !eligible_fleets
+            .iter()
+            .any(|(entity, _, _)| Some(*entity) == selected_fleet)
+    {
+        selected_fleet = eligible_fleets.first().map(|(entity, _, _)| *entity);
+    }
 
     let prev_selected = selected_id.clone();
     egui::ComboBox::from_id_salt(("dispatch_combo", body))
@@ -2710,6 +2771,34 @@ fn draw_dispatch_mission_picker(
     let _ = prev_selected;
 
     ui.add_space(2.0);
+    egui::ComboBox::from_id_salt(("dispatch_fleet_combo", body))
+        .selected_text(
+            selected_fleet
+                .and_then(|selected| {
+                    eligible_fleets
+                        .iter()
+                        .find(|(entity, _, _)| *entity == selected)
+                        .map(|(_, name, location)| format!("{name} \u{2014} {location}"))
+                })
+                .unwrap_or_else(|| "No available research fleet".to_string()),
+        )
+        .show_ui(ui, |ui| {
+            for (entity, name, location) in &eligible_fleets {
+                ui.selectable_value(
+                    &mut selected_fleet,
+                    Some(*entity),
+                    format!("{name} \u{2014} {location}"),
+                );
+            }
+        });
+    if eligible_fleets.is_empty() {
+        ui.colored_label(
+            TEXT_DIM,
+            "A free research fleet is required to deploy this mission.",
+        );
+    }
+
+    ui.add_space(2.0);
 
     if ui
         .add(
@@ -2721,6 +2810,7 @@ fn draw_dispatch_mission_picker(
             .min_size(egui::Vec2::new(140.0, 24.0)),
         )
         .clicked()
+        && selected_fleet.is_some()
     {
         // GRA-SFX-Phase3d: dispatching a new survey mission.
         commands.insert_resource(crate::plugins::sfx::PendingSfxRequests(vec![
@@ -2732,11 +2822,13 @@ fn draw_dispatch_mission_picker(
             template_id: selected_id.clone(),
             name,
             scientist_ids: vec![],
+            fleet: selected_fleet,
         });
         ui.data_mut(|d| d.insert_temp(counter_key, counter + 1));
     }
 
     ui.data_mut(|d| d.insert_temp(template_id_key, selected_id));
+    ui.data_mut(|d| d.insert_temp(fleet_key, selected_fleet));
 }
 
 /// Flat sorted list of mineable deposits. Demonstrates the

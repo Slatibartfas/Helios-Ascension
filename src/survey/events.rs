@@ -249,6 +249,10 @@ pub struct DispatchSurveyMission {
     /// missions (Flyby, Orbital). For ground-team missions the
     /// event is dropped at dispatch time if this is empty.
     pub scientist_ids: Vec<ScientistId>,
+    /// Fleet chosen by the player to physically carry the probe, lander, or
+    /// sample-return capsule. The event-only entity reference is resolved to
+    /// the mission's persisted fleet name during dispatch.
+    pub fleet: Option<Entity>,
 }
 
 /// Abort a survey mission. Fired by the dossier UI's "ABORT"

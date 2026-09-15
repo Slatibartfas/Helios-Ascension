@@ -45,7 +45,7 @@ use std::collections::{BTreeMap, HashMap};
 use super::state_store::{BodyDivergence, BodyKey, StateStore};
 use crate::astronomy::components::SystemId;
 use crate::colony::components::Colony;
-use crate::economy::components::{LocalStockpile, PlanetResources, Population};
+use crate::economy::components::{LaunchCapacity, LocalStockpile, PlanetResources, Population};
 use crate::fleets::components::{Fleet, FleetOrbit, ShipInfo};
 use crate::fleets::types::{FleetRole, PropulsionType, ShipClass};
 use crate::persistence::playtime::PlaytimeTracker;
@@ -492,6 +492,18 @@ fn apply_bodies(
 
         if let Some(json) = &div.resources_override {
             apply_resources_override(world, entity, json, key, &mut outcome.warnings);
+        }
+
+        if let Some(json) = &div.launch_capacity_override {
+            match serde_json::from_value::<LaunchCapacity>(json.clone()) {
+                Ok(c) => {
+                    world.entity_mut(entity).insert(c);
+                }
+                Err(e) => outcome.warnings.push(format!(
+                    "failed to deserialise launch_capacity_override for {:?}: {}",
+                    key, e
+                )),
+            }
         }
 
         if div.atmosphere_override.is_some() {

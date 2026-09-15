@@ -2,11 +2,11 @@ use crate::colony::{BuildingsData, Colony};
 use crate::economy::budget::{
     GlobalBudget, ResourceRateTracker, SECONDS_PER_MONTH, SECONDS_PER_YEAR,
 };
-use crate::economy::components::{LocalStockpile, PlanetResources};
+use crate::economy::components::{LocalStockpile, PlanetResources, SurveyLevel};
 use crate::economy::types::ResourceType;
 use crate::plugins::solar_system::CelestialBody;
 use crate::research::ResearchState;
-use crate::survey::ContinuousStationBonus;
+use crate::survey::{mining_policy, ContinuousStationBonus, MiningEfficiencyRegistry, SurveyState};
 use crate::ui::SimulationTime;
 use bevy::prelude::*;
 
@@ -309,11 +309,14 @@ pub fn extract_resources(
         Option<&Colony>,
         Option<&mut LocalStockpile>,
         Option<&ContinuousStationBonus>,
+        Option<&SurveyState>,
+        Option<&SurveyLevel>,
     )>,
     sim_time: Res<SimulationTime>,
     mut last_elapsed: Local<f64>,
     buildings_data: Option<Res<BuildingsData>>,
     research_state: Option<Res<ResearchState>>,
+    mining_efficiency: Option<Res<MiningEfficiencyRegistry>>,
     mut dirty: ResMut<crate::economy::DirtyBodies>,
 ) {
     let current_elapsed = sim_time.elapsed_seconds();
@@ -337,8 +340,17 @@ pub fn extract_resources(
     // borrow also active; instead we collect extractions and apply them afterwards.
     // We handle this via a simple inline deposit in the loop with an explicit split.
 
-    for (entity, mut resources, mut body, op_opt, colony_opt, mut local_opt, station_bonus_opt) in
-        all_query.iter_mut()
+    for (
+        entity,
+        mut resources,
+        mut body,
+        op_opt,
+        colony_opt,
+        mut local_opt,
+        station_bonus_opt,
+        survey_state_opt,
+        survey_level_opt,
+    ) in all_query.iter_mut()
     {
         /// Deposit helper: goes to LocalStockpile when present, GlobalBudget otherwise.
         /// v3.8: returns the **actual amount added** (capped at the
@@ -391,7 +403,16 @@ pub fn extract_resources(
                 let mut total_extracted = 0.0;
 
                 if let Some(deposit) = resources.deposits.get_mut(&op.resource_type) {
-                    let mut demand = op.base_rate_mt_per_year * mining_bonus * years_elapsed;
+                    let policy = mining_policy(
+                        deposit,
+                        survey_state_opt,
+                        survey_level_opt.copied(),
+                        mining_efficiency.as_deref(),
+                    );
+                    let mut demand = op.base_rate_mt_per_year
+                        * mining_bonus
+                        * policy.active_efficiency(deposit)
+                        * years_elapsed;
 
                     // v3.8: cap-aware throttle. Throttle at the demand
                     // level so deposit reserves, body mass, and
@@ -414,24 +435,20 @@ pub fn extract_resources(
                     );
 
                     // 1. Proven Crustal (Cheapest)
-                    let taking_proven = demand.min(deposit.reserve.proven_crustal);
+                    let taking_proven = if policy.shallow_efficiency > 0.0 {
+                        demand.min(deposit.reserve.proven_crustal)
+                    } else {
+                        0.0
+                    };
                     deposit.reserve.proven_crustal -= taking_proven;
                     total_extracted += taking_proven;
                     demand -= taking_proven;
 
                     // 2. Deep Deposits (Expensive)
-                    if demand > 0.0 {
+                    if demand > 0.0 && policy.deep_efficiency > 0.0 {
                         let taking_deep = demand.min(deposit.reserve.deep_deposits);
                         deposit.reserve.deep_deposits -= taking_deep;
                         total_extracted += taking_deep;
-                        demand -= taking_deep;
-                    }
-
-                    // 3. Planetary Bulk (Exorbitant)
-                    if demand > 0.0 {
-                        let taking_bulk = demand.min(deposit.reserve.planetary_bulk);
-                        deposit.reserve.planetary_bulk -= taking_bulk;
-                        total_extracted += taking_bulk;
                     }
 
                     if total_extracted > 0.0 {
@@ -676,10 +693,17 @@ pub fn extract_resources(
                 // deep-mining passes if a future patch wants to tap
                 // the actual proven_crustal tier for these resources).
                 for (resource, base_rate) in &direct_production {
-                    let access = resources
-                        .get_deposit(resource)
-                        .map(|d| (d.accessibility as f64).clamp(0.0, 1.0))
-                        .unwrap_or(0.0);
+                    let Some(deposit) = resources.get_deposit(resource) else {
+                        continue;
+                    };
+                    let policy = mining_policy(
+                        deposit,
+                        survey_state_opt,
+                        survey_level_opt.copied(),
+                        mining_efficiency.as_deref(),
+                    );
+                    let efficiency = policy.active_efficiency(deposit);
+                    let access = (deposit.accessibility as f64).clamp(0.0, 1.0);
                     if access <= 0.0 {
                         // Body has no accessible deposit for this resource
                         // (e.g. trying to mine Iron on a gas-giant). Skip
@@ -697,7 +721,7 @@ pub fn extract_resources(
                     // material that can't be stored).
                     let cap = budget.effective_stockpile_cap(*resource);
                     let current = local_opt.as_ref().map_or(0.0, |ls| ls.get(resource));
-                    let desired = base_rate * access * bonus * years_elapsed;
+                    let desired = base_rate * access * bonus * efficiency * years_elapsed;
                     // v3.8.12: the throttle floor now includes the
                     // synthesis-input draw (`synthesis_drawn`) recorded by
                     // the process pass above, not just per-capita +
@@ -755,6 +779,8 @@ pub fn update_resource_rates(
         Option<&PlanetResources>,
         Option<&LocalStockpile>,
         Option<&ContinuousStationBonus>,
+        Option<&SurveyState>,
+        Option<&SurveyLevel>,
     )>,
     research_buildings: Query<&crate::research::components::ResearchBuilding>,
     engineering_facilities: Query<&crate::research::components::EngineeringFacility>,
@@ -764,10 +790,13 @@ pub fn update_resource_rates(
         Option<&PlanetResources>,
         Option<&LocalStockpile>,
         Option<&ContinuousStationBonus>,
+        Option<&SurveyState>,
+        Option<&SurveyLevel>,
     )>,
     buildings_data: Option<Res<BuildingsData>>,
     budget: Res<GlobalBudget>,
     research_state: Res<crate::research::ResearchState>,
+    mining_efficiency: Option<Res<MiningEfficiencyRegistry>>,
 ) {
     // --- Resource rates from mining (production) ---
     let mut rates = std::collections::HashMap::new();
@@ -791,16 +820,29 @@ pub fn update_resource_rates(
     let monthly_fraction = SECONDS_PER_MONTH / SECONDS_PER_YEAR;
 
     // 1. MiningOperation components
-    for (entity, op, resources_opt, local_opt, station_bonus_opt) in mining_ops.iter() {
+    for (
+        entity,
+        op,
+        resources_opt,
+        local_opt,
+        station_bonus_opt,
+        survey_state_opt,
+        survey_level_opt,
+    ) in mining_ops.iter()
+    {
         if !op.active {
             continue;
         }
         // Skip if the targeted deposit is fully depleted
         let depleted = resources_opt.is_some_and(|res| {
             res.deposits.get(&op.resource_type).is_none_or(|d| {
-                d.reserve.proven_crustal < 0.001
-                    && d.reserve.deep_deposits < 0.001
-                    && d.reserve.planetary_bulk < 0.001
+                let policy = mining_policy(
+                    d,
+                    survey_state_opt,
+                    survey_level_opt.copied(),
+                    mining_efficiency.as_deref(),
+                );
+                policy.economic_remaining_mt < 0.001
             })
         });
         if depleted {
@@ -811,7 +853,19 @@ pub fn update_resource_rates(
         // 1.0× when the body has no orbiting station.
         let mining_bonus = ContinuousStationBonus::multiplier_or_neutral(station_bonus_opt);
         // base_rate_mt_per_year → per month = rate * (month / year)
-        let monthly = op.base_rate_mt_per_year * mining_bonus * monthly_fraction;
+        let efficiency = resources_opt
+            .and_then(|resources| resources.deposits.get(&op.resource_type))
+            .map(|deposit| {
+                mining_policy(
+                    deposit,
+                    survey_state_opt,
+                    survey_level_opt.copied(),
+                    mining_efficiency.as_deref(),
+                )
+                .active_efficiency(deposit)
+            })
+            .unwrap_or(0.0);
+        let monthly = op.base_rate_mt_per_year * mining_bonus * efficiency * monthly_fraction;
         // v3.8: cap-aware throttle. MiningOperation bodies without
         // a colony consume nothing, so the throttle is the strict
         // headroom cap. With a colony (rare for v0.5.2 MiningOps —
@@ -832,10 +886,13 @@ pub fn update_resource_rates(
         // matters for genuinely depleted bodies.
         if let Some(resources) = resources_opt {
             if let Some(deposit) = resources.deposits.get(&op.resource_type) {
-                let reserve = deposit.reserve.proven_crustal
-                    + deposit.reserve.deep_deposits
-                    + deposit.reserve.planetary_bulk;
-                throttled = throttled.min(reserve.max(0.0));
+                let policy = mining_policy(
+                    deposit,
+                    survey_state_opt,
+                    survey_level_opt.copied(),
+                    mining_efficiency.as_deref(),
+                );
+                throttled = throttled.min(policy.economic_remaining_mt.max(0.0));
             }
         }
         *rates.entry(op.resource_type).or_insert(0.0) += throttled;
@@ -885,7 +942,16 @@ pub fn update_resource_rates(
 
     // 2. Colony mining & atmospheric harvesting
     if let Some(data) = &buildings_data {
-        for (entity, colony, resources_opt, local_opt, station_bonus_opt) in colony_query.iter() {
+        for (
+            entity,
+            colony,
+            resources_opt,
+            local_opt,
+            station_bonus_opt,
+            survey_state_opt,
+            survey_level_opt,
+        ) in colony_query.iter()
+        {
             if let Some(resources) = resources_opt {
                 // v0.5.2: per-resource dedicated mines. Mirrors the
                 // `extract_resources` dispatch: each building's `XxxProduction`
@@ -1081,14 +1147,21 @@ pub fn update_resource_rates(
                 // For each resource, monthly_rate =
                 //   base_rate × deposit.accessibility × bonus × monthly_fraction
                 for (resource, base_rate) in &direct_production {
-                    let access = resources
-                        .get_deposit(resource)
-                        .map(|d| (d.accessibility as f64).clamp(0.0, 1.0))
-                        .unwrap_or(0.0);
+                    let Some(deposit) = resources.get_deposit(resource) else {
+                        continue;
+                    };
+                    let policy = mining_policy(
+                        deposit,
+                        survey_state_opt,
+                        survey_level_opt.copied(),
+                        mining_efficiency.as_deref(),
+                    );
+                    let efficiency = policy.active_efficiency(deposit);
+                    let access = (deposit.accessibility as f64).clamp(0.0, 1.0);
                     if access <= 0.0 {
                         continue;
                     }
-                    let monthly = base_rate * access * mining_bonus * monthly_fraction;
+                    let monthly = base_rate * access * mining_bonus * efficiency * monthly_fraction;
                     // v3.8: cap-aware throttle. The displayed
                     // production rate is the throttled value so
                     // the player sees the mine slow down as the
@@ -1143,7 +1216,7 @@ pub fn update_resource_rates(
     // `BuildingsData` (RON-driven). If the resource isn't loaded yet, fall
     // back to 0 — the depletion-timeline system will pick it up next tick.
     let food_data = buildings_data.as_deref();
-    for (entity, colony, _, _, _) in colony_query.iter() {
+    for (entity, colony, _, _, _, _, _) in colony_query.iter() {
         // Per GRA-22 §4.5: agricultural production scales with the colony's
         // `ColonyDevelopment` yield multiplier, matching the rest of the
         // rates in this function.  An Outpost at ×0.10 reports the same rate
@@ -1182,7 +1255,7 @@ pub fn update_resource_rates(
 
     // 4. Subtract maintenance consumption so rates show NET balance
     if let Some(data) = &buildings_data {
-        for (entity, colony, _, _, _) in colony_query.iter() {
+        for (entity, colony, _, _, _, _, _) in colony_query.iter() {
             // Per GRA-22 §4.7: maintenance is scaled by the same yield
             // multiplier as the production it costs.  Reported rate must
             // match the actual draw in `deduct_maintenance_resources`.
@@ -1265,7 +1338,7 @@ pub fn update_resource_rates(
 
     // From colony buildings
     if let Some(data) = &buildings_data {
-        for (_entity, colony, _, _, _) in colony_query.iter() {
+        for (_entity, colony, _, _, _, _, _) in colony_query.iter() {
             for (building_type, &count) in &colony.buildings {
                 if count == 0 {
                     continue;
@@ -1298,7 +1371,7 @@ pub fn update_resource_rates(
 
     // From colony buildings
     if let Some(data) = &buildings_data {
-        for (_entity, colony, _, _, _) in colony_query.iter() {
+        for (_entity, colony, _, _, _, _, _) in colony_query.iter() {
             for (building_type, &count) in &colony.buildings {
                 if count == 0 {
                     continue;
@@ -1327,6 +1400,8 @@ mod tests {
     use crate::economy::types::ResourceType;
     use crate::plugins::solar_system_data::BodyType;
     use crate::research::ResearchState;
+    use crate::survey::components::{DimensionFidelity, SurveyState};
+    use crate::survey::types::SurveyDimension;
     use bevy::app::App;
     use bevy::ecs::system::RunSystemOnce;
 
@@ -1341,6 +1416,66 @@ mod tests {
         let mut d = MineralDeposit::new(proven, deep, bulk, concentration, 0.8);
         d.is_atmospheric = atmo;
         d
+    }
+
+    /// Survey fidelity bundle used by the mining-policy tests. Tiers mirror
+    /// the dimension semantics in `assets/data/survey/tiers.ron`.
+    fn surveyed_state(mineral: u8, subsurface: u8, atmosphere: u8, drills: u32) -> SurveyState {
+        let mut state = SurveyState::default();
+        state.set_fidelity(
+            SurveyDimension::MineralDeposits,
+            DimensionFidelity::at_tier(mineral, 1.0, Some(0.0)),
+        );
+        state.set_fidelity(
+            SurveyDimension::Subsurface,
+            DimensionFidelity::at_tier(subsurface, 1.0, Some(0.0)),
+        );
+        state.set_fidelity(
+            SurveyDimension::Atmosphere,
+            DimensionFidelity::at_tier(atmosphere, 1.0, Some(0.0)),
+        );
+        state.drill_missions_completed = drills;
+        state
+    }
+
+    #[test]
+    fn survey_policy_scales_shallow_mining_and_requires_deep_confirmation() {
+        let deposit = make_deposit(100.0, 200.0, 1.0e12, 0.5, false);
+        let state = surveyed_state(2, 5, 0, 0);
+        let policy = mining_policy(&deposit, Some(&state), None, None);
+        assert_eq!(policy.shallow_efficiency, 0.20);
+        assert_eq!(policy.deep_efficiency, 0.0);
+        assert_eq!(policy.economic_remaining_mt, 100.0);
+
+        let confirmed = surveyed_state(5, 5, 0, 1);
+        let policy = mining_policy(&deposit, Some(&confirmed), None, None);
+        assert_eq!(policy.shallow_efficiency, 1.0);
+        assert_eq!(policy.deep_efficiency, 1.0);
+        assert_eq!(policy.economic_remaining_mt, 300.0);
+    }
+
+    #[test]
+    fn survey_policy_never_mines_planetary_bulk() {
+        let deposit = make_deposit(0.0, 0.0, 1.0e12, 0.5, false);
+        let state = surveyed_state(5, 5, 0, 10);
+        let policy = mining_policy(&deposit, Some(&state), None, None);
+        assert_eq!(policy.economic_remaining_mt, 0.0);
+        assert_eq!(policy.active_efficiency(&deposit), 0.0);
+    }
+
+    #[test]
+    fn atmospheric_mining_uses_atmosphere_fidelity() {
+        let deposit = make_deposit(100.0, 200.0, 0.0, 1.0, true);
+        let t2 = surveyed_state(5, 5, 2, 1);
+        assert_eq!(
+            mining_policy(&deposit, Some(&t2), None, None).active_efficiency(&deposit),
+            0.0
+        );
+        let t4 = surveyed_state(0, 0, 4, 0);
+        assert_eq!(
+            mining_policy(&deposit, Some(&t4), None, None).active_efficiency(&deposit),
+            0.65
+        );
     }
 
     #[test]
@@ -1871,8 +2006,10 @@ mod tests {
         // The Earth colony entity with its resources + an empty local
         // stockpile (the body-side inventory starts empty; the global
         // budget holds the pre-seeded 50%-of-cap stockpile).
+        let survey = SurveyState::for_named_solar_system_body("Earth", BodyType::Planet, true, 0.0)
+            .expect("Earth has a survey baseline");
         app.world_mut()
-            .spawn((body, colony, resources, LocalStockpile::default()));
+            .spawn((body, colony, resources, LocalStockpile::default(), survey));
 
         // Register extract_resources in a Schedule so its `Local<f64>`
         // last_elapsed persists across runs — with run_system_once the

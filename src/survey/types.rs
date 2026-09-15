@@ -468,6 +468,13 @@ pub enum MissionStatus {
     /// (rolling for failure, awarding XP, freeing scientists). This
     /// is a single-tick state.
     Completing,
+    /// Field collection succeeded and the dataset is waiting for or
+    /// undergoing scientific analysis. Fidelity changes only once the
+    /// linked analysis job completes.
+    AwaitingAnalysis,
+    /// A physical sample has been collected. The assigned fleet must return
+    /// it to the recorded research laboratory before analysis can begin.
+    AwaitingReturn,
     /// Mission finished successfully. The terminal state on the
     /// happy path. Dimensional tiers have been advanced.
     Succeeded,
@@ -489,6 +496,8 @@ impl MissionStatus {
                 | MissionStatus::Inflight
                 | MissionStatus::Active
                 | MissionStatus::Completing
+                | MissionStatus::AwaitingAnalysis
+                | MissionStatus::AwaitingReturn
         )
     }
 
