@@ -122,13 +122,13 @@
         "tundra": [
             // Cold permafrost worlds. Add tundra planet textures to
             // assets/textures/celestial/planets/tundra/ and register them here.
-            "textures/celestial/planets/pluto_8k.png",
+            "textures/celestial/planets/pluto_4k.jpg",
             "textures/celestial/planets/mars_8k.jpg",
         ],
         "ice": [
             // Deeply frozen worlds. Add ice planet textures to
             // assets/textures/celestial/planets/ice/ and register them here.
-            "textures/celestial/planets/pluto_8k.png",
+            "textures/celestial/planets/pluto_4k.jpg",
             "textures/celestial/planets/eris_2k.jpg",
             "textures/celestial/planets/ice/Icy.png",
             "textures/celestial/planets/ice/ice_01.png",
@@ -206,7 +206,7 @@
             // Haumea and Makemake currently use generic dwarf rendering until
             // dedicated textures are added to the asset pack.
             "textures/celestial/planets/eris_2k.jpg",
-            "textures/celestial/planets/pluto_8k.png",
+            "textures/celestial/planets/pluto_4k.jpg",
             // generic fallbacks for procedural asteroids
             "textures/celestial/asteroids/generic_s_type_2k.jpg",
             "textures/celestial/asteroids/generic_c_type_2k.jpg",

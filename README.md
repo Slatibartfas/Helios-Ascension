@@ -120,7 +120,7 @@ The repository is ahead of the original v0.5 roadmap snapshot. The core single-s
   - **60 nearest star systems** from real astronomical catalogs (NASA Exoplanet Archive)
   - Starmap view for interstellar navigation
   - Real star data including spectral types, masses, luminosities, and metallicities
-  - **Confirmed exoplanets** module (`src/astronomy/exoplanets.rs`) — `ConfirmedPlanet` struct + `RealPlanet` marker are staged; CSV ingestion from `Exoplanets_NASA.csv` is deferred to v0.6 (see `assets/data/README.md`); procedural fallback covers systems without confirmed planets today
+  - **Confirmed exoplanets** module (`src/astronomy/exoplanets.rs`) — `ConfirmedPlanet` struct + `RealPlanet` marker are staged; CSV ingestion from the NASA Exoplanet Archive is deferred to v0.6 (see `assets/data/README.md`); procedural fallback covers systems without confirmed planets today
   - Procedural system generation for visited stars
   - **Interstellar probe** tech (tier 5) unlocks flyby of bodies in other star systems
 

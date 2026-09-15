@@ -612,7 +612,7 @@
             rotation_period: 6.387230,
             axial_tilt: 119.59,
             north_pole_ra: 132.99,
-            texture: Some("textures/celestial/planets/pluto_8k.png"),
+            texture: Some("textures/celestial/planets/pluto_4k.jpg"),
         ),
         
         // Charon (Pluto's moon)

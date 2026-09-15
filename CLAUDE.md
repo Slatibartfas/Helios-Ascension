@@ -127,9 +127,9 @@ The modding surface is intentionally broad. All gameplay surfaces are RON-driven
 - Ship modules: `assets/data/ship_modules.ron`
 - Solar system: `assets/data/solar_system.ron`
 - Stars: `assets/data/nearest_stars_raw.json`
-- Exoplanets: `assets/data/Exoplanets_NASA.csv` (untracked; planned loader in `src/astronomy/exoplanets.rs`, ships with v0.6 — see `assets/data/README.md`)
+- Exoplanets: NASA Exoplanet Archive dump (`Exoplanets_NASA.csv`) — **removed from the repo 2026-09-15**; the loader in `src/astronomy/exoplanets.rs` is deferred to v0.6. Re-fetch instructions in `assets/data/README.md`.
 - Asteroids: `assets/data/asteroids.ron`
-- Comets: `assets/data/JPL_CometsList.csv` + `assets/data/JPL_SmallBodiesList.csv`
+- Comets: inline in `assets/data/solar_system.ron` (50 `body_type: Comet` entries); the JPL CSV dumps were removed 2026-09-15 after extraction.
 - Interstellar propulsion tuning: `assets/data/interstellar_propulsion.ron`
 - Launch UI strings: `assets/data/launch_ui.ron`
 - New-game params: `assets/data/new_game_params.ron`

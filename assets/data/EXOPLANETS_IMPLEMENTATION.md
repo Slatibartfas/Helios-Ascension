@@ -261,7 +261,9 @@ for h in sorted(hosts.values(), key=lambda x: x['dist_pc']):
 ## Data Source
 
 NASA Exoplanet Archive: http://exoplanetarchive.ipac.caltech.edu
-File: `Exoplanets_NASA.csv` (added 2026-03-05)
+File: `Exoplanets_NASA.csv` (added 2026-03-05; **removed from the repo
+2026-09-15** after the extraction work was descoped to v0.6 — re-fetch
+instructions are in `assets/data/README.md`)
 
 ---
 

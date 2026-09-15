@@ -272,7 +272,7 @@ Historical design notes: [SURVEY_REWORK.md](design/SURVEY_REWORK.md) and [MULTI_
 
 `assets/data/asteroids.ron` is the gameplay sidecar for the 450 asteroid entries in `solar_system.ron`. It joins records by body name and stores the class, composition, discovery tier, redirect Δv, terraforming-source flag, and lore metadata. Its provenance is the JPL small-body catalog and related survey data; it is intentionally separate from the main body/orbit definitions.
 
-Future ingestion can expand or refresh the sidecar from `assets/data/JPL_SmallBodiesList.csv`. New records must preserve the body-name join and valid composition fractions, and should use the six-class taxonomy above.
+Future ingestion can expand or refresh the sidecar from the JPL small-body catalog. New records must preserve the body-name join and valid composition fractions, and should use the six-class taxonomy above. (The raw `assets/data/JPL_SmallBodiesList.csv` dump was removed from the repo on 2026-09-15 after extraction; re-fetch instructions are in `assets/data/README.md`.)
 
 ---
 

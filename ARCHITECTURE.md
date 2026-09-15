@@ -357,7 +357,7 @@ let positions = calculate_positions_at_timestamp(start_ts);
 
 #### Exoplanets & Nearby Stars (v0.4.x → v0.6)
 
-`src/astronomy/exoplanets.rs` defines the `ConfirmedPlanet` data model and `RealPlanet` marker component but **the NASA Exoplanet Archive CSV loader is not yet wired up**. The `assets/data/Exoplanets_NASA.csv` dump is untracked (see `assets/data/README.md`) — the structs and tests are in place, ready for the v0.6 interstellar travel milestone. `src/astronomy/nearby_stars.rs` provides the 60+ nearest star systems from `assets/data/nearest_stars_raw.json`. Systems without confirmed planets fall back to `src/astronomy/procedural.rs` today; the CSV-driven path ships with v0.6. The `interstellar_probe` tech (tier 5, added in GRA-106) unlocks flyby of bodies in other star systems.
+`src/astronomy/exoplanets.rs` defines the `ConfirmedPlanet` data model and `RealPlanet` marker component but **the NASA Exoplanet Archive CSV loader is not yet wired up**. The `assets/data/Exoplanets_NASA.csv` dump was removed from the repo on 2026-09-15 (see `assets/data/README.md` for re-fetch instructions) — the structs and tests are in place, ready for the v0.6 interstellar travel milestone. `src/astronomy/nearby_stars.rs` provides the 60+ nearest star systems from `assets/data/nearest_stars_raw.json`. Systems without confirmed planets fall back to `src/astronomy/procedural.rs` today; the CSV-driven path ships with v0.6. The `interstellar_probe` tech (tier 5, added in GRA-106) unlocks flyby of bodies in other star systems.
 
 #### SurveyPlugin (`src/survey/`, v0.5.0)
 

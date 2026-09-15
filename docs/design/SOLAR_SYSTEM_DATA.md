@@ -108,13 +108,15 @@ augment it with gameplay, astrometric, and archival data:
 - Authoritative count: 60 systems (matches the 60-entry `NEARBY_STARS_POSITIONS`
   slice in `nearby_stars.rs`).
 
-### Reference dumps (not loaded)
+### Reference dumps (removed 2026-09-15)
 - `assets/data/Exoplanets_NASA.csv` — ~5,000+ confirmed exoplanets from the
   NASA Exoplanet Archive. **Staged only**; the CSV → `ConfirmedPlanet` loader
-  is deferred to v0.6 (see `assets/data/README.md`).
+  is deferred to v0.6. Removed from the repo on 2026-09-15; re-fetch
+  instructions live in `assets/data/README.md`.
 - `assets/data/JPL_SmallBodiesList.csv`, `assets/data/JPL_CometsList.csv` —
-  JPL reference dumps kept for modders and future re-seeding; not loaded at
-  runtime.
+  JPL reference dumps removed on 2026-09-15 after their data was extracted
+  into `assets/data/asteroids.ron` and `assets/data/solar_system.ron`.
+  Neither was ever loaded at runtime.
 
 ## Multi-Star System Data
 
@@ -134,13 +136,13 @@ Historical design notes: see `docs/archive/MULTI_STAR_SYSTEMS.md`.
 
 ## Exoplanet Catalogue (deferred to v0.6)
 
-`assets/data/Exoplanets_NASA.csv` is staged but **not loaded at runtime in
-v0.5.x**. The CSV → `ConfirmedPlanet` deserialiser and integration with the
-procedural gap-filler ship in v0.6. The 5,000+ entries are kept under version
-control so modders can pre-stage custom dumps in the same schema and the
-v0.6 loader can ship without re-fetching the upstream archive. See
-`assets/data/EXOPLANETS_IMPLEMENTATION.md` for the loader stub and field
-mapping.
+`assets/data/Exoplanets_NASA.csv` was removed from the repo on 2026-09-15 and
+is **not loaded at runtime in v0.5.x**. The CSV → `ConfirmedPlanet`
+deserialiser and integration with the procedural gap-filler ship in v0.6.
+When that work resumes, re-fetch the dump with the command in
+`assets/data/README.md`; the path stays in `.gitignore` so a local copy is
+never committed. See `assets/data/EXOPLANETS_IMPLEMENTATION.md` for the
+loader stub and field mapping.
 
 ## Orbital & Physical Parameters
 

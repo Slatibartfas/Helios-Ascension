@@ -1,35 +1,37 @@
-# Large astronomy data dumps — local only
+# Large astronomy data dumps — removed after extraction
 
-The CSV files listed below are **not tracked in git** (see top-level
-`.gitignore`). They are large reference dumps that may be useful for
-offline analysis or future data ingestion, but **none of them are read by
-the game at runtime**. Clone the repo and download only what you need.
+The three CSVs that used to live here were **removed from the repo on
+2026-09-15**. Their data has been extracted into the gameplay sidecars
+that the game actually reads (`assets/data/solar_system.ron` and
+`assets/data/asteroids.ron`), so the raw dumps were no longer needed.
 
-| File | Size | Source |
+**None of these files were ever read at runtime.** The extraction is
+complete and the game does not depend on them.
+
+| File | Size (was) | Source if you need it again |
 |---|---|---|
 | `JPL_SmallBodiesList.csv` | ~83 MB | <https://ssd.jpl.nasa.gov/tools/sbdb_lookup.html#/?csv=true> |
 | `Exoplanets_NASA.csv` | ~73 MB | <https://exoplanetarchive.ipac.caltech.edu/TAP/sync?query=SELECT+*+FROM+ps&format=csv> |
 | `JPL_CometsList.csv` | ~40 KB | <https://ssd.jpl.nasa.gov/tools/sbdb_lookup.html#/?csv=true&sb-cdata=ac> |
 
-## Why they are not in the repo
+## Why they are gone
 
-- **Repo bloat.** Three CSVs add ~157 MB to every clone and `git fetch`.
-- **Not loaded.** `git grep` over `src/`, `tests/`, and `Cargo.toml`
-  returns zero references to any of these files. The `csv` crate is not
-  even a dependency.
-- **Aspirational architecture.** Several docs (`ARCHITECTURE.md`,
-  `CLAUDE.md`, `README.md`) describe `src/astronomy/exoplanets.rs` as
-  ingesting the NASA Exoplanet Archive. The struct definitions and tests
-  are in place, but the loader is not — it is intentionally deferred
-  until the v0.6 interstellar travel milestone needs real exoplanet
-  targets.
-- **JPL Small Bodies / Comets** were added in commit `b0c3aa5` but the
-  planned `AsteroidLoader` system was never wired up. The procedurally
-  generated main belt / Trojans / Kuiper belt bodies in
-  `src/astronomy/procedural.rs` carry the gameplay; the CSV was
-  intended as a future realism upgrade.
+- **Repo bloat.** The three CSVs added ~157 MB to every clone and
+  `git fetch`, and none of them compressed in the pack (CSV/PNG store
+  near-raw), so they cost that much permanently in `.git` history too.
+- **Not loaded.** `git grep` over `src/`, `tests/`, `build.rs`, and
+  `Cargo.toml` returned zero references to any of them. The `csv` crate
+  is not a dependency.
+- **Extracted.** The JPL small-body data drives `assets/data/asteroids.ron`
+  (450 asteroid entries joined by body name), and the comet data is
+  inline in `assets/data/solar_system.ron` (50 `body_type: Comet` entries).
+- **Exoplanets remain aspirational.** `src/astronomy/exoplanets.rs`
+  defines the `ConfirmedPlanet` data model and `RealPlanet` marker, but
+  the NASA Exoplanet Archive loader is still deferred to the v0.6
+  interstellar milestone. If that work resumes, re-fetch the CSV with the
+  command below rather than resurrecting it from history.
 
-## If you need them locally
+## If you need them locally again
 
 ```powershell
 # JPL Small-Body Database (CSV, all known small bodies)
@@ -44,6 +46,9 @@ Invoke-WebRequest -Uri "https://exoplanetarchive.ipac.caltech.edu/TAP/sync?query
 Invoke-WebRequest -Uri "https://ssd.jpl.nasa.gov/api/sbdb_query.csv?sb-cdata=ac&fields=..." `
     -OutFile "assets\data\JPL_CometsList.csv"
 ```
+
+The top-level `.gitignore` still lists these paths, so a locally fetched
+copy stays untracked and will not be re-committed by accident.
 
 ## See also
 

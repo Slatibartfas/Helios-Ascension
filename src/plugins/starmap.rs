@@ -124,14 +124,14 @@ impl PlanetTextureManifest {
             (
                 "tundra",
                 &[
-                    "textures/celestial/planets/pluto_8k.png",
+                    "textures/celestial/planets/pluto_4k.jpg",
                     "textures/celestial/planets/mars_8k.jpg",
                 ],
             ),
             (
                 "ice",
                 &[
-                    "textures/celestial/planets/pluto_8k.png",
+                    "textures/celestial/planets/pluto_4k.jpg",
                     "textures/celestial/planets/eris_2k.jpg",
                 ],
             ),
@@ -166,7 +166,7 @@ impl PlanetTextureManifest {
             (
                 "dwarf",
                 &[
-                    "textures/celestial/planets/pluto_8k.png",
+                    "textures/celestial/planets/pluto_4k.jpg",
                     "textures/celestial/planets/eris_2k.jpg",
                     "textures/celestial/asteroids/generic_s_type_2k.jpg",
                     "textures/celestial/asteroids/generic_c_type_2k.jpg",
