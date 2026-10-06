@@ -209,22 +209,17 @@ pub fn apply_survey_events_to_mission_log(
                 let id = survey_entry_id(*mission_id, &kind);
                 log.resolve(&id, MissionOutcome::Aborted, now, &cfg);
             }
-            SurveyEvent::ProbeLost {
-                mission_id, method, ..
-            }
-            | SurveyEvent::RoverStuck {
-                mission_id, method, ..
-            }
-            | SurveyEvent::DrillBitStuck {
-                mission_id, method, ..
-            } => {
-                let kind = survey_method_kind(*method);
-                let id = survey_entry_id(*mission_id, &kind);
-                // Companion events still resolve the parent mission —
-                // a probe lost mid-mission means the mission failed.
-                log.resolve(&id, MissionOutcome::Failed, now, &cfg);
-            }
-            SurveyEvent::CrewInjured { .. }
+            // Companion events (`ProbeLost` / `RoverStuck` /
+            // `DrillBitStuck`) carry no `method` field — they are
+            // emitted in tandem with the matching `MissionFailed`
+            // event (see `crate::survey::events`), which has already
+            // resolved the mission entry by the time these arrive.
+            // The mission-log layer treats them as no-ops; the
+            // dossier / toast surface handles the player-facing copy.
+            SurveyEvent::ProbeLost { .. }
+            | SurveyEvent::RoverStuck { .. }
+            | SurveyEvent::DrillBitStuck { .. }
+            | SurveyEvent::CrewInjured { .. }
             | SurveyEvent::AnomalyDetected { .. }
             | SurveyEvent::AnomalyActivated { .. }
             | SurveyEvent::AnomalyRefuted { .. }
