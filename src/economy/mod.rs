@@ -177,17 +177,13 @@ impl Plugin for EconomyPlugin {
                 ),
             )
             .add_plugins(AutoFreightPlugin)
-            .add_plugins(AutoBuildPlugin)
-            // GRA-813: load the interstellar convoy preset registry at
-            // startup, after `load_shipbuilding_data` so the hull-id
-            // validator can resolve. Follows the `freighter_templates`
-            // pattern: missing or malformed file → warn and register
-            // an empty resource; per-row validation errors → skip the
-            // row and continue with the rest.
-            .add_systems(
-                Startup,
-                load_interstellar_convoys
-                    .after(crate::shipbuilding::data::load_shipbuilding_data),
-            );
+            .add_plugins(AutoBuildPlugin);
+        // GRA-813: the interstellar convoy preset loader is registered
+        // on `ShipbuildingPlugin`'s `Startup` chain (see
+        // `src/shipbuilding/mod.rs`) so it runs after `load_shipbuilding_data`
+        // — the hull-id validator requires `ShipbuildingData` to be
+        // populated. Cross-plugin Startup `.after()` is fragile in
+        // Bevy 0.18 when the dependency plugin is built later, so the
+        // chain is co-located with the data it depends on.
     }
 }
