@@ -1,0 +1,49 @@
+// === GRA-798: Storyline Ch.2 — first-convoy manifest preset ===
+// RON-only; no `src/` change in this PR. The loader is a CTO child
+// (out of scope for the LGD brief); until the loader lands, this file
+// is the authoritative design record for the smallest legal
+// cislunar-to-Mars convoy.
+//
+// Schema contract (loader PR will turn each preset into a runtime
+// `ConvoyPreset` resource):
+//
+//   id             — stable id, e.g. "ch2_first_convoy"
+//   display_name   — toast / dossier label
+//   description    — player-facing tooltip text
+//   era_tier       — minimum tech era required (1 = early-cislunar)
+//   required_tech  — optional gate; locks the preset behind a single
+//                    research project
+//   min_starbase   — whether the preset must include at least one
+//                    mobile_starbase_frame (false for the cislunar
+//                    first convoy; the cislunar outposts already
+//                    provide construction, ISRU, and repair)
+//   hulls[]        — entries are `hull_id` + `count`; loader validates
+//                    against `ship_hulls.ron` and requires count >= 1
+//   tags[]         — free-form, surfaced in the fleet picker filter
+
+(
+    presets: [
+        // ── GRA-798 Ch.2: The wider system (sim-days 500–1500) ───────
+        // The "first convoy" beat — cislunar industrialization crosses
+        // out into Mars-arrival logistics. A single porkchop window:
+        // one courier for crew rotation + urgent cargo, one heavy
+        // freighter for bulk transfer, one probe carrier for surface
+        // survey + asset tagging on arrival. Tier-1 hulls only; no
+        // mobile starbase (the cislunar outposts already provide
+        // construction, ISRU, and repair for this era).
+        (
+            id: "ch2_first_convoy",
+            display_name: "First Convoy (cislunar → Mars)",
+            description: "The wider system's opening move: one Orbital Courier for crew rotation and urgent parts, one Heavy Orbital Freighter for the bulk industrial cargo that pays for the trip, and one Survey Carrier carrying the probes and landers that tag every asset on arrival. Three hulls on a single porkchop window — the first time the player's logistics reach beyond the Moon.",
+            era_tier: 1,
+            required_tech: Some("basic_space_tech"),
+            min_starbase: false,
+            hulls: [
+                (hull_id: "courier_vessel_frame", count: 1),
+                (hull_id: "freighter_frame", count: 1),
+                (hull_id: "probe_carrier_frame", count: 1),
+            ],
+            tags: ["convoy", "first", "cislunar", "mars-arrival", "ch2", "tier-1"],
+        ),
+    ],
+)
