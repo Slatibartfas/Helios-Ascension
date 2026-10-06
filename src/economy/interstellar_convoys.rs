@@ -168,13 +168,10 @@ impl InterstellarConvoyPresets {
 ///   continue with the rest.
 ///
 /// The loader depends on `ShipbuildingData` already being loaded
-/// (hull ids are validated against it). The `EconomyPlugin` chains
-/// this system into its `Startup` schedule after `load_shipbuilding_data`
-/// so the dependency is satisfied.
-pub fn load_interstellar_convoys(
-    mut commands: Commands,
-    shipbuilding_data: Res<ShipbuildingData>,
-) {
+/// (hull ids are validated against it). The loader is registered on
+/// `ShipbuildingPlugin`'s `Startup` tuple-chain (see `src/shipbuilding/mod.rs`),
+/// which runs after `load_shipbuilding_data` so the dependency is satisfied.
+pub fn load_interstellar_convoys(mut commands: Commands, shipbuilding_data: Res<ShipbuildingData>) {
     let path = INTERSTELLAR_CONVOYS_RON_PATH;
     let registry = match load_and_validate(path, &shipbuilding_data) {
         Ok(registry) => registry,
@@ -200,8 +197,7 @@ fn load_and_validate(
     path: &str,
     shipbuilding_data: &ShipbuildingData,
 ) -> Result<InterstellarConvoyPresets, String> {
-    let contents =
-        fs::read_to_string(path).map_err(|e| format!("read {}: {}", path, e))?;
+    let contents = fs::read_to_string(path).map_err(|e| format!("read {}: {}", path, e))?;
     let parsed: InterstellarConvoysFile =
         ron::from_str(&contents).map_err(|e| format!("parse {}: {}", path, e))?;
 
@@ -368,8 +364,7 @@ mod tests {
                 tier: 1,
                 base_build_points: 100.0,
                 base_dry_mass_t: 100.0,
-                default_construction_mode:
-                    crate::shipbuilding::ConstructionMode::OrbitalAssembly,
+                default_construction_mode: crate::shipbuilding::ConstructionMode::OrbitalAssembly,
                 surface_launchable: false,
                 orbital_only: false,
                 is_station: false,
@@ -453,8 +448,7 @@ mod tests {
             tags: vec!["ch6".to_string(), "antimatter".to_string()],
         };
         let ron_str = ron::to_string(&preset).expect("serialize");
-        let parsed: InterstellarConvoyPresetRon =
-            ron::from_str(&ron_str).expect("parse");
+        let parsed: InterstellarConvoyPresetRon = ron::from_str(&ron_str).expect("parse");
         assert_eq!(parsed.id, preset.id);
         assert_eq!(parsed.display_name, preset.display_name);
         assert_eq!(parsed.description, preset.description);
