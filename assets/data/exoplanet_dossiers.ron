@@ -1,0 +1,322 @@
+// assets/data/exoplanet_dossiers.ron
+//
+// === GRA-800: Storyline Ch.4 — outer-system + Lagrange RON hooks ===
+// Companion file to `nearest_stars.ron`. Authored per LGD design
+// (comment `1e52f360-…`, 2026-07-29) because the nearest-stars schema
+// is locked at the system-ephemeris level (system_id, display_name,
+// spectral_type, mass_sol, pos_ly_galactic, velocity_kms) and the
+// GRA-332 working agreement forbids inventing new star fields.
+//
+// Per-planet dossier data lives here, keyed by (system_id, planet_letter).
+// The tier ladder reads as a discrete reveal, mirroring the survey
+// dossier pattern (see `survey/tiers.ron`):
+//
+//   tier 1 — we know this body exists (mass, radius, orbit). Hard sci-fi
+//            numbers from NASA Exoplanet Archive, conservative picks
+//            for Priority-1 stars. Proxima Cen b and Alpha Cen Bb are
+//            confirmed; the rest of the binary Alpha Cen planet roster
+//            is a tier-2/3 surface-feature question.
+//   tier 2 — atmosphere / surface / mineral classes unlocked by tier-7
+//            detection tech (Doppler, transit, direct imaging, then
+//            spectroscopy). Tier-2 unlocks name what the player
+//            *learns* by dispatching a follow-up observation program.
+//   tier 3 — full characterization, the "we have a candidate worth
+//            risking a follow-up on" beat. The unlock reads as the
+//            trigger for interstellar-precursor launch in Ch.5.
+//
+// The (system_id, planet_letter) compound key is authoritative —
+// modders add new entries by appending, never by editing an existing
+// row's `system_id` (that breaks every cross-system dossier link).
+// Tier-1 numeric values reflect science-fiction or real data where
+// robust; tier-2/3 unlock text is the LGD-authored voice — concrete,
+// sober, consequence-led (see GRA-792 storyline concept, "Author's
+// voice contract").
+
+(
+    // ── Priority-1 stars (already in `nearest_stars.ron`) ───────────
+    // The seven stars the existing catalog already names and that
+    // the chapter-4 read thread needs dossier coverage for. Each
+    // entry is one confirmed planet. Multiple-planet systems
+    // (Tau Ceti, Alpha Centauri A binary) get one tier-1 row per
+    // confirmed detection.
+    dossiers: [
+        // ── Proxima Centauri (4.2 ly) ────────────────────────────────
+        // Proxima b: S-class-Chau-Tier1. The first confirmed
+        // Earth-mass planet in the nearest-stars catalog. The tier-2
+        // unlock is the habitable-zone atmosphere question — the
+        // entire reason Ch.5's first extrasolar probe matters.
+        (
+            system_id: "Proxima Centauri",
+            planet_letter: "b",
+            tier: 1,
+            mass_earth: 1.07,
+            radius_earth: 1.03,
+            semi_major_au: 0.0485,
+            eccentricity: 0.11,
+            period_days: 11.2,
+            planet_type: "Terrestrial",
+            tier2_unlock: "Atmospheric spectroscopy — primary retention under Proxima's active flare environment; secondary atmosphere survival is the open question.",
+            tier3_unlock: "Surface features — hydration signature, mineralogy, day-side habitability under tidal-locking.",
+        ),
+        // Proxima d: tier-1 confirmed sub-Earth. The second-priority
+        // target — a smaller, hotter world whose surface is the
+        // testbed for short-period rocky-body characterization.
+        (
+            system_id: "Proxima Centauri",
+            planet_letter: "d",
+            tier: 1,
+            mass_earth: 0.26,
+            radius_earth: 0.81,
+            semi_major_au: 0.0289,
+            eccentricity: 0.04,
+            period_days: 5.12,
+            planet_type: "Sub-Earth",
+            tier2_unlock: "Atmospheric spectroscopy — tenuous secondary atmosphere survival under flare-driven escape.",
+            tier3_unlock: "Surface features — regolith composition, day-side temperature regime.",
+        ),
+        // ── Alpha Centauri (4.37 ly) ────────────────────────────────
+        // Alpha Cen Bb: tier-1 confirmed around the K-dwarf companion
+        // (disputed in literature — tier-2 is the confirmation beat).
+        // The binary's two stars make this the nearest multi-star
+        // system with a confirmed planet; it is the read-thread's
+        // "first multi-star planetary" beat.
+        (
+            system_id: "Alpha Centauri",
+            planet_letter: "b",
+            tier: 1,
+            mass_earth: 1.13,
+            radius_earth: None,
+            semi_major_au: 0.0456,
+            eccentricity: 0.0,
+            period_days: 3.24,
+            planet_type: "Terrestrial (hot)",
+            tier2_unlock: "Atmospheric spectroscopy — confirmation pass under binary-induced thermal pulse; the disputed-signal question is the open one.",
+            tier3_unlock: "Surface features — phase-locked rotation regime, magma-ocean possibility under stellar heating.",
+        ),
+        // ── Barnard's Star (6.0 ly) ─────────────────────────────────
+        // Barnard's b: tier-1 confirmed sub-Earth-candidate. The
+        // first planet confirmed around an M-dwarf by template name;
+        // the read-thread's "first single-M-dwarf planetary" beat.
+        (
+            system_id: "Barnard's Star",
+            planet_letter: "b",
+            tier: 1,
+            mass_earth: 3.23,
+            radius_earth: None,
+            semi_major_au: 0.404,
+            eccentricity: 0.32,
+            period_days: 232.8,
+            planet_type: "Super-Earth (cold)",
+            tier2_unlock: "Atmospheric spectroscopy — cold-trap retention under M-dwarf activity history.",
+            tier3_unlock: "Surface features — hydration under permafrost layer, mineralogy under deep-atmosphere signal.",
+        ),
+        // ── Epsilon Eridani (10.4 ly) ───────────────────────────────
+        // Epsilon Eri b: tier-1 confirmed cold Jupiter. The first
+        // giant-planet confirmation in the chapter-4 catalog and the
+        // belt-of-debris analog the inner-system player has read
+        // about since Ch.1. The tier-2 unlock is the moon question.
+        (
+            system_id: "Epsilon Eridani",
+            planet_letter: "b",
+            tier: 1,
+            mass_jupiter: 0.86,
+            radius_jupiter: None,
+            semi_major_au: 3.39,
+            eccentricity: 0.07,
+            period_days: 2500.0,
+            planet_type: "Cold Jupiter",
+            tier2_unlock: "Atmospheric spectroscopy — methane and ammonia signatures; moon-hunt at Hill-sphere limit.",
+            tier3_unlock: "Surface features — N/A (gas); satellite-counterpart, ring-system confirmation.",
+        ),
+        // ── Tau Ceti (11.8 ly) ──────────────────────────────────────
+        // Tau Ceti e: tier-1 super-Earth in the inner habitable band.
+        // The first tier-1 rocky-habitable candidate the player can
+        // dispatch a precursor at; tier-3 is the habitability class.
+        (
+            system_id: "Tau Ceti",
+            planet_letter: "e",
+            tier: 1,
+            mass_earth: 3.93,
+            radius_earth: 1.55,
+            semi_major_au: 0.538,
+            eccentricity: 0.05,
+            period_days: 168.1,
+            planet_type: "Super-Earth",
+            tier2_unlock: "Atmospheric spectroscopy — habitable-band retention; the first rocky-habitable target's atmospheric question.",
+            tier3_unlock: "Surface features — habitability classification, day-side temperature, water signature.",
+        ),
+        // Tau Ceti f: tier-1 cold super-Earth; the outer tier-1 in
+        // the Tau Ceti system, the "second-rocky-in-system" beat.
+        (
+            system_id: "Tau Ceti",
+            planet_letter: "f",
+            tier: 1,
+            mass_earth: 3.93,
+            radius_earth: 1.81,
+            semi_major_au: 1.334,
+            eccentricity: 0.03,
+            period_days: 636.1,
+            planet_type: "Super-Earth (cold)",
+            tier2_unlock: "Atmospheric spectroscopy — cold-trap volatile retention; outer-system rocky characterization.",
+            tier3_unlock: "Surface features — hydration under permafrost, mineralogy under cryogenic weathering.",
+        ),
+        // ── Ross 128 (11.0 ly) ──────────────────────────────────────
+        // Ross 128 b: tier-1 confirmed temperate super-Earth around
+        // a quiet M-dwarf. The first chapter-4 target whose habitability
+        // band is *not* contested by flare activity — the "quiet-M-dwarf
+        // temperate" beat.
+        (
+            system_id: "Ross 128",
+            planet_letter: "b",
+            tier: 1,
+            mass_earth: 1.40,
+            radius_earth: 1.21,
+            semi_major_au: 0.0496,
+            eccentricity: 0.12,
+            period_days: 9.87,
+            planet_type: "Super-Earth",
+            tier2_unlock: "Atmospheric spectroscopy — quiet-M-dwarf temperate retention, the first uncontested habitable-band atmosphere.",
+            tier3_unlock: "Surface features — habitability classification, hydration, mineralogy.",
+        ),
+        // ── Kapteyn's Star (12.8 ly) ────────────────────────────────
+        // Kapteyn b: tier-1 confirmed super-Earth in the habitable
+        // band of an ancient halo-population M-dwarf. The
+        // "oldest-known habitable-band planet" beat — 11.5 Gyr
+        // star, the read-thread's "first chapter-4 ancient target".
+        (
+            system_id: "Kapteyn's Star",
+            planet_letter: "b",
+            tier: 1,
+            mass_earth: 4.8,
+            radius_earth: None,
+            semi_major_au: 0.168,
+            eccentricity: 0.21,
+            period_days: 48.6,
+            planet_type: "Super-Earth",
+            tier2_unlock: "Atmospheric spectroscopy — ancient-M-dwarf habitability retention under 11.5 Gyr stellar activity history.",
+            tier3_unlock: "Surface features — habitability classification, mineralogy under long-term stellar evolution.",
+        ),
+        // ── Priority-2 stars (the four famous historical systems) ───
+        // Each Priority-2 star adds the *historical* tier of the
+        // chapter-4 read thread — the "we are the species that found
+        // these in 1995-2010 and we are returning now" beat.
+        //
+        // 51 Pegasi: the 1995 Mayor & Queloz discovery — the first
+        // exoplanet around a Sun-like star. Historical significance
+        // is the tier-1 unlock, not atmospheric data.
+        (
+            system_id: "51 Pegasi",
+            planet_letter: "b",
+            tier: 1,
+            mass_jupiter: 0.46,
+            radius_jupiter: 1.27,
+            semi_major_au: 0.0527,
+            eccentricity: 0.013,
+            period_days: 4.23,
+            planet_type: "Hot Jupiter",
+            tier2_unlock: "Atmospheric spectroscopy — sodium and water-vapor signature under hot-Jupiter circulation; the first 1995-class target characterized.",
+            tier3_unlock: "Surface features — N/A (gas); atmospheric-dynamics full profile.",
+        ),
+        // 47 Ursae Majoris: a 3-planet solar-system analog. The
+        // first Priority-2 multi-planet system the read thread names.
+        (
+            system_id: "47 Ursae Majoris",
+            planet_letter: "b",
+            tier: 1,
+            mass_jupiter: 2.53,
+            radius_jupiter: None,
+            semi_major_au: 2.10,
+            eccentricity: 0.032,
+            period_days: 1078.0,
+            planet_type: "Cold Jupiter",
+            tier2_unlock: "Atmospheric spectroscopy — methane and water-cooperative bands under cold-Jupiter irradiation; satellite-hunt at Hill-sphere limit.",
+            tier3_unlock: "Surface features — N/A (gas); satellite-counterpart confirmation.",
+        ),
+        (
+            system_id: "47 Ursae Majoris",
+            planet_letter: "c",
+            tier: 1,
+            mass_jupiter: 0.54,
+            radius_jupiter: None,
+            semi_major_au: 3.58,
+            eccentricity: 0.10,
+            period_days: 2391.0,
+            planet_type: "Cold Jupiter",
+            tier2_unlock: "Atmospheric spectroscopy — outer-system giant atmosphere.",
+            tier3_unlock: "Surface features — N/A (gas); orbital-resonance characterization with 47 UMa b/d.",
+        ),
+        // 61 Virginis: a 3-planet close multi-planet system around
+        // a G-type star. The "first G-dwarf multi-planet within 30 ly"
+        // beat — the tier-1 trio that frames the chapter-4 read
+        // thread's "we can characterize a small rocky inner system"
+        // question.
+        (
+            system_id: "61 Virginis",
+            planet_letter: "b",
+            tier: 1,
+            mass_earth: 5.1,
+            radius_earth: 2.1,
+            semi_major_au: 0.050,
+            eccentricity: 0.05,
+            period_days: 4.215,
+            planet_type: "Super-Earth",
+            tier2_unlock: "Atmospheric spectroscopy — close-in super-Earth atmospheric retention; the inner rocky characterization.",
+            tier3_unlock: "Surface features — hydration signature, day-side temperature regime.",
+        ),
+        (
+            system_id: "61 Virginis",
+            planet_letter: "c",
+            tier: 1,
+            mass_earth: 18.0,
+            radius_earth: 4.5,
+            semi_major_au: 0.217,
+            eccentricity: 0.05,
+            period_days: 38.1,
+            planet_type: "Warm Neptune",
+            tier2_unlock: "Atmospheric spectroscopy — water and methane signatures under warm-Neptune irradiation.",
+            tier3_unlock: "Surface features — N/A (gas); atmospheric-dynamics full profile.",
+        ),
+        (
+            system_id: "61 Virginis",
+            planet_letter: "d",
+            tier: 1,
+            mass_earth: 22.0,
+            radius_earth: 5.5,
+            semi_major_au: 0.476,
+            eccentricity: 0.07,
+            period_days: 124.0,
+            planet_type: "Warm Neptune",
+            tier2_unlock: "Atmospheric spectroscopy — outer-Neptune atmospheric-dynamics profile.",
+            tier3_unlock: "Surface features — N/A (gas); resonance-characterization with 61 Vir c.",
+        ),
+        // 55 Cancri: a 5-planet famous system around a G-dwarf with
+        // a known transiting super-Earth interior. The "first 5-planet
+        // historical priority-2 system" beat.
+        (
+            system_id: "55 Cancri",
+            planet_letter: "e",
+            tier: 1,
+            mass_earth: 8.6,
+            radius_earth: 2.0,
+            semi_major_au: 0.016,
+            eccentricity: 0.05,
+            period_days: 0.74,
+            planet_type: "Hot Super-Earth",
+            tier2_unlock: "Atmospheric spectroscopy — transit spectroscopy under extreme insolation; first chapter-4 transit-window target.",
+            tier3_unlock: "Surface features — magma-ocean regime, hydration under partial-vapor envelope.",
+        ),
+        (
+            system_id: "55 Cancri",
+            planet_letter: "b",
+            tier: 1,
+            mass_jupiter: 0.83,
+            radius_jupiter: 1.20,
+            semi_major_au: 0.115,
+            eccentricity: 0.007,
+            period_days: 14.65,
+            planet_type: "Hot Jupiter",
+            tier2_unlock: "Atmospheric spectroscopy — sodium, water, and carbon-monoxide under extreme hot-Jupiter irradiation.",
+            tier3_unlock: "Surface features — N/A (gas); atmospheric-dynamics full profile.",
+        ),
+    ],
+)

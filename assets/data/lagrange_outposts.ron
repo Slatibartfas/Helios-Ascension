@@ -1,0 +1,132 @@
+// === GRA-800: Storyline Ch.4 — Lagrange-point outpost dossier + tier ladder ===
+//
+// RON-only; no `src/` change in this PR. Companion to
+// `interstellar_convoys.ron` (Ch.2 first-convoy manifest) and the
+// Ch.3 / Ch.5 dossier pattern. Authored per the GRA-800 working
+// agreement (LGD owns the ladder text, CTO reuses the existing
+// Lagrange-transfer loader shipped in PR #183 from GRA-156).
+//
+// Schema contract (CTO child will turn each tier entry into a runtime
+// `LagrangeOutpostTier` resource):
+//
+//   id              — stable id, e.g. "ch4_lagrange_tier1"
+//   display_name    — toast / dossier label
+//   description     — player-facing tooltip text
+//   era_tier        — minimum tech era required (1 = early-cislunar)
+//   parent_body     — anchor parent (e.g. "Sun-Earth", "Sun-Mars")
+//   lagrange_point  — "L1" / "L2" / "L3" / "L4" / "L5"
+//   min_population  — minimum sustained population for the tier
+//   max_population  — ceiling; Ch.4 is L4/L5 permanent but *small*
+//                     (NOT the multi-billion habitat from ROADMAP §8.2 —
+//                     that tier arrives in the v0.9 megastructure chain)
+//   hulls[]         — entries are hull_id + count; the tier-1
+//                     foothold is courier + freighter + probe carrier
+//                     (matching Ch.2's first-convoy manifest)
+//   required_tech   — optional gate; locks the tier behind a single
+//                     research project
+//   tags[]          — free-form, surfaced in the dossier filter
+//
+// The L4/L5 design intent is *small by design*. The first foothold is
+// the read-thread's "we have committed to L4/L5" beat — not a
+// billion-person habitat. The tier ladder reads as a discrete reveal:
+//
+//   tier 1 — three-hull foothold (courier + freighter + probe carrier),
+//            minimum crew rotation, one local probe survey platform.
+//            The chapter-4 commitment moment. ~ 100 sustained.
+//   tier 2 — first permanent module expansion (small habitat ring +
+//            local industrial platform). The "this is a colony, not a
+//            waystation" beat. ~ 10,000 sustained.
+//   tier 3 — full industrial-and-research platform (closed-cycle life
+//            support, fuel depot, repair dock). The "we are an
+//            outer-system logistics node" beat. ~ 250,000 sustained.
+//   tier 4 — multi-sector colony, the precursor to the ROADMAP §8.2
+//            multi-billion Lagrange-point habitat. Out of chapter-4
+//            scope; included here as the tier-ladder endpoint so
+//            future design has a non-empty ladder to extend. ~ 5M sustained.
+
+(
+    outposts: [
+        // ── GRA-800 Ch.4: The Outer Planets (sim-days 5000–15000) ───
+        // L4/L5 permanent habitats. The first outpost is a small
+        // foothold — three hulls on a single porkchop window, the same
+        // shape as Ch.2's first convoy. The tier escalation opens the
+        // "we are the species that lives outside the inner system"
+        // beat, distinct from the Ch.3 inner-planets commitment.
+        (
+            id: "ch4_lagrange_tier1",
+            display_name: "L4/L5 Foothold",
+            description: "The first Lagrange-point commitment. Three hulls on a single porkchop window — one Orbital Courier for crew rotation, one Heavy Orbital Freighter for the bulk industrial cargo that pays for the foothold, and one Survey Carrier carrying the probes and landers that tag the local SOI on arrival. No permanent habitat ring, no industrial dock — those are tier-2 problems. The foothold is a waystation with rotation crews and a small probe survey platform, not a colony.",
+            era_tier: 4,
+            parent_body: "Sun-Earth",
+            lagrange_point: "L4",
+            min_population: 50,
+            max_population: 200,
+            hulls: [
+                (hull_id: "courier_vessel_frame", count: 1),
+                (hull_id: "freighter_frame", count: 1),
+                (hull_id: "probe_carrier_frame", count: 1),
+            ],
+            required_tech: Some("molten_salt_fission"),
+            tags: ["lagrange", "foothold", "outer-system", "ch4", "tier-1"],
+        ),
+        (
+            id: "ch4_lagrange_tier2",
+            display_name: "L4/L5 Habitat Ring",
+            description: "The first permanent habitat ring. The foothold's courier rotation is replaced by sustained housing for the full crew, a small closed-cycle life-support loop, and a local industrial platform that fabricates spare parts on site. The waystation becomes a colony. The probe carrier's role shifts from initial-site-survey to long-baseline observation — the read-thread's first sustained outer-system observation program.",
+            era_tier: 5,
+            parent_body: "Sun-Earth",
+            lagrange_point: "L4",
+            min_population: 5000,
+            max_population: 15000,
+            hulls: [
+                (hull_id: "habitat_ring_module", count: 2),
+                (hull_id: "industrial_platform", count: 1),
+                (hull_id: "observation_carrier", count: 1),
+            ],
+            required_tech: Some("closed_loop_ecology"),
+            tags: ["lagrange", "habitat", "outer-system", "ch4", "tier-2"],
+        ),
+        (
+            id: "ch4_lagrange_tier3",
+            display_name: "L4/L5 Logistics Node",
+            description: "The first true outer-system logistics node: full closed-cycle life support, fuel depot for inner-to-outer transfer windows, repair dock for tier-3 hulls, and a research platform hosting the chapter-5 precursor-assembly team. The colony becomes the staging ground for the first interstellar precursor — the read-thread's 'we are about to reach another star' beat.",
+            era_tier: 6,
+            parent_body: "Sun-Earth",
+            lagrange_point: "L5",
+            min_population: 100000,
+            max_population: 500000,
+            hulls: [
+                (hull_id: "habitat_ring_module", count: 8),
+                (hull_id: "industrial_platform", count: 2),
+                (hull_id: "fuel_depot", count: 1),
+                (hull_id: "repair_dock", count: 1),
+                (hull_id: "research_platform", count: 1),
+            ],
+            required_tech: Some("fusion_propulsion"),
+            tags: ["lagrange", "logistics-node", "outer-system", "ch4", "tier-3"],
+        ),
+        // tier-4 endpoint — out of chapter-4 scope (multi-billion
+        // habitat is the ROADMAP §8.2 megastructure, a v0.9 chain),
+        // but the ladder needs an endpoint so future design can
+        // extend from a non-empty baseline.
+        (
+            id: "ch4_lagrange_tier4_endpoint",
+            display_name: "L4/L5 Multi-Sector Colony (endpoint)",
+            description: "The ladder endpoint. Multi-sector L4/L5 colony, the precursor to the ROADMAP §8.2 multi-billion Lagrange-point habitat. Authored here so the chapter-4 tier ladder has a non-empty endpoint; the implementation chain is a v0.9 follow-up and not part of this PR.",
+            era_tier: 8,
+            parent_body: "Sun-Earth",
+            lagrange_point: "L5",
+            min_population: 2500000,
+            max_population: 8000000,
+            hulls: [
+                (hull_id: "habitat_ring_module", count: 24),
+                (hull_id: "industrial_platform", count: 6),
+                (hull_id: "fuel_depot", count: 3),
+                (hull_id: "repair_dock", count: 2),
+                (hull_id: "research_platform", count: 2),
+            ],
+            required_tech: Some("metamaterials"),
+            tags: ["lagrange", "endpoint", "outer-system", "ch4", "tier-4"],
+        ),
+    ],
+)

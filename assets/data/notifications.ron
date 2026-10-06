@@ -207,6 +207,65 @@
             default_dismiss_s: 0.0, // sticky
             enabled: false,
         ),
+        // ── Storyline milestones (GRA-792) ───────────────────────
+        // The category ids are the GRA-790B bridge contract — Rust reads
+        // them via `NotificationCategoryId::from(...)` in
+        // `src/ui/notifications/systems/event_bridge.rs::milestone_category`.
+        // Editing an id here without coordinating with GRA-790B will
+        // break the bridge mapping.
+        //
+        // Chapter 4 (GRA-800): the outer-system commitment gates.
+        // The five markers that say the architecture has left the inner
+        // planets behind. First Jovian arrival is the first time a
+        // player hull reaches the 5-AU separation — the trip itself
+        // was the engineering question. First Lagrange colony is the
+        // first L4/L5 permanent foothold, small by design (one courier
+        // + one freighter + one probe carrier manifest, not a
+        // billion-person habitat — that arrives in ROADMAP §8.2).
+        // First exoplanet target lock is the first confirmed
+        // non-Sol target the player is *aimed at*, downstream of
+        // tier-7 exoplanet detection. First interstellar-precursor
+        // keel is the first laser-/sail-/nuclear-pulse precursor
+        // hull laid down. First outer-system outpost is the catch-all
+        // for any Saturn/Uranus/Neptune foothold. Each is a fork
+        // point the player must acknowledge, hence the 10 s dismiss
+        // and pause_on_event flag — matching Ch.2's pause-on-arrival
+        // cadence, not Ch.1's read-thread cadence.
+        (
+            id: "milestones.first_jovian_arrival",
+            display_name: "Jovian arrival confirmed",
+            default_dismiss_s: 10.0,
+            enabled: true,
+            pause_on_event: true,
+        ),
+        (
+            id: "milestones.first_lagrange_colony",
+            display_name: "Lagrange colony established",
+            default_dismiss_s: 10.0,
+            enabled: true,
+            pause_on_event: true,
+        ),
+        (
+            id: "milestones.first_exoplanet_target_locked",
+            display_name: "Exoplanet target locked",
+            default_dismiss_s: 10.0,
+            enabled: true,
+            pause_on_event: true,
+        ),
+        (
+            id: "milestones.first_interstellar_precursor_keel",
+            display_name: "Interstellar precursor keel laid",
+            default_dismiss_s: 10.0,
+            enabled: true,
+            pause_on_event: true,
+        ),
+        (
+            id: "milestones.first_outer_system_outpost",
+            display_name: "Outer-system outpost established",
+            default_dismiss_s: 10.0,
+            enabled: true,
+            pause_on_event: true,
+        ),
         // ── Persistence (GRA-358 PR-C) ─────────────────────────
         // Restore failures (corrupt save, version mismatch, missing
         // AppTypeRegistry) surface as a Critical toast — the player
