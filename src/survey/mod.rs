@@ -46,8 +46,8 @@ pub use events::{
 };
 pub use milestones::{
     advance_construction_milestones, advance_research_milestones, advance_survey_milestones,
-    is_probe_using_method, EarlyGameMilestones, MilestoneStep, MilestonesSystemSet,
-    MILESTONE_ORDER,
+    is_probe_using_method, EarlyGameMilestones, MilestoneContext, MilestoneReached, MilestoneStep,
+    MilestonesSystemSet, MILESTONE_ORDER,
 };
 pub use systems::{
     abort_survey_mission, advance_survey_missions, apply_continuous_station_bonus,
@@ -105,6 +105,14 @@ impl Plugin for SurveyPlugin {
             .add_message::<DispatchSurveyMission>()
             .add_message::<AbortSurveyMission>()
             .add_message::<DismissFailedMission>()
+            // GRA-790B: transient bridge-input message emitted by the
+            // milestone producers in the instant a `false -> true`
+            // flip happens. Consumed by
+            // `bridge_milestone_events` in
+            // `src/ui/notifications/systems/event_bridge` on the same
+            // frame, before `NotificationsSystemSet::Coalesce`. Not
+            // persisted.
+            .add_message::<MilestoneReached>()
             // PR-F (GRA-117): player-driven archive of completed
             // missions from the dossier ACTIVE MISSIONS list. The
             // tick system's archive pass also handles time-based
@@ -169,14 +177,15 @@ impl Plugin for SurveyPlugin {
                 )
                     .chain(),
             )
-            // GRA-787: three milestone consumers, one per source
-            // message family. They run in `Update` after the sim
-            // tick has emitted events for this frame. The set is
-            // ordered after `NotificationsSystemSet::EventBridge`
-            // (wired below) so the toast and the flag flip on the
-            // same frame; the `.chain()` inside the tuple is for
-            // documentation — the three systems target disjoint
-            // message families.
+            // GRA-787 + GRA-790B: three milestone consumers, one per source
+            // message family. They run in `Update` AFTER the sim
+            // tick has emitted events for this frame and BEFORE
+            // `NotificationsSystemSet::EventBridge` (wired below)
+            // so the milestone bridge has the freshly-emitted
+            // `MilestoneReached` messages in its input buffer on
+            // the same frame the flag flips. The `.chain()` inside
+            // the tuple is for documentation — the three systems
+            // target disjoint message families.
             .add_systems(
                 Update,
                 (
@@ -187,15 +196,20 @@ impl Plugin for SurveyPlugin {
                     .in_set(MilestonesSystemSet)
                     .chain(),
             )
-            // Cross-set ordering: bridge first, then milestones.
-            // `NotificationsSystemSet::EventBridge` is configured in
-            // `NotificationsPlugin`; the `.after` here documents
-            // the intended pipeline even when the bridge plugin is
-            // not registered (e.g. test harnesses).
+            // Cross-set ordering (GRA-790B): milestones FIRST, then
+            // the bridge set, so the milestone bridge
+            // (`bridge_milestone_events` registered in
+            // `NotificationsPlugin`) sees the freshly-emitted
+            // `MilestoneReached` messages on the same frame the
+            // flag flips. `NotificationsSystemSet::EventBridge` is
+            // configured in `NotificationsPlugin`; the `.before`
+            // here documents the intended pipeline even when the
+            // bridge plugin is not registered (e.g. test
+            // harnesses).
             .configure_sets(
                 Update,
                 MilestonesSystemSet
-                    .after(crate::ui::notifications::systems::NotificationsSystemSet::EventBridge),
+                    .before(crate::ui::notifications::systems::NotificationsSystemSet::EventBridge),
             );
     }
 }

@@ -52,7 +52,7 @@ use crate::colony::events::ConstructionEvent;
 use crate::research::events::ResearchEvent;
 use crate::research::TechnologiesData;
 use crate::survey::events::SurveyEvent;
-use crate::survey::types::SurveyMethod;
+use crate::survey::types::{AnomalyType, SurveyMethod};
 
 /// Reflected resource holding the six monotonic early-game flags.
 ///
@@ -237,33 +237,137 @@ pub fn is_probe_using_method(method: SurveyMethod) -> bool {
     )
 }
 
+/// Snapshot of the triggering body / colony / tech that caused a
+/// milestone to flip, captured at emit time. The notification bridge
+/// (GRA-790B, `src/ui/notifications/systems/event_bridge`) reads the
+/// payload to render toast text and the deep-link target without
+/// having to re-poll the world, where the `Entity` index is no
+/// longer guaranteed to be valid (e.g. immediately after a save/load
+/// cycle).
+///
+/// `DepositExtractionMilestone` has no producer today — the variant
+/// is reserved so the bridge can `continue` on it without inventing
+/// a producer (per the GRA-790B brief: "Keep the deposit flag
+/// persisted but do not invent a producer").
+#[derive(Debug, Clone)]
+pub enum MilestoneContext {
+    /// A probe-using mission was dispatched.
+    ProbeDispatched {
+        /// Celestial body the probe was dispatched from.
+        body: Entity,
+    },
+    /// Any survey mission completed successfully.
+    SurveyCompleted {
+        /// Celestial body the mission targeted.
+        body: Entity,
+    },
+    /// An anomaly was either detected on a body dossier or its
+    /// confidence crossed the activation threshold.
+    AnomalyDetected {
+        /// Celestial body the anomaly was logged on.
+        body: Entity,
+        /// Type of anomaly — the bridge uses this for toast copy.
+        anomaly: AnomalyType,
+    },
+    /// A new outpost colony was established.
+    OutpostEstablished {
+        /// Celestial body the outpost sits on.
+        body: Entity,
+        /// Display name of the new colony (resolved at emit time so
+        /// the bridge does not have to query `Colony` components).
+        colony_name: String,
+    },
+    /// A paid tier-1 technology was unlocked.
+    PaidTier1Tech {
+        /// Stable tech id from `assets/data/technologies.ron`.
+        tech_id: String,
+        /// Player-facing display name (already resolved from
+        /// `TechnologiesData` so the bridge does not have to).
+        tech_display_name: String,
+    },
+    /// Reserved for the unreachable deposit-extraction flag. The
+    /// bridge treats this as a no-op.
+    DepositExtraction,
+}
+
+/// Transient Bevy message emitted by the milestone producers in the
+/// instant a `false -> true` flag flip happens. The notification
+/// bridge (`bridge_milestone_events` in
+/// `src/ui/notifications/systems/event_bridge`) reads these on the
+/// same frame and writes a `NotificationEvent` with the matching
+/// LGD-approved category id.
+///
+/// The message is intentionally NOT persisted — it lives in a
+/// `Messages<MilestoneReached>` buffer for the lifetime of the emit
+/// frame and is dropped between game sessions / save-load cycles.
+/// The `EarlyGameMilestones` resource holds the persisted boolean
+/// state, and the StateStore v2 record round-trips it across saves.
+#[derive(Message, Debug, Clone)]
+pub struct MilestoneReached {
+    pub step: MilestoneStep,
+    pub context: MilestoneContext,
+}
+
 /// Consume survey events and advance flags idempotently.
 ///
 /// Order is irrelevant (each variant targets a disjoint flag) but we
 /// `match` exhaustively so a future `SurveyEvent` variant forces the
 /// author to think about whether it should advance a milestone. The
-/// system runs in `Update`, in `MilestonesSystemSet::Survey`; the set
-/// chains after `NotificationsSystemSet::EventBridge` so the same
-/// message has already been bridged to a toast before we flip the flag.
+/// system runs in `Update`, in `MilestonesSystemSet`; the set chains
+/// BEFORE `NotificationsSystemSet::EventBridge` (see
+/// `SurveyPlugin::build`) so a `MilestoneReached` message is in the
+/// bridge's input buffer on the same frame the flag flips.
 pub fn advance_survey_milestones(
     mut survey_events: MessageReader<SurveyEvent>,
     mut milestones: ResMut<EarlyGameMilestones>,
+    mut reached: MessageWriter<MilestoneReached>,
 ) {
     for event in survey_events.read() {
         match event {
-            SurveyEvent::MissionStarted { method, .. } => {
+            SurveyEvent::MissionStarted { body, method, .. } => {
                 if is_probe_using_method(*method) && !milestones.probe_dispatched {
                     milestones.probe_dispatched = true;
+                    reached.write(MilestoneReached {
+                        step: MilestoneStep::ProbeDispatched,
+                        context: MilestoneContext::ProbeDispatched { body: *body },
+                    });
                 }
             }
-            SurveyEvent::MissionCompleted { .. } => {
+            SurveyEvent::MissionCompleted { body, .. } => {
                 if !milestones.survey_completed {
                     milestones.survey_completed = true;
+                    reached.write(MilestoneReached {
+                        step: MilestoneStep::SurveyCompleted,
+                        context: MilestoneContext::SurveyCompleted { body: *body },
+                    });
                 }
             }
-            SurveyEvent::AnomalyDetected { .. } | SurveyEvent::AnomalyActivated { .. } => {
+            SurveyEvent::AnomalyDetected {
+                body, anomaly, ..
+            } => {
                 if !milestones.anomaly_detected_or_activated {
                     milestones.anomaly_detected_or_activated = true;
+                    reached.write(MilestoneReached {
+                        step: MilestoneStep::AnomalyDetectedOrActivated,
+                        context: MilestoneContext::AnomalyDetected {
+                            body: *body,
+                            anomaly: *anomaly,
+                        },
+                    });
+                }
+            }
+            SurveyEvent::AnomalyActivated {
+                body, anomaly, ..
+            } => {
+                if !milestones.anomaly_detected_or_activated {
+                    milestones.anomaly_detected_or_activated = true;
+                    reached.write(MilestoneReached {
+                        step: MilestoneStep::AnomalyDetectedOrActivated,
+                        context: MilestoneContext::AnomalyDetected {
+                            body: *body,
+                            anomaly: *anomaly,
+                        },
+                    });
                 }
             }
             // MissionFailed / MissionAborted / ProbeLost / RoverStuck /
@@ -286,6 +390,8 @@ pub fn advance_survey_milestones(
 pub fn advance_construction_milestones(
     mut construction_events: MessageReader<ConstructionEvent>,
     mut milestones: ResMut<EarlyGameMilestones>,
+    colonies: Query<&crate::colony::components::Colony>,
+    mut reached: MessageWriter<MilestoneReached>,
 ) {
     for event in construction_events.read() {
         match event {
@@ -294,9 +400,20 @@ pub fn advance_construction_milestones(
             // `BuildingType::Outpost` variant, so we cannot filter
             // `Completed { building: Outpost }`. Instead the
             // establishment flow emits `OutpostEstablished` directly.
-            ConstructionEvent::OutpostEstablished { .. } => {
+            ConstructionEvent::OutpostEstablished { colony, body } => {
                 if !milestones.outpost_established {
                     milestones.outpost_established = true;
+                    let colony_name = colonies
+                        .get(*colony)
+                        .map(|c| c.name.clone())
+                        .unwrap_or_else(|_| "colony".to_string());
+                    reached.write(MilestoneReached {
+                        step: MilestoneStep::OutpostEstablished,
+                        context: MilestoneContext::OutpostEstablished {
+                            body: *body,
+                            colony_name,
+                        },
+                    });
                 }
             }
             ConstructionEvent::Completed { .. } | ConstructionEvent::ShipCompleted { .. } => {}
@@ -317,6 +434,7 @@ pub fn advance_research_milestones(
     mut research_events: MessageReader<ResearchEvent>,
     mut milestones: ResMut<EarlyGameMilestones>,
     tech_data: Option<Res<TechnologiesData>>,
+    mut reached: MessageWriter<MilestoneReached>,
 ) {
     if milestones.paid_tier_1_technology_unlocked {
         // Once set, drain without inspecting; the buffer does not need
@@ -334,21 +452,32 @@ pub fn advance_research_milestones(
     };
 
     for event in research_events.read() {
-        let ResearchEvent::TechCompleted { tech_id, .. } = event;
+        let ResearchEvent::TechCompleted {
+            tech_id,
+            tech_display_name,
+        } = event;
         let Some(tech) = tech_data.get_tech(tech_id) else {
             continue;
         };
         if tech.tier == 1 && tech.research_cost > 0.0 {
             milestones.paid_tier_1_technology_unlocked = true;
+            reached.write(MilestoneReached {
+                step: MilestoneStep::PaidTier1TechnologyUnlocked,
+                context: MilestoneContext::PaidTier1Tech {
+                    tech_id: tech_id.clone(),
+                    tech_display_name: tech_display_name.clone(),
+                },
+            });
         }
     }
 }
 
 /// System set that owns the milestone consumers. Configured to run in
-/// `Update` after `NotificationsSystemSet::EventBridge` (see
-/// `SurveyPlugin::build`) so the toast and the flag flip on the same
-/// frame. The three consumers target disjoint message families, so
-/// ordering WITHIN the set is irrelevant — Bevy's `.chain()` keeps the
+/// `Update` BEFORE `NotificationsSystemSet::EventBridge` (see
+/// `SurveyPlugin::build`) so a `MilestoneReached` message is in the
+/// milestone-bridge input buffer on the same frame the flag flips.
+/// The three consumers target disjoint message families, so ordering
+/// WITHIN the set is irrelevant — Bevy's `.chain()` keeps the
 /// documentation tidy.
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct MilestonesSystemSet;
@@ -363,6 +492,7 @@ mod tests {
     //!   snapshot via `register_type` + `init_resource`)
 
     use super::*;
+    use std::collections::HashMap;
 
     fn fresh_world() -> World {
         let mut world = World::new();
@@ -370,6 +500,7 @@ mod tests {
         world.init_resource::<Messages<SurveyEvent>>();
         world.init_resource::<Messages<ConstructionEvent>>();
         world.init_resource::<Messages<ResearchEvent>>();
+        world.init_resource::<Messages<MilestoneReached>>();
         world.init_resource::<AppTypeRegistry>();
         // Register the resource type so the persistence test can use
         // `ReflectFromReflect`. The other test cases do not need it.
@@ -385,7 +516,12 @@ mod tests {
 
     /// Build a `Schedule` with the three milestone consumers + a world
     /// that already has the milestone resource initialised.
-    fn build_schedule(_world: &mut World) -> Schedule {
+    fn build_schedule(world: &mut World) -> Schedule {
+        // `advance_construction_milestones` now also queries
+        // `&Colony` (for the outpost deep-link context). Insert a
+        // `Colony` registry so the test schedules don't panic on
+        // the `colonies` Query<...> param.
+        world.init_resource::<Messages<MilestoneReached>>();
         let mut schedule = Schedule::default();
         schedule.add_systems(
             (
@@ -700,6 +836,7 @@ mod tests {
         let mut world = World::new();
         world.init_resource::<EarlyGameMilestones>();
         world.init_resource::<Messages<ResearchEvent>>();
+        world.init_resource::<Messages<MilestoneReached>>();
         world.write_message(ResearchEvent::TechCompleted {
             tech_id: "paid_t1".into(),
             tech_display_name: "Paid Tier 1".into(),
@@ -799,5 +936,291 @@ mod tests {
         assert!(!m.outpost_established);
         assert!(!m.paid_tier_1_technology_unlocked);
         assert_eq!(m.current_step(), Some(MilestoneStep::ProbeDispatched));
+    }
+
+    // ── GRA-790B: MilestoneReached emission (idempotent + context) ─
+
+    /// Drain every `MilestoneReached` message in the buffer. The
+    /// bridge consumes messages one per call; tests want to count
+    /// the post-run emit volume without taking a `&mut` borrow on
+    /// the buffer.
+    fn drain_milestones(world: &mut World) -> Vec<MilestoneReached> {
+        world
+            .resource_mut::<Messages<MilestoneReached>>()
+            .drain()
+            .collect()
+    }
+
+    /// Spawn a celestial body for the survey context.
+    fn make_body_entity(world: &mut World, name: &str) -> Entity {
+        use crate::astronomy::components::SystemId;
+        use crate::plugins::solar_system::CelestialBody;
+        use crate::plugins::solar_system_data::BodyType;
+        world
+            .spawn((
+                CelestialBody {
+                    name: name.to_string(),
+                    radius: 0.0,
+                    mass: 0.0,
+                    body_type: BodyType::Planet,
+                    visual_radius: 0.0,
+                    asteroid_class: None,
+                    star_approach_au: None,
+                    rotation_period_s: None,
+                    habitable_outer_au: None,
+                },
+                SystemId(0),
+            ))
+            .id()
+    }
+
+    #[test]
+    fn emit_probe_dispatched_carries_body_context_once() {
+        let mut world = fresh_world();
+        let body = make_body_entity(&mut world, "Earth");
+        world.write_message(SurveyEvent::MissionStarted {
+            body,
+            mission_id: 1,
+            name: "Flyby 1".to_string(),
+            method: SurveyMethod::Flyby,
+        });
+        // Send 4 more starts on the same flag — only the first emits.
+        for i in 2..=5 {
+            world.write_message(SurveyEvent::MissionStarted {
+                body,
+                mission_id: i,
+                name: format!("Flyby {i}"),
+                method: SurveyMethod::Orbital,
+            });
+        }
+        let mut schedule = build_schedule(&mut world);
+        schedule.run(&mut world);
+
+        let reached = drain_milestones(&mut world);
+        assert_eq!(
+            reached.len(),
+            1,
+            "probe_dispatched must emit exactly one MilestoneReached per false→true; got {reached:?}"
+        );
+        assert_eq!(reached[0].step, MilestoneStep::ProbeDispatched);
+        match &reached[0].context {
+            MilestoneContext::ProbeDispatched { body: ctx } => assert_eq!(*ctx, body),
+            other => panic!("expected ProbeDispatched context, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn emit_survey_completed_carries_body_context_once() {
+        let mut world = fresh_world();
+        let body = make_body_entity(&mut world, "Luna");
+        for i in 0..3 {
+            world.write_message(SurveyEvent::MissionCompleted {
+                body,
+                mission_id: i,
+                name: format!("Mission {i}"),
+                method: SurveyMethod::Rover,
+            });
+        }
+        let mut schedule = build_schedule(&mut world);
+        schedule.run(&mut world);
+
+        let reached = drain_milestones(&mut world);
+        assert_eq!(reached.len(), 1);
+        assert_eq!(reached[0].step, MilestoneStep::SurveyCompleted);
+        match &reached[0].context {
+            MilestoneContext::SurveyCompleted { body: ctx } => assert_eq!(*ctx, body),
+            other => panic!("expected SurveyCompleted context, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn emit_anomaly_detected_then_activated_emits_only_once() {
+        let mut world = fresh_world();
+        let body = make_body_entity(&mut world, "Mars");
+        world.write_message(SurveyEvent::AnomalyDetected {
+            body,
+            anomaly: crate::survey::types::AnomalyType::BrineAquifer,
+            initial_confidence: 0.10,
+        });
+        // A subsequent AnomalyActivated on the same flag must NOT
+        // re-emit — the flag is already true.
+        world.write_message(SurveyEvent::AnomalyActivated {
+            body,
+            anomaly: crate::survey::types::AnomalyType::BrineAquifer,
+            confidence: 0.85,
+        });
+        let mut schedule = build_schedule(&mut world);
+        schedule.run(&mut world);
+
+        let reached = drain_milestones(&mut world);
+        assert_eq!(
+            reached.len(),
+            1,
+            "anomaly flag emits exactly one MilestoneReached across detected+activated"
+        );
+        assert_eq!(reached[0].step, MilestoneStep::AnomalyDetectedOrActivated);
+        match &reached[0].context {
+            MilestoneContext::AnomalyDetected { body: ctx, anomaly } => {
+                assert_eq!(*ctx, body);
+                assert_eq!(*anomaly, crate::survey::types::AnomalyType::BrineAquifer);
+            }
+            other => panic!("expected AnomalyDetected context, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn emit_outpost_established_carries_colony_name_context() {
+        let mut world = fresh_world();
+        use crate::colony::components::{
+            Colony, ColonyDevelopment, ColonyTier,
+        };
+        let body = make_body_entity(&mut world, "Mars");
+        let colony = world
+            .spawn(Colony {
+                name: "Mars Outpost Alpha".to_string(),
+                population: 12.0,
+                development: ColonyDevelopment {
+                    tier: ColonyTier::Outpost,
+                    yield_multiplier: 1.0,
+                    investments: 0,
+                },
+                buildings: HashMap::new(),
+                growth_rate_modifier: 1.0,
+            })
+            .id();
+        world.write_message(ConstructionEvent::OutpostEstablished { colony, body });
+        // A duplicate must NOT emit — the flag is already true.
+        world.write_message(ConstructionEvent::OutpostEstablished { colony, body });
+        let mut schedule = build_schedule(&mut world);
+        schedule.run(&mut world);
+
+        let reached = drain_milestones(&mut world);
+        assert_eq!(reached.len(), 1);
+        assert_eq!(reached[0].step, MilestoneStep::OutpostEstablished);
+        match &reached[0].context {
+            MilestoneContext::OutpostEstablished {
+                body: ctx,
+                colony_name,
+            } => {
+                assert_eq!(*ctx, body);
+                assert_eq!(colony_name, "Mars Outpost Alpha");
+            }
+            other => panic!("expected OutpostEstablished context, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn emit_paid_tier1_carries_tech_id_and_display_name() {
+        let mut world = fresh_world();
+        let mut data = TechnologiesData::default();
+        data.technologies.insert(
+            "paid_t1".into(),
+            crate::research::types::Technology {
+                id: "paid_t1".into(),
+                name: "Paid Tier 1".into(),
+                category: crate::research::types::TechCategory::Physics,
+                description: "test".into(),
+                research_cost: 1000.0,
+                prerequisites: vec![],
+                unlocks_components: vec![],
+                unlocks_engineering: vec![],
+                modifiers: vec![],
+                tier: 1,
+            },
+        );
+        world.insert_resource(data);
+
+        world.write_message(ResearchEvent::TechCompleted {
+            tech_id: "paid_t1".into(),
+            tech_display_name: "Paid Tier 1".into(),
+        });
+        // Re-fire with the same id — flag is true so no re-emit.
+        world.write_message(ResearchEvent::TechCompleted {
+            tech_id: "paid_t1".into(),
+            tech_display_name: "Paid Tier 1".into(),
+        });
+        let mut schedule = build_schedule(&mut world);
+        schedule.run(&mut world);
+
+        let reached = drain_milestones(&mut world);
+        assert_eq!(reached.len(), 1);
+        assert_eq!(reached[0].step, MilestoneStep::PaidTier1TechnologyUnlocked);
+        match &reached[0].context {
+            MilestoneContext::PaidTier1Tech {
+                tech_id,
+                tech_display_name,
+            } => {
+                assert_eq!(tech_id, "paid_t1");
+                assert_eq!(tech_display_name, "Paid Tier 1");
+            }
+            other => panic!("expected PaidTier1Tech context, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn deposit_extraction_producer_does_not_exist() {
+        // The GRA-790B brief: "Keep the deposit flag persisted but do
+        // not invent a producer." Lock that contract with an explicit
+        // test: no survey/construction/research input the bridge
+        // consumes ever flips `deposit_extraction_milestone` from
+        // `false` to `true`.
+        let mut world = fresh_world();
+        // Push every variant we know. None should emit a
+        // MilestoneReached with step DepositExtractionMilestone.
+        let body = make_body_entity(&mut world, "Earth");
+        world.write_message(SurveyEvent::MissionStarted {
+            body,
+            mission_id: 1,
+            name: "Flyby".into(),
+            method: SurveyMethod::Flyby,
+        });
+        world.write_message(SurveyEvent::MissionCompleted {
+            body,
+            mission_id: 2,
+            name: "Rover".into(),
+            method: SurveyMethod::Rover,
+        });
+        world.write_message(SurveyEvent::AnomalyDetected {
+            body,
+            anomaly: crate::survey::types::AnomalyType::MagneticAnomaly,
+            initial_confidence: 0.10,
+        });
+        let colony = world.spawn_empty().id();
+        world.write_message(ConstructionEvent::OutpostEstablished { colony, body });
+        let mut data = TechnologiesData::default();
+        data.technologies.insert(
+            "paid_t1".into(),
+            crate::research::types::Technology {
+                id: "paid_t1".into(),
+                name: "Paid Tier 1".into(),
+                category: crate::research::types::TechCategory::Physics,
+                description: "test".into(),
+                research_cost: 1000.0,
+                prerequisites: vec![],
+                unlocks_components: vec![],
+                unlocks_engineering: vec![],
+                modifiers: vec![],
+                tier: 1,
+            },
+        );
+        world.insert_resource(data);
+        world.write_message(ResearchEvent::TechCompleted {
+            tech_id: "paid_t1".into(),
+            tech_display_name: "Paid Tier 1".into(),
+        });
+        let mut schedule = build_schedule(&mut world);
+        schedule.run(&mut world);
+
+        let reached = drain_milestones(&mut world);
+        assert!(
+            !reached
+                .iter()
+                .any(|m| m.step == MilestoneStep::DepositExtractionMilestone),
+            "no producer exists for DepositExtractionMilestone; got {reached:?}"
+        );
+        // The deposit flag stays false.
+        assert!(!world
+            .resource::<EarlyGameMilestones>()
+            .deposit_extraction_milestone);
     }
 }

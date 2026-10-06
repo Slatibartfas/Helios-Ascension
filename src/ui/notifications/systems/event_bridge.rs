@@ -46,6 +46,7 @@ use crate::colony::events::ConstructionEvent;
 use crate::game_state::GameMenu;
 use crate::research::events::ResearchEvent;
 use crate::survey::events::SurveyEvent;
+use crate::survey::milestones::{MilestoneContext, MilestoneReached, MilestoneStep};
 use crate::survey::types::MissionFailureReason;
 use crate::ui::notifications::events::{
     NotificationContextLink, NotificationEvent, NotificationSeverity,
@@ -322,6 +323,151 @@ fn failure_reason_text(reason: MissionFailureReason) -> &'static str {
     }
 }
 
+/// Stable notification category id for a milestone step. Maps each
+/// reachable `MilestoneStep` to the LGD-approved id in
+/// `assets/data/notifications.ron` (GRA-803). The `DepositExtractionMilestone`
+/// variant has no producer and no matching category, so the bridge
+/// returns `None` for it — the bridge `continue`s on `None` and the
+/// flag stays persisted without a producer (per the GRA-790B brief:
+/// "Keep the deposit flag persisted but do not invent a producer").
+fn milestone_category(step: MilestoneStep) -> Option<&'static str> {
+    match step {
+        MilestoneStep::ProbeDispatched => Some("milestones.first_probe_dispatched"),
+        MilestoneStep::SurveyCompleted => Some("milestones.first_survey_completed"),
+        MilestoneStep::AnomalyDetectedOrActivated => Some("milestones.first_anomaly"),
+        MilestoneStep::OutpostEstablished => Some("milestones.first_outpost_established"),
+        MilestoneStep::PaidTier1TechnologyUnlocked => Some("milestones.first_paid_tier1_tech"),
+        // No producer, no category — see module-level doc on
+        // `MilestoneContext::DepositExtraction`.
+        MilestoneStep::DepositExtractionMilestone => None,
+    }
+}
+
+/// Translate milestone flag flips into player-visible notifications.
+///
+/// GRA-790B (design comment `b67d321d-…`): the milestone producers
+/// in `src/survey/milestones.rs` write a transient `MilestoneReached`
+/// message in the exact frame the flag flips `false -> true`. This
+/// bridge reads the message and writes a `NotificationEvent` keyed
+/// by the LGD-approved category id (`milestones.first_*`). The
+/// `context` payload carries the triggering body / colony / tech so
+/// the bridge can render the toast copy and the deep-link target
+/// without re-polling the world.
+///
+/// Ordering: this bridge runs in
+/// `NotificationsSystemSet::EventBridge` (registered by
+/// `NotificationsPlugin::build`). `SurveyPlugin` configures
+/// `MilestonesSystemSet` to run BEFORE that set so the bridge
+/// always sees a freshly-emitted `MilestoneReached` on the same
+/// frame the flag flipped.
+///
+/// Idempotency: the milestone producers themselves gate the write
+/// behind `!flag`, so this bridge sees at most one
+/// `MilestoneReached` per flag per save/load cycle. The `dedup_key`
+/// is set to the category id so PR-D's coalesce pass folds any
+/// future duplicate emits (e.g. from a manual reload path) into
+/// one toast.
+pub fn bridge_milestone_events(
+    mut reached: MessageReader<MilestoneReached>,
+    mut notifications: MessageWriter<NotificationEvent>,
+    body_names: Query<&Name>,
+) {
+    for event in reached.read() {
+        let Some(category) = milestone_category(event.step) else {
+            // DepositExtractionMilestone — no producer, no category.
+            continue;
+        };
+        let category_id = NotificationCategoryId::from(category);
+
+        // Map context → title + body + deep-link.
+        //
+        // The LGD-approved categories supply the player-facing
+        // display_name through the categories manifest; the bridge
+        // only writes short technical copy (entity names, mission
+        // names) into `body` so the toast renders the dossier label
+        // for the targeted body / colony / tech.
+        let (title, body, context_link) = match &event.context {
+            MilestoneContext::ProbeDispatched { body } => {
+                let body_name = body_name_lookup(&body_names, *body);
+                (
+                    "First probe dispatched".to_string(),
+                    body_name,
+                    NotificationContextLink::SelectBody(*body),
+                )
+            }
+            MilestoneContext::SurveyCompleted { body } => {
+                let body_name = body_name_lookup(&body_names, *body);
+                (
+                    "First survey complete".to_string(),
+                    body_name,
+                    NotificationContextLink::SelectBody(*body),
+                )
+            }
+            MilestoneContext::AnomalyDetected { body, anomaly } => {
+                let body_name = body_name_lookup(&body_names, *body);
+                (
+                    "First anomaly detected".to_string(),
+                    format!("{body_name} ({})", anomaly.ron_id()),
+                    NotificationContextLink::SelectBody(*body),
+                )
+            }
+            MilestoneContext::OutpostEstablished {
+                body,
+                colony_name,
+            } => {
+                let body_name = body_name_lookup(&body_names, *body);
+                (
+                    "First outpost established".to_string(),
+                    format!("{colony_name} ({body_name})"),
+                    NotificationContextLink::OpenMenu(GameMenu::Construction),
+                )
+            }
+            MilestoneContext::PaidTier1Tech {
+                tech_id: _,
+                tech_display_name,
+            } => (
+                "First paid tier-1 tech".to_string(),
+                tech_display_name.clone(),
+                NotificationContextLink::OpenMenu(GameMenu::Research),
+            ),
+            // Defensive: a `MilestoneReached` with the unreachable
+            // deposit context is filtered above by `milestone_category`,
+            // but if a future change reintroduces the path the
+            // bridge still no-ops.
+            MilestoneContext::DepositExtraction => continue,
+        };
+
+        notifications.write(NotificationEvent {
+            category: category_id,
+            severity: NotificationSeverity::Notice,
+            title,
+            body,
+            // Stable per-step dedup key. The category id already
+            // uniquely identifies the milestone, so the bridge does
+            // not add a body/colony suffix — PR-D's coalesce pass
+            // folds duplicate emits into one toast regardless of the
+            // context payload.
+            dedup_key: Some(category.to_string()),
+            auto_dismiss_s: None,
+            sticky: false,
+            context_link,
+        });
+    }
+}
+
+/// Local helper for the milestone bridge. Mirrors the
+/// `body_name` helper at the top of the file but is inlined here
+/// so a future refactor of the survey-bridge helper does not break
+/// the milestone-bridge test surface.
+fn body_name_lookup(body_names: &Query<&Name>, body: Entity) -> String {
+    body_names
+        .get(body)
+        .ok()
+        .map(|n| n.as_str().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "body".to_string())
+}
+
 #[cfg(test)]
 mod tests {
     //! 11 unit tests (the spec's "9" is a typo): one per `SurveyEvent`
@@ -405,6 +551,7 @@ mod tests {
         world.init_resource::<Messages<ConstructionEvent>>();
         world.init_resource::<Messages<ResearchEvent>>();
         world.init_resource::<Messages<NotificationEvent>>();
+        world.init_resource::<Messages<MilestoneReached>>();
         world
     }
 
@@ -627,5 +774,223 @@ mod tests {
         assert_eq!(next.category.as_str(), "research.tech_unlocked");
         assert_eq!(next.title, "Fusion Propulsion unlocked");
         assert_eq!(next.severity, NotificationSeverity::Notice);
+    }
+
+    // ── Milestone bridge (GRA-790B) ───────────────────────────────
+    //
+    // Five tests, one per reachable `MilestoneStep`, plus one for
+    // the deposit-extraction no-op. The bridge uses the
+    // LGD-approved category ids from `assets/data/notifications.ron`
+    // (GRA-803); the test names reference the canonical milestone
+    // names so a future renumbering of the categories manifest is
+    // loud-and-clear.
+
+    /// Run the milestone bridge against the world, then drain and
+    /// return the resulting `NotificationEvent`s.
+    fn run_milestone_bridge(world: &mut World) -> Vec<NotificationEvent> {
+        let mut schedule = Schedule::default();
+        schedule.add_systems(bridge_milestone_events);
+        schedule.run(world);
+        world
+            .resource_mut::<Messages<NotificationEvent>>()
+            .drain()
+            .collect()
+    }
+
+    #[test]
+    fn test_bridge_milestone_first_probe_dispatched() {
+        let mut world = fresh_world();
+        let body = spawn_body(&mut world, "Earth");
+        world.write_message(MilestoneReached {
+            step: MilestoneStep::ProbeDispatched,
+            context: MilestoneContext::ProbeDispatched { body },
+        });
+        let events = run_milestone_bridge(&mut world);
+        assert_eq!(events.len(), 1);
+        let next = &events[0];
+        assert_eq!(next.category.as_str(), "milestones.first_probe_dispatched");
+        assert_eq!(next.title, "First probe dispatched");
+        assert_eq!(next.severity, NotificationSeverity::Notice);
+        // Dedup key is the category id, so PR-D's coalesce pass
+        // folds any duplicate emit (e.g. from a manual reload
+        // path) into a single toast.
+        assert_eq!(next.dedup_key.as_deref(), Some("milestones.first_probe_dispatched"));
+        // Deep-link targets the body.
+        match next.context_link {
+            NotificationContextLink::SelectBody(e) => assert_eq!(e, body),
+            other => panic!("expected SelectBody, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_bridge_milestone_first_survey_completed() {
+        let mut world = fresh_world();
+        let body = spawn_body(&mut world, "Luna");
+        world.write_message(MilestoneReached {
+            step: MilestoneStep::SurveyCompleted,
+            context: MilestoneContext::SurveyCompleted { body },
+        });
+        let events = run_milestone_bridge(&mut world);
+        assert_eq!(events.len(), 1);
+        let next = &events[0];
+        assert_eq!(next.category.as_str(), "milestones.first_survey_completed");
+        assert_eq!(next.title, "First survey complete");
+        match next.context_link {
+            NotificationContextLink::SelectBody(e) => assert_eq!(e, body),
+            other => panic!("expected SelectBody, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_bridge_milestone_first_anomaly_detected() {
+        let mut world = fresh_world();
+        let body = spawn_body(&mut world, "Mars");
+        world.write_message(MilestoneReached {
+            step: MilestoneStep::AnomalyDetectedOrActivated,
+            context: MilestoneContext::AnomalyDetected {
+                body,
+                anomaly: AnomalyType::BrineAquifer,
+            },
+        });
+        let events = run_milestone_bridge(&mut world);
+        assert_eq!(events.len(), 1);
+        let next = &events[0];
+        assert_eq!(next.category.as_str(), "milestones.first_anomaly");
+        assert_eq!(next.title, "First anomaly detected");
+        assert!(
+            next.body.contains("brine_aquifer"),
+            "anomaly id must surface in body text; got {}",
+            next.body
+        );
+        match next.context_link {
+            NotificationContextLink::SelectBody(e) => assert_eq!(e, body),
+            other => panic!("expected SelectBody, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_bridge_milestone_first_outpost_established() {
+        let mut world = fresh_world();
+        let body = spawn_body(&mut world, "Mars");
+        world.write_message(MilestoneReached {
+            step: MilestoneStep::OutpostEstablished,
+            context: MilestoneContext::OutpostEstablished {
+                body,
+                colony_name: "Mare Erythraeum Outpost".to_string(),
+            },
+        });
+        let events = run_milestone_bridge(&mut world);
+        assert_eq!(events.len(), 1);
+        let next = &events[0];
+        assert_eq!(
+            next.category.as_str(),
+            "milestones.first_outpost_established"
+        );
+        assert_eq!(next.title, "First outpost established");
+        // Body includes the colony name + body name; the bridge
+        // does not have to query `Colony` to render it.
+        assert!(next.body.contains("Mare Erythraeum Outpost"));
+        // Deep-link opens the construction menu (the menu path
+        // the player uses to queue more outposts).
+        match next.context_link {
+            NotificationContextLink::OpenMenu(crate::game_state::GameMenu::Construction) => {}
+            other => panic!("expected OpenMenu(Construction), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_bridge_milestone_first_paid_tier1_tech() {
+        let mut world = fresh_world();
+        world.write_message(MilestoneReached {
+            step: MilestoneStep::PaidTier1TechnologyUnlocked,
+            context: MilestoneContext::PaidTier1Tech {
+                tech_id: "fusion_propulsion".to_string(),
+                tech_display_name: "Fusion Propulsion".to_string(),
+            },
+        });
+        let events = run_milestone_bridge(&mut world);
+        assert_eq!(events.len(), 1);
+        let next = &events[0];
+        assert_eq!(next.category.as_str(), "milestones.first_paid_tier1_tech");
+        assert_eq!(next.title, "First paid tier-1 tech");
+        assert_eq!(next.body, "Fusion Propulsion");
+        match next.context_link {
+            NotificationContextLink::OpenMenu(crate::game_state::GameMenu::Research) => {}
+            other => panic!("expected OpenMenu(Research), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_bridge_milestone_deposit_extraction_is_noop() {
+        // GRA-790B brief: "Keep the deposit flag persisted but do
+        // not invent a producer." The bridge therefore drops the
+        // deposit step silently — no category, no notification,
+        // no `context_link`.
+        let mut world = fresh_world();
+        let body = spawn_body(&mut world, "Vesta");
+        world.write_message(MilestoneReached {
+            step: MilestoneStep::DepositExtractionMilestone,
+            context: MilestoneContext::DepositExtraction,
+        });
+        let events = run_milestone_bridge(&mut world);
+        assert!(
+            events.is_empty(),
+            "deposit milestone must not produce a notification; got {events:?}"
+        );
+        // The body Entity should be untouched too (the bridge
+        // never resolves it).
+        assert!(
+            world.get_entity(body).is_ok(),
+            "deposit-milestone emit must not despawn the body"
+        );
+    }
+
+    #[test]
+    fn test_bridge_milestone_idempotent_category_mapping() {
+        // Five distinct `MilestoneReached` emits in one frame;
+        // the bridge produces exactly five notifications, one per
+        // reachable step. The deposit step is excluded by the
+        // `milestone_category` `None` short-circuit.
+        let mut world = fresh_world();
+        let body = spawn_body(&mut world, "Earth");
+        world.write_message(MilestoneReached {
+            step: MilestoneStep::ProbeDispatched,
+            context: MilestoneContext::ProbeDispatched { body },
+        });
+        world.write_message(MilestoneReached {
+            step: MilestoneStep::SurveyCompleted,
+            context: MilestoneContext::SurveyCompleted { body },
+        });
+        world.write_message(MilestoneReached {
+            step: MilestoneStep::AnomalyDetectedOrActivated,
+            context: MilestoneContext::AnomalyDetected {
+                body,
+                anomaly: AnomalyType::MagneticAnomaly,
+            },
+        });
+        world.write_message(MilestoneReached {
+            step: MilestoneStep::OutpostEstablished,
+            context: MilestoneContext::OutpostEstablished {
+                body,
+                colony_name: "Earth Orbital One".to_string(),
+            },
+        });
+        world.write_message(MilestoneReached {
+            step: MilestoneStep::PaidTier1TechnologyUnlocked,
+            context: MilestoneContext::PaidTier1Tech {
+                tech_id: "fusion_propulsion".to_string(),
+                tech_display_name: "Fusion Propulsion".to_string(),
+            },
+        });
+
+        let events = run_milestone_bridge(&mut world);
+        assert_eq!(events.len(), 5);
+
+        // Every category id is unique (no two milestones share a
+        // category) so the LGD-approved naming stays stable.
+        let mut categories: Vec<&str> = events.iter().map(|e| e.category.as_str()).collect();
+        categories.sort_unstable();
+        categories.dedup();
+        assert_eq!(categories.len(), 5, "category ids must be unique");
     }
 }

@@ -27,8 +27,9 @@ use std::collections::BTreeMap;
 
 use super::state_store::{
     AutosaveRecord, BodyDivergence, BodyKey, EconomyRecord, EngineeringProjectRecord, FleetRecord,
-    NotificationCategoryRecord, NotificationRecord, ResearchRecord, ResourceRequestRecord,
-    ShipRecord, ShippingCompanyRecord, StateStore, StateStoreMetadata, SurveyDivergence, UiRecord,
+    MilestoneRecord, NotificationCategoryRecord, NotificationRecord, ResearchRecord,
+    ResourceRequestRecord, ShipRecord, ShippingCompanyRecord, StateStore, StateStoreMetadata,
+    SurveyDivergence, UiRecord,
 };
 
 /// Errors during extraction. Only the ones the apply path
@@ -86,6 +87,7 @@ pub fn extract_state_store(
     store.ui = extract_ui(world);
     store.notifications = extract_notifications(world);
     store.meta_autosave = extract_autosave(world);
+    store.milestones = extract_milestones(world);
     Ok(store)
 }
 
@@ -766,6 +768,36 @@ fn extract_autosave(world: &mut World) -> AutosaveRecord {
         // slot name. Those will land in PR-J (autosave UX
         // expansion). The extract path leaves them at their
         // defaults.
+    }
+    out
+}
+
+// ════════════════════════════════════════════════════════════
+// Milestones (GRA-790B)
+// ════════════════════════════════════════════════════════════
+
+/// GRA-790B: snapshot the six monotonic early-game milestone
+/// flags from the `EarlyGameMilestones` resource. The transient
+/// `MilestoneReached` message buffer is intentionally NOT
+/// extracted; messages live in `Messages<MilestoneReached>` for
+/// the lifetime of the emit frame and are dropped between game
+/// sessions / save-load cycles.
+fn extract_milestones(world: &mut World) -> MilestoneRecord {
+    use crate::survey::EarlyGameMilestones;
+
+    let mut out = MilestoneRecord::default();
+    if let Some(m) = world.get_resource::<EarlyGameMilestones>() {
+        out.probe_dispatched = m.probe_dispatched;
+        out.survey_completed = m.survey_completed;
+        out.anomaly_detected_or_activated = m.anomaly_detected_or_activated;
+        // The deposit-extraction flag has no producer (see the
+        // GRA-790B brief: "Keep the deposit flag persisted but
+        // do not invent a producer"). We still copy it across
+        // the save/load boundary so a save that pre-set the
+        // flag through a debug / scripting path restores.
+        out.deposit_extraction_milestone = m.deposit_extraction_milestone;
+        out.outpost_established = m.outpost_established;
+        out.paid_tier_1_technology_unlocked = m.paid_tier_1_technology_unlocked;
     }
     out
 }
