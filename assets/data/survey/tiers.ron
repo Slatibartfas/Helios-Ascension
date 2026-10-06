@@ -46,6 +46,14 @@
 //   - Anomalies tier 1 = "anomaly detected" (no name yet)
 //   - Anomalies tier 2 = "first named anomaly" (UI surfaces id)
 //
+// Ch.1 narrative ladder (GRA-797 / GRA-792 binding concept):
+// Early-arc tier-1 reads as a discrete reveal — "we know this body
+// exists" — not a flat checklist entry. Tier-2 reads as "we know
+// where to look" (a candidate narrowed). Tier-3 reads as "we have a
+// candidate worth risking a follow-up on" (an actionable target).
+// These three beats are the sim-day 0–500 story for each dimension;
+// tiers 4–5 stay factual because they land in Ch.2+.
+//
 // Modder rebalance: edit `description` strings for narrative tone,
 // or add new entries to `unlocks` to gate additional gameplay
 // without recompiling.
@@ -63,21 +71,21 @@
             id: "OrbitalMech_t1",
             dimension: OrbitalMech,
             tier: 1,
-            description: "Mass, radius, orbit.",
+            description: "We know this body exists — orbit locked, mass and radius resolved.",
             unlocks: ["orbital_insertion_unlocked"],
         ),
         (
             id: "OrbitalMech_t2",
             dimension: OrbitalMech,
             tier: 2,
-            description: "+ axial tilt, rotation.",
+            description: "Axial tilt and rotation rate measured.",
             unlocks: [],
         ),
         (
             id: "OrbitalMech_t3",
             dimension: OrbitalMech,
             tier: 3,
-            description: "+ moons, libration.",
+            description: "Moons catalogued and libration mapped; a moon target is safe.",
             unlocks: ["moon_targeting_unlocked"],
         ),
         (
@@ -107,21 +115,21 @@
             id: "Atmosphere_t1",
             dimension: Atmosphere,
             tier: 1,
-            description: "Pressure, gross composition.",
+            description: "We know this body exists — atmosphere confirmed, pressure band resolved.",
             unlocks: [],
         ),
         (
             id: "Atmosphere_t2",
             dimension: Atmosphere,
             tier: 2,
-            description: "+ temperature, gas %.",
+            description: "Temperature profile and major gases resolved.",
             unlocks: [],
         ),
         (
             id: "Atmosphere_t3",
             dimension: Atmosphere,
             tier: 3,
-            description: "+ breathability.",
+            description: "Breathability assessed — humans can survive unassisted, and an atmospheric harvester is worth risking a follow-up on.",
             unlocks: ["atmospheric_gas_mining_unlocked_60pct"],
         ),
         (
@@ -151,21 +159,21 @@
             id: "SurfaceFeatures_t1",
             dimension: SurfaceFeatures,
             tier: 1,
-            description: "Crater density.",
+            description: "We know this body exists — crater density mapped.",
             unlocks: [],
         ),
         (
             id: "SurfaceFeatures_t2",
             dimension: SurfaceFeatures,
             tier: 2,
-            description: "+ major features (oceans, ice caps).",
+            description: "Major features identified — oceans, ice caps, basins.",
             unlocks: [],
         ),
         (
             id: "SurfaceFeatures_t3",
             dimension: SurfaceFeatures,
             tier: 3,
-            description: "+ minor features.",
+            description: "Minor features mapped; a lander can target safely.",
             unlocks: ["lander_targetting_unlocked"],
         ),
         (
@@ -195,21 +203,21 @@
             id: "MineralClasses_t1",
             dimension: MineralClasses,
             tier: 1,
-            description: "Family hints (silicates?).",
+            description: "We know this body exists — family hinted: silicates, oxides, or ices.",
             unlocks: [],
         ),
         (
             id: "MineralClasses_t2",
             dimension: MineralClasses,
             tier: 2,
-            description: "+ class (carbonaceous?).",
+            description: "Class narrowed — carbonaceous, basaltic, or metallic.",
             unlocks: [],
         ),
         (
             id: "MineralClasses_t3",
             dimension: MineralClasses,
             tier: 3,
-            description: "+ specific minerals (olivine).",
+            description: "Specific minerals identified — olivine, pyroxene; a follow-up prospect pass is justified.",
             unlocks: ["targeted_prospecting_unlocked"],
         ),
         (
@@ -239,21 +247,21 @@
             id: "MineralDeposits_t1",
             dimension: MineralDeposits,
             tier: 1,
-            description: "—",
+            description: "We know this body exists — no extractable deposit detected yet.",
             unlocks: [],
         ),
         (
             id: "MineralDeposits_t2",
             dimension: MineralDeposits,
             tier: 2,
-            description: "Suspected.",
+            description: "We know where to look — a shallow-ore deposit suspected.",
             unlocks: ["mining_unlocked_shallow_ore_40pct"],
         ),
         (
             id: "MineralDeposits_t3",
             dimension: MineralDeposits,
             tier: 3,
-            description: "+ 1 site.",
+            description: "One drill site pinned — a follow-up survey is worth risking.",
             unlocks: ["first_deposit_pinned"],
         ),
         (
@@ -283,7 +291,7 @@
             id: "Subsurface_t1",
             dimension: Subsurface,
             tier: 1,
-            description: "—",
+            description: "We know this body exists — subsurface not yet probed.",
             unlocks: [],
         ),
         (
@@ -297,7 +305,7 @@
             id: "Subsurface_t3",
             dimension: Subsurface,
             tier: 3,
-            description: "Shallow crust.",
+            description: "Shallow crust mapped — a deep-drill target is justified.",
             unlocks: ["deep_drill_targettable"],
         ),
         (
@@ -327,7 +335,7 @@
             id: "Habitability_t1",
             dimension: Habitability,
             tier: 1,
-            description: "—",
+            description: "We know this body exists — habitability not yet probed.",
             unlocks: [],
         ),
         (
@@ -341,7 +349,7 @@
             id: "Habitability_t3",
             dimension: Habitability,
             tier: 3,
-            description: "Soil chemistry.",
+            description: "Soil chemistry assessed — a biological assay is worth launching.",
             unlocks: ["biological_assay_unlocked"],
         ),
         (
@@ -371,21 +379,21 @@
             id: "Anomalies_t1",
             dimension: Anomalies,
             tier: 1,
-            description: "Anomaly detected (untyped).",
+            description: "Anomaly detected — first signal in the catalog, untyped.",
             unlocks: ["anomaly_alert_logged"],
         ),
         (
             id: "Anomalies_t2",
             dimension: Anomalies,
             tier: 2,
-            description: "+ 1 named anomaly.",
+            description: "First named anomaly surfaced in the dossier.",
             unlocks: ["anomaly_dossier_entry_surfaced"],
         ),
         (
             id: "Anomalies_t3",
             dimension: Anomalies,
             tier: 3,
-            description: "+ multiple named.",
+            description: "Multiple named anomalies — a follow-up mission is justified.",
             unlocks: ["anomaly_follow_up_mission_unlocked"],
         ),
         (

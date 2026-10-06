@@ -20,6 +20,17 @@
 //   default per-method weight for any of them.
 // - `effect` is what the anomaly does on activation. `None` is
 //   flavor-only; the others route through research/buildings/events.
+//
+// GRA-797 Ch.1 narrative carve (LGD / Editorial): `hydrated_silicates`
+// is the early-arc anomaly — the first sample confirms water history
+// and unlocks the `water_history_confirmation` research project. The
+// detection_threshold was 2, but MineralClasses tier 1 ("family hinted:
+// silicates, oxides, or ices") is already enough to suspect hydrated
+// silicates — the original threshold was over-restrictive for an
+// Earth-start player. LGD lowered it to 1 so a single
+// `remote_sensing_pass` (365-day wall-clock) fires the detection roll
+// inside the 500-day Chapter 1 window. The CTA (a research follow-up)
+// is non-flavor — it's a concrete next action for the player.
 
 (
     hardcoded: [
@@ -42,7 +53,7 @@
             display_name: "Hydrated Silicates",
             description: "Mineral spectral signature of past water interaction. Unlocks a research project.",
             detection_axes: [MineralClasses],
-            detection_threshold: 2,
+            detection_threshold: 1,
             false_positive_rate: 0.12,
             activation_threshold: 0.7,
             evidence_methods: [RemoteSensing, SampleReturn],

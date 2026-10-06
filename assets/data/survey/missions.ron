@@ -17,6 +17,14 @@
 // does not need to change for this PR — the field shape is
 // identical, only the value differs.
 //
+// GRA-797 Ch.1 narrative carve (LGD / Editorial): `remote_sensing_pass`
+// is the early-arc probe — at the GRA-117 cadence it completes around
+// sim-day 540, after Ch.1 ends. LGD retuned it to 365 days so a fresh
+// player dispatching the first probe inside the first month sees the
+// first result inside sim-day 365, well within the 500-day Chapter 1
+// window. The longer templates (`flyby_recon` 730, `orbital_imaging`
+// 1460, etc.) keep their GRA-117 pacing — they remain Ch.2+ commitments.
+//
 // Field reference:
 //   `id`              — stable RON id (used by the dispatch event)
 //   `display_name`    — UI label
@@ -273,7 +281,7 @@
                 MineralClasses: 1,
                 SurfaceFeatures: 1,
             },
-            base_duration_days: 540,
+            base_duration_days: 365,
             axis_yield_per_day: 1.0,
             is_ground_team: false,
             failure_modes: [
