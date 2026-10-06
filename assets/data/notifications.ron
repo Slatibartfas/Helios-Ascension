@@ -207,6 +207,43 @@
             default_dismiss_s: 0.0, // sticky
             enabled: false,
         ),
+        // ── Storyline milestones (GRA-792) ───────────────────────
+        // Chapter 2 (GRA-798): wider-system commitment gates.
+        // The cislunar-industrialization beat. Four markers: industrial
+        // orbit online (the first building in space producing for
+        // downstream logistics), first asteroid extraction (the moment
+        // mining ships return a measured payload to a stockpile), first
+        // interplanetary arrival (a hull reaches Mars on its own burn,
+        // not via gravity assist), and the first completed convoy
+        // manifest (the three-hull porkchop window fires clean).
+        (
+            id: "milestones.first_industrial_orbit",
+            display_name: "Industrial orbit online",
+            default_dismiss_s: 10.0,
+            enabled: true,
+            pause_on_event: true,
+        ),
+        (
+            id: "milestones.first_asteroid_extraction",
+            display_name: "Asteroid extraction confirmed",
+            default_dismiss_s: 10.0,
+            enabled: true,
+            pause_on_event: true,
+        ),
+        (
+            id: "milestones.first_interplanetary_arrival",
+            display_name: "Interplanetary arrival confirmed",
+            default_dismiss_s: 10.0,
+            enabled: true,
+            pause_on_event: true,
+        ),
+        (
+            id: "milestones.first_convoy_completed",
+            display_name: "First convoy manifest completed",
+            default_dismiss_s: 10.0,
+            enabled: true,
+            pause_on_event: true,
+        ),
         // ── Persistence (GRA-358 PR-C) ─────────────────────────
         // Restore failures (corrupt save, version mismatch, missing
         // AppTypeRegistry) surface as a Critical toast — the player

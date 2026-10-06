@@ -155,6 +155,78 @@ confirmed. Low Δv to the Moon makes Ryugu the v0.5.x canonical
 volatile redirect for terrestrial cislunar industry."#),
         ),
 
+        // 1989 ML - M-type near-Earth. Radar-bright metal; cislunar steel.
+        (
+            body: "1989 ML",
+            asteroid_class: Some(MType),
+            total_mass_kg: 1.0e12,
+            composition: {
+                "Iron":      0.520,
+                "Nickel":    0.150,
+                "Cobalt":    0.006,
+                "Platinum":  0.00008,
+                "Copper":    0.005,
+                "Silicates": 0.110,
+            },
+            discovery_tier: 1,
+            delta_v_to_redirect_kms: Some(4.9),
+            redirect_target: "Moon",
+            terraforming_source: false,
+            lore_seed: Some(r#"Near-Earth M-type. Goldstone and Arecibo radar show a metal-rich
+surface with no regolith cover to speak of. Small body; the right
+size to mine out in a working life without the cost of a Psyche
+campaign. The first month of cislunar industry runs on its iron."#),
+        ),
+
+        // 3908 Nyx - V-type near-Earth. HED-fragment lineage, basaltic.
+        (
+            body: "3908 Nyx",
+            asteroid_class: Some(VType),
+            total_mass_kg: 2.1e12,
+            composition: {
+                "Iron":      0.160,
+                "Silicates": 0.460,
+                "Magnesium": 0.090,
+                "Titanium":  0.012,
+                "Nickel":    0.022,
+                "Aluminum":  0.058,
+            },
+            discovery_tier: 1,
+            delta_v_to_redirect_kms: Some(5.6),
+            redirect_target: "Moon",
+            terraforming_source: false,
+            lore_seed: Some(r#"V-type near-Earth. Spectrally tied to the HED meteorite clan,
+which links it to Vesta's crust. Pyroxene-rich basalt — exactly
+what the lunar surface mills are tuned to take. Small body, low
+Δv, high payoff in the first month."#),
+        ),
+
+        // 5145 Pholus - P-type centaur. The primitive-ice reference body.
+        (
+            body: "5145 Pholus",
+            asteroid_class: Some(PType),
+            total_mass_kg: 6.5e18,
+            composition: {
+                "Water":     0.140,
+                "Methane":   0.020,
+                "Ammonia":   0.018,
+                "Carbon":    0.060,
+                "Tholins":   0.080,
+                "Iron":      0.040,
+                "Silicates": 0.340,
+                "Magnesium": 0.050,
+            },
+            discovery_tier: 1,
+            delta_v_to_redirect_kms: Some(12.4),
+            redirect_target: "Mars",
+            terraforming_source: true,
+            lore_seed: Some(r#"Centaur in a Saturn-crossing orbit. The largest P-type body
+within practical industrial range. Bulk composition is dominated
+by ices and complex organics that survived the outer solar system
+unmixed; deep-space survey flags it as the reference P-type for
+every outer-system dossier."#),
+        ),
+
         // -- Jupiter Trojans (L4/L5 Lagrange) -----------------------------
 
         // 588 Achilles - Greek camp at Jupiter L4.
