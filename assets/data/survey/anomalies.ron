@@ -274,5 +274,56 @@
             coolness: 0.95,
         ),
     ],
-    modder_anomalies: [],
+    // ── GRA-801 Ch.5: extrasolar anomaly taxonomy (modder_anomalies) ──
+    // Three seeds for v0.7+: the three categories the signed-off
+    // concept on GRA-792 needs to express *what non-Sol life (or its
+    // absence) looks like*. These live in `modder_anomalies` so they
+    // do NOT require an `AnomalyType` enum variant — the loader
+    // turns each row into an `AnomalyDef` at startup. Detection
+    // routing on activation is owned by the Coder under the GRA-813
+    // follow-on; for now the synthesized effect is `None` (a flavor
+    // discovery that surfaces in the dossier).
+    modder_anomalies: [
+        // (a) Biosignature candidate. Water-vapor spectral line in
+        // the transit light curve plus a chlorophyll-edge equivalent
+        // in the reflected spectrum. A single RemoteSensing pass over
+        // the extrasolar target yields the spectral candidates; the
+        // activation event (wired by GRA-813) routes to the
+        // `milestones.first_extrasolar_anomaly` notification.
+        (
+            id: "extrasolar_biosignature_candidate",
+            display_name: "Extrasolar Biosignature Candidate",
+            description: "Water-vapor spectral line in the transit light curve plus a chlorophyll-edge equivalent in the reflected spectrum. The first non-Sol life-sign candidate from the antimatter-era precursor.",
+            discovery_method: RemoteSensing,
+            coolness: 0.95,
+        ),
+        // (b) Technosignature. Narrowband radio (carrier frequency
+        // not matching any natural line) or a pulsed laser train in
+        // the optical band. Same discovery path as the biosignature
+        // — a single RemoteSensing pass — but the activation
+        // confidence threshold is steeper and the false-positive
+        // rate is higher (the SETI null result has been the
+        // historical floor for seventy years).
+        (
+            id: "extrasolar_technosignature",
+            display_name: "Extrasolar Technosignature",
+            description: "Narrowband radio carrier or pulsed laser train that does not match any natural line. The detection is straightforward; the disambiguation is what takes the rest of the campaign.",
+            discovery_method: RemoteSensing,
+            coolness: 0.98,
+        ),
+        // (c) Engineered artifact. Non-natural albedo on a
+        // megastructure scale or transit-timing variations that
+        // imply a body in a non-Keplerian configuration. Detected by
+        // sustained orbital photometry — Orbital method — and the
+        // activation threshold is the highest of the three because
+        // the engineering interpretation has to clear a
+        // megastructure-scale null result first.
+        (
+            id: "extrasolar_engineered_artifact",
+            display_name: "Extrasolar Engineered Artifact",
+            description: "Non-natural albedo on a megastructure scale, or transit-timing variations consistent with a body in a non-Keplerian configuration. The detection is photometric, and the activation question is the engineering interpretation.",
+            discovery_method: Orbital,
+            coolness: 0.97,
+        ),
+    ],
 )

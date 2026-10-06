@@ -224,5 +224,48 @@
             default_dismiss_s: 3.0,
             enabled: true,
         ),
+        // ── Milestones (GRA-801 Ch.5: the first star) ─────────
+        // The five antimatter-era beats from the signed-off concept
+        // on GRA-792. These register toast categories only — the
+        // bridges that publish them are owned by the Coder under
+        // GRA-790B and GRA-801's CTO child (GRA-813). Story Designer
+        // owns the wording; LGD owns the toast surface.
+        (
+            id: "milestones.first_heliopause_pass",
+            display_name: "Heliopause crossed",
+            default_dismiss_s: 6.0,
+            enabled: true,
+        ),
+        (
+            // AC note: the first antimatter prototype is a *small*
+            // event, not a fleet rollout — short dismiss, no pause.
+            id: "milestones.first_antimatter_prototype",
+            display_name: "Antimatter prototype fired",
+            default_dismiss_s: 4.0,
+            enabled: true,
+        ),
+        (
+            id: "milestones.first_extrasolar_probe_arrival",
+            display_name: "Extrasolar probe arrived",
+            default_dismiss_s: 10.0,
+            enabled: true,
+        ),
+        (
+            // Sticky + pause: the first non-Sol life-sign is the
+            // longest-pause moment in the antimatter era. The player
+            // is going to want to sit and read the dossier.
+            id: "milestones.first_extrasolar_anomaly",
+            display_name: "Extrasolar anomaly",
+            default_dismiss_s: 0.0, // sticky
+            enabled: true,
+            pause_on_event: true,
+        ),
+        (
+            id: "milestones.first_interstellar_convoy_departed",
+            display_name: "Interstellar convoy departed",
+            default_dismiss_s: 8.0,
+            enabled: true,
+            pause_on_event: true,
+        ),
     ],
 )
