@@ -107,7 +107,8 @@ use crate::astronomy::components::SystemId;
 /// We deliberately do *not* use Bevy `Entity` indices. A body
 /// that was `Entity(47)` in the save will be `Entity(1247)` in
 /// the new run; only `(SystemId(0), "Mercury")` is invariant.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, Reflect)]
+#[reflect()]
 pub struct BodyKey {
     /// Star-system id (`0` = Sol). Matches `SystemId::0` on the
     /// entity. Stable across regens.
