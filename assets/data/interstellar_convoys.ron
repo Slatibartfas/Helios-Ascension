@@ -1,0 +1,61 @@
+// === GRA-801: Storyline Ch.5 — first-star convoy manifest preset ===
+// RON-only; no `src/` change in this PR. The loader is the CTO child
+// (GRA-813, PR #256) which pattern-matches to `freighter_templates`
+// and `AnomaliesFile`. Until that loader lands, this file is the
+// authoritative design record for the smallest legal interstellar
+// convoy — the antimatter-catalyzed precursor that fires from Sol
+// toward the first extrasolar target.
+//
+// Hull-id substitution note (issue body vs ship_hulls.ron):
+//   antimatter_destroyer_frame      → does NOT exist in ship_hulls.ron
+//   long_range_destroyer_frame      → exists (assets/data/ship_hulls.ron:746)
+//
+// The CTO's GRA-813 child uses `long_range_destroyer_frame` for the
+// destroyer slot; this preset follows the same id so the loader's
+// hull-id validator passes without a Rust-side enum change.
+//
+// Schema contract (loader PR will turn each preset into a runtime
+// `ConvoyPreset` resource):
+//
+//   id             — stable id, e.g. "interstellar_precursor_minimum"
+//   display_name   — toast / dossier label
+//   description    — player-facing tooltip text
+//   era_tier       — minimum tech era required (4 = antimatter / first-star)
+//   required_tech — optional gate; locks the preset behind a single
+//                    research project
+//   min_starbase   — whether the preset must include at least one
+//                    mobile_starbase_frame (true here: the starbase
+//                    is the only hull in the roster that can sustain
+//                    the antimatter-catalyzed drive's thermal load
+//                    for a multi-decade extrasolar transit)
+//   hulls[]        — entries are `hull_id` + `count`; loader validates
+//                    against `ship_hulls.ron` and requires count >= 1
+//   tags[]         — free-form, surfaced in the fleet picker filter
+
+(
+    presets: [
+        // ── GRA-801 Ch.5: The first star (sim-days 15000–50000) ────────
+        // The "fire the precursor" beat — antimatter catalysis turns
+        // the heliopause probe into a one-shot extrasolar convoy.
+        // One mobile starbase carries the antimatter-catalyzed drive
+        // and its thermal radiators; one fleet escort frigate
+        // screens the starbase on departure and through the heliopause
+        // pass; one long-range destroyer carries the probe payload
+        // and the long-baseline survey instruments that produce the
+        // first extrasolar anomaly read. Three hulls, one act.
+        (
+            id: "interstellar_precursor_minimum",
+            display_name: "Interstellar Precursor (minimum legal)",
+            description: "The smallest fleet that can be fired toward another star: one Mobile Starbase carrying the antimatter-catalyzed drive and its thermal radiators, one Fleet Escort Frigate screening the starbase through the heliopause pass, and one Long-Range Destroyer carrying the probe payload and the long-baseline survey instruments that read the first non-Sol anomaly. Antimatter era; requires the antimatter-catalyzed prototype research line.",
+            era_tier: 4,
+            required_tech: Some("antimatter_containment_structures"),
+            min_starbase: true,
+            hulls: [
+                (hull_id: "mobile_starbase_frame", count: 1),
+                (hull_id: "fleet_escort_frigate_frame", count: 1),
+                (hull_id: "long_range_destroyer_frame", count: 1),
+            ],
+            tags: ["convoy", "first-star", "interstellar", "antimatter", "ch5", "tier-4"],
+        ),
+    ],
+)
