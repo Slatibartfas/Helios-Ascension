@@ -977,10 +977,18 @@
 // placeholder. A later design pass replaces each entry with real
 // stats and slot layouts once the tier-6+ module roster is finalised.
 
+// === GRA-802: Chapter 6 megastructure ladder text ===
+// The descriptions below replace the original "balance not yet
+// tuned" stub. They are LGD-authored ladder text: the player sees
+// what each hull is *building toward* even before the tier-6+
+// module roster is finalised and the stats land. Text-only; do
+// not un-speculate. Stats, slot layouts, and BP remain placeholder
+// until the corresponding Rust scaffold lands.
+
         (
             id: "warp_cruiser_frame",
             display_name: "Warp-Era Cruiser Hull",
-            description: "placeholder hull — balance not yet tuned.",
+            description: "Alcubierre-class cruiser for sustained superluminal cruise and frontier escort. The first hull whose patrol radius is measured in parsecs, not AU.",
             class: Cruiser,
             tier: 6,
             base_build_points: 4200.0,
@@ -1017,7 +1025,7 @@
         (
             id: "stellar_engineering_shipyard_frame",
             display_name: "Stellar Engineering Shipyard Hull",
-            description: "placeholder hull — balance not yet tuned.",
+            description: "Station-class construction and life-support anchor for star-lifting and stellar-mirror operations. Built around a containment-isolated habitat that can keep crews alive for the centuries a stellar-engineering project takes.",
             class: Station,
             tier: 6,
             base_build_points: 9000.0,
@@ -1052,7 +1060,7 @@
         (
             id: "femtotech_industrial_hull",
             display_name: "Femtotech Industrial Frame",
-            description: "placeholder hull — balance not yet tuned.",
+            description: "Freighter-class frame for neutronium, strangelet, and exotic-degenerate-matter haulage between stellar-engineering yards and frontier refineries. The cargo bay is rated for matter that does not behave like cargo.",
             class: Freighter,
             tier: 7,
             base_build_points: 18000.0,
@@ -1088,7 +1096,7 @@
         (
             id: "metric_destroyer_frame",
             display_name: "Metric-Era Capital Destroyer Hull",
-            description: "placeholder hull — balance not yet tuned.",
+            description: "Destroyer-class capital ship built around a metric drive and graviton shielding. The first combat hull whose engagement envelope extends across stellar distances rather than planetary ones.",
             class: Destroyer,
             tier: 7,
             base_build_points: 12000.0,
@@ -1127,7 +1135,7 @@
         (
             id: "conversion_dreadnought_frame",
             display_name: "Conversion-Era Dreadnought Hull",
-            description: "placeholder hull — balance not yet tuned.",
+            description: "Capital cruiser powered by direct matter-energy conversion. Twin conversion-torch reactors and dedicated magazine volume for weapons that draw on the same substrate as the drive.",
             class: Cruiser,
             tier: 8,
             base_build_points: 28000.0,
@@ -1169,7 +1177,7 @@
         (
             id: "ringworld_spine_frame",
             display_name: "Ringworld Spine Frame",
-            description: "placeholder hull — balance not yet tuned.",
+            description: "Station-class spine module for Niven-ring scale habitats. Self-mobile construction bay, three redundant reactor slots sized for Banks-orbital continuous operation, and habitat volume intended to outlast the species that built it.",
             class: Station,
             tier: 8,
             base_build_points: 60000.0,

@@ -15,6 +15,95 @@
 // - Personnel / diplomacy / encounters categories are placeholders
 //   for upcoming systems and ship with `enabled: false`.
 
+// ── Chapter 6 (GRA-802) — strategic-fork framing copy ────────
+// LGD-owned narrative copy. The manifest schema only carries
+// `display_name`; the toast body, the mission-log entry, and the
+// endgame UI text are wired in code by CTO (GRA-790 + GRA-791).
+// These blocks are the source of truth that coders lift into those
+// call sites. Versioned alongside the manifest so the wording
+// tracks the data shape.
+//
+// Tone: era-strategic. Chapter 6 is open-ended. The question is
+// not "can we?" — it is "should we?". The two forks are valid
+// end-states. Neither is the better answer; the player picks.
+
+// Expand fork — chosen when the player commits to indefinite
+// outward growth: more stars, more frontiers, more species.
+// body:
+//   "We commit to expansion. The next star is a question we
+//    choose to spend the next thousand years answering, with
+//    no guarantee we will still be recognisable at the other
+//    end. Every ship we build from this point forward is a
+//    statement: that the species is still unfinished, and the
+//    galaxy is still a place worth leaving home for."
+// mission-log entry:
+//   "STRATEGIC FORK COMMITTED — EXPAND.
+//    We have chosen to grow outward. Industry, antimatter
+//    stockpile, and population are now allocated toward frontier
+//    logistics. The mission log persists; no further
+//    strategic-fork milestones will be recorded."
+//   // trailing period missing intentionally; see end-state copy.
+
+// Consolidate fork — chosen when the player commits to depth and
+// stewardship of the home system(s): protect what we have, raise
+// the floor, accept that the species does not need to be
+// everywhere to be whole.
+// body:
+//   "We commit to consolidation. The stars we have reached
+//    are the stars we will hold. Industry, antimatter stockpile,
+//    and population are now allocated toward deepening the
+//    systems we already have: longer-lived habitats, redundant
+//    containment, archives that outlive the species that wrote
+//    them. The frontier is no longer our horizon."
+// mission-log entry:
+//   "STRATEGIC FORK COMMITTED — CONSOLIDATE.
+//    We have chosen to grow inward. The mission log persists;
+//    no further strategic-fork milestones will be recorded."
+//   // trailing period missing intentionally; see end-state copy.
+
+// ── Chapter 6 — end-state mission-log entry tone ───────────
+// The final `MissionLog` entry persists once the player commits
+// either fork. It is the last line the species writes before the
+// read-thread halts. CTO (GRA-793, GalacticState resource) owns
+// the runtime primitive; LGD below sources the final-entry tone.
+//
+// Voice rule: the entry is in the species' voice, not the
+// player's. It is not a victory line ("You have won!"). It is
+// a record. The log survives whatever the player does next —
+// including never loading the save again — so the tone is
+// sober, technical, and consequence-led.
+//
+// Final entry template (runtime fills the bracketed tokens):
+//
+//   "ENDSTATE LOG — {fork} — T+{sim_days} days.
+//    Outposts: {homeworld_count} home, {extrasolar_count}
+//    extrasolar. Cruising: {in_flight_count} antimatter
+//    vessels in interstellar transit. {contact_status}
+//    {fork_summary_line}
+//    The mission log persists. No further strategic-fork
+//    milestones will be recorded."
+//
+// where:
+//
+//   fork_summary_line (Expand):
+//     "Industry, antimatter stockpile, and population are now
+//      allocated toward frontier logistics. The next star is
+//      a question we are spending the next thousand years
+//      answering."
+//
+//   fork_summary_line (Consolidate):
+//     "Industry, antimatter stockpile, and population are now
+//      allocated toward deepening the systems we already have.
+//      The frontier is no longer our horizon."
+//
+//   contact_status — one of:
+//     "No intelligent contact has been confirmed."  (no encounter)
+//     "Intelligent contact: confirmed at {target_name}."  (encountered)
+//
+// The single trailing period in each block is the only one.
+// Anything added after this line is read-thread drift and must
+// not be added without re-signing the Chapter 6 concept.
+
 (
     categories: [
         // ── Survey ─────────────────────────────────────────────
@@ -206,6 +295,88 @@
             display_name: "Hostile contact",
             default_dismiss_s: 0.0, // sticky
             enabled: false,
+        ),
+        // ── Storyline milestones ─────────────────────────────────
+        // Chapter 2 (GRA-798): inner-system progression gates.
+        // Chapter 4 (GRA-800): outer-system + Lagrange colony gates.
+        // Chapter 5 (GRA-801): interstellar / antimatter gates.
+        // Chapter 6 (GRA-802): antimatter-era + strategic-fork gates.
+        // These surface key commitment points so the player understands
+        // the chapter arc rather than encountering each as a one-off.
+        (
+            id: "milestones.first_jovian_arrival",
+            display_name: "Jovian system entered",
+            default_dismiss_s: 10.0,
+            enabled: true,
+            pause_on_event: true,
+        ),
+        (
+            id: "milestones.first_lagrange_colony",
+            display_name: "Lagrange colony established",
+            default_dismiss_s: 10.0,
+            enabled: true,
+            pause_on_event: true,
+        ),
+        (
+            id: "milestones.first_exoplanet_target_locked",
+            display_name: "Exoplanet target locked",
+            default_dismiss_s: 10.0,
+            enabled: true,
+            pause_on_event: true,
+        ),
+        (
+            id: "milestones.first_interstellar_precursor_keel",
+            display_name: "Interstellar precursor hull laid",
+            default_dismiss_s: 10.0,
+            enabled: true,
+            pause_on_event: true,
+        ),
+        (
+            id: "milestones.first_outer_system_outpost",
+            display_name: "Outer-system outpost established",
+            default_dismiss_s: 10.0,
+            enabled: true,
+            pause_on_event: true,
+        ),
+        // ── Chapter 6 (GRA-802): antimatter era + endgame gates ───
+        // The era question is no longer "can we?". It is "should we?".
+        // These four categories mark the four commitment points where
+        // the player becomes the species that answered the first six
+        // era questions and now has the seventh in its hands.
+        // - first_extrasolar_outpost:    second-star industry online.
+        // - first_intelligent_contact:   we are not alone.
+        // - first_megastructure_keel:    a class of object that takes
+        //                                 centuries, not decades, to build.
+        // - strategic_fork_committed:   the player picks expand or
+        //                                 consolidate. There is no
+        //                                 milestone after this one.
+        (
+            id: "milestones.first_extrasolar_outpost",
+            display_name: "Extrasolar outpost established",
+            default_dismiss_s: 12.0,
+            enabled: true,
+            pause_on_event: true,
+        ),
+        (
+            id: "milestones.first_intelligent_contact",
+            display_name: "Intelligent contact confirmed",
+            default_dismiss_s: 0.0, // sticky — see fork framing note
+            enabled: true,
+            pause_on_event: true,
+        ),
+        (
+            id: "milestones.first_megastructure_keel",
+            display_name: "Megastructure keel laid",
+            default_dismiss_s: 12.0,
+            enabled: true,
+            pause_on_event: true,
+        ),
+        (
+            id: "milestones.strategic_fork_committed",
+            display_name: "Strategic fork committed",
+            default_dismiss_s: 0.0, // sticky — end-state marker
+            enabled: true,
+            pause_on_event: true,
         ),
         // ── Persistence (GRA-358 PR-C) ─────────────────────────
         // Restore failures (corrupt save, version mismatch, missing
