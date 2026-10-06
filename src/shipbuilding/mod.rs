@@ -20,6 +20,7 @@ pub use refit::{QueueRefitAction, RefitProject, RefitType};
 pub use slipway::{ShipyardFacility, Slipway};
 pub use types::{ConstructionMode, HullSizeTier, ShipDesignTemplate, ShipModuleCategory};
 
+use crate::economy::interstellar_convoys as convoys;
 use crate::ships::templates as ship_templates;
 
 /// Plugin that registers the modular shipbuilding subsystem.
@@ -35,12 +36,20 @@ impl Plugin for ShipbuildingPlugin {
             // (so it can resolve the light_freighter template).  Chain all
             // three explicitly; the default Startup schedule is otherwise
             // unordered and the 3 would race in parallel (Bevy 0.18).
+            //
+            // GRA-813: the interstellar convoy preset loader is appended
+            // to the same chain because it also validates hull ids
+            // against `ShipbuildingData`. Co-locating the chain keeps
+            // the dependency explicit and avoids Bevy 0.18 quirks with
+            // cross-plugin `Startup.after(...)` (the economy plugin is
+            // built before this one).
             .add_systems(
                 Startup,
                 (
                     load_shipbuilding_data,
                     ship_templates::load_freighter_templates,
                     crate::ships::migration::migrate_legacy_freighters,
+                    convoys::load_interstellar_convoys,
                 )
                     .chain(),
             )
