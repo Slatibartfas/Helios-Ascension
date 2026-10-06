@@ -411,10 +411,7 @@ pub fn bridge_milestone_events(
                     NotificationContextLink::SelectBody(*body),
                 )
             }
-            MilestoneContext::OutpostEstablished {
-                body,
-                colony_name,
-            } => {
+            MilestoneContext::OutpostEstablished { body, colony_name } => {
                 let body_name = body_name_lookup(&body_names, *body);
                 (
                     "First outpost established".to_string(),
@@ -814,7 +811,10 @@ mod tests {
         // Dedup key is the category id, so PR-D's coalesce pass
         // folds any duplicate emit (e.g. from a manual reload
         // path) into a single toast.
-        assert_eq!(next.dedup_key.as_deref(), Some("milestones.first_probe_dispatched"));
+        assert_eq!(
+            next.dedup_key.as_deref(),
+            Some("milestones.first_probe_dispatched")
+        );
         // Deep-link targets the body.
         match next.context_link {
             NotificationContextLink::SelectBody(e) => assert_eq!(e, body),

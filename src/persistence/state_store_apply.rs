@@ -1336,9 +1336,9 @@ mod tests {
     #[test]
     fn milestone_record_round_trips_all_six_flags() {
         use crate::persistence::state_store::MilestoneRecord;
+        use crate::survey::milestones::MilestoneReached;
         use crate::survey::EarlyGameMilestones;
         use bevy::ecs::message::Messages;
-        use crate::survey::milestones::MilestoneReached;
 
         let mut src = bootstrap_world();
         src.init_resource::<EarlyGameMilestones>();
@@ -1354,10 +1354,8 @@ mod tests {
         }
 
         // Extract writes through the StateStore v2 path.
-        let store = super::super::state_store_extract::extract_state_store(
-            &mut src, 0xABCD, 0,
-        )
-        .expect("extract");
+        let store = super::super::state_store_extract::extract_state_store(&mut src, 0xABCD, 0)
+            .expect("extract");
         assert!(store.milestones.probe_dispatched);
         assert!(store.milestones.survey_completed);
         assert!(store.milestones.anomaly_detected_or_activated);
@@ -1369,8 +1367,7 @@ mod tests {
         // v2 save file on disk uses. Catches any field rename or
         // `#[serde(default)]` mistake.
         let json = serde_json::to_string(&store.milestones).expect("serialize");
-        let parsed: MilestoneRecord =
-            serde_json::from_str(&json).expect("deserialize");
+        let parsed: MilestoneRecord = serde_json::from_str(&json).expect("deserialize");
         assert!(parsed.probe_dispatched);
         assert!(parsed.survey_completed);
         assert!(parsed.anomaly_detected_or_activated);
@@ -1404,8 +1401,7 @@ mod tests {
         // No `milestones` field on the JSON — the deserializer
         // must fill it from `Default`.
         let json = r#"{}"#;
-        let parsed: MilestoneRecord =
-            serde_json::from_str(json).expect("default-filled parse");
+        let parsed: MilestoneRecord = serde_json::from_str(json).expect("default-filled parse");
         assert!(!parsed.probe_dispatched);
         assert!(!parsed.survey_completed);
         assert!(!parsed.anomaly_detected_or_activated);
@@ -1437,8 +1433,8 @@ mod tests {
     /// and confirming the buffer stays empty after apply.
     #[test]
     fn milestone_record_apply_does_not_replay_messages() {
-        use bevy::ecs::message::Messages;
         use crate::survey::milestones::MilestoneReached;
+        use bevy::ecs::message::Messages;
 
         let mut src = bootstrap_world();
         src.init_resource::<Messages<MilestoneReached>>();
@@ -1457,10 +1453,8 @@ mod tests {
             },
         });
 
-        let store = super::super::state_store_extract::extract_state_store(
-            &mut src, 0xABCD, 0,
-        )
-        .expect("extract");
+        let store = super::super::state_store_extract::extract_state_store(&mut src, 0xABCD, 0)
+            .expect("extract");
 
         let mut dst = bootstrap_world();
         dst.init_resource::<Messages<MilestoneReached>>();

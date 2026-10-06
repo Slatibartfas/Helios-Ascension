@@ -342,9 +342,7 @@ pub fn advance_survey_milestones(
                     });
                 }
             }
-            SurveyEvent::AnomalyDetected {
-                body, anomaly, ..
-            } => {
+            SurveyEvent::AnomalyDetected { body, anomaly, .. } => {
                 if !milestones.anomaly_detected_or_activated {
                     milestones.anomaly_detected_or_activated = true;
                     reached.write(MilestoneReached {
@@ -356,9 +354,7 @@ pub fn advance_survey_milestones(
                     });
                 }
             }
-            SurveyEvent::AnomalyActivated {
-                body, anomaly, ..
-            } => {
+            SurveyEvent::AnomalyActivated { body, anomaly, .. } => {
                 if !milestones.anomaly_detected_or_activated {
                     milestones.anomaly_detected_or_activated = true;
                     reached.write(MilestoneReached {
@@ -1071,9 +1067,7 @@ mod tests {
     #[test]
     fn emit_outpost_established_carries_colony_name_context() {
         let mut world = fresh_world();
-        use crate::colony::components::{
-            Colony, ColonyDevelopment, ColonyTier,
-        };
+        use crate::colony::components::{Colony, ColonyDevelopment, ColonyTier};
         let body = make_body_entity(&mut world, "Mars");
         let colony = world
             .spawn(Colony {
@@ -1219,8 +1213,10 @@ mod tests {
             "no producer exists for DepositExtractionMilestone; got {reached:?}"
         );
         // The deposit flag stays false.
-        assert!(!world
-            .resource::<EarlyGameMilestones>()
-            .deposit_extraction_milestone);
+        assert!(
+            !world
+                .resource::<EarlyGameMilestones>()
+                .deposit_extraction_milestone
+        );
     }
 }
