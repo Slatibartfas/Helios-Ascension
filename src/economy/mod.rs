@@ -28,6 +28,7 @@ pub mod discovery;
 pub mod forecast;
 pub mod generation;
 pub mod history;
+pub mod interstellar_convoys;
 pub mod launch;
 pub mod logistics;
 pub mod mining;
@@ -71,6 +72,10 @@ pub use history::{
     kardashev_scale_from_watts, record_simulation_history, SimulationHistory,
     SimulationHistorySample, SurveyHistoryStats, HISTORY_MAX_AGE_SECONDS, HISTORY_MAX_AGE_YEARS,
 };
+pub use interstellar_convoys::{
+    load_interstellar_convoys, InterstellarConvoyHullSpec, InterstellarConvoyPreset,
+    InterstellarConvoyPresets, INTERSTELLAR_CONVOYS_RON_PATH,
+};
 pub use launch::{
     bootstrap, profile_for_colony, projected_available, provision_launch_capacity, reconcile,
     seconds_until_affordable, LaunchCapacityProfile,
@@ -98,6 +103,15 @@ impl Plugin for EconomyPlugin {
             // Logistics resources
             .init_resource::<PendingResourceRequests>()
             .init_resource::<ShippingCompanies>()
+            // GRA-813: interstellar convoy preset registry. Initialised
+            // empty so consumers that run before the loader see an
+            // empty registry rather than `MissingResource` panics.
+            // The loader below overwrites with the file contents.
+            .init_resource::<InterstellarConvoyPresets>()
+            // Reflect registration for save/load parity with the other
+            // data registries (`SurveyAnomalyRegistry`, `FreighterTemplate`).
+            .register_type::<InterstellarConvoyPreset>()
+            .register_type::<InterstellarConvoyHullSpec>()
             // Note: `init_procedural_rng`, `generate_solar_system_resources`,
             // `generate_ring_resources`, and `stamp_resource_phases` were
             // previously registered here at `PostStartup`. They are now
@@ -163,6 +177,17 @@ impl Plugin for EconomyPlugin {
                 ),
             )
             .add_plugins(AutoFreightPlugin)
-            .add_plugins(AutoBuildPlugin);
+            .add_plugins(AutoBuildPlugin)
+            // GRA-813: load the interstellar convoy preset registry at
+            // startup, after `load_shipbuilding_data` so the hull-id
+            // validator can resolve. Follows the `freighter_templates`
+            // pattern: missing or malformed file → warn and register
+            // an empty resource; per-row validation errors → skip the
+            // row and continue with the rest.
+            .add_systems(
+                Startup,
+                load_interstellar_convoys
+                    .after(crate::shipbuilding::data::load_shipbuilding_data),
+            );
     }
 }
