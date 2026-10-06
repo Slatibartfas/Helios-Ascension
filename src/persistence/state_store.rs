@@ -169,6 +169,11 @@ pub struct StateStore {
     pub surveys: BTreeMap<BodyKey, SurveyDivergence>,
     /// Auto-save slot bookkeeping (last auto-save time, etc.).
     pub meta_autosave: AutosaveRecord,
+    /// GRA-790B: six monotonic early-game milestone flags.
+    /// `serde::default` means an old save that lacks this field
+    /// restores cleanly with all flags `false`.
+    #[serde(default)]
+    pub milestones: MilestoneRecord,
 }
 
 impl StateStore {
@@ -689,6 +694,38 @@ pub struct AutosaveRecord {
     /// this so the autosave can drop a sidecar preview alongside
     /// the actual save).
     pub current_slot_name: String,
+}
+
+// ════════════════════════════════════════════════════════════════════
+// Milestones (GRA-790B)
+// ════════════════════════════════════════════════════════════════════
+
+/// The six monotonic early-game milestone flags.
+///
+/// Serialised into the v2 StateStore so the flags survive a
+/// save/load cycle. `serde::default` means an old save that
+/// lacks the field restores cleanly (all flags `false`, which
+/// is the same as a fresh campaign).
+///
+/// The flags are first-class StateStore fields (not
+/// Reflect/DynamicScene blobs) so the extract/apply path
+/// has explicit control. The Reflect registration in
+/// `persistence/mod.rs` is kept for the debug-snapshot path;
+/// it is NOT the primary save path.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct MilestoneRecord {
+    #[serde(default)]
+    pub probe_dispatched: bool,
+    #[serde(default)]
+    pub survey_completed: bool,
+    #[serde(default)]
+    pub anomaly_detected_or_activated: bool,
+    #[serde(default)]
+    pub deposit_extraction_milestone: bool,
+    #[serde(default)]
+    pub outpost_established: bool,
+    #[serde(default)]
+    pub paid_tier_1_technology_unlocked: bool,
 }
 
 // ════════════════════════════════════════════════════════════════════

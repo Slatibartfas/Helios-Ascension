@@ -34,6 +34,10 @@
 //!   `LaunchState`.
 //! - [`apply_notifications`] — overwrite `NotificationSettings`.
 //! - [`apply_autosave`] — overwrite `AutosaveTimer`.
+//! - [`apply_milestones`] (GRA-790B) — overlay the six early-game
+//!   milestone flags onto `EarlyGameMilestones`. Does NOT replay
+//!   the transient `MilestoneReached` message buffer (the message
+//!   lives for the lifetime of one frame, never persisted).
 //!
 //! The public entry point [`apply_state_store`] runs all of
 //! them in dependency order and returns an [`ApplyOutcome`]
@@ -170,6 +174,7 @@ pub fn apply_state_store(world: &mut World, store: &StateStore) -> ApplyOutcome 
     apply_ui(world, &store.ui);
     apply_notifications(world, &store.notifications);
     apply_autosave(world, &store.meta_autosave);
+    apply_milestones(world, &store.milestones);
 
     outcome
 }
@@ -392,6 +397,11 @@ fn init_missing_resources_for_apply(world: &mut World) {
     // either path.
     init_if_missing!(world, NotificationSettings);
     init_if_missing!(world, AutosaveTimer);
+    // GRA-790B: the milestone resource is owned by `SurveyPlugin`,
+    // but the restore factory uses `MinimalPlugins + PersistencePlugin`
+    // so it can be missing on the apply path. Seed it with `Default`
+    // so `apply_milestones` can find it.
+    init_if_missing!(world, crate::survey::EarlyGameMilestones);
 }
 
 // ════════════════════════════════════════════════════════════
@@ -1111,6 +1121,40 @@ fn apply_autosave(world: &mut World, record: &super::state_store::AutosaveRecord
 }
 
 // ════════════════════════════════════════════════════════════
+// Milestones (GRA-790B)
+// ════════════════════════════════════════════════════════════
+
+/// GRA-790B: overlay the six milestone flags onto the
+/// `EarlyGameMilestones` resource.
+///
+/// `init_missing_resources_for_apply` (above) guarantees the
+/// resource is present, so the `if let Some(...)` here is a
+/// defence-in-depth no-op rather than a recovery path. The
+/// deposit-extraction flag is restored even though it has no
+/// producer today — a save that pre-set the flag through a
+/// debug / scripting path restores; a fresh save leaves it
+/// `false`.
+///
+/// The transient `Messages<MilestoneReached>` buffer is NOT
+/// replayed: messages are Bevy message-queue slots that live
+/// for the lifetime of the emit frame. Restore does not put
+/// any milestone message back into the buffer, so the
+/// `bridge_milestone_events` system cannot fire a stale
+/// toast. The Round-trip test in this file (`milestone_*`)
+/// asserts that property.
+fn apply_milestones(world: &mut World, record: &super::state_store::MilestoneRecord) {
+    use crate::survey::EarlyGameMilestones;
+    if let Some(mut m) = world.get_resource_mut::<EarlyGameMilestones>() {
+        m.probe_dispatched = record.probe_dispatched;
+        m.survey_completed = record.survey_completed;
+        m.anomaly_detected_or_activated = record.anomaly_detected_or_activated;
+        m.deposit_extraction_milestone = record.deposit_extraction_milestone;
+        m.outpost_established = record.outpost_established;
+        m.paid_tier_1_technology_unlocked = record.paid_tier_1_technology_unlocked;
+    }
+}
+
+// ════════════════════════════════════════════════════════════
 // Unit tests
 // ════════════════════════════════════════════════════════════
 
@@ -1281,5 +1325,149 @@ mod tests {
         assert_eq!(q.iter(&world).count(), 1);
         let mut q = world.query::<&FleetOrbit>();
         assert_eq!(q.iter(&world).count(), 1);
+    }
+
+    // ── GRA-790B: MilestoneRecord round-trip + no replay ──────
+
+    /// Round-trip every flag of the milestone record through the
+    /// extract → JSON → apply pipeline. The StateStore path is
+    /// authoritative for restore, so every flag set on the source
+    /// world must surface on the destination world after apply.
+    #[test]
+    fn milestone_record_round_trips_all_six_flags() {
+        use crate::persistence::state_store::MilestoneRecord;
+        use crate::survey::milestones::MilestoneReached;
+        use crate::survey::EarlyGameMilestones;
+        use bevy::ecs::message::Messages;
+
+        let mut src = bootstrap_world();
+        src.init_resource::<EarlyGameMilestones>();
+        src.init_resource::<Messages<MilestoneReached>>();
+        {
+            let mut m = src.resource_mut::<EarlyGameMilestones>();
+            m.probe_dispatched = true;
+            m.survey_completed = true;
+            m.anomaly_detected_or_activated = true;
+            m.deposit_extraction_milestone = true;
+            m.outpost_established = true;
+            m.paid_tier_1_technology_unlocked = true;
+        }
+
+        // Extract writes through the StateStore v2 path.
+        let store = super::super::state_store_extract::extract_state_store(&mut src, 0xABCD, 0)
+            .expect("extract");
+        assert!(store.milestones.probe_dispatched);
+        assert!(store.milestones.survey_completed);
+        assert!(store.milestones.anomaly_detected_or_activated);
+        assert!(store.milestones.deposit_extraction_milestone);
+        assert!(store.milestones.outpost_established);
+        assert!(store.milestones.paid_tier_1_technology_unlocked);
+
+        // Round-trip through serde_json — the same shape the
+        // v2 save file on disk uses. Catches any field rename or
+        // `#[serde(default)]` mistake.
+        let json = serde_json::to_string(&store.milestones).expect("serialize");
+        let parsed: MilestoneRecord = serde_json::from_str(&json).expect("deserialize");
+        assert!(parsed.probe_dispatched);
+        assert!(parsed.survey_completed);
+        assert!(parsed.anomaly_detected_or_activated);
+        assert!(parsed.deposit_extraction_milestone);
+        assert!(parsed.outpost_established);
+        assert!(parsed.paid_tier_1_technology_unlocked);
+
+        // Apply onto a fresh world — every flag must survive.
+        let mut dst = bootstrap_world();
+        // init_missing_resources_for_apply seeds EarlyGameMilestones
+        // before the appliers run, mirroring the restore factory
+        // (`build_minimal_world_for_restore`).
+        apply_state_store(&mut dst, &store);
+        let m = dst.resource::<EarlyGameMilestones>();
+        assert!(m.probe_dispatched);
+        assert!(m.survey_completed);
+        assert!(m.anomaly_detected_or_activated);
+        assert!(m.deposit_extraction_milestone);
+        assert!(m.outpost_established);
+        assert!(m.paid_tier_1_technology_unlocked);
+    }
+
+    /// `serde::default` on the `milestones` field means an old
+    /// save that lacks the record restores with all flags `false`.
+    /// Mirrors the migration story in
+    /// `survey::milestones::tests::persistence_old_save_defaults_when_resource_missing`
+    /// but exercises the StateStore path, not the Reflect path.
+    #[test]
+    fn milestone_record_old_save_defaults_all_false() {
+        use crate::persistence::state_store::MilestoneRecord;
+        // No `milestones` field on the JSON — the deserializer
+        // must fill it from `Default`.
+        let json = r#"{}"#;
+        let parsed: MilestoneRecord = serde_json::from_str(json).expect("default-filled parse");
+        assert!(!parsed.probe_dispatched);
+        assert!(!parsed.survey_completed);
+        assert!(!parsed.anomaly_detected_or_activated);
+        assert!(!parsed.deposit_extraction_milestone);
+        assert!(!parsed.outpost_established);
+        assert!(!parsed.paid_tier_1_technology_unlocked);
+
+        // Apply the default-filled record onto a world whose
+        // resource has every flag set. The defaults must win —
+        // there is no "preserve existing flags" rule for
+        // milestone restore.
+        let mut world = bootstrap_world();
+        apply_state_store(&mut world, &StateStore::empty(0xABCD));
+        let m = world.resource::<crate::survey::EarlyGameMilestones>();
+        assert!(!m.probe_dispatched);
+        assert!(!m.survey_completed);
+        assert!(!m.anomaly_detected_or_activated);
+        assert!(!m.deposit_extraction_milestone);
+        assert!(!m.outpost_established);
+        assert!(!m.paid_tier_1_technology_unlocked);
+    }
+
+    /// Restore must not replay milestone messages. The
+    /// `MilestoneReached` buffer is intentionally transient —
+    /// the GRA-790B brief explicitly forbids replay, because a
+    /// replay would emit a duplicate notification toast on
+    /// every load. Verify by extracting then applying onto a
+    /// fresh world whose `Messages<MilestoneReached>` is empty,
+    /// and confirming the buffer stays empty after apply.
+    #[test]
+    fn milestone_record_apply_does_not_replay_messages() {
+        use crate::survey::milestones::MilestoneReached;
+        use bevy::ecs::message::Messages;
+
+        let mut src = bootstrap_world();
+        src.init_resource::<Messages<MilestoneReached>>();
+        {
+            let mut m = src.resource_mut::<crate::survey::EarlyGameMilestones>();
+            m.probe_dispatched = true;
+            m.outpost_established = true;
+        }
+        // Push a message into the source buffer — this would
+        // exist if the producer fired on save. Restore must NOT
+        // carry it forward.
+        src.write_message(MilestoneReached {
+            step: crate::survey::milestones::MilestoneStep::ProbeDispatched,
+            context: crate::survey::milestones::MilestoneContext::ProbeDispatched {
+                body: Entity::PLACEHOLDER,
+            },
+        });
+
+        let store = super::super::state_store_extract::extract_state_store(&mut src, 0xABCD, 0)
+            .expect("extract");
+
+        let mut dst = bootstrap_world();
+        dst.init_resource::<Messages<MilestoneReached>>();
+        apply_state_store(&mut dst, &store);
+
+        // Buffer must be empty after restore. The bridge reads
+        // from this buffer on every frame; a non-empty buffer
+        // here would re-emit a toast.
+        let reached = dst.resource::<Messages<MilestoneReached>>();
+        assert!(
+            reached.is_empty(),
+            "restore must not replay MilestoneReached messages; got count={}",
+            reached.len()
+        );
     }
 }

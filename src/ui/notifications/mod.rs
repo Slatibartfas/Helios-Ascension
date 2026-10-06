@@ -115,12 +115,22 @@ impl Plugin for NotificationsPlugin {
             // frame the bridge emitted. Ordering within the set
             // is irrelevant — each bridge consumes a disjoint
             // source message family.
+            //
+            // GRA-790B adds `bridge_milestone_events` to the same
+            // set. The milestone producers in
+            // `SurveyPlugin::build` configure
+            // `MilestonesSystemSet` to run BEFORE
+            // `NotificationsSystemSet::EventBridge`, so the
+            // milestone bridge sees a freshly-emitted
+            // `MilestoneReached` on the same frame the flag
+            // flipped.
             .add_systems(
                 Update,
                 (
                     systems::bridge_survey_events,
                     systems::bridge_construction_events,
                     systems::bridge_research_events,
+                    systems::bridge_milestone_events,
                 )
                     .in_set(NotificationsSystemSet::EventBridge),
             )

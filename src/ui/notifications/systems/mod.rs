@@ -5,17 +5,23 @@
 //! Construction + Research; PR-D (GRA-138) adds the
 //! coalesce/grouping pass; PR-F (GRA-140) adds `pause_on_event`;
 //! PR-G (GRA-141) adds `click_handler` for body-click → focus.
-//! The system sets declared here give every layer a stable slot
-//! in the frame schedule.
+//! GRA-790B adds `bridge_milestone_events` for the
+//! `EarlyGameMilestones` resource. The system sets declared here
+//! give every layer a stable slot in the frame schedule.
 //!
-//! Ordering (PR-B + PR-C + PR-D + PR-F + PR-G):
+//! Ordering (PR-B + PR-C + PR-D + PR-F + PR-G + GRA-790B):
 //! - `NotificationsSystemSet::EventBridge` runs in `Update`
-//!   after the sim tick. Three systems share the set:
+//!   after the sim tick. Four systems share the set:
 //!   - `bridge_survey_events` — SurveyEvent → NotificationEvent.
 //!   - `bridge_construction_events` — ConstructionEvent →
 //!     NotificationEvent.
 //!   - `bridge_research_events` — ResearchEvent →
 //!     NotificationEvent.
+//!   - `bridge_milestone_events` (GRA-790B) —
+//!     `MilestoneReached` → NotificationEvent. Configured to run
+//!     after `MilestonesSystemSet` so a freshly-emitted milestone
+//!     message is in the bridge's input buffer on the same frame
+//!     the flag flipped.
 //! - `NotificationsSystemSet::Coalesce` runs in `Update` after
 //!   `EventBridge`. PR-D adds `coalesce_notifications`.
 //! - `NotificationsSystemSet::Tick` runs in `Update` after
@@ -45,7 +51,10 @@ pub mod tick;
 
 pub use click_handler::click_to_focus;
 pub use coalesce::coalesce_notifications;
-pub use event_bridge::{bridge_construction_events, bridge_research_events, bridge_survey_events};
+pub use event_bridge::{
+    bridge_construction_events, bridge_milestone_events, bridge_research_events,
+    bridge_survey_events,
+};
 pub use render::render_notification_toasts;
 pub use tick::{apply_pending_dismissals, auto_dismiss_toasts, pause_on_event_toasts};
 
